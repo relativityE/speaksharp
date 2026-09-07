@@ -62,6 +62,7 @@ export const SessionPage: React.FC = () => {
     // (the snapshot is only published at stop); after a stop the live timer is 0 but this is not.
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
+    const completedSessionId = useSessionStore(state => state.completedSessionId);
     // #1306 Option A: the terminal review's word count + filler breakdown come from the FINAL snapshot (captured
     // before the transcript/chunks were purged), never from the now-empty live transcript or the live fillerData
     // (which the useFillerWords sync zeroes once the chunks are purged).
@@ -191,7 +192,16 @@ export const SessionPage: React.FC = () => {
     // Nothing new is introduced here: `useSession` already fetches the saved row and
     // `resolveTranscriptView` is documented as "the ONE place that decides whether a session's
     // transcript may be shown", shared with the PDF so the two cannot drift. This connects them.
-    const reviewSessionId = finalizedAnalysis?.sessionId ?? null;
+    // #1422 — the ID COMES FROM PERSISTENCE, not from the optional analysis that usually accompanies it.
+    //
+    // `finalizedAnalysis` is published only when the finalized reconciliation ALSO succeeded, and that
+    // reconciliation's failure is explicitly caught as non-fatal. A session could therefore save
+    // perfectly, show the after-state, and leave this reader with no id at all — the query never
+    // enabled, the settling expression never false, and the saved transcript replaced indefinitely by
+    // "Loading your transcript…" for a session that had finished saving. Preferring the analysis id
+    // keeps existing behaviour wherever it exists; falling back to the persisted id is what makes an
+    // optional extra unable to take the user's transcript away.
+    const reviewSessionId = finalizedAnalysis?.sessionId ?? completedSessionId ?? null;
     const queryClient = useQueryClient();
     const {
         data: savedSession, isFetching: reviewFetching, refetch: refetchReview,
@@ -322,7 +332,10 @@ export const SessionPage: React.FC = () => {
     // stays, so the behaviour is pinned even though the library, not this file, provides it.
 
     const reviewStillSettling = !reviewReadTimedOut
-        && (isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!finalizedAnalysis));
+        // `finalizedAnalysis` is deliberately NOT part of this. It is optional, so waiting on it meant a
+        // reconciliation failure left the surface claiming to be loading for the rest of the session.
+        // What we are actually waiting for is a saved session to read and a read to settle.
+        && (isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!reviewSessionId));
 
     if (!metrics) return <SessionPageSkeleton />;
 

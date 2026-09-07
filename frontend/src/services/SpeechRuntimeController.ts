@@ -4040,6 +4040,12 @@ export class SpeechRuntimeController {
                                 : null;
                             this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
+                            // #1422 — the row EXISTS; publish its id here, where persistence is the fact
+                            // being reported. Everything below is optional analysis whose failure is
+                            // caught and logged as non-fatal, and the review reader used to depend on it:
+                            // a reconciliation failure meant no id, a disabled query, and a saved session
+                            // stuck on "Loading your transcript…" forever.
+                            useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
 
                             // Track 1 finalized reconciliation (disclosure-only). Computed against the
                             // PERSISTED filler counts (`fillerWords` — exactly what was written to the DB,

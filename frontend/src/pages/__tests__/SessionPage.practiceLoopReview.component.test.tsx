@@ -384,6 +384,71 @@ describe('F-07 completed-session Practice Loop review', () => {
         }
     });
 
+    it('CASUALTY: a saved session is READ even when the optional analysis never publishes', async () => {
+        // `finalizedAnalysis` is published only when the finalized reconciliation ALSO succeeded, and
+        // that reconciliation's failure is explicitly caught as non-fatal. A session could therefore
+        // save perfectly, reach the after-state, and leave the review reader with no id at all: the
+        // query never enabled, the settling expression never false, and the saved transcript replaced
+        // indefinitely by "Loading your transcript…" for a session that had finished saving.
+        //
+        // The store here is in exactly that state — persisted id present, analysis absent.
+        const store = useSessionStore.getState();
+        store.setFinalizedWordCount(4);
+        store.setFinalizedFillerData({});
+        store.setFinalizedFillerCount(0);
+        store.setCompletedSessionId('session-complete-1');
+        store.setFinalizedAnalysis(null);
+
+        getSessionById.mockResolvedValue(savedRow('available'));
+        invoke.mockResolvedValue({
+            data: { suggestions: {
+                version: 'gemini_coaching_v1',
+                what_worked: 'Clear opening.',
+                what_to_try_next: 'Lead with the recommendation.',
+            } },
+            error: null,
+        });
+
+        render(<SessionPage />);
+
+        // The saved row is read from the persisted id, so the review appears.
+        await waitFor(() => expect(getSessionById).toHaveBeenCalledWith('session-complete-1'));
+        await waitFor(() => expect(screen.queryByTestId('review-transcript-notice')).toBeNull());
+    });
+
+    it('CASUALTY: without the optional analysis, an UNAVAILABLE transcript still settles', async () => {
+        // The other half of the same defect, and the half the successful-read casualty cannot see.
+        //
+        // The settling expression waited on `finalizedAnalysis`. When the optional reconciliation fails
+        // that value never arrives, so the expression stayed true for the rest of the session and the
+        // surface claimed to be loading FOREVER — even for a transcript the server had already told us
+        // was gone. The user is shown a spinner instead of the honest sentence, and never offered the
+        // retry that belongs to it.
+        const store = useSessionStore.getState();
+        store.setFinalizedWordCount(4);
+        store.setFinalizedFillerData({});
+        store.setFinalizedFillerCount(0);
+        store.setCompletedSessionId('session-complete-1');
+        store.setFinalizedAnalysis(null);
+
+        // The server ANSWERS, and the answer does not yield a readable transcript. `expired` would not
+        // discriminate here — that reading short-circuits the notice's copy — so this is the plain
+        // unreadable case, which is the one the settling flag actually governs.
+        getSessionById.mockResolvedValue(null);
+
+        render(<SessionPage />);
+
+        // It SETTLES. The exact settled reading is the server's — here `expired`, which is more precise
+        // than a generic failure — and what matters is that it is no longer claiming to be loading.
+        // It SETTLES: the honest sentence and the retry that belongs to it, not a permanent spinner for
+        // a session the server has already answered about.
+        await waitFor(() => expect(screen.getByTestId('review-transcript-notice'))
+            .toHaveAttribute('data-outcome', 'unavailable'));
+        expect(screen.getByTestId('review-transcript-notice')).not.toHaveTextContent(/Loading your transcript/i);
+        expect(screen.getByTestId('review-transcript-retry')).toBeInTheDocument();
+        expect(invoke).not.toHaveBeenCalled();
+    });
+
     it('P2/P5 CASUALTY: an UNSETTLED read withholds — unknown is not permission', async () => {
         // The read has not answered yet. "We do not know whether a transcript is there" must not fire a
         // request on optimism; the request is not free.
