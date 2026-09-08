@@ -734,12 +734,15 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
     it('CASUALTY: a terminal transition with a SUPERSEDED token clears the banner', async () => {
         const priv = controller as unknown as {
             lifecycleVersion: number;
+            finalizingOwnerVersion: number | null;
             transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
         };
         useSessionStore.getState().setTranscriptFinalizing(true);
 
-        // The stop's own token, superseded while finalization was running.
+        // The stop's own token, superseded while finalization was running. The latch is THIS take's —
+        // nothing newer has armed it — so this take may withdraw its own claim.
         const staleToken = { cancelled: false, version: priv.lifecycleVersion };
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
         priv.lifecycleVersion += 1;
 
         await priv.transition('READY', undefined, staleToken);
@@ -750,12 +753,38 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
             .toEqual({ finalizing: false });
     });
 
+    it('CASUALTY: a stale take may NOT clear a latch a SUCCESSOR now owns', async () => {
+        // The latch is one global boolean and it is the start guard in `useSessionLifecycle`: while it is
+        // true the record control is disabled. A superseded take A clearing it while successor B is still
+        // saving would admit take C into a session B has not finished writing — a worse defect than the
+        // stale banner the withdrawal exists to prevent.
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            finalizingOwnerVersion: number | null;
+            transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
+        };
+
+        // A armed the latch, then was superseded; B re-armed it under the new lifecycle.
+        const aToken = { cancelled: false, version: priv.lifecycleVersion };
+        priv.lifecycleVersion += 1;
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;   // B owns it now
+
+        await priv.transition('READY', undefined, aToken);
+
+        // B is still finalizing. A must not have spoken for it.
+        expect({ finalizing: useSessionStore.getState().isTranscriptFinalizing })
+            .toEqual({ finalizing: true });
+    });
+
     it('CASUALTY: a CANCELLED token also releases it', async () => {
         const priv = controller as unknown as {
             lifecycleVersion: number;
+            finalizingOwnerVersion: number | null;
             transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
         };
         useSessionStore.getState().setTranscriptFinalizing(true);
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;   // this take armed it
 
         await priv.transition('TERMINATED', undefined, { cancelled: true, version: priv.lifecycleVersion });
 

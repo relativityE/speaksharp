@@ -348,6 +348,19 @@ export class SpeechRuntimeController {
     // at the TERMINAL of a stop (persist → reconcile → native formatter complete/failed → final display).
     // A newer stop bumps this so a stale async formatter result can never publish over a newer session.
     private finalizeSequence: number = 0;
+    /**
+     * #1431 — WHICH TAKE OWNS THE `isTranscriptFinalizing` LATCH.
+     *
+     * The latch is a single global boolean with no owner, and it is the authoritative start guard in
+     * `useSessionLifecycle`: while it is true the record control is disabled. So "clear it" is not the
+     * harmless withdrawal of one take's claim that it looks like — a superseded take A clearing it while
+     * successor B is still saving would admit take C into a session B has not finished writing.
+     *
+     * Recording the lifecycle version that set the latch gives it the owner the boolean lacks. A stale
+     * continuation may withdraw only its OWN claim; if the latch has since been re-armed by a newer
+     * take, it belongs to that take and A must leave it alone.
+     */
+    private finalizingOwnerVersion: number | null = null;
     private state: RuntimeState = 'IDLE';
     private initialized: boolean = false;
     public service: TranscriptionService | null = null;
@@ -1910,9 +1923,16 @@ export class SpeechRuntimeController {
              */
             const isRestingTarget = newState === 'READY' || newState === 'IDLE'
                 || newState === 'TERMINATED' || newState === 'FAILED' || newState === 'FAILED_VISIBLE';
-            if (isRestingTarget) {
+            // ...AND ONLY ITS OWN. The latch is one global boolean and it is the start guard in
+            // `useSessionLifecycle`: while it is true the record control is disabled. If a newer take has
+            // since armed it, clearing it here would admit a third take into a session the successor has
+            // not finished saving — a far worse defect than the stale banner this branch exists to
+            // prevent. `token.version` identifies the take that is speaking; it may withdraw the claim
+            // only while that claim is still its own.
+            if (isRestingTarget && this.finalizingOwnerVersion === token.version) {
                 const store = useSessionStore.getState();
                 if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
+                this.finalizingOwnerVersion = null;
             }
             return;
         }
@@ -2067,6 +2087,7 @@ export class SpeechRuntimeController {
             newState === 'FAILED_VISIBLE'
         ) {
             if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
+            this.finalizingOwnerVersion = null;
         }
 
         if (isExitTransition) {
@@ -2615,6 +2636,8 @@ export class SpeechRuntimeController {
         const store = useSessionStore.getState();
         store.freezeTranscriptAtStop(frozen || null);
         store.setTranscriptFinalizing(true);
+        // The take arming the latch owns it until it is cleared. See `finalizingOwnerVersion`.
+        this.finalizingOwnerVersion = this.lifecycleVersion;
         return frozen;
     }
 
