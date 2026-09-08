@@ -292,6 +292,17 @@ interface TranscriptLifecycleState {
     selectedTranscriptSource: TranscriptLifecycleSource | null;
 }
 
+/** #1431 P1 — see `captureStopAuthority`. Identities only; never transcript text. */
+interface StopAuthority {
+    tokenVersion: number;
+    lifecycleVersion: number;
+    serviceGeneration: number;
+    service: TranscriptionService | null;
+    sessionId: string | null;
+    recordingId: string | null;
+    intentToken: string | null;
+}
+
 const createEmptyTranscriptLifecycleState = (): TranscriptLifecycleState => ({
     committedFinal: '',
     currentPartial: '',
@@ -361,6 +372,97 @@ export class SpeechRuntimeController {
      * take, it belongs to that take and A must leave it alone.
      */
     private finalizingOwnerVersion: number | null = null;
+
+    /**
+     * #1431 P1 — the authority a STOPPING take carries through its own suspensions.
+     *
+     * `stopTranscription()`, `saveSession`, `completeSession`, the attestation and the Progress write
+     * are all real suspension points. A successor can be accepted during ANY of them. Before this,
+     * the post-stop path noticed drift and only LOGGED it, then continued through shared controller
+     * state, store publications and resolution — so a stale take could overwrite the successor's
+     * session id, saved marker, finalized analysis and runtime state, or resolve it.
+     *
+     * A stale take may still finish its OWN persistence using the identities captured here — that
+     * work belongs to it and its row must not be abandoned half-written. What it must never do is
+     * touch anything shared.
+     */
+    /**
+     * #1431 P1 — releases the finalizing latch and the frozen transcript ONLY when this take still
+     * owns them.
+     *
+     * The stop's early-exit paths cleared both unconditionally. On the superseded path that is a
+     * stale take switching off the successor's "Finalizing…" and discarding the successor's frozen
+     * transcript — which is the same class of defect as the post-stop publications, reached earlier
+     * and by a shorter route. `finalizingOwnerVersion` already recorded who armed the latch; nothing
+     * was reading it here.
+     */
+    private releaseFinalizingIfOwner(reason: string): boolean {
+        if (this.finalizingOwnerVersion !== null && this.finalizingOwnerVersion !== this.lifecycleVersion) {
+            pushNativeRuntimeTrace('controller_finalizing_release_refused', {
+                reason,
+                owner: this.finalizingOwnerVersion,
+                live: this.lifecycleVersion,
+            });
+            return false;
+        }
+        useSessionStore.getState().setTranscriptFinalizing(false);
+        this.finalizingOwnerVersion = null;
+        useSessionStore.getState().freezeTranscriptAtStop(null);
+        return true;
+    }
+
+    private captureStopAuthority(tokenVersion: number, service: TranscriptionService | null, sessionId: string | null): StopAuthority {
+        return {
+            tokenVersion,
+            lifecycleVersion: this.lifecycleVersion,
+            serviceGeneration: this.serviceGeneration,
+            service,
+            sessionId,
+            recordingId: this.acceptedAttempt?.recordingId ?? null,
+            intentToken: this.acceptedAttempt?.intentToken ?? null,
+        };
+    }
+
+    /**
+     * True only while this stop still owns the SHARED surfaces: controller fields, the session store,
+     * and resolution. Every term is load-bearing — the lifecycle version alone was what the old
+     * warn-and-continue checked, and it does not catch a successor that reused the same version with
+     * a new service generation.
+     */
+    private stopStillOwnsSharedState(authority: StopAuthority, token: { cancelled: boolean; version: number }): boolean {
+        if (token.cancelled) return false;
+        if (token.version !== this.lifecycleVersion) return false;
+        if (authority.lifecycleVersion !== this.lifecycleVersion) return false;
+        if (authority.serviceGeneration !== this.serviceGeneration) return false;
+        if (this.service !== null && authority.service !== null && this.service !== authority.service) return false;
+        return true;
+    }
+
+    /**
+     * Applies a SHARED publication only while this stop still owns it, and records the refusal
+     * content-free when it does not. Returning a boolean rather than throwing keeps the stale take on
+     * its own path: it stops publishing, it does not fail.
+     */
+    private publishIfStopOwner(
+        authority: StopAuthority,
+        token: { cancelled: boolean; version: number },
+        label: string,
+        apply: () => void,
+    ): boolean {
+        if (!this.stopStillOwnsSharedState(authority, token)) {
+            pushNativeRuntimeTrace('controller_stop_publication_refused', {
+                label,
+                capturedLifecycle: authority.lifecycleVersion,
+                liveLifecycle: this.lifecycleVersion,
+                capturedGeneration: authority.serviceGeneration,
+                liveGeneration: this.serviceGeneration,
+                tokenCancelled: token.cancelled,
+            });
+            return false;
+        }
+        apply();
+        return true;
+    }
     private state: RuntimeState = 'IDLE';
     private initialized: boolean = false;
     public service: TranscriptionService | null = null;
@@ -2340,10 +2442,39 @@ export class SpeechRuntimeController {
         });
     }
 
-    private handleReady() {
+    /**
+     * #1431 P2 — a LATE `onReady` must not arm a watchdog for a take that is finishing or gone.
+     *
+     * The stop captures the watchdog version it owns at stop entry and clears exactly that one. That
+     * is correct only while the captured version stays the newest thing A can produce — and it did
+     * not: A's engine can emit `onReady` during STOPPING, arming a NEW watchdog with a NEW version
+     * after the capture. The scoped clear then misses it, so A's watchdog outlives A and can fire
+     * recovery against whatever take is current.
+     *
+     * Readiness is therefore bound to the accepted take: no arming while STOPPING, and none from a
+     * service or generation that is no longer current. `setEngineReady` still runs, because engine
+     * readiness is a fact about the engine and the successor's start path reads it.
+     *
+     * WHICH CHECK DOES THE WORK: the STOPPING one. A stale GENERATION is already refused upstream by
+     * the generation-bound callback wrapper, so `onReady` from a detached service never arrives here
+     * at all — but during A's OWN stop A's generation is still current (it bumps at detach, in the
+     * terminal), so the wrapper passes it through and only the state check stops the rearm. The
+     * generation/service terms are kept for the direct callers, and because a wrapper that stops
+     * refusing should not silently re-open this.
+     */
+    private handleReady(sourceGeneration: number = this.serviceGeneration, sourceService: TranscriptionService | null = this.service) {
         this.setEngineReady(true);
-        if (this.service) {
+        const stale = sourceGeneration !== this.serviceGeneration
+            || (sourceService !== null && this.service !== null && sourceService !== this.service);
+        const finishing = this.state === 'STOPPING' || this.state === 'TERMINATED';
+        if (this.service && !stale && !finishing) {
             this.startWatchdog(this.service);
+        } else if (stale || finishing) {
+            pushNativeRuntimeTrace('controller_ready_watchdog_refused', {
+                sourceGeneration,
+                liveGeneration: this.serviceGeneration,
+                state: this.state,
+            });
         }
         void this.checkRecordingInvariant();
     }
@@ -2362,8 +2493,28 @@ export class SpeechRuntimeController {
         if (this.modelProgressFlushScheduled) return;
         this.modelProgressFlushScheduled = true;
 
+        /**
+         * #1431 P2 — the generation wrapper ends when the callback returns, and this flush runs a
+         * frame LATER. A's queued progress could therefore land after B was accepted, writing A's
+         * download percentage into B's store and calling B's subscriber with it — the user watching a
+         * fresh take see a stale bar move.
+         *
+         * Captured at SCHEDULE time and rechecked inside the flush, because that is the only pair of
+         * points where the difference is observable.
+         */
+        const scheduledGeneration = this.serviceGeneration;
+        const scheduledService = this.service;
+
         const flush = () => {
             this.modelProgressFlushScheduled = false;
+            if (scheduledGeneration !== this.serviceGeneration
+                || (scheduledService !== null && this.service !== null && scheduledService !== this.service)) {
+                pushNativeRuntimeTrace('controller_model_progress_flush_refused', {
+                    scheduledGeneration,
+                    liveGeneration: this.serviceGeneration,
+                });
+                return;
+            }
             const value = this.pendingModelProgress;
             useSessionStore.getState().setModelLoadingProgress(value);
             this.subscriberCallbacks.onModelLoadProgress?.(value);
@@ -3813,19 +3964,23 @@ export class SpeechRuntimeController {
              * has to be taken before any suspension the successor could arrive during.
              */
             const ownedWatchdogVersion = this.watchdogVersion;
+            /**
+             * #1431 P1 — captured at the SAME point, and for the same reason: everything below this
+             * line contains suspensions a successor can arrive during. `stopAuthority` is what makes
+             * "may this stop still publish?" answerable after each one, instead of a warn-and-continue.
+             */
+            const stopAuthority = this.captureStopAuthority(token.version, this.service, this.sessionId);
             // #1089: this sits OUTSIDE the try below, and setTranscriptFinalizing(true) has already run.
             // A throw here would leave finalization latched true forever — and finalization now disables
             // the record control, so that is an unrecoverable lockout rather than a cosmetic flag leak.
             try {
                 await this.transition('STOPPING', undefined, token);
             } catch (transitionError) {
-                useSessionStore.getState().setTranscriptFinalizing(false);
-                useSessionStore.getState().freezeTranscriptAtStop(null);
+                this.releaseFinalizingIfOwner('stopping_transition_failed');
                 throw transitionError;
             }
             if (token.cancelled || token.version !== this.lifecycleVersion) {
-                useSessionStore.getState().setTranscriptFinalizing(false);
-                useSessionStore.getState().freezeTranscriptAtStop(null);
+                this.releaseFinalizingIfOwner('superseded_before_stop');
                 return null;
             }
             try {
@@ -3835,8 +3990,7 @@ export class SpeechRuntimeController {
                 let sessionCompleted = false;
                 if (!service) {
                     await this.transition('READY', undefined, token);
-                    useSessionStore.getState().setTranscriptFinalizing(false);
-                    useSessionStore.getState().freezeTranscriptAtStop(null);
+                    this.releaseFinalizingIfOwner('no_service');
                     return null;
                 }
 
@@ -3916,25 +4070,34 @@ export class SpeechRuntimeController {
                     this.logShadowParity();
                     this.disposeShadowMetricsEngine();
 
-                    if (token.cancelled) {
+                    /**
+                     * #1431 P1 — THE FENCE. `stopTranscription()` is the longest suspension in the
+                     * whole path, so this is where a successor most often arrives.
+                     *
+                     * This used to warn and continue, which read as deliberate but meant a stale take
+                     * went on to write the successor's session id, saved marker, finalized analysis and
+                     * runtime state. Continuing its OWN persistence is right — the row it started must
+                     * not be left half-written — but every SHARED publication below is now fenced by
+                     * `publishIfStopOwner`, re-evaluated after each further suspension rather than
+                     * decided once here.
+                     */
+                    if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
                         logger.warn({
                             mode: service.getMode?.() ?? stopEntryMode,
                             sessionId,
-                        resultSuccess: result?.success ?? null,
-                        resultTranscriptLength: result?.transcript?.length ?? 0,
-                        storeTranscriptLength: this.getStoreTranscriptLength(),
-                    }, '[DEBUG-STOP] Stop token was cancelled after stop result; continuing finalization for captured session');
-                    }
-                    if (token.version !== this.lifecycleVersion) {
-                        logger.warn({
-                            mode: service.getMode?.() ?? stopEntryMode,
-                            sessionId,
+                            tokenCancelled: token.cancelled,
                             tokenVersion: token.version,
                             lifecycleVersion: this.lifecycleVersion,
+                            capturedGeneration: stopAuthority.serviceGeneration,
+                            liveGeneration: this.serviceGeneration,
                             resultSuccess: result?.success ?? null,
                             resultTranscriptLength: result?.transcript?.length ?? 0,
                             storeTranscriptLength: this.getStoreTranscriptLength(),
-                        }, '[DEBUG-STOP] Lifecycle version changed after stop result; continuing session finalization for captured session');
+                        }, '[DEBUG-STOP] SUPERSEDED after stop result — finishing own persistence only, publishing nothing shared');
+                        pushNativeRuntimeTrace('controller_stop_superseded_after_result', {
+                            capturedLifecycle: stopAuthority.lifecycleVersion,
+                            liveLifecycle: this.lifecycleVersion,
+                        });
                     }
 
                     if (result && !sessionId) {
@@ -3972,8 +4135,11 @@ export class SpeechRuntimeController {
 
                             if (saveResult?.session?.id) {
                                 sessionId = saveResult.session.id;
-                                this.sessionId = sessionId;
-                                this.applyPrivateTelemetryContext();
+                                // A's late session-create must not become B's controller session.
+                                this.publishIfStopOwner(stopAuthority, token, 'late_session_id', () => {
+                                    this.sessionId = sessionId;
+                                    this.applyPrivateTelemetryContext();
+                                });
                                 service.setSessionId?.(sessionId);
                                 logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
                             }
@@ -4165,8 +4331,10 @@ export class SpeechRuntimeController {
                                 detail: 'Try recording again and speak for at least a few seconds.'
                             };
                             store.setSTTStatus(guardedStopStatus);
-                            this.updateSessionPersisted(false);
-                            store.setSessionSaved(false);
+                            this.publishIfStopOwner(stopAuthority, token, 'discard_markers', () => {
+                                this.updateSessionPersisted(false);
+                                store.setSessionSaved(false);
+                            });
                             // #1033 (item 3): a no-speech / low-quality recording is RESOLVED by discard (nothing
                             // to Retry Save). The post-start lock is released uniformly at the normal stop terminal
                             // (transition READY below) for every non-error terminal, so no per-branch clear here.
@@ -4269,9 +4437,11 @@ export class SpeechRuntimeController {
                             // useFillerWords→store sync overwrites to `{}` once the chunks are purged). `fillerWords`
                             // (== sessionMetrics.fillerData) is the canonical nested per-key shape the review
                             // consumes; `sessionMetrics.fillerCount` is the true-filler headline.
-                            useSessionStore.getState().setFinalizedWordCount(wordCount);
-                            useSessionStore.getState().setFinalizedFillerData(fillerWords);
-                            useSessionStore.getState().setFinalizedFillerCount(sessionMetrics.fillerCount);
+                            this.publishIfStopOwner(stopAuthority, token, 'finalized_metrics', () => {
+                                useSessionStore.getState().setFinalizedWordCount(wordCount);
+                                useSessionStore.getState().setFinalizedFillerData(fillerWords);
+                                useSessionStore.getState().setFinalizedFillerCount(sessionMetrics.fillerCount);
+                            });
                             const PAUSE_KEYS = ['totalPauses', 'averagePauseDuration', 'longestPause', 'pausesPerMinute', 'silencePercentage', 'transitionPauses', 'extendedPauses'] as const;
                             const finalPauseMetrics = store.pauseMetrics
                                 ? PAUSE_KEYS.reduce<Record<string, number>>((acc, k) => {
@@ -4412,8 +4582,10 @@ export class SpeechRuntimeController {
                             persistedSessionMarker = sessionId
                                 ? { sessionId, mode: modeForFinalization ?? stopEntryMode }
                                 : null;
-                            this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
-                            useSessionStore.getState().setSessionSaved(true);
+                            this.publishIfStopOwner(stopAuthority, token, 'saved_marker', () => {
+                                this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
+                                useSessionStore.getState().setSessionSaved(true);
+                            });
 
                             // Track 1 finalized reconciliation (disclosure-only). Computed against the
                             // PERSISTED filler counts (`fillerWords` — exactly what was written to the DB,
@@ -4443,6 +4615,12 @@ export class SpeechRuntimeController {
                             const maybePublishFinalized = () => {
                                 if (!sessionId || !finalizedReconciliation) return;
                                 if (!shouldPublishFinalized({ formatterDone, metricsDone, metricsOk, tokenValid: isFinalizeTokenValid() })) return;
+                                // The finalized signal is what drives the after-state review. A stale
+                                // take publishing it here is precisely how B's review became A's.
+                                if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
+                                    pushNativeRuntimeTrace('controller_stop_publication_refused', { label: 'finalized_analysis' });
+                                    return;
+                                }
                                 useSessionStore.getState().setFinalizedAnalysis({
                                     sessionId,
                                     mode: finalizedMode,
@@ -4522,8 +4700,10 @@ export class SpeechRuntimeController {
                             }
 
                             logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
-                            this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
-                            useSessionStore.getState().setSessionSaved(true);
+                            this.publishIfStopOwner(stopAuthority, token, 'saved_marker_native', () => {
+                                this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
+                                useSessionStore.getState().setSessionSaved(true);
+                            });
                             // The finalized signal (finalizedAnalysis) is published by publishFinalized() at
                             // the formatter terminal above — NOT here — so the settled UI waits for the final
                             // text. Non-native published synchronously in the else-branch above.
@@ -4556,7 +4736,33 @@ export class SpeechRuntimeController {
                     // leaving A's engine running would be worse — and touch nothing shared. The watchdog
                     // stop is version-scoped: the global one would disarm the successor's heartbeat.
                     this.stopWatchdogIfCurrent(ownedWatchdogVersion);
-                    await service.destroy();
+                    /**
+                     * #1431 P1 — A'S TEARDOWN FAILURE IS A'S, AND MUST NOT REACH B.
+                     *
+                     * `service.destroy()` is A's engine and can reject — a worker that never
+                     * acknowledges, an already-torn-down port. Unhandled, it escaped to the common
+                     * catch below, which belongs to whichever take is CURRENT: it would transition B to
+                     * FAILED, clear B's finalizing latch and frozen transcript, and purge B's working
+                     * state. A recording that is going perfectly well would die because a stale take
+                     * failed to clean up after itself.
+                     *
+                     * Contained here instead: the failure is recorded as A-owned, only A's service is
+                     * detached (and `detachService` already refuses when the current service is B's),
+                     * and the path returns without entering the common catch.
+                     */
+                    try {
+                        await service.destroy();
+                    } catch (destroyError: unknown) {
+                        logger.warn({
+                            capturedLifecycle: stopAuthority.lifecycleVersion,
+                            liveLifecycle: this.lifecycleVersion,
+                            code: destroyError instanceof Error ? destroyError.name : 'unknown',
+                        }, '[DEBUG-STOP] superseded stale service destroy FAILED — contained, successor untouched');
+                        pushNativeRuntimeTrace('controller_stale_destroy_failed', {
+                            capturedLifecycle: stopAuthority.lifecycleVersion,
+                            liveLifecycle: this.lifecycleVersion,
+                        });
+                    }
                     this.detachService(service);
                     pushNativeRuntimeTrace('controller_stop_terminal_superseded', { at: 'entry' });
                     return;
@@ -4612,9 +4818,7 @@ export class SpeechRuntimeController {
                     return;
                 }
 
-                useSessionStore.getState().setTranscriptFinalizing(false);
-                this.finalizingOwnerVersion = null;
-                useSessionStore.getState().freezeTranscriptAtStop(null);
+                this.releaseFinalizingIfOwner('normal_terminal');
                 // #1306 P1: metrics are derived and the session is finalized here — purge the ephemeral live
                 // transcript from working memory (store + lifecycle) so no spoken text survives finalization. A
                 // still-pending Native background formatter can't re-populate it: its writeback is guarded on the
@@ -4657,8 +4861,7 @@ export class SpeechRuntimeController {
                     });
                 }
                 await this.transition('FAILED', err as Error, token);
-                useSessionStore.getState().setTranscriptFinalizing(false);
-                useSessionStore.getState().freezeTranscriptAtStop(null);
+                this.releaseFinalizingIfOwner('stop_failed');
                 if (err instanceof FinalizationTimeoutError) {
                     // #1089: name the real failure instead of hanging on Finalizing… forever. The control
                     // is usable again (FAILED clears the finalizing latch), and the transcript captured up

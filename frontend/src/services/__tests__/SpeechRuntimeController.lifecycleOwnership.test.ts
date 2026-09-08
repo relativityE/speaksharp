@@ -277,4 +277,161 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         expect(controller.service).toBe(second);
         expect(completeSession).not.toHaveBeenCalled();
     });
+
+    // =============================================================================================
+    // #1431 consolidated return — the four named casualties. Each drives a REAL suspension and lets
+    // the stale take resolve into it, because that is the only shape in which these defects exist.
+    // =============================================================================================
+
+    /**
+     * A controller parked mid-stop, with A owning the take and a resolvable suspension point.
+     *
+     * `stopTranscription` signals that it has been ENTERED before it hangs. That signal is what lets
+     * a test supersede A at the only moment these defects exist: after the stop's early ownership
+     * check has already passed, and while A is suspended. Superseding earlier makes A exit at that
+     * early check instead, and the casualty then passes with the fences removed — which is exactly
+     * what the first version of these two tests did.
+     */
+    const stoppingController = (stopSuspension: Promise<unknown>, onEntered?: () => void) => {
+        const c = newController() as unknown as PrivateController & {
+            sessionId: string | null;
+            serviceGeneration: number;
+            stopRecording: SpeechRuntimeController['stopRecording'];
+            watchdogInterval: unknown;
+        };
+        c.state = 'RECORDING';
+        (c as unknown as { initialized: boolean }).initialized = true;
+        c.isEngineReady = true;
+        c.isEmissionsSafe = true;
+        c.sessionId = 'session-A';
+        c.service = {
+            getMode: vi.fn().mockReturnValue('private'),
+            getStartTime: vi.fn().mockReturnValue(Date.now() - 30_000),
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            getMetadata: vi.fn().mockReturnValue({ engineVersion: 'e', modelName: 'm', deviceType: 'browser' }),
+            stopTranscription: vi.fn(() => { onEntered?.(); return stopSuspension; }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+            isServiceDestroyed: () => false,
+            setSessionId: vi.fn(),
+            subscribe: vi.fn(() => vi.fn()),
+            fsm: { is: vi.fn().mockReturnValue(false) },
+        };
+        return c;
+    };
+
+    it('CASUALTY P1-1: A resolving after B is accepted publishes NOTHING shared', async () => {
+        // A is suspended inside stopTranscription. B is accepted while it hangs. A then resolves.
+        // Before the fence, A walked on through session id, saved marker, finalized analysis and
+        // runtime state — every one of them B's.
+        let releaseA!: (v: unknown) => void;
+        let bSessionId = '';
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            new Promise((resolve) => { releaseA = resolve; }),
+            // Superseded INSIDE the suspension — past the stop's early ownership check, which is the
+            // only window in which the post-stop publications are reachable by a stale take.
+            () => {
+                c.lifecycleVersion += 1;
+                c.serviceGeneration += 1;
+                c.sessionId = 'session-B';
+                bSessionId = c.sessionId;
+                useSessionStore.getState().setSessionSaved(false);
+                useSessionStore.getState().setFinalizedAnalysis(null);
+            },
+        );
+
+        // A's OWN persistence must SUCCEED — otherwise the stop diverts into the save-failure path and
+        // never reaches the shared publications at all, and this casualty passes with the fence
+        // removed. That is precisely what the first version of it did.
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        const stopPromise = c.stopRecording().catch(() => null);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(bSessionId, 'the stop must actually have reached stopTranscription').toBe('session-B');
+
+        // ---- A finally answers.
+        releaseA({ transcript: 'A transcript', stats: { accuracy: 0.9 }, success: true });
+        await stopPromise;
+
+        // A's own row was still completed — that work is A's and must not be abandoned half-written.
+        expect(vi.mocked(completeSession), "A finishes its OWN persistence").toHaveBeenCalled();
+
+        // ...and NOTHING shared moved. B's identity and markers are exactly as B left them.
+        expect(c.sessionId, "A must not overwrite B's controller session").toBe(bSessionId);
+        expect(useSessionStore.getState().sessionSaved, "A must not set B's saved marker").toBe(false);
+        expect(useSessionStore.getState().finalizedAnalysis, "A must not publish B's review").toBeNull();
+    });
+
+    it("CASUALTY P1-2: a stale service's destroy() rejection cannot fail B", async () => {
+        // A is already superseded when it reaches the terminal, and its engine refuses to tear down.
+        // Unhandled, that rejection reached the common catch — which belongs to B — and would
+        // transition B to FAILED and purge B's working state.
+        let superseded = false;
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            Promise.resolve({ transcript: '', stats: { accuracy: 0 }, success: true }),
+            () => {
+                // Same window as above: A is past its early check and now genuinely stale, so it
+                // reaches the terminal on the already-superseded branch with a failing teardown.
+                c.lifecycleVersion += 1;
+                c.serviceGeneration += 1;
+                superseded = true;
+                useSessionStore.getState().setRuntimeState('RECORDING');
+                useSessionStore.getState().setTranscriptFinalizing(true);
+            },
+        );
+        (c.service as { destroy: ReturnType<typeof vi.fn> }).destroy =
+            vi.fn().mockRejectedValue(new Error('WORKER_TEARDOWN_REFUSED'));
+
+        const outcome = await c.stopRecording().catch((e: unknown) => e);
+        expect(superseded, 'the stop must actually have reached stopTranscription').toBe(true);
+
+        expect(outcome, "A's teardown failure must not surface as a rejection to B").not.toBeInstanceOf(Error);
+        expect(c.state, 'B must not be transitioned to FAILED by A').not.toBe('FAILED');
+        expect(useSessionStore.getState().runtimeState, "B's runtime state is untouched").toBe('RECORDING');
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's finalizing latch is untouched").toBe(true);
+    });
+
+    it('CASUALTY P2-3: a late onReady during STOPPING cannot arm a watchdog that outlives its take', async () => {
+        // A's engine can report ready while A is finalizing. Its generation is still current at that
+        // point — the bump happens at detach — so the generation wrapper passes it through, and the
+        // stop's scoped watchdog clear would then miss the newly armed one entirely.
+        const c = stoppingController(Promise.resolve({ transcript: '', stats: { accuracy: 0 } })) as unknown as
+            PrivateController & { handleReady: (g?: number, s?: unknown) => void; watchdogInterval: unknown; watchdogVersion: number };
+        c.state = 'STOPPING';
+        c.watchdogInterval = null;
+        const versionBefore = c.watchdogVersion;
+
+        c.handleReady();
+
+        expect(c.watchdogInterval, 'no watchdog may be armed while STOPPING').toBeNull();
+        expect(c.watchdogVersion, 'and no version may be minted for one').toBe(versionBefore);
+    });
+
+    it("CASUALTY P2-4: A's queued model progress cannot write B's store or call B's subscriber", async () => {
+        vi.useFakeTimers();
+        try {
+            const c = newController() as unknown as PrivateController & {
+                serviceGeneration: number;
+                subscriberCallbacks: { onModelLoadProgress?: (v: number | null) => void };
+                handleModelLoadProgress: (p: number | null) => void;
+            };
+            const bSubscriber = vi.fn();
+            c.subscriberCallbacks = { onModelLoadProgress: bSubscriber };
+            useSessionStore.getState().setModelLoadingProgress(null);
+
+            // A schedules a flush for the frame after next...
+            c.handleModelLoadProgress(0.42);
+            // ...and B is accepted before it runs.
+            c.serviceGeneration += 1;
+
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(useSessionStore.getState().modelLoadingProgress, "A's percentage must not reach B's store").toBeNull();
+            expect(bSubscriber, "A's progress must not call B's subscriber").not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
