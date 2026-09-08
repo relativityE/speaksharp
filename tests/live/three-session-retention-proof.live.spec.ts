@@ -825,18 +825,26 @@ test.describe('#1306 three-session newest-one retention production proof @live',
             expect(newestPdf.includes(ids[0]), 'oldest expired marker must not appear in another artifact').toBe(false);
             expect(newestPdf.includes(ids[1]), 'middle expired marker must not appear in another artifact').toBe(false);
 
-            // ...and neither exposes an export control, so no artifact of their own can be produced.
-            // The middle session IS rendered by the two-row dashboard, so its missing control is a
-            // retention fact rather than an artefact of the session being off-screen.
+            // The middle session is EXPIRED but still on the two-row dashboard, so it still offers an
+            // export — correctly, because expiry removes the transcript and never the measurements.
+            // The claim that matters is that its artifact carries no transcript, not that the control
+            // is missing. Under newest-two an expired session was always off the dashboard, so the
+            // control was unreachable by accident; newest-one makes it reachable and the real privacy
+            // claim has to be asserted directly.
             await page.goto('/analytics');
             await expect(page.getByTestId('session-history-list')).toBeVisible({ timeout: 45_000 });
             await expect(page.getByTestId(`session-history-item-${ids[1]}`),
-                'the middle session IS on the dashboard — its missing control is retention, not absence')
-                .toHaveCount(1);
-            for (const [ordinal, id] of [['oldest', ids[0]], ['middle', ids[1]]] as const) {
-                await expect(page.getByTestId(`download-pdf-btn-${id}`),
-                    `${ordinal} expired session exposes no export control`).toHaveCount(0);
-            }
+                'the middle session is still listed with its surviving metrics').toHaveCount(1);
+            const middlePdf = await exportPdfText(ids[1], 'middle');
+            expect(middlePdf.length, 'the expired session produces a parseable metrics artifact').toBeGreaterThan(0);
+            expect(middlePdf.includes(newestText),
+                'the expired artifact must not carry the retained transcript').toBe(false);
+            expect(middlePdf.includes(ids[2]),
+                'the expired artifact must not carry another session marker').toBe(false);
+
+            // The oldest is off the two-row dashboard slice, so it has no control to click at all.
+            await expect(page.getByTestId(`download-pdf-btn-${ids[0]}`),
+                'oldest expired session exposes no export control').toHaveCount(0);
             expect(oldestTranscriptShaBeforeExpiry, 'the oldest expired session HAD a transcript to leak (control)')
                 .not.toBe(sha256Hex(''));
             expect(middleTranscriptShaBeforeExpiry, 'the middle expired session HAD a transcript to leak (control)')

@@ -51,11 +51,16 @@ const HISTORICAL = new Map([
 /** A historical file must declare itself. Applied migrations are immutable, so they are exempt. */
 const MARKER = /HISTORICAL|SUPERSEDED|immutable history/i;
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', 'test-results', 'playwright-report', '.next', '.turbo']);
+// `apt-bundle` is a CI-only cache directory whose subdirectories are root-owned; reading it raises
+// EACCES on the runner and nowhere else, which is exactly the kind of failure that only ever appears
+// after a push. The skip is the specific defence; the try/catch below is the general one.
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', 'test-results', 'playwright-report', '.next', '.turbo', 'apt-bundle']);
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.mts', '.cjs', '.sql', '.yml', '.yaml', '.sh'];
 
 function walk(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
+  let entries;
+  try { entries = readdirSync(dir); } catch { return out; }
+  for (const entry of entries) {
     if (SKIP_DIRS.has(entry)) continue;
     const abs = join(dir, entry);
     let st;

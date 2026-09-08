@@ -486,12 +486,19 @@ describe('three-session production proof — assertion contract', () => {
     expect(SPEC, 'the retired oldest-only branch must be gone').not.toMatch(/const isOldest = i === 0;/);
   });
 
-  it('only the retained session can produce an export, and the middle session proves it is retention', () => {
-    // The dashboard renders two rows by DISPLAY design. Asserting the middle session is present while
-    // its export control is absent is what separates "retention expired it" from "it scrolled off".
-    expect(SPEC).toMatch(/its missing control is retention, not absence/);
-    expect(SPEC).toMatch(/middle expired marker must not appear in another artifact/);
-    expect(SPEC, 'the retired two-artifact comparison must be gone').not.toMatch(/const middlePdf = await exportPdfText/);
+  it('an EXPIRED session still exports, and its artifact is proven transcript-free', () => {
+    // Expiry removes the transcript, never the measurements, so the export control legitimately
+    // survives. The claim that matters is therefore the CONTENT of the artifact, not the presence of
+    // the button — asserting the button was absent inherited a newest-two accident, where an expired
+    // session was always off the two-row dashboard and unreachable for reasons unrelated to policy.
+    expect(SPEC).toMatch(/the expired session produces a parseable metrics artifact/);
+    expect(SPEC).toMatch(/the expired artifact must not carry the retained transcript/);
+    expect(SPEC).toMatch(/the expired artifact must not carry another session marker/);
+    // The oldest is genuinely off the dashboard slice, so its control really is absent.
+    expect(SPEC).toMatch(/oldest expired session exposes no export control/);
+    // ...and the retired "both controls absent" loop must be gone.
+    expect(SPEC, 'the retired both-absent loop must be gone')
+      .not.toMatch(/\$\{ordinal\} expired session exposes no export control/);
   });
 
   it('the published evidence line reports the newest-one policy and a retained count of one', () => {

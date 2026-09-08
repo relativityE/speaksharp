@@ -164,13 +164,20 @@ test.describe('#1306 Step 3 — PRODUCED newest-one retention (authenticated)', 
     expect(pdf3).not.toContain(TAIL2);
     expect(pdf3).not.toContain(TAIL1);
 
-    // Neither expired session can put a transcript into ANY artifact. Both halves of the claim are
-    // asserted: the export control is unreachable through the real UI, AND the row a PDF would be
-    // generated FROM carries no transcript to leak. Asserting only the missing button would pass on a
-    // page that simply failed to render.
-    for (const id of ['m1-oldest', 'm2-middle'] as const) {
-      await expect(page.getByTestId(`download-pdf-btn-${id}`), `${id} export control`).toHaveCount(0);
+    // An expired session STILL OFFERS an export, and that is correct: expiry removes the transcript,
+    // never the measurements, and the user is entitled to export the metrics that survived. The claim
+    // worth proving is therefore not "the button is gone" — it is that the artifact carries NO
+    // transcript. Asserting the missing button was inherited from newest-two, where an expired session
+    // was always off the two-row dashboard and its control was unreachable by accident rather than by
+    // design; newest-one makes an expired session visible, which is what exposed the wrong assertion.
+    const middlePdf = await exportPdfText(page, 'm2-middle');
+    expect(middlePdf.length, 'the expired session still produces a parseable metrics artifact').toBeGreaterThan(0);
+    for (const [label, tail] of [['its own', TAIL2], ['the oldest', TAIL1], ['the newest', TAIL3]] as const) {
+      expect(middlePdf.includes(tail), `expired artifact must not carry ${label} transcript`).toBe(false);
     }
+
+    // The oldest is off the two-row dashboard slice, so it has no control to click at all.
+    await expect(page.getByTestId('download-pdf-btn-m1-oldest'), 'oldest export control').toHaveCount(0);
     const expiredRows = await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
       const out: Record<string, { transcript?: string | null; transcript_state?: string | null }> = {};
