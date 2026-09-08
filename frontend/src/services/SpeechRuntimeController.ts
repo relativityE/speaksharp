@@ -396,11 +396,28 @@ export class SpeechRuntimeController {
      * and by a shorter route. `finalizingOwnerVersion` already recorded who armed the latch; nothing
      * was reading it here.
      */
-    private releaseFinalizingIfOwner(reason: string): boolean {
-        if (this.finalizingOwnerVersion !== null && this.finalizingOwnerVersion !== this.lifecycleVersion) {
+    private releaseFinalizingIfOwner(reason: string, capturedOwnerVersion: number | null = null): boolean {
+        /**
+         * THE COMPARISON IS AGAINST THE CAPTURED OWNER, NOT THE LIVE LIFECYCLE.
+         *
+         * My first version compared `finalizingOwnerVersion` to `this.lifecycleVersion`, which is a
+         * regression on the NORMAL path: the terminal advances the lifecycle itself (fencing its own
+         * destroyed service) BEFORE releasing, so the rightful owner no longer matched its own latch
+         * and refused to release it. "Finalizing…" would have stuck forever with the record control
+         * disabled — the exact unrecoverable lockout #1089 exists to prevent, reintroduced by a guard
+         * meant to protect the successor.
+         *
+         * Callers that hold a stop authority pass the version captured at stop ENTRY, which is the
+         * same value that armed the latch. A superseded take still fails the comparison, because its
+         * captured version is not the one that armed the latch B is now using.
+         */
+        const armedBy = this.finalizingOwnerVersion;
+        const owner = capturedOwnerVersion ?? this.lifecycleVersion;
+        if (armedBy !== null && armedBy !== owner) {
             pushNativeRuntimeTrace('controller_finalizing_release_refused', {
                 reason,
-                owner: this.finalizingOwnerVersion,
+                armedBy,
+                owner,
                 live: this.lifecycleVersion,
             });
             return false;
@@ -2480,6 +2497,8 @@ export class SpeechRuntimeController {
     }
 
     private pendingModelProgress: number | null = null;
+    /** Which service generation last wrote `pendingModelProgress`. The slot is shared; the value is not. */
+    private pendingModelProgressGeneration: number | null = null;
     private modelProgressFlushScheduled = false;
 
     // Coalesce model-load PROGRESS events. A large base.en download — amplified by multiple
@@ -2490,6 +2509,7 @@ export class SpeechRuntimeController {
     // (SELFHOST-MODELS-MAXDEPTH — fixes the progress-flood render storm.)
     private handleModelLoadProgress(progress: number | null) {
         this.pendingModelProgress = progress;
+        this.pendingModelProgressGeneration = this.serviceGeneration;
         if (this.modelProgressFlushScheduled) return;
         this.modelProgressFlushScheduled = true;
 
@@ -2513,6 +2533,27 @@ export class SpeechRuntimeController {
                     scheduledGeneration,
                     liveGeneration: this.serviceGeneration,
                 });
+                /**
+                 * REFUSING IS NOT ENOUGH, AND NEITHER IS BLINDLY RE-SCHEDULING.
+                 *
+                 * `pendingModelProgress` and the scheduled flag are shared; the VALUE in the slot is
+                 * not. Two different things can be true when a stale flush arrives:
+                 *
+                 *   - the slot still holds A's percentage. Re-scheduling would publish A's number
+                 *     into B's store a frame later — the same leak, one hop removed. Discard it.
+                 *   - B has since written its own percentage into the slot, and was refused a flush of
+                 *     its own because one was already scheduled. Returning here would clear the flag
+                 *     and throw away the only flush B was going to get, so B's download bar stops
+                 *     moving. Re-schedule that one.
+                 *
+                 * The generation that wrote the slot is what tells them apart.
+                 */
+                if (this.pendingModelProgressGeneration === this.serviceGeneration) {
+                    this.scheduleModelProgressFlush();
+                } else {
+                    this.pendingModelProgress = null;
+                    this.pendingModelProgressGeneration = null;
+                }
                 return;
             }
             const value = this.pendingModelProgress;
@@ -2525,6 +2566,13 @@ export class SpeechRuntimeController {
         } else {
             setTimeout(flush, 0);
         }
+    }
+
+    /** Re-arms a coalesced flush for the CURRENT owner's own pending value after a stale one was refused. */
+    private scheduleModelProgressFlush(): void {
+        const pending = this.pendingModelProgress;
+        this.modelProgressFlushScheduled = false;
+        this.handleModelLoadProgress(pending);
     }
 
     private isModeAllowedByCurrentPolicy(mode: TranscriptionMode | null): boolean {
@@ -3976,11 +4024,11 @@ export class SpeechRuntimeController {
             try {
                 await this.transition('STOPPING', undefined, token);
             } catch (transitionError) {
-                this.releaseFinalizingIfOwner('stopping_transition_failed');
+                this.releaseFinalizingIfOwner('stopping_transition_failed', stopAuthority.lifecycleVersion);
                 throw transitionError;
             }
             if (token.cancelled || token.version !== this.lifecycleVersion) {
-                this.releaseFinalizingIfOwner('superseded_before_stop');
+                this.releaseFinalizingIfOwner('superseded_before_stop', stopAuthority.lifecycleVersion);
                 return null;
             }
             try {
@@ -3990,7 +4038,7 @@ export class SpeechRuntimeController {
                 let sessionCompleted = false;
                 if (!service) {
                     await this.transition('READY', undefined, token);
-                    this.releaseFinalizingIfOwner('no_service');
+                    this.releaseFinalizingIfOwner('no_service', stopAuthority.lifecycleVersion);
                     return null;
                 }
 
@@ -4791,7 +4839,32 @@ export class SpeechRuntimeController {
                 // await between — so a mutant swapping it survives. Noted rather than presented as
                 // covered: the scoping is load-bearing only on the superseded path above.
                 this.stopWatchdogIfCurrent(ownedWatchdogVersion);
-                await service.destroy();
+                /**
+                 * CONTAINED ON THIS PATH TOO, but only once a successor has actually taken over.
+                 *
+                 * A's teardown failing while A is still the owner IS A's failure and belongs in the
+                 * common catch — that is how the user gets FAILED, the recovery draft and an honest
+                 * message. But if B took over DURING `destroy()`, the same rejection would reach a
+                 * catch that now belongs to B and would fail a recording that is going fine. The
+                 * decision therefore has to be made after the suspension, not before it.
+                 */
+                let ownerDestroyError: unknown = null;
+                try {
+                    await service.destroy();
+                } catch (destroyError: unknown) {
+                    ownerDestroyError = destroyError;
+                }
+                if (ownerDestroyError !== null && this.lifecycleVersion !== terminalOwnerVersion) {
+                    logger.warn({
+                        terminalOwnerVersion,
+                        lifecycleVersion: this.lifecycleVersion,
+                        code: ownerDestroyError instanceof Error ? ownerDestroyError.name : 'unknown',
+                    }, '[DEBUG-STOP] destroy FAILED after successor takeover — contained, successor untouched');
+                    pushNativeRuntimeTrace('controller_stale_destroy_failed', { at: 'owner_path' });
+                    this.detachService(service);
+                    return;
+                }
+                if (ownerDestroyError !== null) throw ownerDestroyError;
 
                 // REVALIDATED AFTER THE SUSPENSION. A hard reset or a successor take during
                 // `destroy()` moves the lifecycle past A's own advance.
@@ -4819,7 +4892,7 @@ export class SpeechRuntimeController {
                     return;
                 }
 
-                this.releaseFinalizingIfOwner('normal_terminal');
+                this.releaseFinalizingIfOwner('normal_terminal', stopAuthority.lifecycleVersion);
                 // #1306 P1: metrics are derived and the session is finalized here — purge the ephemeral live
                 // transcript from working memory (store + lifecycle) so no spoken text survives finalization. A
                 // still-pending Native background formatter can't re-populate it: its writeback is guarded on the
@@ -4862,7 +4935,7 @@ export class SpeechRuntimeController {
                     });
                 }
                 await this.transition('FAILED', err as Error, token);
-                this.releaseFinalizingIfOwner('stop_failed');
+                this.releaseFinalizingIfOwner('stop_failed', stopAuthority.lifecycleVersion);
                 if (err instanceof FinalizationTimeoutError) {
                     // #1089: name the real failure instead of hanging on Finalizing… forever. The control
                     // is usable again (FAILED clears the finalizing latch), and the transcript captured up

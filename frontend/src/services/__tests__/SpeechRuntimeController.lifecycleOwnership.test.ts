@@ -493,4 +493,98 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
             "A's coverage must not reappear on B's rail",
         ).toBeNull();
     });
+
+    it("CASUALTY P2-4b: a refused flush does not consume the successor's only update", async () => {
+        // The pending slot and the scheduled flag are SHARED. While A's flush is pending, B's progress
+        // is coalesced into the same slot and refused a flush of its own. If A then arrives, finds
+        // itself stale and simply returns, it clears the flag and throws away the only flush B was
+        // going to get — B's download bar stops moving at whatever it last showed.
+        vi.useFakeTimers();
+        try {
+            const c = newController() as unknown as PrivateController & {
+                serviceGeneration: number;
+                subscriberCallbacks: { onModelLoadProgress?: (v: number | null) => void };
+                handleModelLoadProgress: (p: number | null) => void;
+            };
+            const subscriber = vi.fn();
+            c.subscriberCallbacks = { onModelLoadProgress: subscriber };
+            useSessionStore.getState().setModelLoadingProgress(null);
+
+            c.handleModelLoadProgress(42);   // A schedules
+            c.serviceGeneration += 1;          // B is accepted
+            c.handleModelLoadProgress(77);   // B writes into the same slot, refused its own flush
+
+            await vi.advanceTimersByTimeAsync(50);
+
+            // B's value is published, not discarded with A's stale flush and not replaced by A's.
+            expect(useSessionStore.getState().modelLoadingProgress, "B's own progress must survive").toBe(77);
+            expect(subscriber).toHaveBeenCalledWith(77);
+            expect(subscriber, "A's value must never be published").not.toHaveBeenCalledWith(42);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('CASUALTY P1-3: the OWNER releases its own finalizing latch after advancing the lifecycle', async () => {
+        // The regression my first ownership guard introduced. The terminal advances the lifecycle
+        // itself to fence its destroyed service, and the guard then compared the latch's armed version
+        // against the LIVE value — so the rightful owner no longer matched its own latch and refused
+        // to release it. "Finalizing…" sticks forever with the record control disabled, which is the
+        // unrecoverable lockout #1089 exists to prevent.
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, captured?: number | null) => boolean;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        const armedAt = c.lifecycleVersion;
+        c.finalizingOwnerVersion = armedAt;
+
+        // The owner's OWN advance, exactly as the terminal performs it.
+        c.lifecycleVersion += 1;
+
+        expect(c.releaseFinalizingIfOwner('normal_terminal', armedAt), 'the owner may release').toBe(true);
+        expect(useSessionStore.getState().isTranscriptFinalizing, 'the latch is actually released').toBe(false);
+    });
+
+    it('CASUALTY P1-3b: a SUPERSEDED take still cannot release the successor\'s latch', async () => {
+        // The other half. Passing a captured version must not become a way to release anyone's latch.
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, captured?: number | null) => boolean;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        const aCaptured = c.lifecycleVersion;
+        // B took over and armed the latch itself.
+        c.lifecycleVersion += 5;
+        c.finalizingOwnerVersion = c.lifecycleVersion;
+
+        expect(c.releaseFinalizingIfOwner('superseded_before_stop', aCaptured), 'A may not release').toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's latch survives").toBe(true);
+    });
+
+    it('CASUALTY P1-2b: a destroy that fails AFTER takeover is contained, not thrown at B', async () => {
+        // The other destroy site. On the owner path A is still the rightful owner when it reaches the
+        // terminal, so a teardown failure there IS A's failure and belongs in the common catch — that
+        // is how the user gets FAILED, an honest message and the recovery draft.
+        //
+        // But `destroy()` is a suspension. If B takes over DURING it, the same rejection reaches a
+        // catch that now belongs to B and fails a recording that is going fine. The decision has to be
+        // made after the suspension, which is why containment here is conditional and the superseded
+        // branch's is not.
+        const c: ReturnType<typeof stoppingController> = stoppingController(Promise.resolve({ transcript: 'A said something', stats: { accuracy: 0.9 }, success: true }));
+        (c.service as { destroy: ReturnType<typeof vi.fn> }).destroy = vi.fn(async () => {
+            // B arrives while A is tearing down, and A's engine refuses to die.
+            c.lifecycleVersion += 1;
+            c.serviceGeneration += 1;
+            useSessionStore.getState().setRuntimeState('RECORDING');
+            throw new Error('WORKER_TEARDOWN_REFUSED');
+        });
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+
+        const outcome = await c.stopRecording().catch((e: unknown) => e);
+
+        expect(outcome, "A's teardown failure must not surface as a rejection to B").not.toBeInstanceOf(Error);
+        expect(c.state, 'B must not be transitioned to FAILED').not.toBe('FAILED');
+        expect(useSessionStore.getState().runtimeState, "B's runtime state is untouched").toBe('RECORDING');
+    });
 });
