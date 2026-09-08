@@ -571,6 +571,62 @@ describe('#1431 — a completed take does not block the next one', () => {
             .toEqual({ state: 'RECORDING', starts: 2 });
     });
 
+    it('CASUALTY: a producer-integrity teardown that finishes AFTER a reset does not fail the successor', async () => {
+        // The callback that reaches `failProducerIntegrity` is generation-bound at entry, which only
+        // establishes that A was current when it was CALLED. `stopTranscription()` inside it is a real
+        // suspension point, and a reset can replace A while it is pending — after which marking
+        // `recordingStartedUnresolved`, arming recovery and the UNSCOPED transition to FAILED would all
+        // land on successor B. B's take would be failed because A's engine changed identity.
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as {
+            service: { stopTranscription?: () => Promise<void> } | null;
+            serviceGeneration: number;
+            recordingStartedUnresolved: boolean;
+            failProducerIntegrity: (mode: unknown) => Promise<void>;
+        };
+
+        let releaseStop!: () => void;
+        priv.service!.stopTranscription = () => new Promise<void>((resolve) => { releaseStop = () => resolve(); });
+
+        priv.recordingStartedUnresolved = false;
+        const teardown = priv.failProducerIntegrity('browser');
+        await settle(2);
+
+        // The reset: a successor replaces A while A's stop is still pending.
+        priv.serviceGeneration += 1;
+
+        releaseStop();
+        await teardown;
+        await settle(10);
+
+        // The successor is untouched: not marked unresolved, and not transitioned to FAILED by A.
+        // The user-visible consequence Codex names: A's teardown must not transition the successor to
+        // FAILED. That is what a reader of this screen would experience — a take that was recording
+        // fine, failed by the previous take's engine.
+        expect({ state: useSessionStore.getState().runtimeState, unresolved: priv.recordingStartedUnresolved })
+            .toEqual({ state: expect.not.stringMatching(/^FAILED/), unresolved: false });
+    });
+
+    it('CONTROL: a start that never reaches RECORDING is not published as one', async () => {
+        // NOT a casualty for the invariant-ordering fix, and labelled CONTROL so it does not look like
+        // one. It drives a start that THROWS; the finding is about a start that RESOLVES through a
+        // non-recording early return, which this harness cannot produce — the service is real and its
+        // FSM is driven by the controlled engine. Moving the invariant call back before the
+        // service-state check leaves this test green, so it is not evidence for that fix.
+        //
+        // It is kept because the property it does assert is worth holding: a refused start must never
+        // be reported as a recording.
+        engine.failStart = new Error('engine refused to start');
+
+        await controller.startRecording(POLICY as never, []).catch(() => { /* the refusal is the subject */ });
+        await settle(30);
+
+        expect({ state: useSessionStore.getState().runtimeState })
+            .not.toEqual({ state: 'RECORDING' });
+    });
+
     it('CASUALTY: a save that resolves AFTER a reset does not write its id over the successor', async () => {
         // `saveSession` is a real suspension point. A hard reset during it can advance the lifecycle and
         // establish a successor take; take A resolving afterwards would write A's database id into

@@ -2263,7 +2263,24 @@ export class SpeechRuntimeController {
      *     with `attribution_status = 'unverified'`;
      *  4. surface an actionable error — never keep claiming the latched engine is still producing.
      */
+    /**
+     * #1431 — THE TEARDOWN IS ASYNCHRONOUS, SO ITS OWNERSHIP MUST BE RECHECKED.
+     *
+     * The callback that reaches here is generation-bound at entry, which only establishes that A was
+     * current when it was CALLED. `stopTranscription()` below is a real suspension point, and a reset can
+     * replace A while it is pending — after which the remaining lines mark `recordingStartedUnresolved`,
+     * arm recovery, and perform an UNSCOPED transition to FAILED. All three would land on successor B:
+     * B's take marked unresolved and failed because A's engine changed identity.
+     *
+     * The generation and lifecycle are captured at entry and asked again after the await. Everything
+     * before the await is A's own bookkeeping and its own status message, which is correct to run
+     * regardless — it is the shared mutations afterwards that must belong to us.
+     */
     private async failProducerIntegrity(reportedMode: TranscriptionMode | null): Promise<void> {
+        const generation = this.serviceGeneration;
+        const lifecycle = this.lifecycleVersion;
+        const stillOurs = () => this.serviceGeneration === generation && this.lifecycleVersion === lifecycle;
+
         this.producerIntegrityCompromised = true;
         pushNativeRuntimeTrace('controller_producer_integrity_failure', {
             latched: this.recordingEngineMode,
@@ -2280,6 +2297,13 @@ export class SpeechRuntimeController {
             await this.service?.stopTranscription?.();
         } catch (e) {
             logger.warn({ e }, '[controller] producer-integrity stop failed (continuing to arm recovery) (#1033 2)');
+        }
+        // A successor took over while the stop was pending: the recording this teardown belongs to is no
+        // longer the one on screen. Marking unresolved, arming recovery or transitioning FAILED now would
+        // apply A's failure to B's take.
+        if (!stillOurs()) {
+            pushNativeRuntimeTrace('controller_producer_integrity_superseded', { reported: reportedMode ?? null });
+            return;
         }
         // The recording BEGAN, so it stays unresolved/locked; arm the actionable recovery for its transcript.
         this.recordingStartedUnresolved = true;
@@ -3221,7 +3245,15 @@ export class SpeechRuntimeController {
                 //
                 // Passing `intent.token` asks the question this start can actually answer — "is MY intent
                 // still the current one?" — rather than depending on it not yet having been claimed.
-                await this.checkRecordingInvariant(_token, intent.token);
+                //
+                // CALLED BELOW, AFTER THE SERVICE HAS CONFIRMED IT IS RECORDING — not here. Placing it
+                // here published RECORDING, resolved the caller's intent and started the session before
+                // the service-state check a few lines down could discover that `startTranscription`
+                // returned through one of its non-recording early exits. On a warm retry `isEngineReady`
+                // and `isEmissionsSafe` are still true from the previous take, so nothing else would have
+                // caught it, and the failure that follows cannot un-resolve an already-resolved caller:
+                // telemetry and UI would report a successful start for a take that never captured audio.
+                // A claim that the recording began must come after the evidence that it did.
 
                 // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
                 // engine filters by the REAL mode (not the requested one), keeping the early events it
@@ -3254,6 +3286,11 @@ export class SpeechRuntimeController {
                 // next recording's start boundary.
                 this.recordingEngineMode = (service.getMode?.() as TranscriptionMode | null | undefined) ?? mode;
                 pushNativeRuntimeTrace('controller_producer_latched', { latchedMode: this.recordingEngineMode });
+
+                // NOW the invariant may run: the service has confirmed RECORDING, so publishing the state
+                // is a report of something that happened rather than a prediction. See the note above the
+                // shadow bind for why it cannot run before this point.
+                await this.checkRecordingInvariant(_token, intent.token);
 
                 this.isEmissionsSafe = true;
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
