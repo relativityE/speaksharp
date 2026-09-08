@@ -2,8 +2,8 @@
 
 **Status:** Authoritative — current release/deployment posture  
 **Owner:** Product Owner (relativityE)  
-**Last Reviewed:** 2026-09-04  
-**Last Verified:** 2026-09-04 — Production release identity read and reconciled with accepted `main` before the human session.  
+**Last Reviewed:** 2026-09-08
+**Last Verified:** 2026-09-08 — recovery remains HOLD; newest-one retention is approved but not yet merged, deployed, or Production-proven.
 **Applies To:** Current SpeakSharp MVP recovery and Production requalification.  
 **Class:** Runtime and release fact.
 **Authority:** This is the only source for changing release posture, blockers, current execution, and GO/HOLD. Stable contracts live in the other canonical documents.
@@ -71,7 +71,7 @@ Only `v2:base.en` was runnable. Open Mic and Focus Points both failed.
 | Practice Loop was missing | Neither required result appeared: one “What went well” suggestion and one “What to improve” suggestion; request-vs-render telemetry was absent. |
 | Cross-product navigation was a dead end | No direct Products → Open Mic / Focus Points path. |
 | Share feedback could not be sent | PO entered Title twice; state disappeared and Send remained disabled. No successful submission occurred. |
-| Retention copy advertises an implementation count | Current newest-two behavior remains unchanged; customer-facing copy must describe availability and expiry without promising a numeric count. |
+| Retention behavior contradicts the approved policy | Release blocker: replace `newest_two_v1` with newest-one retention. Only the newest eligible transcript remains available; every older transcript expires while history and metrics remain. |
 | Filler/clarity claim was untrustworthy | PostHog saved filler count 0 with high clarity after spoken fillers were stripped upstream. |
 | Model comparison could not run | Production had no controlled access to v4 or Moonshine. |
 
@@ -82,7 +82,7 @@ Only `v2:base.en` was runnable. Open Mic and Focus Points both failed.
 - **#1407** owns the complete truthful Focus Points setup/evaluation/retry journey.
 - **#1386** owns the visible and measurable Practice Loop.
 - **#1404** owns Products navigation and the exact approved Share feedback redesign.
-- **#1117** is closed not planned; its single-transcript proposal is superseded. **#1416** owns the non-numeric retention-copy reconciliation while current newest-two behavior remains unchanged.
+- **Transcript retention:** the prior disposition superseding single-transcript retention is withdrawn. Newest-one is the approved policy; the current newest-two implementation is a release blocker. The corrective implementation and Production application remain separately controlled, and #1416's copy work does not satisfy the behavior change.
 - **#1417** owns truthful filler/clarity coaching at the real STT boundary.
 - **#1263 / #1304 / #1390** own all-three candidate access and real Production downselection.
 - **#1258** remains the final deployed two-product qualification.
