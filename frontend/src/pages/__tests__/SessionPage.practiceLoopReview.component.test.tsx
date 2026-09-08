@@ -550,4 +550,134 @@ describe('F-07 completed-session Practice Loop review', () => {
             body: { sessionId: 'session-complete-1' },
         }));
     });
+
+    it('MEASUREMENT: the whole two-attempt budget issues exactly two reads, never a third', async () => {
+        // The budget is two attempts. Anything that issues a third read spends a request the bound
+        // never accounted for, and the surface can then settle unavailable while a request it does not
+        // know about is still in flight. Counting reads across BOTH bounds is the only way to see it:
+        // a single-bound count cannot distinguish a chained refetch that deduped from one that did not.
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4, 'session-budget');
+            getSessionById.mockReturnValue(new Promise(() => { /* every read runs long */ }));
+            render(<SessionPage />);
+            expect(getSessionById.mock.calls.length, 'the initial read').toBe(1);
+
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+            await settleMicrotasks();
+            const afterFirstBound = getSessionById.mock.calls.length;
+
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+            await settleMicrotasks();
+            const afterSecondBound = getSessionById.mock.calls.length;
+
+            expect({ afterFirstBound, afterSecondBound }).toEqual({ afterFirstBound: 2, afterSecondBound: 2 });
+            // ...and the budget is genuinely spent: the surface has settled, not still asking.
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('JOURNEY A→B: take A reviewed, Practice again, take B saved — Gemini is asked for B and never again for A', async () => {
+        // The PM-specified journey, end to end in one mount, because that is how the user meets it:
+        // nobody unmounts the page between takes. `showAnalyticsPrompt` stays true throughout, so every
+        // guard that protects take B has to hold while take A's review is still on screen.
+        //
+        // The existing consecutive-takes casualty stops at "B does not review A". This one continues
+        // through B's own save and asserts the POSITIVE half: B is reviewed, with B's persisted id, and
+        // A's id never appears in a request again after B starts. Without the positive half a page that
+        // simply stopped reviewing anything would pass.
+        publishCompletedSession(4, 'session-take-A');
+        getSessionById.mockResolvedValue(savedRow('available', 'take A transcript', 'session-take-A'));
+        invoke.mockResolvedValue({
+            data: { suggestions: {
+                version: 'gemini_coaching_v1',
+                what_worked: 'Clear opening.',
+                what_to_try_next: 'Lead with the recommendation.',
+            } },
+            error: null,
+        });
+
+        render(<SessionPage />);
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+            body: { sessionId: 'session-take-A' },
+        }));
+
+        // ---- "Practice again": take B STARTS. The controller supersedes A's finalized signal and its
+        // completed-session identity at the accepted-start boundary. Nothing unmounts the page.
+        invoke.mockClear();
+        await act(async () => {
+            const store = useSessionStore.getState();
+            store.setFinalizedAnalysis(null);
+            store.setCompletedSessionId(null);
+        });
+
+        // While B is recording there is no completed session at all, so no review may be requested.
+        await settleMicrotasks();
+        expect(invoke, 'a recording take has nothing to review').not.toHaveBeenCalled();
+
+        // ---- Take B STOPS and SAVES. Its own persisted row becomes the review authority.
+        getSessionById.mockResolvedValue(savedRow('available', 'take B transcript', 'session-take-B'));
+        await act(async () => {
+            publishCompletedSession(7, 'session-take-B');
+        });
+
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+            body: { sessionId: 'session-take-B' },
+        }));
+
+        // THE CLAIM: after B started, every request belongs to B. Asserting only "B was requested"
+        // would pass while A was requested too — which is the exact defect, because a duplicate
+        // request for A spends a generation from the user's daily budget on the wrong take.
+        const requestedIds = invoke.mock.calls.map(
+            (call) => (call[1] as { body: { sessionId: string } }).body.sessionId,
+        );
+        expect(requestedIds, 'every post-B request is for B').toEqual(
+            requestedIds.map(() => 'session-take-B'),
+        );
+        expect(requestedIds, 'take A is never requested again').not.toContain('session-take-A');
+        expect(requestedIds.length, 'B is reviewed exactly once').toBe(1);
+    });
+
+    it('CASUALTY: a read RETIRED by a session change cannot publish under its old identity', async () => {
+        // The retirement case, distinct from the bound case above: the observer is not cancelled by a
+        // timeout, it is retired because the page moved to a different session. The wire request is
+        // deliberately NOT aborted anywhere in this codebase, so take A's read really does answer after
+        // take B has taken over, and the question is whether that answer can still reach the surface.
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4, 'session-retired-A');
+            const settlers: Array<(row: unknown) => void> = [];
+            getSessionById.mockImplementation(() => new Promise((resolve) => { settlers.push(resolve); }));
+
+            render(<SessionPage />);
+            await settleMicrotasks();
+            expect(settlers.length, "take A's read is in flight").toBe(1);
+
+            // The page moves to take B while A's read is still outstanding.
+            await act(async () => {
+                const store = useSessionStore.getState();
+                store.setFinalizedAnalysis(null);
+                store.setCompletedSessionId(null);
+                publishCompletedSession(7, 'session-retired-B');
+            });
+            await settleMicrotasks();
+
+            // A's abandoned read answers LATE, with a perfectly valid row for A.
+            await act(async () => {
+                settlers[0](savedRow('available', 'take A transcript', 'session-retired-A'));
+                await vi.advanceTimersByTimeAsync(50);
+            });
+
+            // It must not become B's review, and it must not authorize a request for A.
+            const requestedIds = invoke.mock.calls.map(
+                (call) => (call[1] as { body: { sessionId: string } }).body.sessionId,
+            );
+            expect(requestedIds, 'the retired identity must never be requested').not.toContain('session-retired-A');
+            expect(screen.queryByText('take A transcript'), "A's row must not render as B's review").toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

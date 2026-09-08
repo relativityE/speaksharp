@@ -204,7 +204,7 @@ export const SessionPage: React.FC = () => {
     const reviewSessionId = finalizedAnalysis?.sessionId ?? completedSessionId ?? null;
     const queryClient = useQueryClient();
     const {
-        data: savedSession, isFetching: reviewFetching, refetch: refetchReview,
+        data: savedSession, isFetching: reviewFetching,
         // How many times the query layer has failed and retried THIS read. It is progress, not noise:
         // see the bound below.
         failureCount: reviewFailureCount,
@@ -304,11 +304,12 @@ export const SessionPage: React.FC = () => {
             void queryClient.cancelQueries({ queryKey: ['session', reviewSessionId] }).then(() => {
                 setReviewReadAttempt((spent) => {
                     if (spent + 1 < REVIEW_READ_MAX_ATTEMPTS) {
-                        // `resetQueries` first for the same reason Retry does it: a refetch alone is
-                        // inert against a query React Query still considers in flight.
-                        void queryClient
-                            .resetQueries({ queryKey: ['session', reviewSessionId] })
-                            .then(() => refetchReview());
+                        // `resetQueries` on an ACTIVE query already starts its replacement read, so
+                        // chaining `refetchReview()` after it does not "make sure" a read happens — it
+                        // adds a second one. Measured: with the chain, the two-attempt budget issued
+                        // THREE reads, the extra one landing at the second bound, after the surface had
+                        // settled and stopped accounting for it.
+                        void queryClient.resetQueries({ queryKey: ['session', reviewSessionId] });
                     }
                     return spent + 1;
                 });
@@ -322,14 +323,24 @@ export const SessionPage: React.FC = () => {
         // layer down. It went unnoticed because the real query's state churns across the cancel and
         // happened to re-run the effect for unrelated reasons.
     }, [reviewFetching, reviewFailureCount, reviewReadAttempt, reviewReadTimedOut, reviewSessionId,
-        queryClient, refetchReview]);
+        queryClient]);
 
     // NOTE ON RETIREMENT (leaving the page, or moving to another session): no cleanup is written here.
-    // An explicit `cancelQueries` on unmount/key-change was tried and PROVED REDUNDANT — removing it
-    // left the abandonment casualty below still passing, because React Query already aborts the
-    // signal it owns when the last observer goes away or the key changes. Keeping a second mechanism
-    // that cannot be observed to do anything would be dead code dressed as a safeguard. The casualty
-    // stays, so the behaviour is pinned even though the library, not this file, provides it.
+    //
+    // An explicit `cancelQueries` on unmount/key-change was tried and could not be shown to change any
+    // observable behaviour. The first time that was claimed, the only evidence was the BOUND casualty,
+    // which exercises a timeout on the SAME key and would have passed either way — so the claim was not
+    // earned. It is now: `a read RETIRED by a session change cannot publish under its old identity`
+    // drives the actual retirement path — take A's read still outstanding, the page moves to take B,
+    // then A answers late with a valid row — and passes without any cancellation here.
+    //
+    // The reason is that a retired read lands under its OWN key, and the surface reads the current key.
+    // The wire request is deliberately not aborted anywhere in this codebase (two attempts at that
+    // broke CI four times), so the request does complete; it simply has nowhere to publish.
+    //
+    // Adding a cancel that no test can distinguish would be dead code dressed as a safeguard. If there
+    // is a reachable state where the retired answer does harm, the casualty that demonstrates it should
+    // land first, and the cancel with it.
 
     const reviewStillSettling = !reviewReadTimedOut
         // `finalizedAnalysis` is deliberately NOT part of this. It is optional, so waiting on it meant a
@@ -673,9 +684,9 @@ export const SessionPage: React.FC = () => {
                         // The budget resets too: the user asking again is a new decision, not a
                         // continuation of the automatic attempts that preceded it.
                         setReviewReadAttempt(0);
-                        void queryClient
-                            .resetQueries({ queryKey: ['session', reviewSessionId] })
-                            .then(() => refetchReview());
+                        // Same reason as the automatic bound: resetting an active query begins the
+                        // replacement read by itself, and the chained refetch was a second request.
+                        void queryClient.resetQueries({ queryKey: ['session', reviewSessionId] });
                     }}
                     onSeeAllSessions={() => navigate('/analytics')}
                     interimTranscript={interimTranscript}
