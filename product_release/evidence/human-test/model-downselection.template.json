@@ -27,8 +27,7 @@
     "primary": null,
     "fallback": null,
     "sitsOut": null,
-    "decidedBy": null,
-    "decidedAt": null,
-    "decisionEvidenceDigest": null
+    "approvalArtifact": null,
+    "approvalSha256": null
   }
 }

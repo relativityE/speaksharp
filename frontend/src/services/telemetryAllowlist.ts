@@ -164,10 +164,12 @@ export const EVENT_SCHEMAS = Object.freeze({
     // ── session outcome loop ────────────────────────────────────────────────
     session_started: {
         mode: enumOf(STT_MODES), requested_mode: enumOf(STT_MODES), user_tier: enumOf(TIERS),
+        comparison_nonce: slug(),
         ...EXPERIMENT_FIELDS,
     },
     session_saved: {
         mode: enumOf(STT_MODES), user_tier: enumOf(TIERS),
+        comparison_nonce: slug(),
         duration_seconds: { kind: 'int', min: 0, max: 86_400 } as FieldRule,
         word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
         filler_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,

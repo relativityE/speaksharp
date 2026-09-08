@@ -85,7 +85,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "uuid", "event", "releaseSha", "candidateId", "journeyId", "attemptId",
+        "uuid", "event", "releaseSha", "candidateId", "productMode", "journeyId", "attemptId",
         "attemptSeq", "wordCount", "controlNonce", "transportInitialized"
       ],
       "properties": {
@@ -93,6 +93,7 @@
         "event": { "$ref": "#/$defs/token" },
         "releaseSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "candidateId": { "anyOf": [{ "$ref": "#/$defs/candidate" }, { "type": "null" }] },
+        "productMode": { "anyOf": [{ "enum": ["quick", "objective"] }, { "type": "null" }] },
         "journeyId": { "$ref": "#/$defs/token" },
         "attemptId": { "anyOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
         "attemptSeq": { "type": "integer", "minimum": 0 },
@@ -101,37 +102,25 @@
         "transportInitialized": { "type": ["boolean", "null"] }
       }
     },
-    "receipt": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "verdict", "holdKind", "dryRun", "targetOrigin", "releaseSha", "expectedCandidate",
-        "requestedCandidate", "observedCandidate", "capturedAt", "receiptSha256"
-      ],
-      "properties": {
-        "verdict": { "const": "PASS" },
-        "holdKind": { "type": "null" },
-        "dryRun": { "const": false },
-        "targetOrigin": { "const": "https://speaksharp-public.vercel.app" },
-        "releaseSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "expectedCandidate": { "$ref": "#/$defs/candidate" },
-        "requestedCandidate": { "$ref": "#/$defs/candidate" },
-        "observedCandidate": { "$ref": "#/$defs/candidate" },
-        "capturedAt": { "type": "string", "format": "date-time" },
-        "receiptSha256": { "$ref": "#/$defs/sha256" }
-      }
-    },
     "candidateTake": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["candidateId", "journey", "journeyId", "attemptId", "attemptSeq", "receipt"],
+      "required": [
+        "releaseSha", "candidateId", "journey", "journeyId", "attemptId", "attemptSeq",
+        "controlNonce", "persistedSessionId",
+        "receiptArtifact", "receiptSha256"
+      ],
       "properties": {
+        "releaseSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "candidateId": { "$ref": "#/$defs/candidate" },
         "journey": { "enum": ["open_mic", "focus_points"] },
         "journeyId": { "$ref": "#/$defs/token" },
         "attemptId": { "$ref": "#/$defs/token" },
         "attemptSeq": { "type": "integer", "minimum": 1 },
-        "receipt": { "$ref": "#/$defs/receipt" }
+        "controlNonce": { "$ref": "#/$defs/token" },
+        "persistedSessionId": { "$ref": "#/$defs/token" },
+        "receiptArtifact": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "receiptSha256": { "$ref": "#/$defs/sha256" }
       }
     },
     "outputShape": {
@@ -165,9 +154,21 @@
     "geminiObservation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["takeKey", "source", "model", "providerRequestMade", "quota", "output"],
+      "required": [
+        "releaseSha", "candidateId", "journey", "journeyId", "attemptId", "attemptSeq",
+        "controlNonce", "persistedSessionId", "receiptSha256",
+        "source", "model", "providerRequestMade", "quota", "output"
+      ],
       "properties": {
-        "takeKey": { "type": "string" },
+        "releaseSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "candidateId": { "$ref": "#/$defs/candidate" },
+        "journey": { "enum": ["open_mic", "focus_points"] },
+        "journeyId": { "$ref": "#/$defs/token" },
+        "attemptId": { "$ref": "#/$defs/token" },
+        "attemptSeq": { "type": "integer", "minimum": 1 },
+        "controlNonce": { "$ref": "#/$defs/token" },
+        "persistedSessionId": { "$ref": "#/$defs/token" },
+        "receiptSha256": { "$ref": "#/$defs/sha256" },
         "source": { "enum": ["fresh", "cached"] },
         "model": { "const": "gemini-3.6-flash" },
         "providerRequestMade": { "type": "boolean" },
@@ -179,16 +180,15 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "status", "primary", "fallback", "sitsOut", "decidedBy", "decidedAt", "decisionEvidenceDigest"
+        "status", "primary", "fallback", "sitsOut", "approvalArtifact", "approvalSha256"
       ],
       "properties": {
         "status": { "enum": ["pending_po_test", "selected"] },
         "primary": { "anyOf": [{ "$ref": "#/$defs/candidate" }, { "type": "null" }] },
         "fallback": { "anyOf": [{ "$ref": "#/$defs/candidate" }, { "type": "null" }] },
         "sitsOut": { "anyOf": [{ "$ref": "#/$defs/candidate" }, { "type": "null" }] },
-        "decidedBy": { "enum": ["product_owner", null] },
-        "decidedAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
-        "decisionEvidenceDigest": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
+        "approvalArtifact": { "type": ["string", "null"], "maxLength": 240 },
+        "approvalSha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
       }
     }
   }

@@ -18,6 +18,7 @@ import {
 import { effectiveCandidate } from './candidateSelection';
 import { clearResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
+import { consumeModelComparisonAuthorization } from './modelComparisonAuthorization';
 
 interface SwitchWindow {
     __SS_SWITCH_CANDIDATE__?: (id: string) => Promise<SwitchOutcome>;
@@ -30,10 +31,12 @@ interface SwitchWindow {
     };
 }
 
-export function installRuntimeCandidateSwitch(
+export async function installRuntimeCandidateSwitch(
     env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
-): boolean {
-    if (typeof window === 'undefined' || !runtimeCandidateAccessAllowed(env, window)) return false;
+): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    if (env.VITE_INTERNAL_BUILD !== 'true' && !await consumeModelComparisonAuthorization(env, window)) return false;
+    if (!runtimeCandidateAccessAllowed(env)) return false;
 
     registerSwitchExecutor({
         // The lifecycle state the whole app already publishes, rather than a second opinion that could

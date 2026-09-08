@@ -283,8 +283,8 @@ const startInitializing = async () => {
     // Install the hidden CDP qualification switch. It has no UI/URL/storage input and accepts only the
     // PO-approved three-model slate; canonical Production needs it for the authenticated human test.
     void import('./services/transcription/installRuntimeSwitch')
-      .then(({ installRuntimeCandidateSwitch }) => {
-        if (installRuntimeCandidateSwitch()) logger.debug('[main.tsx] CDP model-comparison switch installed');
+      .then(async ({ installRuntimeCandidateSwitch }) => {
+        if (await installRuntimeCandidateSwitch()) logger.debug('[main.tsx] CDP model-comparison switch installed');
       })
       .catch((err) => logger.warn({ err }, '[main.tsx] runtime model switch unavailable'));
     // Lazy import of SpeechRuntimeController

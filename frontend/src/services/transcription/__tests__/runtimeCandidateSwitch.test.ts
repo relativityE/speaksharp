@@ -11,17 +11,12 @@ import { effectiveCandidate } from '../candidateSelection';
 import {
     switchCandidate, registerSwitchExecutor, runtimeCandidateOverride,
     clearRuntimeCandidateOverride, onRuntimeCandidateChange, SWITCH_BLOCKING_STATES,
-    engineIntegrationRefusal, MODEL_COMPARISON_CDP_ARM_KEY,
+    engineIntegrationRefusal,
 } from '../runtimeCandidateSwitch';
+import { authorizeProduction, resetAuthorization } from './modelComparisonAuthorization.helper';
 
 const INTERNAL = { VITE_INTERNAL_BUILD: 'true' };
 const PRODUCTION = { VITE_INTERNAL_BUILD: undefined };
-const armProduction = () => {
-    Object.defineProperty(globalThis, Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY), {
-        value: true, configurable: true,
-    });
-};
-const disarmProduction = () => { delete (globalThis as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)]; };
 
 function executor(state = 'READY') {
     const calls: string[] = [];
@@ -42,8 +37,8 @@ function executor(state = 'READY') {
 }
 
 describe('the in-page model switch', () => {
-    beforeEach(() => { disarmProduction(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
-    afterEach(() => { disarmProduction(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
+    beforeEach(() => { resetAuthorization(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
+    afterEach(() => { resetAuthorization(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
 
     it('CASUALTY: the FULL comparison runs in one page — v2 → distil → moonshine → v2', async () => {
         // The sequence the human test actually performs. Moonshine was refused here until it was
@@ -96,7 +91,7 @@ describe('the in-page model switch', () => {
     });
 
     it('CASUALTY: canonical Production can run the three-model CDP comparison', async () => {
-        armProduction();
+        expect((await authorizeProduction()).accepted).toBe(true);
         registerSwitchExecutor(executor());
         const out = await switchCandidate('v4:distil:q4', PRODUCTION);
         expect(out).toEqual({ ok: true, candidate: 'v4:distil:q4' });
@@ -104,9 +99,8 @@ describe('the in-page model switch', () => {
     });
 
     it('CASUALTY: registry membership does not widen the three-model comparison', async () => {
-        armProduction();
         const e = executor(); registerSwitchExecutor(e);
-        const out = await switchCandidate('v4:base:q4', PRODUCTION);
+        const out = await switchCandidate('v4:base:q4', INTERNAL);
         expect(out).toMatchObject({ ok: false, code: 'not_comparison_candidate' });
         expect(e.teardown).not.toHaveBeenCalled();
         expect(runtimeCandidateOverride()).toBeNull();

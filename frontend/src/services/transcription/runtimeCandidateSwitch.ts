@@ -26,6 +26,7 @@ import {
     CANDIDATES, UnknownCandidateError,
     type Candidate, type CandidateId, type EngineKind,
 } from './candidateRegistry';
+import { hasModelComparisonAuthorization } from './modelComparisonAuthorization';
 
 /**
  * The engines the product facade can actually construct.
@@ -50,14 +51,11 @@ export const COMPARISON_CANDIDATE_IDS = Object.freeze([
  * Installed before app code by the loopback CDP harness. A Symbol avoids a string-named page control;
  * no application code exports a setter, and a normal Production navigation never creates it.
  */
-export const MODEL_COMPARISON_CDP_ARM_KEY = 'speaksharp.model-comparison.cdp';
-
 export function runtimeCandidateAccessAllowed(
     env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
-    root: typeof globalThis = globalThis,
 ): boolean {
     return env?.VITE_INTERNAL_BUILD === 'true'
-        || (root as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)] === true;
+        || hasModelComparisonAuthorization();
 }
 
 /** States in which the engine is doing something that a swap would corrupt. */

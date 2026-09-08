@@ -26,6 +26,7 @@ describe('#1259 T1 — approved fields survive (events stay analyzable)', () => 
         const input = {
             mode: 'private', duration_seconds: 61, word_count: 180, wpm: 118,
             filler_count: 4, clarity_score: 82, is_new_streak_day: true, streak_count: 3,
+            comparison_nonce: 'comparison-nonce-123456',
             session_coaching_experiment: 'session_coaching_v1',
             // Real producer values, not invented ones — see the vocabulary regression below.
             session_coaching_variant: REAL_ASSIGNMENT.variant,
@@ -99,6 +100,14 @@ describe('#1259 T1 — content is rejected', () => {
     it('rejects an over-long string in an approved field', () => {
         const { dropped } = projectEventProps('session_saved', { mode: 'x'.repeat(121) });
         expect(dropped).toContain('mode');
+    });
+
+    it('allows only a bounded content-free comparison nonce on start/save receipts', () => {
+        for (const event of ['session_started', 'session_saved']) {
+            expect(isValidForEventField(event, 'comparison_nonce', 'comparison-nonce-123456')).toBe(true);
+            expect(isValidForEventField(event, 'comparison_nonce', 'not a bounded nonce')).toBe(false);
+        }
+        expect(isValidForEventField('session_saved', 'persisted_session_id', 'session-123')).toBe(false);
     });
 
     it('rejects non-primitives, and no longer waves strings through on shape alone', () => {

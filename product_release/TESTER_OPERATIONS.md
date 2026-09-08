@@ -132,6 +132,51 @@ Private v4 is OFF. Operators must not target, expose, or activate it for custome
 - Any benchmark or future promotion requires separate Product Owner authorization and the comparison protocol in `STT.md`.
 - A flag cleanup or production targeting change is a production mutation and requires explicit authorization.
 
+### 6.1 Authorized three-candidate Production comparison
+
+This procedure is available only during a Product Owner-authorized comparison window. It exercises the
+canonical Production deployment; a pull-request Preview, local build, URL flag, browser-storage value, or
+visible customer control is not qualifying evidence.
+
+Preparation is separate from execution:
+
+1. Ops creates an Ed25519 private key in an operator-owned location outside the repository. The private key
+   never enters Vercel, GitHub, the browser, a receipt, or a retained artifact.
+2. Derive the matching client-public raw key with
+   `corepack pnpm human-test:sign-comparison -- --private-key /absolute/operator/key.pem --show-public-key`.
+   Under separate deployment authorization, Ops places only that value in the Production-scoped
+   `VITE_MODEL_COMPARISON_PUBLIC_KEY` and deploys the exact integrated release SHA.
+3. Launch one isolated Chrome profile with its remote-debugging endpoint bound to loopback port 9222. Open
+   exactly one `https://speaksharp-public.vercel.app` tab and sign in manually through the normal product path.
+   Never expose the debugging endpoint off-device.
+
+For each of the three registered candidates, perform one Open Mic take and one Focus Points take. The
+Focus Points count is user-selected within the MVP's 1–7 range; the comparison does not prescribe four or
+any other count. Every point the user enters and substantively speaks must remain present, in order, and be
+evaluated. Immediately before each take:
+
+1. Create a fresh two-minute envelope bound to the deployed SHA:
+   `corepack pnpm human-test:sign-comparison -- --release <40-char-sha> --private-key /absolute/operator/key.pem --out /absolute/operator/envelope.json`.
+2. Start the observer:
+   `corepack pnpm human-test:observe -- --candidate <candidate-id> --release <40-char-sha> --authorization /absolute/operator/envelope.json --out /absolute/evidence/receipt.json`.
+3. Use the product normally while the observer runs: start, speak, stop, wait for persistence and review,
+   inspect Focus Points when applicable, and use Practice again/Retry where the run requires it. Do not
+   refresh or reuse an envelope; the authorization is removed after the first document and its nonce is
+   evidence for exactly one take.
+
+A candidate row counts only when requested, expected, and observed identities agree for the whole take;
+the saved session has a named persistence ID; the receipt is non-dry-run `PASS`; and the #1421 decoded
+PostHog readback links the same release, candidate, journey, attempt, sequence, and signed comparison nonce.
+The raw database session ID must not enter PostHog. Gemini evidence binds that persisted ID independently.
+
+Run `corepack pnpm human-test:validate-downselection -- /absolute/evidence/model-downselection.json` only
+after all six candidate/journey cells and the locked Gemini evidence are present. The validator must remain
+`HOLD` until a separate Product Owner-authored approval artifact names distinct primary, fallback, and
+sits-out roles and cites the exact completed packet digest. The validation command requires authenticated
+GitHub CLI read access (or `GH_BIN` pointing to it) and compares that retained artifact to the live comment;
+a local JSON file claiming `OWNER` authority cannot pass by itself. A passing packet is decision evidence; it is not
+merge, deployment, migration, or runtime-promotion authorization.
+
 ---
 
 ## 7. Evidence and cleanup

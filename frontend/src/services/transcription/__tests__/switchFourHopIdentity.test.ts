@@ -17,8 +17,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installRuntimeCandidateSwitch } from '../installRuntimeSwitch';
 import {
-    clearRuntimeCandidateOverride, registerSwitchExecutor, MODEL_COMPARISON_CDP_ARM_KEY,
+    clearRuntimeCandidateOverride, registerSwitchExecutor,
 } from '../runtimeCandidateSwitch';
+import { placeSignedAuthorization, resetAuthorization } from './modelComparisonAuthorization.helper';
 import { clearResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { sttRegistry } from '../STTRegistry';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
@@ -69,10 +70,8 @@ const active = () => (window as unknown as {
 });
 
 describe('v2 → distil → Moonshine → v2 on the real facade', () => {
-    beforeEach(() => {
-        Object.defineProperty(window, Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY), {
-            value: true, configurable: true,
-        });
+    beforeEach(async () => {
+        resetAuthorization();
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
         registerSwitchExecutor(null);
@@ -89,7 +88,8 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
             await engine.init();
         });
         // No internal-build flag: this is the canonical-Production CDP path #1426 must expose.
-        installRuntimeCandidateSwitch({});
+        const { env } = placeSignedAuthorization();
+        await installRuntimeCandidateSwitch(env);
     });
 
     afterEach(() => {
@@ -98,9 +98,9 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
         registerSwitchExecutor(null);
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
+        resetAuthorization();
         speechRuntimeController.service = null;
         document.documentElement.removeAttribute('data-runtime-state');
-        delete (window as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)];
     });
 
     it('CASUALTY: every hop reaches READY with requested === observed', async () => {
