@@ -75,3 +75,51 @@ export function eligibleProgressTruth(sessionId: string, referenceId: string) {
         ],
     };
 }
+
+/**
+ * Comparison-eligible fixture used by the Practice Focus repeat journey. It lives beside the U3 fixture
+ * so both real E2E payloads are type-checked and exercised through the production completeness gate.
+ */
+export function eligibleRepeatProgress(sessionId: string, referenceId: string) {
+    const current: ProgressEvaluationFixtureRow = {
+        session_id: sessionId,
+        eligible: true,
+        exclusion_reasons: [],
+        clarity_raw: 88,
+        filler_count: 4,
+        error_marker_count: 0,
+        wpm: 142,
+        word_count: 245,
+        cohort_key: 'private|v2|base|clarity_v1',
+        baseline_session_id: referenceId,
+        previous_comparable_session_id: referenceId,
+        formula_version: 'clarity_v1',
+    };
+    const reference: ProgressEvaluationFixtureRow = {
+        ...current,
+        session_id: referenceId,
+        clarity_raw: 82,
+        filler_count: 7,
+        wpm: 136,
+        baseline_session_id: null,
+        previous_comparable_session_id: null,
+    };
+    return {
+        evaluations: [current, reference],
+        recommendations: [{
+            id: 'pf-repeat-recommendation',
+            source_session_id: sessionId,
+            formula_version: 'clarity_v1',
+            target_metric: 'filler_rate',
+            target_direction: 'decrease',
+            target_value: 3,
+            target_units: 'percent of words',
+            shown_text: 'Cut filler words toward 3%',
+        }],
+        attempts: [] as unknown[],
+        chronology: [
+            { id: referenceId, created_at: '2025-01-31T13:00:00.000Z' },
+            { id: sessionId, created_at: '2025-02-01T14:00:00.000Z' },
+        ],
+    };
+}

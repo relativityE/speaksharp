@@ -12,8 +12,9 @@
  * milliseconds, so the next time the gate gains a required field the fixture fails here first.
  */
 import { describe, it, expect } from 'vitest';
+import ts from 'typescript';
 import { hasCompleteEligibleProgressEvidence } from '@/services/progress/buildProgressEvaluation';
-import { eligibleProgressTruth } from '../e2e/helpers/progressFixtures';
+import { eligibleProgressTruth, eligibleRepeatProgress } from '../e2e/helpers/progressFixtures';
 
 /** Mirrors `toEvaluation()` in loadSessionProgress.ts — the readback mapping the gate is applied to. */
 const toEvaluation = (row: {
@@ -29,12 +30,44 @@ const toEvaluation = (row: {
 });
 
 const FIXTURE = eligibleProgressTruth('session-4', 'session-3');
+const PRACTICE_FIXTURE = eligibleRepeatProgress('practice-2', 'practice-1');
+
+function incompleteEligibleObjectLines(text: string, file: string): string[] {
+    const source = ts.createSourceFile(
+        file,
+        text,
+        ts.ScriptTarget.Latest,
+        true,
+        file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const missing: string[] = [];
+    const visit = (node: ts.Node) => {
+        if (ts.isObjectLiteralExpression(node)) {
+            const eligible = node.properties.some((property) =>
+                ts.isPropertyAssignment(property)
+                && property.name.getText(source) === 'eligible'
+                && property.initializer.kind === ts.SyntaxKind.TrueKeyword);
+            const hasErrorMarker = node.properties.some((property) =>
+                ts.isPropertyAssignment(property)
+                && property.name.getText(source) === 'error_marker_count');
+            if (eligible && !hasErrorMarker) {
+                const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+                missing.push(`${file}:${line + 1}`);
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return missing;
+}
 
 describe('#1427 — the U3 eligible progress fixture passes the production completeness gate', () => {
-    it('every evaluation row in the fixture is accepted', () => {
-        expect(FIXTURE.evaluations.length).toBeGreaterThan(1);
-        for (const row of FIXTURE.evaluations) {
-            expect(hasCompleteEligibleProgressEvidence(toEvaluation(row)), `row ${row.session_id} rejected`).toBe(true);
+    it('every evaluation row in each real E2E fixture is accepted', () => {
+        for (const fixture of [FIXTURE, PRACTICE_FIXTURE]) {
+            expect(fixture.evaluations.length).toBeGreaterThan(1);
+            for (const row of fixture.evaluations) {
+                expect(hasCompleteEligibleProgressEvidence(toEvaluation(row)), `row ${row.session_id} rejected`).toBe(true);
+            }
         }
     });
 
@@ -77,7 +110,7 @@ describe('#1427 — the U3 eligible progress fixture passes the production compl
      * carry `error_marker_count`. It is a wiring check, deliberately cheap, and it does not replace
      * the semantic assertions above.
      */
-    it('every eligible progress fixture in the E2E tree carries error-marker evidence', async () => {
+    it('every eligible progress object in the E2E tree carries its own error-marker evidence', async () => {
         const { readdirSync, statSync, readFileSync } = await import('node:fs');
         const { join } = await import('node:path');
 
@@ -98,11 +131,20 @@ describe('#1427 — the U3 eligible progress fixture passes the production compl
 
         expect(files.length, 'the walk found no specs — it would pass trivially').toBeGreaterThan(5);
 
-        const offenders = files.filter((file) => {
+        const offenders = files.flatMap((file) => {
             const text = readFileSync(file, 'utf8');
-            return text.includes('eligible: true') && !text.includes('error_marker_count');
+            return incompleteEligibleObjectLines(text, file);
         });
         expect(offenders, `eligible progress fixtures missing error-marker evidence:\n${offenders.join('\n')}`)
             .toEqual([]);
+    });
+
+    it('CASUALTY: one complete object or a comment cannot mask an incomplete sibling object', () => {
+        const source = `
+                // error_marker_count in a comment is not evidence.
+                const complete = { eligible: true, error_marker_count: 0 };
+                const incomplete = { eligible: true, filler_count: 2 };
+            `;
+        expect(incompleteEligibleObjectLines(source, 'casualty.ts')).toEqual(['casualty.ts:4']);
     });
 });

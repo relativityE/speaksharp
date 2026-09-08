@@ -65,4 +65,17 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         expect(screen.getByTestId('focus-points-retry')).toHaveTextContent('Retry this set');
         expect(screen.getByTestId('focus-points-retry')).not.toHaveTextContent('2 points');
     });
+
+    it('renders a terminal partial match as partly detected while keeping it in the detected count', () => {
+        const partial: FocusCoverageRow[] = [
+            { label: 'State the guarantee', status: 'partial', covered: true, coveredAtSec: null, quote: null },
+        ];
+        render(<FocusPointsRail rows={partial} sessionState="after" />);
+
+        const row = screen.getByTestId('focus-point-0');
+        expect(row).toHaveAttribute('data-status', 'partial');
+        expect(row).toHaveTextContent('Partly detected');
+        expect(row.querySelector('p')).not.toHaveClass('line-through');
+        expect(screen.queryByTestId('focus-point-0-not-detected')).toBeNull();
+    });
 });

@@ -6,6 +6,7 @@ import {
   startRecording,
   stopRecording,
 } from './helpers';
+import { eligibleRepeatProgress } from './helpers/progressFixtures';
 
 /**
  * #1264 — the optional Open Mic Practice Focus journey: choose an intention in the before-state, see it
@@ -17,57 +18,6 @@ import {
 // (progress-accept) repeat action. Mirrors the eligible-progress shape used by the U3 cross-page proof.
 const REPEAT_SESSION_ID = 'pf-repeat-session';
 const REPEAT_REFERENCE_ID = 'pf-repeat-reference';
-
-function eligibleRepeatProgress() {
-  const current = {
-    session_id: REPEAT_SESSION_ID,
-    eligible: true,
-    exclusion_reasons: [],
-    clarity_raw: 88,
-    filler_count: 4,
-    // REQUIRED by `hasCompleteEligibleProgressEvidence`, which demands an integer >= 0. Without it
-    // `toEvaluation()` yields `undefined`, the row is refused as incomplete readback, and Progress
-    // resolves `unavailable` — so `progress-accept` never renders and this journey fails on a missing
-    // element rather than on the behaviour it is testing.
-    error_marker_count: 0,
-    wpm: 142,
-    word_count: 245,
-    cohort_key: 'private|v2|base|clarity_v1',
-    baseline_session_id: REPEAT_REFERENCE_ID,
-    previous_comparable_session_id: REPEAT_REFERENCE_ID,
-    formula_version: 'clarity_v1',
-  };
-  const reference = {
-    ...current,
-    session_id: REPEAT_REFERENCE_ID,
-    clarity_raw: 82,
-    filler_count: 7,
-    wpm: 136,
-    baseline_session_id: null,
-    previous_comparable_session_id: null,
-  };
-  return {
-    evaluations: [current, reference],
-    // #1265 hardened loadSessionProgress to validate the FULL persisted recommendation contract before the
-    // review renders the action, so the fixture must carry the complete row (metric/direction/value/units/
-    // shown_text), not just an id — otherwise the read model resolves `unavailable` and no repeat button shows.
-    recommendations: [{
-      id: 'pf-repeat-recommendation',
-      source_session_id: REPEAT_SESSION_ID,
-      formula_version: 'clarity_v1',
-      target_metric: 'filler_rate',
-      target_direction: 'decrease',
-      target_value: 3,
-      target_units: 'percent of words',
-      shown_text: 'Cut filler words toward 3%',
-    }],
-    attempts: [],
-    chronology: [
-      { id: REPEAT_REFERENCE_ID, created_at: '2025-01-31T13:00:00.000Z' },
-      { id: REPEAT_SESSION_ID, created_at: '2025-02-01T14:00:00.000Z' },
-    ],
-  };
-}
 
 test.describe('#1264 — Open Mic Practice Focus, preserved through repeat', () => {
   test('select a focus → record → save → repeat keeps the same focus', async ({ page }) => {
@@ -111,7 +61,7 @@ test.describe('#1264 — Open Mic Practice Focus, preserved through repeat', () 
 
     await programmaticLoginWithRoutes(page, {
       userType: 'free',
-      progressFixtures: eligibleRepeatProgress(),
+      progressFixtures: eligibleRepeatProgress(REPEAT_SESSION_ID, REPEAT_REFERENCE_ID),
       sessions: [{
         id: REPEAT_SESSION_ID,
         user_id: 'test-user-123',

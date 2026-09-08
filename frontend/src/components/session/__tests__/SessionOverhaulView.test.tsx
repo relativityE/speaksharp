@@ -267,6 +267,29 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
             .toEqual(['pending', 'pending']);
         expect(screen.queryByTestId('coverage-pace-count')).toBeNull();
         expect(screen.queryByText(/not detected/i)).toBeNull();
+        expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
+        expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
+    });
+
+    it('keeps partial stop-seam evidence distinct from a full detection in the terminal rail', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'point-1', label: POINTS[0], status: 'partial' },
+                    { id: 'point-2', label: POINTS[1], status: 'covered' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I mentioned price and guarantee.' }}
+            />,
+        );
+
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('2/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+        expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Partly detected');
+        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
     });
 
     it('a direct after→during retry starts at 0/N instead of inheriting the prior take count', () => {
