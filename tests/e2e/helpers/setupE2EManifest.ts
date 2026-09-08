@@ -621,7 +621,7 @@ export async function setupE2EManifest(
         // #1306 Step 3 — the PRODUCTION completion path. This double is what `getSupabaseClient()`
         // returns in E2E (window.supabase), so it — not the Playwright network routes — is what the
         // client actually talks to. It must model the REAL v2 contract: metrics, the single next action
-        // and the eligible transcript all committed together, then server-owned newest-two retention,
+        // and the eligible transcript all committed together, then server-owned newest-ONE retention,
         // and a typed envelope. A double that returned a bare `{ success: true }` would be the v1
         // envelope, which the client's fail-closed parser correctly rejects.
         if (fn === 'complete_session_v2') {
@@ -646,12 +646,15 @@ export async function setupE2EManifest(
               ...(supplied ? { transcript: args?.p_final_transcript, transcript_state: 'available' } : {}),
             });
 
-            // SERVER-OWNED newest-two retention, applied inside the RPC exactly as production does it.
+            // SERVER-OWNED newest-ONE retention, applied inside the RPC exactly as production does it.
             // Expiring transcripts in test code instead would prove our simulation, not the contract.
+            // `slice(1)`: only the newest transcript-bearing session stays readable; every earlier one
+            // expires. A double still expiring from `slice(2)` would keep the second-newest readable and
+            // hide exactly the behaviour the newest-one correction exists to produce.
             const retained = sessionState.sessions
               .filter((x: E2ESessionRow) => typeof x.transcript === 'string' && String(x.transcript).length > 0)
               .sort((a: E2ESessionRow, b: E2ESessionRow) => String(b.created_at).localeCompare(String(a.created_at)));
-            retained.slice(2).forEach((old: E2ESessionRow) => {
+            retained.slice(1).forEach((old: E2ESessionRow) => {
               old.transcript = null;
               old.transcript_state = 'expired';
             });

@@ -45,7 +45,7 @@ type V2Result = { data: unknown; error: { message: string } | null };
 
 /**
  * Drive the three completions through the SERVER-OWNED retention boundary, oldest first, and return
- * both the envelopes and the resulting rows. Nothing here injects `transcript_state`: newest-two
+ * both the envelopes and the resulting rows. Nothing here injects `transcript_state`: newest-ONE
  * expiry is whatever the RPC produced.
  */
 async function completeThreeSessions(page: import('@playwright/test').Page) {
@@ -96,12 +96,12 @@ async function exportPdfText(page: import('@playwright/test').Page, id: string):
   return readFileSync(path, 'latin1');
 }
 
-test.describe('#1306 Step 3 — PRODUCED newest-two retention (authenticated)', () => {
+test.describe('#1306 Step 3 — PRODUCED newest-one retention (authenticated)', () => {
   test.beforeEach(async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: SEEDED });
   });
 
-  test('three real v2 completions PRODUCE newest-two retention — oldest expires, newest two retained', async ({ page }) => {
+  test('three real v2 completions PRODUCE newest-one retention — only the newest transcript survives', async ({ page }) => {
     const { results, rows } = await completeThreeSessions(page);
 
     // POSITIVE CONTROL: the RPC was actually exercised three times and accepted each one. Without this,
@@ -112,61 +112,78 @@ test.describe('#1306 Step 3 — PRODUCED newest-two retention (authenticated)', 
       expect((r.data as { success?: boolean })?.success).toBe(true);
     }
 
-    // PRODUCED, not injected: the server-owned retention inside the RPC decided these.
+    // PRODUCED, not injected: the server-owned retention inside the RPC decided these. Under
+    // newest-ONE the third completion leaves exactly one readable transcript — the middle session
+    // expires too, which is the whole behavioural difference from newest-two.
     expect(rows['m3-newest'].transcript_state).toBe('available');
-    expect(rows['m2-middle'].transcript_state).toBe('available');
+    expect(rows['m2-middle'].transcript_state).toBe('expired');
     expect(rows['m1-oldest'].transcript_state).toBe('expired');
-    // The oldest transcript text is gone; its metrics remain.
-    expect(rows['m1-oldest'].transcript == null || rows['m1-oldest'].transcript === '').toBe(true);
-    expect(rows['m1-oldest'].total_words).toBe(120);
-  });
-
-  test('the newest two reopen WITH their transcript tails after a full reload', async ({ page }) => {
-    await completeThreeSessions(page);
-    await page.reload();
-    for (const [id, tail] of [['m3-newest', TAIL3], ['m2-middle', TAIL2]] as const) {
-      await openDetail(page, id);
-      await expect(page.getByTestId('session-detail-transcript')).toContainText(tail);
+    // Both expired transcripts are gone as TEXT; their metrics and history survive intact.
+    for (const id of ['m1-oldest', 'm2-middle'] as const) {
+      expect(rows[id].transcript == null || rows[id].transcript === '').toBe(true);
+      expect(rows[id].total_words).toBe(120);
     }
   });
 
-  test('the oldest is EXPIRED — no transcript anywhere on the page, metrics intact', async ({ page }) => {
+  test('ONLY the newest reopens with its transcript tail after a full reload', async ({ page }) => {
     await completeThreeSessions(page);
-    await openDetail(page, 'm1-oldest');
+    await page.reload();
+
+    await openDetail(page, 'm3-newest');
+    await expect(page.getByTestId('session-detail-transcript')).toContainText(TAIL3);
+
+    // The middle session is the one newest-two used to keep readable. It must now read as expired,
+    // and its tail must not appear anywhere on the page.
+    await openDetail(page, 'm2-middle');
     await expect(page.getByTestId('session-detail-transcript-expired')).toHaveCount(1);
     await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
-    await expect(page.locator('body')).not.toContainText(TAIL1);
-    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
-    await expect(page.getByTestId('session-next-action-integrity-error')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText(TAIL2);
   });
 
-  test('PDF export carries the retained tails for 2 and 3 — and cannot carry the expired one', async ({ page }) => {
+  test('every earlier session is EXPIRED — no transcript anywhere on the page, metrics intact', async ({ page }) => {
     await completeThreeSessions(page);
 
-    // The RETAINED newest two each export their own tail, and only their own. These are exactly the
-    // two the dashboard renders, so both export controls genuinely exist.
+    for (const [id, tail] of [['m1-oldest', TAIL1], ['m2-middle', TAIL2]] as const) {
+      await openDetail(page, id);
+      await expect(page.getByTestId('session-detail-transcript-expired'), `${id} expired notice`).toHaveCount(1);
+      await expect(page.getByTestId('session-detail-transcript'), `${id} transcript`).toHaveCount(0);
+      await expect(page.locator('body'), `${id} tail leaked`).not.toContainText(tail);
+      // Expiry removes the TEXT, never the evidence: the next action and its integrity survive.
+      await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+      await expect(page.getByTestId('session-next-action-integrity-error')).toHaveCount(0);
+    }
+  });
+
+  test('PDF export carries ONLY the newest tail — no expired session can put text in an artifact', async ({ page }) => {
+    await completeThreeSessions(page);
+
+    // The single RETAINED session exports its own tail, and only its own. Under newest-two this
+    // assertion had a sibling for the middle session; that sibling is now the negative case below.
     const pdf3 = await exportPdfText(page, 'm3-newest');
     expect(pdf3).toContain(TAIL3);
     expect(pdf3).not.toContain(TAIL2);
+    expect(pdf3).not.toContain(TAIL1);
 
-    const pdf2 = await exportPdfText(page, 'm2-middle');
-    expect(pdf2).toContain(TAIL2);
-    expect(pdf2).not.toContain(TAIL3);
-
-    // ...and the EXPIRED oldest cannot put a transcript into ANY artifact. Note what is structurally
-    // true here: expiry only ever reaches the third-newest session, and the dashboard renders the
-    // newest two, so an expired session's export control is unreachable through the real UI. The
-    // original test clicked that button anyway on a detail page that never had one — it timed out
-    // waiting for a download instead of proving anything. Both halves of the real claim are asserted:
-    await expect(page.getByTestId('download-pdf-btn-m1-oldest')).toHaveCount(0);
-    // ...and the row a PDF would be generated FROM carries no transcript to leak.
-    const oldest = await page.evaluate(async () => {
+    // Neither expired session can put a transcript into ANY artifact. Both halves of the claim are
+    // asserted: the export control is unreachable through the real UI, AND the row a PDF would be
+    // generated FROM carries no transcript to leak. Asserting only the missing button would pass on a
+    // page that simply failed to render.
+    for (const id of ['m1-oldest', 'm2-middle'] as const) {
+      await expect(page.getByTestId(`download-pdf-btn-${id}`), `${id} export control`).toHaveCount(0);
+    }
+    const expiredRows = await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
-      const { data } = await sb.from('sessions').select('*').eq('id', 'm1-oldest').single();
-      return data as { transcript?: string | null; transcript_state?: string | null };
+      const out: Record<string, { transcript?: string | null; transcript_state?: string | null }> = {};
+      for (const id of ['m1-oldest', 'm2-middle']) {
+        const { data } = await sb.from('sessions').select('*').eq('id', id).single();
+        out[id] = data as { transcript?: string | null; transcript_state?: string | null };
+      }
+      return out;
     });
-    expect(oldest.transcript_state).toBe('expired');
-    expect(oldest.transcript ?? null).toBeNull();
+    for (const id of ['m1-oldest', 'm2-middle'] as const) {
+      expect(expiredRows[id].transcript_state, `${id} state`).toBe('expired');
+      expect(expiredRows[id].transcript ?? null, `${id} text`).toBeNull();
+    }
   });
 
   test('the history LIST never requests or renders transcript text', async ({ page }) => {
@@ -200,15 +217,16 @@ test.describe('#1306 Step 3 — PRODUCED newest-two retention (authenticated)', 
     await waitForFeature(page, 'analytics');
 
     // PRODUCT CONTRACT: the dashboard renders the NEWEST TWO by design (AnalyticsDashboard slices the
-    // history to 2). This previously asserted a row for all three ids, so it demanded a third row the
-    // dashboard never renders and could not pass at any commit.
+    // history to 2). That display slice is NOT retention and does not change under newest-one — the
+    // middle session still appears in history with its metrics, while its TRANSCRIPT is expired.
+    // Conflating the two would read as "newest-one broke the dashboard".
     for (const id of ['m3-newest', 'm2-middle']) {
       await expect(page.getByTestId(`session-history-item-${id}`)).toHaveCount(1);
     }
     await expect(page.getByTestId('session-history-item-m1-oldest')).toHaveCount(0);
 
-    // The oldest is NOT lost — it is off the newest-two dashboard, and detail access still resolves it
-    // with its metrics and next action intact and its transcript expired.
+    // The oldest is NOT lost — it is off the two-row dashboard slice, and detail access still resolves
+    // it with its metrics and next action intact and its transcript expired.
     await openDetail(page, 'm1-oldest');
     await expect(page.getByTestId('session-detail-transcript-expired')).toHaveCount(1);
     await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);

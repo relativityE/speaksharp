@@ -97,11 +97,31 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
+  v_viol     record;
   v_affected integer := 0;
   v_has_more boolean := false;
 BEGIN
-  IF p_batch_size IS NULL OR p_batch_size <= 0 THEN
-    RAISE EXCEPTION 'expire_transcripts_newest_one: p_batch_size must be a positive integer'
+  -- Argument bounds (fail closed), IDENTICAL to newest-two. p_batch_size = 1 is the exact minimum
+  -- boundary and MUST succeed; the 5000 ceiling bounds how much this destructive statement can scrub
+  -- in one transaction. Dropping the ceiling made an unbounded batch legal against a function whose
+  -- whole job is NULLing user transcripts.
+  IF p_batch_size IS NULL OR p_batch_size <= 0 OR p_batch_size > 5000 THEN
+    RAISE EXCEPTION 'expire_transcripts_newest_one: p_batch_size % out of bounds (1..5000)', p_batch_size
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- Fail closed on any pre-existing contradiction in scope (empty-on-available / expired-with-text /
+  -- not_captured-with-real-text / unknown state). NEVER scrub an inconsistent cohort: if the stored
+  -- state and the stored text already disagree, this function cannot tell which one is the truth, and
+  -- expiring on top of that destroys the evidence needed to find out. Checked BEFORE the trigger
+  -- bypass and before any destructive write, exactly as newest-two does.
+  SELECT * INTO v_viol FROM public.transcript_retention_invariant_violations(p_user_id);
+  IF v_viol.expired_with_text > 0
+     OR v_viol.available_without_text > 0
+     OR v_viol.not_captured_with_text > 0
+     OR v_viol.unknown_state > 0 THEN
+    RAISE EXCEPTION 'expire_transcripts_newest_one: invariant violations in scope (expired_with_text=%, available_without_text=%, not_captured_with_text=%, unknown_state=%); refusing to run',
+      v_viol.expired_with_text, v_viol.available_without_text, v_viol.not_captured_with_text, v_viol.unknown_state
       USING ERRCODE = '23514';
   END IF;
 
@@ -288,7 +308,11 @@ BEGIN
     WHERE (p_scope='all_users' OR s.user_id = p_user_id)
       AND s.transcript IS NOT NULL AND s.transcript ~ '[^[:space:]]'
   ),
-  cand AS (  -- outgoing candidates = transcript-bearing rank > 1 (would be expired by the authorized scrub)
+  -- Outgoing candidates = transcript-bearing rank > 1 (would be expired by the authorized scrub).
+  -- The published field is `rank_gt1_eligible`: under newest-ONE the cohort is rank > 1, and carrying
+  -- the inherited `rank_gt2_eligible` name over a rank > 1 count would have told an operator reading
+  -- the preflight JSON that they were looking at the newest-two cohort.
+  cand AS (
     SELECT r.id, r.user_id FROM ranked r WHERE r.rn > 1
   ),
   cand_pending AS (  -- candidates WITHOUT a durable terminal evaluation (R2 evidence gate) => retention pending
@@ -309,7 +333,7 @@ BEGIN
       (SELECT count(*) FROM ranked)::bigint AS transcript_bearing,
       (SELECT count(DISTINCT user_id) FROM public.sessions WHERE (p_scope='all_users' OR user_id=p_user_id))::bigint AS users_total,
       (SELECT count(DISTINCT user_id) FROM cand)::bigint AS users_with_candidates,
-      (SELECT count(*) FROM cand)::bigint AS rank_gt2_eligible,
+      (SELECT count(*) FROM cand)::bigint AS rank_gt1_eligible,
       (SELECT count(*) FROM cand_pending)::bigint AS pending_evidence_backlog,
       (SELECT count(DISTINCT user_id) FROM cand_pending)::bigint AS users_pending_backlog,
       (SELECT coalesce(max(retained),0) FROM per_user_retained)::bigint AS simulated_max_retained_per_user,
@@ -320,10 +344,10 @@ BEGIN
       'sessions_total', sessions_total, 'state_available', state_available, 'state_expired', state_expired,
       'state_not_captured', state_not_captured, 'transcript_bearing', transcript_bearing,
       'users_total', users_total, 'users_with_candidates', users_with_candidates,
-      'rank_gt2_eligible', rank_gt2_eligible, 'pending_evidence_backlog', pending_evidence_backlog,
+      'rank_gt1_eligible', rank_gt1_eligible, 'pending_evidence_backlog', pending_evidence_backlog,
       'users_pending_backlog', users_pending_backlog),
     jsonb_build_object(
-      'simulated_expire_count', rank_gt2_eligible,
+      'simulated_expire_count', rank_gt1_eligible,
       'simulated_max_retained_per_user', simulated_max_retained_per_user,
       'users_over_retained_after', users_over_retained_after,
       'newest_one_violations', users_over_retained_after)

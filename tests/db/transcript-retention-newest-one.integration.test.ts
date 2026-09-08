@@ -276,4 +276,113 @@ describe('newest-ONE transcript retention, executed against the real migrations'
         );
         expect(res.rows[0].exists).toBe(false);
     });
+
+    // ---------------------------------------------------------------------------------------------
+    // #1436 Codex P1/P2 — the fail-closed guards the correction had dropped. This function NULLs user
+    // transcripts, so an unbounded batch and a missing contradiction check are data-safety defects,
+    // not style. Each casualty proves the guard REJECTS and that the rejection is byte-for-byte inert.
+    // ---------------------------------------------------------------------------------------------
+
+    it('CASUALTY: a contradictory cohort is REFUSED, and every transcript survives untouched', async () => {
+        const older = await seedSession(db, U, '2026-01-01T00:00:00Z', 'oldest take transcript', 100);
+        await seedSession(db, U, '2026-01-02T00:00:00Z', 'newest take transcript', 200);
+        // A contradiction the invariant validator recognises: 'not_captured' while real transcript text
+        // remains. Established with the derivation trigger suppressed, which is the only way such a row
+        // can exist. Note it is NOT 'expired'-with-text: `sessions_expired_transcript_null_check` makes
+        // that state unreachable even under the bypass, so a fixture built that way never reaches the
+        // mutation and proves nothing about the guard.
+        await db.exec(`SET session_replication_role = 'replica'`);
+        await db.query(`UPDATE public.sessions SET transcript_state = 'not_captured' WHERE id = $1`, [older]);
+        await db.exec(`SET session_replication_role = 'origin'`);
+
+        // The fixture really is contradictory as far as the shipped validator is concerned — without
+        // this the rejection below could be caused by anything.
+        const violations = (await db.query<{ not_captured_with_text: number }>(
+            `SELECT * FROM public.transcript_retention_invariant_violations($1::uuid)`, [U],
+        )).rows[0];
+        expect(Number(violations.not_captured_with_text), 'the fixture is genuinely contradictory').toBe(1);
+
+        const before = await readAll(db, U);
+
+        await expect(db.query(`SELECT public.expire_transcripts_newest_one($1::uuid, 500)`, [U]))
+            .rejects.toThrow(/invariant violations in scope/i);
+
+        // The whole point of failing closed: a rejected cohort is not partially scrubbed. Comparing the
+        // full rows, not just a count, is what makes this a data-safety assertion rather than a smoke test.
+        expect(await readAll(db, U)).toEqual(before);
+    });
+
+    it('CASUALTY: the batch bound accepts 1 and 5000 and rejects 0, 5001 and NULL without writing', async () => {
+        await seedSession(db, U, '2026-01-01T00:00:00Z', 'oldest take transcript', 100);
+        await seedSession(db, U, '2026-01-02T00:00:00Z', 'newest take transcript', 200);
+        const before = await readAll(db, U);
+
+        for (const bad of [0, -1, 5001]) {
+            await expect(
+                db.query(`SELECT public.expire_transcripts_newest_one($1::uuid, $2::integer)`, [U, bad]),
+                `batch size ${bad} must be refused`,
+            ).rejects.toThrow(/out of bounds \(1\.\.5000\)/i);
+        }
+        await expect(db.query(`SELECT public.expire_transcripts_newest_one($1::uuid, NULL::integer)`, [U]))
+            .rejects.toThrow(/out of bounds \(1\.\.5000\)/i);
+
+        // Every rejection left the data alone — a guard that raised AFTER mutating would pass a
+        // rejects-toThrow assertion while having already destroyed transcripts.
+        expect(await readAll(db, U)).toEqual(before);
+
+        // ...and the exact boundary values are ACCEPTED, so the bound is a range and not a ban.
+        await expect(db.query(`SELECT public.expire_transcripts_newest_one($1::uuid, 5000)`, [U]))
+            .resolves.toBeDefined();
+        await expect(db.query(`SELECT public.expire_transcripts_newest_one($1::uuid, 1)`, [U]))
+            .resolves.toBeDefined();
+    });
+
+    it('the guards run BEFORE the trigger bypass, not after it', async () => {
+        // Ordering is the whole contract: both checks must precede `session_replication_role = replica`.
+        // A guard placed after the bypass would already have opened the window it exists to prevent.
+        const body = NEWEST_ONE.slice(
+            NEWEST_ONE.indexOf('CREATE OR REPLACE FUNCTION public.expire_transcripts_newest_one'),
+        );
+        const batchGuard = body.indexOf('out of bounds (1..5000)');
+        const invariantGuard = body.indexOf('transcript_retention_invariant_violations');
+        const bypass = body.indexOf("SET LOCAL session_replication_role = 'replica'");
+        expect(batchGuard, 'batch bound present').toBeGreaterThan(-1);
+        expect(invariantGuard, 'invariant gate present').toBeGreaterThan(-1);
+        expect(batchGuard, 'batch bound precedes the trigger bypass').toBeLessThan(bypass);
+        expect(invariantGuard, 'invariant gate precedes the trigger bypass').toBeLessThan(bypass);
+    });
+
+    it('the operational workflows pin the identity of the definition this migration actually produces', async () => {
+        const { readFileSync } = await import('node:fs');
+        const derived = (await db.query<{ digest: string }>(
+            `SELECT md5(pg_get_functiondef('public.transcript_retention_preflight(text,uuid,text)'::regprocedure)) AS digest`,
+        )).rows[0].digest;
+        expect(derived).toMatch(/^[0-9a-f]{32}$/);
+        // It must NOT still be the superseded newest-two identity.
+        expect(derived, 'the preflight definition changed with the policy').not.toBe('029a72bf14bfd2ab18260c6477c56493');
+
+        // Both operational proof paths must pin THIS digest. A workflow left on the old value would
+        // fail closed in Production against a definition the product no longer runs; a workflow that
+        // read the digest from the tree would pin nothing at all.
+        for (const wf of [
+            '.github/workflows/transcript-retention-preflight.yml',
+            '.github/workflows/transcript-retention-function-identity-proof.yml',
+        ]) {
+            const text = readFileSync(wf, 'utf8');
+            const pinned = text.match(/EXPECTED_PREFLIGHT_FUNCTION_MD5:\s*([0-9a-f]{32})/)?.[1];
+            expect(pinned, `${wf} pins the derived identity`).toBe(derived);
+            expect(text, `${wf} asserts the newest-one policy`).toContain('newest_one_v1');
+            expect(text, `${wf} loads the forward-only correction`)
+                .toContain('20260908120000_transcript_retention_newest_one');
+        }
+    });
+
+    it('the R3 workflow reads newest-one aggregate names and enforces a retained maximum of one', async () => {
+        const { readFileSync } = await import('node:fs');
+        const wf = readFileSync('.github/workflows/transcript-retention-preflight.yml', 'utf8');
+        expect(wf, 'reads the newest-one candidate aggregate').toContain('rank_gt1_eligible');
+        expect(wf, 'the newest-two aggregate name is gone').not.toContain('rank_gt2_eligible');
+        expect(wf, 'retained ceiling is one').toMatch(/simulated_max_retained_per_user"\]\) <= 1/);
+        expect(wf, 'the newest-two ceiling is gone').not.toContain('users_over_two_after');
+    });
 });

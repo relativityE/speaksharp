@@ -73,6 +73,10 @@ jobs:
           test -f backend/supabase/migrations/20260805000000_transcript_retention_preflight.sql
           test -f backend/supabase/migrations/20260803000000_transcript_retention_newest_two.sql
           test -f backend/supabase/migrations/20260804000000_transcript_retention_converge_on_save.sql
+          # The forward-only newest-ONE correction redefines the policy version, the expiry cohort and
+          # this preflight. It must be present at the reviewed SHA, or the assertions below describe a
+          # contract the checked-out tree does not contain.
+          test -f backend/supabase/migrations/20260908120000_transcript_retention_newest_one.sql
           echo "manifest present"
 
       - name: Run READ-ONLY aggregate preflight and validate the sanitized verdict (fail closed)
@@ -82,7 +86,13 @@ jobs:
           USER_ID: ${{ github.event.inputs.user_id }}
           # md5(pg_get_functiondef(...)) from a clean PostgreSQL database with the reviewed R3 migration.
           # This verifies the deployed executable definition, not merely the checked-out source file.
-          EXPECTED_PREFLIGHT_FUNCTION_MD5: 029a72bf14bfd2ab18260c6477c56493
+          #
+          # newest-ONE: the digest below is DERIVED, in this repository, by applying the real migration
+          # sequence through the newest-one correction and hashing the resulting definition — see
+          # `tests/db/transcript-retention-newest-one.integration.test.ts`, which recomputes it and fails
+          # if this value drifts. It is not transcribed from anywhere. The historical newest-two digest
+          # was 029a72bf14bfd2ab18260c6477c56493 and is pinned in the newest-two identity test.
+          EXPECTED_PREFLIGHT_FUNCTION_MD5: e3b62348891251edb333907d927485e4
         run: |
           set -euo pipefail
           [ -n "${PREFLIGHT_READONLY_DB_URL:-}" ] || { echo "::error::PREFLIGHT_READONLY_DB_URL secret missing"; exit 1; }
@@ -108,14 +118,15 @@ jobs:
           echo "$VERDICT" | python3 -c '
           import sys, json
           v = json.loads(sys.stdin.read())
-          assert v["policy_version"] == "newest_two_v1", "unexpected policy version"
+          assert v["policy_version"] == "newest_one_v1", "unexpected policy version"
           assert v["status"] in ("ready", "blocked"), "bad status"
           for grp in ("counts", "contradictions", "simulation"):
               for k, val in v[grp].items():
                   assert isinstance(val, int) and not isinstance(val, bool), f"non-numeric aggregate {grp}.{k}"
-          assert int(v["simulation"]["simulated_max_retained_per_user"]) <= 2, "sim retained > 2"
-          assert int(v["simulation"]["users_over_two_after"]) == 0, "users over two after sim"
-          print("PREFLIGHT", v["status"], "| scope=", v["scope"], "candidates=", v["counts"]["rank_gt2_eligible"],
+          assert int(v["simulation"]["simulated_max_retained_per_user"]) <= 1, "sim retained > 1"
+          assert int(v["simulation"]["users_over_retained_after"]) == 0, "users over retained after sim"
+          assert int(v["simulation"]["newest_one_violations"]) == 0, "newest-one violations after sim"
+          print("PREFLIGHT", v["status"], "| scope=", v["scope"], "candidates=", v["counts"]["rank_gt1_eligible"],
                 "pending_backlog=", v["counts"]["pending_evidence_backlog"],
                 "contradictions=", sum(v["contradictions"].values()))
           if v["status"] != "ready":

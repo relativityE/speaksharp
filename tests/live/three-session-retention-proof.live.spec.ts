@@ -23,7 +23,7 @@ import { validateNextActionSignal } from '../../frontend/src/contracts/nextActio
 // #1306 PROD-PROOF — three-session production journey on the exact deployed SHA.
 //
 // WHAT THIS PROVES that no other gate can. `complete_session_v2` performs the metrics+transcript write
-// AND server-owned newest-two retention inside ONE transaction. Every existing check of that contract
+// AND server-owned newest-ONE retention inside ONE transaction. Every existing check of that contract
 // runs against a test double or a disposable Postgres; this drives the REAL deployed client against the
 // REAL production database and reads the resulting rows with admin authority.
 //
@@ -89,7 +89,7 @@ test.use({
     },
 });
 
-test.describe('#1306 three-session newest-two retention production proof @live', () => {
+test.describe('#1306 three-session newest-one retention production proof @live', () => {
     let createdEmail = '';
     let capturedUid = '';
 
@@ -107,7 +107,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         capturedUid = '';
     });
 
-    test('three real Private completions → newest two retained, oldest expired, metrics untouched', async ({ page }) => {
+    test('three real Private completions → ONLY the newest retained, every earlier one expired, metrics untouched', async ({ page }) => {
         test.setTimeout(2_400_000);   // 40min: attempt 4 hit the old 25min ceiling mid-diagnosis
 
         const providerHits: string[] = [];
@@ -506,6 +506,10 @@ test.describe('#1306 three-session newest-two retention production proof @live',
 
         const ids: string[] = [];
         let oldestMetricsBeforeExpiry = '';
+        // Newest-ONE evicts session 1 at session 2 and session 2 at session 3, so the middle row needs
+        // its own pre-eviction snapshot to make the identical "metrics untouched" claim about it.
+        let middleMetricsBeforeExpiry = '';
+        let middleTranscriptShaBeforeExpiry = '';
         let oldestTranscriptShaBeforeExpiry = '';
 
         await test.step('Exact SHA + no test/mock injection BEFORE any credential is entered', async () => {
@@ -557,28 +561,44 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             expect(row.total_words, 'session 1 persisted a word count').not.toBeNull();
         });
 
-        await test.step('Session 2 — both sessions retained (nothing evicted below three)', async () => {
+        await test.step('Session 2 — session 1 is ALREADY evicted; newest-one evicts at two, not at three', async () => {
             ids.push(await recordOneSession('retention-proof-2', 2));
-            for (const [i, id] of ids.entries()) {
-                const row = await readRow(id);
-                expect(row.transcript_state, `session ${i + 1} still available with only two sessions`).toBe('available');
-                expect(String(row.transcript ?? '').trim().length, `session ${i + 1} transcript still present`).toBeGreaterThan(0);
-            }
+
+            // This is the sharpest behavioural difference from newest-two, which kept BOTH readable
+            // here and only evicted once a third session arrived. Asserting it at session 2 means a
+            // regression to newest-two fails at the earliest point it becomes observable, instead of
+            // surviving until the session-3 step.
+            const [first, second] = await Promise.all(ids.map(readRow));
+
+            expect(second.transcript_state, 'session 2 is the newest and stays available').toBe('available');
+            expect(String(second.transcript ?? '').trim().length, 'session 2 transcript present').toBeGreaterThan(0);
+
+            expect(first.transcript_state, 'session 1 expires as soon as a newer transcript exists').toBe('expired');
+            expect(first.transcript ?? null, 'session 1 transcript CONTENT is gone, not merely relabelled').toBeNull();
+
+            // Its measurements and next action are untouched by that eviction.
+            expect(metricSnapshot(first), 'expiry must not alter session 1 metrics or next action')
+                .toBe(oldestMetricsBeforeExpiry);
+
+            // Snapshot session 2 BEFORE its own eviction, so the session-3 step can make the identical
+            // claim about it that this step just made about session 1.
+            middleMetricsBeforeExpiry = metricSnapshot(second);
+            middleTranscriptShaBeforeExpiry = sha256Hex(second.transcript);
         });
 
-        await test.step('Session 3 — newest two retained, OLDEST evicted, metrics byte-identical', async () => {
+        await test.step('Session 3 — ONLY the newest retained, both earlier evicted, metrics byte-identical', async () => {
             ids.push(await recordOneSession('retention-proof-3', 3));
 
             const [oldest, middle, newest] = await Promise.all(ids.map(readRow));
 
-            // The two newest keep their transcripts.
+            // The newest keeps its transcript.
             //
             // DIAGNOSIS-ONLY CONVERGENCE HISTORY. If a row disagrees with the envelope the server
             // already returned, that disagreement is the finding — so this records a bounded history
             // to CLASSIFY it and then fails regardless. It must never turn an atomic-contract failure
             // into a pass: the envelope was asserted at completion time and has already succeeded by
             // the time we get here, so any mismatch is a row/consistency defect, not a slow write.
-            for (const [label, row] of [['middle', middle], ['newest', newest]] as const) {
+            for (const [label, row] of [['newest', newest]] as const) {
                 if (row.transcript_state !== 'available') {
                     const history: Array<{ atMs: number; state: unknown; chars: number }> = [];
                     const startedAt = Date.now();
@@ -616,19 +636,25 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 expect(String(row.transcript ?? '').trim().length, `${label} transcript retained`).toBeGreaterThan(0);
             }
 
-            // ...and the oldest is expired: state flipped AND the content is actually gone. Asserting the
-            // state alone would pass while the transcript still sat in the row.
-            expect(oldest.transcript_state, 'oldest transcript_state is expired').toBe('expired');
-            expect(oldest.transcript ?? null, 'oldest transcript CONTENT is gone, not merely relabelled').toBeNull();
+            // ...and BOTH earlier sessions are expired: state flipped AND the content is actually gone.
+            // Asserting the state alone would pass while the transcript still sat in the row.
+            for (const [label, row] of [['oldest', oldest], ['middle', middle]] as const) {
+                expect(row.transcript_state, `${label} transcript_state is expired`).toBe('expired');
+                expect(row.transcript ?? null, `${label} transcript CONTENT is gone, not merely relabelled`).toBeNull();
+            }
 
-            // POSITIVE CONTROL: the oldest genuinely HAD a transcript before this step, so the null above
-            // is eviction and not a session that never captured one.
+            // POSITIVE CONTROLS: each genuinely HAD a transcript before eviction, so the nulls above are
+            // eviction and not sessions that never captured one.
             expect(oldestTranscriptShaBeforeExpiry, 'oldest had a NON-EMPTY transcript before eviction')
                 .not.toBe(sha256Hex(''));
+            expect(middleTranscriptShaBeforeExpiry, 'middle had a NON-EMPTY transcript before eviction')
+                .not.toBe(sha256Hex(''));
 
-            // THE CENTRAL CLAIM: expiry removed the transcript and NOTHING else.
+            // THE CENTRAL CLAIM: expiry removed the transcript and NOTHING else — for BOTH evicted rows.
             expect(metricSnapshot(oldest), 'expiry must not alter the oldest session metrics or next action')
                 .toBe(oldestMetricsBeforeExpiry);
+            expect(metricSnapshot(middle), 'expiry must not alter the middle session metrics or next action')
+                .toBe(middleMetricsBeforeExpiry);
             // A VALIDATED next action, not merely a non-null column: expiry must leave behind a signal
             // the product can actually render, and `not.toBeNull()` would accept a corrupted blob.
             const oldestSignal = validateNextActionSignal(oldest.next_action_signal);
@@ -650,9 +676,13 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 expect(typeof row.duration === 'number', `session ${i + 1} persisted a numeric duration`).toBe(true);
             }
 
-            // Retention is newest-two by created_at, so the evicted row must be the actually-oldest one.
+            // Retention is newest-ONE by created_at, so the single RETAINED row must be the genuinely
+            // newest one — not merely "some row survived".
             const byAge = [oldest, middle, newest].map((r) => String(r.created_at));
-            expect([...byAge].sort(), 'the EVICTED row must be the genuinely oldest by created_at').toEqual(byAge);
+            expect([...byAge].sort(), 'the retained row must be the genuinely newest by created_at').toEqual(byAge);
+            const retainedRows = [oldest, middle, newest].filter((r) => r.transcript_state === 'available');
+            expect(retainedRows.length, 'exactly ONE transcript remains readable').toBe(1);
+            expect(String(retainedRows[0].id), 'the retained row is the newest session').toBe(ids[2]);
         });
 
         await test.step('EXACTLY three v2 completions, ZERO v1, distinct ids, full success envelope each', async () => {
@@ -679,7 +709,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             expect(envelopeCursor, 'every captured envelope was bound to a recording').toBe(3);
 
             // Distinct ids, and exactly ONE row per id — a reused or duplicated id would make the
-            // newest-two assertions above describe a different set of rows than the journey created.
+            // newest-one assertions above describe a different set of rows than the journey created.
             expect(new Set(ids).size, 'three DISTINCT session ids').toBe(3);
             if (!admin) throw new Error('admin client required (fail closed)');
             for (const id of ids) {
@@ -713,15 +743,18 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             // order or the dashboard's two-row limit; each assertion is bound to an exact id.
             const assertSurfaces = async (phase: string) => {
                 for (const [i, id] of ids.entries()) {
-                    const isOldest = i === 0;
+                    // Newest-ONE: only the LAST session keeps a readable transcript. Under newest-two
+                    // this was `i === 0`, which would now pass while the middle session still rendered
+                    // text the policy says must be gone.
+                    const isExpired = i < ids.length - 1;
                     await page.goto(`/analytics/${id}`);
                     await expect(page.getByTestId('session-next-action-title'),
                         `${phase}: session ${i + 1} keeps exactly one next action`).toHaveCount(1);
-                    if (isOldest) {
+                    if (isExpired) {
                         await expect(page.getByTestId('session-detail-transcript-expired'),
-                            `${phase}: oldest tells the user its transcript expired`).toBeVisible({ timeout: 45_000 });
+                            `${phase}: session ${i + 1} tells the user its transcript expired`).toBeVisible({ timeout: 45_000 });
                         await expect(page.getByTestId('session-detail-transcript'),
-                            `${phase}: oldest renders no transcript pane`).toHaveCount(0);
+                            `${phase}: session ${i + 1} renders no transcript pane`).toHaveCount(0);
                     } else {
                         const detail = page.getByTestId('session-detail-transcript');
                         await expect(detail, `${phase}: session ${i + 1} renders its retained transcript`)
@@ -748,7 +781,10 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         await test.step('PDF truth through the REAL control — parsed text layer, not raw bytes', async () => {
             // The export control is rendered by SessionHistoryItem, i.e. it exists ONLY on the
             // /analytics dashboard row, never on the detail route. The dashboard renders the newest two
-            // by design, so the two RETAINED sessions have a control and the EXPIRED one has none.
+            // by DISPLAY design — that slice is not retention. Under newest-ONE exactly one session is
+            // readable, so exactly one export control exists; the middle session is rendered in the
+            // dashboard but has no control, which is precisely the pair of facts that separates the
+            // display slice from the retention policy.
             //
             // MARKER CHOICE. All three recordings are fed the SAME audio fixture, so their transcript
             // text is effectively identical and cannot identify which session an artifact belongs to.
@@ -773,37 +809,37 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 return normalizeForMatch(await extractPdfText(path));
             };
 
-            // Each retained row's transcript is read and normalised SEPARATELY. All three recordings
-            // share one audio fixture, but decode output is not guaranteed byte-identical, so the
-            // newest transcript cannot stand in for the middle one — checking only the newest would
-            // leave the stated two-PDF transcript claim unproven.
+            // Only the newest row is exportable now, so only its transcript is read and normalised.
             const newestText = normalizeForMatch(String((await readRow(ids[2])).transcript ?? ''));
-            const middleText = normalizeForMatch(String((await readRow(ids[1])).transcript ?? ''));
             const newestPdf = await exportPdfText(ids[2], 'newest');
-            const middlePdf = await exportPdfText(ids[1], 'middle');
 
             // POSITIVE CONTROLS FIRST — without these the absence assertions below prove nothing.
             expect(newestPdf.length, 'newest artifact produced parseable text').toBeGreaterThan(0);
-            expect(middlePdf.length, 'middle artifact produced parseable text').toBeGreaterThan(0);
             expect(newestPdf.includes(ids[2]), 'newest artifact carries its OWN session marker').toBe(true);
-            expect(middlePdf.includes(ids[1]), 'middle artifact carries its OWN session marker').toBe(true);
             // ...and the extractor demonstrably surfaces retained transcript text, so "no transcript in
             // the artifact" is a real observation rather than an extraction failure.
             expect(newestText.length, 'newest session has retained transcript text to find').toBeGreaterThan(0);
-            expect(middleText.length, 'middle session has retained transcript text to find').toBeGreaterThan(0);
             expect(newestPdf.includes(newestText), 'newest artifact carries its OWN retained transcript').toBe(true);
-            expect(middlePdf.includes(middleText), 'middle artifact carries its OWN retained transcript').toBe(true);
 
-            // THE EXPIRED SESSION'S MARKER IS ABSENT from every artifact that could be produced.
-            expect(newestPdf.includes(ids[0]), 'expired session marker must not appear in another artifact').toBe(false);
-            expect(middlePdf.includes(ids[0]), 'expired session marker must not appear in another artifact').toBe(false);
+            // NEITHER EXPIRED SESSION'S MARKER appears in the one artifact that can be produced.
+            expect(newestPdf.includes(ids[0]), 'oldest expired marker must not appear in another artifact').toBe(false);
+            expect(newestPdf.includes(ids[1]), 'middle expired marker must not appear in another artifact').toBe(false);
 
-            // ...and it exposes no export control at all, so no artifact of its own can be produced.
+            // ...and neither exposes an export control, so no artifact of their own can be produced.
+            // The middle session IS rendered by the two-row dashboard, so its missing control is a
+            // retention fact rather than an artefact of the session being off-screen.
             await page.goto('/analytics');
             await expect(page.getByTestId('session-history-list')).toBeVisible({ timeout: 45_000 });
-            await expect(page.getByTestId(`download-pdf-btn-${ids[0]}`),
-                'expired session exposes no export control on the newest-two dashboard').toHaveCount(0);
-            expect(oldestTranscriptShaBeforeExpiry, 'the expired session HAD a transcript to leak (control)')
+            await expect(page.getByTestId(`session-history-item-${ids[1]}`),
+                'the middle session IS on the dashboard — its missing control is retention, not absence')
+                .toHaveCount(1);
+            for (const [ordinal, id] of [['oldest', ids[0]], ['middle', ids[1]]] as const) {
+                await expect(page.getByTestId(`download-pdf-btn-${id}`),
+                    `${ordinal} expired session exposes no export control`).toHaveCount(0);
+            }
+            expect(oldestTranscriptShaBeforeExpiry, 'the oldest expired session HAD a transcript to leak (control)')
+                .not.toBe(sha256Hex(''));
+            expect(middleTranscriptShaBeforeExpiry, 'the middle expired session HAD a transcript to leak (control)')
                 .not.toBe(sha256Hex(''));
 
             expect(providerHits, `no Cloud/provider contact at any point: ${providerHits.join(',')}`).toEqual([]);
@@ -817,10 +853,11 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             completeSessionV2Calls: rpcCalls.complete_session_v2,
             legacyV1Calls: rpcCalls.complete_session,
             v2EnvelopesVerified: v2Responses.length,
-            oldestExpired: true,
-            oldestTranscriptNulled: true,
-            oldestMetricsUnchanged: true,
-            newestTwoRetained: true,
+            earlierSessionsExpired: 2,
+            earlierTranscriptsNulled: 2,
+            earlierMetricsUnchanged: true,
+            retainedTranscriptCount: 1,
+            retentionPolicy: 'newest_one_v1',
             listResponsesScanned: listBodies.length,
             providerRequests: providerHits.length,
         })}`);
