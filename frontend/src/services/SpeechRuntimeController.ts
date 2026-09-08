@@ -4681,6 +4681,7 @@ export class SpeechRuntimeController {
                                 sessionId,
                                 attributionTerminalStatus,
                                 metricsOk,
+                                () => this.stopStillOwnsSharedState(stopAuthority, token),
                             );
 
                             clearSessionRecoveryDraft(sessionId);
@@ -4897,11 +4898,19 @@ export class SpeechRuntimeController {
      * only after its original brief is explicitly registered; registration failure or ambiguity writes no
      * evaluation. Later objective-stage failure after confirmed registration still evaluates.
      */
+    /**
+     * @param canPublishShared #1431 P1 — whether the CALLER still owns the shared surfaces. The
+     * Focus Points coverage rail is published from here, and it is shared state: a stale take
+     * republishing its own N/N after a successor cleared the rail is exactly how a retry showed the
+     * previous take's coverage instead of starting at 0/N. The retry-save callers pass nothing,
+     * because they are user-initiated and current by definition.
+     */
     private async completeProgressForRecording(
         context: ProgressCompletionContext,
         sessionId: string,
         attributionStatus: string | undefined,
         metricsPersisted: boolean,
+        canPublishShared: () => boolean = () => true,
     ): Promise<ProgressEvaluationOutcome> {
         // #1354 CASE 6: these fail-closed returns must PUBLISH THE GATE, not just report an outcome.
         // They previously returned before `beginProgressGate`, so the most fail-closed paths in the whole
@@ -4961,6 +4970,7 @@ export class SpeechRuntimeController {
             context.segments,
             context.durationSeconds,
             runProgressEval,
+            canPublishShared,
         ));
     }
 
@@ -5014,6 +5024,8 @@ export class SpeechRuntimeController {
         segments: { text: string; startSec: number }[],
         durationSeconds: number,
         runProgressEval: () => Promise<ProgressEvaluationOutcome>,
+        /** #1431 P1 — see `completeProgressForRecording`. The coverage rail is shared state. */
+        canPublishShared: () => boolean = () => true,
     ): Promise<ProgressEvaluationOutcome> {
         try {
             const { finalizeObjectiveSessionOnSave } = await import('@/services/objective/finalizeObjectiveSessionOnSave');
@@ -5028,9 +5040,17 @@ export class SpeechRuntimeController {
             // Publish per-point coverage ONLY on a fully-successful finalize carrying coverage; any failed
             // stage leaves objectiveCoverageResult null, so a broken session shows no rail (never fabricated).
             if (objResult.ok && objResult.coverage) {
-                useSessionStore.getState().setObjectiveCoverageResult(
-                    objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
-                );
+                // #1431 P1 — the coverage RAIL is shared state. A new recording clears it at the
+                // accepted-start boundary; a stale take finishing afterwards would put its own N/N
+                // straight back, and the user pressing Retry would see the previous take's coverage
+                // instead of a fresh 0/N.
+                if (canPublishShared()) {
+                    useSessionStore.getState().setObjectiveCoverageResult(
+                        objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
+                    );
+                } else {
+                    pushNativeRuntimeTrace('controller_stop_publication_refused', { label: 'objective_coverage' });
+                }
             }
             // #1354 CASE 5 — `registered: false` has TWO origins and only ONE of them is terminal.
             //

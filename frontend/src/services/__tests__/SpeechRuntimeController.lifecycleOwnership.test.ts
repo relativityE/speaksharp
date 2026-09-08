@@ -20,6 +20,18 @@ vi.mock('../../lib/storage', () => ({
     heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
     completeSession: vi.fn().mockResolvedValue({}),
 }));
+// The coverage publish is only reached when the objective finalizer SUCCEEDS with coverage. Without
+// this the casualty below is vacuous: the publish never runs, and the mutant that removes its
+// ownership guard survives — which is exactly what the first version of it did.
+vi.mock('@/services/objective/finalizeObjectiveSessionOnSave', () => ({
+    finalizeObjectiveSessionOnSave: vi.fn().mockResolvedValue({
+        ok: true,
+        coverage: [
+            { briefPointId: 'fp-0', point: 'Name the price', status: 'covered' },
+            { briefPointId: 'fp-1', point: 'State the guarantee', status: 'covered' },
+        ],
+    }),
+}));
 vi.mock('../../lib/supabaseClient', () => ({
     getSupabaseClient: vi.fn(() => ({
         auth: { getSession: vi.fn().mockResolvedValue({ data: { session: null } }) },
@@ -433,5 +445,52 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('CASUALTY P1-1b: a stale take cannot republish its Focus Points coverage over the new take', async () => {
+        // THIS is the write that strands a Retry at the previous take's N/N.
+        //
+        // A new recording clears `objectiveCoverageResult` at the accepted-start boundary. But A's
+        // finalization publishes the rail from inside `completeProgressForRecording`, which runs after
+        // several suspensions — so A finishing AFTER B started put A's coverage straight back, and the
+        // user who pressed "Retry these points" saw the previous take's 4/4 instead of a fresh 0/4.
+        //
+        // Guarding the other shared writes did not cover this one: the coverage publish lives in a
+        // different method entirely, and the ownership has to be threaded into it.
+        const c = newController() as unknown as PrivateController & {
+            stopStillOwnsSharedState: (a: unknown, t: { cancelled: boolean; version: number }) => boolean;
+            captureStopAuthority: (v: number, s: unknown, id: string | null) => unknown;
+            finalizeObjectiveAndGateProgress: (
+                brief: { projectId: string; briefId: string },
+                sessionId: string,
+                segments: unknown[],
+                durationSeconds: number,
+                runProgressEval: () => Promise<unknown>,
+                canPublishShared?: () => boolean,
+            ) => Promise<unknown>;
+        };
+
+        // A captures its authority, then B supersedes.
+        const token = { cancelled: false, version: c.lifecycleVersion };
+        const authority = c.captureStopAuthority(token.version, null, 'session-A');
+        c.lifecycleVersion += 1;
+
+        // B has already cleared the rail by starting.
+        useSessionStore.getState().setObjectiveCoverageResult(null);
+
+        // A's finalization completes and tries to publish its own coverage.
+        await c.finalizeObjectiveAndGateProgress(
+            { projectId: 'p1', briefId: 'b1' },
+            'session-A',
+            [{ text: 'A said all four points', startSec: 0 }],
+            60,
+            async () => ({ status: 'queued' }) as never,
+            () => c.stopStillOwnsSharedState(authority, token),
+        );
+
+        expect(
+            useSessionStore.getState().objectiveCoverageResult,
+            "A's coverage must not reappear on B's rail",
+        ).toBeNull();
     });
 });
