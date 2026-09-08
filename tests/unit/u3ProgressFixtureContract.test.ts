@@ -67,4 +67,42 @@ describe('#1427 — the U3 eligible progress fixture passes the production compl
             expect(Number.isInteger(row.error_marker_count)).toBe(true);
         }
     });
+
+    /**
+     * The same omission was live in a SECOND spec, and only surfaced because its journey happened to
+     * assert on a control that Progress renders. A fixture whose journey never reaches an
+     * availability-dependent assertion would carry the defect indefinitely and silently.
+     *
+     * This scans the E2E tree structurally: any fixture object that claims `eligible: true` must also
+     * carry `error_marker_count`. It is a wiring check, deliberately cheap, and it does not replace
+     * the semantic assertions above.
+     */
+    it('every eligible progress fixture in the E2E tree carries error-marker evidence', async () => {
+        const { readdirSync, statSync, readFileSync } = await import('node:fs');
+        const { join } = await import('node:path');
+
+        const files: string[] = [];
+        const walk = (dir: string) => {
+            let entries: string[];
+            try { entries = readdirSync(dir); } catch { return; }
+            for (const entry of entries) {
+                const abs = join(dir, entry);
+                let st;
+                try { st = statSync(abs); } catch { continue; }
+                if (st.isDirectory()) walk(abs);
+                else if (/\.(ts|tsx)$/.test(entry)) files.push(abs);
+            }
+        };
+        walk('tests/e2e');
+        walk('tests/live');
+
+        expect(files.length, 'the walk found no specs — it would pass trivially').toBeGreaterThan(5);
+
+        const offenders = files.filter((file) => {
+            const text = readFileSync(file, 'utf8');
+            return text.includes('eligible: true') && !text.includes('error_marker_count');
+        });
+        expect(offenders, `eligible progress fixtures missing error-marker evidence:\n${offenders.join('\n')}`)
+            .toEqual([]);
+    });
 });

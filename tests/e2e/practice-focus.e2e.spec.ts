@@ -25,6 +25,11 @@ function eligibleRepeatProgress() {
     exclusion_reasons: [],
     clarity_raw: 88,
     filler_count: 4,
+    // REQUIRED by `hasCompleteEligibleProgressEvidence`, which demands an integer >= 0. Without it
+    // `toEvaluation()` yields `undefined`, the row is refused as incomplete readback, and Progress
+    // resolves `unavailable` — so `progress-accept` never renders and this journey fails on a missing
+    // element rather than on the behaviour it is testing.
+    error_marker_count: 0,
     wpm: 142,
     word_count: 245,
     cohort_key: 'private|v2|base|clarity_v1',
