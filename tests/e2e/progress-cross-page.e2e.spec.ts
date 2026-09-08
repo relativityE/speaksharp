@@ -121,6 +121,7 @@ function eligibleProgressTruth() {
     exclusion_reasons: [],
     clarity_raw: 88,
     filler_count: 4,
+    error_marker_count: 0,
     wpm: 142,
     word_count: 245,
     cohort_key: 'private|v2|base|clarity_v1',
