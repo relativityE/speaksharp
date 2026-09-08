@@ -4,6 +4,7 @@ import {
   evaluateReviewQualification,
   isSubstantiveImplementationFile,
 } from '../../scripts/review-qualification.mjs';
+import { buildReviewReceipt } from '../../scripts/collect-review-qualification.mjs';
 import {
   CANONICAL_PRODUCTION_ORIGIN,
   classifyDiagnosticEvidence,
@@ -68,6 +69,117 @@ describe('Q-08 automated review qualification', () => {
     expect(isSubstantiveImplementationFile('scripts/review-qualification.mjs')).toBe(true);
     expect(isSubstantiveImplementationFile('tests/unit/finalReleaseQualification.test.js')).toBe(false);
     expect(isSubstantiveImplementationFile('docs/findings/final-release-qualification.md')).toBe(false);
+  });
+
+  it('qualifies only live GitHub state with a current Codex review and no current unresolved release finding', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({ qualified: true, findingCount: 0 });
+
+    const fabricated = { ...github, headRefOid: OTHER_SHA };
+    expect(buildReviewReceipt({ pullRequest: fabricated, expectedHeadSha: SHA }).reasons)
+      .toContain('github_pr_head_is_not_workflow_head');
+  });
+
+  it('CASUALTY: an unresolved current-head Codex P0/P1/P2 fails qualification', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{ author: { login: 'chatgpt-codex-connector[bot]' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: {
+        nodes: [{
+          isResolved: false,
+          comments: { nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, originalCommit: { oid: SHA }, pullRequestReview: { commit: { oid: SHA } }, body: 'P1 Badge: current defect' }], pageInfo: { hasPreviousPage: false } },
+        }],
+        pageInfo: { hasNextPage: false },
+      },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({ qualified: false, findingCount: 1 });
+  });
+
+  it('does not relabel an old unresolved thread as current when GitHub rebases its displayed commit', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: {
+        nodes: [{
+          isResolved: false,
+          comments: { nodes: [{
+            author: { login: 'chatgpt-codex-connector' },
+            commit: { oid: SHA },
+            originalCommit: { oid: OTHER_SHA },
+            pullRequestReview: { commit: { oid: OTHER_SHA } },
+            body: 'P1 Badge: fixed on a later head',
+          }], pageInfo: { hasPreviousPage: false } },
+        }],
+        pageInfo: { hasNextPage: false },
+      },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({ qualified: true, findingCount: 0 });
+  });
+
+  it('fails closed when GitHub pagination could hide files, reviews, or findings', () => {
+    const base = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    expect(buildReviewReceipt({ pullRequest: { ...base, files: { ...base.files, pageInfo: { hasNextPage: true } } }, expectedHeadSha: SHA }).qualified).toBe(false);
+    expect(buildReviewReceipt({ pullRequest: { ...base, reviews: { ...base.reviews, pageInfo: { hasPreviousPage: true } } }, expectedHeadSha: SHA }).qualified).toBe(false);
+    expect(buildReviewReceipt({ pullRequest: { ...base, reviewThreads: { ...base.reviewThreads, pageInfo: { hasNextPage: true } } }, expectedHeadSha: SHA }).qualified).toBe(false);
+    expect(buildReviewReceipt({ pullRequest: {
+      ...base,
+      reviewThreads: { nodes: [{ isResolved: false, comments: { nodes: [], pageInfo: { hasPreviousPage: true } } }], pageInfo: { hasNextPage: false } },
+    }, expectedHeadSha: SHA }).reasons).toContain('review_thread_comments_incomplete');
+  });
+
+  it('does not accept a lookalike reviewer login or a dismissed exact-head review', () => {
+    const base = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: { nodes: [], pageInfo: { hasPreviousPage: false } },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    for (const review of [
+      { author: { login: 'fake-chatgpt-codex-connector' }, state: 'COMMENTED', commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' },
+      { author: { login: 'chatgpt-codex-connector' }, state: 'DISMISSED', commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' },
+    ]) {
+      expect(buildReviewReceipt({ pullRequest: { ...base, reviews: { ...base.reviews, nodes: [review] } }, expectedHeadSha: SHA }))
+        .toMatchObject({ qualified: false, reviewStatus: 'missing' });
+    }
+  });
+
+  it('the full CI lane invokes authenticated GitHub review qualification after evidence', () => {
+    const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    expect(workflow).toContain('name: exact-head-review-qualification');
+    expect(workflow).toContain('node scripts/collect-review-qualification.mjs');
+    expect(workflow).toContain('GITHUB_TOKEN: ${{ github.token }}');
+    expect(workflow).toContain('needs: [scope, full-evidence]');
+    expect(workflow).toContain('full-evidence, review-qualification]');
+    expect(workflow).toContain('[...REQUIRED_JOBS, "review-qualification"]');
   });
 });
 
@@ -157,8 +269,16 @@ describe('Q-10 canonical Production evidence eligibility', () => {
     expect(workflow).toContain('Classify Gate 3 evidence target');
     expect(workflow).toContain('gate-3-evidence-eligibility.json');
     expect(workflow).toContain('gate-3-dast-production-${{ github.sha }}');
+    expect(workflow).toContain("if: ${{ success() && github.event.inputs.diagnostic_dast_spec == '' }}");
+    expect(workflow).toContain('gate-3-dast-canonical-ineligible-${{ github.sha }}');
     expect(workflow).toContain('gate-3-dast-diagnostic-ineligible-${{ github.sha }}');
     expect(workflow).not.toMatch(/name:\s*gate-3-dast-artifacts\s*$/m);
+  });
+
+  it('CASUALTY: a diagnostic run ends the Gate 3 job red even when its selected spec passes', () => {
+    const workflow = readFileSync('.github/workflows/rc-gates.yml', 'utf8');
+    expect(workflow).toContain('Reject diagnostic run as release qualification');
+    expect(workflow).toMatch(/Reject diagnostic run as release qualification[\s\S]*diagnostic_dast_spec != ''[\s\S]*exit 1/);
   });
 });
 

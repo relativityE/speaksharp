@@ -2,6 +2,7 @@ name: "CI - Test Audit"
 
 permissions:
   contents: read
+  pull-requests: read
 
 on:
   push:
@@ -754,6 +755,37 @@ jobs:
             echo "Affected draft lane passed."
           fi
 
+  review-qualification:
+    name: exact-head-review-qualification
+    needs: [scope, full-evidence]
+    if: ${{ always() && github.event_name != 'push' && needs.scope.outputs.full_required == 'true' && needs.full-evidence.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read independent review from GitHub and qualify the exact head
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_QUALIFICATION_FILE: ${{ runner.temp }}/review-qualification.json
+        run: node scripts/collect-review-qualification.mjs
+      - name: Upload qualified exact-head review receipt
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-qualification-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/review-qualification.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Upload ineligible review diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-qualification-ineligible-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/review-qualification.json
+          retention-days: 1
+          if-no-files-found: warn
+
   # ---- CI-GATE (#1328): fail-closed merge qualification ------------------------------------------
   # `report` above enforces whichever lane was SELECTED, which is why a draft lane can conclude the
   # workflow as success: the draft lane passing is a legitimate result for that lane. That is exactly
@@ -767,7 +799,7 @@ jobs:
   # CI cycle per case.
   merge-qualification:
     name: merge-qualification
-    needs: [scope, build, edge-tests, unit-shard, unit-coverage-merge, e2e, health-check, full-evidence]
+    needs: [scope, build, edge-tests, unit-shard, unit-coverage-merge, e2e, health-check, full-evidence, review-qualification]
     # always(), NOT always() && !cancelled(): a cancelled upstream job must be REPORTED as unqualified
     # rather than skipping the gate that would have caught it.
     if: always()
@@ -778,20 +810,27 @@ jobs:
       - name: Evaluate merge qualification (fail closed)
         env:
           FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
+          EVENT_NAME: ${{ github.event_name }}
           RESULTS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
           node --input-type=module -e '
-            import { evaluateMergeQualification, formatQualification } from "./scripts/ci-merge-qualification.mjs";
+            import { evaluateMergeQualification, formatQualification, REQUIRED_JOBS } from "./scripts/ci-merge-qualification.mjs";
             // `toJSON(needs)` gives { job: { result, outputs } }; flatten to job -> result. A job that
             // never ran is absent from this object, which the evaluator rejects as missing.
             const raw = JSON.parse(process.env.RESULTS || "null");
             const results = raw && typeof raw === "object"
               ? Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, v && v.result]))
               : null;
+            // Exact-head review is pre-merge authority. Require it for PR/manual candidate lanes;
+            // post-merge push verification has no open PR head to review.
+            const required = process.env.EVENT_NAME === "push"
+              ? undefined
+              : [...REQUIRED_JOBS, "review-qualification"];
             const decision = evaluateMergeQualification({
               fullRequired: process.env.FULL_REQUIRED,
               results,
+              required,
             });
             const text = formatQualification(decision);
             console.log(text);

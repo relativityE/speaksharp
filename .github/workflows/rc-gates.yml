@@ -260,8 +260,13 @@ jobs:
             echo ""
             echo "Root-cause classification only. The release gate stays **FAIL** until a FULL Gate 3 (no diagnostic input) passes."
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Reject diagnostic run as release qualification
+        if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
+        run: |
+          echo "::error::Diagnostic DAST completed as ineligible evidence; Gate 3 remains failed closed."
+          exit 1
       - name: Upload canonical Production Gate 3 artifacts
-        if: ${{ always() && github.event.inputs.diagnostic_dast_spec == '' }}
+        if: ${{ success() && github.event.inputs.diagnostic_dast_spec == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: gate-3-dast-production-${{ github.sha }}
@@ -272,6 +277,18 @@ jobs:
             blob-report/
           retention-days: 14
           if-no-files-found: error
+      - name: Upload failed canonical-target diagnostics as ineligible
+        if: ${{ failure() && github.event.inputs.diagnostic_dast_spec == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-3-dast-canonical-ineligible-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/gate-3-evidence-eligibility.json
+            test-results/
+            playwright-report/
+            blob-report/
+          retention-days: 14
+          if-no-files-found: warn
       - name: Upload ineligible diagnostic Gate 3 artifacts
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
         uses: actions/upload-artifact@v4
