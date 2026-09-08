@@ -205,7 +205,7 @@ export const saveSession = async (
   // so a stray prose write is impossible even if a caller passes one via an untyped object.
   //
   // `transcript` is deliberately ABSENT from this list. #1306 stripped it under a "no transcript ever" P0; that
-  // was SUPERSEDED by the #1258/#1314 contract, which retains the newest two sessions' transcripts for review
+  // was SUPERSEDED by the #1258/#1314 contract, and corrected again to retain only the NEWEST session's transcript
   // and PDF. Re-adding it here would silently reinstate the reverted decision, so it must not be "restored".
   //
   // The rest stay stripped: coaching prose, ground truth, per-session accuracy, custom words, and the
@@ -417,7 +417,7 @@ function parseCompleteSessionV2 (raw: unknown, expectedStatus: string): Complete
 /**
  * Marks a session completed or failed. ONE server-side transaction persists the transcript, every retained
  * metric, the filler snapshot, the one structured next action, the duration and the status together, then runs
- * newest-two retention before commit — so "completed but missing its metrics" is not a reachable state.
+ * newest-one retention before commit — so "completed but missing its metrics" is not a reachable state.
  * Strictly idempotent server-side: an identical replay is a no-op, any mismatch conflicts rather than
  * partially writing.
  *
@@ -449,7 +449,7 @@ export const completeSession = async (
   // than trusting every caller — means one boundary decides it.
   const transcriptArg = status === 'completed' ? (finalTranscript ?? null) : null;
 
-  // ONE atomic server transaction: metrics, the single next action, the eligible transcript, and newest-two
+  // ONE atomic server transaction: metrics, the single next action, the eligible transcript, and newest-one
   // retention all commit together. ALL ELEVEN arguments are named explicitly, nulls included — an omitted
   // argument would let PostgREST resolve a DIFFERENT overload than the one that was reviewed and verified.
   const { data, error } = await supabase.rpc('complete_session_v2', {

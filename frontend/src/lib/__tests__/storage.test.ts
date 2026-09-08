@@ -168,7 +168,7 @@ describe('storage.ts', () => {
         // #1258/#1314 retention contract (SUPERSEDES #1306's "no transcript ever" P0): the two newest saved
         // sessions retain their transcript for review and PDF. These pin BOTH halves of that boundary — what the
         // save path must now carry, and what it must still refuse to carry — so neither can drift silently.
-        it('PERSISTS the transcript — it is retained for the newest two sessions, not stripped', async () => {
+        it('PERSISTS the transcript — the newest session retains it, it is not stripped', async () => {
             mockSupabase.rpc.mockResolvedValue({ data: { new_session: {}, usage_exceeded: false }, error: null });
 
             await saveSession({ ...mockSessionData, transcript: 'the retained transcript' }, mockProfile);

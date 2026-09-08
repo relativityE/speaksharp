@@ -27,7 +27,7 @@ describe('storage.ts validation', () => {
     const mockUser = { id: 'user-123', email: 'test@example.com', subscription_status: 'free' };
 
     // Persistence boundary under the #1258/#1314 retention contract, which SUPERSEDED #1306's "no transcript
-    // ever" P0: the newest two sessions retain their transcript for review and PDF, so `transcript` now passes
+    // ever" P0: the newest session retains its transcript for review and PDF, so `transcript` now passes
     // through. Every OTHER content-bearing field is still stripped before the RPC, so a prose
     // write is impossible even if a caller passes one — there is no length limit because content is never sent.
     it('passes the retained transcript through but still strips every non-retained content field', async () => {
