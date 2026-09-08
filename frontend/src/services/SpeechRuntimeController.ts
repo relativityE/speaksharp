@@ -2812,6 +2812,21 @@ export class SpeechRuntimeController {
         // this one, and clear the prior finalized signal so its settled UI (toast/cue/copy) does not linger.
         this.finalizeSequence++;
         useSessionStore.getState().setFinalizedAnalysis(null);
+        /**
+         * #1422 — AND THE COMPLETED-SESSION IDENTITY, for the same reason.
+         *
+         * The review reader falls back to `completedSessionId` so an optional reconciliation failure
+         * cannot take a saved transcript away. Clearing `finalizedAnalysis` here without clearing this
+         * left that fallback pointing at the PREVIOUS take: `showAnalyticsPrompt` is still true, the saved
+         * -session query may still hold that session's available transcript, and the moment the new take
+         * enters finalization the after-state remounts the review and authorizes an automatic request for
+         * the take before it.
+         *
+         * That replays stale coaching, duplicates its telemetry, and — if the previous review was not
+         * cached — spends a generation from the user's daily budget on the wrong take. A completed
+         * session's identity belongs to the take that produced it, and a new take supersedes it.
+         */
+        useSessionStore.getState().setCompletedSessionId(null);
         // #1046 slice 5a: a new recording also clears any prior Focus Points coverage rail, so the
         // settled UI from an earlier objective session never lingers onto this one (mirrors the
         // finalizedAnalysis clear above; the brief itself is consumed separately at the stop seam).

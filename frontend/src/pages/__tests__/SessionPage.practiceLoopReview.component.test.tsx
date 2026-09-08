@@ -479,6 +479,45 @@ describe('F-07 completed-session Practice Loop review', () => {
         }));
     });
 
+    it('CASUALTY: TWO CONSECUTIVE TAKES — the second must not review the first', async () => {
+        // "Practice this again" does not unmount the page. `showAnalyticsPrompt` stays true and the
+        // saved-session query can still hold take one's available transcript, so if the completed-session
+        // identity outlives its take, the moment take two finalizes the after-state remounts the review
+        // and authorizes an automatic request for the PREVIOUS session.
+        //
+        // That is not only a wrong render: it replays stale coaching, duplicates its telemetry, and — if
+        // take one's review was not cached — spends a generation from the user's daily budget on the
+        // wrong take. Budget is the part that cannot be undone by a refresh.
+        publishCompletedSession(4, 'session-take-one');
+        getSessionById.mockResolvedValue(savedRow('available', 'take one transcript', 'session-take-one'));
+        invoke.mockResolvedValue({
+            data: { suggestions: {
+                version: 'gemini_coaching_v1',
+                what_worked: 'Clear opening.',
+                what_to_try_next: 'Lead with the recommendation.',
+            } },
+            error: null,
+        });
+
+        render(<SessionPage />);
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+            body: { sessionId: 'session-take-one' },
+        }));
+        invoke.mockClear();
+
+        // Take two begins. The controller supersedes the previous take's finalized signal AND its
+        // completed-session identity; nothing here unmounts the page or clears the prompt.
+        await act(async () => {
+            const store = useSessionStore.getState();
+            store.setFinalizedAnalysis(null);
+            store.setCompletedSessionId(null);
+        });
+
+        // No request may fire for take one, and none may fire at all until take two has saved.
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 60)); });
+        expect({ requestsForPreviousTake: invoke.mock.calls.length }).toEqual({ requestsForPreviousTake: 0 });
+    });
+
     it('P2/P5 CASUALTY: an UNSETTLED read withholds — unknown is not permission', async () => {
         // The read has not answered yet. "We do not know whether a transcript is there" must not fire a
         // request on optimism; the request is not free.
