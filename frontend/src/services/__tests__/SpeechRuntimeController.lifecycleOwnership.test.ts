@@ -587,4 +587,96 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         expect(c.state, 'B must not be transitioned to FAILED').not.toBe('FAILED');
         expect(useSessionStore.getState().runtimeState, "B's runtime state is untouched").toBe('RECORDING');
     });
+
+    it('CASUALTY P1-4: stale Progress touches NOTHING shared — gate, briefs, coverage', async () => {
+        // `completeProgressForRecording` is reached after several suspensions, and it writes far more
+        // than the coverage rail: it opens the Start-blocking gate, replaces the completed Focus Points
+        // brief, clears the active one, and publishes the verdict. A stale take reaching any of those
+        // blocks the successor's recorder, swaps the successor's point set, or publishes a verdict
+        // about a session the user has already moved on from.
+        //
+        // Only the durable evaluation itself is A's to finish.
+        const c = newController() as unknown as PrivateController & {
+            capturedUserId: string | null;
+            completeProgressForRecording: (
+                context: unknown, sessionId: string, attributionStatus: string | undefined,
+                metricsPersisted: boolean, canPublishShared: () => boolean,
+            ) => Promise<unknown>;
+        };
+        c.capturedUserId = 'owner-1';
+
+        const store = useSessionStore.getState();
+        const bBrief = { projectId: 'p-B', briefId: 'b-B', points: ['B one', 'B two'], topic: 'B topic', paceGuideSecPerPoint: 60 };
+        store.setActiveObjectiveBrief(bBrief as never);
+        store.setCompletedObjectiveBrief(null);
+        store.setObjectiveCoverageResult(null);
+        store.setRuntimeState('RECORDING');
+        store.setTranscriptFinalizing(true);
+        const gateBefore = store.progressGate;
+
+        // A has already lost ownership before it gets here.
+        await c.completeProgressForRecording(
+            {
+                mode: 'objective',
+                brief: { projectId: 'p-A', briefId: 'b-A' },
+                segments: [{ text: 'A said all four points', startSec: 0 }],
+                durationSeconds: 60,
+            },
+            'session-A',
+            'verified',
+            true,
+            () => false,
+        );
+
+        const after = useSessionStore.getState();
+        expect(after.activeObjectiveBrief, "B's active brief is untouched").toEqual(bBrief);
+        expect(after.completedObjectiveBrief, "A must not publish its brief as completed").toBeNull();
+        expect(after.objectiveCoverageResult, "A must not publish coverage").toBeNull();
+        expect(after.progressGate, "A must not open or close B's Start gate").toEqual(gateBefore);
+        expect(after.runtimeState, "B's runtime state is untouched").toBe('RECORDING');
+        expect(after.isTranscriptFinalizing, "B's finalizing latch is untouched").toBe(true);
+    });
+
+    it('CASUALTY P1-5: a service/generation swap WITHOUT a lifecycle bump still contains the rejection', async () => {
+        // The terminal ownership check compared only `lifecycleVersion`. A successor that replaces the
+        // service and its generation inside the SAME lifecycle — which is what the candidate switch
+        // does — left that check satisfied, so A's teardown rejection was rethrown into a catch that
+        // now belongs to B: B to FAILED, B's state purged, for a recording that is going fine.
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            Promise.resolve({ transcript: 'A said something', stats: { accuracy: 0.9 }, success: true }),
+        );
+        // Captured before the stop, because the mock REPLACES `c.service` — reading the spy off the
+        // controller afterwards would read the successor's stub, not A's.
+        const aDestroy = vi.fn(async () => {
+            // Service identity and generation move; the lifecycle deliberately does NOT.
+            c.serviceGeneration += 1;
+            c.service = { getMode: () => 'private', isServiceDestroyed: () => false } as never;
+            // ...and the successor owns the controller's session id, which is what makes the harm
+            // reachable: the common catch writes `status: 'failed'` for `this.sessionId`, so an
+            // uncontained rejection marks B's row failed in the database, not A's.
+            c.sessionId = 'session-B';
+            useSessionStore.getState().setRuntimeState('RECORDING');
+            throw new Error('WORKER_TEARDOWN_REFUSED');
+        });
+        (c.service as { destroy: ReturnType<typeof vi.fn> }).destroy = aDestroy;
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+
+        vi.mocked(completeSession).mockClear();
+        const outcome = await c.stopRecording().catch((e: unknown) => e);
+
+        expect(aDestroy, 'the terminal teardown ran').toHaveBeenCalled();
+        expect(outcome, "A's rejection must not reach B").not.toBeInstanceOf(Error);
+        expect(c.state, 'B must not be transitioned to FAILED').not.toBe('FAILED');
+        expect(useSessionStore.getState().runtimeState, 'B remains RECORDING').toBe('RECORDING');
+
+        // THE ASSERTION THAT ACTUALLY DISCRIMINATES. The tokened `transition('FAILED')` refuses a
+        // stale token on its own, so the controller state alone cannot tell whether the rejection was
+        // contained — it looks the same either way. The common catch's OTHER side effect is not
+        // token-guarded: it writes `status: 'failed'` for `this.sessionId`, which after a takeover is
+        // the SUCCESSOR's session. A stale teardown failure would mark B's row failed in the database.
+        const failedWrites = vi.mocked(completeSession).mock.calls
+            .filter((call) => (call[1] as { status?: string } | undefined)?.status === 'failed')
+            .map((call) => call[0]);
+        expect(failedWrites, "A's teardown failure must not mark B's session failed").toEqual([]);
+    });
 });

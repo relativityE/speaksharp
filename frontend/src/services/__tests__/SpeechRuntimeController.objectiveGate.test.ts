@@ -30,6 +30,11 @@ type Gate = (
     segments: { text: string; startSec: number }[],
     durationSeconds: number,
     runProgressEval: () => void,
+    // #1431 P1 — REQUIRED, not defaulted. The coverage rail and the Progress gate are shared state,
+    // and the parameter used to default to `() => true`, which is a fail-OPEN default on a guard: a
+    // caller that omitted it silently got permission to publish into whatever take is current. Every
+    // caller now states its authority, including this one.
+    canPublishShared: () => boolean,
     // #1354: the seam RETURNS an outcome — it was `void` before the gate existed, and a stale `void`
     // here silently hides the value every case-5 assertion depends on.
 ) => Promise<{ kind: string; reason?: string }>;
@@ -51,14 +56,14 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
 
     it('register failure (registered=false) records NO objective Progress evaluation', async () => {
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, stage: 'register', reason: 'ineligible', registered: false });
-        await gate(BRIEF, 'sess-reg-fail', [], 60, runProgressEval);
+        await gate(BRIEF, 'sess-reg-fail', [], 60, runProgressEval, () => true);
         expect(runProgressEval).not.toHaveBeenCalled();
         expect(useSessionStore.getState().objectiveCoverageResult).toBeNull(); // no rail on a failed register
     });
 
     it('later objective-stage failure but registered=true STILL evaluates (cohorted objective, not freeform)', async () => {
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, stage: 'finalize', reason: 'error', registered: true });
-        await gate(BRIEF, 'sess-late-fail', [], 60, runProgressEval);
+        await gate(BRIEF, 'sess-late-fail', [], 60, runProgressEval, () => true);
         expect(runProgressEval).toHaveBeenCalledTimes(1);           // the recording IS a confirmed objective source
         expect(useSessionStore.getState().objectiveCoverageResult).toBeNull(); // but no rail on a failed finalize
     });
@@ -68,7 +73,7 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         // #1354: the gate now RETURNS an outcome instead of `void`. An ambiguous throw leaves the
         // registration state unknown, so it must resolve to `unresolved` — which blocks the next
         // recording — rather than to a value that would let the recorder reopen.
-        await expect(gate(BRIEF, 'sess-throw', [], 60, runProgressEval))
+        await expect(gate(BRIEF, 'sess-throw', [], 60, runProgressEval, () => true))
             .resolves.toEqual({ kind: 'unresolved', reason: 'queue_unavailable' });
         expect(runProgressEval).not.toHaveBeenCalled();             // unknown registration state -> fail closed
     });
@@ -78,7 +83,7 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         // arrive. That is an ACCEPTED terminal reason — it unlocks — but reporting `recorded` would be
         // a lie about durability and would mask a genuine evaluation failure behind the same value.
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, stage: 'register', reason: 'denied', registered: false });
-        await expect(gate(BRIEF, 'sess-unreg', [], 60, runProgressEval))
+        await expect(gate(BRIEF, 'sess-unreg', [], 60, runProgressEval, () => true))
             .resolves.toEqual({ kind: 'not_applicable', reason: 'not_completed' });
         expect(runProgressEval).not.toHaveBeenCalled();
     });
@@ -90,7 +95,7 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         // accepted terminal exclusion unlocks the recorder on an assumption nobody proved. Pending,
         // missing and unknown stay blocked — while still never claiming an evaluation was recorded.
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, reason: 'error', registered: false });
-        const outcome = await gate(BRIEF, 'sess-unconfirmed', [], 60, runProgressEval);
+        const outcome = await gate(BRIEF, 'sess-unconfirmed', [], 60, runProgressEval, () => true);
         expect(outcome.kind).toBe('unresolved');
         expect(outcome.kind).not.toBe('recorded');
         expect(runProgressEval).not.toHaveBeenCalled();
@@ -99,7 +104,7 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
     it('#1354: a REGISTERED take returns the evaluation outcome unchanged', async () => {
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: true, registered: true });
         runProgressEval.mockResolvedValue({ kind: 'queued' });
-        await expect(gate(BRIEF, 'sess-reg', [], 60, runProgressEval)).resolves.toEqual({ kind: 'queued' });
+        await expect(gate(BRIEF, 'sess-reg', [], 60, runProgressEval, () => true)).resolves.toEqual({ kind: 'queued' });
     });
 
     it('full success (registered + coverage) evaluates AND publishes the per-point rail', async () => {
@@ -107,7 +112,7 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
             ok: true, registered: true, objectiveSessionId: 'o1', evidenceCount: 1,
             coverage: [{ briefPointId: 'p1', point: 'pricing', status: 'covered' }],
         });
-        await gate(BRIEF, 'sess-ok', [], 60, runProgressEval);
+        await gate(BRIEF, 'sess-ok', [], 60, runProgressEval, () => true);
         expect(runProgressEval).toHaveBeenCalledTimes(1);
         expect(useSessionStore.getState().objectiveCoverageResult).toEqual([{ id: 'p1', label: 'pricing', status: 'covered' }]);
     });

@@ -981,6 +981,11 @@ export class SpeechRuntimeController {
                 targetSessionId,
                 res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
                 pending.progressMetrics?.persisted ?? false,
+                // Retry Save is user-initiated and is the current take by definition — there is no
+                // superseded attempt behind it. Stated explicitly rather than defaulted, so the
+                // authority is a claim on the record and a new caller cannot inherit permission by
+                // forgetting the argument.
+                () => true,
             );
             return true;
         } catch {
@@ -1067,6 +1072,8 @@ export class SpeechRuntimeController {
                         targetSessionId,
                         attrRes.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
                         metricsPersisted,
+                        // As above: user-initiated recovery, current by definition.
+                        () => true,
                     );
                 }
                 return true;
@@ -4848,16 +4855,37 @@ export class SpeechRuntimeController {
                  * catch that now belongs to B and would fail a recording that is going fine. The
                  * decision therefore has to be made after the suspension, not before it.
                  */
+                const terminalOwnerGeneration = this.serviceGeneration;
                 let ownerDestroyError: unknown = null;
                 try {
                     await service.destroy();
                 } catch (destroyError: unknown) {
                     ownerDestroyError = destroyError;
                 }
-                if (ownerDestroyError !== null && this.lifecycleVersion !== terminalOwnerVersion) {
+                /**
+                 * THE TERMINAL TUPLE, NOT THE LIFECYCLE ALONE.
+                 *
+                 * Comparing only `lifecycleVersion` assumes every takeover bumps it. A successor that
+                 * replaces the service and its generation WITHOUT moving the lifecycle — a swap inside
+                 * the same lifecycle, which is exactly what the candidate switch does — would leave
+                 * this check satisfied, and A's teardown rejection would then be rethrown into a catch
+                 * that belongs to B: B transitioned to FAILED, B's latch cleared, B's working state
+                 * purged, for a recording that is going fine.
+                 *
+                 * Ownership at this point is lifecycle AND generation AND service identity. A rethrows
+                 * only while it still holds all three; if any term moved, the rejection is A's to
+                 * absorb and B is left alone.
+                 */
+                const stillOwnsTerminal = this.lifecycleVersion === terminalOwnerVersion
+                    && this.serviceGeneration === terminalOwnerGeneration
+                    && (this.service === null || this.service === service);
+                if (ownerDestroyError !== null && !stillOwnsTerminal) {
                     logger.warn({
                         terminalOwnerVersion,
                         lifecycleVersion: this.lifecycleVersion,
+                        terminalOwnerGeneration,
+                        liveGeneration: this.serviceGeneration,
+                        serviceReplaced: this.service !== null && this.service !== service,
                         code: ownerDestroyError instanceof Error ? ownerDestroyError.name : 'unknown',
                     }, '[DEBUG-STOP] destroy FAILED after successor takeover — contained, successor untouched');
                     pushNativeRuntimeTrace('controller_stale_destroy_failed', { at: 'owner_path' });
@@ -4972,19 +5000,36 @@ export class SpeechRuntimeController {
      * evaluation. Later objective-stage failure after confirmed registration still evaluates.
      */
     /**
-     * @param canPublishShared #1431 P1 — whether the CALLER still owns the shared surfaces. The
-     * Focus Points coverage rail is published from here, and it is shared state: a stale take
-     * republishing its own N/N after a successor cleared the rail is exactly how a retry showed the
-     * previous take's coverage instead of starting at 0/N. The retry-save callers pass nothing,
-     * because they are user-initiated and current by definition.
+     * @param canPublishShared #1431 P1 — whether the CALLER still owns the SHARED surfaces.
+     *
+     * REQUIRED, not defaulted. It began as an optional parameter defaulting to `() => true` so the
+     * retry-save callers would be unaffected, which is a fail-OPEN default on a guard: any future
+     * caller that forgot it would silently get permission to publish into whatever take is current.
+     * Every caller now states its authority. The user-initiated retry-save paths pass `() => true`
+     * explicitly, which is a claim on the record rather than an omission.
+     *
+     * This fences MORE than the coverage rail. `beginProgressGate`, `applyProgressGate` and the
+     * completed/active Focus Points briefs are all shared UI and controller state, and a stale take
+     * reaching them blocks the successor's Start, replaces the successor's brief, or publishes a
+     * verdict about a take the user has already moved on from. Only the durable evaluation itself is
+     * A's to finish.
      */
     private async completeProgressForRecording(
         context: ProgressCompletionContext,
         sessionId: string,
         attributionStatus: string | undefined,
         metricsPersisted: boolean,
-        canPublishShared: () => boolean = () => true,
+        canPublishShared: () => boolean,
     ): Promise<ProgressEvaluationOutcome> {
+        /** Applies a SHARED write only while the caller still owns it. */
+        const publishIfCurrent = (apply: () => void): boolean => {
+            if (!canPublishShared()) {
+                pushNativeRuntimeTrace('controller_progress_publication_refused', { sessionId });
+                return false;
+            }
+            apply();
+            return true;
+        };
         // #1354 CASE 6: these fail-closed returns must PUBLISH THE GATE, not just report an outcome.
         // They previously returned before `beginProgressGate`, so the most fail-closed paths in the whole
         // seam were the only ones that left Start open — an `unresolved` result the user never saw and
@@ -4993,12 +5038,14 @@ export class SpeechRuntimeController {
         //
         // Unknown/legacy retry context fails closed — it cannot prove evidence is terminal.
         if (context.mode === 'unknown') {
-            return this.applyProgressGate(sessionId, { kind: 'unresolved', reason: 'metrics_not_persisted' });
+            const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
+            return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
         // Both practice modes require actual durable delivery metrics. This guard sits before Open Mic's
         // immediate path and Focus Points registration so neither can create an immutable partial evaluation.
         if (!metricsPersisted) {
-            return this.applyProgressGate(sessionId, { kind: 'unresolved', reason: 'metrics_not_persisted' });
+            const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
+            return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
 
         // #1354: AWAITED and its result returned. This was `void wireProgressEvaluationOnSave(...)` —
@@ -5025,26 +5072,37 @@ export class SpeechRuntimeController {
         // #1354: block Start for the WHOLE window, not just after the outcome is known. The state table
         // requires "evaluation currently resolving -> disabled"; publishing the gate only after the await
         // would leave the in-flight window open, which is the very window that caused attempt 9.
-        this.beginProgressGate(sessionId);
+        // Blocking Start belongs to the take being evaluated. A stale take opening this gate disables
+        // the successor's recorder for a verdict about a session the user has already left behind.
+        publishIfCurrent(() => { this.beginProgressGate(sessionId); });
 
         if (context.mode === 'open_mic') {
-            return this.applyProgressGate(sessionId, await runProgressEval());
+            const outcome = await runProgressEval();
+            publishIfCurrent(() => { this.applyProgressGate(sessionId, outcome); });
+            return outcome;
         }
 
+        // The completed/active briefs are what the Focus Points surfaces render. A stale take writing
+        // them replaces the successor's set with its own — the same defect as the coverage rail, one
+        // field earlier.
         const store = useSessionStore.getState();
-        store.setCompletedObjectiveBrief(context.brief);
-        const liveBrief = store.activeObjectiveBrief;
-        if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
-            store.setActiveObjectiveBrief(null);
-        }
-        return this.applyProgressGate(sessionId, await this.finalizeObjectiveAndGateProgress(
+        publishIfCurrent(() => {
+            store.setCompletedObjectiveBrief(context.brief);
+            const liveBrief = store.activeObjectiveBrief;
+            if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
+                store.setActiveObjectiveBrief(null);
+            }
+        });
+        const objectiveOutcome = await this.finalizeObjectiveAndGateProgress(
             { projectId: context.brief.projectId, briefId: context.brief.briefId },
             sessionId,
             context.segments,
             context.durationSeconds,
             runProgressEval,
             canPublishShared,
-        ));
+        );
+        publishIfCurrent(() => { this.applyProgressGate(sessionId, objectiveOutcome); });
+        return objectiveOutcome;
     }
 
     /**
@@ -5097,8 +5155,8 @@ export class SpeechRuntimeController {
         segments: { text: string; startSec: number }[],
         durationSeconds: number,
         runProgressEval: () => Promise<ProgressEvaluationOutcome>,
-        /** #1431 P1 — see `completeProgressForRecording`. The coverage rail is shared state. */
-        canPublishShared: () => boolean = () => true,
+        /** #1431 P1 — REQUIRED. See `completeProgressForRecording`; the coverage rail is shared state. */
+        canPublishShared: () => boolean,
     ): Promise<ProgressEvaluationOutcome> {
         try {
             const { finalizeObjectiveSessionOnSave } = await import('@/services/objective/finalizeObjectiveSessionOnSave');
