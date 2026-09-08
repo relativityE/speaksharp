@@ -3804,6 +3804,15 @@ export class SpeechRuntimeController {
                 preview: frozenAtStop.slice(0, 80),
             });
             const wasRecording = this.state === 'RECORDING';
+            /**
+             * #1431 — CAPTURED HERE, AT THE START OF THE STOP, and not at the terminal.
+             *
+             * This records the watchdog THIS take armed. Capturing it at terminal entry instead was wrong
+             * and its own casualty caught it: by then a successor may already have armed its own, so the
+             * "scoped" stop would have disarmed exactly the watchdog it was meant to protect. The value
+             * has to be taken before any suspension the successor could arrive during.
+             */
+            const ownedWatchdogVersion = this.watchdogVersion;
             // #1089: this sits OUTSIDE the try below, and setTranscriptFinalizing(true) has already run.
             // A throw here would leave finalization latched true forever — and finalization now disables
             // the record control, so that is an unrecoverable lockout rather than a cosmetic flag leak.
@@ -4542,7 +4551,6 @@ export class SpeechRuntimeController {
                  * Captured BEFORE the bump, so the owning stop's ordering is unchanged.
                  */
                 const entersTerminalAsOwner = !token.cancelled && token.version === this.lifecycleVersion;
-                const ownedWatchdogVersion = this.watchdogVersion;
                 if (!entersTerminalAsOwner) {
                     // Superseded before the teardown even began. Finish destroying our OWN service —
                     // leaving A's engine running would be worse — and touch nothing shared. The watchdog
@@ -4571,6 +4579,10 @@ export class SpeechRuntimeController {
                  */
                 this.lifecycleVersion++;
                 const terminalOwnerVersion = this.lifecycleVersion;
+                // Scoped here too, for one expression of the rule rather than two. On this path it is
+                // equivalent to the unconditional stop — ownership was just established and there is no
+                // await between — so a mutant swapping it survives. Noted rather than presented as
+                // covered: the scoping is load-bearing only on the superseded path above.
                 this.stopWatchdogIfCurrent(ownedWatchdogVersion);
                 await service.destroy();
 

@@ -1231,3 +1231,124 @@ describe('#1431 — the detach result is an ownership signal, not a no-op', () =
         }).toEqual({ finalizing: true, serviceStillBs: true, restedByA: false });
     });
 });
+
+/**
+ * #1431 — A SUPERSEDED STOP MUST NOT DISARM THE SUCCESSOR'S WATCHDOG.
+ *
+ * `stopWatchdog()` is controller-wide: it clears the single `watchdogInterval`, whoever armed it. The
+ * superseded-entry path called it unconditionally, so a stale take would silently disarm the SUCCESSOR's
+ * heartbeat monitoring. B could then lose its engine while the product went on representing the take as
+ * active — a failure with no symptom until someone is sitting in front of a dead recording.
+ *
+ * Asserting "the interval is still set" would be too weak: it says nothing about whether the watchdog can
+ * still DO anything. This drives B past the heartbeat threshold and proves the real watchdog still fires.
+ */
+describe('#1431 — watchdog ownership across supersession', () => {
+    let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
+    let engine: ControlledEngine;
+
+    beforeEach(async () => {
+        localStorage.clear();
+        engine = new ControlledEngine();
+        engine.modelCached = true;
+        vi.resetModules();
+        const { sttRegistry } = await import('../transcription/STTRegistry');
+        sttRegistry.register('transformers-js', () => engine as never);
+        sttRegistry.register('private', () => engine as never);
+        useSessionStore = (await import('@/stores/useSessionStore')).useSessionStore;
+        intentApi = await import('../recordingIntent');
+        intentApi.__resetRecordingIntentForTests();
+        const mod = await import('../SpeechRuntimeController');
+        controller = mod.speechRuntimeController;
+        const priv = controller as unknown as Record<string, unknown>;
+        priv.state = 'IDLE'; priv.service = null; priv.isEngineReady = false;
+        priv.acceptedAttempt = null; priv.finalizingOwnerVersion = null;
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('IDLE');
+    });
+
+    afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
+
+    it("CASUALTY: B's watchdog survives A's superseded terminal AND still detects a dead engine", async () => {
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            watchdogVersion: number;
+            watchdogInterval: ReturnType<typeof setInterval> | null;
+            state: string;
+            service: { destroy?: () => Promise<void>; getStrategy?: () => unknown; getLastHeartbeatTimestamp?: () => number } | null;
+            isEngineReady: boolean;
+            startWatchdog: (s: unknown) => void;
+            handleHeartbeatFailure: (e: Error) => void;
+        };
+
+        // Hold A BEFORE it reaches the terminal block, so that when it gets there its token is already
+        // stale and it takes the superseded-ENTRY path — which is where the controller-wide watchdog stop
+        // lived. Suspending at `destroy()` instead would enter the terminal as the rightful owner and
+        // exercise the post-destroy path, which is a different branch: the first version of this casualty
+        // did exactly that and the mutant survived it.
+        let releaseStop!: () => void;
+        const svc = priv.service as unknown as { stopTranscription?: () => Promise<unknown> };
+        const originalStop = svc.stopTranscription!.bind(svc);
+        svc.stopTranscription = () => new Promise((resolve) => {
+            releaseStop = () => { void Promise.resolve(originalStop()).then(resolve, resolve); };
+        });
+        const stopping = controller.stopRecording();
+        await settle(6);
+
+        // B supersedes A and arms its OWN watchdog over its own service.
+        priv.lifecycleVersion += 1;
+        const bService = {
+            getStrategy: () => ({}),
+            // A heartbeat that never advances: B's engine is dead.
+            getLastHeartbeatTimestamp: () => Date.now() - 10 * 60 * 1000,
+            getState: () => 'RECORDING',
+            destroy: async () => { /* B is not being destroyed here */ },
+            fsm: { is: (st: string) => st === 'RECORDING' },
+        };
+        priv.service = bService as never;
+        priv.isEngineReady = true;
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        // The watchdog gates on the CONTROLLER's own state, not the store's — B is recording.
+        priv.state = 'RECORDING';
+
+        // Fake timers BEFORE arming, because `setInterval` created under the real clock cannot be driven
+        // by the fake one — the first version of this test advanced a clock the watchdog was not on, and
+        // reported "no detection" for a watchdog that was never ticked.
+        const failure = vi.spyOn(priv, 'handleHeartbeatFailure').mockImplementation(() => { /* observed */ });
+        vi.useFakeTimers();
+        priv.startWatchdog(bService);
+        const bWatchdogVersion = priv.watchdogVersion;
+
+        // A resumes and reaches its terminal with a stale token: the superseded-entry path.
+        releaseStop();
+        await vi.advanceTimersByTimeAsync(50);
+        await stopping.catch(() => { /* A's own outcome is not the subject */ });
+        await vi.advanceTimersByTimeAsync(50);
+
+        // B's watchdog is still armed and still B's.
+        expect({ armed: priv.watchdogInterval !== null, version: priv.watchdogVersion })
+            .toEqual({ armed: true, version: bWatchdogVersion });
+
+        // ...and it still WORKS: drive B past the heartbeat threshold and the real watchdog fires.
+        priv.state = 'RECORDING';   // A's superseded return must not have moved B out of it
+        await vi.advanceTimersByTimeAsync(6000);   // one WATCHDOG_PERIOD_MS tick
+        expect({ detectedDeadEngine: failure.mock.calls.length > 0 })
+            .toEqual({ detectedDeadEngine: true });
+    });
+
+    it('CONTROL: the rightful owner clears its OWN watchdog on a normal terminal stop', async () => {
+        // Scoping must not leave a dead take's watchdog running.
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as { watchdogInterval: ReturnType<typeof setInterval> | null };
+        await controller.stopRecording();
+        await settle(40);
+
+        expect({ armedAfterOwnStop: priv.watchdogInterval !== null })
+            .toEqual({ armedAfterOwnStop: false });
+    });
+});
