@@ -369,6 +369,27 @@ export class SpeechRuntimeController {
 
     // Cancellation tracking for startRecording
     private currentRecordingId: string | null = null;
+    /**
+     * #1431 — THE ACCEPTED ATTEMPT: who is allowed to publish RECORDING after the intent is claimed.
+     *
+     * `isCurrentIntent` is the right authority BEFORE the claim — nothing else yet distinguishes this
+     * attempt from a successor click. It is the wrong authority after, because claiming is what makes an
+     * intent stop being pending. The runtime trace showed the consequence: on a warm retry the service
+     * FSM reached RECORDING while the controller silently refused its own transition, so the engine was
+     * capturing audio while the product still showed INITIATING — no truthful recording state and no
+     * Stop control.
+     *
+     * Removing the intent check would restore the stale-attempt race this branch exists to prevent. So
+     * the handoff is made explicit instead: at the moment an attempt is accepted, the tuple that
+     * identifies it is recorded, and only that exact tuple may publish RECORDING afterwards.
+     */
+    private acceptedAttempt: {
+        intentToken: string;
+        lifecycleVersion: number;
+        recordingId: string;
+        serviceGeneration: number;
+        service: TranscriptionService;
+    } | null = null;
     private capturedUserId: string | null = null;
 
     // Session Lock (Tab Mutex)
@@ -573,6 +594,11 @@ export class SpeechRuntimeController {
         if (expected && current !== expected) return null;
         this.service = null;
         this.serviceGeneration += 1;
+        // The accepted attempt named this service. With it detached the tuple can no longer be
+        // satisfied, and leaving it in place would keep a dead attempt nominally able to publish.
+        if (this.acceptedAttempt && (!expected || this.acceptedAttempt.service === expected)) {
+            this.acceptedAttempt = null;
+        }
         return current;
     }
 
@@ -1864,6 +1890,30 @@ export class SpeechRuntimeController {
         // invalidates it synchronously; anything arriving afterwards must return before touching the
         // controller, lock, shared store, intent settlement, or recovery state.
         if (token && (token.cancelled || token.version !== this.lifecycleVersion)) {
+            /**
+             * EXCEPT: A SUPERSEDED CONTINUATION MAY STILL WITHDRAW ITS OWN CLAIM.
+             *
+             * `isTranscriptFinalizing` is cleared in exactly one place — the resting-state branch below —
+             * so returning here for a stale token left the banner latched for the rest of the session.
+             * That is the finalization stall: `Finalizing your transcript…` still on screen after the row
+             * was written and the after-state reached, the review never loading because the transcript
+             * read is gated behind it, coverage never deriving, and the retry unable to start a take.
+             * A green e2e on main and a red one on main + this ownership work isolate it to exactly here.
+             *
+             * Ownership is the right rule for state a stale continuation would CORRUPT. It is the wrong
+             * rule for RELEASING a user-visible claim: "we are finalizing" was asserted by this take, and
+             * withdrawing it asserts nothing about anyone else's. Refusing that leaves the product wedged
+             * on a promise nobody is keeping.
+             *
+             * Narrow deliberately: only for a terminal target, and only to clear — never to set. It
+             * cannot resurrect a superseded take, publish state, settle an intent, or touch the lock.
+             */
+            const isRestingTarget = newState === 'READY' || newState === 'IDLE'
+                || newState === 'TERMINATED' || newState === 'FAILED' || newState === 'FAILED_VISIBLE';
+            if (isRestingTarget) {
+                const store = useSessionStore.getState();
+                if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
+            }
             return;
         }
 
@@ -1884,7 +1934,7 @@ export class SpeechRuntimeController {
             // #1431 — readiness is necessary but not sufficient. The transition must name the
             // CURRENT pending intent before any RECORDING-owned state is mutated. A stale attempt's
             // late success therefore cannot start audio under, or resolve, its successor's click.
-            if (!intentToken || !isCurrentIntent(intentToken) || !this.canTransitionToRecording()) {
+            if (!this.mayPublishRecording(intentToken)) {
                 return;
             }
             // Recording confirmed to begin → keep engine selection locked until durable save/retry/discard,
@@ -2122,6 +2172,60 @@ export class SpeechRuntimeController {
 
     private canTransitionToRecording(): boolean {
         return this.isEngineReady && this.isEmissionsSafe;
+    }
+
+    /**
+     * #1431 — may THIS caller publish the controller's RECORDING state?
+     *
+     * Two legitimate authorities, one for each side of the intent handoff, and nothing else:
+     *
+     *   BEFORE the claim — the token is the current pending intent. No attempt has been accepted yet, so
+     *   the pending intent is the only thing that separates this click from a successor's.
+     *
+     *   AFTER the claim — the token is the accepted owner of the CURRENT attempt, and every other term
+     *   of that attempt still holds: same lifecycle, same recording, same service generation, and the
+     *   service itself confirming RECORDING. A superseded attempt fails at least one of these, so it
+     *   cannot transition, resolve, or start anything belonging to its successor.
+     *
+     * The service-state term is what makes a false success impossible: a `startTranscription` that
+     * returns without the service entering RECORDING cannot publish a recording that is not happening.
+     */
+    private mayPublishRecording(intentToken?: string): boolean {
+        if (!intentToken) return false;
+        if (!this.canTransitionToRecording()) return false;
+
+        /**
+         * THE SERVICE MUST CONFIRM, ON EVERY ROUTE INTO THIS DECISION.
+         *
+         * `checkRecordingInvariant` is reachable from `handleReady()` as well as from the start path, and
+         * on a warm take `isEngineReady` and `isEmissionsSafe` are still true from the previous
+         * recording. Gating only the start-path call therefore established nothing: a callback could
+         * still publish RECORDING, resolve the Start intent and open the store session while the
+         * controller was merely INITIATING, and a later start failure cannot retract a success already
+         * reported. Publishing RECORDING is a claim about the SERVICE, so the service is asked here —
+         * once, for both authorities below.
+         */
+        const confirmsRecording = (candidate: TranscriptionService | null): boolean => {
+            if (!candidate) return false;
+            const state = typeof candidate.getState === 'function'
+                ? candidate.getState()
+                : (candidate.fsm?.is('RECORDING') ? 'RECORDING' : 'UNKNOWN');
+            return state === 'RECORDING';
+        };
+
+        // Before the claim: the pending intent is the only thing separating this click from a
+        // successor's — but it still may not speak for a service that is not recording.
+        if (isCurrentIntent(intentToken)) return confirmsRecording(this.service);
+
+        // After the claim: the accepted attempt tuple, in full.
+        const accepted = this.acceptedAttempt;
+        if (!accepted) return false;
+        if (accepted.intentToken !== intentToken) return false;
+        if (accepted.lifecycleVersion !== this.lifecycleVersion) return false;
+        if (accepted.recordingId !== this.currentRecordingId) return false;
+        if (accepted.serviceGeneration !== this.serviceGeneration) return false;
+        if (accepted.service !== this.service) return false;
+        return confirmsRecording(accepted.service);
     }
 
     public confirmSubscriberHandshake(): void {
@@ -3286,6 +3390,19 @@ export class SpeechRuntimeController {
                 // next recording's start boundary.
                 this.recordingEngineMode = (service.getMode?.() as TranscriptionMode | null | undefined) ?? mode;
                 pushNativeRuntimeTrace('controller_producer_latched', { latchedMode: this.recordingEngineMode });
+
+                // #1431 — THE ATTEMPT IS ACCEPTED HERE, and only here: the service has confirmed RECORDING,
+                // the producer is latched, and this start still owns the lifecycle and the recording. From
+                // this moment the intent is no longer pending but is still the rightful owner, so the
+                // tuple below is what authorises the RECORDING publish. Recorded BEFORE the invariant
+                // runs, because the invariant is what consults it.
+                this.acceptedAttempt = {
+                    intentToken: intent.token,
+                    lifecycleVersion: this.lifecycleVersion,
+                    recordingId,
+                    serviceGeneration: this.serviceGeneration,
+                    service,
+                };
 
                 // NOW the invariant may run: the service has confirmed RECORDING, so publishing the state
                 // is a report of something that happened rather than a prediction. See the note above the

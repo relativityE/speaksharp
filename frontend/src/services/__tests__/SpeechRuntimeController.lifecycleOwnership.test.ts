@@ -172,6 +172,13 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         controller.isEngineReady = true;
         controller.isEmissionsSafe = true;
 
+        // #1431 — a service that CONFIRMS recording is now required on every route into the RECORDING
+        // publish, so the attempt has something to be a claim about. This test previously drove the
+        // invariant with NO service attached and still expected RECORDING, which is the starkest form of
+        // the false success Codex identified: the product reporting a recording that no engine is making.
+        const recordingService = fakeService({ isDestroyed: () => false });
+        controller.service = recordingService as never;
+
         const startSession = vi.spyOn(useSessionStore.getState(), 'startSession');
         await controller.transition('RECORDING');
         await controller.transition('RECORDING', undefined, undefined, attemptA.token);
@@ -188,6 +195,39 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
         expect(startSession).toHaveBeenCalledTimes(1);
         expect(pendingRecordingIntent()).toBeNull();
+    });
+
+    it('CASUALTY D2: the owning intent cannot publish RECORDING for a service that is not recording', async () => {
+        // The callback route. `handleReady()` reaches `checkRecordingInvariant` too, and on a warm take
+        // `isEngineReady`/`isEmissionsSafe` survive the previous recording — so without asking the
+        // service, a `ready` could publish RECORDING, resolve the Start intent and open the store session
+        // while `startTranscription` was still on its way to a non-recording early return. A later
+        // failure cannot retract a success already reported.
+        const attempt = mintRecordingIntent({ recordingId: 'recording-c', policy: null, userWords: [] });
+        controller.state = 'ENGINE_INITIALIZING';
+        useSessionStore.getState().setRuntimeState('ENGINE_INITIALIZING');
+        controller.isEngineReady = true;
+        controller.isEmissionsSafe = true;
+
+        const notRecording = fakeService({ isDestroyed: () => false });
+        notRecording.getState = vi.fn().mockReturnValue('READY');
+        notRecording.fsm = { is: vi.fn((state: string): state is 'RECORDING' => state === 'NEVER') };
+        controller.service = notRecording as never;
+
+        const startSession = vi.spyOn(useSessionStore.getState(), 'startSession');
+        await controller.checkRecordingInvariant(undefined, attempt.token);
+
+        expect({
+            state: controller.state,
+            runtime: useSessionStore.getState().runtimeState,
+            startSessionCalls: startSession.mock.calls.length,
+            intentStillPending: pendingRecordingIntent()?.token,
+        }).toEqual({
+            state: 'ENGINE_INITIALIZING',
+            runtime: 'ENGINE_INITIALIZING',
+            startSessionCalls: 0,
+            intentStillPending: attempt.token,
+        });
     });
 
     it('ignores a late error callback from a service generation that has been replaced', async () => {

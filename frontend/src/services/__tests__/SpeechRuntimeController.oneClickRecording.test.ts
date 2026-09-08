@@ -692,3 +692,272 @@ describe('#1431 — a completed take does not block the next one', () => {
             .toEqual({ liveWasDropped: false, staleWasDropped: true });
     });
 });
+
+/**
+ * #1431 — A SUPERSEDED TERMINAL TRANSITION MUST STILL WITHDRAW ITS OWN CLAIM.
+ *
+ * CORRECTION: this was originally written up as the cause of the Focus Points Retry failure. The
+ * runtime trace disproved that. Finalization TERMINATES normally — the logs show
+ * `transition READY starting` / `STOPPING → READY` / `transition READY done` — and the retry failure is
+ * a successor-admission defect covered separately below. The screenshot alone made finalization look
+ * stuck; the ordered logs showed it was not.
+ *
+ * The defect below is real on its own terms and is kept for that reason, not as an e2e explanation.
+ *
+ * `isTranscriptFinalizing` is cleared in exactly ONE place: the resting-state branch of `transition()`.
+ * The ownership work added a guard at the TOP of `transition()` that returns for any stale or cancelled
+ * token — before that branch runs. So a terminal transition presented with a superseded token silently
+ * does nothing, and the banner stays latched for the rest of the session.
+ *
+ * Ownership is the right rule for state a stale continuation would CORRUPT. It is the wrong rule for
+ * releasing a user-visible claim: "stop saying we are finalizing" is the removal of a claim, not the
+ * assertion of one, and refusing it leaves the product wedged.
+ */
+describe('#1431 — a superseded terminal transition still releases the finalizing banner', () => {
+    let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
+
+    beforeEach(async () => {
+        vi.resetModules();
+        const { sttRegistry } = await import('../transcription/STTRegistry');
+        const engine = new ControlledEngine();
+        engine.modelCached = true;
+        sttRegistry.register('transformers-js', () => engine as never);
+        sttRegistry.register('private', () => engine as never);
+        useSessionStore = (await import('@/stores/useSessionStore')).useSessionStore;
+        intentApi = await import('../recordingIntent');
+        intentApi.__resetRecordingIntentForTests();
+        const mod = await import('../SpeechRuntimeController');
+        controller = mod.speechRuntimeController;
+        useSessionStore.getState().resetSession();
+    });
+
+    it('CASUALTY: a terminal transition with a SUPERSEDED token clears the banner', async () => {
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+
+        // The stop's own token, superseded while finalization was running.
+        const staleToken = { cancelled: false, version: priv.lifecycleVersion };
+        priv.lifecycleVersion += 1;
+
+        await priv.transition('READY', undefined, staleToken);
+
+        // The user must not be left looking at "Finalizing your transcript…" forever for a take that
+        // has already finished. Whoever owns the lifecycle now, nobody is finalizing.
+        expect({ finalizing: useSessionStore.getState().isTranscriptFinalizing })
+            .toEqual({ finalizing: false });
+    });
+
+    it('CASUALTY: a CANCELLED token also releases it', async () => {
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+
+        await priv.transition('TERMINATED', undefined, { cancelled: true, version: priv.lifecycleVersion });
+
+        expect({ finalizing: useSessionStore.getState().isTranscriptFinalizing })
+            .toEqual({ finalizing: false });
+    });
+});
+
+/**
+ * #1431 — A STOP THAT PERSISTS MUST FINISH FINALIZING.
+ *
+ * CORRECTION: written while the stop was believed to be wedged. The trace shows it is not — this passes
+ * on the failing head too. It is retained as a REGRESSION GUARD on the stop sequence, not as evidence
+ * about the Focus Points Retry failure, whose real boundary is successor admission.
+ */
+describe('#1431 — a stop that persists must finish finalizing', () => {
+    let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
+    let engine: ControlledEngine;
+
+    beforeEach(async () => {
+        localStorage.clear();
+        engine = new ControlledEngine();
+        engine.modelCached = true;
+        vi.resetModules();
+        const { sttRegistry } = await import('../transcription/STTRegistry');
+        sttRegistry.register('transformers-js', () => engine as never);
+        sttRegistry.register('private', () => engine as never);
+        useSessionStore = (await import('@/stores/useSessionStore')).useSessionStore;
+        intentApi = await import('../recordingIntent');
+        intentApi.__resetRecordingIntentForTests();
+        const mod = await import('../SpeechRuntimeController');
+        controller = mod.speechRuntimeController;
+        const priv = controller as unknown as Record<string, unknown>;
+        priv.state = 'IDLE';
+        priv.service = null;
+        priv.isEngineReady = false;
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('IDLE');
+    });
+
+    afterEach(() => vi.clearAllMocks());
+
+    it('CASUALTY: after a stop, the runtime rests and the finalizing claim is withdrawn', async () => {
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+        expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
+
+        await controller.stopRecording();
+        await settle(40);
+
+        // The two facts the wedged journey violates, asserted at the boundary rather than downstream.
+        expect({
+            finalizing: useSessionStore.getState().isTranscriptFinalizing,
+            resting: ['READY', 'IDLE', 'TERMINATED'].includes(useSessionStore.getState().runtimeState ?? ''),
+        }).toEqual({ finalizing: false, resting: true });
+    });
+});
+
+
+/**
+ * #1431 — SUCCESSOR ADMISSION: the controller must say what the engine is actually doing.
+ *
+ * The runtime trace from the failing e2e is unambiguous. After a completed take the retry is received,
+ * the controller reaches INITIATING, the service FSM reaches RECORDING — and no corresponding
+ * controller transition to RECORDING ever appears. The engine is capturing audio while the product
+ * still represents the session as initiating: no truthful recording state, and no Stop control.
+ *
+ * The cause is the intent handoff. `isCurrentIntent` is the correct authority BEFORE an intent is
+ * claimed and the wrong one after, because claiming is precisely what stops it being pending. Removing
+ * that check would restore the stale-attempt race this branch exists to prevent, so the handoff is made
+ * explicit: the accepted attempt records the tuple that owns the publish, and only that tuple may make
+ * it.
+ */
+describe('#1431 — successor admission', () => {
+    let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
+    let engine: ControlledEngine;
+
+    beforeEach(async () => {
+        localStorage.clear();
+        engine = new ControlledEngine();
+        engine.modelCached = true;              // a retry is a WARM start, which is where this fails
+        vi.resetModules();
+        const { sttRegistry } = await import('../transcription/STTRegistry');
+        sttRegistry.register('transformers-js', () => engine as never);
+        sttRegistry.register('private', () => engine as never);
+        useSessionStore = (await import('@/stores/useSessionStore')).useSessionStore;
+        intentApi = await import('../recordingIntent');
+        intentApi.__resetRecordingIntentForTests();
+        const mod = await import('../SpeechRuntimeController');
+        controller = mod.speechRuntimeController;
+        const priv = controller as unknown as Record<string, unknown>;
+        priv.state = 'IDLE';
+        priv.service = null;
+        priv.isEngineReady = false;
+        priv.acceptedAttempt = null;
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('IDLE');
+    });
+
+    afterEach(() => vi.clearAllMocks());
+
+    it('CASUALTY A: a WARM successor take is admitted — service recording AND controller recording', async () => {
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+        await controller.stopRecording();
+        await settle(30);
+
+        // The retry. Its caller must resolve, exactly once, and the controller must publish RECORDING —
+        // the engine capturing audio while the product says INITIATING is the defect.
+        let resolutions = 0;
+        await controller.startRecording(POLICY as never, []).then(() => { resolutions += 1; });
+        await settle(30);
+
+        const priv = controller as unknown as { service: { getState?: () => string } | null };
+        expect({
+            controller: useSessionStore.getState().runtimeState,
+            service: priv.service?.getState?.(),
+            callerResolvedOnce: resolutions,
+        }).toEqual({ controller: 'RECORDING', service: 'RECORDING', callerResolvedOnce: 1 });
+    });
+
+    it('CASUALTY B: a CLAIMED intent still owns its own attempt', async () => {
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        // The intent that produced this recording is no longer pending — claiming it is what accepted it.
+        // The accepted attempt must nonetheless still be the recognised owner, or the controller can
+        // never publish the state of the take it just started.
+        expect(pendingRecordingIntent()).toBeNull();
+        expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
+
+        const priv = controller as unknown as {
+            acceptedAttempt: { intentToken: string } | null;
+            mayPublishRecording: (t?: string) => boolean;
+        };
+        const accepted = priv.acceptedAttempt;
+        expect({ hasAcceptedOwner: accepted !== null }).toEqual({ hasAcceptedOwner: true });
+        expect({ acceptedMayPublish: priv.mayPublishRecording(accepted!.intentToken) })
+            .toEqual({ acceptedMayPublish: true });
+    });
+
+    it('CASUALTY C: a SUPERSEDED attempt may not publish for its successor', async () => {
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as {
+            acceptedAttempt: { intentToken: string } | null;
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            mayPublishRecording: (t?: string) => boolean;
+        };
+        const supersededToken = priv.acceptedAttempt!.intentToken;
+
+        // B takes over: the lifecycle moves on.
+        priv.lifecycleVersion += 1;
+
+        expect({ supersededMayPublish: priv.mayPublishRecording(supersededToken) })
+            .toEqual({ supersededMayPublish: false });
+    });
+
+    /**
+     * Supersession does not always look the same, and each term of the tuple is load-bearing on its own.
+     * A reset that bumps the lifecycle, a service replaced beneath the same lifecycle, and a new
+     * recording id are three different ways for an attempt to stop being the current one — a tuple that
+     * only checked the lifecycle would admit the other two.
+     */
+    it.each([
+        ['the SERVICE is replaced beneath it', 'serviceGeneration'],
+        ['a NEW RECORDING takes over', 'recordingId'],
+    ])('CASUALTY C2: a superseded attempt may not publish when %s', async (_label, term) => {
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as {
+            acceptedAttempt: { intentToken: string } | null;
+            serviceGeneration: number;
+            currentRecordingId: string | null;
+            mayPublishRecording: (t?: string) => boolean;
+        };
+        const supersededToken = priv.acceptedAttempt!.intentToken;
+
+        if (term === 'serviceGeneration') priv.serviceGeneration += 1;
+        else priv.currentRecordingId = 'a-different-recording';
+
+        expect({ term, supersededMayPublish: priv.mayPublishRecording(supersededToken) })
+            .toEqual({ term, supersededMayPublish: false });
+    });
+
+    it('CASUALTY D: a service that is NOT recording cannot be published as recording', async () => {
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as {
+            acceptedAttempt: { intentToken: string; service: { getState?: () => string } } | null;
+            mayPublishRecording: (t?: string) => boolean;
+        };
+        const accepted = priv.acceptedAttempt!;
+        // The service reports something other than RECORDING — the false-success shape, where
+        // `startTranscription` returns through a non-recording early exit.
+        accepted.service.getState = () => 'READY';
+
+        expect({ mayPublish: priv.mayPublishRecording(accepted.intentToken) })
+            .toEqual({ mayPublish: false });
+    });
+});
