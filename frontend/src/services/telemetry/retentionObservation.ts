@@ -14,6 +14,10 @@
  * `policy_version` and `copy_version` are recorded SEPARATELY and deliberately. A mismatch between the
  * two is exactly the failure the PO hit: text promising one transcript beside a list holding two.
  *
+ * NOTE: the deployed policy moves to newest-one with #1436. These constants move with it, and the
+ * observed COUNT beside them is what proves the deployed database actually agrees — the constants are a
+ * claim, the count is the evidence.
+ *
  * Counts and states only — never a transcript, never a session id.
  */
 import { safeEmit } from './safeEmit';
@@ -22,10 +26,17 @@ import { safeEmit } from './safeEmit';
  * What the DEPLOYED database policy is believed to be. A constant, because the client cannot read the
  * migration — which is why it is published beside the observed count rather than instead of it.
  */
-export const RETENTION_POLICY_VERSION = 'newest-two';
+export const RETENTION_POLICY_VERSION = 'newest-one';
 
-/** What the user-facing copy currently claims. Separate on purpose; a mismatch is the finding. */
-export const RETENTION_COPY_VERSION = 'newest-two';
+/**
+ * What the user-facing copy currently claims. Separate on purpose; a mismatch is the finding.
+ *
+ * Moved with the policy because the correction (#1436) changes what the database does. Leaving either
+ * at `newest-two` would let a release qualify against a policy string the migration retires — and the
+ * whole reason these two are separate constants is that a receipt agreeing with itself while disagreeing
+ * with the deployed behaviour is the failure mode they exist to expose.
+ */
+export const RETENTION_COPY_VERSION = 'newest-one';
 
 export interface RetentionObservationInput {
     /** Sessions holding readable transcript text BEFORE this save, as the client could see them. */

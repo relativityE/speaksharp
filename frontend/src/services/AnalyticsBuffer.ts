@@ -190,6 +190,27 @@ class AnalyticsBuffer {
        * queue this drain flushes — on `pagehide` there is no later opportunity to send it.
        */
       window.addEventListener('pagehide', () => {
+        /**
+         * CAPACITY-SAFE. The report must not cost a product receipt, and must not understate the drop it
+         * causes.
+         *
+         * At a full queue, enqueueing this health event evicts the oldest entry and increments
+         * `backpressureDropped` — AFTER the value being reported was read. So the observability signal
+         * destroyed a real receipt and then under-reported by exactly the drop it had just caused. On
+         * `pagehide` there is no later flush to correct it: the tab closes with the wrong number.
+         *
+         * Space is therefore reserved BEFORE reporting. If the queue is at capacity, one entry is
+         * evicted deliberately and counted, so the number sent already includes the cost of sending it.
+         * Deliberate and counted is a different thing from incidental and invisible — the receipt is
+         * still lost, but the report says so.
+         *
+         * Depth is measured before the drain, because afterwards it is always zero and the interesting
+         * number is what teardown had to force.
+         */
+        if (this.queue.length >= this.MAX_QUEUE_SIZE) {
+          this.queue.shift();
+          this.backpressureDropped += 1;
+        }
         const pending = this.queue.length;
         const dropped = this.backpressureDropped;
         this.backpressureDropped = 0;

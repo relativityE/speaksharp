@@ -112,7 +112,7 @@ describe('#1259 completeness gate wiring', () => {
         expect({
             noSilentDefault: !/TELEMETRY_QUALIFICATION_TRAFFIC_TYPE\s*\?\?\s*'/.test(code),
             holdsWhenUnnamed: src.includes('no --traffic-type supplied'),
-            rejectsUnknownClasses: src.includes('is not one of the classifications the product emits'),
+            rejectsUnknownClasses: src.includes('is not a controlled evidence class'),
         }).toEqual({ noSilentDefault: true, holdsWhenUnnamed: true, rejectsUnknownClasses: true });
 
         const wf = readFileSync(join(REPO, '.github/workflows/service-level-evidence.yml'), 'utf8');
@@ -139,6 +139,64 @@ describe('#1259 completeness gate wiring', () => {
         });
     });
 
+    it('CASUALTY: only CONTROLLED traffic may qualify — customer activity cannot', () => {
+        // Validating against every runtime classification accepted `user`, which is real customer
+        // activity: a copied journey id would then certify release telemetry from someone's actual
+        // session — evidence we did not produce and cannot reproduce. `internal` fails for the opposite
+        // reason: it marks a build Production users never receive, so it cannot describe the deployment
+        // being qualified.
+        const src = readFileSync(join(REPO, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+        const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+        expect({
+            hasControlledSubset: /CONTROLLED_EVIDENCE_TRAFFIC[^=]*=\s*\['canary',\s*'internal_test'\]/.test(code),
+            validatesAgainstSubset: code.includes('CONTROLLED_EVIDENCE_TRAFFIC as readonly string[]).includes(trafficType)'),
+            // The old check accepted anything the product emits. Its absence is the correction.
+            noLongerAcceptsEveryRuntimeClass: !/TRAFFIC_TYPES as readonly string\[\]\)\.includes\(trafficType\)/.test(code),
+            holdsOnUncontrolled: src.includes('is not a controlled evidence class'),
+        }).toEqual({
+            hasControlledSubset: true,
+            validatesAgainstSubset: true,
+            noLongerAcceptsEveryRuntimeClass: true,
+            holdsOnUncontrolled: true,
+        });
+    });
+
+    it('CASUALTY: the pre-journey receipts are bound to the journey\'s own identity', () => {
+        // Splitting them out of the journey scope was right — they are emitted before the product journey
+        // exists — but leaving them scoped only by release and traffic class re-opened the union the
+        // journey filter closed: any other run in the window carrying the same release and class would
+        // satisfy them, so the selected journey could be missing BOTH its own identity receipts and still
+        // qualify on somebody else's.
+        const src = readFileSync(join(REPO, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+
+        expect({
+            // The identity is DERIVED from the journey rows, never supplied — it cannot be asserted
+            // independently of the run being judged.
+            derivesIdentityFromTheJourney: src.includes('SELECT DISTINCT distinct_id'),
+            bindsTheReadbackToIt: src.includes('AND distinct_id = ${sql(qualifyingIdentity)}'),
+            // No identity means nothing to bind to, and more than one means the journey id is not the
+            // discriminator we believe it is. Both HOLD rather than fall back to an unbound match.
+            holdsWhenNoIdentity: src.includes('there is no identity to bind its receipts to'),
+            holdsWhenAmbiguous: src.includes('a journey belongs to exactly one'),
+        }).toEqual({
+            derivesIdentityFromTheJourney: true,
+            bindsTheReadbackToIt: true,
+            holdsWhenNoIdentity: true,
+            holdsWhenAmbiguous: true,
+        });
+    });
+
+    it('CASUALTY: every query fails closed, not just the first one', () => {
+        // Two questions are asked now — the identity lookup and the family readback — and a transport
+        // error on EITHER must HOLD. One shared transport is what makes that true without a second copy
+        // of five refusal paths, which is where one of them goes missing.
+        const src = readFileSync(join(REPO, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+        const fetchCount = (src.match(/await fetch\(/g) ?? []).length;
+        expect({ transports: fetchCount, sharedHelper: src.includes('async function runQuery(') })
+            .toEqual({ transports: 1, sharedHelper: true });
+    });
+
     it('that caller is reachable as a command', () => {
         const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
         const wired = Object.entries(pkg.scripts)
@@ -153,13 +211,15 @@ describe('#1259 completeness gate wiring', () => {
         // Absent credentials, a transport failure, a non-OK status, unparseable JSON and an unexpected
         // shape must every one of them HOLD. A qualification step that skips when it cannot run reports
         // "we looked and it was fine" for "we did not look".
+        // The transport refusals are templated now that two queries share one helper — the label varies,
+        // the refusal does not. Checking the template is checking the behaviour for BOTH callers.
         for (const refusal of [
             'POSTHOG_PROJECT_ID is not set',
             'POSTHOG_PERSONAL_API_KEY is not set',
-            'the readback request failed',
-            'the readback returned HTTP',
-            'the readback response was not JSON',
-            'the readback response had no results array',
+            '${label} request failed',
+            '${label} returned HTTP',
+            '${label} response was not JSON',
+            '${label} response had no results array',
         ]) {
             expect({ refusal, present: src.includes(refusal) }).toEqual({ refusal, present: true });
         }

@@ -102,12 +102,35 @@ describe('F10 — the policy, the copy, and what the client can see', () => {
 
     it('every field survives the schema, and an invented state does not', () => {
         expect(projectEventProps('retention_observation', {
-            policy_version: 'newest-two', copy_version: 'newest-two',
+            policy_version: 'newest-one', copy_version: 'newest-one',
             transcript_bearing_before: 2, transcript_bearing_after: 1, expired_count: 2,
             content_free_history_count: 5, saved_transcript_state: 'available',
         }).dropped).toEqual([]);
         expect(projectEventProps('retention_observation', {
             saved_transcript_state: 'probably_fine',
         }).dropped).toContain('saved_transcript_state');
+    });
+});
+
+
+/**
+ * #1421 / #1436 — THE POLICY STRING IS PINNED TO THE REQUIREMENT, NOT TO ITSELF.
+ *
+ * The existing assertion compares the emitted `policy_version` to `RETENTION_POLICY_VERSION`, which is
+ * true however the constant is set — a tautology that survived reverting the constant to `newest-two`.
+ * The receipt exists to say what policy the deployed database is believed to run, so the value it must
+ * carry is the one the product requires, written out.
+ */
+describe('#1436 — the retention receipt names newest-one explicitly', () => {
+    it('CASUALTY: the emitted policy and copy versions are literally newest-one', () => {
+        emitRetentionObservation({
+            transcriptBearingBefore: 2, transcriptBearingAfter: 1,
+            contentFreeHistoryCount: 3, savedTranscriptState: 'available',
+        });
+        drain();
+
+        const row = rows()[0];
+        expect({ policy: row.policy_version, copy: row.copy_version })
+            .toEqual({ policy: 'newest-one', copy: 'newest-one' });
     });
 });

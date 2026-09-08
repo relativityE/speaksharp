@@ -35,13 +35,23 @@ import {
     type CompletenessResult,
 } from '../frontend/src/services/telemetry/completenessGate';
 import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
+
+/**
+ * The only traffic classes that may qualify controlled Production evidence.
+ *
+ * `user` is real customer activity — never our evidence. `internal` marks a build Production users never
+ * receive, so it cannot describe the canonical deployment. Declared as a subset of `TRAFFIC_TYPES` so a
+ * rename in the product vocabulary breaks this at compile time rather than silently widening the gate.
+ */
+const CONTROLLED_EVIDENCE_TRAFFIC: readonly (typeof TRAFFIC_TYPES[number])[] = ['canary', 'internal_test'];
 import { GOVERNED_EVENTS } from '../frontend/src/services/telemetryAllowlist';
 
 type Evidence = {
     gate: 'TELEMETRY-READBACK-COMPLETENESS';
     release_sha: string | null;
     journey_id: string | null;
-    traffic_type: string;
+    traffic_type: string | null;
+    identity_bound?: boolean;
     window_hours: number;
     observed_families: string[];
     required_families: string[];
@@ -101,8 +111,20 @@ async function main(): Promise<void> {
     // apparently-complete set — the false pass this gate exists to prevent.
     if (!journeyId) hold('no --journey-id supplied; completeness is a property of ONE journey, never of a time window');
     if (!trafficType) hold('no --traffic-type supplied; there is no safe default — name the controlled run\'s class');
-    if (!(TRAFFIC_TYPES as readonly string[]).includes(trafficType)) {
-        hold(`--traffic-type ${trafficType} is not one of the classifications the product emits (${TRAFFIC_TYPES.join(', ')})`);
+    /**
+     * CONTROLLED CLASSES ONLY — not merely "a class the product emits".
+     *
+     * Validating against every runtime classification accepted `user`, which is real customer activity.
+     * A copied journey id would then have certified release telemetry from someone's actual session:
+     * evidence we did not produce, cannot reproduce, and must never gate a release on. `internal` is
+     * excluded for the opposite reason — it marks a build Production users never receive, so it can never
+     * describe the canonical deployment this gate qualifies.
+     *
+     * That leaves the two classes a controlled Production run genuinely carries: the automated
+     * qualification canary, and a human dogfood session.
+     */
+    if (!(CONTROLLED_EVIDENCE_TRAFFIC as readonly string[]).includes(trafficType)) {
+        hold(`--traffic-type ${trafficType} is not a controlled evidence class; only ${CONTROLLED_EVIDENCE_TRAFFIC.join(' or ')} may qualify a release`);
     }
     if (!Number.isFinite(windowHours) || windowHours <= 0) hold(`--window-hours ${windowHours} is not a positive number`);
 
@@ -112,6 +134,40 @@ async function main(): Promise<void> {
     // Named, never printed. A missing credential is a HOLD, not a skip.
     if (!projectId) hold('POSTHOG_PROJECT_ID is not set — the readback could not be attempted');
     if (!personalApiKey) hold('POSTHOG_PERSONAL_API_KEY is not set — the readback could not be attempted');
+
+    /**
+     * ONE transport for every query this gate makes, so each of them fails closed identically.
+     *
+     * The identity lookup and the family readback are two separate questions, and a transport error on
+     * EITHER must HOLD. Duplicating the fetch would have meant duplicating five refusal paths, and the
+     * second copy is where one of them goes missing.
+     */
+    async function runQuery(hogql: string, label: string): Promise<unknown[]> {
+        let response: Response;
+        try {
+            response = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId!)}/query/`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${personalApiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: { kind: 'HogQLQuery', query: hogql } }),
+            });
+        } catch (err) {
+            hold(`${label} request failed: ${(err as Error).name}`);
+        }
+        if (!response.ok) hold(`${label} returned HTTP ${response.status}`);
+
+        let payload: unknown;
+        try {
+            payload = await response.json();
+        } catch {
+            hold(`${label} response was not JSON`);
+        }
+
+        const rows = (payload as { results?: unknown }).results;
+        // Not an array means the API shape changed under us. Treating an unreadable answer as an empty
+        // one would report "nothing was emitted" for what is really "we cannot read the answer".
+        if (!Array.isArray(rows)) hold(`${label} response had no results array — the shape is not what we decode`);
+        return rows;
+    }
 
     // Governed vocabulary only, bound to this release. `event` is the family name; no property is
     // selected, so nothing user-authored can reach this process.
@@ -127,12 +183,51 @@ async function main(): Promise<void> {
     // set, so an ordinary complete run could never qualify. They are still required and still pinned to
     // this release and traffic class — they are simply not journey-scoped, because they were never in it.
     const preJourneyList = PRE_JOURNEY_EVENT_FAMILIES.map(sql).join(', ');
+
+    /**
+     * THE PRE-JOURNEY RECEIPTS MUST BELONG TO THE SAME PERSON AS THE JOURNEY.
+     *
+     * Splitting them out of the journey scope was right — they are emitted at sign-in, before the product
+     * journey exists — but leaving them scoped only by release and traffic class re-opened the union the
+     * journey filter was added to close. Any other run in the window carrying the same release and class
+     * would satisfy them, so the selected journey could be missing BOTH its own identity receipts and
+     * still qualify on somebody else's.
+     *
+     * The qualifying identity is derived FROM the journey rows rather than supplied, so it cannot be
+     * asserted independently of the run being judged: whoever produced the journey is who the identity
+     * receipts must belong to. If the journey produced no rows there is no identity to bind, and the
+     * readback holds rather than falling back to an unbound match.
+     */
+    const identityQuery = `
+        SELECT DISTINCT distinct_id
+        FROM events
+        WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
+          AND properties.release_sha = ${sql(releaseSha)}
+          AND properties.traffic_type = ${sql(trafficType)}
+          AND properties.journey_id = ${sql(journeyId)}
+    `;
+    const identityRows = await runQuery(identityQuery, 'the qualifying identity lookup');
+    const distinctIds = identityRows
+        .map((row) => (Array.isArray(row) ? row[0] : row))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    if (distinctIds.length === 0) {
+        hold(`journey ${journeyId} produced no events for this release and traffic class — there is no identity to bind its receipts to`);
+    }
+    if (distinctIds.length > 1) {
+        // One journey belongs to one person. More than one identity means the journey id is not the
+        // discriminator we believe it is, and every conclusion drawn from it is suspect.
+        hold(`journey ${journeyId} spans ${distinctIds.length} distinct identities — a journey belongs to exactly one`);
+    }
+    const qualifyingIdentity = distinctIds[0];
+
     const query = `
         SELECT DISTINCT event
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${sql(releaseSha)}
           AND properties.traffic_type = ${sql(trafficType)}
+          AND distinct_id = ${sql(qualifyingIdentity)}
           AND event IN (${governedList})
           AND (
             properties.journey_id = ${sql(journeyId)}
@@ -140,29 +235,7 @@ async function main(): Promise<void> {
           )
     `;
 
-    let response: Response;
-    try {
-        response = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId)}/query/`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${personalApiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: { kind: 'HogQLQuery', query } }),
-        });
-    } catch (err) {
-        hold(`the readback request failed: ${(err as Error).name}`);
-    }
-    if (!response.ok) hold(`the readback returned HTTP ${response.status}`);
-
-    let payload: unknown;
-    try {
-        payload = await response.json();
-    } catch {
-        hold('the readback response was not JSON');
-    }
-
-    const rows = (payload as { results?: unknown }).results;
-    // Not an array means the API shape changed under us. Treating an unreadable answer as an empty one
-    // would report "nothing was emitted" for what is really "we cannot read the answer".
-    if (!Array.isArray(rows)) hold('the readback response had no results array — the shape is not what we decode');
+    const rows = await runQuery(query, 'the readback');
 
     // Deliberately unsanitised: the evaluator's own contract is that it receives whatever the readback
     // saw, junk included, because a decoder that tidies its input cannot report that the input was wrong.
@@ -174,6 +247,9 @@ async function main(): Promise<void> {
         release_sha: releaseSha,
         journey_id: journeyId,
         traffic_type: trafficType,
+        // Bound, never printed: a distinct_id identifies a person. Recording that the binding happened is
+        // the auditable fact; the value itself is not ours to publish in release evidence.
+        identity_bound: true,
         window_hours: windowHours,
         observed_families: observed.filter((n) => typeof n === 'string'),
         required_families: [...REQUIRED_EVENT_FAMILIES],

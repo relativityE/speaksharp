@@ -354,3 +354,50 @@ describe('#1421 F12 — the teardown drain reports itself', () => {
         expect(pagehide[0]?.queue_depth_band).toBeDefined();
     });
 });
+
+
+/**
+ * #1421 — THE TEARDOWN REPORT MUST NOT COST A RECEIPT, OR UNDERSTATE WHAT IT COST.
+ *
+ * At a full queue, enqueueing the `pagehide_drained` event evicts the oldest entry and increments the
+ * backpressure counter AFTER the reported value was read. So the observability signal destroyed a real
+ * product receipt and then under-reported by exactly the drop it had just caused — and on `pagehide`
+ * there is no later flush to correct it: the tab closes with the wrong number.
+ */
+describe('#1421 F12 — the pagehide report is capacity-safe', () => {
+    const fillQueue = (n: number) => {
+        for (let i = 0; i < n; i += 1) {
+            analyticsBuffer.push('session_started', { mode: 'private' }, 'LOW');
+        }
+    };
+
+    it('CASUALTY: at a FULL queue the report includes the eviction it causes', () => {
+        analyticsBuffer.wireHealthEmitter();
+        analyticsBuffer.ready = false;              // nothing drains while we fill
+        analyticsBuffer.queue.length = 0;
+        fillQueue(analyticsBuffer.MAX_QUEUE_SIZE);
+        expect(analyticsBuffer.queue.length).toBe(analyticsBuffer.MAX_QUEUE_SIZE);
+
+        analyticsBuffer.ready = true;
+        window.dispatchEvent(new Event('pagehide'));
+
+        const pagehide = captured('telemetry_health').filter((r) => r.flush_outcome === 'pagehide_drained');
+        expect({ emitted: pagehide.length }).toEqual({ emitted: 1 });
+        // The count sent already includes the cost of sending it. Deliberate and counted is a different
+        // thing from incidental and invisible: the receipt is still lost, but the report says so.
+        expect({ droppedReported: pagehide[0]?.dropped_count }).toEqual({ droppedReported: 1 });
+    });
+
+    it('CONTROL: an ordinary non-full pagehide reports no self-inflicted drop', () => {
+        analyticsBuffer.wireHealthEmitter();
+        analyticsBuffer.ready = true;
+        analyticsBuffer.queue.length = 0;
+        analyticsBuffer.push('session_started', { mode: 'private' }, 'LOW');
+
+        window.dispatchEvent(new Event('pagehide'));
+
+        const pagehide = captured('telemetry_health').filter((r) => r.flush_outcome === 'pagehide_drained');
+        expect({ emitted: pagehide.length > 0, dropped: pagehide[0]?.dropped_count })
+            .toEqual({ emitted: true, dropped: 0 });
+    });
+});
