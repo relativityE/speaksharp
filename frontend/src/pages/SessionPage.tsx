@@ -325,22 +325,34 @@ export const SessionPage: React.FC = () => {
     }, [reviewFetching, reviewFailureCount, reviewReadAttempt, reviewReadTimedOut, reviewSessionId,
         queryClient]);
 
-    // NOTE ON RETIREMENT (leaving the page, or moving to another session): no cleanup is written here.
-    //
-    // An explicit `cancelQueries` on unmount/key-change was tried and could not be shown to change any
-    // observable behaviour. The first time that was claimed, the only evidence was the BOUND casualty,
-    // which exercises a timeout on the SAME key and would have passed either way — so the claim was not
-    // earned. It is now: `a read RETIRED by a session change cannot publish under its old identity`
-    // drives the actual retirement path — take A's read still outstanding, the page moves to take B,
-    // then A answers late with a valid row — and passes without any cancellation here.
-    //
-    // The reason is that a retired read lands under its OWN key, and the surface reads the current key.
-    // The wire request is deliberately not aborted anywhere in this codebase (two attempts at that
-    // broke CI four times), so the request does complete; it simply has nowhere to publish.
-    //
-    // Adding a cancel that no test can distinguish would be dead code dressed as a safeguard. If there
-    // is a reachable state where the retired answer does harm, the casualty that demonstrates it should
-    // land first, and the cancel with it.
+    /**
+     * #1422 P2 — CANCEL THE EXACT KEY AS THE OBSERVER RETIRES.
+     *
+     * I previously argued this was unfalsifiable, and I was wrong about the observable rather than
+     * about the mechanism. My casualty asked whether a retired read could change the CURRENT surface —
+     * it cannot, because the retired read lands under its own key. The reachable harm is a LATER
+     * observer: `useSession` sets `staleTime` to five minutes, so A's late answer sits fresh under
+     * `['session', A]`, and a user who navigates back to A within that window is served a transcript
+     * that B's save has since expired. The wire request is deliberately never aborted here, so that
+     * late answer really does arrive.
+     *
+     * Cancelling the exact captured key on retirement discards it instead. Scoped with `exact` so a
+     * sibling key is untouched, and captured in the closure so the cancel names the RETIRING id rather
+     * than whatever is current by the time the cleanup runs.
+     */
+    React.useEffect(() => {
+        if (!reviewSessionId) return;
+        const retiringId = reviewSessionId;
+        return () => {
+            void queryClient.cancelQueries({ queryKey: ['session', retiringId], exact: true });
+        };
+    }, [reviewSessionId, queryClient]);
+
+    // WHAT THE EARLIER "PROVED REDUNDANT" NOTE GOT WRONG, kept because the reasoning error is the
+    // useful part: it asked whether a retired read could change the CURRENT surface, which it cannot,
+    // and concluded no cancel was needed. The question the finding was actually about is what a LATER
+    // observer of the same key is served. Two casualties now pin both halves — `a read RETIRED by a
+    // session change cannot publish under its old identity`, and the stale-cache one above it.
 
     const reviewStillSettling = !reviewReadTimedOut
         // `finalizedAnalysis` is deliberately NOT part of this. It is optional, so waiting on it meant a

@@ -2825,8 +2825,18 @@ export class SpeechRuntimeController {
          * That replays stale coaching, duplicates its telemetry, and — if the previous review was not
          * cached — spends a generation from the user's daily budget on the wrong take. A completed
          * session's identity belongs to the take that produced it, and a new take supersedes it.
+         *
+         * BUT NOT HERE. Retiring the previous identity at the START BOUNDARY assumes the start will
+         * succeed. Everything that can still refuse comes after this point — the distributed lock,
+         * auth, microphone permission, model acquisition, the engine's own start. A refusal there used
+         * to leave the user with NO take: the previous review's identity already gone, no successor to
+         * replace it, and the review surface stuck on "Loading…" for the rest of the session with
+         * nothing left to read.
+         *
+         * The retirement therefore happens at CONFIRMED RECORDING ADMISSION — the producer latch — so
+         * the previous take's review survives every failed start, and is superseded only once a
+         * successor genuinely exists. See the clear next to `recordingEngineMode`.
          */
-        useSessionStore.getState().setCompletedSessionId(null);
         // #1046 slice 5a: a new recording also clears any prior Focus Points coverage rail, so the
         // settled UI from an earlier objective session never lingers onto this one (mirrors the
         // finalizedAnalysis clear above; the brief itself is consumed separately at the stop seam).
@@ -3107,6 +3117,18 @@ export class SpeechRuntimeController {
                 // next recording's start boundary.
                 this.recordingEngineMode = (service.getMode?.() as TranscriptionMode | null | undefined) ?? mode;
                 pushNativeRuntimeTrace('controller_producer_latched', { latchedMode: this.recordingEngineMode });
+
+                /**
+                 * #1422 — THE PREVIOUS TAKE'S COMPLETED IDENTITY IS RETIRED HERE, not at the start
+                 * boundary, because THIS is the first moment a successor certainly exists.
+                 *
+                 * The service has confirmed it is recording. Before this line every remaining failure
+                 * mode — lock, auth, microphone, acquisition, engine start — could still refuse, and
+                 * retiring earlier stranded the previous review at a permanent "Loading…" with no take
+                 * to replace it. A user who denied the microphone lost the transcript they had just
+                 * finished reading.
+                 */
+                useSessionStore.getState().setCompletedSessionId(null);
 
                 this.isEmissionsSafe = true;
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {

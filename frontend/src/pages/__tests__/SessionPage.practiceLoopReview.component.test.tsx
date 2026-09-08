@@ -1,5 +1,7 @@
 /** F-07 casualty: the real completed-session parent must expose the saved-session 1+1 review. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, act } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -679,5 +681,75 @@ describe('F-07 completed-session Practice Loop review', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('CASUALTY: a retired read cannot leave an obsolete transcript in the five-minute cache', async () => {
+        // THE REACHABLE HARM, which my earlier casualty missed by asking the wrong question.
+        //
+        // That one asked whether A's late answer could change B's CURRENT surface. It cannot — a
+        // retired read lands under its own key. But `useSession` sets `staleTime` to five minutes and
+        // the wire request is deliberately never aborted, so A's answer really does arrive and really
+        // does sit FRESH under `['session', A]`. A user who goes back to A inside that window is then
+        // served a transcript that B's save has since expired.
+        //
+        // PRODUCTION CACHE TIMING IS REQUIRED HERE. The shared test render builds its QueryClient with
+        // `gcTime: 0`, which collects A's entry the instant its observer retires — under it this
+        // casualty cannot fail, and the earlier version of it duly passed with the cancellation
+        // removed. A nested provider with production-like timing takes precedence for the page.
+        let answerA!: (row: unknown) => void;
+        getSessionById.mockImplementationOnce(() => new Promise((resolve) => { answerA = resolve; }));
+
+        publishCompletedSession(4, 'session-cache-A');
+        const productionCache = new QueryClient({
+            defaultOptions: { queries: { retry: false, gcTime: 5 * 60 * 1000, staleTime: 5 * 60 * 1000 } },
+        });
+        render(<SessionPage />, {
+            wrapper: ({ children }: { children: React.ReactNode }) => (
+                <QueryClientProvider client={productionCache}>{children}</QueryClientProvider>
+            ),
+        });
+        await settleMicrotasks();
+
+        // ---- The observer retires: the page moves to take B.
+        await act(async () => {
+            const store = useSessionStore.getState();
+            store.setFinalizedAnalysis(null);
+            store.setCompletedSessionId(null);
+            publishCompletedSession(7, 'session-cache-B');
+        });
+        getSessionById.mockResolvedValue(savedRow('available', 'take B transcript', 'session-cache-B'));
+        await settleMicrotasks();
+
+        // ---- A's abandoned read answers LATE with what was true when it was issued.
+        await act(async () => {
+            answerA(savedRow('available', 'obsolete take A transcript', 'session-cache-A'));
+            await Promise.resolve();
+        });
+
+        // ---- B's save expired A. A later observer navigates back to A.
+        getSessionById.mockResolvedValue(savedRow('expired', null, 'session-cache-A'));
+        await act(async () => {
+            const store = useSessionStore.getState();
+            store.setFinalizedAnalysis(null);
+            store.setCompletedSessionId(null);
+            publishCompletedSession(4, 'session-cache-A');
+        });
+        await settleMicrotasks();
+        await settleMicrotasks();
+
+        // THE OBSERVABLE. `ReviewTranscriptNotice` renders nothing when the view is `available`, and
+        // renders with `data-outcome="expired"` when the server says the transcript is gone. So:
+        //
+        //   - cancelled retired read  -> A's cache entry is discarded, the re-observation issues a
+        //                                FRESH read, the server says expired, the notice appears;
+        //   - uncancelled retired read -> A's late `available` row is still fresh under its key, is
+        //                                served without refetching, and the notice is ABSENT while the
+        //                                user reads a transcript that no longer exists.
+        //
+        // Asserting on the absence of the text was not enough — the page does not render raw
+        // transcript text at this surface, so that assertion passed either way.
+        const notice = await screen.findByTestId('review-transcript-notice');
+        expect(notice, 'the re-read must reach the server, not the retired answer')
+            .toHaveAttribute('data-outcome', 'expired');
     });
 });
