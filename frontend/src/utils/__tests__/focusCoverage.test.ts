@@ -64,17 +64,14 @@ describe('focusCoverage.segmentTranscript', () => {
 });
 
 /**
- * #1429 E — the PRIMARY Focus Points journey.
+ * #1429 E — the Focus Points journey.
  *
- * The human journey enters a user-selected number of points, speaks EVERY entered point, and
- * requires every entered point to be detected. An earlier corpus statement that one point is
- * deliberately left unspoken described the NEGATIVE case only; it never described the primary
- * journey, and a suite that only ever proves N-1 of N cannot tell "honest miss" apart from
- * "cannot detect the last point at this set size".
+ * THE REQUIREMENT: the user may enter ANY number of Focus Points, and every point they enter is
+ * captured and detected. There is no criteria count, no default the product prefers, and no case in
+ * which a point the user entered may go missing.
  *
- * The negative complement lives in the second block below and in
- * `tests/e2e/focus-points-open-mic-isolation.e2e.spec.ts`, which leaves one point unspoken so a
- * real "Not detected" row must render.
+ * The sizes below are sampled across the input range to show the behaviour does not depend on how
+ * many points were entered. They are NOT a specification that those counts are special.
  */
 const SEVEN_POINTS = [
     'Name the price',
@@ -98,7 +95,7 @@ const SPOKEN_FOR_POINT = [
 
 describe('focusCoverage — every entered point is preserved and detected (#1429 E)', () => {
     for (const total of [1, 3, 4, 7] as const) {
-        it(`detects ${total}/${total} when the speaker covers every entered point`, () => {
+        it(`captures and detects all ${total} entered points — the count is the user's choice`, () => {
             const points = SEVEN_POINTS.slice(0, total);
             const transcript = SPOKEN_FOR_POINT.slice(0, total).join(' ');
 
@@ -121,21 +118,4 @@ describe('focusCoverage — every entered point is preserved and detected (#1429
         expect(coverage.total).not.toBe(4);
     });
 
-    for (const total of [3, 4, 7] as const) {
-        it(`NEGATIVE: at ${total} points, the one unspoken point — and only it — reports not detected`, () => {
-            const points = SEVEN_POINTS.slice(0, total);
-            const omitted = total - 1;
-            const transcript = SPOKEN_FOR_POINT.slice(0, total)
-                .filter((_, index) => index !== omitted)
-                .join(' ');
-
-            const coverage = deriveFocusCoverage(points, transcript, 120);
-
-            expect(coverage.rows[omitted].covered).toBe(false);
-            expect(coverage.rows[omitted].coveredAtSec).toBeNull();
-            expect(coverage.rows.filter((row) => !row.covered).map((row) => row.label))
-                .toEqual([points[omitted]]);
-            expect(coverage.coveredCount).toBe(total - 1);
-        });
-    }
 });

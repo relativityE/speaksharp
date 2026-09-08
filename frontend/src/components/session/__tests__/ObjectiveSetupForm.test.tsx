@@ -102,9 +102,18 @@ describe('#1046 ObjectiveSetupForm (capture UI)', () => {
 /**
  * #1429 E1/E2 — the user chooses how many Focus Points they enter, and every one of them survives.
  *
- * Three rows is the INITIAL UI count, not the product's capacity. The defect this guards against is
- * silent truncation: the user enters seven, the brief stores fewer, and coverage then reports
- * against a set the user never agreed to.
+ * THE REQUIREMENT: every point the user enters is captured. There is no criteria count, and no case
+ * in which an entered point may go missing. Three rows is the INITIAL UI count, not a specification.
+ * The counts sampled below show the behaviour does not depend on how many points were entered.
+ *
+ * The defect this guards against is silent truncation: the user enters seven, the brief stores fewer,
+ * and coverage then reports against a set the user never agreed to.
+ *
+ * OPEN DISCREPANCY, flagged rather than resolved here: the shipped code caps entry at
+ * `OBJECTIVE_MAX_POINTS = 7` (`objectiveBriefService.ts`) and hides the add control there, while the
+ * stated product expectation is that the user may enter any number they want. These tests describe
+ * the CURRENT cap; they do not endorse it. Removing the cap is a product decision with layout
+ * consequences and is not made in this lane.
  */
 describe('#1429 — every entered Focus Point reaches the brief, in order', () => {
     const SEVEN = [

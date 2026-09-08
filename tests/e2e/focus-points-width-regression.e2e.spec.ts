@@ -23,13 +23,14 @@ import {
  */
 
 /**
- * #1429 E — seven points is the product's maximum, and the narrow widths are where a full set is
- * most likely to clip. A sweep that only ever renders three points at desktop widths cannot see the
- * regression a user with a full set would hit on a phone.
+ * #1429 E — narrow widths are where a large set is most likely to clip, and a sweep that only ever
+ * renders three points at desktop widths cannot see the regression a user with many points would hit
+ * on a phone. Seven is the largest set the form currently accepts, so it is the widest case
+ * available to exercise — not a criteria count, and not a limit the product promises the user.
  */
 const WIDTHS = [1280, 1440, 1024, 390, 375, 320] as const;
 
-/** A full seven-point set — the maximum the setup form accepts. */
+/** The largest set the form currently accepts. Sampled for layout, not asserted as a requirement. */
 const SEVEN_POINTS = [
   'Name the price',
   'State the guarantee',

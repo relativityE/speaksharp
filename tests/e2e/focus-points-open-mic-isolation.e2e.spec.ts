@@ -26,11 +26,12 @@ import {
  */
 
 /**
- * FOUR Focus Points — deliberately not the three initial UI rows, so the journey exercises a
- * user-chosen cardinality rather than the default. The Open Mic leg re-speaks these keywords on
- * purpose. The PRIMARY journey speaks EVERY entered point and requires every one to be detected;
- * the negative "one point unspoken reports honestly" case is a focused unit case in
- * `frontend/src/utils/__tests__/focusCoverage.test.ts`, not this journey.
+ * The user may enter ANY number of Focus Points, and every point they enter must be captured and
+ * detected. There is no criteria count. This journey uses four only because it is not the number of
+ * rows the form happens to open with, so a set built by the user is exercised rather than the
+ * default layout — four is a sample, never a specification.
+ *
+ * The Open Mic leg re-speaks these keywords on purpose.
  */
 const POINT_LABELS = [
   'Name the price',
@@ -104,9 +105,8 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
     await expect(page.getByTestId('coverage-pace-total')).toHaveText(`/${POINT_LABELS.length}`);
 
-    // RECORD → SAVE → REVIEW. The primary journey SPEAKS EVERY ENTERED POINT, so every one must be
-    // detected. An earlier version left one point unspoken; that is the negative case and it now
-    // lives in the focused unit tests, where it can be parameterised across set sizes.
+    // RECORD → SAVE → REVIEW. EVERY entered point is spoken, so every one must be detected. There is
+    // no case in which a point the user entered is allowed to go missing.
     await recordSaveAndSettle(page, SPEAKS_EVERY_POINT);
 
     // AFTER (Focus Points): the finished-brief SNAPSHOT keeps the review screen alive after the live brief
