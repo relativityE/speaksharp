@@ -3,6 +3,8 @@ import { extractPdfText } from '../helpers/pdfText';
 import { test, expect, type Page } from '@playwright/test';
 import { setupE2EMocks } from './mock-routes';
 import { goToApp, navigateToRoute, programmaticLoginWithRoutes, waitForFeature } from './helpers';
+// #1427 — shared with a unit test that runs the production completeness predicate over this fixture.
+import { eligibleProgressTruth } from './helpers/progressFixtures';
 
 const SHOTS = 'test-results/1047-u3-cross-page';
 const SESSION_ID = 'session-4';
@@ -114,43 +116,6 @@ async function screenshotMatrix(page: Page, surface: string): Promise<void> {
   }
 }
 
-function eligibleProgressTruth() {
-  const current = {
-    session_id: SESSION_ID,
-    eligible: true,
-    exclusion_reasons: [],
-    clarity_raw: 88,
-    filler_count: 4,
-    error_marker_count: 0,
-    wpm: 142,
-    word_count: 245,
-    cohort_key: 'private|v2|base|clarity_v1',
-    baseline_session_id: REFERENCE_ID,
-    previous_comparable_session_id: REFERENCE_ID,
-    formula_version: 'clarity_v1',
-  };
-  const reference = { ...current, session_id: REFERENCE_ID, clarity_raw: 82, filler_count: 7, wpm: 136,
-    baseline_session_id: null, previous_comparable_session_id: null };
-  return {
-    evaluations: [current, reference],
-    recommendations: [{
-      id: 'recommendation-u3',
-      source_session_id: SESSION_ID,
-      formula_version: 'clarity_v1',
-      target_metric: 'filler_rate',
-      target_direction: 'decrease',
-      target_value: 2,
-      target_units: 'percent of words',
-      shown_text: 'Close the next attempt with the requested decision and owner.',
-    }],
-    attempts: [],
-    chronology: [
-      { id: REFERENCE_ID, created_at: '2025-01-17T13:00:00.000Z' },
-      { id: SESSION_ID, created_at: '2025-01-17T14:00:00.000Z' },
-    ],
-  };
-}
-
 
 test.describe('#1047 U3 canonical cross-page truth', () => {
   test('Marketing is testimonial-free, accessible, and has no viewport overflow', async ({ page }) => {
@@ -174,7 +139,7 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
 
     await programmaticLoginWithRoutes(page, {
       userType: 'free',
-      progressFixtures: eligibleProgressTruth(),
+      progressFixtures: eligibleProgressTruth(SESSION_ID, REFERENCE_ID),
       sessions: [{
         id: SESSION_ID,
         user_id: 'test-user-123',
