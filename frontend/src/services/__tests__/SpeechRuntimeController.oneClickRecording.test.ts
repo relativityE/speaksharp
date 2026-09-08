@@ -777,6 +777,49 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
             .toEqual({ finalizing: true });
     });
 
+    it("CASUALTY: B's START GUARD stays closed while B is finalizing, even after stale A speaks", async () => {
+        // The reason latch ownership matters at all. `isTranscriptFinalizing` is the authoritative start
+        // gate — `useSessionLifecycle` refuses a start outright while it is true, and disables the
+        // control. If stale A could clear it, take C would be admitted into a session B has not finished
+        // writing. Asserting the LATCH is not enough; this asserts the guard the latch exists to hold.
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            finalizingOwnerVersion: number | null;
+            transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
+        };
+        const aToken = { cancelled: false, version: priv.lifecycleVersion };
+        priv.lifecycleVersion += 1;
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;      // B is finalizing
+
+        await priv.transition('READY', undefined, aToken);        // stale A tries to rest
+
+        // The guard `useSessionLifecycle` consults is still closed.
+        expect({ startGuardClosed: useSessionStore.getState().isTranscriptFinalizing })
+            .toEqual({ startGuardClosed: true });
+    });
+
+    it("CASUALTY: the latch clears normally when B reaches ITS OWN resting terminal", async () => {
+        // The other half: ownership must not make the latch un-clearable. B's own terminal transition
+        // releases it, and releases the ownership with it, so a later legitimate withdrawal is not
+        // blocked by a stale owner.
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            finalizingOwnerVersion: number | null;
+            transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+
+        // B's own resting transition — its token is current, so it takes the ordinary path.
+        await priv.transition('READY', undefined, { cancelled: false, version: priv.lifecycleVersion });
+
+        expect({
+            finalizing: useSessionStore.getState().isTranscriptFinalizing,
+            ownerReleased: priv.finalizingOwnerVersion,
+        }).toEqual({ finalizing: false, ownerReleased: null });
+    });
+
     it('CASUALTY: a CANCELLED token also releases it', async () => {
         const priv = controller as unknown as {
             lifecycleVersion: number;
@@ -971,6 +1014,33 @@ describe('#1431 — successor admission', () => {
 
         expect({ term, supersededMayPublish: priv.mayPublishRecording(supersededToken) })
             .toEqual({ term, supersededMayPublish: false });
+    });
+
+    it('CASUALTY C3: a service swapped WITHOUT a generation bump still loses the attempt', async () => {
+        // Today every replacement goes through `callbacksForNewService()` or `detachService()`, both of
+        // which bump the generation — so this term is currently redundant with the generation check and
+        // a mutant removing it survives on the other casualties alone.
+        //
+        // It is kept, and covered here, because the redundancy is a property of today's call sites
+        // rather than of the invariant. The invariant is "the attempt's own service is still the live
+        // one". A future path that swaps the service without going through those two helpers would
+        // otherwise let a superseded attempt publish for a service it never started, and nothing else in
+        // the tuple would notice.
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as {
+            acceptedAttempt: { intentToken: string } | null;
+            service: unknown;
+            mayPublishRecording: (t?: string) => boolean;
+        };
+        const token = priv.acceptedAttempt!.intentToken;
+        expect({ beforeSwap: priv.mayPublishRecording(token) }).toEqual({ beforeSwap: true });
+
+        // A different service instance, with every other term of the tuple untouched.
+        priv.service = { getState: () => 'RECORDING', fsm: { is: (st: string) => st === 'RECORDING' } };
+
+        expect({ afterSwap: priv.mayPublishRecording(token) }).toEqual({ afterSwap: false });
     });
 
     it('CASUALTY D: a service that is NOT recording cannot be published as recording', async () => {
