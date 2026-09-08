@@ -25,8 +25,47 @@ import {
  * on Open Mic — so re-using those exact words is the sharpest possible isolation probe.
  */
 
-/** The three Focus Points labels; the Open Mic leg re-speaks these keywords on purpose. */
-const POINT_LABELS = ['Name the price', 'State the guarantee', 'Explain the timeline'] as const;
+/**
+ * FOUR Focus Points — deliberately not the three initial UI rows, so the journey exercises a
+ * user-chosen cardinality rather than the default. The Open Mic leg re-speaks these keywords on
+ * purpose. The PRIMARY journey speaks EVERY entered point and requires every one to be detected;
+ * the negative "one point unspoken reports honestly" case is a focused unit case in
+ * `frontend/src/utils/__tests__/focusCoverage.test.ts`, not this journey.
+ */
+const POINT_LABELS = [
+  'Name the price',
+  'State the guarantee',
+  'Explain the timeline',
+  'Cover the onboarding',
+] as const;
+
+/** One sentence per entered point, so the take genuinely covers all four. */
+const SPEAKS_EVERY_POINT =
+  'First I will name the price clearly. Then I state the guarantee we offer. '
+  + 'Next I explain the timeline for delivery. Finally I cover the onboarding steps.';
+
+/** Enter every label into the setup dialog, adding rows beyond the three initial ones. */
+async function enterEveryPoint(page: Page) {
+  await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
+  await page.getByTestId('objective-goal-select').selectOption('Sales or product pitch');
+  for (let i = 3; i < POINT_LABELS.length; i++) {
+    await page.getByTestId('objective-add-point').click();
+  }
+  for (let i = 0; i < POINT_LABELS.length; i++) {
+    await page.getByTestId(`objective-point-label-${i}`).fill(POINT_LABELS[i]);
+  }
+  await page.getByTestId('objective-setup-submit').click();
+}
+
+/** Every entered point is present, in order, and every one reports Detected. */
+async function assertEveryPointDetected(page: Page, label: string) {
+  await expect(page.getByTestId('coverage-pace-total'), `total in ${label}`).toHaveText(`/${POINT_LABELS.length}`);
+  await expect(page.getByTestId('coverage-pace-covered'), `covered in ${label}`).toHaveText(String(POINT_LABELS.length));
+  for (let i = 0; i < POINT_LABELS.length; i++) {
+    await expect(page.getByTestId(`focus-point-${i}`), `point ${i} in ${label}`).toHaveAttribute('data-status', 'covered');
+    await expect(page.getByTestId(`focus-point-${i}`), `point ${i} label in ${label}`).toContainText(POINT_LABELS[i]);
+  }
+}
 
 /** Focus Points chrome that must be ABSENT from any Open Mic state. */
 async function assertNoObjectiveChrome(page: Page, label: string) {
@@ -58,25 +97,24 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
 
     // ---- FOCUS POINTS: setup → session ----
     await page.getByTestId('practice-card-objective').click();
-    await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
-    await page.getByTestId('objective-goal-select').selectOption('Sales or product pitch');
-    await page.getByTestId('objective-point-label-0').fill(POINT_LABELS[0]);
-    await page.getByTestId('objective-point-label-1').fill(POINT_LABELS[1]);
-    await page.getByTestId('objective-point-label-2').fill(POINT_LABELS[2]);
-    await page.getByTestId('objective-setup-submit').click();
+    await enterEveryPoint(page);
 
     // BEFORE (Focus Points): the plan rail is present — this is genuinely a Focus Points session.
     await page.waitForURL('**/session');
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
+    await expect(page.getByTestId('coverage-pace-total')).toHaveText(`/${POINT_LABELS.length}`);
 
-    // RECORD → SAVE → REVIEW. Cover two points, leave "timeline" uncovered so the after-state has a
-    // real "not detected" row to render from the snapshot.
-    await recordSaveAndSettle(page, 'First I will name the price clearly, and then state the guarantee we offer.');
+    // RECORD → SAVE → REVIEW. The primary journey SPEAKS EVERY ENTERED POINT, so every one must be
+    // detected. An earlier version left one point unspoken; that is the negative case and it now
+    // lives in the focused unit tests, where it can be parameterised across set sizes.
+    await recordSaveAndSettle(page, SPEAKS_EVERY_POINT);
 
     // AFTER (Focus Points): the finished-brief SNAPSHOT keeps the review screen alive after the live brief
-    // was cleared on save — coverage card + rail render, proving the snapshot path works.
+    // was cleared on save — coverage card + rail render, proving the snapshot path works, and the
+    // snapshot preserves every entered point with its coverage.
     await expect(page.getByTestId('coverage-pace')).toBeVisible();
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
+    await assertEveryPointDetected(page, 'Focus Points after-state');
 
     // ---- RETURN TO PRACTICE → OPEN MIC ----
     await navigateToRoute(page, '/practice');
@@ -93,7 +131,7 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     await startRecording(page);
     await simulateTranscription(
       page,
-      'Let me talk about the price, the guarantee, and the timeline for all of this today.',
+      'Let me talk about the price, the guarantee, the timeline and the onboarding for all of this today.',
       true,
     );
     await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({
@@ -122,18 +160,14 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     await navigateToRoute(page, '/practice');
 
     await page.getByTestId('practice-card-objective').click();
-    await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
-    await page.getByTestId('objective-goal-select').selectOption('Sales or product pitch');
-    await page.getByTestId('objective-point-label-0').fill(POINT_LABELS[0]);
-    await page.getByTestId('objective-point-label-1').fill(POINT_LABELS[1]);
-    await page.getByTestId('objective-point-label-2').fill(POINT_LABELS[2]);
-    await page.getByTestId('objective-setup-submit').click();
+    await enterEveryPoint(page);
     await page.waitForURL('**/session');
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
 
-    await recordSaveAndSettle(page, 'First I will name the price clearly, and then state the guarantee we offer.');
+    await recordSaveAndSettle(page, SPEAKS_EVERY_POINT);
     // After-state Focus Points review is up (snapshot path); the retry control lives on the rail.
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
+    await assertEveryPointDetected(page, 'before retry');
 
     // Retry → a fresh recording that is still Focus Points (rail present, Open Mic prompt offer absent).
     await page.getByTestId('focus-points-retry').click();
@@ -143,5 +177,14 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
     await expect(page.getByTestId('coverage-pace')).toBeVisible();
     await expect(page.getByTestId('prompt-offer')).toHaveCount(0);
+
+    // The retry rebinds the SAME four points, in order, and starts them uncovered — a retry that
+    // silently dropped to the three default rows, or carried the previous take's ticks, would be a
+    // different set than the one the user asked to retry.
+    await expect(page.getByTestId('coverage-pace-total')).toHaveText(`/${POINT_LABELS.length}`);
+    await expect(page.getByTestId('coverage-pace-covered')).toHaveText('0');
+    for (let i = 0; i < POINT_LABELS.length; i++) {
+      await expect(page.getByTestId(`focus-point-${i}`)).toContainText(POINT_LABELS[i]);
+    }
   });
 });

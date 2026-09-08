@@ -22,7 +22,23 @@ import {
  * now keeps coverage-pace / delivery strip / highlights alive in after — this asserts that end to end.
  */
 
-const WIDTHS = [1280, 1440, 1024] as const;
+/**
+ * #1429 E — seven points is the product's maximum, and the narrow widths are where a full set is
+ * most likely to clip. A sweep that only ever renders three points at desktop widths cannot see the
+ * regression a user with a full set would hit on a phone.
+ */
+const WIDTHS = [1280, 1440, 1024, 390, 375, 320] as const;
+
+/** A full seven-point set — the maximum the setup form accepts. */
+const SEVEN_POINTS = [
+  'Name the price',
+  'State the guarantee',
+  'Explain the timeline',
+  'Cover the onboarding',
+  'Mention the support team',
+  'Describe the migration plan',
+  'Confirm the renewal terms',
+] as const;
 const HEIGHT = 900;
 const DIR = 'test-results/fp-g6g7-widths';
 
@@ -51,7 +67,20 @@ async function sweepWidths(page: Page, state: 'before' | 'during' | 'after') {
 }
 
 test.describe('#1046 G6/G7 — Focus Points slots hold at 1280/1440/1024', () => {
-  test('before → during → after hold position with no overflow at all three widths', async ({ page }) => {
+/** Every entered point renders, in order, and the rail never forces the page to scroll sideways. */
+async function assertEveryPointUsable(page: Page, label: string) {
+  for (const width of [320, 375, 390, 1024, 1280, 1440]) {
+    await page.setViewportSize({ width, height: HEIGHT });
+    for (let i = 0; i < SEVEN_POINTS.length; i++) {
+      await expect(page.getByTestId(`focus-point-${i}`), `point ${i} at ${width} in ${label}`).toBeVisible();
+      await expect(page.getByTestId(`focus-point-${i}`), `point ${i} text at ${width} in ${label}`).toContainText(SEVEN_POINTS[i]);
+    }
+    await assertNoHorizontalOverflow(page, `${label} @${width}`);
+  }
+  await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
+}
+
+  test('before → during → after hold position with a full seven-point set at every supported width', async ({ page }) => {
     test.setTimeout(120_000);
     mkdirSync(DIR, { recursive: true });
 
@@ -59,26 +88,32 @@ test.describe('#1046 G6/G7 — Focus Points slots hold at 1280/1440/1024', () =>
     await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
     await navigateToRoute(page, '/practice');
 
-    // Open the Focus Points capture dialog and complete a real set (topic + three points).
+    // Open the Focus Points capture dialog and complete a FULL set (topic + all seven points).
     await page.getByTestId('practice-card-objective').click();
     await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
     await page.getByTestId('objective-goal-select').selectOption('Sales or product pitch');
-    await page.getByTestId('objective-point-label-0').fill('Name the price');
-    await page.getByTestId('objective-point-label-1').fill('State the guarantee');
-    await page.getByTestId('objective-point-label-2').fill('Explain the timeline');
+    for (let i = 3; i < SEVEN_POINTS.length; i++) {
+      await page.getByTestId('objective-add-point').click();
+    }
+    for (let i = 0; i < SEVEN_POINTS.length; i++) {
+      await page.getByTestId(`objective-point-label-${i}`).fill(SEVEN_POINTS[i]);
+    }
     await page.getByTestId('objective-setup-submit').click();
 
     // ---- BEFORE ----
     await page.waitForURL('**/session');
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
     await expect(page.getByTestId('focus-points-topic')).toContainText('Sales or product pitch');
+    await assertEveryPointUsable(page, 'before');
     await sweepWidths(page, 'before');
 
-    // ---- DURING ---- (cover two points, leave "timeline" for a missed-point in after)
+    // ---- DURING ---- (this sweep measures LAYOUT; detection coverage is owned by the focused
+    // coverage unit tests and the isolation journey, not by a width regression.)
     await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
     await startRecording(page);
     await simulateTranscription(page, 'So first I will name the price clearly, and then state the guarantee we offer to every customer.', true);
     await expect(page.getByTestId('coverage-pace')).toBeVisible({ timeout: 15_000 });
+    await assertEveryPointUsable(page, 'during');
     await sweepWidths(page, 'during');
 
     // ---- AFTER ---- (proves the finished-brief snapshot keeps the FP review screen after save)
@@ -88,6 +123,16 @@ test.describe('#1046 G6/G7 — Focus Points slots hold at 1280/1440/1024', () =>
     // Gate on the app's OWN deterministic saved + after-state signals, not a component testid race.
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
     await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
+    await assertEveryPointUsable(page, 'after');
+    // The after-state actions must stay reachable with a full set — a seven-row rail that pushes
+    // Retry and Start a new set off the surface is a dead end for the user on a narrow screen.
+    for (const width of [320, 390, 1280]) {
+      await page.setViewportSize({ width, height: HEIGHT });
+      await expect(page.getByTestId('focus-points-retry'), `retry at ${width}`).toBeVisible();
+      await expect(page.getByTestId('focus-points-new-set'), `new set at ${width}`).toBeVisible();
+      await assertNoHorizontalOverflow(page, `after actions @${width}`);
+    }
+    await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
     await sweepWidths(page, 'after');
   });
 });
