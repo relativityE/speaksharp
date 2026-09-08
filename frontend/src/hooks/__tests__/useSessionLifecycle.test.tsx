@@ -282,6 +282,42 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
      * recording (a late frame during teardown) would fall into its START branch and create exactly the
      * stray recording this issue exists to eliminate. A stale event must be cleared, never toggled.
      */
+    /**
+     * #1431 — THE START GUARD ITSELF, not the boolean behind it.
+     *
+     * `isTranscriptFinalizing` exists to hold this guard closed: while a take is finalizing,
+     * `handleStartStop` must refuse a start outright, so a second take cannot be admitted into a
+     * session the first has not finished writing.
+     *
+     * My first casualty for this asserted the LATCH and claimed to assert the refusal. Codex was right
+     * that it did not: a regression removing the check here would have left it green while take C was
+     * admitted. This drives the real hook and asserts what the user's click actually does.
+     */
+    it('#1431: a start is REFUSED while a previous take is still finalizing', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,               // nothing is recording...
+            runtimeState: 'READY',            // ...and the runtime looks ready...
+            elapsedTime: 0,
+            startTime: null,
+            isTranscriptFinalizing: true,     // ...but the previous take is still finalizing.
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        await act(async () => { await result.current.handleStartStop(); });
+
+        // The click is refused at the guard — no recording is started for a session still being written.
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        // And the control is not interactive, so the refusal is visible rather than silent.
+        expect(result.current.isButtonDisabled).toBe(true);
+    });
+
     it('#1089: a stale capture-backstop event while Ready is cleared and NEVER starts a recording', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',

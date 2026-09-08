@@ -777,27 +777,19 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
             .toEqual({ finalizing: true });
     });
 
-    it("CASUALTY: B's START GUARD stays closed while B is finalizing, even after stale A speaks", async () => {
-        // The reason latch ownership matters at all. `isTranscriptFinalizing` is the authoritative start
-        // gate — `useSessionLifecycle` refuses a start outright while it is true, and disables the
-        // control. If stale A could clear it, take C would be admitted into a session B has not finished
-        // writing. Asserting the LATCH is not enough; this asserts the guard the latch exists to hold.
-        const priv = controller as unknown as {
-            lifecycleVersion: number;
-            finalizingOwnerVersion: number | null;
-            transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
-        };
-        const aToken = { cancelled: false, version: priv.lifecycleVersion };
-        priv.lifecycleVersion += 1;
-        useSessionStore.getState().setTranscriptFinalizing(true);
-        priv.finalizingOwnerVersion = priv.lifecycleVersion;      // B is finalizing
-
-        await priv.transition('READY', undefined, aToken);        // stale A tries to rest
-
-        // The guard `useSessionLifecycle` consults is still closed.
-        expect({ startGuardClosed: useSessionStore.getState().isTranscriptFinalizing })
-            .toEqual({ startGuardClosed: true });
-    });
+    /**
+     * NOTE — the Start-guard casualty does NOT live here, and the one that did has been removed.
+     *
+     * It asserted `isTranscriptFinalizing` and claimed to assert the guard's refusal. It did not: it
+     * re-read the same boolean the latch test above already covers, so a regression removing the check
+     * in `useSessionLifecycle.handleStartStop` would have left it green while take C was admitted during
+     * B's finalization. Codex caught that, and it is the exact failure mode — a casualty passing for a
+     * reason unrelated to what it names — that this branch has been correcting elsewhere.
+     *
+     * The real guard is exercised where it lives, against the mounted hook, in
+     * `useSessionLifecycle.test.tsx`: "#1431: a start is REFUSED while a previous take is still
+     * finalizing", which drives `handleStartStop` and asserts `startRecording` is never called.
+     */
 
     it("CASUALTY: the latch clears normally when B reaches ITS OWN resting terminal", async () => {
         // The other half: ownership must not make the latch un-clearable. B's own terminal transition
@@ -1058,5 +1050,184 @@ describe('#1431 — successor admission', () => {
 
         expect({ mayPublish: priv.mayPublishRecording(accepted.intentToken) })
             .toEqual({ mayPublish: false });
+    });
+});
+
+
+/**
+ * #1431 — THE REAL STOP TERMINAL, not `transition()` in isolation.
+ *
+ * The previous guard casualty called `transition()` directly and therefore never reached the stop's own
+ * terminal teardown — where the lifecycle is bumped, the finalizing latch cleared, working memory
+ * purged, and READY published through a `transition()` call that passes NO token and so cannot be
+ * refused. Codex was right that the unit test passed while that production path stayed exposed.
+ *
+ * This drives `stopRecording()` itself, with a successor established while the stop is suspended.
+ */
+describe('#1431 — a superseded stop terminal leaves the successor alone', () => {
+    let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
+    let engine: ControlledEngine;
+
+    beforeEach(async () => {
+        localStorage.clear();
+        engine = new ControlledEngine();
+        engine.modelCached = true;
+        vi.resetModules();
+        const { sttRegistry } = await import('../transcription/STTRegistry');
+        sttRegistry.register('transformers-js', () => engine as never);
+        sttRegistry.register('private', () => engine as never);
+        useSessionStore = (await import('@/stores/useSessionStore')).useSessionStore;
+        intentApi = await import('../recordingIntent');
+        intentApi.__resetRecordingIntentForTests();
+        const mod = await import('../SpeechRuntimeController');
+        controller = mod.speechRuntimeController;
+        const priv = controller as unknown as Record<string, unknown>;
+        priv.state = 'IDLE'; priv.service = null; priv.isEngineReady = false;
+        priv.acceptedAttempt = null; priv.finalizingOwnerVersion = null;
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('IDLE');
+    });
+
+    afterEach(() => vi.clearAllMocks());
+
+    it("CASUALTY: stale A's stop terminal does not clear B's latch, purge B's transcript, or rest B", async () => {
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            finalizingOwnerVersion: number | null;
+            service: { destroy?: () => Promise<void> } | null;
+        };
+
+        // A's teardown suspends inside `service.destroy()` — a real await in the terminal block.
+        let releaseDestroy!: () => void;
+        const original = priv.service!.destroy!.bind(priv.service);
+        priv.service!.destroy = () => new Promise<void>((resolve) => {
+            releaseDestroy = () => { void original(); resolve(); };
+        });
+
+        const stopping = controller.stopRecording();
+        await settle(6);
+
+        // B takes over while A is suspended, and B arms its own finalization.
+        priv.lifecycleVersion += 1;
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        useSessionStore.getState().setRuntimeState('STOPPING');
+
+        releaseDestroy();
+        await stopping.catch(() => { /* A's own outcome is not the subject */ });
+        await settle(30);
+
+        // B is untouched: still finalizing, still owning the latch, not rested by A.
+        expect({
+            finalizing: useSessionStore.getState().isTranscriptFinalizing,
+            latchOwner: priv.finalizingOwnerVersion,
+            restedByA: useSessionStore.getState().runtimeState === 'READY',
+        }).toEqual({
+            finalizing: true,
+            latchOwner: priv.lifecycleVersion,
+            restedByA: false,
+        });
+    });
+});
+
+
+    /**
+     * The detach result is a SECOND, independent ownership signal.
+     *
+     * The version recheck above catches a successor that moved the lifecycle. It cannot catch one that
+     * replaced the live service without doing so — and in that case `detachService(expected)` returning
+     * null is the only thing standing between a stale stop and the successor's state. Superseding by
+     * lifecycle alone leaves that branch unexercised, which is exactly what mutation testing showed.
+     */
+describe('#1431 — the detach result is an ownership signal, not a no-op', () => {
+    let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
+    let engine: ControlledEngine;
+
+    beforeEach(async () => {
+        localStorage.clear();
+        engine = new ControlledEngine();
+        engine.modelCached = true;
+        vi.resetModules();
+        const { sttRegistry } = await import('../transcription/STTRegistry');
+        sttRegistry.register('transformers-js', () => engine as never);
+        sttRegistry.register('private', () => engine as never);
+        useSessionStore = (await import('@/stores/useSessionStore')).useSessionStore;
+        intentApi = await import('../recordingIntent');
+        intentApi.__resetRecordingIntentForTests();
+        const mod = await import('../SpeechRuntimeController');
+        controller = mod.speechRuntimeController;
+        const priv = controller as unknown as Record<string, unknown>;
+        priv.state = 'IDLE'; priv.service = null; priv.isEngineReady = false;
+        priv.acceptedAttempt = null; priv.finalizingOwnerVersion = null;
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('IDLE');
+    });
+
+    afterEach(() => vi.clearAllMocks());
+
+    it("CASUALTY C: the rightful owner completes its OWN terminal and the next take can start", async () => {
+        // Ownership must not make the terminal unreachable. B's own stop clears B's latch and frozen
+        // snapshot, purges B's working memory, rests the runtime, releases B's terminal ownership — and
+        // the next legitimate take starts. Without this, every guard above could be satisfied by a stop
+        // path that simply never completes.
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+        expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
+
+        await controller.stopRecording();
+        await settle(40);
+
+        const priv = controller as unknown as { finalizingOwnerVersion: number | null };
+        expect({
+            finalizing: useSessionStore.getState().isTranscriptFinalizing,
+            frozen: useSessionStore.getState().frozenTranscriptAtStop,
+            ownerReleased: priv.finalizingOwnerVersion,
+            resting: ['READY', 'IDLE', 'TERMINATED'].includes(useSessionStore.getState().runtimeState ?? ''),
+        }).toEqual({ finalizing: false, frozen: null, ownerReleased: null, resting: true });
+
+        // ...and the next legitimate take is admitted.
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+        expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
+    });
+
+    it("CASUALTY: a successor that replaces the SERVICE without moving the lifecycle is still respected", async () => {
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            finalizingOwnerVersion: number | null;
+            service: { destroy?: () => Promise<void> } | null;
+        };
+
+        let releaseDestroy!: () => void;
+        const original = priv.service!.destroy!.bind(priv.service);
+        priv.service!.destroy = () => new Promise<void>((resolve) => {
+            releaseDestroy = () => { void original(); resolve(); };
+        });
+
+        const stopping = controller.stopRecording();
+        await settle(6);
+
+        // B takes the service WITHOUT touching the lifecycle: the version recheck cannot see this, so
+        // only the detach result can.
+        priv.service = { getState: () => 'RECORDING', destroy: async () => {}, fsm: { is: (st: string) => st === 'RECORDING' } } as never;
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        useSessionStore.getState().setRuntimeState('STOPPING');
+
+        releaseDestroy();
+        await stopping.catch(() => { /* A's own outcome is not the subject */ });
+        await settle(30);
+
+        expect({
+            finalizing: useSessionStore.getState().isTranscriptFinalizing,
+            serviceStillBs: priv.service !== null,
+            restedByA: useSessionStore.getState().runtimeState === 'READY',
+        }).toEqual({ finalizing: true, serviceStillBs: true, restedByA: false });
     });
 });

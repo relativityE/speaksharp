@@ -1907,11 +1907,16 @@ export class SpeechRuntimeController {
              * EXCEPT: A SUPERSEDED CONTINUATION MAY STILL WITHDRAW ITS OWN CLAIM.
              *
              * `isTranscriptFinalizing` is cleared in exactly one place — the resting-state branch below —
-             * so returning here for a stale token left the banner latched for the rest of the session.
-             * That is the finalization stall: `Finalizing your transcript…` still on screen after the row
-             * was written and the after-state reached, the review never loading because the transcript
-             * read is gated behind it, coverage never deriving, and the retry unable to start a take.
-             * A green e2e on main and a red one on main + this ownership work isolate it to exactly here.
+             * so returning here for a stale token would leave the banner latched for the rest of the
+             * session.
+             *
+             * RECORD CORRECTION: this was originally written up as the cause of the Focus Points Retry
+             * failure. The runtime trace disproved that. Finalization COMPLETES normally — the logs show
+             * `transition READY starting` / `STOPPING -> READY` / `transition READY done` — and the retry
+             * defect was successor ADMISSION: the service FSM reached RECORDING while the controller
+             * refused its own transition. That is fixed by the accepted-attempt tuple, not by this
+             * branch. The withdrawal below is kept because it is correct on its own terms, not as an
+             * explanation of that failure.
              *
              * Ownership is the right rule for state a stale continuation would CORRUPT. It is the wrong
              * rule for RELEASING a user-visible claim: "we are finalizing" was asserted by this take, and
@@ -4517,11 +4522,84 @@ export class SpeechRuntimeController {
                     }
                 }
 
+                /**
+                 * #1431 — OWNERSHIP IS REVALIDATED BEFORE THE TERMINAL TEARDOWN, NOT ONLY INSIDE
+                 * `transition()`.
+                 *
+                 * Everything below this point mutates state that belongs to whichever take is CURRENT,
+                 * and none of it was guarded: a stale stop A continuing across a hard reset would bump
+                 * the lifecycle again — invalidating successor B's — then clear B's finalizing latch,
+                 * purge B's transcript from working memory, and transition B to READY through a
+                 * `transition()` call that passes no token and so cannot be refused.
+                 *
+                 * `detachService(service)` already returns null and detaches nothing when the current
+                 * service is B's, but that result was ignored, so it protected only the service handle
+                 * and nothing else. Guarding the latch inside `transition()` was likewise insufficient,
+                 * because this path does not go through the tokened route at all.
+                 *
+                 * A superseded stop still performs its OWN cleanup — its watchdog, its service — because
+                 * that is A's to finish and leaving A's engine running would be worse. It then stops.
+                 * Captured BEFORE the bump, so the owning stop's ordering is unchanged.
+                 */
+                const entersTerminalAsOwner = !token.cancelled && token.version === this.lifecycleVersion;
+                if (!entersTerminalAsOwner) {
+                    // Superseded before the teardown even began. Finish destroying our OWN service —
+                    // leaving A's engine running would be worse — and touch nothing shared.
+                    this.stopWatchdog();
+                    await service.destroy();
+                    this.detachService(service);
+                    pushNativeRuntimeTrace('controller_stop_terminal_superseded', { at: 'entry' });
+                    return;
+                }
+
+                /**
+                 * A'S OWN ADVANCE IS NOT A LOSS OF OWNERSHIP, AND CAPTURING BEFORE THE AWAIT IS NOT A
+                 * CHECK.
+                 *
+                 * The stop fences its destroyed service by bumping the lifecycle itself, so after that
+                 * bump `token.version` no longer equals `this.lifecycleVersion` for the rightful owner —
+                 * a naive comparison after the await would reject every normal stop. Equally, evaluating
+                 * ownership BEFORE `service.destroy()` and trusting the result afterwards is not a
+                 * revalidation at all: that is what my first attempt did, and its own casualty caught it
+                 * clobbering the successor.
+                 *
+                 * So A records the version its own advance produced. Anything that changes it after that
+                 * is somebody else, and the difference between "A moved the lifecycle on" and "B took
+                 * over" is exactly what this value expresses.
+                 */
                 this.lifecycleVersion++;
+                const terminalOwnerVersion = this.lifecycleVersion;
                 this.stopWatchdog();
                 await service.destroy();
-                this.detachService(service);
+
+                // REVALIDATED AFTER THE SUSPENSION. A hard reset or a successor take during
+                // `destroy()` moves the lifecycle past A's own advance.
+                if (this.lifecycleVersion !== terminalOwnerVersion) {
+                    this.detachService(service);   // refuses if the current service is no longer ours
+                    pushNativeRuntimeTrace('controller_stop_terminal_superseded', {
+                        terminalOwnerVersion,
+                        lifecycleVersion: this.lifecycleVersion,
+                    });
+                    logger.warn({
+                        terminalOwnerVersion,
+                        lifecycleVersion: this.lifecycleVersion,
+                    }, '[DEBUG-STOP] terminal teardown SUPERSEDED after destroy — successor left untouched');
+                    return;
+                }
+
+                /**
+                 * `detachService(expected)` returning null IS an ownership failure, not a no-op. It means
+                 * the live service is somebody else's, so every shared mutation below would land on that
+                 * successor. Ignoring this result is what let a stale stop clear another take's latch.
+                 */
+                if (this.detachService(service) === null) {
+                    pushNativeRuntimeTrace('controller_stop_terminal_superseded', { at: 'detach' });
+                    logger.warn({ terminalOwnerVersion }, '[DEBUG-STOP] terminal teardown SUPERSEDED at detach — successor left untouched');
+                    return;
+                }
+
                 useSessionStore.getState().setTranscriptFinalizing(false);
+                this.finalizingOwnerVersion = null;
                 useSessionStore.getState().freezeTranscriptAtStop(null);
                 // #1306 P1: metrics are derived and the session is finalized here — purge the ephemeral live
                 // transcript from working memory (store + lifecycle) so no spoken text survives finalization. A
