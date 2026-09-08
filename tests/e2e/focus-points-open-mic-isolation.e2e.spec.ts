@@ -178,13 +178,35 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     await expect(page.getByTestId('coverage-pace')).toBeVisible();
     await expect(page.getByTestId('prompt-offer')).toHaveCount(0);
 
-    // The retry rebinds the SAME four points, in order, and starts them uncovered — a retry that
-    // silently dropped to the three default rows, or carried the previous take's ticks, would be a
-    // different set than the one the user asked to retry.
+    // THE PRIOR TAKE'S N/N CLEARS TO 0/N. This is the assertion that was red: take A finished at 4/4,
+    // Retry started take B, and the rail still showed A's 4/4 because A's finalization republished its
+    // coverage after B's start had cleared it. Fenced in #1431 by binding that publish to the take
+    // that owns it.
     await expect(page.getByTestId('coverage-pace-total')).toHaveText(`/${POINT_LABELS.length}`);
     await expect(page.getByTestId('coverage-pace-covered')).toHaveText('0');
+
+    // ...AND EVERY ENTERED POINT IS STILL PRESENT, in order. A retry that silently dropped to the
+    // three default rows would be a different set than the one the user asked to retry, and a rail
+    // that cleared by emptying itself would satisfy 0/N while losing the user's work.
+    await expect(page.getByTestId('focus-points-rail-list').getByRole('listitem'))
+      .toHaveCount(POINT_LABELS.length);
     for (let i = 0; i < POINT_LABELS.length; i++) {
       await expect(page.getByTestId(`focus-point-${i}`)).toContainText(POINT_LABELS[i]);
+      await expect(page.getByTestId(`focus-point-${i}`)).toHaveAttribute('data-status', 'pending');
     }
+
+    // ---- TAKE B RUNS TO ITS OWN SAVE. Clearing A's coverage is only half the contract: the
+    // successor must then publish ITS OWN transcript, review and N/N. A rail that cleared and stayed
+    // empty would pass every assertion above while leaving the user with nothing.
+    await simulateTranscription(page, SPEAKS_EVERY_POINT, true);
+    await page.waitForTimeout(5_200); // clear the sub-5s no-persist guard
+    await stopRecording(page);
+    await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
+    await expect(
+      page.locator('[data-testid="session-shell"][data-session-state="after"]'),
+    ).toBeVisible({ timeout: 15_000 });
+
+    // B's own coverage, from B's own take — the same four points, all detected again.
+    await assertEveryPointDetected(page, 'take B after-state');
   });
 });
