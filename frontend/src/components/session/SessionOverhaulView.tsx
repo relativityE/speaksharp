@@ -329,7 +329,23 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // Live coverage, derived from the growing transcript via the local keyword matcher (nothing leaves the
     // device). `coveredLatch` guarantees a lit tick never regresses (spec §6); it resets on a fresh session.
     const coveredLatch = React.useRef<Set<number>>(new Set());
-    if (isObjective && sessionState === 'before') coveredLatch.current = new Set();
+    /**
+     * THE LATCH IS PER TAKE, AND A RETRY IS A NEW TAKE.
+     *
+     * Resetting only on `before` assumed every take begins there. "Retry these points" goes
+     * after-state -> during directly and never touches `before`, so the previous take's latched
+     * indices survived into the new one: the pace card read the old N/N from its very first frame and
+     * every point showed as already covered. The user pressed Retry and was told there was nothing
+     * left to say.
+     *
+     * Resetting on ENTRY to `during` covers both routes — before -> during for a normal start (where
+     * the latch is already empty, so this is a no-op) and after -> during for a retry. It fires on the
+     * transition only, so the no-regression guarantee within a take is untouched.
+     */
+    const previousSessionState = React.useRef(sessionState);
+    const enteredDuring = sessionState === 'during' && previousSessionState.current !== 'during';
+    previousSessionState.current = sessionState;
+    if (isObjective && (sessionState === 'before' || enteredDuring)) coveredLatch.current = new Set();
     // The terminal result exists only when the retained transcript exists. Treating a pending/failed read
     // as an empty transcript turns "we cannot read it" into the confident false result 0/N + every point
     // "Not detected". Before/during still derive from working memory; after derives only from the retained
