@@ -109,11 +109,12 @@ describe('#1046 ObjectiveSetupForm (capture UI)', () => {
  * The defect this guards against is silent truncation: the user enters seven, the brief stores fewer,
  * and coverage then reports against a set the user never agreed to.
  *
- * OPEN DISCREPANCY, flagged rather than resolved here: the shipped code caps entry at
- * `OBJECTIVE_MAX_POINTS = 7` (`objectiveBriefService.ts`) and hides the add control there, while the
- * stated product expectation is that the user may enter any number they want. These tests describe
- * the CURRENT cap; they do not endorse it. Removing the cap is a product decision with layout
- * consequences and is not made in this lane.
+ * THE MVP RANGE IS 1-7, ruled and recorded. `OBJECTIVE_MAX_POINTS = 7`
+ * (`objectiveBriefService.ts`) is therefore correct, and the add control disappearing at seven is the
+ * intended behaviour rather than a limitation to work around. Zero, and anything above seven, are
+ * future-release design considerations only: they block no PR, no test, no deployment and no
+ * acceptance, and no redesign happens in the current release. The counts sampled below stay samples
+ * across that range — they are not a specification that those particular numbers are special.
  */
 describe('#1429 — every entered Focus Point reaches the brief, in order', () => {
     const SEVEN = [

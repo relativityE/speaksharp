@@ -25,12 +25,13 @@ import {
 /**
  * #1429 E — narrow widths are where a large set is most likely to clip, and a sweep that only ever
  * renders three points at desktop widths cannot see the regression a user with many points would hit
- * on a phone. Seven is the largest set the form currently accepts, so it is the widest case
- * available to exercise — not a criteria count, and not a limit the product promises the user.
+ * on a phone. Seven is the top of the ruled MVP range of 1-7, so it is the widest case the
+ * product accepts and the one most likely to clip — sampled here for LAYOUT, not asserted as a
+ * criteria count.
  */
 const WIDTHS = [1280, 1440, 1024, 390, 375, 320] as const;
 
-/** The largest set the form currently accepts. Sampled for layout, not asserted as a requirement. */
+/** The top of the MVP range (1-7). Sampled for layout, not asserted as a criteria count. */
 const SEVEN_POINTS = [
   'Name the price',
   'State the guarantee',
