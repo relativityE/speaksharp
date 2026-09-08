@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
-    PRIVATE_WORKER_MAX_FIXTURE_WER,
+    PRIVATE_WORKER_DIMENSION_WER_BOUNDS,
+    PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS,
+    PRIVATE_WORKER_MIN_REFERENCE_SEPARATION,
     provePrivateWorkerNaturalLanguageJourney,
     type NaturalLanguageFixtureContract,
     type PrivateWorkerNaturalLanguageObservation,
@@ -9,58 +11,136 @@ import {
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
 
-const references = [
-    'the meeting starts at nine please arrive early',
-    'a calm river flows past the old stone bridge',
+/**
+ * Shaped after the pinned corpus: two dimensions the synthesized corpus can carry, and
+ * one (`filler_recognition`) it cannot. `fixture-3`'s transcript is the one the real
+ * production worker actually returned for the pinned filler fixture — WER 0.583 under
+ * `track_b`, which is why a flat 0.5 bound turned this lane red.
+ */
+const fixtureSpecs = [
+    { reference: 'the meeting starts at nine please arrive early', dimension: 'clean_words' },
+    { reference: 'a calm river flows past the old stone bridge', dimension: 'punctuation_placement' },
+    { reference: 'so um i think uh we should um review the plan today', dimension: 'filler_recognition' },
 ] as const;
 
-const fixtures: NaturalLanguageFixtureContract[] = references.map((referenceText, index) => ({
+const fixtures: NaturalLanguageFixtureContract[] = fixtureSpecs.map((spec, index) => ({
     fixtureId: `fixture-${index + 1}`,
     fixtureSha256: String(index + 1).repeat(64),
-    referenceText,
-    referenceTextSha256: sha256(referenceText),
-    qualityDimensions: ['clean_words'],
+    referenceText: spec.reference,
+    referenceTextSha256: sha256(spec.reference),
+    qualityDimensions: [spec.dimension],
 }));
 
-function observation(
-    fixtureId: string,
-    transcript: string,
-    hash: string,
-): PrivateWorkerNaturalLanguageObservation {
-    const samples = 16_000;
-    const tuple = { sha256: hash, samples, bytes: samples * 4, durationSeconds: 1 };
+const transcripts = [
+    'the meeting starts at nine please arrive early',
+    'a calm river flows by the old stone bridge',
+    'so i am i think i wish you a review of the plan today',
+] as const;
+
+function observation(index: number, transcript: string): PrivateWorkerNaturalLanguageObservation {
+    const samples = 16_000 * (index + 1);
+    const tuple = {
+        sha256: String.fromCharCode(97 + index).repeat(64),
+        samples,
+        bytes: samples * 4,
+        durationSeconds: samples / 16_000,
+    };
     return {
-        fixtureId,
+        fixtureId: `fixture-${index + 1}`,
         transcript,
         mainThreadInput: { ...tuple },
         workerInput: { ...tuple },
     };
 }
 
-const passingObservations = (): PrivateWorkerNaturalLanguageObservation[] => [
-    observation('fixture-1', references[0], 'a'.repeat(64)),
-    observation('fixture-2', 'a calm river flows by the old stone bridge', 'b'.repeat(64)),
-];
+const passingObservations = (): PrivateWorkerNaturalLanguageObservation[] =>
+    transcripts.map((transcript, index) => observation(index, transcript));
+
+const withTranscript = (index: number, transcript: string): PrivateWorkerNaturalLanguageObservation[] => {
+    const observations = passingObservations();
+    observations[index] = { ...observations[index], transcript };
+    return observations;
+};
 
 describe('Private-v2 natural-language worker journey contract', () => {
     it('returns sanitized measurements only after every fixture crosses the worker boundary', () => {
         const proof = provePrivateWorkerNaturalLanguageJourney(fixtures, passingObservations());
 
-        expect(proof.fixtureCount).toBe(2);
+        expect(proof.fixtureCount).toBe(3);
         expect(proof.track).toBe('track_b');
-        expect(proof.maximumAllowedWer).toBe(PRIVATE_WORKER_MAX_FIXTURE_WER);
-        expect(proof.maximumWer).toBeLessThanOrEqual(PRIVATE_WORKER_MAX_FIXTURE_WER);
-        expect(proof.results.map(result => result.inputHashesMatch)).toEqual([true, true]);
-        expect(proof.results.map(result => result.fixtureId)).toEqual(['fixture-1', 'fixture-2']);
-        expect(JSON.stringify(proof)).not.toContain(references[0]);
-        expect(JSON.stringify(proof)).not.toContain(references[1]);
+        expect(proof.results.map(result => result.fixtureId)).toEqual(['fixture-1', 'fixture-2', 'fixture-3']);
+        expect(proof.results.map(result => result.inputHashesMatch)).toEqual([true, true, true]);
+        for (const text of [...fixtureSpecs.map(spec => spec.reference), ...transcripts]) {
+            expect(JSON.stringify(proof)).not.toContain(text);
+        }
+    });
+
+    it('binds each fixture to the bound its declared quality dimension can honestly carry', () => {
+        const proof = provePrivateWorkerNaturalLanguageJourney(fixtures, passingObservations());
+
+        expect(proof.results.map(result => result.appliedWerBound)).toEqual([
+            PRIVATE_WORKER_DIMENSION_WER_BOUNDS.clean_words,
+            PRIVATE_WORKER_DIMENSION_WER_BOUNDS.punctuation_placement,
+            null,
+        ]);
+        expect(proof.boundedFixtureCount).toBe(2);
+        expect(proof.measuredOnlyFixtureCount).toBe(1);
+        // The filler fixture is still MEASURED — the exemption suppresses the bound, never the number.
+        expect(proof.results[2].wer).toBeCloseTo(0.583, 3);
+        expect(PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS.filler_recognition).toMatch(/synthes/i);
+    });
+
+    it('CASUALTY: the measured-only exemption is not a hole — an unrelated transcript still fails', () => {
+        // Under a naive "drop the bound for filler_recognition" fix this passes: the
+        // transcript is non-empty, distinct, and no accuracy bound applies to it.
+        const observations = withTranscript(2, 'zebra lantern orbit pancake velvet thunder marble');
+
+        expect(() => provePrivateWorkerNaturalLanguageJourney(fixtures, observations))
+            .toThrow(/fixture 'fixture-3' transcript is not measurably bound to its own reference/);
     });
 
     it('CASUALTY: rejects the constant non-empty worker stub that the old smoke accepted', () => {
-        const observations = passingObservations().map(item => ({ ...item, transcript: 'worker transcript' }));
+        const observations = passingObservations().map(item => ({ ...item, transcript: 'worker transcript ready' }));
 
         expect(() => provePrivateWorkerNaturalLanguageJourney(fixtures, observations))
-            .toThrow(/WER .* exceeds/);
+            .toThrow(/returned the same transcript as 'fixture-1'/);
+    });
+
+    it('CASUALTY: rejects a stub that varies its constant per call, defeating distinctness alone', () => {
+        const observations = passingObservations().map((item, index) => ({
+            ...item,
+            transcript: `worker transcript number ${index + 1} ready`,
+        }));
+
+        expect(() => provePrivateWorkerNaturalLanguageJourney(fixtures, observations))
+            .toThrow(/is not measurably bound to its own reference/);
+    });
+
+    it('CASUALTY: rejects mis-routed audio even though every transcript is a real recognition', () => {
+        const observations = passingObservations();
+        const first = observations[0].transcript;
+        observations[0] = { ...observations[0], transcript: observations[1].transcript };
+        observations[1] = { ...observations[1], transcript: first };
+
+        expect(() => provePrivateWorkerNaturalLanguageJourney(fixtures, observations))
+            .toThrow(/fixture 'fixture-1' transcript is not measurably bound to its own reference/);
+    });
+
+    it('CASUALTY: the tightened bound bites where the old flat 0.5 bound did not', () => {
+        // 3 substitutions over 9 reference words = 0.333: inside the retired flat bound.
+        const observations = withTranscript(1, 'a calm river runs by the new stone bridge');
+
+        expect(() => provePrivateWorkerNaturalLanguageJourney(fixtures, observations))
+            .toThrow(/fixture 'fixture-2' WER 0\.333 exceeds 0\.200 \(S=3 D=0 I=0 over 9 reference words\)/);
+    });
+
+    it('CASUALTY: an invented quality dimension fails closed instead of escaping its bound', () => {
+        const renamed = fixtures.map((fixture, index) => index === 1
+            ? { ...fixture, qualityDimensions: ['no_bound_please'] }
+            : fixture);
+
+        expect(() => provePrivateWorkerNaturalLanguageJourney(renamed, withTranscript(1, 'a calm river runs by the new stone bridge')))
+            .toThrow(/fixture 'fixture-2' declares unknown quality dimension 'no_bound_please'/);
     });
 
     it('CASUALTY: rejects a stale worker hash even when both transcripts are accurate', () => {
@@ -86,5 +166,15 @@ describe('Private-v2 natural-language worker journey contract', () => {
 
         expect(() => provePrivateWorkerNaturalLanguageJourney(invalidFixtures, passingObservations()))
             .toThrow(/reference text does not match|fewer than/);
+    });
+
+    it('publishes the separation each transcript actually cleared', () => {
+        const proof = provePrivateWorkerNaturalLanguageJourney(fixtures, passingObservations());
+
+        expect(proof.minimumReferenceSeparation).toBe(PRIVATE_WORKER_MIN_REFERENCE_SEPARATION);
+        expect(proof.observedMinimumReferenceSeparation).toBeGreaterThanOrEqual(PRIVATE_WORKER_MIN_REFERENCE_SEPARATION);
+        for (const result of proof.results) {
+            expect(result.nearestOtherReferenceWer).toBeGreaterThan(result.wer);
+        }
     });
 });
