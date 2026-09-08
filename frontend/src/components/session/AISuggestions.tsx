@@ -199,8 +199,21 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
 
       const persistedSuggestions = parseAISuggestions(data?.suggestions);
       if (!persistedSuggestions) {
-        trackPracticeLoopReviewFailed('invalid_response');
-        throw Object.assign(new Error('INVALID_REVIEW_RESPONSE'), { telemetryRecorded: true });
+        /**
+         * #1422 — A SUPERSEDED REQUEST REPORTS NOTHING.
+         *
+         * This emitted before `isCurrentRequest()` was consulted, so a late malformed answer for
+         * session A — already discarded by the UI, correctly — still counted as a review failure after
+         * the user had moved to session B. The funnel then showed failures nobody experienced, which is
+         * the same class of untruth as a silently missing event: a number that cannot be acted on.
+         *
+         * The throw is unconditional either way; only the REPORTING is scoped. `telemetryRecorded` is
+         * set only when something was actually recorded, so the catch below does not double-count and
+         * does not fall back to emitting for a request that is no longer current.
+         */
+        const current = isCurrentRequest();
+        if (current) trackPracticeLoopReviewFailed('invalid_response');
+        throw Object.assign(new Error('INVALID_REVIEW_RESPONSE'), { telemetryRecorded: current });
       }
 
       if (isCurrentRequest()) {

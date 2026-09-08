@@ -449,6 +449,36 @@ describe('F-07 completed-session Practice Loop review', () => {
         expect(invoke).not.toHaveBeenCalled();
     });
 
+    it('CASUALTY: without the optional analysis, the automatic review STILL fires', async () => {
+        // The other half of the persistence fallback, and the half that was missing. The reader was moved
+        // onto the persisted id; `AISuggestions` and its readiness condition were not. So in exactly the
+        // state the fallback exists for — reconciliation failed, transcript saved and readable — the
+        // transcript loaded and the review never ran, with a Retry control that could not fire either.
+        const store = useSessionStore.getState();
+        store.setFinalizedWordCount(4);
+        store.setFinalizedFillerData({});
+        store.setFinalizedFillerCount(0);
+        store.setCompletedSessionId('session-complete-1');
+        store.setFinalizedAnalysis(null);          // the optional analysis never published
+
+        getSessionById.mockResolvedValue(savedRow('available'));
+        invoke.mockResolvedValue({
+            data: { suggestions: {
+                version: 'gemini_coaching_v1',
+                what_worked: 'Clear opening.',
+                what_to_try_next: 'Lead with the recommendation.',
+            } },
+            error: null,
+        });
+
+        render(<SessionPage />);
+
+        // The automatic post-save submission fires against the PERSISTED id.
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+            body: { sessionId: 'session-complete-1' },
+        }));
+    });
+
     it('P2/P5 CASUALTY: an UNSETTLED read withholds — unknown is not permission', async () => {
         // The read has not answered yet. "We do not know whether a transcript is there" must not fire a
         // request on optimism; the request is not free.

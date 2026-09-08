@@ -375,6 +375,19 @@ export const SessionPage: React.FC = () => {
     // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
     const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
 
+    /**
+     * #1422 — REVIEW readiness is not COPY readiness.
+     *
+     * `postSaveReady` gates the settled copy and the reconciliation sentence, which genuinely describe
+     * the finalized analysis and should wait for it. The REVIEW does not: it needs a saved session and a
+     * readable transcript, both of which exist when the optional reconciliation fails.
+     *
+     * Reusing `postSaveReady` for the review was the third gate on that same optional value — after the
+     * reader's id and `AISuggestions`' own prop — so moving only the first two left the suppression
+     * exactly where it was. The review now depends on what the review actually needs.
+     */
+    const reviewReadyForRequest = showAnalyticsPrompt && !!reviewSessionId;
+
 
     // Mode-aware reconciliation status copy for the consolidated status bar's left side.
     const reconciliationCopy = finalizedAnalysis
@@ -598,7 +611,16 @@ export const SessionPage: React.FC = () => {
                     wpm={metrics.wpm}
                     practiceLoopReview={(
                         <AISuggestions
-                            sessionId={finalizedAnalysis?.sessionId}
+                            /**
+                             * #1422 — THE SAME ID THE READER USES.
+                             *
+                             * This took `finalizedAnalysis?.sessionId` while the reader above had already
+                             * been moved onto the persisted id, so the two disagreed in exactly the state
+                             * the persistence fallback exists for: when the optional reconciliation fails,
+                             * the saved transcript loads and this stayed undefined — no automatic review,
+                             * and a Retry control that could not fire either. Half a fix is its own defect.
+                             */
+                            sessionId={reviewSessionId ?? undefined}
                             /**
                              * #1422 P2/P5 — READINESS IS THE SERVER'S TRANSCRIPT STATE, not a word count.
                              *
@@ -624,8 +646,9 @@ export const SessionPage: React.FC = () => {
                              * `onRetryReviewTranscript` re-reads rather than re-generating.
                              */
                             canReview={Boolean(
-                                postSaveReady
-                                && finalizedAnalysis?.sessionId
+                                // Readiness follows the COMPLETED SAVE and the server's transcript state,
+                                // not the optional analysis — see `reviewReadyForRequest`.
+                                reviewReadyForRequest
                                 && reviewTranscript?.kind === 'available'
                             )}
                         />

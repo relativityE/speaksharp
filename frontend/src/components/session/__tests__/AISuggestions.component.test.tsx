@@ -7,6 +7,12 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 
 // Mock dependencies
 vi.mock('@/lib/supabaseClient');
+// The failure counter is the subject of one casualty below, so it is observed rather than stubbed away.
+vi.mock('@/services/practiceLoopTelemetry', async (orig) => {
+    const actual = await orig<typeof import('@/services/practiceLoopTelemetry')>();
+    return { ...actual, trackPracticeLoopReviewFailed: vi.fn() };
+});
+import { trackPracticeLoopReviewFailed } from '@/services/practiceLoopTelemetry';
 
 
 const mockSupabaseClient = {
@@ -593,5 +599,69 @@ describe('AISuggestions Integration', () => {
             // ...and once it succeeds, the control goes away, like any other success.
             expect(screen.queryByRole('button', { name: /review/i })).toBeNull();
         });
+    });
+});
+
+
+/**
+ * #1422 — A SUPERSEDED REQUEST REPORTS NOTHING.
+ *
+ * A late malformed answer for session A is correctly discarded by the UI, and used to be counted as a
+ * review failure anyway — after the user had already moved to session B. The funnel then showed
+ * failures nobody experienced, which is the same class of untruth as a silently missing event: a
+ * number no one can act on.
+ */
+describe('#1422 — superseded review requests are silent', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.mocked(getSupabaseClient).mockReturnValue(mockSupabaseClient as unknown as ReturnType<typeof getSupabaseClient>);
+    });
+    afterEach(cleanup);
+
+    it('CASUALTY: an invalid response for a SUPERSEDED session emits no failure', async () => {
+        // A's request is still in flight when the component moves to B.
+        let settleA!: (v: unknown) => void;
+        mockSupabaseClient.functions.invoke.mockImplementationOnce(
+            () => new Promise((resolve) => { settleA = resolve; }),
+        );
+
+        const view = render(<AISuggestions transcript="hello" sessionId="session-A" />);
+        await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalled());
+
+        // B takes over. Its own request answers normally.
+        mockSupabaseClient.functions.invoke.mockResolvedValue({
+            data: { suggestions: {
+                version: 'gemini_coaching_v1',
+                what_worked: 'Clear opening.',
+                what_to_try_next: 'Lead with the recommendation.',
+            } },
+            error: null,
+        });
+        view.rerender(<AISuggestions transcript="hello" sessionId="session-B" />);
+        await waitFor(() => expect(screen.getByText(/Clear opening/i)).toBeInTheDocument());
+
+        vi.mocked(trackPracticeLoopReviewFailed).mockClear();
+
+        // NOW A answers, malformed. The UI already discards it; the funnel must too.
+        settleA({ data: { suggestions: { nonsense: true } }, error: null });
+        await new Promise((resolve) => setTimeout(resolve, 40));
+
+        expect({ failuresReported: vi.mocked(trackPracticeLoopReviewFailed).mock.calls.length })
+            .toEqual({ failuresReported: 0 });
+        // ...and B's review is untouched by A's late answer.
+        expect(screen.getByText(/Clear opening/i)).toBeInTheDocument();
+    });
+
+    it('CONTROL: an invalid response for the CURRENT session still reports once', async () => {
+        // The counter must keep counting the failures users actually meet.
+        mockSupabaseClient.functions.invoke.mockResolvedValue({
+            data: { suggestions: { nonsense: true } },
+            error: null,
+        });
+
+        render(<AISuggestions transcript="hello" sessionId="session-current" />);
+
+        await waitFor(() => expect(vi.mocked(trackPracticeLoopReviewFailed).mock.calls.length).toBe(1));
+        expect(vi.mocked(trackPracticeLoopReviewFailed).mock.calls[0][0]).toBe('invalid_response');
     });
 });
