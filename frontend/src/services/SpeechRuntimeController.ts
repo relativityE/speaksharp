@@ -4542,10 +4542,12 @@ export class SpeechRuntimeController {
                  * Captured BEFORE the bump, so the owning stop's ordering is unchanged.
                  */
                 const entersTerminalAsOwner = !token.cancelled && token.version === this.lifecycleVersion;
+                const ownedWatchdogVersion = this.watchdogVersion;
                 if (!entersTerminalAsOwner) {
                     // Superseded before the teardown even began. Finish destroying our OWN service —
-                    // leaving A's engine running would be worse — and touch nothing shared.
-                    this.stopWatchdog();
+                    // leaving A's engine running would be worse — and touch nothing shared. The watchdog
+                    // stop is version-scoped: the global one would disarm the successor's heartbeat.
+                    this.stopWatchdogIfCurrent(ownedWatchdogVersion);
                     await service.destroy();
                     this.detachService(service);
                     pushNativeRuntimeTrace('controller_stop_terminal_superseded', { at: 'entry' });
@@ -4569,7 +4571,7 @@ export class SpeechRuntimeController {
                  */
                 this.lifecycleVersion++;
                 const terminalOwnerVersion = this.lifecycleVersion;
-                this.stopWatchdog();
+                this.stopWatchdogIfCurrent(ownedWatchdogVersion);
                 await service.destroy();
 
                 // REVALIDATED AFTER THE SUSPENSION. A hard reset or a successor take during
@@ -4965,6 +4967,22 @@ export class SpeechRuntimeController {
             clearInterval(this.watchdogInterval);
             this.watchdogInterval = null;
         }
+    }
+
+    /**
+     * #1431 — STOP ONLY THE WATCHDOG THIS TAKE STARTED.
+     *
+     * `stopWatchdog()` is controller-wide: it clears the single `watchdogInterval` whoever owns it. A
+     * superseded stop calling it would silently disarm the SUCCESSOR's heartbeat monitoring, so a take
+     * that later stalled would never be noticed — a failure mode with no symptom until a user is sitting
+     * in front of a dead recording.
+     *
+     * `startWatchdog` already mints a version per take. Comparing it is the difference between "stop my
+     * watchdog" and "stop the watchdog", and only the first is ever a superseded take's business.
+     */
+    private stopWatchdogIfCurrent(version: number): void {
+        if (this.watchdogVersion !== version) return;
+        this.stopWatchdog();
     }
 
     // --- Idle Reclamation ---
