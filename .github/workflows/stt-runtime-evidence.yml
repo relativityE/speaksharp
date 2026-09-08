@@ -87,3 +87,15 @@ jobs:
           path: stt-evidence-artifacts/private-v2-worker.json
           if-no-files-found: error
           retention-days: 1
+      # A red run must be diagnosable from the run itself. This uploads the sanitized per-fixture
+      # record the proof preserves on failure -- fixture id, WER counts, hashes, PCM tuples and the
+      # mismatch category, never transcript or reference text. It runs ONLY on failure, so it can
+      # never stand in for the success artifact above, and it does not mask the job's red status.
+      - name: Upload preserved per-fixture diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stt-private-v2-worker-failure-diagnostics-${{ env.EVIDENCE_SHA }}
+          path: stt-evidence-artifacts/private-v2-worker.json
+          if-no-files-found: warn
+          retention-days: 1

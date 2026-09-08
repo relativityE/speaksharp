@@ -42,6 +42,65 @@ export const PRIVATE_WORKER_MIN_REFERENCE_SEPARATION = 0.1;
 
 const SHA256_RE = /^[0-9a-f]{64}$/i;
 
+/**
+ * Mismatch categories. A red run must say WHICH contract broke without anyone reading the code, and
+ * without any transcript or reference text leaving the machine that produced it.
+ */
+export type PrivateWorkerProblemCategory =
+    | 'fixture_contract'
+    | 'quality_dimension'
+    | 'observation_coverage'
+    | 'pcm_tuple'
+    | 'transcript_missing'
+    | 'transcript_duplicate'
+    | 'wer_bound'
+    | 'reference_separation';
+
+export interface PrivateWorkerProblem {
+    fixtureId: string | null;
+    category: PrivateWorkerProblemCategory;
+    detail: string;
+}
+
+/**
+ * Per-fixture measurements retained EVEN WHEN THE AGGREGATE PROOF FAILS. Aggregate validation used
+ * to throw before anything per-fixture survived, so a red run said only that something was wrong and
+ * a maintainer had to reproduce it locally to learn what. Hashes and counts only — never text.
+ */
+export interface PrivateWorkerFixtureDiagnostic {
+    fixtureId: string;
+    fixtureSha256: string | null;
+    referenceTextSha256: string | null;
+    transcriptSha256: string | null;
+    qualityDimensions: string[];
+    appliedWerBound: number | null;
+    referenceWords: number | null;
+    hypothesisWords: number | null;
+    substitutions: number | null;
+    deletions: number | null;
+    insertions: number | null;
+    wer: number | null;
+    nearestOtherReferenceWer: number | null;
+    referenceSeparation: number | null;
+    mainThreadInput: PrivateWorkerInputTuple | null;
+    workerInput: PrivateWorkerInputTuple | null;
+    inputHashesMatch: boolean | null;
+    categories: PrivateWorkerProblemCategory[];
+}
+
+/** Carries the sanitized per-fixture record past the throw, so CI can publish it. */
+export class PrivateWorkerNaturalLanguageJourneyError extends Error {
+    readonly problems: PrivateWorkerProblem[];
+    readonly diagnostics: PrivateWorkerFixtureDiagnostic[];
+
+    constructor(problems: PrivateWorkerProblem[], diagnostics: PrivateWorkerFixtureDiagnostic[]) {
+        super(problems.map(problem => problem.detail).join('; '));
+        this.name = 'PrivateWorkerNaturalLanguageJourneyError';
+        this.problems = problems;
+        this.diagnostics = diagnostics;
+    }
+}
+
 export interface NaturalLanguageFixtureContract {
     fixtureId: string;
     fixtureSha256: string;
@@ -155,109 +214,151 @@ function tupleProblems(label: string, tuple: PrivateWorkerInputTuple): string[] 
  *   3. Accuracy — WER within the bound declared for the fixture's quality dimensions,
  *      where the corpus can honestly carry that dimension.
  *
- * The returned object contains hashes and measurements only, never transcript text.
+ * On failure this throws `PrivateWorkerNaturalLanguageJourneyError`, which CARRIES the
+ * sanitized per-fixture record. Aggregate validation used to throw with nothing
+ * per-fixture surviving, so a red run said only that something was wrong. Both the
+ * success value and the error contain hashes and measurements only, never transcript text.
  */
 export function provePrivateWorkerNaturalLanguageJourney(
     fixtures: readonly NaturalLanguageFixtureContract[],
     observations: readonly PrivateWorkerNaturalLanguageObservation[],
 ): PrivateWorkerNaturalLanguageJourneyProof {
-    const problems: string[] = [];
-    if (fixtures.length < 2) problems.push('natural-language journey requires at least two fixtures');
+    const problems: PrivateWorkerProblem[] = [];
+    const fail = (fixtureId: string | null, category: PrivateWorkerProblemCategory, detail: string) => {
+        problems.push({ fixtureId, category, detail });
+    };
+
+    if (fixtures.length < 2) fail(null, 'fixture_contract', 'natural-language journey requires at least two fixtures');
 
     const fixtureIds = new Set<string>();
     const referenceHashes = new Set<string>();
     for (const fixture of fixtures) {
-        if (!fixture.fixtureId.trim()) problems.push('fixture has no fixtureId');
-        if (fixtureIds.has(fixture.fixtureId)) problems.push(`fixture '${fixture.fixtureId}' is duplicated`);
-        fixtureIds.add(fixture.fixtureId);
-        if (!SHA256_RE.test(fixture.fixtureSha256)) problems.push(`fixture '${fixture.fixtureId}' audio hash is not SHA-256`);
+        const id = fixture.fixtureId;
+        if (!id.trim()) fail(null, 'fixture_contract', 'fixture has no fixtureId');
+        if (fixtureIds.has(id)) fail(id, 'fixture_contract', `fixture '${id}' is duplicated`);
+        fixtureIds.add(id);
+        if (!SHA256_RE.test(fixture.fixtureSha256)) fail(id, 'fixture_contract', `fixture '${id}' audio hash is not SHA-256`);
         if (!SHA256_RE.test(fixture.referenceTextSha256) || sha256(fixture.referenceText) !== fixture.referenceTextSha256) {
-            problems.push(`fixture '${fixture.fixtureId}' reference text does not match its pinned SHA-256`);
+            fail(id, 'fixture_contract', `fixture '${id}' reference text does not match its pinned SHA-256`);
         }
         const referenceWords = fixture.referenceText.trim().split(/\s+/).filter(Boolean).length;
         if (referenceWords < PRIVATE_WORKER_MIN_FIXTURE_WORDS) {
-            problems.push(`fixture '${fixture.fixtureId}' has fewer than ${PRIVATE_WORKER_MIN_FIXTURE_WORDS} natural-language words`);
+            fail(id, 'fixture_contract', `fixture '${id}' has fewer than ${PRIVATE_WORKER_MIN_FIXTURE_WORDS} natural-language words`);
         }
-        if (fixture.qualityDimensions.length === 0) problems.push(`fixture '${fixture.fixtureId}' has no quality dimension`);
-        if (referenceHashes.has(fixture.referenceTextSha256)) problems.push(`fixture '${fixture.fixtureId}' repeats another reference text`);
+        if (fixture.qualityDimensions.length === 0) fail(id, 'quality_dimension', `fixture '${id}' has no quality dimension`);
+        if (referenceHashes.has(fixture.referenceTextSha256)) fail(id, 'fixture_contract', `fixture '${id}' repeats another reference text`);
         referenceHashes.add(fixture.referenceTextSha256);
     }
 
     const observationsByFixture = new Map<string, PrivateWorkerNaturalLanguageObservation>();
     for (const observation of observations) {
-        if (!fixtureIds.has(observation.fixtureId)) problems.push(`unexpected observation '${observation.fixtureId}'`);
-        if (observationsByFixture.has(observation.fixtureId)) problems.push(`observation '${observation.fixtureId}' is duplicated`);
+        if (!fixtureIds.has(observation.fixtureId)) fail(observation.fixtureId, 'observation_coverage', `unexpected observation '${observation.fixtureId}'`);
+        if (observationsByFixture.has(observation.fixtureId)) fail(observation.fixtureId, 'observation_coverage', `observation '${observation.fixtureId}' is duplicated`);
         observationsByFixture.set(observation.fixtureId, observation);
     }
 
     const seenTranscripts = new Map<string, string>();
     const results: SanitizedPrivateWorkerFixtureResult[] = [];
+    const diagnostics: PrivateWorkerFixtureDiagnostic[] = [];
+
     for (const fixture of fixtures) {
-        const observation = observationsByFixture.get(fixture.fixtureId);
+        const id = fixture.fixtureId;
+        const { bound, problems: boundProblems } = resolveBound(fixture);
+        for (const detail of boundProblems) fail(id, 'quality_dimension', detail);
+
+        const diagnostic: PrivateWorkerFixtureDiagnostic = {
+            fixtureId: id,
+            fixtureSha256: fixture.fixtureSha256 ?? null,
+            referenceTextSha256: fixture.referenceTextSha256 ?? null,
+            transcriptSha256: null,
+            qualityDimensions: [...fixture.qualityDimensions],
+            appliedWerBound: bound,
+            referenceWords: null,
+            hypothesisWords: null,
+            substitutions: null,
+            deletions: null,
+            insertions: null,
+            wer: null,
+            nearestOtherReferenceWer: null,
+            referenceSeparation: null,
+            mainThreadInput: null,
+            workerInput: null,
+            inputHashesMatch: null,
+            categories: [],
+        };
+        diagnostics.push(diagnostic);
+
+        const observation = observationsByFixture.get(id);
         if (!observation) {
-            problems.push(`fixture '${fixture.fixtureId}' did not cross the worker journey`);
+            fail(id, 'observation_coverage', `fixture '${id}' did not cross the worker journey`);
             continue;
         }
 
-        problems.push(...tupleProblems(`${fixture.fixtureId} main-thread`, observation.mainThreadInput));
-        problems.push(...tupleProblems(`${fixture.fixtureId} worker`, observation.workerInput));
-        if (
-            observation.mainThreadInput.sha256 !== observation.workerInput.sha256 ||
-            observation.mainThreadInput.samples !== observation.workerInput.samples ||
-            observation.mainThreadInput.bytes !== observation.workerInput.bytes ||
-            Math.abs(observation.mainThreadInput.durationSeconds - observation.workerInput.durationSeconds) > 1e-6
-        ) {
-            problems.push(`fixture '${fixture.fixtureId}' main-thread and worker PCM tuples differ`);
-        }
+        diagnostic.mainThreadInput = { ...observation.mainThreadInput };
+        diagnostic.workerInput = { ...observation.workerInput };
+
+        for (const detail of tupleProblems(`${id} main-thread`, observation.mainThreadInput)) fail(id, 'pcm_tuple', detail);
+        for (const detail of tupleProblems(`${id} worker`, observation.workerInput)) fail(id, 'pcm_tuple', detail);
+        const tuplesAgree =
+            observation.mainThreadInput.sha256 === observation.workerInput.sha256 &&
+            observation.mainThreadInput.samples === observation.workerInput.samples &&
+            observation.mainThreadInput.bytes === observation.workerInput.bytes &&
+            Math.abs(observation.mainThreadInput.durationSeconds - observation.workerInput.durationSeconds) <= 1e-6;
+        diagnostic.inputHashesMatch = tuplesAgree;
+        if (!tuplesAgree) fail(id, 'pcm_tuple', `fixture '${id}' main-thread and worker PCM tuples differ`);
 
         const transcript = observation.transcript.trim();
         if (!transcript) {
-            problems.push(`fixture '${fixture.fixtureId}' produced no transcript`);
+            fail(id, 'transcript_missing', `fixture '${id}' produced no transcript`);
             continue;
         }
         const transcriptHash = sha256(transcript);
+        diagnostic.transcriptSha256 = transcriptHash;
         const twin = seenTranscripts.get(transcriptHash);
-        if (twin) {
-            problems.push(`fixture '${fixture.fixtureId}' returned the same transcript as '${twin}'`);
-        }
-        seenTranscripts.set(transcriptHash, fixture.fixtureId);
+        if (twin) fail(id, 'transcript_duplicate', `fixture '${id}' returned the same transcript as '${twin}'`);
+        seenTranscripts.set(transcriptHash, id);
 
         const score = wordErrorRate(fixture.referenceText, transcript, {
             track: PRIVATE_WORKER_NATURAL_LANGUAGE_TRACK,
         });
         if (score.wer === null) {
-            problems.push(`fixture '${fixture.fixtureId}' has no measurable reference`);
+            fail(id, 'transcript_missing', `fixture '${id}' has no measurable reference`);
             continue;
         }
 
-        const { bound, problems: boundProblems } = resolveBound(fixture);
-        problems.push(...boundProblems);
+        const hypothesisWords = transcript.split(/\s+/).filter(Boolean).length;
+        diagnostic.referenceWords = score.referenceWords;
+        diagnostic.hypothesisWords = hypothesisWords;
+        diagnostic.substitutions = score.substitutions;
+        diagnostic.deletions = score.deletions;
+        diagnostic.insertions = score.insertions;
+        diagnostic.wer = score.wer;
+
         if (bound !== null && score.wer > bound) {
-            problems.push(
-                `fixture '${fixture.fixtureId}' WER ${score.wer.toFixed(3)} exceeds ${bound.toFixed(3)} `
-                + `(S=${score.substitutions} D=${score.deletions} I=${score.insertions} over ${score.referenceWords} reference words)`,
-            );
+            fail(id, 'wer_bound',
+                `fixture '${id}' WER ${score.wer.toFixed(3)} exceeds ${bound.toFixed(3)} `
+                + `(S=${score.substitutions} D=${score.deletions} I=${score.insertions} over ${score.referenceWords} reference words)`);
         }
 
         const otherWers = fixtures
-            .filter(other => other.fixtureId !== fixture.fixtureId)
+            .filter(other => other.fixtureId !== id)
             .map(other => wordErrorRate(other.referenceText, transcript, {
                 track: PRIVATE_WORKER_NATURAL_LANGUAGE_TRACK,
             }).wer)
             .filter((wer): wer is number => wer !== null);
         const nearestOtherReferenceWer = otherWers.length > 0 ? Math.min(...otherWers) : Number.POSITIVE_INFINITY;
         const referenceSeparation = nearestOtherReferenceWer - score.wer;
+        diagnostic.nearestOtherReferenceWer = nearestOtherReferenceWer;
+        diagnostic.referenceSeparation = referenceSeparation;
         if (referenceSeparation < PRIVATE_WORKER_MIN_REFERENCE_SEPARATION) {
-            problems.push(
-                `fixture '${fixture.fixtureId}' transcript is not measurably bound to its own reference: `
+            fail(id, 'reference_separation',
+                `fixture '${id}' transcript is not measurably bound to its own reference: `
                 + `own WER ${score.wer.toFixed(3)} vs nearest other reference ${nearestOtherReferenceWer.toFixed(3)} `
-                + `(separation ${referenceSeparation.toFixed(3)} < ${PRIVATE_WORKER_MIN_REFERENCE_SEPARATION.toFixed(3)})`,
-            );
+                + `(separation ${referenceSeparation.toFixed(3)} < ${PRIVATE_WORKER_MIN_REFERENCE_SEPARATION.toFixed(3)})`);
         }
 
-        const hypothesisWords = transcript.split(/\s+/).filter(Boolean).length;
         results.push({
-            fixtureId: fixture.fixtureId,
+            fixtureId: id,
             fixtureSha256: fixture.fixtureSha256,
             referenceTextSha256: fixture.referenceTextSha256,
             transcriptSha256: transcriptHash,
@@ -281,9 +382,19 @@ export function provePrivateWorkerNaturalLanguageJourney(
     }
 
     if (observations.length !== fixtures.length) {
-        problems.push(`observed ${observations.length} worker journeys for ${fixtures.length} fixtures`);
+        fail(null, 'observation_coverage', `observed ${observations.length} worker journeys for ${fixtures.length} fixtures`);
     }
-    if (problems.length > 0) throw new Error(problems.join('; '));
+
+    if (problems.length > 0) {
+        const byFixture = new Map(diagnostics.map(diagnostic => [diagnostic.fixtureId, diagnostic]));
+        for (const problem of problems) {
+            const diagnostic = problem.fixtureId ? byFixture.get(problem.fixtureId) : undefined;
+            if (diagnostic && !diagnostic.categories.includes(problem.category)) {
+                diagnostic.categories.push(problem.category);
+            }
+        }
+        throw new PrivateWorkerNaturalLanguageJourneyError(problems, diagnostics);
+    }
 
     const wers = results.map(result => result.wer);
     return {

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
+    PrivateWorkerNaturalLanguageJourneyError,
     PRIVATE_WORKER_DIMENSION_WER_BOUNDS,
     PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS,
     PRIVATE_WORKER_MIN_REFERENCE_SEPARATION,
@@ -176,5 +177,67 @@ describe('Private-v2 natural-language worker journey contract', () => {
         for (const result of proof.results) {
             expect(result.nearestOtherReferenceWer).toBeGreaterThan(result.wer);
         }
+    });
+
+    describe('a red run is diagnosable from the run itself', () => {
+        const failWith = (observations: PrivateWorkerNaturalLanguageObservation[]): PrivateWorkerNaturalLanguageJourneyError => {
+            try {
+                provePrivateWorkerNaturalLanguageJourney(fixtures, observations);
+            } catch (error) {
+                return error as PrivateWorkerNaturalLanguageJourneyError;
+            }
+            throw new Error('expected the journey to fail');
+        };
+
+        it('CASUALTY: the per-fixture record SURVIVES the aggregate throw', () => {
+            const error = failWith(withTranscript(1, 'a calm river runs by the new stone bridge'));
+
+            expect(error).toBeInstanceOf(PrivateWorkerNaturalLanguageJourneyError);
+            expect(error.diagnostics.map(d => d.fixtureId)).toEqual(['fixture-1', 'fixture-2', 'fixture-3']);
+            const failed = error.diagnostics.find(d => d.fixtureId === 'fixture-2')!;
+            expect(failed.categories).toEqual(['wer_bound']);
+            expect(failed.wer).toBeCloseTo(0.333, 3);
+            expect(failed.substitutions).toBe(3);
+            expect(failed.referenceWords).toBe(9);
+            expect(failed.appliedWerBound).toBe(0.2);
+            expect(failed.transcriptSha256).toMatch(/^[0-9a-f]{64}$/);
+            expect(failed.inputHashesMatch).toBe(true);
+        });
+
+        it('CASUALTY: a fixture that never produced a transcript still reports its PCM tuple', () => {
+            const error = failWith(withTranscript(2, '   '));
+
+            const silent = error.diagnostics.find(d => d.fixtureId === 'fixture-3')!;
+            expect(silent.categories).toEqual(['transcript_missing']);
+            expect(silent.wer).toBeNull();
+            // The tuple is the evidence that distinguishes "worker never received audio" from
+            // "worker received audio and returned nothing" — it must not be lost with the throw.
+            expect(silent.workerInput).toMatchObject({ samples: 48_000, bytes: 192_000 });
+            expect(silent.inputHashesMatch).toBe(true);
+        });
+
+        it('names the mismatch category for a PCM tuple divergence', () => {
+            const observations = passingObservations();
+            observations[1] = {
+                ...observations[1],
+                workerInput: { ...observations[1].workerInput, sha256: observations[0].workerInput.sha256 },
+            };
+
+            const error = failWith(observations);
+
+            expect(error.problems.map(problem => problem.category)).toContain('pcm_tuple');
+            const mismatched = error.diagnostics.find(d => d.fixtureId === 'fixture-2')!;
+            expect(mismatched.inputHashesMatch).toBe(false);
+            expect(mismatched.mainThreadInput?.sha256).not.toBe(mismatched.workerInput?.sha256);
+        });
+
+        it('CASUALTY: no reference or transcript text is carried in the preserved record', () => {
+            const error = failWith(withTranscript(1, 'a calm river runs by the new stone bridge'));
+
+            const serialized = JSON.stringify(error.diagnostics);
+            for (const text of [...fixtureSpecs.map(spec => spec.reference), ...transcripts]) {
+                expect(serialized).not.toContain(text);
+            }
+        });
     });
 });

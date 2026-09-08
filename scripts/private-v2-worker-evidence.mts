@@ -19,6 +19,7 @@ import {
 import { verifyModelAgainstManifest, type ExpectedModelManifest } from '../tests/evidence/modelProvenance';
 import {
   provePrivateWorkerNaturalLanguageJourney,
+  PrivateWorkerNaturalLanguageJourneyError,
   type NaturalLanguageFixtureContract,
   type PrivateWorkerNaturalLanguageObservation,
 } from '../tests/evidence/privateWorkerNaturalLanguageJourney';
@@ -303,7 +304,37 @@ async function main(): Promise<void> {
       runtimeProofs.push({ prepared, proof });
     }
 
-    const naturalLanguageJourney = provePrivateWorkerNaturalLanguageJourney(manifest.fixtures, observations);
+    // The sanitized per-fixture record must SURVIVE an aggregate failure. Throwing with nothing
+    // per-fixture left a red run saying only that something was wrong, forcing a local reproduction
+    // to learn which fixture and which contract. Hashes, counts and categories only — never text.
+    let naturalLanguageJourney;
+    try {
+      naturalLanguageJourney = provePrivateWorkerNaturalLanguageJourney(manifest.fixtures, observations);
+    } catch (journeyError) {
+      if (journeyError instanceof PrivateWorkerNaturalLanguageJourneyError) {
+        mkdirSync(dirname(outPath), { recursive: true });
+        writeFileSync(outPath, JSON.stringify({
+          generatedFor: '#1037 production Private-v2 browser-worker: FAILED natural-language journey',
+          releaseSha,
+          classification: 'natural-language-journey-failed',
+          failedCategories: [...new Set(journeyError.problems.map(problem => problem.category))].sort(),
+          problems: journeyError.problems,
+          diagnostics: journeyError.diagnostics,
+        }, null, 2));
+        console.error(`[private-v2-worker] per-fixture diagnostics preserved at ${outPath}`);
+        for (const diagnostic of journeyError.diagnostics) {
+          console.error(`[private-v2-worker] ${diagnostic.fixtureId} categories=[${diagnostic.categories.join(',')}] `
+            + `wer=${diagnostic.wer ?? 'n/a'} bound=${diagnostic.appliedWerBound ?? 'measured-only'} `
+            + `S=${diagnostic.substitutions ?? 'n/a'} D=${diagnostic.deletions ?? 'n/a'} I=${diagnostic.insertions ?? 'n/a'} `
+            + `refWords=${diagnostic.referenceWords ?? 'n/a'} hypWords=${diagnostic.hypothesisWords ?? 'n/a'} `
+            + `tuplesMatch=${diagnostic.inputHashesMatch ?? 'n/a'} `
+            + `mainSha=${diagnostic.mainThreadInput?.sha256 ?? 'n/a'} workerSha=${diagnostic.workerInput?.sha256 ?? 'n/a'} `
+            + `samples=${diagnostic.workerInput?.samples ?? 'n/a'} bytes=${diagnostic.workerInput?.bytes ?? 'n/a'} `
+            + `seconds=${diagnostic.workerInput?.durationSeconds ?? 'n/a'}`);
+        }
+      }
+      throw journeyError;
+    }
     const totalLatencyMs = Math.round(performance.now() - startedAt);
     const firstProof = runtimeProofs[0]?.proof;
     if (!firstProof) throw new Error('natural-language worker journey produced no runtime proof');
