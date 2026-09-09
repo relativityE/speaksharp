@@ -116,6 +116,28 @@ export function fillerRecall(referenceText: string, hypothesisText: string): num
  * reference's mark count. `null` when the reference carries no punctuation, never 0 — an unmeasurable
  * dimension reporting a perfect score is the exact fabrication this lane exists to stop.
  */
+/**
+ * Whether a dimension's OWN applicable metric carries a passing bound.
+ *
+ * #1429 P1 — this used to read the generic WER table, so `punctuation_placement` was published as
+ * PROVEN whenever its ordinary Track-B WER entry (0.2) was cleared, even though
+ * `PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND` is `null` and the dimension is measured-only. A transcript
+ * with an arbitrarily bad punctuation error rate could therefore carry `punctuation_placement` as
+ * proven after clearing a punctuation-BLIND metric — the exact mislabel this file exists to prevent,
+ * reintroduced one layer up.
+ *
+ * Proof status now comes from the dimension-specific acceptance contract. A dimension is proven only
+ * when the metric that can actually see it is bounded, so making a measured-only dimension "proven"
+ * requires setting its own bound, deliberately.
+ */
+function dimensionIsProven(dimension: string): boolean {
+    if (!Object.hasOwn(PRIVATE_WORKER_DIMENSION_WER_BOUNDS, dimension)) return false;
+    if (PRIVATE_WORKER_DIMENSION_WER_BOUNDS[dimension] === null) return false;
+    // Word error rate cannot see punctuation placement; only its own bound can prove it.
+    if (dimension === 'punctuation_placement') return PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND !== null;
+    return true;
+}
+
 export function punctuationErrorRate(referenceText: string, hypothesisText: string): number | null {
     const reference = positionedMarks(referenceText);
     if (reference.length === 0) return null;
@@ -555,9 +577,7 @@ export function provePrivateWorkerNaturalLanguageJourney(
             appliedWerBound: bound,
             punctuationErrorRate: diagnostic.punctuationErrorRate ?? null,
             fillerRecall: diagnostic.fillerRecall ?? null,
-            provenQualityDimensions: fixture.qualityDimensions.filter(
-                d => Object.hasOwn(PRIVATE_WORKER_DIMENSION_WER_BOUNDS, d)
-                    && PRIVATE_WORKER_DIMENSION_WER_BOUNDS[d] !== null),
+            provenQualityDimensions: fixture.qualityDimensions.filter(d => dimensionIsProven(d)),
             referenceWords: score.referenceWords,
             hypothesisWords,
             substitutions: score.substitutions,

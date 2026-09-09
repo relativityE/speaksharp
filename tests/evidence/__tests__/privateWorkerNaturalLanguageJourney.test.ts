@@ -210,6 +210,21 @@ describe('Private-v2 natural-language worker journey contract', () => {
             'but a green artifact must never claim it was PROVEN').not.toContain('filler_recognition');
         expect(proof.results[0].provenQualityDimensions,
             'a bounded dimension IS claimed as proven').toContain('clean_words');
+
+        /**
+         * #1429 P1 — PROOF COMES FROM THE DIMENSION'S OWN METRIC, not the generic WER table.
+         *
+         * `punctuation_placement` carries a WER bound of 0.2, so deriving proof from that table
+         * published it as PROVEN whenever punctuation-BLIND Track-B WER passed — while its own
+         * `PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND` is null and the dimension is measured-only. A
+         * transcript with arbitrarily bad punctuation could carry the dimension as proven. That is the
+         * mislabel this file exists to prevent, reintroduced one layer up.
+         */
+        expect(proof.results[1].qualityDimensions,
+            'the punctuation fixture still DECLARES its dimension').toContain('punctuation_placement');
+        expect(proof.results[1].provenQualityDimensions,
+            'but an unbounded punctuation metric can never make it PROVEN')
+            .not.toContain('punctuation_placement');
     });
 
     it('CASUALTY: a dimension registered without an exercise contract fails CLOSED', () => {
