@@ -1019,3 +1019,35 @@ describe('#1431 — a suspended retry and a stale error path own nothing shared'
             "B's frozen transcript survives").toBe('B is still saving these words');
     });
 });
+
+describe('#1431 — a stopped heartbeat cannot fail the take that stopped it', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+    });
+
+    it("CASUALTY P1-E: an in-flight heartbeat invalidated by Stop cannot clear the finalizing latch", async () => {
+        /**
+         * `stopHeartbeat()` cleared the timer but left `heartbeatVersion` unchanged, so a request
+         * already in flight still matched every `version !== this.heartbeatVersion` guard. Its late
+         * failure could reach the threshold and perform an UNSCOPED `transition('FAILED')`, which
+         * clears `isTranscriptFinalizing` in the reducer with no owner check — re-enabling Record while
+         * the stop was still persisting.
+         *
+         * The observable term is the generation: after Stop invalidates the heartbeat, a continuation
+         * holding the old version must be stale.
+         */
+        const c = newController() as unknown as {
+            heartbeatVersion: number;
+            stopHeartbeat: () => void;
+        };
+
+        const versionHeldByInFlightRequest = c.heartbeatVersion;
+        c.stopHeartbeat();
+
+        expect(c.heartbeatVersion,
+            'stopping the heartbeat invalidates the request already in flight')
+            .not.toBe(versionHeldByInFlightRequest);
+    });
+});

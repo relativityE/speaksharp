@@ -5479,7 +5479,22 @@ export class SpeechRuntimeController {
         scheduleNext(true);
     }
 
+    /**
+     * #1431 P1 — STOPPING THE HEARTBEAT INVALIDATES ITS IN-FLIGHT REQUEST TOO.
+     *
+     * This cleared the timer but left `heartbeatVersion` untouched, so a request already in flight
+     * still matched at every `version !== this.heartbeatVersion` guard. When Stop armed finalization
+     * while such a request was outstanding, its late failure could reach the threshold and perform an
+     * UNSCOPED `transition('FAILED')` — which clears `isTranscriptFinalizing` in the reducer with no
+     * owner check at all, re-enabling Record while the stop was still persisting, and the next start
+     * then discarded the frozen transcript.
+     *
+     * That bypass is why "release belongs solely to `releaseFinalizingIfOwner()`" was not yet true.
+     * Advancing the generation here makes it true: a continuation from the stopped heartbeat is stale
+     * at its next guard and returns before it can transition anything.
+     */
     private stopHeartbeat(): void {
+        this.heartbeatVersion += 1;
         if (this.heartbeatInterval) {
             clearTimeout(this.heartbeatInterval);
             this.heartbeatInterval = null;
