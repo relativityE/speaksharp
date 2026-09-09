@@ -6,7 +6,7 @@ const RUM_METRIC_VALUE_KEYS = [
   '$web_vitals_CLS_value',
 ] as const;
 
-const RUM_ENVELOPE_KEYS = ['$token', 'distinct_id', '$lib', '$lib_version'] as const;
+const RUM_ENVELOPE_KEYS = ['token', 'distinct_id', '$lib', '$lib_version'] as const;
 
 /**
  * PostHog's built-in `$web_vitals` event contains the current URL, session/window ids, and nested

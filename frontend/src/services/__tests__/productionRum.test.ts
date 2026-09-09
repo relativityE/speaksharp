@@ -21,7 +21,7 @@ describe('#1428 Production RUM', () => {
       uuid: 'event-uuid',
       event: '$web_vitals',
       properties: {
-        '$token': 'project-token',
+        token: 'project-token',
         distinct_id: 'account-id',
         '$lib': 'web',
         '$lib_version': '1.298.1',
@@ -42,7 +42,7 @@ describe('#1428 Production RUM', () => {
       uuid: 'event-uuid',
       event: '$web_vitals',
       properties: {
-        '$token': 'project-token',
+        token: 'project-token',
         distinct_id: 'account-id',
         '$lib': 'web',
         '$lib_version': '1.298.1',
