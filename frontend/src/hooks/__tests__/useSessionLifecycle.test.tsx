@@ -1159,17 +1159,18 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         act(() => { startAction = result.current.handleStartStop(); });
 
         await waitFor(() => expect(speechRuntimeController.startRecording).toHaveBeenCalledTimes(1));
-        expect(pushSpy.mock.calls.some(([event]) => event === 'session_initialization_latency_measured')).toBe(false);
+        expect(pushSpy.mock.calls.some(([event]) => event === 'session_start_latency_measured')).toBe(false);
 
         await act(async () => {
             resolveStart();
             await startAction;
         });
-        const latency = pushSpy.mock.calls.find(([event]) => event === 'session_initialization_latency_measured');
+        const latency = pushSpy.mock.calls.find(([event]) => event === 'session_start_latency_measured');
         expect(latency?.[1]).toMatchObject({
             mode: 'private',
             outcome: 'recording_started',
             duration_ms: expect.any(Number),
+            model_cache_state: expect.stringMatching(/^(cold|cached)$/),
         });
         expect(Number.isInteger((latency?.[1] as Record<string, unknown>)?.duration_ms)).toBe(true);
         pushSpy.mockRestore();
@@ -1198,7 +1199,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         act(() => { stopAction = result.current.handleStartStop(); });
 
         await waitFor(() => expect(speechRuntimeController.stopRecording).toHaveBeenCalledTimes(1));
-        expect(pushSpy.mock.calls.some(([event]) => event === 'session_stop_to_review_save_latency_measured')).toBe(false);
+        expect(pushSpy.mock.calls.some(([event]) => event === 'session_save_latency_measured')).toBe(false);
         expect(result.current.showAnalyticsPrompt).toBe(false);
 
         await act(async () => {
@@ -1206,10 +1207,10 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             await stopAction;
         });
         expect(result.current.showAnalyticsPrompt).toBe(true);
-        const latency = pushSpy.mock.calls.find(([event]) => event === 'session_stop_to_review_save_latency_measured');
+        const latency = pushSpy.mock.calls.find(([event]) => event === 'session_save_latency_measured');
         expect(latency?.[1]).toMatchObject({
             mode: 'private',
-            outcome: 'review_ready',
+            outcome: 'saved',
             duration_ms: expect.any(Number),
         });
         pushSpy.mockRestore();

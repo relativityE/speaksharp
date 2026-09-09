@@ -56,8 +56,10 @@ const RUNTIME_STATES = [
 ] as const;
 /** `ClientFreshness` in staleClientGuard.ts. 'unverified' and 'local' are real and were being dropped. */
 const FRESHNESS = ['fresh', 'stale', 'unverified', 'local'] as const;
-const SESSION_INITIALIZATION_OUTCOMES = ['recording_started', 'failed'] as const;
-const SESSION_STOP_OUTCOMES = ['review_ready', 'discarded', 'failed'] as const;
+const SESSION_START_OUTCOMES = ['recording_started', 'failed', 'refused'] as const;
+const SESSION_SAVE_OUTCOMES = ['saved', 'discarded', 'failed'] as const;
+const SESSION_REVIEW_OUTCOMES = ['available', 'unavailable'] as const;
+const MODEL_CACHE_STATES = ['cold', 'cached', 'not_applicable'] as const;
 
 const TIERS = ['free', 'pro', 'trial', 'unknown', 'anonymous'] as const;
 const TRIAL_STATES = ['active', 'expired', 'none', 'unknown'] as const;
@@ -181,15 +183,21 @@ export const EVENT_SCHEMAS = Object.freeze({
     },
     // #1428 F-15/F-16: observations only. `duration_ms` has a representational ceiling, not a product
     // threshold; neither event can declare pass/fail. Event names fix the two lifecycle boundaries.
-    session_initialization_latency_measured: {
+    session_start_latency_measured: {
         duration_ms: { kind: 'int', min: 0, max: Number.MAX_SAFE_INTEGER } as FieldRule,
         mode: enumOf(STT_MODES),
-        outcome: enumOf(SESSION_INITIALIZATION_OUTCOMES),
+        outcome: enumOf(SESSION_START_OUTCOMES),
+        model_cache_state: enumOf(MODEL_CACHE_STATES),
     },
-    session_stop_to_review_save_latency_measured: {
+    session_save_latency_measured: {
         duration_ms: { kind: 'int', min: 0, max: Number.MAX_SAFE_INTEGER } as FieldRule,
         mode: enumOf(STT_MODES),
-        outcome: enumOf(SESSION_STOP_OUTCOMES),
+        outcome: enumOf(SESSION_SAVE_OUTCOMES),
+    },
+    session_review_latency_measured: {
+        duration_ms: { kind: 'int', min: 0, max: Number.MAX_SAFE_INTEGER } as FieldRule,
+        mode: enumOf(STT_MODES),
+        outcome: enumOf(SESSION_REVIEW_OUTCOMES),
     },
     recording_start_failed: {
         mode: enumOf(STT_MODES),

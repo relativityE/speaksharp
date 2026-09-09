@@ -26,8 +26,11 @@ import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
-    beginSessionInitializationLatency,
-    beginSessionStopLatency,
+    beginSessionReviewLatency,
+    beginSessionSaveLatency,
+    beginSessionStartLatency,
+    type SessionLatencyMeasurement,
+    type SessionReviewOutcome,
 } from '@/services/sessionLatencyTelemetry';
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
@@ -120,6 +123,7 @@ export const useSessionLifecycle = () => {
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const isProcessingRef = useRef(false);
     const isMounted = useRef(false);
+    const reviewLatencyRef = useRef<SessionLatencyMeasurement<SessionReviewOutcome> | null>(null);
 
     // Pure Projection from FSM (Source of Truth)
     // We drive the "recording" visual strictly from the authoritative runtimeState.
@@ -213,7 +217,9 @@ export const useSessionLifecycle = () => {
             // #1428 F-16 — Stop intent -> terminal review/save decision. The timer begins immediately before
             // the controller authority receives Stop, and settles only after its awaited result tells this
             // caller whether review is ready, the take was discarded, or finalization/save failed.
-            const stopLatency = beginSessionStopLatency(effectiveMode);
+            const saveLatency = beginSessionSaveLatency(effectiveMode);
+            const reviewLatency = beginSessionReviewLatency(effectiveMode);
+            reviewLatencyRef.current = reviewLatency;
             // ✅ Master Invariant: stopRecording() is now handled 
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
@@ -221,9 +227,13 @@ export const useSessionLifecycle = () => {
             if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 try {
                     await speechRuntimeController.stopRecording();
-                    stopLatency.settle('discarded');
+                    saveLatency.settle('discarded');
+                    reviewLatency.settle('unavailable');
+                    reviewLatencyRef.current = null;
                 } catch (error) {
-                    stopLatency.settle('failed');
+                    saveLatency.settle('failed');
+                    reviewLatency.settle('unavailable');
+                    reviewLatencyRef.current = null;
                     throw error;
                 }
                 setShowAnalyticsPrompt(false);
@@ -241,7 +251,9 @@ export const useSessionLifecycle = () => {
                 const stopResult = await speechRuntimeController.stopRecording();
 
                 if (!stopResult) {
-                    stopLatency.settle('discarded');
+                    saveLatency.settle('discarded');
+                    reviewLatency.settle('unavailable');
+                    reviewLatencyRef.current = null;
                     setShowAnalyticsPrompt(false);
                     return;
                 }
@@ -286,10 +298,12 @@ export const useSessionLifecycle = () => {
                 void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
                 setShowAnalyticsPrompt(true);
                 // End boundary: the controller is terminal and this state transition licenses the saved review.
-                stopLatency.settle('review_ready');
+                saveLatency.settle('saved');
 
             } catch (error) {
-                stopLatency.settle('failed');
+                saveLatency.settle('failed');
+                reviewLatency.settle('unavailable');
+                reviewLatencyRef.current = null;
                 logger.error({ err: error }, '[useSessionLifecycle] Error stopping recording');
             } finally {
                 hasAutoStoppedRef.current = false;
@@ -385,12 +399,17 @@ export const useSessionLifecycle = () => {
                 // #1428 F-15 — controller Start -> authoritative RECORDING. `startRecording` deliberately
                 // remains pending across cold model preparation, so this captures the delay the user experiences
                 // without guessing from intermediate statuses or encoding a performance target.
-                const initializationLatency = beginSessionInitializationLatency(latestMode);
+                const startLatency = beginSessionStartLatency(
+                    latestMode,
+                    latestMode === 'private'
+                        ? (privateModelStatus === 'ready' ? 'cached' : 'cold')
+                        : 'not_applicable',
+                );
                 try {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
-                    initializationLatency.settle('recording_started');
+                    startLatency.settle('recording_started');
                 } catch (error) {
-                    initializationLatency.settle('failed');
+                    startLatency.settle('failed');
                     throw error;
                 }
                 analyticsBuffer.push('session_started', {
@@ -482,6 +501,7 @@ export const useSessionLifecycle = () => {
         userFillerWords,
         runtimeState,
         effectiveSubscriptionStatus,
+        privateModelStatus,
         metrics.clarityScore,
         metrics.fillerCount,
         metrics.wordCount,
@@ -490,6 +510,10 @@ export const useSessionLifecycle = () => {
 
     // ✅ Keep the stable ref up to date with the latest callback
     handleStartStopRef.current = handleStartStop;
+    const settleReviewLatency = useCallback((outcome: SessionReviewOutcome) => {
+        reviewLatencyRef.current?.settle(outcome);
+        reviewLatencyRef.current = null;
+    }, []);
 
     // ✅ isMounted logic
     useEffect(() => {
@@ -774,6 +798,7 @@ export const useSessionLifecycle = () => {
         handleStartStop,
         showAnalyticsPrompt,
         setShowAnalyticsPrompt,
+        settleReviewLatency,
         sessionFeedbackMessage: sttStatus.message,
         pauseMetrics,
         micLevel,

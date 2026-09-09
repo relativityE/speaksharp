@@ -7,20 +7,23 @@ import type { TranscriptionMode } from './transcription/TranscriptionPolicy';
  * These boundaries are deliberately attached to the lifecycle authorities rather than DOM paint,
  * network observation, or a test-only trace:
  *
- * - initialization: immediately before the controller receives Start -> its promise resolves at RECORDING;
- * - stop-to-review/save: immediately before the controller receives Stop -> the caller has made the
- *   saved-review decision after the controller reaches its terminal persistence/finalization result.
+ * - start: accepted Start intent -> authoritative RECORDING, classified by cold/cached model state;
+ * - save: Stop intent -> terminal persistence result;
+ * - review: the same Stop intent -> the retained review read reaches a terminal state.
  *
  * There is intentionally no pass/fail threshold here. These are observations for establishing a real-world
  * baseline. Product acceptance can add a target only after the Product Owner approves one.
  */
 export const SESSION_LATENCY_EVENTS = Object.freeze({
-    INITIALIZATION: 'session_initialization_latency_measured',
-    STOP_TO_REVIEW_SAVE: 'session_stop_to_review_save_latency_measured',
+    START: 'session_start_latency_measured',
+    SAVE: 'session_save_latency_measured',
+    REVIEW: 'session_review_latency_measured',
 } as const);
 
-export type SessionInitializationOutcome = 'recording_started' | 'failed';
-export type SessionStopOutcome = 'review_ready' | 'discarded' | 'failed';
+export type SessionStartOutcome = 'recording_started' | 'failed' | 'refused';
+export type SessionSaveOutcome = 'saved' | 'discarded' | 'failed';
+export type SessionReviewOutcome = 'available' | 'unavailable';
+export type ModelCacheState = 'cold' | 'cached' | 'not_applicable';
 
 export interface SessionLatencyMeasurement<Outcome extends string> {
     /**
@@ -40,6 +43,7 @@ const monotonicNow: Now = () =>
 function beginMeasurement<Outcome extends string>(
     event: typeof SESSION_LATENCY_EVENTS[keyof typeof SESSION_LATENCY_EVENTS],
     mode: TranscriptionMode,
+    fixedProperties: Readonly<Record<string, string>>,
     now: Now,
 ): SessionLatencyMeasurement<Outcome> {
     const startedAt = now();
@@ -65,6 +69,7 @@ function beginMeasurement<Outcome extends string>(
                     duration_ms: durationMs,
                     mode,
                     outcome,
+                    ...fixedProperties,
                 });
             } catch {
                 // Observability must never turn a successful Start/Stop lifecycle into a product failure.
@@ -74,16 +79,29 @@ function beginMeasurement<Outcome extends string>(
     };
 }
 
-export function beginSessionInitializationLatency(
+export function beginSessionStartLatency(
     mode: TranscriptionMode,
+    modelCacheState: ModelCacheState,
     now: Now = monotonicNow,
-): SessionLatencyMeasurement<SessionInitializationOutcome> {
-    return beginMeasurement(SESSION_LATENCY_EVENTS.INITIALIZATION, mode, now);
+): SessionLatencyMeasurement<SessionStartOutcome> {
+    return beginMeasurement(
+        SESSION_LATENCY_EVENTS.START,
+        mode,
+        { model_cache_state: modelCacheState },
+        now,
+    );
 }
 
-export function beginSessionStopLatency(
+export function beginSessionSaveLatency(
     mode: TranscriptionMode,
     now: Now = monotonicNow,
-): SessionLatencyMeasurement<SessionStopOutcome> {
-    return beginMeasurement(SESSION_LATENCY_EVENTS.STOP_TO_REVIEW_SAVE, mode, now);
+): SessionLatencyMeasurement<SessionSaveOutcome> {
+    return beginMeasurement(SESSION_LATENCY_EVENTS.SAVE, mode, {}, now);
+}
+
+export function beginSessionReviewLatency(
+    mode: TranscriptionMode,
+    now: Now = monotonicNow,
+): SessionLatencyMeasurement<SessionReviewOutcome> {
+    return beginMeasurement(SESSION_LATENCY_EVENTS.REVIEW, mode, {}, now);
 }
