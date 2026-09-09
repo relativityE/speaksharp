@@ -510,6 +510,15 @@ test.describe('#1306 three-session newest-one retention production proof @live',
         // its own pre-eviction snapshot to make the identical "metrics untouched" claim about it.
         let middleMetricsBeforeExpiry = '';
         let middleTranscriptShaBeforeExpiry = '';
+        /**
+         * #1436 P2 — THE MIDDLE SESSION'S OWN FORMER TRANSCRIPT, held in process memory ONLY.
+         *
+         * The proof already asserted that the expired artifact does not carry the RETAINED (newest)
+         * transcript. That is the wrong text: the privacy claim about an expired session is about the
+         * words IT used to hold, and nothing compared the two. This variable is never logged, never
+         * written to an artifact and never asserted on directly — only a boolean derived from it is.
+         */
+        let middleTranscriptBeforeExpiry = '';
         let oldestTranscriptShaBeforeExpiry = '';
 
         await test.step('Exact SHA + no test/mock injection BEFORE any credential is entered', async () => {
@@ -584,6 +593,7 @@ test.describe('#1306 three-session newest-one retention production proof @live',
             // claim about it that this step just made about session 1.
             middleMetricsBeforeExpiry = metricSnapshot(second);
             middleTranscriptShaBeforeExpiry = sha256Hex(second.transcript);
+            middleTranscriptBeforeExpiry = String(second.transcript ?? '');
         });
 
         await test.step('Session 3 — ONLY the newest retained, both earlier evicted, metrics byte-identical', async () => {
@@ -841,6 +851,34 @@ test.describe('#1306 three-session newest-one retention production proof @live',
                 'the expired artifact must not carry the retained transcript').toBe(false);
             expect(middlePdf.includes(ids[2]),
                 'the expired artifact must not carry another session marker').toBe(false);
+
+            /**
+             * #1436 P2 — THE CLAIM THIS PROOF WAS MISSING.
+             *
+             * Everything above compares the expired artifact against OTHER sessions' content. None of
+             * it asks the question the user cares about: are the words that session used to hold still
+             * in the file they can download for it? Expiry removes the transcript from the database;
+             * an export path that rebuilt it from a cached analysis, a stored summary or a client copy
+             * would satisfy every assertion above and still hand back the text.
+             *
+             * Both sides are normalised before comparison so whitespace, case and PDF line-breaking
+             * cannot produce a false pass. Only the BOOLEAN is asserted, and the failure message names
+             * no content — the transcript never leaves process memory.
+             */
+            const middleTextLeaked = normalizeForMatch(middlePdf)
+                .includes(normalizeForMatch(middleTranscriptBeforeExpiry));
+            expect(middleTextLeaked,
+                'the expired session artifact must not carry that session\'s OWN former transcript')
+                .toBe(false);
+
+            // The membership test above is only meaningful against a real artifact. An empty or corrupt
+            // PDF trivially contains nothing, so the structure is asserted too: this is a metrics
+            // export, and it still carries the measurements expiry was never supposed to touch.
+            expect(normalizeForMatch(middlePdf).includes(normalizeForMatch(ids[1])),
+                'the artifact identifies the session it was exported for').toBe(true);
+            expect(middlePdf.length,
+                'a metrics artifact has substance; an empty file must not pass the membership test')
+                .toBeGreaterThan(200);
 
             // The oldest is off the two-row dashboard slice, so it has no control to click at all.
             await expect(page.getByTestId(`download-pdf-btn-${ids[0]}`),

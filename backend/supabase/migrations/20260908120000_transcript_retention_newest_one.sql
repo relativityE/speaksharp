@@ -404,4 +404,210 @@ GRANT EXECUTE ON FUNCTION public.converge_transcript_retention(uuid)          TO
 
 -- 7) Retire the superseded mutation LAST, after every caller above has been repointed. Leaving it in place
 --    would keep the newest-two rule reachable under its own name.
+
+-- =========================================================================================
+-- #1436 P1 — the late-create transcript writer is failure-atomic under newest-ONE.
+--
+-- Redefines the EXACT active signature rather than adding an overload: a new overload would leave
+-- the old body reachable and PostgREST could resolve either, which is the silent no-op failure mode
+-- this program has already been bitten by once.
+-- =========================================================================================
+
+CREATE OR REPLACE FUNCTION public.create_session_and_update_usage(
+    p_session_data JSONB,
+    p_engine_type TEXT DEFAULT 'private',
+    p_idempotency_key UUID DEFAULT NULL,
+    p_engine_version TEXT DEFAULT NULL,
+    p_model_name TEXT DEFAULT NULL,
+    p_device_type TEXT DEFAULT NULL
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_existing_session_id UUID;
+    v_new_session_id UUID := gen_random_uuid();
+    v_duration INT;
+    v_usage_check JSONB;
+    v_user_tier TEXT;
+    v_max_concurrent INT;
+    v_active_sessions INT;
+    v_retention JSONB;
+    -- #1436 P1 — does THIS call carry real transcript text? The late-create recovery path does; an
+    -- ordinary placeholder create does not, and its existing pending/error behaviour must not change.
+    v_writes_transcript BOOLEAN;
+    v_initial_at_cap BOOLEAN;
+BEGIN
+    SET LOCAL statement_timeout = '3000ms';
+
+    IF p_idempotency_key IS NOT NULL THEN
+        SELECT id INTO v_existing_session_id
+        FROM public.sessions
+        WHERE idempotency_key = p_idempotency_key AND user_id = auth.uid();
+
+        IF v_existing_session_id IS NOT NULL THEN
+            RETURN jsonb_build_object(
+                'new_session', (SELECT row_to_json(s) FROM public.sessions s WHERE s.id = v_existing_session_id),
+                'usage_exceeded', false,
+                'is_duplicate', true
+            );
+        END IF;
+    END IF;
+
+    SELECT public.effective_subscription_tier(
+        subscription_status,
+        trial_expires_at,
+        stripe_subscription_id,
+        subscription_id,
+        commercial_trial_granted_at
+    )
+    INTO v_user_tier
+    FROM public.user_profiles
+    WHERE id = auth.uid()
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object(
+            'new_session', null,
+            'usage_exceeded', true,
+            'error', 'profile_not_found'
+        );
+    END IF;
+
+    SELECT max_concurrent_sessions INTO v_max_concurrent
+    FROM public.tier_configs
+    WHERE tier_name = COALESCE(v_user_tier, 'free');
+    IF v_max_concurrent IS NULL THEN
+        v_max_concurrent := 1;
+    END IF;
+
+    UPDATE public.sessions
+    SET status = 'failed', updated_at = now()
+    WHERE user_id = auth.uid()
+      AND status = 'active'
+      AND expires_at IS NOT NULL
+      AND expires_at <= now();
+
+    SELECT COUNT(*) INTO v_active_sessions
+    FROM public.sessions
+    WHERE user_id = auth.uid()
+      AND status = 'active'
+      AND (expires_at IS NULL OR expires_at > now());
+
+    IF v_active_sessions >= v_max_concurrent THEN
+        RETURN jsonb_build_object(
+            'new_session', null,
+            'usage_exceeded', true,
+            'error', 'max_concurrent_sessions_reached',
+            'active_sessions', v_active_sessions,
+            'max_concurrent_sessions', v_max_concurrent
+        );
+    END IF;
+
+    v_duration := COALESCE((p_session_data->>'duration')::INT, 0);
+    IF v_duration < 0 OR v_duration > 600 THEN
+        RETURN jsonb_build_object(
+            'new_session', null,
+            'usage_exceeded', false,
+            'error', 'technical_duration_cap_exceeded',
+            'max_duration_seconds', 600
+        );
+    END IF;
+    v_initial_at_cap := (v_duration = 600);
+
+    INSERT INTO public.sessions (
+        id, user_id, title, duration, total_words, filler_words, accuracy, ground_truth,
+        transcript, engine, clarity_score, wpm, idempotency_key, engine_version,
+        model_name, device_type, status, expires_at
+    ) VALUES (
+        v_new_session_id,
+        auth.uid(),
+        p_session_data->>'title',
+        v_duration,
+        COALESCE((p_session_data->>'total_words')::INT, 0),
+        COALESCE((p_session_data->'filler_words')::JSONB, '{}'::JSONB),
+        (p_session_data->>'accuracy')::FLOAT8,
+        p_session_data->>'ground_truth',
+        p_session_data->>'transcript',
+        p_engine_type,
+        (p_session_data->>'clarity_score')::FLOAT8,
+        (p_session_data->>'wpm')::FLOAT8,
+        p_idempotency_key,
+        p_engine_version,
+        p_model_name,
+        p_device_type,
+        CASE WHEN v_initial_at_cap THEN 'completed' ELSE 'active' END,
+        CASE WHEN v_initial_at_cap THEN NULL ELSE now() + interval '1 hour' END
+    );
+
+    IF v_initial_at_cap THEN
+        UPDATE public.sessions
+        SET status_reason = 'technical_duration_cap', updated_at = now()
+        WHERE id = v_new_session_id AND user_id = auth.uid();
+    END IF;
+
+    v_usage_check := public.update_user_usage(v_duration, p_engine_type, v_new_session_id);
+    IF NOT (v_usage_check->>'success')::BOOLEAN THEN
+        DELETE FROM public.sessions
+        WHERE id = v_new_session_id AND user_id = auth.uid();
+        RETURN jsonb_build_object(
+            'new_session', null,
+            'usage_exceeded', true,
+            'error', v_usage_check->>'error'
+        );
+    END IF;
+
+    IF v_duration > 0 THEN
+        INSERT INTO public.usage_checkpoints (session_id, user_id, incremental_seconds, engine_type)
+        VALUES (v_new_session_id, auth.uid(), v_duration, p_engine_type);
+    END IF;
+
+    /**
+     * #1436 P1 — A TRANSCRIPT-WRITING CREATE IS ATOMIC WITH ITS RETENTION.
+     *
+     * This inserted the row, then swallowed every convergence failure — and also accepted a
+     * `pending`/`non_converged` status — without undoing the insert. Under newest-ONE that leaves TWO
+     * readable transcripts whenever the prior one lacks terminal evidence, which is precisely the
+     * state the policy exists to prevent, reached through the recovery path rather than the normal one.
+     *
+     * Placeholder creates are unaffected: they write no text, so they cannot create a second one, and
+     * their pending/error reporting is preserved exactly.
+     *
+     * When text IS written, a non-converged outcome raises inside the SAME transaction, so the new
+     * row, the usage checkpoint and any partial retention writes roll back together. The controller
+     * then receives a retryable save failure and keeps its recovery draft — which is the honest
+     * outcome. NULLing the new transcript and reporting success would tell the user their words were
+     * saved while discarding them.
+     */
+    v_writes_transcript := COALESCE(p_session_data->>'transcript', '') ~ '[^[:space:]]';
+
+    BEGIN
+        v_retention := public.converge_transcript_retention(auth.uid());
+    EXCEPTION
+        WHEN query_canceled THEN
+            IF v_writes_transcript THEN RAISE; END IF;
+            v_retention := jsonb_build_object('status', 'error');
+        WHEN OTHERS THEN
+            IF v_writes_transcript THEN RAISE; END IF;
+            v_retention := jsonb_build_object('status', 'error');
+    END;
+
+    IF v_writes_transcript
+       AND COALESCE(v_retention->>'status', 'error') <> 'converged' THEN
+        RAISE EXCEPTION 'create_session_and_update_usage: transcript retention did not converge (status=%)',
+            COALESCE(v_retention->>'status', 'error')
+            USING ERRCODE = '55000';
+    END IF;
+
+    RETURN jsonb_build_object(
+        'new_session', (SELECT row_to_json(s) FROM public.sessions s WHERE s.id = v_new_session_id),
+        'usage_exceeded', false,
+        'at_cap', v_initial_at_cap,
+        'max_duration_seconds', 600,
+        'retention', v_retention
+    );
+END;
+$$;
+
 DROP FUNCTION IF EXISTS public.expire_transcripts_newest_two(uuid, integer);
