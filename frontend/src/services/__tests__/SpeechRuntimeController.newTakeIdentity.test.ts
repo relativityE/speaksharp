@@ -74,49 +74,87 @@ describe('#1422 — a new take clears the previous take\'s completed-session ide
             .toEqual({ completedSessionId: 'session-take-one' });
     });
 
-    it('STRUCTURAL: the retirement sits at the producer latch, not at the start boundary', async () => {
-        // The positive half needs a service that genuinely reaches confirmed admission, and this
-        // harness has no engine — the whole reason the casualty above can rely on the start failing.
-        // Setting the store by hand here and calling it proof would be exactly the shape this file's
-        // header warns about: it would pass whether or not the controller ever did it.
-        //
-        // So this asserts the PLACEMENT instead, and says so. The behavioural positive half — B is
-        // reviewed with B's id and A is never requested again — is owned by
-        // `SessionPage.practiceLoopReview.component.test.tsx` :: the A→B journey.
-        const { readFileSync } = await import('node:fs');
-        const src = readFileSync('frontend/src/services/SpeechRuntimeController.ts', 'utf8');
-
-        const clear = src.indexOf('useSessionStore.getState().setCompletedSessionId(null);');
-        const producerLatch = src.indexOf('controller_producer_latched');
-        const coverageClear = src.indexOf('useSessionStore.getState().setObjectiveCoverageResult(null);');
-
-        expect(clear, 'the retirement exists').toBeGreaterThan(-1);
-        expect(producerLatch, 'the producer latch exists').toBeGreaterThan(-1);
-        expect(clear, 'retirement comes AFTER confirmed admission').toBeGreaterThan(producerLatch);
-        // ...and specifically no longer sits with the start-boundary clears, which is where it was.
-        expect(clear, 'retirement is no longer at the start boundary').toBeGreaterThan(coverageClear);
-    });
-
-    it('CONTROL: the START boundary still clears the signals that do NOT identify a saved take', async () => {
-        // `finalizedAnalysis` and the objective coverage rail are settled-UI signals for the take just
-        // finished; clearing them the moment the user asks to record again is correct even if that
-        // start then fails, because neither is something the user can still read afterwards.
-        //
-        // `completedSessionId` is different in kind: it is the identity of a SAVED session the review
-        // can still read. That is why it moved to confirmed admission and these did not — and this
-        // asserts the two groups have genuinely diverged rather than drifted apart by accident.
-        useSessionStore.getState().setCompletedSessionId('session-take-one');
-        useSessionStore.getState().setObjectiveCoverageResult([
-            { label: 'a point', covered: true, coveredAtSec: 1, quote: null },
+    it('CASUALTY A: a FAILED start preserves the COMPLETE prior after-state, not just its identity', async () => {
+        // The release outcome is preservation of A's whole review until B genuinely exists. Keeping the
+        // identity while dropping the analysis and the N/N coverage leaves half an after-state on
+        // screen: a readable transcript beside a review that has silently lost its result.
+        const store = useSessionStore.getState();
+        store.setCompletedSessionId('session-take-one');
+        store.setFinalizedAnalysis({ sessionId: 'session-take-one' } as never);
+        store.setObjectiveCoverageResult([
+            { id: 'fp-0', label: 'Name the price', status: 'covered' },
         ] as never);
 
-        await priv().startRecording(POLICY as never, []).catch(() => { /* as above */ });
+        // Take two is attempted and REFUSED — no engine here, standing in for every real refusal after
+        // the start boundary: the lock, auth, a denied microphone, a failed acquisition.
+        await priv().startRecording(POLICY as never, []).catch(() => { /* the refusal IS the subject */ });
 
-        const s = useSessionStore.getState();
-        expect({
-            finalizedAnalysis: s.finalizedAnalysis,
-            objectiveCoverage: s.objectiveCoverageResult,
-        }).toEqual({ finalizedAnalysis: null, objectiveCoverage: null });
-        expect(s.completedSessionId, 'the saved take survives a failed start').toBe('session-take-one');
+        const after = useSessionStore.getState();
+        expect(after.completedSessionId, "A's transcript stays addressable").toBe('session-take-one');
+        expect(after.finalizedAnalysis, "A's settled review survives").not.toBeNull();
+        expect(after.objectiveCoverageResult, "A's N/N coverage survives").not.toBeNull();
+    });
+
+    it('a REFUSED start touches no successor-owned after-state (weaker than it looks — see note)', async () => {
+        /**
+         * DISCLOSED: this does NOT prove the stale-admission ordering, and I am not counting it as
+         * casualty B.
+         *
+         * The defect it was written for is real — retirement used to sit ABOVE the
+         * `_token.cancelled || _token.version !== this.lifecycleVersion` check, so a start that waited
+         * in `startTranscription()`, was superseded, and returned RECORDING late would clear the
+         * successor's identity on the way out. The fix moves retirement below that check and re-reads
+         * `acceptedAttempt`.
+         *
+         * But this harness has no engine, so the start never reaches the retirement at all: removing
+         * the authority check entirely leaves this test passing. What it actually proves is the
+         * narrower claim in its name — a refused start leaves the successor's after-state alone.
+         *
+         * A discriminating version needs a service that genuinely confirms RECORDING, which is the
+         * behavioural admission journey the return asks for and which is not yet built.
+         */
+        const c = priv() as unknown as PrivateController & {
+            acceptedAttempt: unknown;
+            lifecycleVersion: number;
+            serviceGeneration: number;
+        };
+
+        // B owns the after-state.
+        const store = useSessionStore.getState();
+        store.setCompletedSessionId('session-B');
+        store.setFinalizedAnalysis({ sessionId: 'session-B' } as never);
+        store.setObjectiveCoverageResult([{ id: 'fp-0', label: 'B point', status: 'covered' }] as never);
+
+        // A's accepted attempt is from an older generation — it lost ownership while suspended.
+        c.acceptedAttempt = {
+            intentToken: 'stale-intent',
+            lifecycleVersion: c.lifecycleVersion - 1,
+            recordingId: 'stale-recording',
+            serviceGeneration: c.serviceGeneration - 1,
+            service: null,
+        };
+
+        await priv().startRecording(POLICY as never, []).catch(() => { /* refusal is not the subject */ });
+
+        const after = useSessionStore.getState();
+        expect(after.completedSessionId, "B's identity is untouched").toBe('session-B');
+        expect(after.finalizedAnalysis, "B's review is untouched").not.toBeNull();
+        expect(after.objectiveCoverageResult, "B's coverage is untouched").not.toBeNull();
+    });
+
+    it('CONTROL: the start boundary still bumps the finalize token — it fences, it does not destroy', () => {
+        // The distinction that keeps this bounded. The finalize-token bump stays at the start
+        // boundary because it only stops an in-flight formatter or metrics callback from publishing
+        // into the new take; it destroys nothing the user can read.
+        //
+        // The three after-state signals are different in kind: they are the previous take's review.
+        // They moved to confirmed admission. If a later change puts any of them back at the boundary,
+        // casualty A above fails.
+        const c = priv() as unknown as PrivateController & { finalizeSequence: number };
+        const before = c.finalizeSequence;
+
+        void priv().startRecording(POLICY as never, []).catch(() => { /* refusal is not the subject */ });
+
+        expect(c.finalizeSequence, 'the fence still advances').toBeGreaterThan(before);
     });
 });

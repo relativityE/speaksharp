@@ -10,28 +10,44 @@ import React from 'react';
  * No confetti, no score out of 100 — the motivator is the delta against the user's own past (slot C).
  */
 export interface SessionVerdictProps {
-    /** One line, e.g. "Your cleanest session yet." */
-    verdictLine: string;
-    /** The single fix — quoted from the transcript with its count. */
-    fix: string;
+    /**
+     * One line, e.g. "Your cleanest session yet."
+     *
+     * #1422 — OPTIONAL, because the coaching prose it carried is RETIRED (#1306). When there is
+     * nothing truthful to say, the card renders its actions and says nothing. It previously fell back
+     * to "Session review not requested." and rendered that above the real generated 1+1 review, so the
+     * screen contradicted itself: a verdict claiming no review was requested, directly above the
+     * review.
+     */
+    verdictLine?: string | null;
+    /** The single fix — quoted from the transcript with its count. Optional for the same reason. */
+    fix?: string | null;
     onPracticeAgain: () => void;
     onSeeAllSessions: () => void;
 }
 
 export const SessionVerdict: React.FC<SessionVerdictProps> = ({ verdictLine, fix, onPracticeAgain, onSeeAllSessions }) => {
+    // Rendered ONLY when there is something true to render. The actions below are unconditional:
+    // `Practice this again` is the only desktop control wired to start the next take.
+    const line = verdictLine?.trim() || null;
+    const fixLine = fix?.trim() || null;
     return (
         <div data-testid="session-verdict">
-            <p className="text-[21px] font-extrabold leading-tight text-[#1f2733]" data-testid="verdict-line">
-                {verdictLine}
-            </p>
+            {line && (
+                <p className="text-[21px] font-extrabold leading-tight text-[#1f2733]" data-testid="verdict-line">
+                    {line}
+                </p>
+            )}
 
-            <div
-                className="mt-3 rounded-lg border border-[#e6dcfb] bg-[#f5f0ff] p-3"
-                data-testid="verdict-fix"
-            >
-                <p className="text-[11px] font-bold uppercase tracking-wide text-[#5b21b6]">Fix this next time</p>
-                <p className="mt-1 text-[14px] leading-relaxed text-[#1f2733]">{fix}</p>
-            </div>
+            {fixLine && (
+                <div
+                    className="mt-3 rounded-lg border border-[#e6dcfb] bg-[#f5f0ff] p-3"
+                    data-testid="verdict-fix"
+                >
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-[#5b21b6]">Fix this next time</p>
+                    <p className="mt-1 text-[14px] leading-relaxed text-[#1f2733]">{fixLine}</p>
+                </div>
+            )}
 
             <div className="mt-4 flex items-center gap-4">
                 <button

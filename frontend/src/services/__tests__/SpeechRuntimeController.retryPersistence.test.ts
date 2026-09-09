@@ -19,6 +19,7 @@
  * that is the server, not the behaviour being proven.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
 // The observer is plain ESM outside the typed frontend tree and ships no declarations. Importing the
 // REAL module is the whole point — a typed re-declaration here would be a second copy of the contract,
@@ -202,6 +203,40 @@ describe('#1403 full-save recovery publishes a receipt where there was none', ()
         expect(probe.persistedSessionId).toBe(SESSION);
         expect(probe.persistedStatus).toBe('saved');
         expect(receipt(probe).verdict).toBe('PASS');
+    });
+
+    it('CASUALTY D: a recovered save becomes READABLE, not merely marked saved', async () => {
+        // Publishing only the persistence marker made the recovered take *saved* without making it
+        // *readable*: `completedSessionId` stayed null, so the review query was disabled, the
+        // after-state had no session to read, and the automatic review never ran. The user recovered
+        // their transcript and still could not open it.
+        //
+        // Asserting the marker alone cannot see this — the marker was already correct.
+        useSessionStore.getState().setCompletedSessionId(null);
+        stageFullSaveFailure();
+        const storage = await import('@/lib/storage');
+        vi.spyOn(storage, 'completeSession').mockResolvedValue({ success: true } as never);
+
+        const ok = await priv().retryRecordingSave();
+        expect(ok).toBe(true);
+
+        expect(
+            useSessionStore.getState().completedSessionId,
+            'the recovered take must enter the same completed review state as a first-pass save',
+        ).toBe(SESSION);
+    });
+
+    it('CASUALTY D2: a FAILED recovery publishes no review identity either', async () => {
+        // The negative half. A controller that published the identity unconditionally would satisfy
+        // the casualty above while telling the user an unrecovered take was ready to read.
+        useSessionStore.getState().setCompletedSessionId(null);
+        stageFullSaveFailure();
+        const storage = await import('@/lib/storage');
+        vi.spyOn(storage, 'completeSession').mockResolvedValue({ success: false } as never);
+
+        const ok = await priv().retryRecordingSave();
+        expect(ok).toBe(false);
+        expect(useSessionStore.getState().completedSessionId).toBeNull();
     });
 
     it('CASUALTY: a failed COMPLETION publishes nothing', async () => {

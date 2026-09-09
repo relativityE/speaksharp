@@ -21,7 +21,7 @@ import { deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusC
 import type { PracticeFocus } from '@/constants/practiceFocus';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
-import { liveTipFromMetrics, verdictFromSuggestions, type TwoTakeaways } from '@/utils/liveCoaching';
+import { liveTipFromMetrics, type TwoTakeaways } from '@/utils/liveCoaching';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { selectReviewFillerSnapshot } from '@/utils/sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
@@ -93,6 +93,11 @@ export interface SessionOverhaulViewProps {
     fillerData?: FillerCounts | null;
     wpm?: number | null;
     /** The saved session's two takeaways (after-state verdict); null → honest deterministic fallback. */
+    /**
+     * #1422 — RETIRED AND UNREAD. The coaching prose this carried is retired (#1306) and the after-state
+     * no longer manufactures a verdict from it. The prop stays in the type so existing callers keep
+     * compiling, but nothing consumes it; feeding it would not put coaching back on screen.
+     */
     aiSuggestions?: TwoTakeaways | null;
     /** Completed-session Practice Loop review. SessionPage owns its persistence-ready/session-id gate. */
     practiceLoopReview?: React.ReactNode;
@@ -159,7 +164,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     isButtonDisabled,
     fillerData,
     wpm,
-    aiSuggestions,
+    aiSuggestions: _aiSuggestions,
     practiceLoopReview,
     onSeeAllSessions,
     interimTranscript,
@@ -545,7 +550,17 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
                         : null)
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
-                verdict={{ ...verdictFromSuggestions(aiSuggestions, reviewFillerData, elapsedTime), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
+                /**
+                 * #1422 — NO FABRICATED VERDICT. `aiSuggestions` is always `undefined` here because the
+                 * coaching prose this card carried is retired (#1306), and `verdictFromSuggestions` then
+                 * manufactured "Session review not requested." plus a filler-derived fix — rendered
+                 * directly ABOVE the real generated 1+1 review. The screen told the user no review had
+                 * been requested while showing them the review.
+                 *
+                 * The card keeps its ACTIONS, which are not coaching: `Practice this again` is the only
+                 * desktop control wired to start the next take.
+                 */
+                verdict={{ verdictLine: null, fix: null, onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
                 /**
                  * #1422 P1 — AUGMENT slot D, never replace it.
                  *
