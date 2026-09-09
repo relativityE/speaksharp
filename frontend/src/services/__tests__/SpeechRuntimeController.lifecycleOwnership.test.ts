@@ -405,6 +405,43 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         expect(useSessionStore.getState().isTranscriptFinalizing, "B's finalizing latch is untouched").toBe(true);
     });
 
+    it("CASUALTY P1-2c: a superseded stop that FAILS must not mark B's row failed", async () => {
+        /**
+         * #1431 P1 (exact-head return on `af473132b`). The common stop catch read `this.sessionId`
+         * LIVE and called `completeSession(status: 'failed')` on it. When stale A's persistence work
+         * rejected after a reset, that marked B'S DATABASE ROW failed, wrote an error over B's UI and
+         * purged B's live transcript — a recording the user was still making, torn down because a take
+         * they had already abandoned lost a race.
+         *
+         * A still settles its OWN record: its session genuinely failed and saying so is A's to do. It
+         * does that against the id CAPTURED at stop entry, never the live one.
+         */
+        let superseded = false;
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            // Rejects on a later tick so the rejection is never unhandled before the stop awaits it.
+            new Promise((_resolve, reject) => {
+                setTimeout(() => reject(new Error('A could not finish its stop')), 0);
+            }),
+            () => {
+                c.lifecycleVersion += 1;
+                c.serviceGeneration += 1;
+                // B is the current session by the time A's failure lands.
+                c.sessionId = 'session-B';
+                superseded = true;
+            },
+        );
+        vi.mocked(completeSession).mockClear();
+
+        await c.stopRecording().catch(() => { /* A's own failure is the subject, not the assertion */ });
+        expect(superseded, 'the stop must actually have reached stopTranscription').toBe(true);
+
+        const failedRows = vi.mocked(completeSession).mock.calls
+            .filter(([, args]) => (args as { status?: string } | undefined)?.status === 'failed')
+            .map(([id]) => id);
+        expect(failedRows, "A's failure must never mark B's row failed").not.toContain('session-B');
+        expect(c.state, 'B must not be transitioned to FAILED by A').not.toBe('FAILED');
+    });
+
     it('CASUALTY P2-3: a late onReady during STOPPING cannot arm a watchdog that outlives its take', async () => {
         // A's engine can report ready while A is finalizing. Its generation is still current at that
         // point — the bump happens at detach — so the generation wrapper passes it through, and the
@@ -679,4 +716,88 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
             .map((call) => call[0]);
         expect(failedWrites, "A's teardown failure must not mark B's session failed").toEqual([]);
     });
+});
+
+/**
+ * #1431 P1 — THE TWO EXACT-HEAD FINDINGS RETURNED ON `af473132b`.
+ *
+ * Both are the same shape as everything else in this file and both slipped through anyway, because
+ * the paths that carry them are the ones that LOOK exempt: a user-initiated recovery, and an error
+ * handler. Neither is exempt. A suspension point does not care who started the work.
+ */
+describe('#1431 — superseded work publishes nothing into the successor', () => {
+    let controller: ReturnType<typeof newController>;
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        for (const attribute of [...document.documentElement.attributes]) {
+            if (attribute.name.startsWith('data-')) document.documentElement.removeAttribute(attribute.name);
+        }
+        controller = newController();
+        controller.state = 'READY';
+    });
+
+    it('CASUALTY P1-1: a RETRY that resumes after a reset unlocks nothing and publishes nothing', async () => {
+        /**
+         * The retry paths passed `canPublishShared: () => true`, reasoning that Retry Save is
+         * user-initiated and therefore "the current take by definition". Being user-initiated says who
+         * STARTED the work; `attestSessionEngine()` is a real suspension point, and nothing freezes the
+         * app while it is in flight. Resuming, A unlocked B's recording latch, wrote A's persistence
+         * identity over B's, and published A's Progress/brief/coverage — with an explicit authority
+         * argument vouching for it.
+         */
+        const priv = controller as unknown as {
+            pendingAttributionRetry: unknown;
+            recordingStartedUnresolved: boolean;
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            attestSessionEngine: (id: string, ev: unknown) => Promise<{ attributed: boolean } | null>;
+            retryPendingAttribution: () => Promise<boolean>;
+        };
+
+        const entered = deferred();
+        const release = deferred();
+        priv.attestSessionEngine = async () => {
+            entered.resolve();
+            await release.promise;
+            return { attributed: true };
+        };
+        const slot = {
+            sessionId: 'session-A',
+            evidence: null,
+            progressContext: { mode: 'private' },
+            progressMetrics: { payload: null, persisted: false },
+        };
+        priv.pendingAttributionRetry = slot;
+        priv.recordingStartedUnresolved = true;
+
+        const running = priv.retryPendingAttribution();
+        await entered.promise;
+
+        /**
+         * SUPERSEDE THE WAY THE OTHER CASUALTIES IN THIS FILE DO — bump the authority terms directly.
+         *
+         * My first version called `hardResetAwaited()`, which also CLEARS `pendingAttributionRetry`.
+         * The compare-and-clear below it therefore never opened, A never reached the guarded
+         * publications at all, and the casualty passed with the fence fully reverted. It measured
+         * nothing. Bumping the versions leaves the retry slot intact, so the fence is the only thing
+         * that can stop the publication.
+         */
+        priv.lifecycleVersion += 1;
+        priv.serviceGeneration += 1;
+
+        release.resolve();
+        await running;
+
+        expect(priv.pendingAttributionRetry, "A still finishes its OWN bookkeeping").toBeNull();
+        expect(priv.recordingStartedUnresolved, "B's recording latch is not unlocked by A's retry").toBe(true);
+        expect(
+            document.documentElement.getAttribute('data-session-persisted-id'),
+            "A's persistence identity is not published over B's",
+        ).not.toBe('session-A');
+    });
+
 });

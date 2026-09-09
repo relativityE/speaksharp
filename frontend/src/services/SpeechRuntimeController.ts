@@ -953,6 +953,27 @@ export class SpeechRuntimeController {
         const pending = this.pendingAttributionRetry;
         if (!pending) return true;
         const targetSessionId = pending.sessionId;
+        /**
+         * #1431 P1 — RETRY IS NOT EXEMPT FROM OWNERSHIP, AND SAYING SO DID NOT MAKE IT TRUE.
+         *
+         * `attestSessionEngine()` below is a real suspension point. This path used to assert
+         * `canPublishShared: () => true` with the reasoning that Retry Save is user-initiated and is
+         * therefore "the current take by definition". Being user-initiated says who STARTED it, not who
+         * owns the lifecycle when it RESUMES: nothing freezes the app while the attestation is in
+         * flight, so the user can begin take B in that window. A then unlocked B's recording latch,
+         * published A's persistence identity into B's DOM state, and wrote A's Progress, brief and
+         * coverage over B's — with an explicit authority argument vouching for it.
+         *
+         * The compare-and-clear below does not cover this. It asks whether the RETRY SLOT still holds
+         * the session just promoted, which is a different question from whether the lifecycle still
+         * belongs to this work.
+         *
+         * Captured BEFORE the await and revalidated after it, using the same predicate the stop path
+         * uses, so there is one definition of "still ours" rather than a second, softer one here.
+         */
+        const retryAuthority = this.captureStopAuthority(this.lifecycleVersion, this.service, targetSessionId);
+        const retryToken = { cancelled: false, version: retryAuthority.lifecycleVersion };
+        const retryStillOwnsSharedState = () => this.stopStillOwnsSharedState(retryAuthority, retryToken);
         try {
             // #1161: re-post evidence to the trusted server producer. null = transient failure → stay retryable.
             const res = await this.attestSessionEngine(pending.sessionId, pending.evidence);
@@ -960,7 +981,10 @@ export class SpeechRuntimeController {
             // compare-and-clear: clear ONLY if the slot still holds the session we just promoted — if it
             // changed to another session while the update was in flight, leave that one intact (#1033).
             if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
+                // The slot is A's own bookkeeping and is cleared either way; only the SHARED
+                // publications below are fenced, so a superseded retry still finishes its own work.
                 this.pendingAttributionRetry = null;
+                this.publishIfStopOwner(retryAuthority, retryToken, 'retry_attribution_settlement', () => {
                 this.markRecordingResolved(); // Retry Save succeeded → recording fully resolved → unlock
                 // #1403 RETURN: REPUBLISH THE RECEIPT. Clearing the retry slot changed what the save marker
                 // is entitled to claim, and nothing was saying so. The DOM kept reporting
@@ -975,17 +999,17 @@ export class SpeechRuntimeController {
                     sessionId: targetSessionId,
                     mode: pending.progressContext?.mode ?? null,
                 });
+                });
             }
             await this.completeProgressForRecording(
                 pending.progressContext ?? { mode: 'unknown' },
                 targetSessionId,
                 res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
                 pending.progressMetrics?.persisted ?? false,
-                // Retry Save is user-initiated and is the current take by definition — there is no
-                // superseded attempt behind it. Stated explicitly rather than defaulted, so the
-                // authority is a claim on the record and a new caller cannot inherit permission by
-                // forgetting the argument.
-                () => true,
+                // #1431 P1 — the real authority, re-evaluated at each shared write inside. This was
+                // `() => true`; see the note at the top of this method for why being user-initiated is
+                // not ownership.
+                retryStillOwnsSharedState,
             );
             return true;
         } catch {
@@ -1005,6 +1029,16 @@ export class SpeechRuntimeController {
         const fullSave = this.pendingFullSaveRetry;
         if (fullSave) {
             let targetSessionId = fullSave.sessionId;
+            /**
+             * #1431 P1 — same correction as `retryPendingAttribution`, and for the same reason.
+             *
+             * This path awaits a row creation, `completeSession()` and `attestSessionEngine()` before it
+             * publishes anything shared. Each is a window in which the user can start take B. Captured
+             * before the first await; every shared write below is fenced against it.
+             */
+            const retryAuthority = this.captureStopAuthority(this.lifecycleVersion, this.service, targetSessionId);
+            const retryToken = { cancelled: false, version: retryAuthority.lifecycleVersion };
+            const retryStillOwnsSharedState = () => this.stopStillOwnsSharedState(retryAuthority, retryToken);
             try {
                 // #1033 (1): INITIAL SAVE — the row never existed (failure landed between RECORDING and the
                 // placeholder save). Create it with THIS recording's idempotency key so a retry can never
@@ -1054,8 +1088,11 @@ export class SpeechRuntimeController {
                 // have been re-pointed to another session mid-flight, though the single-unresolved invariant
                 // makes that near-impossible); never clear a different session's unresolved work.
                 if (this.pendingFullSaveRetry?.sessionId === targetSessionId) {
+                    // Slots are this retry's own bookkeeping and clear either way; only the SHARED
+                    // publications are fenced, so a superseded retry still finishes its own work.
                     this.pendingFullSaveRetry = null;
                     if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
+                    this.publishIfStopOwner(retryAuthority, retryToken, 'retry_full_save_settlement', () => {
                     this.markRecordingResolved();
                     // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
                     // the original failure never published one — correctly, since nothing was durable then.
@@ -1067,13 +1104,14 @@ export class SpeechRuntimeController {
                         sessionId: targetSessionId,
                         mode: fullSave.progressContext?.mode ?? null,
                     });
+                    });
                     await this.completeProgressForRecording(
                         fullSave.progressContext ?? { mode: 'unknown' },
                         targetSessionId,
                         attrRes.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
                         metricsPersisted,
-                        // As above: user-initiated recovery, current by definition.
-                        () => true,
+                        // #1431 P1 — was `() => true` on the same "current by definition" reasoning.
+                        retryStillOwnsSharedState,
                     );
                 }
                 return true;
@@ -4949,6 +4987,48 @@ export class SpeechRuntimeController {
                 return result;
             } catch (err: unknown) {
                 logger.error({ err }, '[DEBUG-STOP] ERROR caught');
+
+                /**
+                 * #1431 P1 — A STALE STOP'S FAILURE IS A'S, AND MUST NOT FAIL THE SUCCESSOR.
+                 *
+                 * Every line below this point reads or writes whatever take is CURRENT, and none of it
+                 * was guarded. When stale stop A's persistence work rejected after a reset had handed
+                 * the lifecycle to B, this catch:
+                 *
+                 *   - read `this.sessionId` LIVE and called `completeSession(status: 'failed')` on it,
+                 *     marking B'S DATABASE ROW failed because A could not finish;
+                 *   - measured the recovery-draft signal from B's store;
+                 *   - transitioned to FAILED and wrote an error status over B's UI;
+                 *   - called `purgeTranscriptWorkingMemory()`, destroying B's live transcript.
+                 *
+                 * The user's visible outcome was a recording they were still making being torn down and
+                 * reported as failed, because a take they had already abandoned lost a race.
+                 *
+                 * A superseded stop still settles its OWN record — its session is genuinely failed and
+                 * saying so is A's to do — addressed by the id CAPTURED at stop entry, never the live
+                 * one. It then rethrows, so its caller still sees the failure, and touches nothing else.
+                 */
+                if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
+                    pushNativeRuntimeTrace('controller_stop_error_publication_refused', {
+                        capturedLifecycle: stopAuthority.lifecycleVersion,
+                        liveLifecycle: this.lifecycleVersion,
+                        capturedGeneration: stopAuthority.serviceGeneration,
+                        liveGeneration: this.serviceGeneration,
+                        tokenCancelled: token.cancelled,
+                    });
+                    if (stopAuthority.sessionId) {
+                        completeSession(stopAuthority.sessionId, {
+                            status: 'failed',
+                            reason: `Stop recording failed: ${(err as Error).message}`,
+                        }).catch((completeError) => {
+                            logger.warn({ completeError }, '[SpeechRuntimeController] superseded stop could not mark its own session failed');
+                        });
+                    }
+                    // Owner-scoped already: releases only if A still holds the latch it took.
+                    this.releaseFinalizingIfOwner('stop_failed_superseded', stopAuthority.lifecycleVersion);
+                    throw err;
+                }
+
                 const hasRecoveryDraftSignal = this.getStoreTranscriptLength() > 0;
                 if (this.sessionId) {
                     completeSession(this.sessionId, {
@@ -5005,8 +5085,10 @@ export class SpeechRuntimeController {
      * REQUIRED, not defaulted. It began as an optional parameter defaulting to `() => true` so the
      * retry-save callers would be unaffected, which is a fail-OPEN default on a guard: any future
      * caller that forgot it would silently get permission to publish into whatever take is current.
-     * Every caller now states its authority. The user-initiated retry-save paths pass `() => true`
-     * explicitly, which is a claim on the record rather than an omission.
+     * Every caller now states its authority. The retry-save paths passed `() => true` on the reasoning
+     * that user-initiated recovery is "the current take by definition"; that was wrong and is fixed —
+     * being user-initiated says who STARTED the work, not who owns the lifecycle when it RESUMES after
+     * its attestation/completion awaits. They now pass a real revalidating predicate.
      *
      * This fences MORE than the coverage rail. `beginProgressGate`, `applyProgressGate` and the
      * completed/active Focus Points briefs are all shared UI and controller state, and a stale take
