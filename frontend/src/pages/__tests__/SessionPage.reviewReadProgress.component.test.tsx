@@ -69,6 +69,10 @@ beforeEach(() => {
         modelLoadingProgress: null, privateModelStatus: 'ready', mode: 'private' as const,
         setMode: vi.fn(), elapsedTime: 0, handleStartStop: vi.fn(),
         showAnalyticsPrompt: true, setShowAnalyticsPrompt: vi.fn(),
+        // #1428's review-latency reporter, which SessionPage now calls once the read settles. These
+        // fixtures predate it; a lifecycle mock missing it makes the component throw rather than
+        // exercise the settling behaviour under test.
+        settleReviewLatency: vi.fn(),
         sessionFeedbackMessage: null, micLevel: 0, transcriptContent: '', interimTranscript: '',
         canUsePrivateStt: true, isButtonDisabled: false, sunsetModal: { type: 'daily', open: false },
     } as never);

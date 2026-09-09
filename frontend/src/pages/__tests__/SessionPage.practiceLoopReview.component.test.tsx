@@ -78,6 +78,8 @@ const lifecycle = () => ({
     handleStartStop: vi.fn(),
     showAnalyticsPrompt: true,
     setShowAnalyticsPrompt: vi.fn(),
+    // #1428's review-latency reporter — see the note in SessionPage.reviewReadProgress.
+    settleReviewLatency: vi.fn(),
     sessionFeedbackMessage: null,
     micLevel: 0,
     transcriptContent: '',
