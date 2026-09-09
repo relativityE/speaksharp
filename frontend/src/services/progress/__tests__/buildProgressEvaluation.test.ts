@@ -193,4 +193,16 @@ describe('#1045 buildProgressEvaluation — engine identity and filler evidence 
         expect(r.exclusionReasons).toEqual([]);
         expect(r.fillerCount).toBe(0);
     });
+
+    it.each([
+        ['negative', -1],
+        ['fractional', 1.5],
+        ['infinite', Number.POSITIVE_INFINITY],
+    ])('invalid %s filler evidence is excluded, never scored as a measurement', (_label, fillerCount) => {
+        const r = buildProgressEvaluation(ev({ fillerCount }));
+        expect(r.eligible).toBe(false);
+        expect(r.exclusionReasons).toContain('no_clarity_evidence');
+        expect(r.clarityRaw).toBeNull();
+        expect(r.fillerCount).toBeNull();
+    });
 });

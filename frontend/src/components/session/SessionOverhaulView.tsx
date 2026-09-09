@@ -17,7 +17,7 @@ import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
 import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
-import { deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusCoverageRow } from '@/utils/focusCoverage';
+import { applyFinalizedCoverageAuthority, deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusCoverageRow } from '@/utils/focusCoverage';
 import type { PracticeFocus } from '@/constants/practiceFocus';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
@@ -168,6 +168,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     completedObjectivePoints,
     completedObjectiveTopic,
     completedObjectivePaceGuideSecPerPoint,
+    objectiveCoverage,
     onEditPoints,
     onRetryPoints,
     onNewSet,
@@ -327,18 +328,41 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const isObjective = Array.isArray(effObjectivePoints) && effObjectivePoints.length > 0;
 
     // Live coverage, derived from the growing transcript via the local keyword matcher (nothing leaves the
-    // device). `coveredLatch` guarantees a lit tick never regresses (spec §6); it resets on a fresh session.
-    const coveredLatch = React.useRef<Set<number>>(new Set());
-    if (isObjective && sessionState === 'before') coveredLatch.current = new Set();
+    // device). The latch retains the strongest observed status (missing < partial < covered), so transcript
+    // rewrites cannot erase a partial match or turn a prior full match amber. It resets on a fresh session.
+    const coveredLatch = React.useRef<Map<number, FocusCoverageRow>>(new Map());
+    const previousCoverageState = React.useRef(sessionState);
+    // A retry can transition straight from after→during when React batches the rebind and Start updates;
+    // there is no guaranteed `before` render. Reset on every entry into `during` as well as `before`, or
+    // the prior take's detected indices stay latched and the retry starts with a fabricated count.
+    if (isObjective && (sessionState === 'before'
+        || (sessionState === 'during' && previousCoverageState.current !== 'during'))) {
+        coveredLatch.current = new Map();
+    }
+    previousCoverageState.current = sessionState;
     // The terminal result exists only when the retained transcript exists. Treating a pending/failed read
     // as an empty transcript turns "we cannot read it" into the confident false result 0/N + every point
     // "Not detected". Before/during still derive from working memory; after derives only from the retained
     // authority and withholds the entire transcript-derived result until that authority is available.
-    const canDeriveCoverage = isObjective && (!inAfter || effectiveReview.kind === 'available');
+    // SessionPage always supplies `objectiveCoverage` (array after a successful stop seam, null while the
+    // verdict is unavailable). `undefined` is retained only for older pure-view callers/tests. In the real
+    // terminal journey, a retained transcript alone cannot license a verdict: it lacks the timestamped
+    // segments and configured cues evaluated by finalization.
+    const terminalAuthorityExpected = inAfter && objectiveCoverage !== undefined;
+    const canDeriveCoverage = isObjective
+        && (!inAfter || effectiveReview.kind === 'available')
+        && (!terminalAuthorityExpected || objectiveCoverage !== null);
     let coverage: FocusCoverage | null = null;
     if (canDeriveCoverage) {
-        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptSource, effElapsed, coveredLatch.current);
-        coverage.rows.forEach((r, i) => { if (r.covered) coveredLatch.current.add(i); });
+        const derived = deriveFocusCoverage(effObjectivePoints ?? [], transcriptSource, effElapsed, coveredLatch.current);
+        coverage = terminalAuthorityExpected
+            ? applyFinalizedCoverageAuthority(derived, effObjectivePoints ?? [], objectiveCoverage ?? null)
+            : derived;
+        if (!inAfter) {
+            coverage?.rows.forEach((row, index) => {
+                if (row.status !== 'missing') coveredLatch.current.set(index, row);
+            });
+        }
     }
     const pendingObjectiveRows: FocusCoverageRow[] = (effObjectivePoints ?? []).map((label) => ({
         label,
@@ -378,10 +402,16 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
         : undefined;
     const coverageMayBecomeAvailable = effectiveReview.kind === 'unavailable';
+    const coverageTerminallyUnavailable = isObjective
+        && terminalAuthorityExpected
+        && objectiveCoverage === null
+        && effectiveReview.kind === 'available';
     const objectiveAfterSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
         : isObjective && coverageMayBecomeAvailable
             ? <section data-testid="coverage-awaiting-transcript" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-[#4b5563]">Coverage will appear when your transcript is available.</section>
+            : coverageTerminallyUnavailable
+                ? <section data-testid="coverage-unavailable" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-[#4b5563]">Focus Points detection is unavailable for this take.</section>
             : undefined;
     const objectivePlanSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />
@@ -521,12 +551,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     // §Duplication: the coverage FRACTION appears exactly once, in Slot C — never repeated
                     // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
-                        ? (coverage
+                        ? (coverage && coverage.coveredQuotes.length > 0
                             ? `${reviewWordCount} words · green marks where each point landed`
                             : `${reviewWordCount} words`)
                         : `${reviewWordCount} words · orange marks fillers`,
                     stats: fillerStatsLine,
-                    coverageMode: isObjective && coverage ? 'after' : undefined,
+                    coverageMode: isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
                 }}
                 progress={progress}
                 slotCContent={isObjective ? objectiveAfterSlotC : <ComparableProgressNotice sessionState="after" />}
@@ -538,7 +568,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     ? <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
                     : undefined}
                 fillerFooter={isObjective
-                    ? (coverage
+                    ? (coverage && coverage.coveredQuotes.length > 0
                         ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
                         : null)
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
