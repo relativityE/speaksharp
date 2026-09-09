@@ -224,6 +224,20 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     // successor must then publish ITS OWN transcript, review and N/N. A rail that cleared and stayed
     // empty would pass every assertion above while leaving the user with nothing.
     await simulateTranscription(page, SPEAKS_EVERY_POINT_TAKE_B, true);
+
+    /**
+     * B'S WORDS, ASSERTED WHILE B IS STILL RECORDING — which is where the live transcript exists.
+     *
+     * My first version asserted this in the AFTER-state and CI answered "element(s) not found",
+     * correctly: #1306 purges ephemeral working memory at terminal, and the after-state renders the
+     * server's `review-transcript` or an honest notice, never the live buffer. Asserting it here proves
+     * the thing that actually matters for isolation — the successor captured its OWN content rather
+     * than inheriting A's — at the only point where that content is on screen.
+     */
+    const liveTranscript = page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT);
+    await expect(liveTranscript, "take B captured B's words").toContainText(TAKE_B_MARKER);
+    await expect(liveTranscript, "take A's transcript did not carry into B").not.toContainText(TAKE_A_MARKER);
+
     await page.waitForTimeout(5_200); // clear the sub-5s no-persist guard
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
@@ -234,17 +248,11 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     // B's own coverage, from B's own take — the same four points, all detected again.
     await assertEveryPointDetected(page, 'take B after-state');
 
-    // ---- AND IT IS GENUINELY B'S. Three independent ways of saying so, because 4/4 alone is also
-    // what a republished take A looks like.
-    //
-    // 1. A DIFFERENT SAVED ROW. Republishing A's after-state would leave A's id on the document.
+    // ---- AND THE SAVE IS GENUINELY B'S. 4/4 alone is also what a republished take A looks like, so
+    // the successor has to be identified by something A cannot supply: its own persisted row.
+    // Republishing A's after-state would leave A's id on the document.
     const takeBId = await page.locator('html').getAttribute('data-session-persisted-id');
     expect(takeBId, 'take B persisted under a real session id').toBeTruthy();
     expect(takeBId, 'take B saved its OWN row, it did not republish take A').not.toBe(takeAId);
-
-    // 2. B'S WORDS, NOT A'S. The marker phrases cannot both belong to the same take.
-    const transcript = page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT);
-    await expect(transcript, "the after-state shows take B's transcript").toContainText(TAKE_B_MARKER);
-    await expect(transcript, "take A's transcript is gone, not carried forward").not.toContainText(TAKE_A_MARKER);
   });
 });
