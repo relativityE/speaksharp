@@ -402,7 +402,10 @@ export const useSessionLifecycle = () => {
                 const startLatency = beginSessionStartLatency(
                     latestMode,
                     latestMode === 'private'
-                        ? (privateModelStatus === 'ready' ? 'cached' : 'cold')
+                        // `idle` is the normal post-session state after the service releases its mic;
+                        // the model remains cached and the next take is immediately startable. Only
+                        // states that represent preparation or absence are cold.
+                        ? (['ready', 'idle'].includes(privateModelStatus) ? 'cached' : 'cold')
                         : 'not_applicable',
                 );
                 try {

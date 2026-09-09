@@ -1135,6 +1135,9 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
     });
 
     it('#1428 F-15 settles initialization latency only when the controller reaches recording authority', async () => {
+        // `idle` after a completed take is cached and immediately startable. Treating every status
+        // other than `ready` as cold corrupts the returning-user distribution.
+        document.documentElement.setAttribute('data-model-status', 'idle');
         let resolveStart!: () => void;
         const startPending = new Promise<void>((resolve) => { resolveStart = resolve; });
         vi.mocked(speechRuntimeController.startRecording).mockReturnValueOnce(startPending);
@@ -1171,7 +1174,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             mode: 'private',
             outcome: 'recording_started',
             duration_ms: expect.any(Number),
-            model_cache_state: expect.stringMatching(/^(cold|cached)$/),
+            model_cache_state: 'cached',
         });
         expect(Number.isInteger((latency?.[1] as Record<string, unknown>)?.duration_ms)).toBe(true);
         pushSpy.mockRestore();
