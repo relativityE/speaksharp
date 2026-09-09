@@ -62,17 +62,64 @@ export const PRIVATE_WORKER_DIMENSION_EXERCISE:
  */
 export const PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND: number | null = null;
 
-const PUNCTUATION_MARKS = /[.,!?;:]/g;
+const FILLER_TOKEN = /^(um+|uh+|ah+|er+|hmm+)$/i;
 
 /**
- * Punctuation error rate: edit distance over the ORDERED sequence of punctuation marks, normalized by
- * the reference's mark count. `null` when the reference carries no punctuation, never 0 — an
- * unmeasurable dimension reporting a perfect score is the exact fabrication this lane exists to stop.
+ * Each punctuation mark PAIRED WITH THE WORD IT FOLLOWS, e.g. `2:.` for a full stop after the third
+ * word.
+ *
+ * A mark-only sequence is blind to placement, which is the one thing this dimension is named for.
+ * `Hello, world. Next!` and `Hello world, Next.!` both reduce to `[',', '.', '!']` and scored a
+ * perfect 0 with every mark moved — and Track-B WER sees identical words, so the journey could publish
+ * a flattering punctuation figure for a transcript whose punctuation was entirely wrong. Binding each
+ * mark to its word index makes moving a mark a real error.
+ */
+function positionedMarks(text: string): string[] {
+    const marks: string[] = [];
+    let wordIndex = -1;
+    let inWord = false;
+    for (const char of text) {
+        if (/[\p{L}\p{N}'-]/u.test(char)) {
+            if (!inWord) { wordIndex += 1; inWord = true; }
+            continue;
+        }
+        inWord = false;
+        if (/[.,!?;:]/.test(char)) marks.push(`${wordIndex}:${char}`);
+    }
+    return marks;
+}
+
+/**
+ * How much of the reference's disfluency the hypothesis actually recovered, in [0,1]; `null` when the
+ * reference carries no filler to recognise.
+ *
+ * Without this, `filler_recognition` was validated only on the REFERENCE side — the fixture had to
+ * contain a filler, but nothing ever asked whether the worker returned one. A recognizer that dropped
+ * every `um` still produced a green journey publishing that dimension.
+ */
+export function fillerRecall(referenceText: string, hypothesisText: string): number | null {
+    const tokens = (text: string) => text.split(/[^\p{L}\p{N}'-]+/u).filter(Boolean);
+    const referenceFillers = tokens(referenceText).filter(t => FILLER_TOKEN.test(t));
+    if (referenceFillers.length === 0) return null;
+    const hypothesisFillers = tokens(hypothesisText).filter(t => FILLER_TOKEN.test(t));
+    const pool = hypothesisFillers.map(t => t.toLowerCase());
+    let matched = 0;
+    for (const filler of referenceFillers.map(t => t.toLowerCase())) {
+        const at = pool.indexOf(filler);
+        if (at !== -1) { pool.splice(at, 1); matched += 1; }
+    }
+    return matched / referenceFillers.length;
+}
+
+/**
+ * Punctuation error rate: edit distance over the POSITIONED mark sequence, normalized by the
+ * reference's mark count. `null` when the reference carries no punctuation, never 0 — an unmeasurable
+ * dimension reporting a perfect score is the exact fabrication this lane exists to stop.
  */
 export function punctuationErrorRate(referenceText: string, hypothesisText: string): number | null {
-    const reference = referenceText.match(PUNCTUATION_MARKS) ?? [];
+    const reference = positionedMarks(referenceText);
     if (reference.length === 0) return null;
-    const hypothesis = hypothesisText.match(PUNCTUATION_MARKS) ?? [];
+    const hypothesis = positionedMarks(hypothesisText);
     // Levenshtein over marks. Two rows only: the sequences are short and the full matrix is not needed.
     let previous = Array.from({ length: hypothesis.length + 1 }, (_, i) => i);
     for (let r = 1; r <= reference.length; r += 1) {
@@ -140,8 +187,10 @@ export interface PrivateWorkerProblem {
  * a maintainer had to reproduce it locally to learn what. Hashes and counts only — never text.
  */
 export interface PrivateWorkerFixtureDiagnostic {
-    /** Mark-level punctuation error rate; null when the fixture does not claim the dimension. */
+    /** Positioned punctuation error rate; null when the fixture does not claim the dimension. */
     punctuationErrorRate?: number | null;
+    /** Fraction of the reference's fillers the worker returned; null when the dimension is not claimed. */
+    fillerRecall?: number | null;
     fixtureId: string;
     fixtureSha256: string | null;
     referenceTextSha256: string | null;
@@ -199,11 +248,19 @@ export interface PrivateWorkerNaturalLanguageObservation {
 
 export interface SanitizedPrivateWorkerFixtureResult {
     /**
-     * Mark-level punctuation error rate for fixtures claiming `punctuation_placement`; null otherwise.
+     * Positioned punctuation error rate for fixtures claiming `punctuation_placement`; null otherwise.
      * Published so the dimension carries a figure a reader can check, and deliberately unbounded — see
      * PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND.
      */
     punctuationErrorRate?: number | null;
+    /** Measured filler recall for fixtures claiming `filler_recognition`; null otherwise. Unbounded. */
+    fillerRecall?: number | null;
+    /**
+     * The subset of `qualityDimensions` this row actually PROVES — those carrying a bound the result
+     * had to clear. A measured-only dimension is declared and measured but never proven, and a reader
+     * of this artifact must be able to tell the difference without knowing the bounds table.
+     */
+    provenQualityDimensions: string[];
     fixtureId: string;
     fixtureSha256: string;
     referenceTextSha256: string;
@@ -248,8 +305,19 @@ function resolveBound(fixture: NaturalLanguageFixtureContract): { bound: number 
     const problems: string[] = [];
     let bound: number | null = null;
     for (const dimension of fixture.qualityDimensions) {
-        if (!(dimension in PRIVATE_WORKER_DIMENSION_WER_BOUNDS)) {
+        // OWN properties only: `dimension in ...` accepts inherited names like `toString`, so a manifest
+        // could declare a prototype key and pass the "known dimension" check.
+        if (!Object.hasOwn(PRIVATE_WORKER_DIMENSION_WER_BOUNDS, dimension)) {
             problems.push(`fixture '${fixture.fixtureId}' declares unknown quality dimension '${dimension}'`);
+            continue;
+        }
+        // A dimension registered without an exercise contract used to leave `exercise` undefined and
+        // skip fixture validation entirely, so the NEXT dimension anyone adds would qualify any
+        // reference. Registration without a contract is now the error, not a silent exemption.
+        if (!Object.hasOwn(PRIVATE_WORKER_DIMENSION_EXERCISE, dimension)) {
+            problems.push(
+                `quality dimension '${dimension}' is registered with a bound but no exercise contract, `
+                + 'so nothing can check that a fixture claiming it actually demonstrates it');
             continue;
         }
         // THE LABEL MUST BE EXERCISED. Checked before any bound is applied, so a dimension a fixture
@@ -441,6 +509,20 @@ export function provePrivateWorkerNaturalLanguageJourney(
             }
         }
 
+        // FILLER RECOGNITION IS SCORED ON THE HYPOTHESIS, not merely required of the reference.
+        // The exercise contract only asks whether the fixture CONTAINS a filler; without this, a worker
+        // that dropped every one still produced a green journey publishing `filler_recognition`.
+        // Measured and published, deliberately unbounded — the corpus is synthesized speech and a bound
+        // scored on it would measure the synthesizer (see PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS).
+        if (fixture.qualityDimensions.includes('filler_recognition')) {
+            const recall = fillerRecall(fixture.referenceText, transcript);
+            diagnostic.fillerRecall = recall;
+            if (recall === null) {
+                fail(id, 'quality_dimension',
+                    `fixture '${id}' claims filler_recognition but its reference carries no filler to score`);
+            }
+        }
+
         if (bound !== null && score.wer > bound) {
             fail(id, 'wer_bound',
                 `fixture '${id}' WER ${score.wer.toFixed(3)} exceeds ${bound.toFixed(3)} `
@@ -471,7 +553,11 @@ export function provePrivateWorkerNaturalLanguageJourney(
             transcriptSha256: transcriptHash,
             qualityDimensions: [...fixture.qualityDimensions],
             appliedWerBound: bound,
-            punctuationErrorRate: diagnostic.punctuationErrorRate,
+            punctuationErrorRate: diagnostic.punctuationErrorRate ?? null,
+            fillerRecall: diagnostic.fillerRecall ?? null,
+            provenQualityDimensions: fixture.qualityDimensions.filter(
+                d => Object.hasOwn(PRIVATE_WORKER_DIMENSION_WER_BOUNDS, d)
+                    && PRIVATE_WORKER_DIMENSION_WER_BOUNDS[d] !== null),
             referenceWords: score.referenceWords,
             hypothesisWords,
             substitutions: score.substitutions,

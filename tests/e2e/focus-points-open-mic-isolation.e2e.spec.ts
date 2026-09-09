@@ -263,5 +263,22 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     const takeBId = await page.locator('html').getAttribute('data-session-persisted-id');
     expect(takeBId, 'take B persisted under a real session id').toBeTruthy();
     expect(takeBId, 'take B saved its OWN row, it did not republish take A').not.toBe(takeAId);
+
+    /**
+     * ...AND THE REVIEWED STATE IS BACKED BY B'S OWN SAVED TEXT.
+     *
+     * A distinct persisted id proves only that SOME second row was written. The marker assertions above
+     * happen while B is still recording, and the after-state coverage is the same 4/4 take A already
+     * had — so a regression that captures B live, writes a new B row, and then republishes take A's
+     * SNAPSHOT for the terminal review satisfies everything before this point.
+     *
+     * `review-transcript` is the server's transcript for the reviewed session — the authority behind
+     * the after-state, and deliberately not the live buffer, which #1306 purges at terminal.
+     */
+    const reviewTranscript = page.getByTestId('review-transcript');
+    await expect(reviewTranscript, "the reviewed state is backed by B's saved text")
+        .toContainText(new RegExp(TAKE_B_MARKER, 'i'), { timeout: 20_000 });
+    await expect(reviewTranscript, "take A's saved text is not what is under review")
+        .not.toContainText(new RegExp(TAKE_A_MARKER, 'i'));
   });
 });

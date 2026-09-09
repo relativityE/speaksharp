@@ -5,7 +5,9 @@ import {
     PRIVATE_WORKER_DIMENSION_WER_BOUNDS,
     PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS,
     PRIVATE_WORKER_MIN_REFERENCE_SEPARATION,
+    PRIVATE_WORKER_DIMENSION_EXERCISE,
     PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND,
+    fillerRecall,
     provePrivateWorkerNaturalLanguageJourney,
     punctuationErrorRate,
     type NaturalLanguageFixtureContract,
@@ -168,6 +170,63 @@ describe('Private-v2 natural-language worker journey contract', () => {
         // introducing a bound is a visible decision rather than a silent one.
         expect(PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND).toBeNull();
         expect(PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS.punctuation_placement_marks).toMatch(/blind to punctuation/i);
+    });
+
+    it('CASUALTY: punctuation that MOVED is an error, not a perfect score', () => {
+        /**
+         * My first scorer compared the ORDERED MARK SEQUENCE only, so it was blind to placement — the
+         * one thing the dimension is named for. These two strings both reduce to [',', '.', '!'] and
+         * scored a perfect 0 with every mark moved; Track-B WER sees identical words, so the journey
+         * could publish a flattering punctuation figure for a transcript whose punctuation was
+         * entirely wrong. I replaced a metric that could not see punctuation with one that could not
+         * see position.
+         */
+        const reference = 'Hello, world. Next!';
+        expect(punctuationErrorRate(reference, 'Hello world, Next.!'),
+            'every mark moved is not a perfect score').toBeGreaterThan(0);
+        expect(punctuationErrorRate(reference, reference), 'identical placement still scores zero').toBe(0);
+        expect(punctuationErrorRate(reference, 'Hello, world. Next?'),
+            'a substituted mark in the right place is a smaller, non-zero error').toBeGreaterThan(0);
+    });
+
+    it('CASUALTY: filler recognition is scored on the HYPOTHESIS, and is never claimed as proven', () => {
+        /**
+         * The exercise contract only asked whether the FIXTURE contained a filler. Nothing asked
+         * whether the worker returned one, so a recognizer that dropped every `um` produced a green
+         * journey publishing `filler_recognition`. Half the hole, reported as closed.
+         */
+        expect(fillerRecall('so um i think uh we should review', 'so i think we should review'),
+            'a worker that dropped every filler scores zero, not null').toBe(0);
+        expect(fillerRecall('so um i think uh we should review', 'so um i think uh we should review'),
+            'a worker that returned them all scores one').toBe(1);
+        expect(fillerRecall('no fillers here at all', 'no fillers here at all'),
+            'an unmeasurable dimension reports null, never a flattering zero').toBeNull();
+
+        const proof = provePrivateWorkerNaturalLanguageJourney(fixtures, passingObservations());
+        const fillerRow = proof.results[2];
+        expect(fillerRow.fillerRecall, 'the measured recall is published').not.toBeUndefined();
+        expect(fillerRow.qualityDimensions, 'the dimension is still DECLARED').toContain('filler_recognition');
+        expect(fillerRow.provenQualityDimensions,
+            'but a green artifact must never claim it was PROVEN').not.toContain('filler_recognition');
+        expect(proof.results[0].provenQualityDimensions,
+            'a bounded dimension IS claimed as proven').toContain('clean_words');
+    });
+
+    it('CASUALTY: a dimension registered without an exercise contract fails CLOSED', () => {
+        // A bound added later without a matching exercise entry left `exercise` undefined and skipped
+        // fixture validation entirely, so the NEXT dimension anyone added would qualify any reference.
+        // Registration without a contract is the error, not a silent exemption.
+        const registered = Object.keys(PRIVATE_WORKER_DIMENSION_WER_BOUNDS);
+        const contracted = Object.keys(PRIVATE_WORKER_DIMENSION_EXERCISE);
+        expect(registered.filter(d => !contracted.includes(d)),
+            'every registered dimension defines how a fixture exercises it').toEqual([]);
+
+        // And a prototype key cannot masquerade as a registered dimension.
+        const prototypeNamed = fixtures.map((fixture, index) => (index === 0
+            ? { ...fixture, qualityDimensions: ['toString'] }
+            : fixture));
+        expect(() => provePrivateWorkerNaturalLanguageJourney(prototypeNamed, passingObservations()))
+            .toThrow(/declares unknown quality dimension 'toString'/);
     });
 
     it('CASUALTY: rejects the constant non-empty worker stub that the old smoke accepted', () => {
