@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveFocusCoverage, markCoveredTokens, segmentTranscript } from '@/utils/focusCoverage';
+import { applyFinalizedCoverageAuthority, deriveFocusCoverage, markCoveredTokens, segmentTranscript } from '@/utils/focusCoverage';
 
 const POINTS = ['Name the price', 'State the guarantee'];
 
@@ -22,6 +22,27 @@ describe('focusCoverage.deriveFocusCoverage', () => {
         expect(c.nextIndex).toBe(1);
     });
 
+    it('counts a live partial exactly as the terminal authority does without promoting it to full', () => {
+        // The matcher exposes partial as a real status; discover a deterministic sample rather than
+        // duplicating its private ratio in this presentation test.
+        const candidates = ['name price', 'price', 'name the amount', 'state guarantee', 'guarantee'];
+        const live = candidates.map((text) => deriveFocusCoverage(POINTS, text, 20))
+            .find((result) => result.rows.some((row) => row.status === 'partial'));
+        expect(live, 'fixture must exercise the live partial boundary').toBeDefined();
+        const index = live?.rows.findIndex((row) => row.status === 'partial') ?? -1;
+        expect(live?.rows[index]).toMatchObject({ status: 'partial', covered: true });
+        expect(live?.coveredCount).toBe(live?.rows.filter((row) => row.status !== 'missing').length);
+
+        const authority = POINTS.map((label, rowIndex) => ({
+            id: `brief-point-${rowIndex + 1}`,
+            label,
+            status: rowIndex === index ? 'partial' as const : 'missing' as const,
+        }));
+        const terminal = applyFinalizedCoverageAuthority(live!, POINTS, authority);
+        expect(terminal?.coveredCount).toBe(live?.coveredCount);
+        expect(terminal?.rows[index]).toMatchObject({ status: 'partial', covered: true });
+    });
+
     it('leaves an unmatched point uncovered (reported as "Not detected" by the rail, no time-speculation)', () => {
         const c = deriveFocusCoverage(POINTS, 'I will name the price now.', 84);
         expect(c.coveredCount).toBe(1);
@@ -30,10 +51,67 @@ describe('focusCoverage.deriveFocusCoverage', () => {
         expect('missedReason' in c).toBe(false);
     });
 
-    it('never un-ticks a latched point even if the transcript no longer matches', () => {
-        const c = deriveFocusCoverage(POINTS, '', 0, new Set([0]));
-        expect(c.rows[0].covered).toBe(true);
-        expect(c.coveredCount).toBe(1);
+    it('preserves the strongest live status without promoting partial evidence', () => {
+        const partial = deriveFocusCoverage(POINTS, '', 0, new Map([[0, {
+            label: POINTS[0], status: 'partial', covered: true, coveredAtSec: 4, quote: 'price',
+        }]]));
+        expect(partial.rows[0]).toMatchObject({ status: 'partial', covered: true, coveredAtSec: 4 });
+        expect(partial.coveredCount).toBe(1);
+
+        const covered = deriveFocusCoverage(POINTS, '', 0, new Map([[0, {
+            label: POINTS[0], status: 'covered', covered: true, coveredAtSec: 6, quote: 'name the price',
+        }]]));
+        expect(covered.rows[0]).toMatchObject({ status: 'covered', covered: true, coveredAtSec: 6 });
+    });
+});
+
+describe('focusCoverage.applyFinalizedCoverageAuthority — terminal truth', () => {
+    it('uses the stop-seam verdict when the weaker flattened-text matcher disagrees', () => {
+        const derived = deriveFocusCoverage(POINTS, 'I discussed warranty terms.', 60);
+        expect(derived.coveredCount).toBe(0);
+
+        const terminal = applyFinalizedCoverageAuthority(derived, POINTS, [
+            { id: 'brief-point-1', label: POINTS[0], status: 'missing' },
+            { id: 'brief-point-2', label: POINTS[1], status: 'covered' },
+        ]);
+
+        expect(terminal?.coveredCount).toBe(1);
+        expect(terminal?.rows[1]).toMatchObject({ status: 'covered', covered: true, quote: null });
+    });
+
+    it('counts a partial terminal match as detected while preserving the partial status', () => {
+        const derived = deriveFocusCoverage(POINTS, 'Unrelated retained words.', 60);
+        const terminal = applyFinalizedCoverageAuthority(derived, POINTS, [
+            { id: 'brief-point-1', label: POINTS[0], status: 'partial' },
+            { id: 'brief-point-2', label: POINTS[1], status: 'missing' },
+        ]);
+
+        expect(terminal?.coveredCount).toBe(1);
+        expect(terminal?.rows[0]).toMatchObject({ status: 'partial', covered: true });
+    });
+
+    it('never attributes a weaker matcher quote or timestamp to a status-only terminal verdict', () => {
+        const derived = deriveFocusCoverage(POINTS, 'I will name the price now.', 60);
+        expect(derived.rows[0].quote).not.toBeNull();
+        const terminal = applyFinalizedCoverageAuthority(derived, POINTS, [
+            { id: 'brief-point-1', label: POINTS[0], status: 'covered' },
+            { id: 'brief-point-2', label: POINTS[1], status: 'missing' },
+        ]);
+
+        expect(terminal?.rows[0]).toMatchObject({ status: 'covered', covered: true, quote: null, coveredAtSec: null });
+        expect(terminal?.coveredQuotes).toEqual([]);
+    });
+
+    it.each([
+        ['missing', null],
+        ['short', [{ id: 'brief-point-1', label: POINTS[0], status: 'covered' as const }]],
+        ['wrong brief', [
+            { id: 'brief-point-1', label: 'Different point', status: 'covered' as const },
+            { id: 'brief-point-2', label: POINTS[1], status: 'missing' as const },
+        ]],
+    ])('refuses a %s terminal authority instead of manufacturing a verdict', (_label, authority) => {
+        const derived = deriveFocusCoverage(POINTS, 'I will name the price now.', 60);
+        expect(applyFinalizedCoverageAuthority(derived, POINTS, authority)).toBeNull();
     });
 });
 
