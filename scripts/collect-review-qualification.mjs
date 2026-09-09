@@ -52,6 +52,13 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   };
 }
 
+export function reviewThreadResolutionIsEnforced({ branchProtection, branchRules }) {
+  if (branchProtection?.required_conversation_resolution?.enabled === true) return true;
+  return Array.isArray(branchRules) && branchRules.some((rule) =>
+    rule?.type === 'pull_request'
+    && rule?.parameters?.required_review_thread_resolution === true);
+}
+
 async function githubRequest(path, token, init = {}) {
   const response = await fetch(`https://api.github.com${path}`, {
     ...init,
@@ -66,6 +73,28 @@ async function githubRequest(path, token, init = {}) {
   return response.json();
 }
 
+async function optionalGithubRequest(path, token) {
+  const response = await fetch(`https://api.github.com${path}`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (response.status === 403 || response.status === 404) return null;
+  if (!response.ok) throw new Error(`github_api_${response.status}`);
+  return response.json();
+}
+
+async function readReviewThreadResolutionEnforcement({ repository, branch, token }) {
+  const encodedBranch = encodeURIComponent(branch);
+  const [branchProtection, branchRules] = await Promise.all([
+    optionalGithubRequest(`/repos/${repository}/branches/${encodedBranch}/protection`, token),
+    optionalGithubRequest(`/repos/${repository}/rules/branches/${encodedBranch}?per_page=100`, token),
+  ]);
+  return reviewThreadResolutionIsEnforced({ branchProtection, branchRules });
+}
+
 async function resolvePullRequestNumber({ repository, expectedHeadSha, token, explicitNumber }) {
   if (/^[1-9]\d*$/.test(explicitNumber ?? '')) return Number(explicitNumber);
   const candidates = await githubRequest(`/repos/${repository}/commits/${expectedHeadSha}/pulls`, token);
@@ -76,7 +105,7 @@ async function resolvePullRequestNumber({ repository, expectedHeadSha, token, ex
 
 async function readPullRequest({ repository, number, token }) {
   const [owner, name] = repository.split('/');
-  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}}}}}`;
+  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}}}}}`;
   const payload = await githubRequest('/graphql', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -104,6 +133,16 @@ async function main() {
     });
     const pullRequest = await readPullRequest({ repository, number, token });
     const receipt = buildReviewReceipt({ pullRequest, expectedHeadSha });
+    const reviewThreadResolutionEnforced = await readReviewThreadResolutionEnforcement({
+      repository,
+      branch: pullRequest.baseRefName,
+      token,
+    });
+    if (!reviewThreadResolutionEnforced) {
+      receipt.qualified = false;
+      receipt.reasons.push('review_thread_resolution_not_enforced_at_merge');
+    }
+    receipt.reviewThreadResolutionEnforced = reviewThreadResolutionEnforced;
     if (process.env.REVIEW_QUALIFICATION_FILE) {
       writeFileSync(process.env.REVIEW_QUALIFICATION_FILE, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
     }

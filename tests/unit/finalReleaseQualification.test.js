@@ -4,7 +4,10 @@ import {
   evaluateReviewQualification,
   isSubstantiveImplementationFile,
 } from '../../scripts/review-qualification.mjs';
-import { buildReviewReceipt } from '../../scripts/collect-review-qualification.mjs';
+import {
+  buildReviewReceipt,
+  reviewThreadResolutionIsEnforced,
+} from '../../scripts/collect-review-qualification.mjs';
 import {
   CANONICAL_PRODUCTION_ORIGIN,
   classifyDiagnosticEvidence,
@@ -213,6 +216,25 @@ describe('Q-08 automated review qualification', () => {
     });
   });
 
+  it('CASUALTY: merge authority requires live unresolved-thread enforcement', () => {
+    expect(reviewThreadResolutionIsEnforced({})).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({ branchProtection: {
+      required_conversation_resolution: { enabled: false },
+    } })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({ branchRules: [{
+      type: 'pull_request',
+      parameters: { required_review_thread_resolution: false },
+    }] })).toBe(false);
+
+    expect(reviewThreadResolutionIsEnforced({ branchProtection: {
+      required_conversation_resolution: { enabled: true },
+    } })).toBe(true);
+    expect(reviewThreadResolutionIsEnforced({ branchRules: [{
+      type: 'pull_request',
+      parameters: { required_review_thread_resolution: true },
+    }] })).toBe(true);
+  });
+
   it('the full CI lane invokes authenticated GitHub review qualification after evidence', () => {
     const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
     expect(workflow).toContain('name: exact-head-review-qualification');
@@ -226,6 +248,9 @@ describe('Q-08 automated review qualification', () => {
     expect(workflow).toContain("github.event_name == 'pull_request_review'");
     expect(workflow).toContain("github.event_name == 'pull_request_review_comment'");
     expect(workflow).toContain('postMergePush ? formatPostMergeVerification(decision) : formatQualification(decision)');
+    const collector = readFileSync('scripts/collect-review-qualification.mjs', 'utf8');
+    expect(collector).toContain('/rules/branches/${encodedBranch}?per_page=100');
+    expect(collector).toContain('review_thread_resolution_not_enforced_at_merge');
   });
 });
 
