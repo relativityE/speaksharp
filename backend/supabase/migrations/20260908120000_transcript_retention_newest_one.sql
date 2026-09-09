@@ -413,6 +413,54 @@ GRANT EXECUTE ON FUNCTION public.converge_transcript_retention(uuid)          TO
 -- this program has already been bitten by once.
 -- =========================================================================================
 
+/*
+ * #1436 P1 — THE TRIGGER IS A SECOND DOOR TO THE SAME DATA LOSS, AND IT WAS LEFT OPEN.
+ *
+ * `trg_spe_converge_retention` fires on EVERY terminal evaluation insert and called the coordinator
+ * with only the user id. For a user still holding two legacy transcripts whose older row already has
+ * terminal evidence, inserting an evaluation for a preexisting or even still-active session reached
+ * the expiry path and irreversibly retired the older transcript — without the completed save this
+ * migration promises as the boundary. Deferring the placeholder create closed the writer door; this
+ * one stayed open.
+ *
+ * Convergence is now armed only by an evaluation whose OWN session is a completed save that actually
+ * holds transcript text — which is what "next completed save" means. Everything else records its
+ * durable evaluation and expires nothing; the next real save converges.
+ */
+CREATE OR REPLACE FUNCTION public.spe_converge_retention()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_completed_save BOOLEAN;
+BEGIN
+    IF NEW.attribution_status IS DISTINCT FROM 'pending' THEN
+        SELECT (s.status = 'completed'
+                AND s.transcript IS NOT NULL
+                AND s.transcript ~ '[^[:space:]]')
+          INTO v_completed_save
+          FROM public.sessions s
+         WHERE s.id = NEW.session_id;
+
+        IF COALESCE(v_completed_save, false) THEN
+            BEGIN
+                PERFORM public.converge_transcript_retention(NEW.user_id);
+            EXCEPTION
+                -- Unchanged from #1117 R2: a retention statement/lock timeout must NOT roll back this
+                -- terminal-evaluation INSERT. The durable evaluation is authoritative and is never lost.
+                WHEN query_canceled THEN NULL;
+                WHEN OTHERS THEN NULL;
+            END;
+        END IF;
+    END IF;
+    RETURN NULL;  -- AFTER trigger
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.spe_converge_retention() FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION public.create_session_and_update_usage(
     p_session_data JSONB,
     p_engine_type TEXT DEFAULT 'private',
@@ -459,7 +507,20 @@ BEGIN
              *
              * The fast path is preserved for transcript-free placeholders, which owe nothing.
              */
-            IF COALESCE(p_session_data->>'transcript', '') ~ '[^[:space:]]' THEN
+            /*
+             * #1436 P1 — THE STORED ROW DECIDES, NOT THE CALLER'S PAYLOAD.
+             *
+             * This tested `p_session_data`. A retry that omits `transcript`, or sends it blank, then
+             * took the fast path and returned duplicate success without converging — leaving the
+             * legacy two-transcript cohort readable. The duplicate's obligation comes from what was
+             * PERSISTED under that idempotency key, which the caller cannot revoke by sending less.
+             */
+            IF EXISTS (
+                SELECT 1 FROM public.sessions
+                WHERE id = v_existing_session_id
+                  AND transcript IS NOT NULL
+                  AND transcript ~ '[^[:space:]]'
+            ) THEN
                 v_retention := public.converge_transcript_retention(auth.uid());
                 IF COALESCE(v_retention->>'status', 'error') <> 'converged' THEN
                     RAISE EXCEPTION 'create_session_and_update_usage: replayed transcript retention did not converge (status=%)',

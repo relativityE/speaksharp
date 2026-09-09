@@ -274,6 +274,72 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
         await db.close();
     });
 
+    it('CASUALTY 7: a terminal evaluation for a NON-completed session expires nothing', async () => {
+        /**
+         * #1436 P1 — THE SECOND DOOR. `trg_spe_converge_retention` fires on every terminal evaluation
+         * insert and called the coordinator with only the user id, so inserting an evaluation for a
+         * preexisting or still-active session reached the expiry path and retired a legacy transcript
+         * without the completed save this migration promises as the boundary. Deferring the
+         * placeholder create closed the writer door; this one was still open.
+         *
+         * Casualties 4 and 5 cannot catch it — they exercise the CREATE path, and this arrives through
+         * the trigger.
+         */
+        const db = await freshDb();
+        const older = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the older take');
+        const newer = await seedPriorTake(db, '2026-09-02T10:00:00Z', 'the newer take');
+        await db.exec("SET session_replication_role = 'replica'");
+        await settleEvidence(db, older, 'attributed');
+        await settleEvidence(db, newer, 'attributed');
+        await db.exec("SET session_replication_role = 'origin'");
+        expect((await counts(db)).with_text, 'two readable transcripts, as production enters this migration').toBe(2);
+
+        // An ACTIVE session — the user has pressed record and captured nothing durable yet.
+        const active = (await db.query<{ id: string }>(
+            `INSERT INTO public.sessions (user_id, created_at, duration, status)
+             VALUES ($1, '2026-09-03T10:00:00Z'::timestamptz, 0, 'active') RETURNING id`, [U])).rows[0].id;
+
+        // Its terminal evaluation lands. Through the trigger, this used to expire the older transcript.
+        await settleEvidence(db, active, 'attributed');
+
+        expect((await counts(db)).with_text, 'a non-completed session took nothing away from the user').toBe(2);
+        await db.close();
+    });
+
+    it('CASUALTY 8: a replay that OMITS the transcript still converges, decided by the stored row', async () => {
+        /**
+         * #1436 P1 — the replay guard tested the CALLER's payload. A retry that omitted `transcript`
+         * (or sent it blank) took the fast path and returned duplicate success without converging,
+         * leaving the legacy two-transcript cohort readable. Casualty 6 sends the transcript, so it
+         * cannot expose this: the obligation comes from what was PERSISTED under that key, which the
+         * caller must not be able to revoke by sending less.
+         */
+        const db = await freshDb();
+        const key = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+        const older = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the older take');
+        await db.query(
+            `INSERT INTO public.sessions (id, user_id, created_at, transcript, total_words, duration,
+                 filler_counts, status, idempotency_key)
+             VALUES (gen_random_uuid(), $1, '2026-09-02T10:00:00Z'::timestamptz, 'the replayed take',
+                     100, 600, '{"um": 1}'::jsonb, 'completed', $2)`,
+            [U, key]);
+        const replayed = (await db.query<{ id: string }>(
+            'SELECT id FROM public.sessions WHERE idempotency_key = $1', [key])).rows[0].id;
+        await db.exec("SET session_replication_role = 'replica'");
+        await settleEvidence(db, older, 'attributed');
+        await settleEvidence(db, replayed, 'attributed');
+        await db.exec("SET session_replication_role = 'origin'");
+        expect((await counts(db)).with_text, 'the pre-correction state holds two texts').toBe(2);
+
+        // The retry carries NO transcript — but the stored row does.
+        await db.query(
+            `SELECT public.create_session_and_update_usage($1::jsonb, 'private', $2::uuid) AS r`,
+            [JSON.stringify({ title: 'replay', duration: 600, total_words: 100 }), key]);
+
+        expect((await counts(db)).with_text, 'the replay converged on the stored row, not the payload').toBe(1);
+        await db.close();
+    });
+
     it('CASUALTY 4: a transcript-FREE placeholder create survives a NON-CONVERGED cohort', async () => {
         const db = await freshDb();
         /**
