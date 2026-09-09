@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import { deriveFocusCoverage } from '@/utils/focusCoverage';
 
 const base: SessionOverhaulViewProps = {
     authUserId: 'user-1',
@@ -292,6 +293,28 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByText(/green marks where each point landed/i)).not.toBeInTheDocument();
         expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Partly detected');
         expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
+    });
+
+    it('keeps the strongest live status through transcript rewrites without promoting partial', () => {
+        const partialText = ['name price', 'price', 'name the amount']
+            .find((text) => deriveFocusCoverage(POINTS, text, 20).rows[0]?.status === 'partial');
+        expect(partialText, 'fixture must exercise point 1 as partial').toBeDefined();
+
+        const { rerender } = render(
+            <SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent={partialText!} elapsedTime={20} />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="Unrelated rewrite" elapsedTime={21} />);
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="I will name the price now." elapsedTime={22} />);
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent={partialText!} elapsedTime={23} />);
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
     });
 
     it('a direct after→during retry starts at 0/N instead of inheriting the prior take count', () => {

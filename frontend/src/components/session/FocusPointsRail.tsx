@@ -133,9 +133,9 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                     {row.label}
                                 </p>
                                 {row.covered && row.coveredAtSec != null && (
-                                    <p className="mt-0.5 text-[12px] font-semibold text-[#146b4a]" data-testid={`focus-point-${i}-covered-at`}>
+                                    <p className={`mt-0.5 text-[12px] font-semibold ${isPartial ? 'text-[#8a5510]' : 'text-[#146b4a]'}`} data-testid={`focus-point-${i}-covered-at`}>
                                         {isAfter && row.quote ? <span className="italic text-[#4b5563]">&ldquo;…{row.quote.trim()}&rdquo;</span> : null}
-                                        {isAfter && row.quote ? ' · ' : ''}Detected at {fmtClock(row.coveredAtSec)}
+                                        {isAfter && row.quote ? ' · ' : ''}{isPartial ? 'Partly detected' : 'Detected'} at {fmtClock(row.coveredAtSec)}
                                     </p>
                                 )}
                                 {isNext && <p className="mt-0.5 text-[12px] font-bold text-[#6d28d9]">Still to cover</p>}

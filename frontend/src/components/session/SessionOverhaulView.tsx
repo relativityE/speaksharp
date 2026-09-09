@@ -328,15 +328,16 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const isObjective = Array.isArray(effObjectivePoints) && effObjectivePoints.length > 0;
 
     // Live coverage, derived from the growing transcript via the local keyword matcher (nothing leaves the
-    // device). `coveredLatch` guarantees a lit tick never regresses (spec §6); it resets on a fresh session.
-    const coveredLatch = React.useRef<Set<number>>(new Set());
+    // device). The latch retains the strongest observed status (missing < partial < covered), so transcript
+    // rewrites cannot erase a partial match or turn a prior full match amber. It resets on a fresh session.
+    const coveredLatch = React.useRef<Map<number, FocusCoverageRow>>(new Map());
     const previousCoverageState = React.useRef(sessionState);
     // A retry can transition straight from after→during when React batches the rebind and Start updates;
     // there is no guaranteed `before` render. Reset on every entry into `during` as well as `before`, or
     // the prior take's detected indices stay latched and the retry starts with a fabricated count.
     if (isObjective && (sessionState === 'before'
         || (sessionState === 'during' && previousCoverageState.current !== 'during'))) {
-        coveredLatch.current = new Set();
+        coveredLatch.current = new Map();
     }
     previousCoverageState.current = sessionState;
     // The terminal result exists only when the retained transcript exists. Treating a pending/failed read
@@ -357,7 +358,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         coverage = terminalAuthorityExpected
             ? applyFinalizedCoverageAuthority(derived, effObjectivePoints ?? [], objectiveCoverage ?? null)
             : derived;
-        coverage?.rows.forEach((r, i) => { if (r.status === 'covered') coveredLatch.current.add(i); });
+        if (!inAfter) {
+            coverage?.rows.forEach((row, index) => {
+                if (row.status !== 'missing') coveredLatch.current.set(index, row);
+            });
+        }
     }
     const pendingObjectiveRows: FocusCoverageRow[] = (effObjectivePoints ?? []).map((label) => ({
         label,

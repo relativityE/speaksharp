@@ -51,10 +51,17 @@ describe('focusCoverage.deriveFocusCoverage', () => {
         expect('missedReason' in c).toBe(false);
     });
 
-    it('never un-ticks a latched point even if the transcript no longer matches', () => {
-        const c = deriveFocusCoverage(POINTS, '', 0, new Set([0]));
-        expect(c.rows[0].covered).toBe(true);
-        expect(c.coveredCount).toBe(1);
+    it('preserves the strongest live status without promoting partial evidence', () => {
+        const partial = deriveFocusCoverage(POINTS, '', 0, new Map([[0, {
+            label: POINTS[0], status: 'partial', covered: true, coveredAtSec: 4, quote: 'price',
+        }]]));
+        expect(partial.rows[0]).toMatchObject({ status: 'partial', covered: true, coveredAtSec: 4 });
+        expect(partial.coveredCount).toBe(1);
+
+        const covered = deriveFocusCoverage(POINTS, '', 0, new Map([[0, {
+            label: POINTS[0], status: 'covered', covered: true, coveredAtSec: 6, quote: 'name the price',
+        }]]));
+        expect(covered.rows[0]).toMatchObject({ status: 'covered', covered: true, coveredAtSec: 6 });
     });
 });
 

@@ -149,7 +149,7 @@ export function deriveFocusCoverage(
     points: string[],
     transcript: string,
     elapsedSeconds: number,
-    latched?: Set<number>,
+    latched?: ReadonlyMap<number, FocusCoverageRow>,
 ): FocusCoverage {
     const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
     const total = cleanPoints.length;
@@ -161,19 +161,19 @@ export function deriveFocusCoverage(
     const briefPoints = cleanPoints.map((label, i) => ({ id: `fp-${i}`, label }));
     const { coverage } = computeObjectiveCoverage(briefPoints, segments, elapsedSeconds);
 
+    const statusRank: Record<CoverageStatus, number> = { missing: 0, partial: 1, covered: 2 };
     const rows: FocusCoverageRow[] = coverage.map((c, i) => {
-        const latchedCovered = latched?.has(i) ?? false;
-        // Partial is a detected point in the product's binary N/N count at both live and terminal
-        // boundaries, while retaining its amber/partial presentation. Only a previous FULL detection
-        // is latched; a transient partial must not be promoted to green on a later render.
-        const covered = c.status === 'covered' || c.status === 'partial' || latchedCovered;
-        return {
+        // Live STT corrections may temporarily remove or weaken a match. Preserve the strongest status
+        // actually observed in this take without converting partial evidence into a full detection.
+        const current: FocusCoverageRow = {
             label: cleanPoints[i],
-            status: latchedCovered && c.status !== 'covered' && c.status !== 'partial' ? 'covered' : c.status,
-            covered,
-            coveredAtSec: covered ? (c.evidence?.timestampSec ?? null) : null,
-            quote: covered ? (c.evidence?.quote ?? null) : null,
+            status: c.status,
+            covered: c.status === 'covered' || c.status === 'partial',
+            coveredAtSec: c.status === 'missing' ? null : (c.evidence?.timestampSec ?? null),
+            quote: c.status === 'missing' ? null : (c.evidence?.quote ?? null),
         };
+        const prior = latched?.get(i);
+        return prior && statusRank[prior.status] > statusRank[current.status] ? prior : current;
     });
 
     const coveredCount = rows.filter((r) => r.covered).length;

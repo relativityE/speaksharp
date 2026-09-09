@@ -78,4 +78,15 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         expect(row.querySelector('p')).not.toHaveClass('line-through');
         expect(screen.queryByTestId('focus-point-0-not-detected')).toBeNull();
     });
+
+    it('renders timestamped partial evidence as partial rather than a green full detection', () => {
+        render(<FocusPointsRail rows={[
+            { label: 'State the guarantee', status: 'partial', covered: true, coveredAtSec: 12, quote: 'guarantee' },
+        ]} sessionState="during" />);
+
+        const evidence = screen.getByTestId('focus-point-0-covered-at');
+        expect(evidence).toHaveTextContent('Partly detected at 0:12');
+        expect(evidence).toHaveClass('text-[#8a5510]');
+        expect(evidence).not.toHaveTextContent(/^Detected at/);
+    });
 });
