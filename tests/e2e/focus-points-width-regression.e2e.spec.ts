@@ -69,17 +69,31 @@ async function sweepWidths(page: Page, state: 'before' | 'during' | 'after') {
 }
 
 test.describe('#1046 G6/G7 — Focus Points slots hold at 1280/1440/1024', () => {
+/**
+ * Resize AND WAIT FOR THE VIEWPORT TO ACTUALLY APPLY before measuring.
+ *
+ * `setViewportSize` resolves before the page has necessarily reflowed, so a measurement taken
+ * straight afterwards can read the PREVIOUS width and report a phantom overflow. That is exactly the
+ * defect #1425/#1435 fixed in `session-shell-responsive.e2e.spec.ts`, and the first version of the
+ * seven-point sweep below reintroduced it: CI reported `horizontal overflow at before @320`, then
+ * passed on retry — a flaky failure in a test whose whole purpose is to catch real overflow.
+ */
+async function resizeAndSettle(page: Page, width: number) {
+  await page.setViewportSize({ width, height: HEIGHT });
+  await page.waitForFunction((w) => window.innerWidth === w, width, { timeout: 5_000 });
+}
+
 /** Every entered point renders, in order, and the rail never forces the page to scroll sideways. */
 async function assertEveryPointUsable(page: Page, label: string) {
   for (const width of [320, 375, 390, 1024, 1280, 1440]) {
-    await page.setViewportSize({ width, height: HEIGHT });
+    await resizeAndSettle(page, width);
     for (let i = 0; i < SEVEN_POINTS.length; i++) {
       await expect(page.getByTestId(`focus-point-${i}`), `point ${i} at ${width} in ${label}`).toBeVisible();
       await expect(page.getByTestId(`focus-point-${i}`), `point ${i} text at ${width} in ${label}`).toContainText(SEVEN_POINTS[i]);
     }
     await assertNoHorizontalOverflow(page, `${label} @${width}`);
   }
-  await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
+  await resizeAndSettle(page, WIDTHS[0]);
 }
 
   test('before → during → after hold position with a full seven-point set at every supported width', async ({ page }) => {
@@ -129,7 +143,7 @@ async function assertEveryPointUsable(page: Page, label: string) {
     // The after-state actions must stay reachable with a full set — a seven-row rail that pushes
     // Retry and Start a new set off the surface is a dead end for the user on a narrow screen.
     for (const width of [320, 390, 1280]) {
-      await page.setViewportSize({ width, height: HEIGHT });
+      await resizeAndSettle(page, width);
       await expect(page.getByTestId('focus-points-retry'), `retry at ${width}`).toBeVisible();
       await expect(page.getByTestId('focus-points-new-set'), `new set at ${width}`).toBeVisible();
       await assertNoHorizontalOverflow(page, `after actions @${width}`);
