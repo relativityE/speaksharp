@@ -143,6 +143,7 @@ export const SessionPage: React.FC = () => {
         // store left the page in its `after` projection and showed a brand-new brief through
         // completed-review semantics. Leaving that state is part of starting a new set.
         setShowAnalyticsPrompt,
+        settleReviewLatency,
         sessionFeedbackMessage,
         micLevel,
         transcriptContent,
@@ -197,6 +198,11 @@ export const SessionPage: React.FC = () => {
     // cannot tell apart, because finalization is a client lifecycle.
     const reviewTranscript = resolveTranscriptView(savedSession ?? null);
     const reviewStillSettling = isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!finalizedAnalysis);
+    useEffect(() => {
+        if (!reviewStillSettling && showAnalyticsPrompt) {
+            settleReviewLatency(reviewTranscript.kind === 'available' ? 'available' : 'unavailable');
+        }
+    }, [reviewStillSettling, reviewTranscript.kind, settleReviewLatency, showAnalyticsPrompt]);
 
     if (!metrics) return <SessionPageSkeleton />;
 
