@@ -36,6 +36,10 @@ import {
 } from '../frontend/src/services/telemetry/completenessGate';
 import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
 import { resolveQualifyingIdentity } from '../frontend/src/services/telemetry/qualifyingIdentity';
+import {
+    bootScopedReceiptFamilies,
+    resolveBootWindow,
+} from '../frontend/src/services/telemetry/bootScopedReceipts';
 
 /**
  * The only traffic classes that may qualify controlled Production evidence.
@@ -215,8 +219,20 @@ async function main(): Promise<void> {
     if (!identity.ok) hold(`journey ${journeyId}: ${identity.reason}`);
     const qualifyingIdentity = identity.distinctId;
 
+    /**
+     * #1421 P1 — TIMESTAMP AND JOURNEY COME BACK TOO, so the pre-journey receipts can be bound to the
+     * boot that produced THIS journey.
+     *
+     * `SELECT DISTINCT event` discarded exactly the two columns needed to tell one boot from another.
+     * With only event names, a receipt emitted by a different boot of the same account, in the same
+     * release, traffic class and 24-hour window, was indistinguishable from this journey's own — so a
+     * selected journey missing BOTH its identity receipts qualified on somebody else's boot.
+     *
+     * The binding itself is applied in `bootScopedReceipts`, not in this query string: the refusal is
+     * the point, and a rule expressed only in SQL cannot be driven by a casualty.
+     */
     const query = `
-        SELECT DISTINCT event
+        SELECT event, timestamp, properties.journey_id AS journey_id
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${sql(releaseSha)}
@@ -233,7 +249,22 @@ async function main(): Promise<void> {
 
     // Deliberately unsanitised: the evaluator's own contract is that it receives whatever the readback
     // saw, junk included, because a decoder that tidies its input cannot report that the input was wrong.
-    const observed = rows.map((row) => (Array.isArray(row) ? row[0] : row)) as string[];
+    const readback = rows.map((row) => {
+        const cells = Array.isArray(row) ? row : [row];
+        return { event: cells[0] as string, timestamp: cells[1] as string, journeyId: (cells[2] ?? null) as string | null };
+    });
+
+    const bootWindow = resolveBootWindow(readback, journeyId);
+    if (!bootWindow.ok) hold(`journey ${journeyId}: ${bootWindow.reason}`);
+
+    // Journey-scoped families are already bound by the query. The two pre-journey families are bound
+    // here, to the boot that produced this journey — a receipt from any other boot is not evidence
+    // about this run.
+    const journeyFamilies = readback
+        .filter((row) => row.journeyId === journeyId)
+        .map((row) => row.event);
+    const bootFamilies = bootScopedReceiptFamilies(readback, bootWindow.window, PRE_JOURNEY_EVENT_FAMILIES);
+    const observed = [...new Set([...journeyFamilies, ...bootFamilies])] as string[];
 
     const result = evaluateTelemetryCompleteness(observed);
     const evidence: Evidence = {
