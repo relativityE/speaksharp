@@ -52,11 +52,25 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   };
 }
 
-export function reviewThreadResolutionIsEnforced({ branchProtection, branchRules }) {
-  if (branchProtection?.required_conversation_resolution?.enabled === true) return true;
-  return Array.isArray(branchRules) && branchRules.some((rule) =>
-    rule?.type === 'pull_request'
-    && rule?.parameters?.required_review_thread_resolution === true);
+export function reviewThreadResolutionIsEnforced({ branchProtection, branchRules, branchRulesets }) {
+  const bypassAllowances = branchProtection?.required_pull_request_reviews?.bypass_pull_request_allowances;
+  const legacyHasBypass = ['users', 'teams', 'apps'].some((key) =>
+    Array.isArray(bypassAllowances?.[key]) && bypassAllowances[key].length > 0);
+  const legacyEnforced = branchProtection?.required_conversation_resolution?.enabled === true
+    && branchProtection?.enforce_admins?.enabled === true
+    && !legacyHasBypass;
+  if (legacyEnforced) return true;
+
+  const detailedRulesets = Array.isArray(branchRulesets) ? branchRulesets : [];
+  return Array.isArray(branchRules) && branchRules.some((rule) => {
+    if (rule?.type !== 'pull_request' || rule?.parameters?.required_review_thread_resolution !== true) {
+      return false;
+    }
+    const ruleset = detailedRulesets.find((candidate) => candidate?.id === rule?.ruleset_id);
+    return ruleset?.enforcement === 'active'
+      && Array.isArray(ruleset?.bypass_actors)
+      && ruleset.bypass_actors.length === 0;
+  });
 }
 
 async function githubRequest(path, token, init = {}) {
@@ -92,7 +106,16 @@ async function readReviewThreadResolutionEnforcement({ repository, branch, token
     optionalGithubRequest(`/repos/${repository}/branches/${encodedBranch}/protection`, token),
     optionalGithubRequest(`/repos/${repository}/rules/branches/${encodedBranch}?per_page=100`, token),
   ]);
-  return reviewThreadResolutionIsEnforced({ branchProtection, branchRules });
+  const rulesetIds = Array.isArray(branchRules)
+    ? [...new Set(branchRules
+      .filter((rule) => rule?.type === 'pull_request'
+        && rule?.parameters?.required_review_thread_resolution === true
+        && Number.isInteger(rule?.ruleset_id))
+      .map((rule) => rule.ruleset_id))]
+    : [];
+  const branchRulesets = await Promise.all(rulesetIds.map((rulesetId) =>
+    optionalGithubRequest(`/repos/${repository}/rulesets/${rulesetId}?includes_parents=true`, token)));
+  return reviewThreadResolutionIsEnforced({ branchProtection, branchRules, branchRulesets });
 }
 
 async function resolvePullRequestNumber({ repository, expectedHeadSha, token, explicitNumber }) {

@@ -228,11 +228,56 @@ describe('Q-08 automated review qualification', () => {
 
     expect(reviewThreadResolutionIsEnforced({ branchProtection: {
       required_conversation_resolution: { enabled: true },
+      enforce_admins: { enabled: true },
     } })).toBe(true);
     expect(reviewThreadResolutionIsEnforced({ branchRules: [{
       type: 'pull_request',
+      ruleset_id: 42,
       parameters: { required_review_thread_resolution: true },
+    }], branchRulesets: [{
+      id: 42,
+      enforcement: 'active',
+      bypass_actors: [],
     }] })).toBe(true);
+  });
+
+  it('CASUALTY: merge authority rejects admin and named-actor bypasses', () => {
+    expect(reviewThreadResolutionIsEnforced({ branchProtection: {
+      required_conversation_resolution: { enabled: true },
+      enforce_admins: { enabled: false },
+    } })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({ branchProtection: {
+      required_conversation_resolution: { enabled: true },
+      enforce_admins: { enabled: true },
+      required_pull_request_reviews: {
+        bypass_pull_request_allowances: { users: [{ login: 'release-admin' }], teams: [], apps: [] },
+      },
+    } })).toBe(false);
+  });
+
+  it('CASUALTY: a ruleset must be active, readable, and free of bypass actors', () => {
+    const branchRules = [{
+      type: 'pull_request',
+      ruleset_id: 42,
+      parameters: { required_review_thread_resolution: true },
+    }];
+    expect(reviewThreadResolutionIsEnforced({ branchRules })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({
+      branchRules,
+      branchRulesets: [{ id: 42, enforcement: 'active' }],
+    })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({
+      branchRules,
+      branchRulesets: [{
+        id: 42,
+        enforcement: 'active',
+        bypass_actors: [{ actor_type: 'RepositoryRole', actor_id: 5, bypass_mode: 'always' }],
+      }],
+    })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({
+      branchRules,
+      branchRulesets: [{ id: 42, enforcement: 'evaluate', bypass_actors: [] }],
+    })).toBe(false);
   });
 
   it('the full CI lane invokes authenticated GitHub review qualification after evidence', () => {
