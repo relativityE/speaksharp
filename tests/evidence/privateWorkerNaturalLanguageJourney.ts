@@ -62,6 +62,49 @@ export const PRIVATE_WORKER_DIMENSION_EXERCISE:
  */
 export const PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND: number | null = null;
 
+/** The metric that can actually OBSERVE a given quality dimension. */
+export type PrivateWorkerDimensionMetric = 'word_error_rate' | 'punctuation_error_rate' | 'filler_recall';
+
+/**
+ * #1429 P1 — THE ONE PLACE THAT DECIDES WHETHER A DIMENSION IS PROVEN, AND WHAT PROVED IT.
+ *
+ * `PRIVATE_WORKER_DIMENSION_WER_BOUNDS` above is the WER GATE: which fixtures must clear which word
+ * error rate. It is not a statement about what a dimension proves, and reading it as one is how this
+ * artifact came to contradict itself — a `punctuation_placement` fixture was published with
+ * `provenQualityDimensions: []` and, in the same row, `appliedWerBound: 0.2` and a place in
+ * `boundedFixtureCount`. A reader could take that as a punctuation claim backed by a bound, when the
+ * only bound cleared was scored by a metric that cannot see punctuation at all.
+ *
+ * This table names, per dimension, the metric that CAN see it and the bound that metric must clear.
+ * `bound: null` means measured-only: the figure is published, and it proves nothing. Proof status,
+ * the per-dimension bounds published on every row, and the bounded/measured-only aggregate counts all
+ * derive from here, so they cannot drift apart again.
+ *
+ * It also removes the hard-coded punctuation exception that stood in for this table. That exception
+ * was right about punctuation and wrong in both directions in general: any future dimension with a
+ * non-null WER entry would have been published as proven even though WER cannot observe it, and a
+ * dimension with a genuinely bounded scorer of its own would have been refused for having no WER
+ * entry. A dimension is proven here only by the metric that measures it.
+ */
+export const PRIVATE_WORKER_DIMENSION_ACCEPTANCE: Readonly<Record<string, {
+    metric: PrivateWorkerDimensionMetric;
+    bound: number | null;
+}>> = Object.freeze({
+    clean_words: { metric: 'word_error_rate', bound: PRIVATE_WORKER_DIMENSION_WER_BOUNDS.clean_words },
+    punctuation_placement: { metric: 'punctuation_error_rate', bound: PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND },
+    filler_recognition: { metric: 'filler_recall', bound: null },
+});
+
+/** What a published row says about ONE declared dimension: who measured it, against what, and whether that proves it. */
+export interface PrivateWorkerDimensionAcceptance {
+    dimension: string;
+    /** The metric that can observe this dimension — not necessarily the one that gated the fixture. */
+    metric: PrivateWorkerDimensionMetric | null;
+    /** The bound that metric had to clear; `null` = measured-only, so the dimension is not proven. */
+    bound: number | null;
+    proven: boolean;
+}
+
 const FILLER_TOKEN = /^(um+|uh+|ah+|er+|hmm+)$/i;
 
 /**
@@ -117,25 +160,20 @@ export function fillerRecall(referenceText: string, hypothesisText: string): num
  * dimension reporting a perfect score is the exact fabrication this lane exists to stop.
  */
 /**
- * Whether a dimension's OWN applicable metric carries a passing bound.
- *
- * #1429 P1 — this used to read the generic WER table, so `punctuation_placement` was published as
- * PROVEN whenever its ordinary Track-B WER entry (0.2) was cleared, even though
- * `PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND` is `null` and the dimension is measured-only. A transcript
- * with an arbitrarily bad punctuation error rate could therefore carry `punctuation_placement` as
- * proven after clearing a punctuation-BLIND metric — the exact mislabel this file exists to prevent,
- * reintroduced one layer up.
- *
- * Proof status now comes from the dimension-specific acceptance contract. A dimension is proven only
- * when the metric that can actually see it is bounded, so making a measured-only dimension "proven"
- * requires setting its own bound, deliberately.
+ * What this run can claim about one declared dimension, read from the acceptance contract and from
+ * nowhere else. An unregistered dimension proves nothing and says so, rather than defaulting to the
+ * WER table and inheriting a bound that never looked at it.
  */
+function dimensionAcceptance(dimension: string): PrivateWorkerDimensionAcceptance {
+    if (!Object.hasOwn(PRIVATE_WORKER_DIMENSION_ACCEPTANCE, dimension)) {
+        return { dimension, metric: null, bound: null, proven: false };
+    }
+    const { metric, bound } = PRIVATE_WORKER_DIMENSION_ACCEPTANCE[dimension];
+    return { dimension, metric, bound, proven: bound !== null };
+}
+
 function dimensionIsProven(dimension: string): boolean {
-    if (!Object.hasOwn(PRIVATE_WORKER_DIMENSION_WER_BOUNDS, dimension)) return false;
-    if (PRIVATE_WORKER_DIMENSION_WER_BOUNDS[dimension] === null) return false;
-    // Word error rate cannot see punctuation placement; only its own bound can prove it.
-    if (dimension === 'punctuation_placement') return PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND !== null;
-    return true;
+    return dimensionAcceptance(dimension).proven;
 }
 
 export function punctuationErrorRate(referenceText: string, hypothesisText: string): number | null {
@@ -283,12 +321,26 @@ export interface SanitizedPrivateWorkerFixtureResult {
      * of this artifact must be able to tell the difference without knowing the bounds table.
      */
     provenQualityDimensions: string[];
+    /**
+     * Every declared dimension with the metric that can observe it and the bound that metric had to
+     * clear. This is the per-metric publication that keeps `appliedWerBound` from being read as a
+     * claim about the declared dimensions: a `punctuation_placement` row now carries
+     * `{ metric: 'punctuation_error_rate', bound: null, proven: false }` in plain sight.
+     */
+    dimensionAcceptance: PrivateWorkerDimensionAcceptance[];
     fixtureId: string;
     fixtureSha256: string;
     referenceTextSha256: string;
     transcriptSha256: string;
     qualityDimensions: string[];
-    /** Tightest declared bound across this fixture's dimensions; null = measured only. */
+    /**
+     * The Track-B WER gate this fixture's transcript had to clear; null when no declared dimension
+     * carries a WER entry.
+     *
+     * #1429 P1 — THIS IS A WORD-ACCURACY GATE, NOT A DIMENSION PROOF. A punctuation-blind metric
+     * clearing 0.2 says the words were right; it says nothing about the dimension the fixture
+     * declares. Read `dimensionAcceptance` and `provenQualityDimensions` for what the run proved.
+     */
     appliedWerBound: number | null;
     referenceWords: number;
     hypothesisWords: number;
@@ -311,7 +363,9 @@ export interface SanitizedPrivateWorkerFixtureResult {
 export interface PrivateWorkerNaturalLanguageJourneyProof {
     fixtureCount: number;
     track: typeof PRIVATE_WORKER_NATURAL_LANGUAGE_TRACK;
+    /** Fixtures with at least one PROVEN dimension — see `dimensionAcceptance`, not `appliedWerBound`. */
     boundedFixtureCount: number;
+    /** Fixtures whose every declared dimension is measured-only. Their figures are published, unproven. */
     measuredOnlyFixtureCount: number;
     minimumReferenceSeparation: number;
     observedMinimumReferenceSeparation: number;
@@ -578,6 +632,7 @@ export function provePrivateWorkerNaturalLanguageJourney(
             punctuationErrorRate: diagnostic.punctuationErrorRate ?? null,
             fillerRecall: diagnostic.fillerRecall ?? null,
             provenQualityDimensions: fixture.qualityDimensions.filter(d => dimensionIsProven(d)),
+            dimensionAcceptance: fixture.qualityDimensions.map(dimensionAcceptance),
             referenceWords: score.referenceWords,
             hypothesisWords,
             substitutions: score.substitutions,
@@ -614,8 +669,17 @@ export function provePrivateWorkerNaturalLanguageJourney(
     return {
         fixtureCount: results.length,
         track: PRIVATE_WORKER_NATURAL_LANGUAGE_TRACK,
-        boundedFixtureCount: results.filter(result => result.appliedWerBound !== null).length,
-        measuredOnlyFixtureCount: results.filter(result => result.appliedWerBound === null).length,
+        /*
+         * #1429 P1 — COUNTED BY WHAT WAS PROVEN, NOT BY WHAT WAS GATED.
+         *
+         * These counted `appliedWerBound !== null`, so a fixture whose sole dimension is measured-only
+         * landed in `boundedFixtureCount` on the strength of a WER gate that could not observe that
+         * dimension — while the same row published `provenQualityDimensions: []`. One artifact, two
+         * contradictory answers, and the flattering one is the summary statistic a reader reaches for
+         * first. Both counts now read the same proof contract the per-row labels do.
+         */
+        boundedFixtureCount: results.filter(result => result.provenQualityDimensions.length > 0).length,
+        measuredOnlyFixtureCount: results.filter(result => result.provenQualityDimensions.length === 0).length,
         minimumReferenceSeparation: PRIVATE_WORKER_MIN_REFERENCE_SEPARATION,
         observedMinimumReferenceSeparation: Math.min(...results.map(result => result.referenceSeparation)),
         averageWer: wers.reduce((total, wer) => total + wer, 0) / wers.length,

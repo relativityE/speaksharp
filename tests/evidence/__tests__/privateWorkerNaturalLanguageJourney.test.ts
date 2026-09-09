@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
     PrivateWorkerNaturalLanguageJourneyError,
+    PRIVATE_WORKER_DIMENSION_ACCEPTANCE,
     PRIVATE_WORKER_DIMENSION_WER_BOUNDS,
     PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS,
     PRIVATE_WORKER_MIN_REFERENCE_SEPARATION,
@@ -88,7 +89,7 @@ describe('Private-v2 natural-language worker journey contract', () => {
         }
     });
 
-    it('binds each fixture to the bound its declared quality dimension can honestly carry', () => {
+    it('binds each fixture to the WER gate its declared quality dimension carries', () => {
         const proof = provePrivateWorkerNaturalLanguageJourney(fixtures, passingObservations());
 
         expect(proof.results.map(result => result.appliedWerBound)).toEqual([
@@ -96,11 +97,58 @@ describe('Private-v2 natural-language worker journey contract', () => {
             PRIVATE_WORKER_DIMENSION_WER_BOUNDS.punctuation_placement,
             null,
         ]);
-        expect(proof.boundedFixtureCount).toBe(2);
-        expect(proof.measuredOnlyFixtureCount).toBe(1);
         // The filler fixture is still MEASURED — the exemption suppresses the bound, never the number.
         expect(proof.results[2].wer).toBeCloseTo(0.583, 3);
         expect(PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS.filler_recognition).toMatch(/synthes/i);
+    });
+
+    it('CASUALTY: a fixture whose only dimension is MEASURED-ONLY is not counted as bounded', () => {
+        /**
+         * #1429 P1 — the artifact contradicted itself on `fixture-2`. Its sole dimension is
+         * `punctuation_placement`, whose own metric is unbounded, so the row published
+         * `provenQualityDimensions: []` — and in the same breath `appliedWerBound: 0.2` and a place in
+         * `boundedFixtureCount`, because that count read the WER gate instead of the proof contract.
+         * A reader taking the summary statistic at face value reads a punctuation claim backed by a
+         * bound, when the only bound cleared was scored by a metric that cannot see punctuation.
+         *
+         * The WER gate is real and still applied — `appliedWerBound` stays 0.2, and casualty
+         * `wer_bound` below still fires on it. What changes is that it no longer counts as PROOF of a
+         * dimension it never observed.
+         */
+        const proof = provePrivateWorkerNaturalLanguageJourney(fixtures, passingObservations());
+
+        const punctuation = proof.results[1];
+        expect(punctuation.qualityDimensions, 'the fixture under test declares punctuation only')
+            .toEqual(['punctuation_placement']);
+        expect(punctuation.provenQualityDimensions, 'which this run does not prove').toEqual([]);
+        expect(punctuation.appliedWerBound, 'a WER gate was still applied to its words')
+            .toBe(PRIVATE_WORKER_DIMENSION_WER_BOUNDS.punctuation_placement);
+
+        expect(proof.boundedFixtureCount, 'only `clean_words` is proven by a metric that can see it').toBe(1);
+        expect(proof.measuredOnlyFixtureCount, 'punctuation and filler are measured, not proven').toBe(2);
+    });
+
+    it('CASUALTY: every declared dimension publishes the metric that judged it and the bound it faced', () => {
+        /**
+         * The per-metric publication the contradiction called for. Without it a reader has one number,
+         * `appliedWerBound`, and no way to learn which metric produced it or whether that metric could
+         * observe the dimension named beside it.
+         */
+        const proof = provePrivateWorkerNaturalLanguageJourney(fixtures, passingObservations());
+
+        expect(proof.results.map(result => result.dimensionAcceptance)).toEqual([
+            [{ dimension: 'clean_words', metric: 'word_error_rate', bound: 0.2, proven: true }],
+            [{
+                dimension: 'punctuation_placement',
+                metric: 'punctuation_error_rate',
+                bound: PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND,
+                proven: false,
+            }],
+            [{ dimension: 'filler_recognition', metric: 'filler_recall', bound: null, proven: false }],
+        ]);
+        expect(PRIVATE_WORKER_DIMENSION_ACCEPTANCE.punctuation_placement.metric,
+            'punctuation is judged by the metric that can see it, never by word error rate')
+            .toBe('punctuation_error_rate');
     });
 
     it('CASUALTY: the measured-only exemption is not a hole — an unrelated transcript still fails', () => {
