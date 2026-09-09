@@ -299,6 +299,40 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
     });
 
+    it.each(['expired', 'not_captured'] as const)(
+        'CASUALTY: a terminally %s transcript renders coverage-unavailable, never the Open Mic card',
+        (kind) => {
+            /**
+             * #1427 P1 — SHIPPED, and this is the casualty that pins it.
+             *
+             * `coverageTerminallyUnavailable` required `kind === 'available'`, and
+             * `coverageMayBecomeAvailable` requires `kind === 'unavailable'`. For these two terminal
+             * kinds BOTH were false, so slot C fell through to `undefined` and `SessionAfterState`
+             * rendered the generic Open Mic `ProgressVsBaseline` card — a different product's summary
+             * presented as this Focus Points take's result.
+             *
+             * The existing `available` test above could not catch it: that kind satisfied the old
+             * predicate, so the one state that worked was the only one covered. Parameterised over
+             * both terminal kinds because fixing one and not the other is the likeliest partial fix.
+             */
+            render(
+                <SessionOverhaulView
+                    {...base}
+                    objectivePoints={POINTS}
+                    objectiveCoverage={null}
+                    showAnalyticsPrompt
+                    transcriptContent=""
+                    reviewTranscript={{ kind }}
+                />,
+            );
+            expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
+            // The specific wrong outcome, asserted directly: the Open Mic summary must not stand in.
+            expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
+            // And it must not claim coverage is still coming — this transcript is never coming back.
+            expect(screen.queryByTestId('coverage-awaiting-transcript')).toBeNull();
+        },
+    );
+
     it('keeps partial stop-seam evidence distinct from a full detection in the terminal rail', () => {
         render(
             <SessionOverhaulView

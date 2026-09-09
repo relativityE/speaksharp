@@ -410,10 +410,27 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
         : undefined;
     const coverageMayBecomeAvailable = effectiveReview.kind === 'unavailable';
+    /**
+     * #1427 P1, shipped and corrected here — EVERY terminal state routes to the honest slot.
+     *
+     * This required `kind === 'available'`, and `coverageMayBecomeAvailable` above requires
+     * `kind === 'unavailable'`. `TranscriptView.kind` is `available | expired | not_captured |
+     * unavailable`, so for a Focus Points take whose transcript is terminally `expired` or
+     * `not_captured` with no coverage, BOTH predicates were false. `objectiveAfterSlotC` fell through
+     * to `undefined` and `SessionAfterState` rendered the generic Open Mic `ProgressVsBaseline` card —
+     * a different product's summary presented as this take's result, with the `coverage-unavailable`
+     * notice sitting three lines below, unreachable for exactly the two states that need it.
+     *
+     * Listed explicitly rather than written as `!== 'unavailable'`: a kind added to the union later
+     * must not be silently swept into "terminal" by a negation. `unavailable` is the only kind that
+     * may still resolve, and it keeps the pending copy.
+     */
     const coverageTerminallyUnavailable = isObjective
         && terminalAuthorityExpected
         && objectiveCoverage === null
-        && effectiveReview.kind === 'available';
+        && (effectiveReview.kind === 'available'
+            || effectiveReview.kind === 'expired'
+            || effectiveReview.kind === 'not_captured');
     const objectiveAfterSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
         : isObjective && coverageMayBecomeAvailable
