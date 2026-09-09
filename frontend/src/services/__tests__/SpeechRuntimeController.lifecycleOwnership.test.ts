@@ -562,6 +562,115 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         }
     });
 
+    it('CASUALTY R1: an UNSCOPED terminal transition cannot clear an OWNED latch or frozen transcript', async () => {
+        /**
+         * #1431 P1 — the reducer's `#1314 C6` clear had no owner check at all. Any unscoped
+         * `transition('FAILED')` reaching it while an owning stop was still persisting switched off
+         * `isTranscriptFinalizing` — the authoritative start guard in `useSessionLifecycle` — and the
+         * next recording then discarded the owner's frozen transcript.
+         *
+         * Two producers of exactly that transition have been found and closed at their own call sites:
+         * a late heartbeat failure, and a producer-integrity teardown during STOPPING whose
+         * lifecycle/generation check passes because neither value changes during the owning stop. Each
+         * fix left this line still accepting the next producer. It is the one point they all pass
+         * through, so the guard belongs here.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: unknown } | null;
+            serviceGeneration: number;
+            transition: (state: string, error?: Error) => Promise<void>;
+        };
+        const store = useSessionStore.getState();
+        store.setTranscriptFinalizing(true);
+        store.freezeTranscriptAtStop('the words the owning stop is still saving');
+        const owningService = {} as never;
+        c.finalizingOwnerVersion = c.lifecycleVersion;
+        c.finalizingOwner = {
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: owningService,
+        };
+
+        // The unscoped terminal transition — no token, no captured authority. This is what
+        // `failProducerIntegrity()` and the late heartbeat failure both perform.
+        await c.transition('FAILED', new Error('PRODUCER_INTEGRITY_ENGINE_CHANGED'));
+
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            "the owner's latch is untouched, so Start stays disabled").toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop,
+            "and the owner's frozen transcript survives").toBe('the words the owning stop is still saving');
+        expect(c.finalizingOwner, 'the ownership record is not cleared either').not.toBeNull();
+    });
+
+    it('CASUALTY R2: with NO owner, an ordinary terminal still clears the latch (#1314 C6 preserved)', async () => {
+        /**
+         * The half that must not regress. `#1314 C6` exists because a stop path leaving
+         * `isTranscriptFinalizing` latched true after the controller rests is the stale-banner "stuck
+         * session" defect, with the record control disabled and no way back. Owner-scoping the clear
+         * narrows a shipped correction, so this pins that the case C6 was written for still works:
+         * no owner, ordinary failure recovery, latch cleared.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            finalizingOwner: unknown | null;
+            transition: (state: string, error?: Error) => Promise<void>;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        c.finalizingOwner = null;
+        c.finalizingOwnerVersion = null;
+
+        await c.transition('FAILED', new Error('STT_HEARTBEAT_FAILURE'));
+
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            'an unowned latch is still cleared — no stuck banner').toBe(false);
+    });
+
+    it('CASUALTY R3: release needs the FULL StopAuthority — a same-version different SERVICE is refused', async () => {
+        /**
+         * #1431 P1 — rightful release runs only through `releaseFinalizingIfOwner()` with the whole
+         * `StopAuthority`. A service can be replaced WITHIN one lifecycle version, so version equality
+         * alone does not identify a take: matching on it let a cancelled take A release successor B's
+         * latch and discard B's frozen transcript. Every term is load-bearing, and `null` is not a
+         * wildcard — a detached take carries a null service, which is the state a superseded take is
+         * most often in.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: unknown } | null;
+            serviceGeneration: number;
+            releaseFinalizingIfOwner: (reason: string, captured?: number | null, owner?: unknown) => boolean;
+        };
+        const store = useSessionStore.getState();
+        store.setTranscriptFinalizing(true);
+        store.freezeTranscriptAtStop("B's words");
+        const serviceB = {} as never;
+        const serviceA = {} as never;
+        c.finalizingOwnerVersion = c.lifecycleVersion;
+        c.finalizingOwner = {
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: serviceB,
+        };
+
+        // A carries the SAME lifecycle version and generation, and a different service.
+        const aAuthority = {
+            tokenVersion: c.lifecycleVersion,
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: serviceA,
+            sessionId: null,
+            recordingId: null,
+            intentToken: null,
+        };
+
+        expect(c.releaseFinalizingIfOwner('stop_failed', c.lifecycleVersion, aAuthority),
+            'A does not own B\'s latch, whatever the version says').toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's latch survives").toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop, "B's frozen transcript survives")
+            .toBe("B's words");
+    });
+
     it('CASUALTY P1-3: the OWNER releases its own finalizing latch after advancing the lifecycle', async () => {
         // The regression my first ownership guard introduced. The terminal advances the lifecycle
         // itself to fence its destroyed service, and the guard then compared the latch's armed version

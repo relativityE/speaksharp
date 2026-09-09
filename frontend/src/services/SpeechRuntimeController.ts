@@ -2348,10 +2348,31 @@ export class SpeechRuntimeController {
 
         this.lock.updateState(newState);
 
-        // #1314 C6: clear the "Finalizing…" banner through this ONE transition reducer whenever the
-        // controller reaches a resting/terminal state, so no stop path can leave `isTranscriptFinalizing`
-        // latched true after the controller is READY (the stale-banner "stuck session" defect). The
-        // 4-minute finalization safety timeout is unchanged.
+        /**
+         * #1314 C6's legacy clear, NOW OWNER-SCOPED. #1431 P1.
+         *
+         * C6 exists because no stop path may leave `isTranscriptFinalizing` latched true after the
+         * controller rests — the stale-banner "stuck session" defect. It achieved that by clearing
+         * UNCONDITIONALLY here, with no owner check at all, and that unconditional clear is itself a
+         * defect once a latch has an owner.
+         *
+         * `isTranscriptFinalizing` is the authoritative start guard in `useSessionLifecycle`: while it
+         * is true the record control is disabled. Any unscoped terminal transition reaching this line
+         * while an owning stop is still persisting switched off that guard and admitted the next
+         * recording, which then discarded the owner's frozen transcript. Two separate producers of an
+         * unscoped `transition('FAILED')` have now been found — a late heartbeat failure and a
+         * producer-integrity teardown — and each was closed at its own call site while this line went on
+         * accepting the next one. It is the single point they all pass through, so the rule belongs here.
+         *
+         * WHAT IS PRESERVED: with NO finalizing owner, behaviour is exactly C6's — the latch is cleared
+         * and ordinary no-owner failure recovery is untouched. That is the case C6 was written for.
+         *
+         * WHAT CHANGES: while an owner EXISTS, release belongs solely to `releaseFinalizingIfOwner()`,
+         * which every stop path already calls with its captured `StopAuthority` — lifecycle version,
+         * service generation and service identity, all strict. A transition arriving here carries no
+         * such authority and cannot prove it is the owner, so it does not get to release one. The
+         * 4-minute finalization safety timeout remains the backstop, unchanged.
+         */
         if (
             newState === 'READY' ||
             newState === 'IDLE' ||
@@ -2359,8 +2380,17 @@ export class SpeechRuntimeController {
             newState === 'FAILED' ||
             newState === 'FAILED_VISIBLE'
         ) {
-            if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
-            this.finalizingOwnerVersion = null;
+            if (this.finalizingOwner === null) {
+                if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
+                this.finalizingOwnerVersion = null;
+            } else {
+                // The owner is still persisting. Leaving the latch armed keeps the record control
+                // disabled, which is what stops a successor from clearing the owner's frozen transcript.
+                pushNativeRuntimeTrace('controller_terminal_latch_release_deferred_to_owner', {
+                    newState,
+                    armedByVersion: this.finalizingOwnerVersion,
+                });
+            }
         }
 
         if (isExitTransition) {
