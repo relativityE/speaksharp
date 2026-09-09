@@ -65,6 +65,21 @@ test.describe('User-facing session and analytics regressions', () => {
     // fabricator that rendered the line off-screen or empty would still be a fabricated verdict.
     await expect(page.getByTestId('verdict-line')).toHaveCount(0);
     await expect(page.getByTestId('verdict-fix')).toHaveCount(0);
+
+    // THE REAL REVIEW SURFACE IS WHERE COACHING LIVES NOW, and it must SETTLE. In this environment the
+    // provider answers with a malformed body (`INVALID_REVIEW_RESPONSE`), which is precisely the case
+    // worth pinning: the honest outcome is a card that says the review is unavailable, not one that
+    // spins forever and not a fabricated verdict standing in for it.
+    await expect(page.getByTestId('open-mic-practice-loop-review')).toBeVisible({ timeout: 15_000 });
+    const reviewCard = page.getByTestId('ai-suggestions-card');
+    await expect(reviewCard).toBeVisible();
+    await expect(reviewCard, 'the review settles rather than spinning')
+        .not.toHaveAttribute('data-review-state', 'loading', { timeout: 20_000 });
+
+    // AND IT BLOCKS NOTHING. A review that cannot be generated must not cost the user the transcript
+    // they just recorded or the control that starts the next take.
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText('tester-facing transcript');
+    await expect(page.getByTestId('verdict-practice-again')).toBeEnabled();
   });
 
   test('preserves metric parity from session to analytics detail after save and reload', async ({ page }) => {

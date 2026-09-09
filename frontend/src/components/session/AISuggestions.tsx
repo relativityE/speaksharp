@@ -255,8 +255,19 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
     void fetchSuggestions();
   }, [reviewReady, sessionId, suggestions, isLoading, error, fetchSuggestions]);
 
+  /**
+   * #1422 — ONE SETTLED/UNSETTLED SIGNAL, published where the journey can read it.
+   *
+   * `loading` is the only state that is still in motion. Everything else is an answer the user can act
+   * on, including `error`: a malformed review response is a real outcome, and the card says so rather
+   * than spinning. The E2E lane needs this because "the review settled honestly" and "the review is
+   * still loading" are otherwise indistinguishable from outside, and the previous test worked around
+   * that by asserting fabricated verdict prose that was always present.
+   */
+  const reviewState = isLoading ? 'loading' : (error ? 'error' : (suggestions ? 'ready' : 'empty'));
+
   return (
-    <Card data-testid="ai-suggestions-card">
+    <Card data-testid="ai-suggestions-card" data-review-state={reviewState}>
       <CardHeader className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-purple-500" />
