@@ -38,6 +38,7 @@ import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
 import { resolveQualifyingIdentity } from '../frontend/src/services/telemetry/qualifyingIdentity';
 import {
     bootScopedReceiptFamilies,
+    buildReadbackQuery,
     resolveBootWindow,
 } from '../frontend/src/services/telemetry/bootScopedReceipts';
 
@@ -180,14 +181,12 @@ async function main(): Promise<void> {
     // anyway: a vocabulary is a thing people edit, and the escaping must not depend on nobody ever
     // adding a name with a quote in it.
     const sql = (value: string) => `'${value.replace(/'/g, "''")}'`;
-    const governedList = GOVERNED_EVENTS.map(sql).join(', ');
     // TWO SCOPES, because the required families do not all live in one journey.
     //
     // The identity receipts are emitted at sign-in, under the pre-product journey; the product journey is
     // minted on entry, before recording. Asking for both inside one `journey_id` can only ever return one
     // set, so an ordinary complete run could never qualify. They are still required and still pinned to
     // this release and traffic class — they are simply not journey-scoped, because they were never in it.
-    const preJourneyList = PRE_JOURNEY_EVENT_FAMILIES.map(sql).join(', ');
 
     /**
      * THE PRE-JOURNEY RECEIPTS MUST BELONG TO THE SAME PERSON AS THE JOURNEY.
@@ -231,19 +230,11 @@ async function main(): Promise<void> {
      * The binding itself is applied in `bootScopedReceipts`, not in this query string: the refusal is
      * the point, and a rule expressed only in SQL cannot be driven by a casualty.
      */
-    const query = `
-        SELECT event, timestamp, properties.journey_id AS journey_id
-        FROM events
-        WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
-          AND properties.release_sha = ${sql(releaseSha)}
-          AND properties.traffic_type = ${sql(trafficType)}
-          AND distinct_id = ${sql(qualifyingIdentity)}
-          AND event IN (${governedList})
-          AND (
-            properties.journey_id = ${sql(journeyId)}
-            OR event IN (${preJourneyList})
-          )
-    `;
+    const query = buildReadbackQuery({
+        windowHours, releaseSha, trafficType, qualifyingIdentity,
+        governedEvents: GOVERNED_EVENTS,
+        quote: sql,
+    });
 
     const rows = await runQuery(query, 'the readback');
 

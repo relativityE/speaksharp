@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { buildReadbackQuery } from '../bootScopedReceipts';
 
 /**
  * #1259 P1 — THE GATE MUST HAVE A CALLER.
@@ -184,7 +185,27 @@ describe('#1259 completeness gate wiring', () => {
             // The identity is DERIVED from the journey rows, never supplied — it cannot be asserted
             // independently of the run being judged.
             derivesIdentityFromTheJourney: src.includes('SELECT DISTINCT distinct_id'),
-            bindsTheReadbackToIt: src.includes('AND distinct_id = ${sql(qualifyingIdentity)}'),
+            /**
+             * #1421 P1 — ASSERTED ON THE BUILT QUERY, NOT ON THE SCRIPT'S SOURCE TEXT.
+             *
+             * This scanned for the literal `AND distinct_id = ${sql(qualifyingIdentity)}`. The readback
+             * query moved into `buildReadbackQuery` so its SCOPE could be driven by a casualty — the
+             * previous scope silently failed to fetch the earlier product journey `resolveBootWindow`
+             * needs, and no test could reach it while the rule lived in an inline template string.
+             *
+             * A substring scan would have gone red for that move even though the binding was intact,
+             * and it would equally have stayed green if the clause were present but built from the
+             * wrong variable. Asserting the emitted query settles both.
+             */
+            bindsTheReadbackToIt: src.includes('buildReadbackQuery({')
+                && buildReadbackQuery({
+                    windowHours: 24,
+                    releaseSha: 'sha',
+                    trafficType: 'controlled',
+                    qualifyingIdentity: 'person-1',
+                    governedEvents: ['account_identified'],
+                    quote: (value: string) => `'${value.replace(/'/g, "''")}'`,
+                }).includes("distinct_id = 'person-1'"),
             // No identity means nothing to bind to, and more than one means the journey id is not the
             // discriminator we believe it is. Both HOLD rather than fall back to an unbound match.
             holdsWhenNoIdentity: reader.includes('there is no identity to bind its receipts to'),

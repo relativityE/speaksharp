@@ -113,3 +113,43 @@ export function bootScopedReceiptFamilies(
     }
     return [...found];
 }
+
+/**
+ * #1421 P1 — THE READBACK MUST FETCH WHAT `resolveBootWindow` DEPENDS ON.
+ *
+ * The query restricted rows to `journey_id = <selected> OR event IN <pre-journey families>`. Those are
+ * the only two things the resolver is NOT allowed to use as a boundary: the selected journey supplies
+ * `atOrBefore`, and the receipt families are the subject being scoped and are skipped outright. The
+ * one input that produces `window.after` — an EARLIER product journey by the same identity — was
+ * therefore never fetched. `otherJourneys` was always empty, the lower bound was always `null`, and an
+ * earlier boot's receipts still qualified the later journey. The binding was inert in production while
+ * the unit casualty, which is handed rows directly, went green.
+ *
+ * The scope is widened to every governed event for the bound identity in the release, traffic class
+ * and window. That is safe downstream: journey-scoped families are still selected by
+ * `journeyId === journeyId`, and receipts are still admitted only by `receiptBelongsToBoot`, so the
+ * extra rows can supply a boundary but cannot supply evidence.
+ *
+ * It is built here, as a value, so the scope is a contract a casualty can drive — the previous comment
+ * claimed "a rule expressed only in SQL cannot be driven by a casualty" and then left this rule in SQL.
+ */
+export function buildReadbackQuery(params: {
+    windowHours: number;
+    releaseSha: string;
+    trafficType: string;
+    qualifyingIdentity: string;
+    governedEvents: readonly string[];
+    quote: (value: string) => string;
+}): string {
+    const { windowHours, releaseSha, trafficType, qualifyingIdentity, governedEvents, quote } = params;
+    const governedList = governedEvents.map(quote).join(', ');
+    return `
+        SELECT event, timestamp, properties.journey_id AS journey_id
+        FROM events
+        WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
+          AND properties.release_sha = ${quote(releaseSha)}
+          AND properties.traffic_type = ${quote(trafficType)}
+          AND distinct_id = ${quote(qualifyingIdentity)}
+          AND event IN (${governedList})
+    `;
+}

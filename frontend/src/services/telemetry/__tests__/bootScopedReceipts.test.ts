@@ -13,6 +13,7 @@ import {
     receiptBelongsToBoot,
     resolveBootWindow,
     type TimestampedEvent,
+    buildReadbackQuery,
 } from '../bootScopedReceipts';
 
 const PRE_JOURNEY = ['account_identified', 'telemetry_positive_control'];
@@ -83,5 +84,56 @@ describe('#1421 — pre-journey receipts are bound to the boot that produced the
             expect(receiptBelongsToBoot({ event: 'account_identified', timestamp: bad }, resolved.window))
                 .toBe(false);
         }
+    });
+});
+
+describe('#1421 P1 — the readback fetches what the boot window depends on', () => {
+    const quote = (value: string) => `'${value.replace(/'/g, "''")}'`;
+    const query = () => buildReadbackQuery({
+        windowHours: 24,
+        releaseSha: 'abc123',
+        trafficType: 'controlled',
+        qualifyingIdentity: 'person-1',
+        governedEvents: ['account_identified', 'telemetry_positive_control', 'recording_started'],
+        quote,
+    });
+
+    it('CASUALTY: it does NOT restrict rows to the selected journey', () => {
+        /**
+         * The query restricted to `journey_id = <selected> OR event IN <receipt families>` — the only
+         * two things `resolveBootWindow` may not use as a boundary. The one input that produces
+         * `window.after`, an EARLIER product journey by the same identity, was never fetched, so the
+         * lower bound was always null and an earlier boot's receipts still qualified the later journey.
+         *
+         * The binding was inert in production while the resolver's own casualties, which are handed
+         * rows directly, stayed green. That is why this asserts the QUERY and not the resolver.
+         */
+        expect(query()).not.toMatch(/journey_id\s*=/);
+    });
+
+    it('CASUALTY: it still binds identity, release, traffic class and the governed vocabulary', () => {
+        // Widening the scope must not widen it past the person, the build or the allowlist: those are
+        // what make a receipt evidence about THIS run rather than about somebody else's.
+        const q = query();
+        expect(q).toContain("distinct_id = 'person-1'");
+        expect(q).toContain("properties.release_sha = 'abc123'");
+        expect(q).toContain("properties.traffic_type = 'controlled'");
+        expect(q).toContain("event IN ('account_identified', 'telemetry_positive_control', 'recording_started')");
+    });
+
+    it('CASUALTY: an earlier product journey now bounds the boot, so its receipts are refused', () => {
+        // The end-to-end consequence, driven through the resolver with the rows the corrected query
+        // returns: boot A's receipt must not qualify boot B's journey.
+        const rows = [
+            { event: 'account_identified', timestamp: '2026-09-09T10:00:00Z', journeyId: 'pre-product' },
+            { event: 'recording_started', timestamp: '2026-09-09T10:05:00Z', journeyId: 'journey-A' },
+            { event: 'recording_started', timestamp: '2026-09-09T12:00:00Z', journeyId: 'journey-B' },
+        ];
+        const window = resolveBootWindow(rows, 'journey-B', ['account_identified']);
+        expect(window.ok).toBe(true);
+        if (!window.ok) return;
+        expect(window.window.after, "journey A's row is the lower bound").not.toBeNull();
+        expect(bootScopedReceiptFamilies(rows, window.window, ['account_identified']),
+            "boot A's receipt is not evidence about boot B").toEqual([]);
     });
 });
