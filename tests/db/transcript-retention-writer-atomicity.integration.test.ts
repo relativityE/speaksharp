@@ -470,6 +470,77 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
         await db.close();
     });
 
+    it('CASUALTY H: an ACTIVE recovery create expires nothing, even for an armed user', async () => {
+        /**
+         * #1436 P1 — `v_initial_at_cap` gated only whether a non-converged result RAISES; every
+         * transcript-bearing create still called the coordinator. A sub-600s recovery create inserts an
+         * ACTIVE row, and for an armed user whose retained transcript carries terminal evidence that
+         * new row ranks first, so convergence expired the previously saved transcript on the spot.
+         * Abandon the recovery take — or let its `complete_session_v2` fail — and the user is left with
+         * strictly less readable text than before they started, irreversibly.
+         *
+         * Casualty 5 could not catch this: its create carries no transcript, so it never reaches the
+         * coordinator branch at all. This one carries real text at a real sub-cap duration, which is
+         * exactly the recovery shape.
+         */
+        const db = await freshDb();
+        // A genuine post-rollout completed save: it arms, and its own text is the retained one.
+        await lateCreate(db, 'the take the user already saved');
+        const saved = (await db.query<{ id: string }>(
+            `SELECT id FROM public.sessions WHERE user_id = $1 AND transcript IS NOT NULL`, [U])).rows[0].id;
+        await settleEvidence(db, saved, 'attributed');
+        expect((await counts(db)).with_text, 'one saved take, armed and settled').toBe(1);
+
+        // The recovery create: real words, ordinary duration, so the row lands ACTIVE — not a save yet.
+        const res = (await db.query<{ r: Record<string, unknown> }>(
+            `SELECT public.create_session_and_update_usage($1::jsonb, 'private') AS r`,
+            [JSON.stringify({ title: 'recovered take', duration: 120, total_words: 40,
+                transcript: 'the words the recovery is trying to rescue' })])).rows[0].r;
+
+        expect((res.retention as { status?: string })?.status,
+            'an active create is not a completion, so it defers').toBe('deferred');
+        expect((res.retention as { reason?: string })?.reason).toBe('create_not_completed');
+        expect((await db.query<{ n: number }>(
+            `SELECT COUNT(*)::int AS n FROM public.sessions
+             WHERE id = $1 AND transcript IS NOT NULL AND transcript_state = 'available'`, [saved],
+        )).rows[0].n, "the take the user had already saved is still readable").toBe(1);
+        await db.close();
+    });
+
+    it('CASUALTY I: a completion carrying BLANK text arms nothing and expires nothing', async () => {
+        /**
+         * #1436 P1 — `v_wrote_transcript` meant only that a non-NULL argument was supplied. A
+         * completion sending '   ' set it true, the transcript-state trigger classified the row
+         * `not_captured` — nothing retained — and the user was armed anyway. Convergence then SUCCEEDED
+         * and expired a legacy user's older transcript, and because the outcome was `converged` the
+         * non-retained cleanup never ran, so the false arming stayed behind as well.
+         *
+         * Casualty F cannot reach this: its completion retains real text and fails on a PENDING
+         * cohort, so it exercises the cleanup path rather than the decision to arm at all.
+         */
+        const db = await freshDb();
+        const older = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the legacy take');
+        await settleEvidence(db, older, 'attributed');
+        const active = (await db.query<{ id: string }>(
+            `INSERT INTO public.sessions (user_id, created_at, total_words, duration, status)
+             VALUES ($1, '2026-09-04T10:00:00Z'::timestamptz, 100, 600, 'active') RETURNING id`,
+            [U])).rows[0].id;
+
+        await db.query(
+            `SELECT public.complete_session_v2(p_session_id => $1::uuid, p_status => 'completed',
+                 p_next_action => '{"kind":"practice_again"}'::jsonb, p_filler_counts => '{}'::jsonb,
+                 p_final_transcript => '   ') AS r`, [active]);
+
+        expect((await db.query<{ n: number }>(
+            'SELECT COUNT(*)::int AS n FROM public.transcript_retention_arming WHERE user_id = $1', [U],
+        )).rows[0].n, 'a save that kept no words is not the completed save that arms').toBe(0);
+        expect((await db.query<{ transcript: string | null }>(
+            'SELECT transcript FROM public.sessions WHERE id = $1', [older])).rows[0].transcript,
+        "and the user's legacy transcript was not expired on the strength of it")
+            .toBe('the legacy take');
+        await db.close();
+    });
+
     it('CASUALTY G: a completion that DOES retain its transcript arms retention', async () => {
         /**
          * The other half of casualty F, and the reason F cannot stand alone: F asserts an ABSENCE, so

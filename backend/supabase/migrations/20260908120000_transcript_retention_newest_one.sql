@@ -697,7 +697,22 @@ BEGIN
             -- save: a convergence failure below rolls the transcript AND the arming back together, and
             -- a user is never armed by a save that did not land. A client cannot reach this without
             -- going through the RPC, which is what the removed row-shape trigger could not guarantee.
-            IF v_wrote_transcript THEN
+            /*
+             * #1436 P1 — DECIDED BY THE STORED ROW, NOT BY THE ARGUMENT.
+             *
+             * `v_wrote_transcript` means only that a non-NULL argument was supplied and an UPDATE was
+             * attempted. A completion carrying blank text ('   ') set it true, the transcript-state
+             * trigger classified the row `not_captured` — nothing was retained — and this armed the
+             * user anyway. Convergence then SUCCEEDED and expired an unarmed legacy user's older
+             * transcript, and because the outcome was `converged` the cleanup below never ran, so the
+             * false arming stayed too. A save that kept no words is not the completed save that arms.
+             */
+            IF v_wrote_transcript AND EXISTS (
+                SELECT 1 FROM public.sessions
+                WHERE id = p_session_id AND user_id = auth.uid()
+                  AND transcript IS NOT NULL
+                  AND transcript ~ '[^[:space:]]'
+            ) THEN
                 PERFORM public.arm_transcript_retention_for_save(auth.uid(), p_session_id);
             END IF;
             v_retention := public.converge_transcript_retention(auth.uid());
@@ -1028,8 +1043,24 @@ BEGIN
      * casualty gives the older row terminal evidence — the state in which convergence WOULD act — and
      * asserts the placeholder still expires nothing.
      */
+    /*
+     * #1436 P1 — AN ACTIVE RECOVERY CREATE IS NOT A SAVE EITHER.
+     *
+     * `v_initial_at_cap` gated only whether a non-converged result RAISES; every transcript-bearing
+     * create still called the coordinator. A sub-600s recovery create inserts an `active` row, and for
+     * an already-armed user whose retained transcript carries terminal evidence that new row ranks
+     * first — so the coordinator immediately expired the previously saved transcript. If the recovery
+     * take was then abandoned, or its `complete_session_v2` failed, the user was left with strictly
+     * less readable text than before they started, and the loss is irreversible.
+     *
+     * The rule the placeholder branch already states applies here unchanged: retention converges on
+     * COMPLETION. The at-cap create is the only create that IS a completion; everything else defers
+     * and expires nothing, and the real convergence happens when `complete_session_v2` runs.
+     */
     IF NOT v_writes_transcript THEN
         v_retention := jsonb_build_object('status', 'deferred', 'reason', 'placeholder_create');
+    ELSIF NOT v_initial_at_cap THEN
+        v_retention := jsonb_build_object('status', 'deferred', 'reason', 'create_not_completed');
     ELSE
         BEGIN
             v_retention := public.converge_transcript_retention(auth.uid());
