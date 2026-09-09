@@ -31,6 +31,7 @@ on:
       - 'scripts/private-v2-worker-evidence.mts'
       - 'scripts/validate-stt-evidence.mjs'
       - 'tests/evidence/**'
+      - 'tsconfig.evidence.json'
       - '.github/workflows/stt-runtime-evidence.yml'
   workflow_dispatch:
 
@@ -72,7 +73,7 @@ jobs:
         run: |
           STT_CROSS_ORIGIN_ISOLATED=0 pnpm exec vite preview --config frontend/vite.config.mjs --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/stt-runtime-vite.log" 2>&1 &
           pnpm exec wait-on --timeout 120000 http-get://127.0.0.1:4173/private-dropin.html
-      - name: Prove production worker + one-thread request/configuration + PCM route
+      - name: Prove every pinned natural-language fixture across the production worker boundary
         run: |
           pnpm evidence:stt:private-worker -- \
             --base-url http://127.0.0.1:4173 \
@@ -85,4 +86,16 @@ jobs:
           name: stt-private-v2-worker-evidence-${{ env.EVIDENCE_SHA }}
           path: stt-evidence-artifacts/private-v2-worker.json
           if-no-files-found: error
+          retention-days: 1
+      # A red run must be diagnosable from the run itself. This uploads the sanitized per-fixture
+      # record the proof preserves on failure -- fixture id, WER counts, hashes, PCM tuples and the
+      # mismatch category, never transcript or reference text. It runs ONLY on failure, so it can
+      # never stand in for the success artifact above, and it does not mask the job's red status.
+      - name: Upload preserved per-fixture diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stt-private-v2-worker-failure-diagnostics-${{ env.EVIDENCE_SHA }}
+          path: stt-evidence-artifacts/private-v2-worker.json
+          if-no-files-found: warn
           retention-days: 1
