@@ -1162,6 +1162,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(pushSpy.mock.calls.some(([event]) => event === 'session_start_latency_measured')).toBe(false);
 
         await act(async () => {
+            vi.mocked(speechRuntimeController.getState).mockReturnValueOnce('RECORDING');
             resolveStart();
             await startAction;
         });
@@ -1173,6 +1174,34 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             model_cache_state: expect.stringMatching(/^(cold|cached)$/),
         });
         expect(Number.isInteger((latency?.[1] as Record<string, unknown>)?.duration_ms)).toBe(true);
+        pushSpy.mockRestore();
+    });
+
+    it('#1428 CASUALTY: a non-throwing start refusal never reports a recording start', async () => {
+        vi.mocked(speechRuntimeController.startRecording).mockResolvedValueOnce(undefined);
+        vi.mocked(speechRuntimeController.getState).mockReturnValueOnce('READY');
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        const mockStore = createTestSessionStore({
+            isListening: false,
+            runtimeState: 'READY',
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useUsageLimit).mockReturnValue({
+            ...mockUsageLimitQuery,
+            data: { ...baseUsageLimit, can_start: true },
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        await act(async () => { await result.current.handleStartStop(); });
+
+        expect(pushSpy.mock.calls.find(([event]) => event === 'session_start_latency_measured')?.[1])
+            .toMatchObject({ outcome: 'refused' });
+        expect(pushSpy.mock.calls.some(([event]) => event === 'session_started')).toBe(false);
         pushSpy.mockRestore();
     });
 

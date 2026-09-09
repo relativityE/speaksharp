@@ -407,6 +407,10 @@ export const useSessionLifecycle = () => {
                 );
                 try {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
+                    if (speechRuntimeController.getState() !== 'RECORDING') {
+                        startLatency.settle('refused');
+                        return;
+                    }
                     startLatency.settle('recording_started');
                 } catch (error) {
                     startLatency.settle('failed');
