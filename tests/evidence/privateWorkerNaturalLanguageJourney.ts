@@ -22,10 +22,81 @@ export const PRIVATE_WORKER_DIMENSION_WER_BOUNDS: Readonly<Record<string, number
 });
 
 /**
+ * A DIMENSION MUST BE EXERCISED BY THE FIXTURE THAT CLAIMS IT.
+ *
+ * The WER bounds above are scored with Track-B word error rate, whose normalizer strips punctuation
+ * and is blind to whether a filler was recognised. Without this table a fixture could declare
+ * `punctuation_placement` over a reference containing no punctuation at all — and the contract test
+ * did exactly that, with `a calm river flows past the old stone bridge` — so a transcript with every
+ * punctuation mark wrong cleared a bound named for punctuation. The dimension name became a label
+ * the measurement could not see, which is worse than declaring no dimension: it reads as proof.
+ *
+ * Each predicate answers one question about the REFERENCE only: can this fixture exercise the thing
+ * it claims? A fixture that cannot is a contract failure, never a pass.
+ */
+export const PRIVATE_WORKER_DIMENSION_EXERCISE:
+    Readonly<Record<string, { requirement: string; exercises: (referenceText: string) => boolean }>> = Object.freeze({
+        clean_words: {
+            requirement: `at least ${PRIVATE_WORKER_MIN_FIXTURE_WORDS} reference words`,
+            exercises: (reference) => reference.split(/\s+/).filter(Boolean).length >= PRIVATE_WORKER_MIN_FIXTURE_WORDS,
+        },
+        punctuation_placement: {
+            // Two marks, so the dimension is about PLACEMENT rather than the presence of one full stop.
+            requirement: 'at least two sentence-punctuation marks in the reference',
+            exercises: (reference) => (reference.match(/[.,!?;:]/g) ?? []).length >= 2,
+        },
+        filler_recognition: {
+            requirement: 'at least one filler token in the reference',
+            exercises: (reference) => /\b(um+|uh+|ah+|er+|hmm+)\b/i.test(reference),
+        },
+    });
+
+/**
+ * Punctuation is scored SEPARATELY, because word error rate cannot see it.
+ *
+ * Measured and published, deliberately NOT bounded yet: no real-worker distribution for punctuation
+ * placement has been measured on this corpus, and choosing a threshold before measuring one is how a
+ * bound comes to mean nothing. Until that measurement exists this dimension proves TRANSPORT and word
+ * accuracy, and its punctuation figure is diagnostic — it is not evidence that the recognizer places
+ * punctuation well.
+ */
+export const PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND: number | null = null;
+
+const PUNCTUATION_MARKS = /[.,!?;:]/g;
+
+/**
+ * Punctuation error rate: edit distance over the ORDERED sequence of punctuation marks, normalized by
+ * the reference's mark count. `null` when the reference carries no punctuation, never 0 — an
+ * unmeasurable dimension reporting a perfect score is the exact fabrication this lane exists to stop.
+ */
+export function punctuationErrorRate(referenceText: string, hypothesisText: string): number | null {
+    const reference = referenceText.match(PUNCTUATION_MARKS) ?? [];
+    if (reference.length === 0) return null;
+    const hypothesis = hypothesisText.match(PUNCTUATION_MARKS) ?? [];
+    // Levenshtein over marks. Two rows only: the sequences are short and the full matrix is not needed.
+    let previous = Array.from({ length: hypothesis.length + 1 }, (_, i) => i);
+    for (let r = 1; r <= reference.length; r += 1) {
+        const current = [r];
+        for (let h = 1; h <= hypothesis.length; h += 1) {
+            current[h] = reference[r - 1] === hypothesis[h - 1]
+                ? previous[h - 1]
+                : 1 + Math.min(previous[h - 1], previous[h], current[h - 1]);
+        }
+        previous = current;
+    }
+    return previous[hypothesis.length] / reference.length;
+}
+
+/**
  * Why a dimension is measured but not bounded here. Required for every `null` bound so
  * the exemption is argued on the record rather than assumed.
  */
 export const PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS: Readonly<Record<string, string>> = Object.freeze({
+    punctuation_placement_marks:
+        'Word error rate is blind to punctuation, so the WER bound on this dimension proves word accuracy '
+        + 'and transport, not punctuation placement. The mark-level rate is measured and published here but '
+        + 'not bounded: no real-worker punctuation distribution has been measured on this corpus, and a '
+        + 'threshold chosen before that measurement would assert an accuracy claim nothing supports.',
     filler_recognition:
         'The controlled corpus is synthesized speech. Its "um"/"uh" are the synthesizer pronouncing the '
         + 'spelling of a filler, not the acoustics of human disfluency, so a recognition bound scored on them '
@@ -54,6 +125,7 @@ export type PrivateWorkerProblemCategory =
     | 'transcript_missing'
     | 'transcript_duplicate'
     | 'wer_bound'
+    | 'punctuation_bound'
     | 'reference_separation';
 
 export interface PrivateWorkerProblem {
@@ -68,6 +140,8 @@ export interface PrivateWorkerProblem {
  * a maintainer had to reproduce it locally to learn what. Hashes and counts only — never text.
  */
 export interface PrivateWorkerFixtureDiagnostic {
+    /** Mark-level punctuation error rate; null when the fixture does not claim the dimension. */
+    punctuationErrorRate?: number | null;
     fixtureId: string;
     fixtureSha256: string | null;
     referenceTextSha256: string | null;
@@ -124,6 +198,12 @@ export interface PrivateWorkerNaturalLanguageObservation {
 }
 
 export interface SanitizedPrivateWorkerFixtureResult {
+    /**
+     * Mark-level punctuation error rate for fixtures claiming `punctuation_placement`; null otherwise.
+     * Published so the dimension carries a figure a reader can check, and deliberately unbounded — see
+     * PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND.
+     */
+    punctuationErrorRate?: number | null;
     fixtureId: string;
     fixtureSha256: string;
     referenceTextSha256: string;
@@ -170,6 +250,15 @@ function resolveBound(fixture: NaturalLanguageFixtureContract): { bound: number 
     for (const dimension of fixture.qualityDimensions) {
         if (!(dimension in PRIVATE_WORKER_DIMENSION_WER_BOUNDS)) {
             problems.push(`fixture '${fixture.fixtureId}' declares unknown quality dimension '${dimension}'`);
+            continue;
+        }
+        // THE LABEL MUST BE EXERCISED. Checked before any bound is applied, so a dimension a fixture
+        // cannot demonstrate is refused outright rather than quietly cleared by a blind measurement.
+        const exercise = PRIVATE_WORKER_DIMENSION_EXERCISE[dimension];
+        if (exercise && !exercise.exercises(fixture.referenceText)) {
+            problems.push(
+                `fixture '${fixture.fixtureId}' declares quality dimension '${dimension}' but its reference `
+                + `does not exercise it (requires ${exercise.requirement})`);
             continue;
         }
         const declared = PRIVATE_WORKER_DIMENSION_WER_BOUNDS[dimension];
@@ -273,6 +362,7 @@ export function provePrivateWorkerNaturalLanguageJourney(
             transcriptSha256: null,
             qualityDimensions: [...fixture.qualityDimensions],
             appliedWerBound: bound,
+            punctuationErrorRate: null,
             referenceWords: null,
             hypothesisWords: null,
             substitutions: null,
@@ -334,6 +424,23 @@ export function provePrivateWorkerNaturalLanguageJourney(
         diagnostic.insertions = score.insertions;
         diagnostic.wer = score.wer;
 
+        // PUNCTUATION, SCORED BY SOMETHING THAT CAN SEE IT. Word error rate normalizes punctuation away,
+        // so this is measured on the raw texts and reported separately. Only fixtures that actually claim
+        // the dimension are scored for it.
+        if (fixture.qualityDimensions.includes('punctuation_placement')) {
+            const punctuation = punctuationErrorRate(fixture.referenceText, transcript);
+            diagnostic.punctuationErrorRate = punctuation;
+            if (punctuation === null) {
+                fail(id, 'quality_dimension',
+                    `fixture '${id}' claims punctuation_placement but its reference carries no punctuation to score`);
+            } else if (PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND !== null
+                && punctuation > PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND) {
+                fail(id, 'punctuation_bound',
+                    `fixture '${id}' punctuation error rate ${punctuation.toFixed(3)} exceeds `
+                    + `${PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND.toFixed(3)}`);
+            }
+        }
+
         if (bound !== null && score.wer > bound) {
             fail(id, 'wer_bound',
                 `fixture '${id}' WER ${score.wer.toFixed(3)} exceeds ${bound.toFixed(3)} `
@@ -364,6 +471,7 @@ export function provePrivateWorkerNaturalLanguageJourney(
             transcriptSha256: transcriptHash,
             qualityDimensions: [...fixture.qualityDimensions],
             appliedWerBound: bound,
+            punctuationErrorRate: diagnostic.punctuationErrorRate,
             referenceWords: score.referenceWords,
             hypothesisWords,
             substitutions: score.substitutions,

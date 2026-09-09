@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
+import { TEST_IDS } from '../constants';
 import {
   navigateToRoute,
   programmaticLoginWithRoutes,
@@ -44,6 +45,25 @@ const POINT_LABELS = [
 const SPEAKS_EVERY_POINT =
   'First I will name the price clearly. Then I state the guarantee we offer. '
   + 'Next I explain the timeline for delivery. Finally I cover the onboarding steps.';
+
+/**
+ * TAKE B SAYS SOMETHING DIFFERENT — the same four points, different words.
+ *
+ * The retry leg used to re-speak `SPEAKS_EVERY_POINT` and then assert 4/4, which two different
+ * products satisfy: one where take B genuinely recorded and scored, and one where take A's saved
+ * transcript and coverage were simply republished under B. Identical input made them
+ * indistinguishable, so the leg proved the successor existed but not that it was the successor's own
+ * work — the exact shape of casualty this program keeps having to correct.
+ *
+ * Each take also carries a marker phrase that cannot be confused with the other, so the after-state
+ * transcript itself is evidence of WHICH take produced it.
+ */
+const TAKE_A_MARKER = 'this is the opening rehearsal';
+const TAKE_B_MARKER = 'this is the second rehearsal';
+const SPEAKS_EVERY_POINT_TAKE_A = `${TAKE_A_MARKER}. ${SPEAKS_EVERY_POINT}`;
+const SPEAKS_EVERY_POINT_TAKE_B =
+  `${TAKE_B_MARKER}. To begin I name the price up front. I also state the guarantee that covers it. `
+  + 'After that I explain the timeline we commit to. To close I cover the onboarding you receive.';
 
 /** Enter every label into the setup dialog, adding rows beyond the three initial ones. */
 async function enterEveryPoint(page: Page) {
@@ -164,10 +184,15 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     await page.waitForURL('**/session');
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
 
-    await recordSaveAndSettle(page, SPEAKS_EVERY_POINT);
+    await recordSaveAndSettle(page, SPEAKS_EVERY_POINT_TAKE_A);
     // After-state Focus Points review is up (snapshot path); the retry control lives on the rail.
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
     await assertEveryPointDetected(page, 'before retry');
+
+    // A'S SAVED IDENTITY, captured so B's can be required to differ. The controller publishes the
+    // persisted row id on the document, which is the same anchor the observer reads.
+    const takeAId = await page.locator('html').getAttribute('data-session-persisted-id');
+    expect(takeAId, 'take A persisted under a real session id').toBeTruthy();
 
     // Retry → a fresh recording that is still Focus Points (rail present, Open Mic prompt offer absent).
     await page.getByTestId('focus-points-retry').click();
@@ -198,7 +223,7 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     // ---- TAKE B RUNS TO ITS OWN SAVE. Clearing A's coverage is only half the contract: the
     // successor must then publish ITS OWN transcript, review and N/N. A rail that cleared and stayed
     // empty would pass every assertion above while leaving the user with nothing.
-    await simulateTranscription(page, SPEAKS_EVERY_POINT, true);
+    await simulateTranscription(page, SPEAKS_EVERY_POINT_TAKE_B, true);
     await page.waitForTimeout(5_200); // clear the sub-5s no-persist guard
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
@@ -208,5 +233,18 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
 
     // B's own coverage, from B's own take — the same four points, all detected again.
     await assertEveryPointDetected(page, 'take B after-state');
+
+    // ---- AND IT IS GENUINELY B'S. Three independent ways of saying so, because 4/4 alone is also
+    // what a republished take A looks like.
+    //
+    // 1. A DIFFERENT SAVED ROW. Republishing A's after-state would leave A's id on the document.
+    const takeBId = await page.locator('html').getAttribute('data-session-persisted-id');
+    expect(takeBId, 'take B persisted under a real session id').toBeTruthy();
+    expect(takeBId, 'take B saved its OWN row, it did not republish take A').not.toBe(takeAId);
+
+    // 2. B'S WORDS, NOT A'S. The marker phrases cannot both belong to the same take.
+    const transcript = page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT);
+    await expect(transcript, "the after-state shows take B's transcript").toContainText(TAKE_B_MARKER);
+    await expect(transcript, "take A's transcript is gone, not carried forward").not.toContainText(TAKE_A_MARKER);
   });
 });

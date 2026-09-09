@@ -59,9 +59,38 @@ async function assertSlots(page: Page) {
   await expect(page.getByTestId('coverage-pace')).toBeVisible();
 }
 
+/**
+ * Resize AND WAIT FOR LAYOUT TO COMMIT before measuring. THE SINGLE RESIZE PATH IN THIS FILE.
+ *
+ * `setViewportSize` resolves before the page has necessarily reflowed, so a measurement taken straight
+ * afterwards can read the PREVIOUS width and report a phantom overflow. That is the defect #1425/#1435
+ * fixed in `session-shell-responsive.e2e.spec.ts`, and the first version of the seven-point sweep below
+ * reintroduced it: CI reported `horizontal overflow at before @320`, then passed on retry — a flaky
+ * failure in a test whose whole purpose is to catch real overflow.
+ *
+ * MY FIRST CORRECTION WAS BOTH TOO WEAK AND TOO NARROW.
+ *
+ * Too weak: `window.innerWidth === width` confirms the viewport VALUE, not that responsive styles and
+ * layout have been committed for it. This now uses the same sequence the repository already proved in
+ * `session-shell-responsive` — route-presence settlement, then two animation frames, the first running
+ * before style/layout for the frame and the second after it has committed.
+ *
+ * Too narrow: `sweepWidths` and every per-test reset still called `setViewportSize` directly, so most
+ * measured widths in this file never went through the fix at all. Every resize goes through here now,
+ * and there is no second way to change the viewport in this spec.
+ */
+async function resizeAndSettle(page: Page, width: number) {
+  await expect(page.getByTestId('route-presence-child')).toHaveCount(1, { timeout: 5_000 });
+  await page.setViewportSize({ width, height: HEIGHT });
+  await page.waitForFunction((w) => window.innerWidth === w, width, { timeout: 5_000 });
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
 async function sweepWidths(page: Page, state: 'before' | 'during' | 'after') {
   for (const w of WIDTHS) {
-    await page.setViewportSize({ width: w, height: HEIGHT });
+    await resizeAndSettle(page, w);
     await assertSlots(page);
     await assertNoHorizontalOverflow(page, `${state}@${w}`);
     await page.screenshot({ path: `${DIR}/fp-${state}-${w}.png`, fullPage: true });
@@ -69,19 +98,6 @@ async function sweepWidths(page: Page, state: 'before' | 'during' | 'after') {
 }
 
 test.describe('#1046 G6/G7 — Focus Points slots hold at 1280/1440/1024', () => {
-/**
- * Resize AND WAIT FOR THE VIEWPORT TO ACTUALLY APPLY before measuring.
- *
- * `setViewportSize` resolves before the page has necessarily reflowed, so a measurement taken
- * straight afterwards can read the PREVIOUS width and report a phantom overflow. That is exactly the
- * defect #1425/#1435 fixed in `session-shell-responsive.e2e.spec.ts`, and the first version of the
- * seven-point sweep below reintroduced it: CI reported `horizontal overflow at before @320`, then
- * passed on retry — a flaky failure in a test whose whole purpose is to catch real overflow.
- */
-async function resizeAndSettle(page: Page, width: number) {
-  await page.setViewportSize({ width, height: HEIGHT });
-  await page.waitForFunction((w) => window.innerWidth === w, width, { timeout: 5_000 });
-}
 
 /** Every entered point renders, in order, and the rail never forces the page to scroll sideways. */
 async function assertEveryPointUsable(page: Page, label: string) {
@@ -101,7 +117,7 @@ async function assertEveryPointUsable(page: Page, label: string) {
     mkdirSync(DIR, { recursive: true });
 
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
-    await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
+    await resizeAndSettle(page, WIDTHS[0]);
     await navigateToRoute(page, '/practice');
 
     // Open the Focus Points capture dialog and complete a FULL set (topic + all seven points).
@@ -125,7 +141,7 @@ async function assertEveryPointUsable(page: Page, label: string) {
 
     // ---- DURING ---- (this sweep measures LAYOUT; detection coverage is owned by the focused
     // coverage unit tests and the isolation journey, not by a width regression.)
-    await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
+    await resizeAndSettle(page, WIDTHS[0]);
     await startRecording(page);
     await simulateTranscription(page, 'So first I will name the price clearly, and then state the guarantee we offer to every customer.', true);
     await expect(page.getByTestId('coverage-pace')).toBeVisible({ timeout: 15_000 });
@@ -133,7 +149,7 @@ async function assertEveryPointUsable(page: Page, label: string) {
     await sweepWidths(page, 'during');
 
     // ---- AFTER ---- (proves the finished-brief snapshot keeps the FP review screen after save)
-    await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
+    await resizeAndSettle(page, WIDTHS[0]);
     await page.waitForTimeout(5_200); // clear the sub-5s no-persist guard (matches post-save-consolidation)
     await stopRecording(page);
     // Gate on the app's OWN deterministic saved + after-state signals, not a component testid race.
@@ -148,7 +164,7 @@ async function assertEveryPointUsable(page: Page, label: string) {
       await expect(page.getByTestId('focus-points-new-set'), `new set at ${width}`).toBeVisible();
       await assertNoHorizontalOverflow(page, `after actions @${width}`);
     }
-    await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
+    await resizeAndSettle(page, WIDTHS[0]);
     await sweepWidths(page, 'after');
   });
 });

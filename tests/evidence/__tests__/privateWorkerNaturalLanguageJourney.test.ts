@@ -5,7 +5,9 @@ import {
     PRIVATE_WORKER_DIMENSION_WER_BOUNDS,
     PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS,
     PRIVATE_WORKER_MIN_REFERENCE_SEPARATION,
+    PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND,
     provePrivateWorkerNaturalLanguageJourney,
+    punctuationErrorRate,
     type NaturalLanguageFixtureContract,
     type PrivateWorkerNaturalLanguageObservation,
 } from '../privateWorkerNaturalLanguageJourney';
@@ -20,7 +22,13 @@ const sha256 = (value: string): string => createHash('sha256').update(value).dig
  */
 const fixtureSpecs = [
     { reference: 'the meeting starts at nine please arrive early', dimension: 'clean_words' },
-    { reference: 'a calm river flows past the old stone bridge', dimension: 'punctuation_placement' },
+    // #1429 — THIS REFERENCE USED TO CARRY NO PUNCTUATION AT ALL. It was
+    // `a calm river flows past the old stone bridge` while claiming `punctuation_placement`, and it
+    // passed, because the bound is scored with Track-B word error rate whose normalizer strips
+    // punctuation before comparing. A transcript with every mark wrong cleared a bound named for
+    // punctuation placement, so the dimension was a label the measurement could not see. The contract
+    // now refuses that fixture, and this reference actually exercises the dimension it claims.
+    { reference: 'The river flows past the bridge. It is calm today. The stone is old.', dimension: 'punctuation_placement' },
     { reference: 'so um i think uh we should um review the plan today', dimension: 'filler_recognition' },
 ] as const;
 
@@ -34,7 +42,9 @@ const fixtures: NaturalLanguageFixtureContract[] = fixtureSpecs.map((spec, index
 
 const transcripts = [
     'the meeting starts at nine please arrive early',
-    'a calm river flows by the old stone bridge',
+    // One substitution ("beside" for "past") and one dropped mark, so both scores stay non-trivial:
+    // the word bound is exercised and the punctuation rate is a real number rather than a perfect 0.
+    'The river flows beside the bridge. It is calm today The stone is old.',
     'so i am i think i wish you a review of the plan today',
 ] as const;
 
@@ -100,6 +110,66 @@ describe('Private-v2 natural-language worker journey contract', () => {
             .toThrow(/fixture 'fixture-3' transcript is not measurably bound to its own reference/);
     });
 
+    it('CASUALTY: a dimension the reference cannot exercise is REFUSED, not silently cleared', () => {
+        /**
+         * THE DEFECT THIS CONTRACT SHIPPED WITH. `punctuation_placement` is scored by Track-B word error
+         * rate, whose normalizer strips punctuation before comparing — so the bound could be satisfied
+         * by a reference containing no punctuation at all, and this very file used to do exactly that
+         * with `a calm river flows past the old stone bridge`. A transcript with every mark wrong
+         * cleared a bound named for punctuation placement. A green artifact carried the dimension name
+         * without ever exercising it, which is worse than declaring nothing, because it reads as proof.
+         */
+        const mislabelled = fixtures.map((fixture, index) => (index === 1
+            ? {
+                ...fixture,
+                referenceText: 'a calm river flows past the old stone bridge',
+                referenceTextSha256: sha256('a calm river flows past the old stone bridge'),
+            }
+            : fixture));
+
+        expect(() => provePrivateWorkerNaturalLanguageJourney(
+            mislabelled,
+            withTranscript(1, 'a calm river flows past the old stone bridge'),
+        )).toThrow(/declares quality dimension 'punctuation_placement' but its reference does not exercise it/);
+    });
+
+    it('CASUALTY: the measured-only filler dimension cannot be claimed by a filler-free reference', () => {
+        // The other half of the same defect. `filler_recognition` carries a null bound, so nothing
+        // scored it at all — a fixture could drop every filler and still satisfy the lane as long as
+        // its remaining words stayed nearer its own reference than any other. The exemption suppresses
+        // the BOUND; it must never suppress the requirement that the fixture demonstrate the dimension.
+        const fillerFree = 'i think we should review the plan today';
+        const mislabelled = fixtures.map((fixture, index) => (index === 2
+            ? { ...fixture, referenceText: fillerFree, referenceTextSha256: sha256(fillerFree) }
+            : fixture));
+
+        expect(() => provePrivateWorkerNaturalLanguageJourney(mislabelled, withTranscript(2, fillerFree)))
+            .toThrow(/declares quality dimension 'filler_recognition' but its reference does not exercise it/);
+    });
+
+    it('MEASUREMENT: punctuation is scored by something that can SEE it, and is published unbounded', () => {
+        // The scorer is the point: word error rate reports these two as identical, because it removes
+        // punctuation before comparing. A dimension named for punctuation needs a measurement that does
+        // not, and the two numbers below are what make that concrete.
+        const reference = 'The river flows past the bridge. It is calm today. The stone is old.';
+        expect(punctuationErrorRate(reference, 'The river flows past the bridge It is calm today The stone is old'),
+            'every mark missing is a total failure, not a pass').toBe(1);
+        expect(punctuationErrorRate(reference, reference), 'identical punctuation scores zero').toBe(0);
+        expect(punctuationErrorRate('no marks at all here', 'no marks at all here'),
+            'an unmeasurable dimension reports null, NEVER a flattering zero').toBeNull();
+
+        const proof = provePrivateWorkerNaturalLanguageJourney(fixtures, passingObservations());
+        const punctuationRow = proof.results[1];
+        expect(punctuationRow.punctuationErrorRate,
+            'the punctuation fixture publishes a real measured figure').toBeGreaterThan(0);
+        expect(proof.results[0].punctuationErrorRate ?? null,
+            'a fixture that does not claim the dimension is not scored for it').toBeNull();
+        // Deliberately unbounded until a real-worker distribution exists. Recorded here so that
+        // introducing a bound is a visible decision rather than a silent one.
+        expect(PRIVATE_WORKER_PUNCTUATION_ERROR_BOUND).toBeNull();
+        expect(PRIVATE_WORKER_MEASURED_ONLY_DIMENSIONS.punctuation_placement_marks).toMatch(/blind to punctuation/i);
+    });
+
     it('CASUALTY: rejects the constant non-empty worker stub that the old smoke accepted', () => {
         const observations = passingObservations().map(item => ({ ...item, transcript: 'worker transcript ready' }));
 
@@ -128,11 +198,13 @@ describe('Private-v2 natural-language worker journey contract', () => {
     });
 
     it('CASUALTY: the tightened bound bites where the old flat 0.5 bound did not', () => {
-        // 3 substitutions over 9 reference words = 0.333: inside the retired flat bound.
-        const observations = withTranscript(1, 'a calm river runs by the new stone bridge');
+        // 3 substitutions over 14 reference words = 0.214: inside the retired flat 0.5 bound, outside
+        // the 0.2 this dimension now carries. The reference gained real punctuation (see fixtureSpecs),
+        // so the arithmetic moved with it — the casualty's point is unchanged.
+        const observations = withTranscript(1, 'The river runs past the bridge. It is warm today. The stone is new.');
 
         expect(() => provePrivateWorkerNaturalLanguageJourney(fixtures, observations))
-            .toThrow(/fixture 'fixture-2' WER 0\.333 exceeds 0\.200 \(S=3 D=0 I=0 over 9 reference words\)/);
+            .toThrow(/fixture 'fixture-2' WER 0\.214 exceeds 0\.200 \(S=3 D=0 I=0 over 14 reference words\)/);
     });
 
     it('CASUALTY: an invented quality dimension fails closed instead of escaping its bound', () => {
@@ -140,7 +212,7 @@ describe('Private-v2 natural-language worker journey contract', () => {
             ? { ...fixture, qualityDimensions: ['no_bound_please'] }
             : fixture);
 
-        expect(() => provePrivateWorkerNaturalLanguageJourney(renamed, withTranscript(1, 'a calm river runs by the new stone bridge')))
+        expect(() => provePrivateWorkerNaturalLanguageJourney(renamed, withTranscript(1, 'The river runs past the bridge. It is warm today. The stone is new.')))
             .toThrow(/fixture 'fixture-2' declares unknown quality dimension 'no_bound_please'/);
     });
 
@@ -190,15 +262,15 @@ describe('Private-v2 natural-language worker journey contract', () => {
         };
 
         it('CASUALTY: the per-fixture record SURVIVES the aggregate throw', () => {
-            const error = failWith(withTranscript(1, 'a calm river runs by the new stone bridge'));
+            const error = failWith(withTranscript(1, 'The river runs past the bridge. It is warm today. The stone is new.'));
 
             expect(error).toBeInstanceOf(PrivateWorkerNaturalLanguageJourneyError);
             expect(error.diagnostics.map(d => d.fixtureId)).toEqual(['fixture-1', 'fixture-2', 'fixture-3']);
             const failed = error.diagnostics.find(d => d.fixtureId === 'fixture-2')!;
             expect(failed.categories).toEqual(['wer_bound']);
-            expect(failed.wer).toBeCloseTo(0.333, 3);
+            expect(failed.wer).toBeCloseTo(0.214, 3);
             expect(failed.substitutions).toBe(3);
-            expect(failed.referenceWords).toBe(9);
+            expect(failed.referenceWords).toBe(14);
             expect(failed.appliedWerBound).toBe(0.2);
             expect(failed.transcriptSha256).toMatch(/^[0-9a-f]{64}$/);
             expect(failed.inputHashesMatch).toBe(true);
@@ -232,7 +304,7 @@ describe('Private-v2 natural-language worker journey contract', () => {
         });
 
         it('CASUALTY: no reference or transcript text is carried in the preserved record', () => {
-            const error = failWith(withTranscript(1, 'a calm river runs by the new stone bridge'));
+            const error = failWith(withTranscript(1, 'The river runs past the bridge. It is warm today. The stone is new.'));
 
             const serialized = JSON.stringify(error.diagnostics);
             for (const text of [...fixtureSpecs.map(spec => spec.reference), ...transcripts]) {
