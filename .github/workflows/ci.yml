@@ -9,6 +9,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # An exact-head review can add or dismiss a blocker after the code run completed. Re-evaluate the
+  # live GitHub review state on every review transition so a stale green check cannot survive it.
+  pull_request_review:
+    branches: [main]
+    types: [submitted, edited, dismissed]
   workflow_dispatch:
     inputs:
       force_full:
@@ -52,7 +57,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+          FORCE_FULL: ${{ github.event_name == 'pull_request_review' || github.event.inputs.force_full || false }}
         run: |
           set -euo pipefail
           if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
@@ -662,30 +667,11 @@ jobs:
       - name: Aggregate CI Metrics
         run: node scripts/aggregate-ci.mjs
 
-      # Generate only after canonical test counts and logical runtime have been aggregated. Generating
-      # inside the earlier Markdown report step published plausible 0/0 and zero-runtime evidence.
-      - name: Generate qualified software quality evidence
-        run: node scripts/write-software-quality-evidence.mjs
-
       - name: Report CI Timing And Failures
         if: always()
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/report-ci-timing.mjs
-
-      - name: Upload CI Metrics
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ci-metrics
-          path: |
-            artifacts/ci-metrics.json
-            artifacts/ci-wall-clock.json
-            artifacts/ci-job-timing.json
-            product_release/evidence/software-quality.latest.json
-            product_release/evidence/software-quality-summary.latest.md
-          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
-          if-no-files-found: warn
 
       - name: Upload HTML Report
         if: always()
@@ -713,6 +699,24 @@ jobs:
 
       - name: Verify Canonical Artifacts
         run: bash scripts/verify-artifacts.sh
+
+      # Generate and publish the qualified receipt only after every final assertion has succeeded.
+      # Failure diagnostics remain in the job log/HTML report; they can never resemble acceptance.
+      - name: Generate qualified software quality evidence
+        run: node scripts/write-software-quality-evidence.mjs
+
+      - name: Upload CI Metrics
+        uses: actions/upload-artifact@v6
+        with:
+          name: ci-metrics
+          path: |
+            artifacts/ci-metrics.json
+            artifacts/ci-wall-clock.json
+            artifacts/ci-job-timing.json
+            product_release/evidence/software-quality.latest.json
+            product_release/evidence/software-quality-summary.latest.md
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
+          if-no-files-found: error
 
   # ---- Thin aggregate status --------------------------------------------------------------------
   # NOT a required branch-protection check today (protection currently requires build, edge-tests,
@@ -815,24 +819,23 @@ jobs:
         run: |
           set -euo pipefail
           node --input-type=module -e '
-            import { evaluateMergeQualification, formatQualification, REQUIRED_JOBS } from "./scripts/ci-merge-qualification.mjs";
+            import { evaluateMergeQualification, formatPostMergeVerification, formatQualification, REQUIRED_JOBS } from "./scripts/ci-merge-qualification.mjs";
             // `toJSON(needs)` gives { job: { result, outputs } }; flatten to job -> result. A job that
             // never ran is absent from this object, which the evaluator rejects as missing.
             const raw = JSON.parse(process.env.RESULTS || "null");
             const results = raw && typeof raw === "object"
               ? Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, v && v.result]))
               : null;
-            // Exact-head review is pre-merge authority. Require it for PR/manual candidate lanes;
-            // post-merge push verification has no open PR head to review.
-            const required = process.env.EVENT_NAME === "push"
-              ? undefined
-              : [...REQUIRED_JOBS, "review-qualification"];
+            // Exact-head review is pre-merge authority. A default-branch push is verification of an
+            // already-merged tree, never a new merge qualification decision.
+            const postMergePush = process.env.EVENT_NAME === "push";
+            const required = postMergePush ? REQUIRED_JOBS : [...REQUIRED_JOBS, "review-qualification"];
             const decision = evaluateMergeQualification({
               fullRequired: process.env.FULL_REQUIRED,
               results,
               required,
             });
-            const text = formatQualification(decision);
+            const text = postMergePush ? formatPostMergeVerification(decision) : formatQualification(decision);
             console.log(text);
             const summary = process.env.GITHUB_STEP_SUMMARY;
             if (summary) {

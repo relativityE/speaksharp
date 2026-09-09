@@ -180,6 +180,9 @@ describe('Q-08 automated review qualification', () => {
     expect(workflow).toContain('needs: [scope, full-evidence]');
     expect(workflow).toContain('full-evidence, review-qualification]');
     expect(workflow).toContain('[...REQUIRED_JOBS, "review-qualification"]');
+    expect(workflow).toMatch(/pull_request_review:[\s\S]{0,120}types:\s*\[submitted, edited, dismissed\]/);
+    expect(workflow).toContain("github.event_name == 'pull_request_review'");
+    expect(workflow).toContain('postMergePush ? formatPostMergeVerification(decision) : formatQualification(decision)');
   });
 });
 
@@ -373,5 +376,18 @@ describe('Q-08 software-quality evidence completeness', () => {
       workflow.indexOf('- name: Generate qualified software quality evidence'),
     );
     expect(workflow).toContain('test-results/unit/results.json');
+  });
+
+  it('publishes qualified evidence only after final assertions and never under always()', () => {
+    const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    const assertAt = workflow.indexOf('- name: Assert Required Evidence Is Present');
+    const verifyAt = workflow.indexOf('- name: Verify Canonical Artifacts');
+    const generateAt = workflow.indexOf('- name: Generate qualified software quality evidence');
+    const uploadAt = workflow.indexOf('- name: Upload CI Metrics');
+    expect(assertAt).toBeGreaterThan(0);
+    expect(assertAt).toBeLessThan(verifyAt);
+    expect(verifyAt).toBeLessThan(generateAt);
+    expect(generateAt).toBeLessThan(uploadAt);
+    expect(workflow.slice(uploadAt, uploadAt + 120)).not.toContain('if: always()');
   });
 });
