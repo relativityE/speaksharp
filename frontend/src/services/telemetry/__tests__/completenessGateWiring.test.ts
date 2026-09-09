@@ -169,6 +169,16 @@ describe('#1259 completeness gate wiring', () => {
         // satisfy them, so the selected journey could be missing BOTH its own identity receipts and still
         // qualify on somebody else's.
         const src = readFileSync(join(REPO, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+        /**
+         * #1421 P2 — THE REFUSALS MOVED, AND THIS SCAN MOVED WITH THEM.
+         *
+         * The identity reading now lives in `qualifyingIdentity.ts` because the refusal is the whole
+         * point and a refusal reached only through a CLI's `process.exit` cannot be driven by a
+         * casualty. `qualifyingIdentity.test.ts` drives those refusals directly, against every
+         * malformed row shape; this scan keeps proving the SCRIPT is still wired to them — the query
+         * it issues and the binding it applies — rather than re-deriving the identity itself.
+         */
+        const reader = readFileSync(join(REPO, 'frontend/src/services/telemetry/qualifyingIdentity.ts'), 'utf8');
 
         expect({
             // The identity is DERIVED from the journey rows, never supplied — it cannot be asserted
@@ -177,13 +187,16 @@ describe('#1259 completeness gate wiring', () => {
             bindsTheReadbackToIt: src.includes('AND distinct_id = ${sql(qualifyingIdentity)}'),
             // No identity means nothing to bind to, and more than one means the journey id is not the
             // discriminator we believe it is. Both HOLD rather than fall back to an unbound match.
-            holdsWhenNoIdentity: src.includes('there is no identity to bind its receipts to'),
-            holdsWhenAmbiguous: src.includes('a journey belongs to exactly one'),
+            holdsWhenNoIdentity: reader.includes('there is no identity to bind its receipts to'),
+            holdsWhenAmbiguous: reader.includes('a journey belongs to exactly one'),
+            // And the script must actually consume that reader rather than keeping a second, softer copy.
+            scriptUsesTheReader: src.includes('resolveQualifyingIdentity(identityRows)'),
         }).toEqual({
             derivesIdentityFromTheJourney: true,
             bindsTheReadbackToIt: true,
             holdsWhenNoIdentity: true,
             holdsWhenAmbiguous: true,
+            scriptUsesTheReader: true,
         });
     });
 

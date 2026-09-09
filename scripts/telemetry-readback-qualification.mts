@@ -35,6 +35,7 @@ import {
     type CompletenessResult,
 } from '../frontend/src/services/telemetry/completenessGate';
 import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
+import { resolveQualifyingIdentity } from '../frontend/src/services/telemetry/qualifyingIdentity';
 
 /**
  * The only traffic classes that may qualify controlled Production evidence.
@@ -207,19 +208,12 @@ async function main(): Promise<void> {
           AND properties.journey_id = ${sql(journeyId)}
     `;
     const identityRows = await runQuery(identityQuery, 'the qualifying identity lookup');
-    const distinctIds = identityRows
-        .map((row) => (Array.isArray(row) ? row[0] : row))
-        .filter((id): id is string => typeof id === 'string' && id.length > 0);
 
-    if (distinctIds.length === 0) {
-        hold(`journey ${journeyId} produced no events for this release and traffic class — there is no identity to bind its receipts to`);
-    }
-    if (distinctIds.length > 1) {
-        // One journey belongs to one person. More than one identity means the journey id is not the
-        // discriminator we believe it is, and every conclusion drawn from it is suspect.
-        hold(`journey ${journeyId} spans ${distinctIds.length} distinct identities — a journey belongs to exactly one`);
-    }
-    const qualifyingIdentity = distinctIds[0];
+    // #1421 P2 — the reading lives in a checked, testable module; the policy stays here. A malformed
+    // row is a HOLD, not something to filter away before counting what is left.
+    const identity = resolveQualifyingIdentity(identityRows);
+    if (!identity.ok) hold(`journey ${journeyId}: ${identity.reason}`);
+    const qualifyingIdentity = identity.distinctId;
 
     const query = `
         SELECT DISTINCT event
