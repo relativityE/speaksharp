@@ -76,9 +76,25 @@ test.describe('User-facing session and analytics regressions', () => {
     await expect(reviewCard, 'the review settles rather than spinning')
         .not.toHaveAttribute('data-review-state', 'loading', { timeout: 20_000 });
 
-    // AND IT BLOCKS NOTHING. A review that cannot be generated must not cost the user the transcript
-    // they just recorded or the control that starts the next take.
-    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText('tester-facing transcript');
+    // AND IT BLOCKS NOTHING. A review that cannot be generated must not cost the user the session they
+    // just saved or the control that starts the next take.
+    //
+    // NOT `live-transcript`. My first version asserted that and CI answered "element(s) not found",
+    // correctly: #1306 purges ephemeral working memory at terminal, and the after-state deliberately
+    // renders the SERVER's transcript (`review-transcript`) or an honest notice about why it cannot
+    // (`review-transcript-notice`) — never the live buffer. Demanding the live surface here would have
+    // asserted the leak that purge exists to prevent, and a green version of it would have meant the
+    // product had regressed.
+    const savedTranscript = page.getByTestId('review-transcript');
+    const transcriptNotice = page.getByTestId('review-transcript-notice');
+    await expect
+        .poll(async () => await savedTranscript.count() + await transcriptNotice.count(),
+            { timeout: 15_000 })
+        .toBeGreaterThan(0);
+
+    // The saved session is still reachable, so the failed review cost the user nothing they recorded.
+    await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15_000 });
+    // And the only desktop control back into a recording still works.
     await expect(page.getByTestId('verdict-practice-again')).toBeEnabled();
   });
 
