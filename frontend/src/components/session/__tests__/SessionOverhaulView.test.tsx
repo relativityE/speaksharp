@@ -319,7 +319,17 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 <SessionOverhaulView
                     {...base}
                     objectivePoints={POINTS}
-                    objectiveCoverage={null}
+                    /**
+                     * STALE COVERAGE, NOT NULL. A save can publish `objectiveCoverageResult` and THEN
+                     * fail transcript retention, so the array outlives the transcript it described.
+                     * My first version passed `null` here, which is the easy half: the predicate also
+                     * required `objectiveCoverage === null`, so a surviving array sent slot C to the
+                     * generic Open Mic card with a fabricated "+0% fewer fillers".
+                     */
+                    objectiveCoverage={[
+                        { briefPointId: 'fp-0', point: POINTS[0], status: 'covered' },
+                        { briefPointId: 'fp-1', point: POINTS[1], status: 'missing' },
+                    ] as never}
                     showAnalyticsPrompt
                     transcriptContent=""
                     reviewTranscript={{ kind }}

@@ -425,12 +425,24 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * must not be silently swept into "terminal" by a negation. `unavailable` is the only kind that
      * may still resolve, and it keeps the pending copy.
      */
+    /**
+     * A TERMINAL TRANSCRIPT IS UNAVAILABLE WHETHER OR NOT A STALE COVERAGE ARRAY SURVIVED.
+     *
+     * This also required `objectiveCoverage === null`. A Focus Points save can compute and publish
+     * `objectiveCoverageResult` and THEN fail transcript retention, leaving the row `expired` or
+     * `not_captured` while the coverage array is still non-null. `canDeriveCoverage` correctly leaves
+     * `coverage` null in that state — but this predicate then went false, `objectiveAfterSlotC` became
+     * undefined, and `SessionAfterState` fell back to the generic Open Mic card showing a fabricated
+     * "+0% fewer fillers" for a take whose transcript is gone.
+     *
+     * The transcript's terminal state is the authority here. A coverage array that outlived the
+     * transcript it described is stale by definition and cannot make the result available.
+     */
+    const reviewIsTerminal = effectiveReview.kind === 'expired' || effectiveReview.kind === 'not_captured';
     const coverageTerminallyUnavailable = isObjective
         && terminalAuthorityExpected
-        && objectiveCoverage === null
-        && (effectiveReview.kind === 'available'
-            || effectiveReview.kind === 'expired'
-            || effectiveReview.kind === 'not_captured');
+        && (reviewIsTerminal || objectiveCoverage === null)
+        && (effectiveReview.kind === 'available' || reviewIsTerminal);
     const objectiveAfterSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
         : isObjective && coverageMayBecomeAvailable
