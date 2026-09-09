@@ -771,7 +771,21 @@ jobs:
       - uses: actions/checkout@v6
       - name: Read independent review from GitHub and qualify the exact head
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          # #1430 — THE DEFAULT TOKEN CANNOT SEE BRANCH PROTECTION, SO THE GATE FAILED CLOSED ON ITSELF.
+          #
+          # `collect-review-qualification.mjs` reads `/repos/{repo}/branches/{branch}/protection` and the
+          # repository rulesets to confirm review-thread resolution is enforced at merge. Both require
+          # admin scope; `github.token` does not carry it, so `optionalGithubRequest` took its 403/404
+          # branch, returned null, and the run reported `review_thread_resolution_not_enforced_at_merge`
+          # for a repository where the enforcement may well be configured. The gate could not read the
+          # fact it exists to check.
+          #
+          # `GH_PAT` is used first when present and `github.token` remains the fallback, so a fork or a
+          # checkout without the secret behaves exactly as it does today rather than erroring. This
+          # changes what the job can READ; it does not relax any condition the job enforces — an
+          # unreviewed head still fails on `reviewed_sha_missing_or_invalid` and
+          # `review_not_completed`, which is the correct answer for a head with no exact-head review.
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REVIEW_QUALIFICATION_FILE: ${{ runner.temp }}/review-qualification.json
