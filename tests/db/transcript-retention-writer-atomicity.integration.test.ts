@@ -122,6 +122,20 @@ const lateCreate = (db: PGlite, transcript: string | null) => db.query(
     })],
 );
 
+
+/** A keyed at-cap create: the same authoritative completed save, carrying an idempotency key. */
+const keyedCreate = (db: PGlite, key: string, transcript: string | null) => db.query<{ r: Record<string, unknown> }>(
+    `SELECT public.create_session_and_update_usage($1::jsonb, 'private', $2::uuid) AS r`,
+    [JSON.stringify({
+        title: 'recovered take', duration: 600, total_words: 120,
+        ...(transcript === null ? {} : { transcript }),
+    }), key],
+);
+
+/** The `retention` verdict a call returned, or `undefined` when it never reached the coordinator. */
+const verdict = (r: Record<string, unknown>) =>
+    (r.retention ?? undefined) as { status?: string; reason?: string } | undefined;
+
 const counts = async (db: PGlite) => (await db.query<{
     rows_total: number; with_text: number; checkpoints: number;
 }>(`SELECT
@@ -235,9 +249,14 @@ describe('#1436 — newest-one is armed by a post-rollout save, not by deploymen
         await settleEvidence(db, newer, 'attributed');
         expect((await counts(db)).with_text, 'still two, still unarmed').toBe(2);
 
-        // A real completed save with real words — the arming signal, written normally so the trigger runs.
-        const saved = await seedPriorTake(db, '2026-09-03T12:00:00Z', 'the first post-rollout take');
-        await settleEvidence(db, saved, 'attributed');
+        /**
+         * A REAL COMPLETED SAVE THROUGH THE RPC — not a raw INSERT.
+         *
+         * Arming no longer comes from a row-shape trigger, so seeding a row directly cannot arm and
+         * must not: a direct write is exactly the forgery the trigger allowed. This drives the at-cap
+         * branch of `create_session_and_update_usage`, which is an authoritative completed save.
+         */
+        await lateCreate(db, 'the first post-rollout take');
 
         const rows = (await db.query<{ transcript: string | null }>(
             `SELECT transcript FROM public.sessions WHERE user_id = $1 ORDER BY created_at ASC`, [U])).rows;
@@ -354,21 +373,44 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
     it('CASUALTY 6: a transcript-bearing idempotency REPLAY still owes convergence', async () => {
         /**
          * #1436 P1 — the duplicate short-circuit returned before taking the profile lock or invoking
-         * retention. Production enters this migration with newest-TWO rows still readable and relies on
-         * later writer calls to converge them, so replaying a successful transcript-bearing create kept
-         * reporting success with two readable transcripts indefinitely: idempotent about the ROW, and
-         * silently idempotent about the RETENTION too.
+         * retention: idempotent about the ROW, and silently idempotent about the RETENTION too. A
+         * replay could therefore keep reporting success forever without the cohort ever converging.
+         *
+         * WHAT THIS ASSERTS, AND WHY IT IS NOT "two texts become one". Under the arming boundary an
+         * armed user cannot be holding a second readable transcript in the first place — every writer
+         * path either converges or withdraws its own text (casualties 1 and F). So the observable that
+         * actually separates the defect from the fix is whether the replay REACHED the coordinator:
+         * the corrected replay carries a `retention` verdict, the short-circuit carries none. Casualty
+         * E covers the unarmed half, where the verdict is `deferred`.
          */
         const db = await freshDb();
         const key = '9f1c0f4a-6d2e-4a1b-9c7d-2b8e5a3f10cc';
-        // The pre-correction state, staged without firing the on-save trigger: two readable
-        // transcripts, both settled, and the newer one carrying the idempotency key that will be
-        // replayed. This is exactly what production looks like entering this migration.
-        // Rows are inserted NORMALLY so their `transcript_state` is set by the trigger that owns it —
-        // staging them in replica mode left text on rows still marked `not_captured`, and the
-        // migration's invariant gate correctly refused to run against that incoherent cohort. Only the
-        // EVIDENCE is staged in replica mode, because evidence is what triggers convergence and the
-        // point of this casualty is to reach the replay with two transcripts still readable.
+
+        // A genuine post-rollout at-cap save under this key: it arms, and it converges.
+        const first = verdict((await keyedCreate(db, key, 'the replayed take')).rows[0].r);
+        expect(first?.status, 'the original save converged').toBe('converged');
+
+        const replay = (await keyedCreate(db, key, 'the replayed take')).rows[0].r;
+        expect(replay.is_duplicate, 'the replay is still recognised as a duplicate').toBe(true);
+        expect(verdict(replay), 'the replay reached the coordinator instead of short-circuiting past it')
+            .toBeDefined();
+        expect(verdict(replay)?.status, 'and it converged').toBe('converged');
+        expect((await counts(db)).with_text, 'the replay created no second text').toBe(1);
+        await db.close();
+    });
+
+    it('CASUALTY E: an UNARMED legacy replay asks, is told `deferred`, and expires nothing', async () => {
+        /**
+         * The arming boundary meeting the replay path. A legacy user whose two transcripts predate
+         * rollout retries a create. The replay must still ASK — that is casualty 6's claim — but the
+         * answer is `deferred`, and the transcripts they saved under the previous policy stay readable.
+         *
+         * This also pins the failure mode I shipped and had to correct: the replay branch RAISED on any
+         * status other than `converged`, so this legacy retry died with a hard save error instead of
+         * returning duplicate success.
+         */
+        const db = await freshDb();
+        const key = '5c2b7a90-33f1-4a6d-b0e2-7c1d9e4f2a55';
         const older = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the older take');
         await db.query(
             `INSERT INTO public.sessions (id, user_id, created_at, transcript, total_words, duration,
@@ -378,18 +420,80 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
             [U, key]);
         const replayed = (await db.query<{ id: string }>(
             'SELECT id FROM public.sessions WHERE idempotency_key = $1', [key])).rows[0].id;
+        // Evidence only is staged in replica mode: settling is what would trigger convergence, and the
+        // point here is to arrive at the replay with both texts still readable.
         await db.exec("SET session_replication_role = 'replica'");
         await settleEvidence(db, older, 'attributed');
         await settleEvidence(db, replayed, 'attributed');
         await db.exec("SET session_replication_role = 'origin'");
+        expect((await counts(db)).with_text, 'the pre-rollout state really does hold two texts').toBe(2);
 
-        expect((await counts(db)).with_text, 'the pre-correction state really does hold two texts').toBe(2);
+        const replay = (await keyedCreate(db, key, 'the replayed take')).rows[0].r;
 
-        await db.query(
-            `SELECT public.create_session_and_update_usage($1::jsonb, 'private', $2::uuid) AS r`,
-            [JSON.stringify({ title: 'replay', duration: 600, total_words: 100, transcript: 'the replayed take' }), key]);
+        expect(replay.is_duplicate, 'the retry still returns duplicate success, not an error').toBe(true);
+        expect(verdict(replay)?.status, 'it asked, and was told the user is not armed').toBe('deferred');
+        expect(verdict(replay)?.reason, 'for that reason and no other').toBe('retention_not_armed');
+        expect((await counts(db)).with_text, 'and both pre-rollout transcripts survive').toBe(2);
+        await db.close();
+    });
 
-        expect((await counts(db)).with_text, 'the replay converged rather than reporting success with two').toBe(1);
+    it('CASUALTY F: a completion that does NOT retain its transcript leaves no arming behind', async () => {
+        /**
+         * #1436 P1 — a save arms only if it actually kept text. `complete_session_v2` arms inside the
+         * transcript subtransaction, so a RAISED convergence failure reverts the arming with it. The
+         * uncovered path is the one that does not raise: the coordinator RETURNS `pending`, the
+         * subtransaction commits, and the transcript is withdrawn afterwards. Leaving the arming row
+         * there would arm the user on the strength of a save that retained nothing — and the older
+         * take's evaluation, the moment it settles, would expire their text on that false signal.
+         */
+        const db = await freshDb();
+        // An older readable take whose evaluation has NOT settled: convergence must defer on it.
+        const older = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the older take');
+        await settleEvidence(db, older, 'pending');
+        const active = (await db.query<{ id: string }>(
+            `INSERT INTO public.sessions (user_id, created_at, total_words, duration, status)
+             VALUES ($1, '2026-09-04T10:00:00Z'::timestamptz, 100, 600, 'active') RETURNING id`,
+            [U])).rows[0].id;
+
+        const res = (await db.query<{ r: Record<string, unknown> }>(
+            `SELECT public.complete_session_v2(p_session_id => $1::uuid, p_status => 'completed',
+                 p_next_action => '{"kind":"practice_again"}'::jsonb, p_filler_counts => '{}'::jsonb,
+                 p_final_transcript => 'the take that was not retained') AS r`, [active])).rows[0].r;
+
+        expect(res.transcript_outcome, 'the save honestly reports the text was not retained')
+            .toBe('retention_failed');
+        expect((await db.query<{ n: number }>(
+            'SELECT COUNT(*)::int AS n FROM public.transcript_retention_arming WHERE user_id = $1', [U],
+        )).rows[0].n, 'and it armed nothing').toBe(0);
+        expect((await counts(db)).with_text, "the older take is untouched — it was never the user's to lose here")
+            .toBe(1);
+        await db.close();
+    });
+
+    it('CASUALTY G: a completion that DOES retain its transcript arms retention', async () => {
+        /**
+         * The other half of casualty F, and the reason F cannot stand alone: F asserts an ABSENCE, so
+         * it passes vacuously if `complete_session_v2` never arms at all. Removing the arming call
+         * would then look clean while the ordinary completion path — the one most saves take — stopped
+         * arming entirely, and newest-one would silently never engage for those users.
+         */
+        const db = await freshDb();
+        const active = (await db.query<{ id: string }>(
+            `INSERT INTO public.sessions (user_id, created_at, total_words, duration, status)
+             VALUES ($1, '2026-09-04T10:00:00Z'::timestamptz, 100, 600, 'active') RETURNING id`,
+            [U])).rows[0].id;
+
+        const res = (await db.query<{ r: Record<string, unknown> }>(
+            `SELECT public.complete_session_v2(p_session_id => $1::uuid, p_status => 'completed',
+                 p_next_action => '{"kind":"practice_again"}'::jsonb, p_filler_counts => '{}'::jsonb,
+                 p_final_transcript => 'the take that was kept') AS r`, [active])).rows[0].r;
+
+        expect(res.transcript_outcome, 'the text really was retained').toBe('retained');
+        expect((await db.query<{ n: number; by: string | null }>(
+            `SELECT COUNT(*)::int AS n, MAX(armed_by_session::text) AS by
+             FROM public.transcript_retention_arming WHERE user_id = $1`, [U],
+        )).rows[0], 'and the completion armed retention, naming itself as the save that did it')
+            .toEqual({ n: 1, by: active });
         await db.close();
     });
 
@@ -425,37 +529,27 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
         await db.close();
     });
 
-    it('CASUALTY 8: a replay that OMITS the transcript still converges, decided by the stored row', async () => {
+    it('CASUALTY 8: a replay that OMITS the transcript is decided by the STORED row', async () => {
         /**
          * #1436 P1 — the replay guard tested the CALLER's payload. A retry that omitted `transcript`
-         * (or sent it blank) took the fast path and returned duplicate success without converging,
-         * leaving the legacy two-transcript cohort readable. Casualty 6 sends the transcript, so it
-         * cannot expose this: the obligation comes from what was PERSISTED under that key, which the
-         * caller must not be able to revoke by sending less.
+         * (or sent it blank) took the transcript-free fast path and returned duplicate success without
+         * ever reaching retention. Casualty 6 sends the transcript, so it cannot expose this: the
+         * obligation comes from what was PERSISTED under that key, which the caller must not be able to
+         * revoke by sending less.
          */
         const db = await freshDb();
         const key = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-        const older = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the older take');
-        await db.query(
-            `INSERT INTO public.sessions (id, user_id, created_at, transcript, total_words, duration,
-                 filler_counts, status, idempotency_key)
-             VALUES (gen_random_uuid(), $1, '2026-09-02T10:00:00Z'::timestamptz, 'the replayed take',
-                     100, 600, '{"um": 1}'::jsonb, 'completed', $2)`,
-            [U, key]);
-        const replayed = (await db.query<{ id: string }>(
-            'SELECT id FROM public.sessions WHERE idempotency_key = $1', [key])).rows[0].id;
-        await db.exec("SET session_replication_role = 'replica'");
-        await settleEvidence(db, older, 'attributed');
-        await settleEvidence(db, replayed, 'attributed');
-        await db.exec("SET session_replication_role = 'origin'");
-        expect((await counts(db)).with_text, 'the pre-correction state holds two texts').toBe(2);
+
+        const first = verdict((await keyedCreate(db, key, 'the stored take')).rows[0].r);
+        expect(first?.status, 'the original save stored text and converged').toBe('converged');
 
         // The retry carries NO transcript — but the stored row does.
-        await db.query(
-            `SELECT public.create_session_and_update_usage($1::jsonb, 'private', $2::uuid) AS r`,
-            [JSON.stringify({ title: 'replay', duration: 600, total_words: 100 }), key]);
+        const replay = (await keyedCreate(db, key, null)).rows[0].r;
 
-        expect((await counts(db)).with_text, 'the replay converged on the stored row, not the payload').toBe(1);
+        expect(replay.is_duplicate, 'still a duplicate').toBe(true);
+        expect(verdict(replay), 'the empty payload did not buy it the transcript-free fast path')
+            .toBeDefined();
+        expect(verdict(replay)?.status, 'the stored row decided, and it converged').toBe('converged');
         await db.close();
     });
 

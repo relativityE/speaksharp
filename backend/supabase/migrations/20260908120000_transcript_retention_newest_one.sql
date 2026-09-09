@@ -178,11 +178,11 @@ $$;
  * is the arming signal, and it is durable so a later replay, retry or delayed evaluation cannot
  * manufacture one.
  *
- * Armed from a trigger on `sessions` rather than by redefining `complete_session_v2`, for two reasons:
- * that function stays untouched (this migration calls it, it does not reimplement it), and the signal
- * then lands for EVERY genuine completed save — the ordinary completion path and the at-cap create
- * alike. Because the trigger runs inside the caller's transaction, a completion that rolls back takes
- * its arming with it: only a SUCCESSFUL save arms.
+ * Armed by the completion transactions themselves — `complete_session_v2` and the at-cap branch of
+ * `create_session_and_update_usage` — and never by a trigger on `sessions`. A row that LOOKS like a
+ * completed save is not proof of one, and authenticated users hold direct UPDATE on `sessions`. Both
+ * call sites arm only after their write has succeeded, inside the caller's transaction, so a
+ * completion that rolls back takes its arming with it: only a SUCCESSFUL save arms.
  *
  * `ON CONFLICT DO NOTHING` keeps the first arming instant, which is the fact worth retaining.
  */
@@ -195,32 +195,37 @@ CREATE TABLE IF NOT EXISTS public.transcript_retention_arming (
 ALTER TABLE public.transcript_retention_arming ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.transcript_retention_arming FROM PUBLIC;
 
-CREATE OR REPLACE FUNCTION public.arm_transcript_retention()
-RETURNS trigger
-LANGUAGE plpgsql
+/*
+ * #1436 P1 — ARMING LIVES INSIDE THE TRUSTED SUCCESSFUL-SAVE BOUNDARY, NOT IN A ROW-SHAPE TRIGGER.
+ *
+ * The trigger this replaces armed on any `sessions` row that merely LOOKED like a completed save.
+ * That is not proof of a save. Authenticated users retain direct UPDATE on `sessions.status` and
+ * `sessions.transcript` (20260803010000_session_attribution_authority.sql), so an entitled client
+ * could arm a legacy user by rewriting a pre-rollout completed row's transcript — even to the same
+ * value — and a later evaluation would then irreversibly expire their older text. The at-cap create
+ * had a second false-positive: it inserted a completed row and armed, and when `update_user_usage`
+ * rejected the request the session was deleted while the arming row stayed committed.
+ *
+ * Arming is therefore performed only by the transactions that actually complete a save:
+ * `complete_session_v2` and the at-cap branch of `create_session_and_update_usage`, in both cases
+ * AFTER the write has succeeded. A client cannot reach either without going through the RPC, and a
+ * transaction that rolls back takes its arming with it.
+ */
+CREATE OR REPLACE FUNCTION public.arm_transcript_retention_for_save(p_user_id uuid, p_session_id uuid)
+RETURNS void
+LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-BEGIN
-    IF NEW.user_id IS NOT NULL
-       AND NEW.status = 'completed'
-       AND NEW.transcript IS NOT NULL
-       AND NEW.transcript ~ '[^[:space:]]' THEN
-        INSERT INTO public.transcript_retention_arming (user_id, armed_by_session)
-        VALUES (NEW.user_id, NEW.id)
-        ON CONFLICT (user_id) DO NOTHING;
-    END IF;
-    RETURN NULL;  -- AFTER trigger
-END;
+    INSERT INTO public.transcript_retention_arming (user_id, armed_by_session)
+    VALUES (p_user_id, p_session_id)
+    ON CONFLICT (user_id) DO NOTHING;
 $$;
 
-REVOKE ALL ON FUNCTION public.arm_transcript_retention() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.arm_transcript_retention_for_save(uuid, uuid) FROM PUBLIC;
 
 DROP TRIGGER IF EXISTS trg_sessions_arm_retention ON public.sessions;
-CREATE TRIGGER trg_sessions_arm_retention
-  AFTER INSERT OR UPDATE OF status, transcript ON public.sessions
-  FOR EACH ROW
-  EXECUTE FUNCTION public.arm_transcript_retention();
+DROP FUNCTION IF EXISTS public.arm_transcript_retention();
 
 CREATE OR REPLACE FUNCTION public.converge_transcript_retention(p_user_id uuid)
 RETURNS jsonb
@@ -533,6 +538,253 @@ $$;
 
 REVOKE ALL ON FUNCTION public.spe_converge_retention() FROM PUBLIC;
 
+/*
+ * #1436 P1 — `complete_session_v2` IS REDEFINED HERE, and the header note above is superseded.
+ *
+ * It was previously untouched by this migration, and that was the right default. Option A requires
+ * arming to be written by the transaction that actually completes a save, and this is that
+ * transaction — so the redefinition is the cost of putting the signal where it cannot be forged. The
+ * body is reproduced verbatim from 20260819120000 with exactly one addition: the arming call inside
+ * the existing transcript subtransaction, shown above.
+ */
+CREATE OR REPLACE FUNCTION public.complete_session_v2(
+    p_session_id UUID,
+    p_status TEXT DEFAULT 'completed',
+    p_final_duration INT DEFAULT NULL,
+    p_reason TEXT DEFAULT NULL,
+    p_next_action JSONB DEFAULT NULL,
+    p_total_words INT DEFAULT NULL,
+    p_clarity_score DOUBLE PRECISION DEFAULT NULL,
+    p_wpm DOUBLE PRECISION DEFAULT NULL,
+    p_filler_counts JSONB DEFAULT NULL,
+    p_pause_metrics JSONB DEFAULT NULL,
+    p_final_transcript TEXT DEFAULT NULL
+) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_session public.sessions%ROWTYPE;
+    v_effective_tier TEXT;
+    v_final_duration INT;
+    v_retention JSONB := NULL;
+    v_retention_error TEXT := NULL;
+    v_idempotent BOOLEAN := false;
+    v_eligible BOOLEAN := false;
+    v_subtxn_failed BOOLEAN := false;
+    v_wrote_transcript BOOLEAN := false;
+    v_retention_status TEXT := NULL;
+    v_effective_status TEXT;
+    v_outcome TEXT;
+BEGIN
+    -- OWNERSHIP + SERIALIZATION. Locking the caller's own profile row is what serializes concurrent completions
+    -- for a user, and it is the SAME row converge_transcript_retention locks, so retention inherits the lock
+    -- rather than taking a second one and risking a different acquisition order.
+    SELECT public.effective_subscription_tier(
+        subscription_status, trial_expires_at, stripe_subscription_id, subscription_id, commercial_trial_granted_at
+    ) INTO v_effective_tier FROM public.user_profiles WHERE id = auth.uid() FOR UPDATE;
+    IF NOT FOUND THEN RETURN jsonb_build_object('success', false, 'error', 'profile_not_found'); END IF;
+
+    -- Ownership is enforced by the predicate, not by a client-supplied user id: another user's session id is
+    -- indistinguishable from a nonexistent one.
+    SELECT * INTO v_session FROM public.sessions
+    WHERE id = p_session_id AND user_id = auth.uid() FOR UPDATE;
+    IF NOT FOUND THEN RETURN jsonb_build_object('success', false, 'error', 'session_not_found'); END IF;
+
+    IF COALESCE(v_effective_tier, 'free') <> 'pro' THEN
+        RETURN jsonb_build_object('success', false, 'error', 'trial_expired');
+    END IF;
+
+    -- BOUND THE TRANSCRIPT BEFORE ANYTHING ELSE, on BOTH axes. Rejected, never truncated.
+    IF p_final_transcript IS NOT NULL THEN
+        IF length(p_final_transcript) > public.max_persisted_transcript_chars() THEN
+            RAISE EXCEPTION '#1314: transcript exceeds the persisted character limit'
+                USING ERRCODE = '22001';   -- string_data_right_truncation
+        END IF;
+        IF octet_length(p_final_transcript) > public.max_persisted_transcript_bytes() THEN
+            RAISE EXCEPTION '#1314: transcript exceeds the persisted byte limit'
+                USING ERRCODE = '54000';   -- program_limit_exceeded
+        END IF;
+    END IF;
+
+    v_final_duration := LEAST(600, GREATEST(0, COALESCE(p_final_duration, v_session.duration, 0)));
+
+    IF v_session.status = 'completed' THEN
+        -- STRICT idempotency: an identical replay is a no-op; ANY mismatch conflicts, never a partial update.
+        -- A NULL parameter means "unchanged", so a retry that omits a field never conflicts. The transcript
+        -- participates on exactly the same terms as every metric — otherwise a replay carrying different text
+        -- would silently overwrite what the user already has.
+        IF p_status = v_session.status
+           AND v_final_duration IS NOT DISTINCT FROM v_session.duration
+           AND COALESCE(p_reason, v_session.status_reason) IS NOT DISTINCT FROM v_session.status_reason
+           AND p_next_action IS NOT DISTINCT FROM v_session.next_action_signal
+           AND COALESCE(p_total_words, v_session.total_words)      IS NOT DISTINCT FROM v_session.total_words
+           AND COALESCE(p_clarity_score, v_session.clarity_score)  IS NOT DISTINCT FROM v_session.clarity_score
+           AND COALESCE(p_wpm, v_session.wpm)                      IS NOT DISTINCT FROM v_session.wpm
+           AND COALESCE(p_filler_counts, v_session.filler_counts)  IS NOT DISTINCT FROM v_session.filler_counts
+           AND COALESCE(p_pause_metrics, v_session.pause_metrics)  IS NOT DISTINCT FROM v_session.pause_metrics
+           AND COALESCE(p_final_transcript, v_session.transcript)  IS NOT DISTINCT FROM v_session.transcript
+        THEN
+            -- Do NOT return here. An early return is what made retention convergence unreachable on replay:
+            -- a guarded failure could never be retried because the retry short-circuited before the coordinator.
+            -- Flag it and fall through to the ONE common exit that both fresh completions and replays traverse.
+            v_idempotent := true;
+        ELSE
+        RAISE EXCEPTION '#1306: idempotency conflict — a completed session cannot be re-completed with different final metrics/duration/status/reason/next-action/transcript'
+            USING ERRCODE = '40003';
+        END IF;
+    END IF;
+
+    -- Validations apply only to a FRESH completion. A verified-identical replay has already satisfied them.
+    IF NOT v_idempotent THEN
+        IF p_status = 'completed' AND p_next_action IS NULL THEN
+            RAISE EXCEPTION '#1306: a completed session requires exactly one structured next action' USING ERRCODE = '23514';
+        END IF;
+
+        -- Zero-vs-missing: `{}` means "measured, zero fillers" and must be sent explicitly. NULL means "not
+        -- measured" and is REJECTED for a completion — never coerced to `{}`, which would fabricate a
+        -- flattering measured zero.
+        IF p_status = 'completed' AND COALESCE(p_filler_counts, v_session.filler_counts) IS NULL THEN
+            RAISE EXCEPTION '#1306: a completed session requires a measured filler_counts map (send {} for a genuine zero, never null)'
+                USING ERRCODE = '23514';
+        END IF;
+
+        -- (1) THE SESSION WRITE — metrics, filler snapshot, the one next action, duration, status.
+        -- This is the write that MUST SURVIVE a retention failure, so it deliberately carries NO transcript and
+        -- sits OUTSIDE the subtransaction below. "Completed but missing its metrics" stops being reachable.
+        UPDATE public.sessions
+        SET status = p_status,
+            status_reason = COALESCE(p_reason, status_reason),
+            duration = v_final_duration,
+            total_words   = COALESCE(p_total_words, total_words),
+            clarity_score = COALESCE(p_clarity_score, clarity_score),
+            wpm           = COALESCE(p_wpm, wpm),
+            filler_counts = COALESCE(p_filler_counts, filler_counts),
+            pause_metrics = COALESCE(p_pause_metrics, pause_metrics),
+            next_action_signal = CASE WHEN p_status = 'completed' THEN p_next_action ELSE next_action_signal END,
+            updated_at = now()
+        WHERE id = p_session_id AND user_id = auth.uid();
+    END IF;
+
+    -- ELIGIBILITY. Retention convergence belongs to COMPLETED saves and their replays only. A `failed`,
+    -- cancelled or otherwise non-completed transition must never rotate anybody's transcripts as a side effect
+    -- of ending a recording badly.
+    v_effective_status := CASE WHEN v_idempotent THEN v_session.status ELSE p_status END;
+    v_eligible := (v_effective_status = 'completed');
+
+    -- (2) TRANSCRIPT + RETENTION, TOGETHER, IN ONE SUBTRANSACTION.
+    --
+    -- Both must be in the SAME subtransaction. If the transcript landed first and convergence then failed, the
+    -- row would be transcript-bearing AND unrotated — precisely the third-transcript breach this exists to
+    -- prevent. Rolling the two back together is what makes the at-most-two invariant hold on the failure path:
+    -- from a valid starting state, a failed convergence CANNOT INCREASE the transcript-bearing row count.
+    --
+    -- The session write above is already durable, so the user keeps the practice session and its metrics; only
+    -- the new transcript is forfeited. The outcome is REPORTED, never swallowed.
+    IF v_eligible THEN
+        BEGIN
+            IF p_final_transcript IS NOT NULL AND NOT v_idempotent THEN
+                -- transcript_state is NOT set here: trg_sessions_set_transcript_state owns it, derives it from
+                -- the text actually persisted, and enforces sticky expiry so a late replay cannot resurrect
+                -- retention-removed text.
+                UPDATE public.sessions
+                SET transcript = p_final_transcript, updated_at = now()
+                WHERE id = p_session_id AND user_id = auth.uid();
+                v_wrote_transcript := true;
+            END IF;
+            -- #1436 P1 — THE ARMING SIGNAL, WRITTEN BY THE AUTHORITATIVE COMPLETION ITSELF.
+            --
+            -- Inside this subtransaction and after the transcript write, so it shares the fate of the
+            -- save: a convergence failure below rolls the transcript AND the arming back together, and
+            -- a user is never armed by a save that did not land. A client cannot reach this without
+            -- going through the RPC, which is what the removed row-shape trigger could not guarantee.
+            IF v_wrote_transcript THEN
+                PERFORM public.arm_transcript_retention_for_save(auth.uid(), p_session_id);
+            END IF;
+            v_retention := public.converge_transcript_retention(auth.uid());
+            v_retention_status := v_retention->>'status';
+        EXCEPTION
+            -- query_canceled (57014, statement_timeout/cancel) is NOT caught by WHEN OTHERS and would otherwise
+            -- escape this subtransaction, abort the whole function, and roll back the DURABLE session-metrics
+            -- write above with it. Catch it explicitly so the savepoint rolls back only the transcript+retention
+            -- and the session/metrics survive (verified against real PostgreSQL).
+            WHEN query_canceled THEN
+                v_subtxn_failed := true; v_retention_error := SQLSTATE;
+            WHEN OTHERS THEN
+                -- Content-free: SQLSTATE only. A retention error must never echo a transcript or row content.
+                v_subtxn_failed := true; v_retention_error := SQLSTATE;
+        END;
+
+        -- NEWEST-TWO INVARIANT, enforced on the RESULT, not just on exceptions. converge_transcript_retention
+        -- can RETURN 'pending' (Option A: an older session's terminal Progress evidence is not yet durable) or
+        -- 'non_converged' (a backlog beyond one bounded batch) WITHOUT raising. In either case it did NOT reduce
+        -- to two transcript-bearing rows, so keeping THIS session's newly-written transcript would leave a THIRD
+        -- — a direct breach of the at-most-two contract. Revert our transcript write (a durable UPDATE, outside
+        -- the subtransaction) so the session and its metrics stay, but the new transcript is not retained. On a
+        -- caught exception the savepoint already reverted the transcript; this handles the no-exception,
+        -- did-not-converge case the earlier version missed.
+        IF v_wrote_transcript AND NOT v_subtxn_failed
+           AND COALESCE(v_retention_status, 'error') IS DISTINCT FROM 'converged' THEN
+            UPDATE public.sessions SET transcript = NULL, updated_at = now()
+            WHERE id = p_session_id AND user_id = auth.uid();
+            /*
+             * #1436 P1 — AND THE ARMING GOES WITH IT.
+             *
+             * Arming is written inside the subtransaction, so the EXCEPTION path already reverts it.
+             * This is the no-exception path: convergence RETURNED `pending`/`non_converged`, the
+             * subtransaction committed, and the transcript is being withdrawn out here. Leaving the
+             * arming row would arm the user on a save that retained no text — the exact "a failed save
+             * cannot leave arming behind" boundary — and the next settling evaluation would then expire
+             * their older transcript on the strength of a save that kept nothing.
+             *
+             * Scoped to `armed_by_session`: if this user was already armed by an EARLIER successful
+             * save, that arming is a fact about that save and must survive this one.
+             */
+            DELETE FROM public.transcript_retention_arming
+            WHERE user_id = auth.uid() AND armed_by_session = p_session_id;
+        END IF;
+    END IF;
+
+    -- RE-READ. The outcome is derived from what the server ACTUALLY holds, never predicted. Rollback does not
+    -- always mean `not_captured`: a row with a pre-existing retained transcript still reads `available`, and an
+    -- already-expired row still reads `expired`. Hard-coding either would report a state the row does not have.
+    SELECT * INTO v_session FROM public.sessions WHERE id = p_session_id AND user_id = auth.uid();
+
+    -- TYPED, MUTUALLY EXCLUSIVE OUTCOME. Not a boolean: "the subtransaction did not throw" is not the same
+    -- claim as "this transcript is retained", and a client must be able to switch exhaustively rather than
+    -- infer from an absence.
+    v_outcome := CASE
+        -- A raised failure OR a non-converged retention RESULT both mean "the new transcript is not retained".
+        WHEN v_subtxn_failed
+          OR (v_wrote_transcript AND COALESCE(v_retention_status, 'error') IS DISTINCT FROM 'converged')
+                                                          THEN 'retention_failed'
+        WHEN v_session.transcript_state = 'expired'       THEN 'expired'
+        WHEN v_session.transcript_state = 'available'     THEN 'retained'
+        WHEN p_final_transcript IS NULL                   THEN 'not_provided'
+        ELSE 'not_captured'   -- text was supplied but was blank/unusable; the server says so plainly
+    END;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'session_saved', true,
+        'idempotent', v_idempotent,
+        'final_status', v_effective_status,
+        'next_action_signal', v_session.next_action_signal,
+        'transcript_state', v_session.transcript_state,
+        'transcript_outcome', v_outcome,
+        'transcript_retained', (v_outcome = 'retained'),
+        'retention', COALESCE(
+            v_retention,
+            CASE WHEN v_subtxn_failed
+                 THEN jsonb_build_object('status', 'error', 'sqlstate', v_retention_error)
+                 ELSE jsonb_build_object('status', 'skipped', 'reason', 'not_an_eligible_completion') END)
+    );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.complete_session_v2(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.complete_session_v2(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_session_v2(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB, TEXT) TO service_role;
+
 CREATE OR REPLACE FUNCTION public.create_session_and_update_usage(
     p_session_data JSONB,
     p_engine_type TEXT DEFAULT 'private',
@@ -594,7 +846,15 @@ BEGIN
                   AND transcript ~ '[^[:space:]]'
             ) THEN
                 v_retention := public.converge_transcript_retention(auth.uid());
-                IF COALESCE(v_retention->>'status', 'error') <> 'converged' THEN
+                /*
+                 * `deferred` is an ANSWER, not a failure. An unarmed user's transcripts are governed by
+                 * the policy they were saved under, so there is nothing for this replay to converge and
+                 * nothing to report as broken — raising here would turn a legacy user's harmless retry
+                 * into a hard save error. What the replay owes is to ASK; the verdict travels back in
+                 * `retention` either way. Any other non-converged status still means it asked, was
+                 * allowed to act, and did not finish, which stays a retryable failure.
+                 */
+                IF COALESCE(v_retention->>'status', 'error') NOT IN ('converged', 'deferred') THEN
                     RAISE EXCEPTION 'create_session_and_update_usage: replayed transcript retention did not converge (status=%)',
                         COALESCE(v_retention->>'status', 'error')
                         USING ERRCODE = '55000';
@@ -717,6 +977,16 @@ BEGIN
         );
     END IF;
 
+    /*
+     * #1436 P1 — the at-cap create is a completed save, and arms only once it has SUCCEEDED.
+     * Placed after the usage check: the rejection branch above deletes the session and returns, and
+     * arming before that point left an arming row behind for a save that never happened.
+     */
+    v_writes_transcript := COALESCE(p_session_data->>'transcript', '') ~ '[^[:space:]]';
+    IF v_initial_at_cap AND v_writes_transcript THEN
+        PERFORM public.arm_transcript_retention_for_save(auth.uid(), v_new_session_id);
+    END IF;
+
     IF v_duration > 0 THEN
         INSERT INTO public.usage_checkpoints (session_id, user_id, incremental_seconds, engine_type)
         VALUES (v_new_session_id, auth.uid(), v_duration, p_engine_type);
@@ -739,8 +1009,6 @@ BEGIN
      * outcome. NULLing the new transcript and reporting success would tell the user their words were
      * saved while discarding them.
      */
-    v_writes_transcript := COALESCE(p_session_data->>'transcript', '') ~ '[^[:space:]]';
-
     /*
      * #1436 P1 — A PLACEHOLDER MUST NOT EXPIRE ANYTHING. RECORDING START IS NOT A SAVE.
      *
@@ -773,7 +1041,20 @@ BEGIN
         END;
     END IF;
 
+    /*
+     * #1436 P1 — A LATE-CREATE RECOVERY MUST REACH `complete_session_v2`.
+     *
+     * The missing-session recovery path supplies a real transcript with an ordinary sub-600s duration,
+     * so the row is inserted ACTIVE and retention legitimately defers. Treating that deferral as a
+     * failure rolled the row back and returned no session id, so the controller never reached the
+     * authoritative completion transaction and never installed its full-save retry — the recovery
+     * path was broken by the guard meant to protect it.
+     *
+     * Only a create that is ITSELF a completed save owes convergence. An active create defers, keeps
+     * its row, and converges when completion arms and runs it.
+     */
     IF v_writes_transcript
+       AND v_initial_at_cap
        AND COALESCE(v_retention->>'status', 'error') <> 'converged' THEN
         RAISE EXCEPTION 'create_session_and_update_usage: transcript retention did not converge (status=%)',
             COALESCE(v_retention->>'status', 'error')

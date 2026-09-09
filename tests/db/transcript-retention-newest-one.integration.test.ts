@@ -106,6 +106,23 @@ async function giveTerminalEvidence(db: PGlite, sessionIds: string[], userId: st
     }
 }
 
+/**
+ * #1436 — STAGE THE ARMING SIGNAL THIS SUITE'S SUBJECT PRESUPPOSES.
+ *
+ * Newest-one applies to a user only once a completed post-rollout save has ARMED them, so an unarmed
+ * user's convergence is a no-op that reports `deferred`. This suite's subject is the coordinator —
+ * ranking, expiry, idempotence, the evidence gate — all of which begin after that point, so the
+ * arming is staged here rather than derived.
+ *
+ * It calls the same function the two save paths call. It does NOT fabricate a save: arming used to
+ * come from a row-shape trigger, which is precisely why every fixture in this file armed itself
+ * merely by being seeded, and why none of them ever exercised the boundary. That boundary is proven
+ * on its own terms in `transcript-retention-writer-atomicity.integration.test.ts` — casualties A–D
+ * (only a completed post-rollout save arms) and F/G (a save arms iff it retained its text).
+ */
+const armRetention = (db: PGlite, userId: string) =>
+    db.query('SELECT public.arm_transcript_retention_for_save($1, NULL)', [userId]);
+
 type Row = { id: string; transcript_state: string; has_text: boolean; total_words: number | null; filler_counts: unknown };
 const readAll = async (db: PGlite, userId: string) => (await db.query<Row>(
     `SELECT id, transcript_state, (transcript IS NOT NULL) AS has_text, total_words, filler_counts
@@ -121,6 +138,9 @@ describe('newest-ONE transcript retention, executed against the real migrations'
         oldest = await seedSession(db, U, '2026-08-01T10:00:00Z', 'the first session transcript', 100);
         middle = await seedSession(db, U, '2026-08-02T10:00:00Z', 'the second session transcript', 200);
         newest = await seedSession(db, U, '2026-08-03T10:00:00Z', 'the third session transcript', 300);
+        // Before any evidence lands: persisting an evaluation converges through
+        // `trg_spe_converge_retention`, so a user armed afterwards would be armed too late to matter.
+        await armRetention(db, U);
     });
 
     it('the policy marker moved, and every pinning check moved with it', async () => {
@@ -259,6 +279,11 @@ describe('newest-ONE transcript retention, executed against the real migrations'
     it('CONTROL: the coordinator still DEFERS while evidence is pending', async () => {
         // The evidence gate is not part of this change and must not be weakened by it: a candidate
         // without a durable terminal evaluation is never expired, whatever the rank threshold says.
+        //
+        // `pending` AND NOT `deferred` is the whole point. The user is armed (see `beforeEach`), so the
+        // arming gate is not what is holding this back — the missing terminal evaluation is. Asserting
+        // only "it did not expire anything" would pass for either reason, and would keep passing if the
+        // evidence gate were deleted outright and the arming gate were doing all the work.
         const res = await db.query<{ r: { status: string; expired_count: number } }>(
             'SELECT public.converge_transcript_retention($1) AS r', [U],
         );
