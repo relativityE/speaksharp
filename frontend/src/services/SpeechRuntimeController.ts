@@ -372,6 +372,15 @@ export class SpeechRuntimeController {
      * take, it belongs to that take and A must leave it alone.
      */
     private finalizingOwnerVersion: number | null = null;
+    /**
+     * #1431 P1 — WHO armed the finalizing latch, in full.
+     *
+     * The lifecycle version alone does not identify a take: a service can be replaced WITHIN the same
+     * lifecycle, and a stale take then matched the successor's latch and switched off its
+     * "Finalizing…" and discarded its frozen transcript. These are the same three terms
+     * `stopStillOwnsSharedState` already uses, for the same reason.
+     */
+    private finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: TranscriptionService | null } | null = null;
 
     /**
      * #1431 P1 — the authority a STOPPING take carries through its own suspensions.
@@ -396,7 +405,11 @@ export class SpeechRuntimeController {
      * and by a shorter route. `finalizingOwnerVersion` already recorded who armed the latch; nothing
      * was reading it here.
      */
-    private releaseFinalizingIfOwner(reason: string, capturedOwnerVersion: number | null = null): boolean {
+    private releaseFinalizingIfOwner(
+        reason: string,
+        capturedOwnerVersion: number | null = null,
+        capturedOwner: StopAuthority | null = null,
+    ): boolean {
         /**
          * THE COMPARISON IS AGAINST THE CAPTURED OWNER, NOT THE LIVE LIFECYCLE.
          *
@@ -411,6 +424,34 @@ export class SpeechRuntimeController {
          * same value that armed the latch. A superseded take still fails the comparison, because its
          * captured version is not the one that armed the latch B is now using.
          */
+        /**
+         * #1431 P1 — THE LIFECYCLE VERSION ALONE DOES NOT IDENTIFY A TAKE.
+         *
+         * A service can be replaced WITHIN the same lifecycle version. A stale take then matched the
+         * successor's latch on version alone and switched off B's "Finalizing…" and discarded B's
+         * frozen transcript — the successor's own stop then had no latch to release and the user saw
+         * the control re-enable mid-save. The generation and service identity are the terms that
+         * separate those takes, and they are exactly what `stopStillOwnsSharedState` already compares.
+         */
+        const armedByFull = this.finalizingOwner;
+        if (armedByFull && capturedOwner) {
+            const sameTake = armedByFull.lifecycleVersion === capturedOwner.lifecycleVersion
+                && armedByFull.serviceGeneration === capturedOwner.serviceGeneration
+                && (armedByFull.service === null || capturedOwner.service === null
+                    || armedByFull.service === capturedOwner.service);
+            if (!sameTake) {
+                pushNativeRuntimeTrace('controller_finalizing_release_refused', {
+                    reason,
+                    armedByLifecycle: armedByFull.lifecycleVersion,
+                    ownerLifecycle: capturedOwner.lifecycleVersion,
+                    armedByGeneration: armedByFull.serviceGeneration,
+                    ownerGeneration: capturedOwner.serviceGeneration,
+                    live: this.lifecycleVersion,
+                });
+                return false;
+            }
+        }
+
         const armedBy = this.finalizingOwnerVersion;
         const owner = capturedOwnerVersion ?? this.lifecycleVersion;
         if (armedBy !== null && armedBy !== owner) {
@@ -424,6 +465,7 @@ export class SpeechRuntimeController {
         }
         useSessionStore.getState().setTranscriptFinalizing(false);
         this.finalizingOwnerVersion = null;
+        this.finalizingOwner = null;
         useSessionStore.getState().freezeTranscriptAtStop(null);
         return true;
     }
@@ -1068,8 +1110,30 @@ export class SpeechRuntimeController {
                     if (this.pendingFullSaveRetry === fullSave) {
                         this.pendingFullSaveRetry = { ...fullSave, sessionId: createdId };
                     }
-                    if (!this.sessionId) this.sessionId = createdId;
-                    this.applyPrivateTelemetryContext();
+                    /**
+                     * #1431 P1 — A'S CREATED ROW IS A'S, AND MUST NOT BE INSTALLED INTO B.
+                     *
+                     * `saveSession()` above is a real suspension point. A hard reset can start
+                     * successor B while it is unresolved, and B begins with NO session row — so
+                     * `!this.sessionId` is true and A resumed by assigning its own created id, plus its
+                     * telemetry context, to B. B then persisted into A's row: two takes, one row, and
+                     * the user's second recording written over the first's identity.
+                     *
+                     * The retry-local bookkeeping above stays unfenced — the slot and `targetSessionId`
+                     * are A's own, and A must still finish its work. Only the SHARED installs are
+                     * gated, on the same authority captured before the first await.
+                     */
+                    if (retryStillOwnsSharedState()) {
+                        if (!this.sessionId) this.sessionId = createdId;
+                        this.applyPrivateTelemetryContext();
+                    } else {
+                        pushNativeRuntimeTrace('controller_retry_created_id_adoption_refused', {
+                            capturedLifecycle: retryAuthority.lifecycleVersion,
+                            liveLifecycle: this.lifecycleVersion,
+                            capturedGeneration: retryAuthority.serviceGeneration,
+                            liveGeneration: this.serviceGeneration,
+                        });
+                    }
                 }
                 const completion = await completeSession(targetSessionId, fullSave.completeArgs);
                 if (!completion?.success) return false;
@@ -2102,6 +2166,8 @@ export class SpeechRuntimeController {
                 const store = useSessionStore.getState();
                 if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
                 this.finalizingOwnerVersion = null;
+            this.finalizingOwner = null;
+                this.finalizingOwner = null;
             }
             return;
         }
@@ -2887,6 +2953,11 @@ export class SpeechRuntimeController {
         store.setTranscriptFinalizing(true);
         // The take arming the latch owns it until it is cleared. See `finalizingOwnerVersion`.
         this.finalizingOwnerVersion = this.lifecycleVersion;
+        this.finalizingOwner = {
+            lifecycleVersion: this.lifecycleVersion,
+            serviceGeneration: this.serviceGeneration,
+            service: this.service,
+        };
         return frozen;
     }
 
@@ -4069,11 +4140,11 @@ export class SpeechRuntimeController {
             try {
                 await this.transition('STOPPING', undefined, token);
             } catch (transitionError) {
-                this.releaseFinalizingIfOwner('stopping_transition_failed', stopAuthority.lifecycleVersion);
+                this.releaseFinalizingIfOwner('stopping_transition_failed', stopAuthority.lifecycleVersion, stopAuthority);
                 throw transitionError;
             }
             if (token.cancelled || token.version !== this.lifecycleVersion) {
-                this.releaseFinalizingIfOwner('superseded_before_stop', stopAuthority.lifecycleVersion);
+                this.releaseFinalizingIfOwner('superseded_before_stop', stopAuthority.lifecycleVersion, stopAuthority);
                 return null;
             }
             try {
@@ -4083,7 +4154,7 @@ export class SpeechRuntimeController {
                 let sessionCompleted = false;
                 if (!service) {
                     await this.transition('READY', undefined, token);
-                    this.releaseFinalizingIfOwner('no_service', stopAuthority.lifecycleVersion);
+                    this.releaseFinalizingIfOwner('no_service', stopAuthority.lifecycleVersion, stopAuthority);
                     return null;
                 }
 
@@ -4958,7 +5029,7 @@ export class SpeechRuntimeController {
                     return;
                 }
 
-                this.releaseFinalizingIfOwner('normal_terminal', stopAuthority.lifecycleVersion);
+                this.releaseFinalizingIfOwner('normal_terminal', stopAuthority.lifecycleVersion, stopAuthority);
                 // #1306 P1: metrics are derived and the session is finalized here — purge the ephemeral live
                 // transcript from working memory (store + lifecycle) so no spoken text survives finalization. A
                 // still-pending Native background formatter can't re-populate it: its writeback is guarded on the
@@ -5025,7 +5096,7 @@ export class SpeechRuntimeController {
                         });
                     }
                     // Owner-scoped already: releases only if A still holds the latch it took.
-                    this.releaseFinalizingIfOwner('stop_failed_superseded', stopAuthority.lifecycleVersion);
+                    this.releaseFinalizingIfOwner('stop_failed_superseded', stopAuthority.lifecycleVersion, stopAuthority);
                     throw err;
                 }
 
@@ -5043,7 +5114,7 @@ export class SpeechRuntimeController {
                     });
                 }
                 await this.transition('FAILED', err as Error, token);
-                this.releaseFinalizingIfOwner('stop_failed', stopAuthority.lifecycleVersion);
+                this.releaseFinalizingIfOwner('stop_failed', stopAuthority.lifecycleVersion, stopAuthority);
                 if (err instanceof FinalizationTimeoutError) {
                     // #1089: name the real failure instead of hanging on Finalizing… forever. The control
                     // is usable again (FAILED clears the finalizing latch), and the transcript captured up

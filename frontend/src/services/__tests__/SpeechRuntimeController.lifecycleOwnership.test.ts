@@ -10,7 +10,7 @@ import {
 import { SpeechRuntimeController, type LifecycleToken } from '../SpeechRuntimeController';
 import { sessionManager } from '../transcription/SessionManager';
 import type { TranscriptionServiceOptions } from '../transcription/TranscriptionService';
-import { completeSession } from '../../lib/storage';
+import { completeSession, saveSession } from '../../lib/storage';
 
 vi.mock('../../lib/logger', () => ({
     default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -800,4 +800,120 @@ describe('#1431 — superseded work publishes nothing into the successor', () =>
         ).not.toBe('session-A');
     });
 
+});
+
+/**
+ * #1431 — THE TWO EXACT-HEAD P1s RETURNED ON `f6a082ca3e`.
+ *
+ * Both live past a suspension point that looked settled: an initial-save retry adopting the row it
+ * just created, and an error path releasing a latch it believed it owned.
+ */
+describe('#1431 — a suspended retry and a stale error path own nothing shared', () => {
+    let controller: ReturnType<typeof newController>;
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        controller = newController();
+        controller.state = 'READY';
+    });
+
+    it("CASUALTY P1-A: a suspended initial-save retry does not install its created row into B", async () => {
+        /**
+         * `saveSession()` is a real suspension point. A hard reset can start successor B while it is
+         * unresolved, and B begins with NO session row — so `!this.sessionId` was true and A, on
+         * resuming, assigned its own created id and telemetry context to B. B then persisted into A's
+         * row: two takes, one row, the second recording written over the first's identity.
+         */
+        const priv = controller as unknown as {
+            pendingFullSaveRetry: unknown;
+            sessionId: string | null;
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            retryRecordingSave: () => Promise<boolean>;
+        };
+
+        const entered = deferred();
+        const release = deferred();
+        vi.mocked(saveSession).mockImplementation(async () => {
+            entered.resolve();
+            await release.promise;
+            return { session: { id: 'session-A-created' }, usageExceeded: false } as never;
+        });
+
+        priv.sessionId = null;
+        priv.pendingFullSaveRetry = {
+            initialSave: true,
+            sessionId: null,
+            completeArgs: {},
+            attributionEvidence: null,
+            progressContext: { mode: 'private', userId: 'u', recordingId: 'r' },
+            progressMetrics: { payload: null, persisted: false },
+        };
+
+        const running = priv.retryRecordingSave().catch(() => false);
+        await entered.promise;
+
+        // B takes the lifecycle while A is suspended inside saveSession, and has no row of its own.
+        priv.lifecycleVersion += 1;
+        priv.serviceGeneration += 1;
+        priv.sessionId = null;
+
+        release.resolve();
+        await running;
+
+        expect(priv.sessionId, "A's created row is not installed as B's session").not.toBe('session-A-created');
+    });
+
+    it("CASUALTY P1-B: a service swap WITHIN one lifecycle cannot release the successor's latch", async () => {
+        /**
+         * The release compared the lifecycle version alone. A service can be replaced WITHIN the same
+         * lifecycle, so a stale take matched the successor's latch on version alone and switched off
+         * B's "Finalizing…" and discarded B's frozen transcript — the user watched the record control
+         * re-enable while their save was still running.
+         *
+         * The lifecycle version is deliberately IDENTICAL on both sides here; only the service
+         * generation differs. That is what makes this discriminating: a guard comparing versions alone
+         * passes it.
+         */
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, v?: number | null, owner?: unknown) => boolean;
+        };
+
+        const serviceB = fakeService({ isDestroyed: () => false });
+        priv.service = serviceB as never;
+        priv.serviceGeneration = 7;
+
+        // B armed the latch, in the CURRENT lifecycle with B's service.
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 7,
+            service: serviceB,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+
+        // Stale A: SAME lifecycle version, earlier service generation and a different service.
+        const staleAuthority = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 6,
+            service: fakeService({ isDestroyed: () => true }),
+            sessionId: 'session-A',
+            recordingId: 'recording-A',
+            intentToken: 'intent-A',
+        };
+
+        const released = priv.releaseFinalizingIfOwner('stale_error', staleAuthority.lifecycleVersion, staleAuthority);
+
+        expect(released, "A must not release a latch it did not arm").toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's Finalizing… stays on").toBe(true);
+    });
 });
