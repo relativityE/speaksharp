@@ -163,10 +163,13 @@ export function deriveFocusCoverage(
 
     const rows: FocusCoverageRow[] = coverage.map((c, i) => {
         const latchedCovered = latched?.has(i) ?? false;
-        const covered = c.status === 'covered' || latchedCovered;
+        // Partial is a detected point in the product's binary N/N count at both live and terminal
+        // boundaries, while retaining its amber/partial presentation. Only a previous FULL detection
+        // is latched; a transient partial must not be promoted to green on a later render.
+        const covered = c.status === 'covered' || c.status === 'partial' || latchedCovered;
         return {
             label: cleanPoints[i],
-            status: covered ? 'covered' : c.status,
+            status: latchedCovered && c.status !== 'covered' && c.status !== 'partial' ? 'covered' : c.status,
             covered,
             coveredAtSec: covered ? (c.evidence?.timestampSec ?? null) : null,
             quote: covered ? (c.evidence?.quote ?? null) : null,

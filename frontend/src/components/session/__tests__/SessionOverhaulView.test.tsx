@@ -288,6 +288,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
 
         expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('2/2');
         expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+        expect(screen.queryByTestId('coverage-footer')).not.toBeInTheDocument();
+        expect(screen.queryByText(/green marks where each point landed/i)).not.toBeInTheDocument();
         expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Partly detected');
         expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
     });

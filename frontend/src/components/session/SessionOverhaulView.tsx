@@ -357,7 +357,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         coverage = terminalAuthorityExpected
             ? applyFinalizedCoverageAuthority(derived, effObjectivePoints ?? [], objectiveCoverage ?? null)
             : derived;
-        coverage?.rows.forEach((r, i) => { if (r.covered) coveredLatch.current.add(i); });
+        coverage?.rows.forEach((r, i) => { if (r.status === 'covered') coveredLatch.current.add(i); });
     }
     const pendingObjectiveRows: FocusCoverageRow[] = (effObjectivePoints ?? []).map((label) => ({
         label,
@@ -546,12 +546,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     // §Duplication: the coverage FRACTION appears exactly once, in Slot C — never repeated
                     // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
-                        ? (coverage
+                        ? (coverage && coverage.coveredQuotes.length > 0
                             ? `${reviewWordCount} words · green marks where each point landed`
                             : `${reviewWordCount} words`)
                         : `${reviewWordCount} words · orange marks fillers`,
                     stats: fillerStatsLine,
-                    coverageMode: isObjective && coverage ? 'after' : undefined,
+                    coverageMode: isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
                 }}
                 progress={progress}
                 slotCContent={isObjective ? objectiveAfterSlotC : <ComparableProgressNotice sessionState="after" />}
@@ -563,7 +563,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     ? <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
                     : undefined}
                 fillerFooter={isObjective
-                    ? (coverage
+                    ? (coverage && coverage.coveredQuotes.length > 0
                         ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
                         : null)
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
