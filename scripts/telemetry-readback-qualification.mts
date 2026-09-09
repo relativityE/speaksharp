@@ -254,7 +254,7 @@ async function main(): Promise<void> {
         return { event: cells[0] as string, timestamp: cells[1] as string, journeyId: (cells[2] ?? null) as string | null };
     });
 
-    const bootWindow = resolveBootWindow(readback, journeyId);
+    const bootWindow = resolveBootWindow(readback, journeyId, PRE_JOURNEY_EVENT_FAMILIES);
     if (!bootWindow.ok) hold(`journey ${journeyId}: ${bootWindow.reason}`);
 
     // Journey-scoped families are already bound by the query. The two pre-journey families are bound

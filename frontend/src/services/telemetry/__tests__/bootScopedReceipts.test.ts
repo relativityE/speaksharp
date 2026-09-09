@@ -24,9 +24,12 @@ describe('#1421 — pre-journey receipts are bound to the boot that produced the
      * TWO BOOTS, ONE ACCOUNT, ONE WINDOW. Boot 1 emitted both receipts and ran journey-A. Boot 2
      * emitted NEITHER and ran journey-B, the journey under selection.
      */
+    // PRODUCTION ENVELOPE: the receipts carry the PRE-PRODUCT journey id that exists before the
+    // selected journey is minted. Giving them `journeyId: null` — as my first fixture did — hid a P1
+    // in which the receipts became their own lower bound and every legitimate run HELD.
     const twoBoots: TimestampedEvent[] = [
-        at('2026-09-09T08:00:00Z', 'account_identified'),
-        at('2026-09-09T08:00:01Z', 'telemetry_positive_control'),
+        at('2026-09-09T08:00:00Z', 'account_identified', 'pre-product-1'),
+        at('2026-09-09T08:00:01Z', 'telemetry_positive_control', 'pre-product-1'),
         at('2026-09-09T08:05:00Z', 'session_started', 'journey-A'),
         at('2026-09-09T08:09:00Z', 'session_saved', 'journey-A'),
         at('2026-09-09T09:00:00Z', 'session_started', 'journey-B'),
@@ -34,7 +37,7 @@ describe('#1421 — pre-journey receipts are bound to the boot that produced the
     ];
 
     it('CASUALTY: the selected journey cannot borrow an earlier boot\'s receipts', () => {
-        const resolved = resolveBootWindow(twoBoots, 'journey-B');
+        const resolved = resolveBootWindow(twoBoots, 'journey-B', PRE_JOURNEY);
         expect(resolved.ok).toBe(true);
         if (!resolved.ok) return;
 
@@ -46,7 +49,7 @@ describe('#1421 — pre-journey receipts are bound to the boot that produced the
 
     it('CONTROL: the boot that DID emit them qualifies on its own receipts', () => {
         // Without this the casualty above would also pass if the window rejected everything.
-        const resolved = resolveBootWindow(twoBoots, 'journey-A');
+        const resolved = resolveBootWindow(twoBoots, 'journey-A', PRE_JOURNEY);
         expect(resolved.ok).toBe(true);
         if (!resolved.ok) return;
 
@@ -58,7 +61,7 @@ describe('#1421 — pre-journey receipts are bound to the boot that produced the
 
     it('CASUALTY: a receipt from a LATER boot cannot qualify an earlier journey', () => {
         const laterBoot = [...twoBoots, at('2026-09-09T10:00:00Z', 'account_identified')];
-        const resolved = resolveBootWindow(laterBoot, 'journey-A');
+        const resolved = resolveBootWindow(laterBoot, 'journey-A', PRE_JOURNEY);
         expect(resolved.ok).toBe(true);
         if (!resolved.ok) return;
 
@@ -68,12 +71,12 @@ describe('#1421 — pre-journey receipts are bound to the boot that produced the
     });
 
     it('a journey with no readable events HOLDS rather than matching unbounded', () => {
-        expect(resolveBootWindow(twoBoots, 'journey-missing'))
+        expect(resolveBootWindow(twoBoots, 'journey-missing', PRE_JOURNEY))
             .toEqual({ ok: false, reason: expect.stringContaining('no boot to bind its receipts to') });
     });
 
     it('an unparseable timestamp is unusable, never in-window', () => {
-        const resolved = resolveBootWindow(twoBoots, 'journey-B');
+        const resolved = resolveBootWindow(twoBoots, 'journey-B', PRE_JOURNEY);
         expect(resolved.ok).toBe(true);
         if (!resolved.ok) return;
         for (const bad of [null, undefined, '', 'not-a-date', Number.NaN]) {

@@ -47,6 +47,7 @@ const instant = (value: TimestampedEvent['timestamp']): number | null => {
 export function resolveBootWindow(
     events: readonly TimestampedEvent[],
     journeyId: string,
+    preJourneyFamilies: readonly string[] = [],
 ): { ok: true; window: BootWindow } | { ok: false; reason: string } {
     const selected: number[] = [];
     const otherJourneys: number[] = [];
@@ -54,8 +55,24 @@ export function resolveBootWindow(
     for (const row of events) {
         const at = instant(row?.timestamp);
         if (at === null) continue;
-        if (row.journeyId === journeyId) selected.push(at);
-        else if (typeof row.journeyId === 'string' && row.journeyId.length > 0) otherJourneys.push(at);
+        if (row.journeyId === journeyId) { selected.push(at); continue; }
+        /**
+         * PRE-JOURNEY RECEIPTS ARE NOT A JOURNEY BOUNDARY — and my first version made them one.
+         *
+         * In production `account_identified` and `telemetry_positive_control` carry the PRE-PRODUCT
+         * `journey_id` that exists before `ensureJourneyBoundary()` mints the selected journey. Treating
+         * any non-matching journey id as an earlier journey therefore filed the receipts themselves
+         * into `otherJourneys`; their own timestamp became `window.after`, and the window then excluded
+         * them. Every complete, legitimate run would have HELD.
+         *
+         * My casualty missed it because it gave the receipts `journeyId: null`, which is not the
+         * production envelope — the fixture, not the rule, was wrong.
+         *
+         * A receipt cannot bound the boot it belongs to, so the pre-journey families never contribute
+         * to the lower bound. Only genuine product journeys do.
+         */
+        if (preJourneyFamilies.includes(row.event)) continue;
+        if (typeof row.journeyId === 'string' && row.journeyId.length > 0) otherJourneys.push(at);
     }
 
     if (selected.length === 0) {
