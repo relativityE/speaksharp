@@ -303,6 +303,19 @@ export async function setupE2EManifest(
       // FIRST load (no persisted DB yet); a fresh page (new test) starts with empty sessionStorage.
       sessions: es ? defaultSessions : (loadPersistedSessions() ?? seededSessions ?? defaultSessions),
     };
+    // Production-shaped Focus Points authority for the real setup → record → stop journey. Before this
+    // double modeled only the generic Supabase happy path (`{ success: true }` / empty tables), so the
+    // trusted register succeeded in appearance but returned no `registered` verdict and finalization
+    // could never publish the stop-seam coverage result. Terminal E2E then passed only because the view
+    // re-scored flattened text — the weaker authority #1427 removed.
+    let objectiveSequence = 0;
+    const objectiveBriefPoints = new Map<string, Array<{
+      id: string;
+      brief_id: string;
+      label: string;
+      cue: string | null;
+      sort_order: number;
+    }>>();
     let userGoals = {
       user_id: e2eProfile.id,
       weekly_goal: 5,
@@ -337,6 +350,11 @@ export async function setupE2EManifest(
         const rows = userFillerWords.filter((row) =>
           matchesFilters(row as Record<string, unknown>, filters)
         );
+        return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
+      }
+      if (table === 'objective_brief_point') {
+        const briefId = filters.find((filter) => filter.column === 'brief_id')?.value;
+        const rows = typeof briefId === 'string' ? (objectiveBriefPoints.get(briefId) ?? []) : [];
         return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
       }
       const progressRows = table === 'session_progress_evaluations' ? progress?.evaluations
@@ -597,10 +615,44 @@ export async function setupE2EManifest(
             };
             return { data, error: null };
           }
+          if (name === 'objective-register-source') {
+            return { data: { registered: true }, error: null };
+          }
           return { data: { success: true }, error: null };
         },
       },
       rpc: async (fn: string, args?: Record<string, unknown>) => {
+        if (fn === 'issue_objective_project_v1') {
+          objectiveSequence += 1;
+          return { data: `e2e-objective-project-${objectiveSequence}`, error: null };
+        }
+        if (fn === 'issue_objective_brief_v1') {
+          objectiveSequence += 1;
+          const briefId = `e2e-objective-brief-${objectiveSequence}`;
+          const supplied = Array.isArray(args?.p_points) ? args.p_points : [];
+          objectiveBriefPoints.set(briefId, supplied.map((raw, index) => {
+            const point = raw as { label?: unknown; cue?: unknown };
+            return {
+              id: `${briefId}-point-${index + 1}`,
+              brief_id: briefId,
+              label: String(point.label ?? ''),
+              cue: typeof point.cue === 'string' ? point.cue : null,
+              sort_order: index,
+            };
+          }));
+          return { data: briefId, error: null };
+        }
+        if (fn === 'objective_start_session_v1') {
+          objectiveSequence += 1;
+          return { data: `e2e-objective-session-${objectiveSequence}`, error: null };
+        }
+        if (fn === 'objective_finalize_evidence_v1') {
+          const signals = Array.isArray(args?.p_signals) ? args.p_signals : null;
+          return signals ? { data: signals.length, error: null } : {
+            data: null,
+            error: { code: '22023', message: 'p_signals must be an array' },
+          };
+        }
         if (fn === 'create_session_and_update_usage') {
           const sessionData = (args?.p_session_data || {}) as Record<string, unknown>;
           // #1306 firewall: a create RPC whose session payload smuggles a forbidden content field is REJECTED.

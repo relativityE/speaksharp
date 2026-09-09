@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import { deriveFocusCoverage } from '@/utils/focusCoverage';
 
 const base: SessionOverhaulViewProps = {
     authUserId: 'user-1',
@@ -256,6 +257,123 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('scrubber-legend')).toBeNull();
         expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
         expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
+    });
+
+    it('terminal coverage uses the stop-seam authority, not a weaker transcript re-score', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'point-1', label: POINTS[0], status: 'missing' },
+                    { id: 'point-2', label: POINTS[1], status: 'covered' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent=""
+                // The flattened label matcher cannot match "guarantee" here; the stop seam matched the
+                // configured cue against timestamped segments and is the terminal authority.
+                reviewTranscript={{ kind: 'available', text: 'I discussed the warranty terms.' }}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
+        expect(screen.queryByTestId('focus-point-1-not-detected')).toBeNull();
+    });
+
+    it('withholds terminal claims when SessionPage supplies no stop-seam result', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={null}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            />,
+        );
+        expect(screen.getAllByTestId(/focus-point-\d+$/).map((row) => row.getAttribute('data-status')))
+            .toEqual(['pending', 'pending']);
+        expect(screen.queryByTestId('coverage-pace-count')).toBeNull();
+        expect(screen.queryByText(/not detected/i)).toBeNull();
+        expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
+        expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
+    });
+
+    it('keeps partial stop-seam evidence distinct from a full detection in the terminal rail', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'point-1', label: POINTS[0], status: 'partial' },
+                    { id: 'point-2', label: POINTS[1], status: 'covered' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I mentioned price and guarantee.' }}
+            />,
+        );
+
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('2/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+        expect(screen.queryByTestId('coverage-footer')).not.toBeInTheDocument();
+        expect(screen.queryByText(/green marks where each point landed/i)).not.toBeInTheDocument();
+        expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Partly detected');
+        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
+    });
+
+    it('keeps the strongest live status through transcript rewrites without promoting partial', () => {
+        const partialText = ['name price', 'price', 'name the amount']
+            .find((text) => deriveFocusCoverage(POINTS, text, 20).rows[0]?.status === 'partial');
+        expect(partialText, 'fixture must exercise point 1 as partial').toBeDefined();
+
+        const { rerender } = render(
+            <SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent={partialText!} elapsedTime={20} />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="Unrelated rewrite" elapsedTime={21} />);
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="I will name the price now." elapsedTime={22} />);
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent={partialText!} elapsedTime={23} />);
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+    });
+
+    it('a direct after→during retry starts at 0/N instead of inheriting the prior take count', () => {
+        const { rerender } = render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'point-1', label: POINTS[0], status: 'covered' },
+                    { id: 'point-2', label: POINTS[1], status: 'missing' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+
+        // Model the batched retry path: no intermediate before render.
+        rerender(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={null}
+                isListening
+                showAnalyticsPrompt={false}
+                transcriptContent="Unrelated opening words"
+                elapsedTime={2}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('0/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'pending');
     });
 
     it('no brief (Open Mic) → no coverage/pace card / points rail; the prompt offer is present', () => {
