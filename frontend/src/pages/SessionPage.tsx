@@ -146,6 +146,7 @@ export const SessionPage: React.FC = () => {
         // store left the page in its `after` projection and showed a brand-new brief through
         // completed-review semantics. Leaving that state is part of starting a new set.
         setShowAnalyticsPrompt,
+        settleReviewLatency,
         sessionFeedbackMessage,
         micLevel,
         transcriptContent,
@@ -359,6 +360,21 @@ export const SessionPage: React.FC = () => {
         // reconciliation failure left the surface claiming to be loading for the rest of the session.
         // What we are actually waiting for is a saved session to read and a read to settle.
         && (isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!reviewSessionId));
+
+    /**
+     * #1428's review-latency measurement, re-applied on top of #1422's settling predicate.
+     *
+     * Both changes landed on this line: #1428 added the measurement, #1422 rewrote what
+     * `reviewStillSettling` MEANS — it no longer waits on the optional `finalizedAnalysis`, and it
+     * goes false when a stalled read is abandoned. The effect reads only the flag, so it needs no
+     * change, and the new predicate makes the measurement strictly better: a read that times out now
+     * settles as `unavailable` instead of never being measured at all.
+     */
+    useEffect(() => {
+        if (!reviewStillSettling && showAnalyticsPrompt) {
+            settleReviewLatency(reviewTranscript.kind === 'available' ? 'available' : 'unavailable');
+        }
+    }, [reviewStillSettling, reviewTranscript.kind, settleReviewLatency, showAnalyticsPrompt]);
 
     if (!metrics) return <SessionPageSkeleton />;
 
