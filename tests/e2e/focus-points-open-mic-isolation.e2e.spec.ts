@@ -234,9 +234,18 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
      * the thing that actually matters for isolation — the successor captured its OWN content rather
      * than inheriting A's — at the only point where that content is on screen.
      */
+    //
+    // CASE-INSENSITIVE, and that is not cosmetic. The product sentence-cases the transcript, so it
+    // renders "This is the second rehearsal…". A case-SENSITIVE `toContainText` failed the positive
+    // assertion — and, worse, made the NEGATIVE one vacuous: `.not.toContainText('this is the opening
+    // rehearsal')` would have passed against a screen literally showing take A's words, because the
+    // rendered text is capitalised. A negative assertion that cannot fail is the exact shape of
+    // casualty this program keeps having to correct.
     const liveTranscript = page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT);
-    await expect(liveTranscript, "take B captured B's words").toContainText(TAKE_B_MARKER);
-    await expect(liveTranscript, "take A's transcript did not carry into B").not.toContainText(TAKE_A_MARKER);
+    await expect(liveTranscript, "take B captured B's words")
+        .toContainText(new RegExp(TAKE_B_MARKER, 'i'));
+    await expect(liveTranscript, "take A's transcript did not carry into B")
+        .not.toContainText(new RegExp(TAKE_A_MARKER, 'i'));
 
     await page.waitForTimeout(5_200); // clear the sub-5s no-persist guard
     await stopRecording(page);
