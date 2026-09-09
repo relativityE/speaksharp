@@ -1,6 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import { COVERAGE_RELEASE_FLOOR, assertSoftwareQualityEvidence } from './lib/softwareQualityEvidenceQualification.mjs';
+import {
+  COVERAGE_RELEASE_FLOOR,
+  assertSoftwareQualityEvidence,
+  parseCiAuditOverride,
+} from './lib/softwareQualityEvidenceQualification.mjs';
 
 const METRICS_FILE = path.resolve(process.cwd(), 'test-results/metrics.json');
 const CI_AUDIT_FILE = path.resolve(process.cwd(), 'test-results/ci-audit.md');
@@ -36,44 +40,9 @@ const QUALITY_TARGETS = {
 
 console.log('[QualityMetrics] Starting software quality evidence generation.');
 
-function matchNumber(content, regex) {
-  const match = content.match(regex);
-  return match ? Number(match[1]) : null;
-}
-
 function readCiAuditOverride() {
   if (!fs.existsSync(CI_AUDIT_FILE)) return null;
-
-  const content = fs.readFileSync(CI_AUDIT_FILE, 'utf-8');
-  const unitPassed = matchNumber(content, /Unit Tests[\s\S]*?- \*\*Passed\*\*:\s*(\d+)\s*\/\s*\d+/);
-  const unitTotal = matchNumber(content, /Unit Tests[\s\S]*?- \*\*Passed\*\*:\s*\d+\s*\/\s*(\d+)/);
-  const e2ePassed = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*(\d+)\s*\/\s*\d+/);
-  const e2eTotal = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*\d+\s*\/\s*(\d+)/);
-
-  if (unitPassed === null || unitTotal === null || e2ePassed === null || e2eTotal === null) {
-    return null;
-  }
-
-  return {
-    unit_tests: {
-      passed: unitPassed,
-      failed: 0,
-      skipped: Math.max(0, unitTotal - unitPassed),
-      total: unitTotal,
-    },
-    e2e_tests: {
-      passed: e2ePassed,
-      failed: 0,
-      skipped: Math.max(0, e2eTotal - e2ePassed),
-      total: e2eTotal,
-    },
-    lighthouse: {
-      performance: matchNumber(content, /- \*\*Performance\*\*:\s*(\d+)/),
-      accessibility: matchNumber(content, /- \*\*Accessibility\*\*:\s*(\d+)/),
-      best_practices: matchNumber(content, /- \*\*Best Practices\*\*:\s*(\d+)/),
-      seo: matchNumber(content, /- \*\*SEO\*\*:\s*(\d+)/),
-    },
-  };
+  return parseCiAuditOverride(fs.readFileSync(CI_AUDIT_FILE, 'utf-8'));
 }
 
 function readCoverage(metrics) {

@@ -15,6 +15,7 @@ import {
 import {
   COVERAGE_RELEASE_FLOOR,
   MEANINGFUL_COVERAGE_MANIFEST,
+  parseCiAuditOverride,
   validateSoftwareQualityEvidence,
 } from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 
@@ -329,13 +330,16 @@ describe('Q-10 canonical Production evidence eligibility', () => {
 
 describe('Q-08 software-quality evidence completeness', () => {
   const complete = (over = {}) => ({
-    tests: { unit: {
-      passed: 100,
-      failed: 0,
-      skipped: 0,
-      total: 100,
-      testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
-    } },
+    tests: {
+      unit: {
+        passed: 100,
+        failed: 0,
+        skipped: 0,
+        total: 100,
+        testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
+      },
+      e2e: { passed: 20, failed: 0, skipped: 0, total: 20 },
+    },
     runtime: { totalRuntimeSeconds: 120 },
     performance: { initialChunkSize: '412K' },
     targets: { coverage: { releaseFloor: COVERAGE_RELEASE_FLOOR } },
@@ -359,6 +363,63 @@ describe('Q-08 software-quality evidence completeness', () => {
       } },
     }));
     expect(result.reasons).toContain('unit_metrics_missing_or_empty');
+  });
+
+  it('CASUALTY: failing unit or E2E tests cannot qualify a release', () => {
+    const unitFailure = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: {
+          passed: 90,
+          failed: 10,
+          skipped: 0,
+          total: 100,
+          testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
+        },
+        e2e: { passed: 20, failed: 0, skipped: 0, total: 20 },
+      },
+    }));
+    expect(unitFailure.reasons).toContain('unit_tests_failed:10');
+
+    const e2eFailure = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: complete().tests.unit,
+        e2e: { passed: 18, failed: 2, skipped: 0, total: 20 },
+      },
+    }));
+    expect(e2eFailure.reasons).toContain('e2e_tests_failed:2');
+  });
+
+  it('CASUALTY: test outcome counts must be present and reconcile to the total', () => {
+    const missingFailureCount = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: complete().tests.unit,
+        e2e: { passed: 20, skipped: 0, total: 20 },
+      },
+    }));
+    expect(missingFailureCount.reasons).toContain('e2e_failed_count_missing_or_invalid');
+
+    const inconsistent = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: complete().tests.unit,
+        e2e: { passed: 20, failed: 0, skipped: 1, total: 20 },
+      },
+    }));
+    expect(inconsistent.reasons).toContain('e2e_test_counts_inconsistent');
+  });
+
+  it('CASUALTY: the Markdown fallback preserves failures instead of relabelling them skipped', () => {
+    const parsed = parseCiAuditOverride(`
+### Unit Tests
+- **Passed**: 90 / 100
+- **Failed**: 10
+### E2E Tests (Playwright)
+- **Passed**: 18 / 20
+- **Failed**: 2
+`);
+    expect(parsed).toMatchObject({
+      unit_tests: { passed: 90, failed: 10, skipped: 0, total: 100 },
+      e2e_tests: { passed: 18, failed: 2, skipped: 0, total: 20 },
+    });
   });
 
   it('CASUALTY: zero runtime is missing evidence, not a valid measurement', () => {

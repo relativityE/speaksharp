@@ -16,6 +16,71 @@ export const MEANINGFUL_COVERAGE_MANIFEST = Object.freeze([
 ]);
 
 const positiveFinite = (value) => Number.isFinite(Number(value)) && Number(value) > 0;
+const nonNegativeInteger = (value) => Number.isInteger(Number(value)) && Number(value) >= 0;
+const matchNumber = (content, regex) => {
+  const match = content.match(regex);
+  return match ? Number(match[1]) : null;
+};
+
+export function parseCiAuditOverride(content) {
+  const unitPassed = matchNumber(content, /Unit Tests[\s\S]*?- \*\*Passed\*\*:\s*(\d+)\s*\/\s*\d+/);
+  const unitTotal = matchNumber(content, /Unit Tests[\s\S]*?- \*\*Passed\*\*:\s*\d+\s*\/\s*(\d+)/);
+  const unitFailed = matchNumber(content, /Unit Tests[\s\S]*?- \*\*Failed\*\*:\s*(\d+)/);
+  const e2ePassed = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*(\d+)\s*\/\s*\d+/);
+  const e2eTotal = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*\d+\s*\/\s*(\d+)/);
+  const e2eFailed = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Failed\*\*:\s*(\d+)/);
+
+  if (
+    unitPassed === null || unitTotal === null || unitFailed === null
+    || e2ePassed === null || e2eTotal === null || e2eFailed === null
+  ) return null;
+
+  return {
+    unit_tests: {
+      passed: unitPassed,
+      failed: unitFailed,
+      skipped: Math.max(0, unitTotal - unitPassed - unitFailed),
+      total: unitTotal,
+    },
+    e2e_tests: {
+      passed: e2ePassed,
+      failed: e2eFailed,
+      skipped: Math.max(0, e2eTotal - e2ePassed - e2eFailed),
+      total: e2eTotal,
+    },
+    lighthouse: {
+      performance: matchNumber(content, /- \*\*Performance\*\*:\s*(\d+)/),
+      accessibility: matchNumber(content, /- \*\*Accessibility\*\*:\s*(\d+)/),
+      best_practices: matchNumber(content, /- \*\*Best Practices\*\*:\s*(\d+)/),
+      seo: matchNumber(content, /- \*\*SEO\*\*:\s*(\d+)/),
+    },
+  };
+}
+
+function validateTestOutcome(name, outcome, reasons) {
+  if (!positiveFinite(outcome?.total) || !positiveFinite(outcome?.passed)) {
+    reasons.push(`${name}_metrics_missing_or_empty`);
+    return;
+  }
+
+  if (!nonNegativeInteger(outcome?.failed)) {
+    reasons.push(`${name}_failed_count_missing_or_invalid`);
+  } else if (Number(outcome.failed) > 0) {
+    reasons.push(`${name}_tests_failed:${Number(outcome.failed)}`);
+  }
+
+  if (!nonNegativeInteger(outcome?.skipped)) {
+    reasons.push(`${name}_skipped_count_missing_or_invalid`);
+  }
+
+  if (
+    nonNegativeInteger(outcome?.failed)
+    && nonNegativeInteger(outcome?.skipped)
+    && Number(outcome.passed) + Number(outcome.failed) + Number(outcome.skipped) !== Number(outcome.total)
+  ) {
+    reasons.push(`${name}_test_counts_inconsistent`);
+  }
+}
 
 /**
  * Machine evidence must distinguish "measured zero" from "measurement never arrived". A successful
@@ -27,9 +92,9 @@ export function validateSoftwareQualityEvidence(
 ) {
   const reasons = [];
   const unit = evidence?.tests?.unit;
-  if (!positiveFinite(unit?.total) || !positiveFinite(unit?.passed)) {
-    reasons.push('unit_metrics_missing_or_empty');
-  }
+  const e2e = evidence?.tests?.e2e;
+  validateTestOutcome('unit', unit, reasons);
+  validateTestOutcome('e2e', e2e, reasons);
   if (!positiveFinite(evidence?.runtime?.totalRuntimeSeconds)) {
     reasons.push('runtime_metric_missing_or_zero');
   }
