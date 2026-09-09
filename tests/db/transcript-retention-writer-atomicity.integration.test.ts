@@ -130,6 +130,125 @@ const counts = async (db: PGlite) => (await db.query<{
       (SELECT COUNT(*) FROM public.usage_checkpoints WHERE user_id = $1)::int AS checkpoints`,
 [U])).rows[0];
 
+/**
+ * #1436 P1 — RETENTION IS ARMED BY A COMPLETED POST-ROLLOUT SAVE, AND BY NOTHING ELSE.
+ *
+ * Deploying the migration must delete nothing. A user's existing transcripts were saved under the
+ * previous policy; they did not agree to lose one because we shipped a migration. Newest-one begins to
+ * apply to a user only once they complete and save a NEW session after rollout.
+ *
+ * PRE-ROLLOUT STATE IS STAGED IN REPLICA MODE ON PURPOSE. The arming trigger fires on any completed
+ * transcript-bearing session write, so a fixture seeded normally arms itself — which is why every
+ * existing casualty in this file passed unchanged when the arming gate was added, and why none of them
+ * exercises it. These four stage rows the way rollout actually finds them: already there, never having
+ * armed anything.
+ */
+describe('#1436 — newest-one is armed by a post-rollout save, not by deployment', () => {
+    /** Two readable transcripts with settled evidence, none of it having armed retention. */
+    async function preRolloutUser(db: PGlite) {
+        await db.exec("SET session_replication_role = 'replica'");
+        const older = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the older take');
+        const newer = await seedPriorTake(db, '2026-09-02T10:00:00Z', 'the newer take');
+        await settleEvidence(db, older, 'attributed');
+        // `newer` deliberately carries NO evidence yet: the late-settling case needs a pre-rollout
+        // completed session whose evaluation arrives after rollout, and every session may hold only one
+        // evaluation per formula version.
+        // Replica mode also suppresses the trigger that OWNS `transcript_state`, so set it here — real
+        // pre-rollout rows are `available`, and the migration's invariant gate correctly refuses to run
+        // against text sitting on a `not_captured` row.
+        await db.query(
+            `UPDATE public.sessions SET transcript_state = 'available' WHERE user_id = $1 AND transcript IS NOT NULL`,
+            [U]);
+        await db.exec("SET session_replication_role = 'origin'");
+        expect((await counts(db)).with_text, 'rollout finds two readable transcripts').toBe(2);
+        return { older, newer };
+    }
+
+    it('CASUALTY A: deploying the migration deletes nothing', async () => {
+        const db = await freshDb();
+        await preRolloutUser(db);
+
+        const result = await db.query<{ r: { status?: string; reason?: string } }>(
+            'SELECT public.converge_transcript_retention($1) AS r', [U]);
+        expect(result.rows[0].r?.status, 'convergence is a no-op until armed').toBe('deferred');
+        expect(result.rows[0].r?.reason, 'and it says why').toBe('retention_not_armed');
+        expect((await counts(db)).with_text, 'both transcripts survive deployment').toBe(2);
+        await db.close();
+    });
+
+    it('CASUALTY B: an old evaluation settling after rollout deletes nothing', async () => {
+        const db = await freshDb();
+        const { newer } = await preRolloutUser(db);
+
+        // A delayed terminal evaluation for a PRE-ROLLOUT completed session, inserted normally so the
+        // convergence trigger genuinely fires. No new save has happened.
+        await settleEvidence(db, newer, 'attributed');
+
+        expect((await counts(db)).with_text, 'a late evaluation is not a new save').toBe(2);
+        await db.close();
+    });
+
+    it('CASUALTY C: starting or cancelling a session deletes nothing', async () => {
+        const db = await freshDb();
+        await preRolloutUser(db);
+
+        // Press record: a transcript-free placeholder create. Then abandon it.
+        await lateCreate(db, null);
+        expect((await counts(db)).with_text, 'pressing record costs the user nothing').toBe(2);
+
+        const active = (await db.query<{ id: string }>(
+            `INSERT INTO public.sessions (user_id, created_at, duration, status)
+             VALUES ($1, '2026-09-03T11:00:00Z'::timestamptz, 0, 'active') RETURNING id`, [U])).rows[0].id;
+        await db.query(`UPDATE public.sessions SET status = 'failed' WHERE id = $1`, [active]);
+        expect((await counts(db)).with_text, 'cancelling costs the user nothing').toBe(2);
+
+        /**
+         * AN ACTIVE SESSION CARRYING TEXT MUST NOT ARM EITHER — the late-create recovery case.
+         *
+         * This is what makes the arming trigger's `status = 'completed'` clause measurable. Without it
+         * the casualties above still pass, because none of them writes transcript text on a
+         * non-completed row: the `transcript IS NOT NULL` clause alone was carrying them. A recovery
+         * create supplies real text on an `active` row, and if that armed retention, the user's older
+         * transcript would be retired by a take that has not finished — and may still fail.
+         */
+        const recovered = (await db.query<{ id: string }>(
+            `INSERT INTO public.sessions (user_id, created_at, transcript, total_words, duration,
+                 filler_counts, status, transcript_state)
+             VALUES ($1, '2026-09-03T11:30:00Z'::timestamptz, 'a recovered but unfinished take', 40, 90,
+                     '{"um": 1}'::jsonb, 'active', 'available') RETURNING id`, [U])).rows[0].id;
+        await settleEvidence(db, recovered, 'attributed');
+
+        const armed = await db.query<{ n: number }>(
+            'SELECT count(*)::int AS n FROM public.transcript_retention_arming WHERE user_id = $1', [U]);
+        expect(armed.rows[0].n, 'an unfinished take does not arm retention').toBe(0);
+        expect((await counts(db)).with_text,
+            "both of the user's saved transcripts survive an unfinished recovery take").toBe(3);
+        await db.close();
+    });
+
+    it('CASUALTY D: the first completed post-rollout save arms retention and keeps only the newest', async () => {
+        const db = await freshDb();
+        const { newer } = await preRolloutUser(db);
+        // Settle the second pre-rollout evaluation so the whole cohort is rankable. This is itself an
+        // old evaluation and deletes nothing (casualty B); it only removes the coordinator's reason to
+        // defer, so what this casualty measures is the ARMING, not a pending-evidence deferral.
+        await settleEvidence(db, newer, 'attributed');
+        expect((await counts(db)).with_text, 'still two, still unarmed').toBe(2);
+
+        // A real completed save with real words — the arming signal, written normally so the trigger runs.
+        const saved = await seedPriorTake(db, '2026-09-03T12:00:00Z', 'the first post-rollout take');
+        await settleEvidence(db, saved, 'attributed');
+
+        const rows = (await db.query<{ transcript: string | null }>(
+            `SELECT transcript FROM public.sessions WHERE user_id = $1 ORDER BY created_at ASC`, [U])).rows;
+        expect(rows.filter(r => r.transcript !== null).length,
+            'newest-one now applies: exactly one transcript remains').toBe(1);
+        expect(rows[rows.length - 1].transcript,
+            'and it is the post-rollout save the user just made').toBe('the first post-rollout take');
+        await db.close();
+    });
+});
+
 describe('#1436 — the late-create transcript writer is failure-atomic', () => {
     it('CASUALTY 1: a second transcript over UNSETTLED prior evidence FAILS and rolls everything back', async () => {
         const db = await freshDb();

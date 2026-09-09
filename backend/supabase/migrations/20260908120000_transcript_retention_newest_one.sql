@@ -169,6 +169,59 @@ $$;
 -- 4) The coordinator, derived from the shipped definition. Its version pin, its emitted policy strings
 --    and its mutation callee all move together. The evidence gate, the per-user profile-row lock and
 --    the deferral on pending evaluations are unchanged: only the policy identity moves.
+/*
+ * #1436 P1 — RETENTION IS ARMED BY A COMPLETED POST-ROLLOUT SAVE, AND BY NOTHING ELSE.
+ *
+ * Deploying this migration must delete nothing. A user's existing transcripts were saved under the
+ * previous policy and they did not agree to lose one by our shipping a migration. Newest-one begins to
+ * apply to a user only once they complete and save a NEW session after rollout — that successful save
+ * is the arming signal, and it is durable so a later replay, retry or delayed evaluation cannot
+ * manufacture one.
+ *
+ * Armed from a trigger on `sessions` rather than by redefining `complete_session_v2`, for two reasons:
+ * that function stays untouched (this migration calls it, it does not reimplement it), and the signal
+ * then lands for EVERY genuine completed save — the ordinary completion path and the at-cap create
+ * alike. Because the trigger runs inside the caller's transaction, a completion that rolls back takes
+ * its arming with it: only a SUCCESSFUL save arms.
+ *
+ * `ON CONFLICT DO NOTHING` keeps the first arming instant, which is the fact worth retaining.
+ */
+CREATE TABLE IF NOT EXISTS public.transcript_retention_arming (
+    user_id           uuid PRIMARY KEY,
+    armed_at          timestamptz NOT NULL DEFAULT now(),
+    armed_by_session  uuid
+);
+
+ALTER TABLE public.transcript_retention_arming ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.transcript_retention_arming FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.arm_transcript_retention()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF NEW.user_id IS NOT NULL
+       AND NEW.status = 'completed'
+       AND NEW.transcript IS NOT NULL
+       AND NEW.transcript ~ '[^[:space:]]' THEN
+        INSERT INTO public.transcript_retention_arming (user_id, armed_by_session)
+        VALUES (NEW.user_id, NEW.id)
+        ON CONFLICT (user_id) DO NOTHING;
+    END IF;
+    RETURN NULL;  -- AFTER trigger
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.arm_transcript_retention() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_sessions_arm_retention ON public.sessions;
+CREATE TRIGGER trg_sessions_arm_retention
+  AFTER INSERT OR UPDATE OF status, transcript ON public.sessions
+  FOR EACH ROW
+  EXECUTE FUNCTION public.arm_transcript_retention();
+
 CREATE OR REPLACE FUNCTION public.converge_transcript_retention(p_user_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -189,6 +242,25 @@ BEGIN
 
   -- Fail closed on an unknown/forked retention policy version (R1 is the single authority). #1161 authority
   -- versions must extend this check explicitly; an unknown version never silently proceeds.
+  /*
+   * #1436 P1 — THE SINGLE ARMING CHECK, HERE SO EVERY CALLER INHERITS IT.
+   *
+   * Triggers, retries, replays and the create path all reach retention through this function. Gating
+   * each of them separately is how the first three P1s in this lane happened: I closed the door that
+   * was named and left the others open. There is one door now.
+   *
+   * Until this user has completed a save under the new policy, convergence is a no-op that reports
+   * why. Deploying the migration deletes nothing; an old evaluation settling deletes nothing; starting
+   * or cancelling a session deletes nothing.
+   */
+  IF NOT EXISTS (SELECT 1 FROM public.transcript_retention_arming WHERE user_id = p_user_id) THEN
+    RETURN jsonb_build_object(
+      'status', 'deferred',
+      'reason', 'retention_not_armed',
+      'policy_version', public.transcript_retention_policy_version()
+    );
+  END IF;
+
   IF public.transcript_retention_policy_version() IS DISTINCT FROM 'newest_one_v1' THEN
     RAISE EXCEPTION 'converge_transcript_retention: unexpected retention policy version %',
       public.transcript_retention_policy_version() USING ERRCODE = '55000';
