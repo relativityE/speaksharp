@@ -172,6 +172,46 @@ describe('Q-08 automated review qualification', () => {
     }
   });
 
+  it('CASUALTY: a change-requesting exact-head review body cannot qualify', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{
+          author: { login: 'chatgpt-codex-connector' }, state: 'CHANGES_REQUESTED',
+          commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z', body: 'P1: release blocker',
+        }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({
+      qualified: false,
+      reviewStatus: 'changes_requested',
+    });
+  });
+
+  it('CASUALTY: an exact-head P0/P1/P2 in the overall review body cannot qualify', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{
+          author: { login: 'chatgpt-codex-connector' }, state: 'COMMENTED',
+          commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z', body: 'P1 Badge: release blocker',
+        }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({
+      qualified: false,
+      findingCount: 1,
+    });
+  });
+
   it('the full CI lane invokes authenticated GitHub review qualification after evidence', () => {
     const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
     expect(workflow).toContain('name: exact-head-review-qualification');
@@ -181,7 +221,9 @@ describe('Q-08 automated review qualification', () => {
     expect(workflow).toContain('full-evidence, review-qualification]');
     expect(workflow).toContain('[...REQUIRED_JOBS, "review-qualification"]');
     expect(workflow).toMatch(/pull_request_review:[\s\S]{0,120}types:\s*\[submitted, edited, dismissed\]/);
+    expect(workflow).toMatch(/pull_request_review_comment:[\s\S]{0,120}types:\s*\[created, edited, deleted\]/);
     expect(workflow).toContain("github.event_name == 'pull_request_review'");
+    expect(workflow).toContain("github.event_name == 'pull_request_review_comment'");
     expect(workflow).toContain('postMergePush ? formatPostMergeVerification(decision) : formatQualification(decision)');
   });
 });

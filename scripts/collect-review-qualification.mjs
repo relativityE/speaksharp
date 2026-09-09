@@ -26,18 +26,21 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     .filter((review) => isCodex(review?.author?.login) && review?.state !== 'DISMISSED' && review?.commit?.oid?.toLowerCase?.() === head)
     .sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt)));
   const latest = reviews.at(-1);
-  const findings = (pullRequest?.reviewThreads?.nodes ?? []).filter((thread) =>
+  const threadFindings = (pullRequest?.reviewThreads?.nodes ?? []).filter((thread) =>
     thread?.isResolved === false
     && (thread?.comments?.nodes ?? []).some((comment) =>
       isCodex(comment?.author?.login)
       && (comment?.pullRequestReview?.commit?.oid ?? comment?.originalCommit?.oid ?? comment?.commit?.oid)?.toLowerCase?.() === head
       && RELEASE_FINDING.test(comment?.body ?? '')));
+  const reviewBodyFindings = reviews.filter((review) => RELEASE_FINDING.test(review?.body ?? ''));
+  const blockingReviews = reviews.filter((review) => review?.state === 'CHANGES_REQUESTED');
+  const findingCount = threadFindings.length + reviewBodyFindings.length + blockingReviews.length;
 
   const evaluated = evaluateReviewQualification({
     currentSha: head,
     reviewedSha: latest?.commit?.oid,
-    reviewStatus: latest ? 'completed' : 'missing',
-    findingCount: findings.length,
+    reviewStatus: latest && blockingReviews.length === 0 ? 'completed' : latest ? 'changes_requested' : 'missing',
+    findingCount,
     changedFiles: (pullRequest?.files?.nodes ?? []).map(({ path }) => path),
   });
   return {

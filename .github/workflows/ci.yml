@@ -14,6 +14,9 @@ on:
   pull_request_review:
     branches: [main]
     types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    branches: [main]
+    types: [created, edited, deleted]
   workflow_dispatch:
     inputs:
       force_full:
@@ -57,7 +60,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          FORCE_FULL: ${{ github.event_name == 'pull_request_review' || github.event.inputs.force_full || false }}
+          FORCE_FULL: ${{ github.event_name == 'pull_request_review' || github.event_name == 'pull_request_review_comment' || github.event.inputs.force_full || false }}
         run: |
           set -euo pipefail
           if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then

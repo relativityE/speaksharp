@@ -40,6 +40,7 @@ export default class VitestCIReporter {
                 if (task.type === 'test') {
                     if (task.result?.state === 'pass') stats.passed++;
                     else if (task.result?.state === 'fail') recordFailure(task, stats, titlePath);
+                    else stats.pending++;
                     stats.total++;
                     stats.totalDuration += (task.result?.duration || 0);
                 } else {
@@ -56,8 +57,10 @@ export default class VitestCIReporter {
             });
         };
 
-        const stats = { passed: 0, failed: 0, failedSuites: 0, total: 0, totalDuration: 0, failures: [] };
+        const stats = { passed: 0, failed: 0, pending: 0, failedSuites: 0, total: 0, totalDuration: 0, failures: [] };
+        const passedFiles = new Set();
         files.forEach((f) => {
+            const passedBefore = stats.passed;
             if (f.tasks) {
                 const failuresBeforeChildren = stats.failed;
                 countTests(f.tasks, stats, [f.name || f.filepath].filter(Boolean));
@@ -72,6 +75,7 @@ export default class VitestCIReporter {
                 stats.total++;
                 stats.totalDuration += (f.result?.duration || 0);
             }
+            if (stats.passed > passedBefore) passedFiles.add(f);
         });
 
         // Ensure correct IPC discriminator handling
@@ -88,7 +92,7 @@ export default class VitestCIReporter {
         const resultsDir = path.join(rootDir, 'test-results', 'unit');
         if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });
 
-        const testFiles = [...new Set(files.map((file) => {
+        const testFiles = [...new Set([...passedFiles].map((file) => {
             const raw = file.filepath || file.name || file.file?.filepath || file.file?.name;
             if (typeof raw !== 'string' || raw.trim() === '') return null;
             const normalized = path.isAbsolute(raw) ? path.relative(rootDir, raw) : raw;
@@ -101,7 +105,7 @@ export default class VitestCIReporter {
             numFailedSuites: stats.failedSuites,
             numTotalTests: stats.total,
             totalDuration: stats.totalDuration,
-            numPendingTests: 0,
+            numPendingTests: stats.pending,
             testFiles,
             failures: stats.failures,
         };
