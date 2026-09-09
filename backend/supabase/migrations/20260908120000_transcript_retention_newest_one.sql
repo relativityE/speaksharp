@@ -447,6 +447,32 @@ BEGIN
         WHERE idempotency_key = p_idempotency_key AND user_id = auth.uid();
 
         IF v_existing_session_id IS NOT NULL THEN
+            /*
+             * #1436 P1 — A TRANSCRIPT-BEARING REPLAY STILL OWES CONVERGENCE.
+             *
+             * This returned before taking the profile lock or invoking retention. Production enters
+             * this migration with newest-TWO rows still readable and relies on later writer calls to
+             * converge them, so replaying a successful transcript-bearing create could keep reporting
+             * success with two readable transcripts indefinitely — the duplicate is idempotent about
+             * the ROW, and was silently idempotent about the RETENTION too. `complete_session_v2`
+             * deliberately avoids this same early-return so a replay can retry convergence.
+             *
+             * The fast path is preserved for transcript-free placeholders, which owe nothing.
+             */
+            IF COALESCE(p_session_data->>'transcript', '') ~ '[^[:space:]]' THEN
+                v_retention := public.converge_transcript_retention(auth.uid());
+                IF COALESCE(v_retention->>'status', 'error') <> 'converged' THEN
+                    RAISE EXCEPTION 'create_session_and_update_usage: replayed transcript retention did not converge (status=%)',
+                        COALESCE(v_retention->>'status', 'error')
+                        USING ERRCODE = '55000';
+                END IF;
+                RETURN jsonb_build_object(
+                    'new_session', (SELECT row_to_json(s) FROM public.sessions s WHERE s.id = v_existing_session_id),
+                    'usage_exceeded', false,
+                    'is_duplicate', true,
+                    'retention', v_retention
+                );
+            END IF;
             RETURN jsonb_build_object(
                 'new_session', (SELECT row_to_json(s) FROM public.sessions s WHERE s.id = v_existing_session_id),
                 'usage_exceeded', false,
@@ -582,16 +608,37 @@ BEGIN
      */
     v_writes_transcript := COALESCE(p_session_data->>'transcript', '') ~ '[^[:space:]]';
 
-    BEGIN
-        v_retention := public.converge_transcript_retention(auth.uid());
-    EXCEPTION
-        WHEN query_canceled THEN
-            IF v_writes_transcript THEN RAISE; END IF;
-            v_retention := jsonb_build_object('status', 'error');
-        WHEN OTHERS THEN
-            IF v_writes_transcript THEN RAISE; END IF;
-            v_retention := jsonb_build_object('status', 'error');
-    END;
+    /*
+     * #1436 P1 — A PLACEHOLDER MUST NOT EXPIRE ANYTHING. RECORDING START IS NOT A SAVE.
+     *
+     * This called the coordinator unconditionally. On the first application of this migration to a
+     * user who still holds two legacy transcripts whose older row already has terminal evidence, the
+     * ordinary transcript-free create AT RECORDING START reached that call and irreversibly expired
+     * the older transcript — before the new take had captured a word. The user could then cancel or
+     * fail that take and be left with strictly less readable text than before they pressed record,
+     * which contradicts this migration's own "next completed save" boundary.
+     *
+     * Retention converges on COMPLETION, where a new transcript actually exists to supersede the old
+     * one. A placeholder reports `deferred` and expires nothing; `complete_session_v2` and the
+     * transcript-bearing create below remain the only paths that can retire a transcript.
+     *
+     * My casualty 4 could not catch this: it deliberately leaves the candidate PENDING so the
+     * coordinator has nothing it is allowed to expire, so the destructive branch never ran. The new
+     * casualty gives the older row terminal evidence — the state in which convergence WOULD act — and
+     * asserts the placeholder still expires nothing.
+     */
+    IF NOT v_writes_transcript THEN
+        v_retention := jsonb_build_object('status', 'deferred', 'reason', 'placeholder_create');
+    ELSE
+        BEGIN
+            v_retention := public.converge_transcript_retention(auth.uid());
+        EXCEPTION
+            WHEN query_canceled THEN
+                RAISE;
+            WHEN OTHERS THEN
+                RAISE;
+        END;
+    END IF;
 
     IF v_writes_transcript
        AND COALESCE(v_retention->>'status', 'error') <> 'converged' THEN

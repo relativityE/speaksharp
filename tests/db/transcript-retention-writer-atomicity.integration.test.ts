@@ -191,6 +191,89 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
         await db.close();
     });
 
+    it('CASUALTY 5: a placeholder create EXPIRES NOTHING even when convergence would act', async () => {
+        /**
+         * #1436 P1 — DATA LOSS. RECORDING START IS NOT A SAVE.
+         *
+         * The writer called the coordinator unconditionally. On first application to a user still
+         * holding two legacy transcripts whose older row already has TERMINAL evidence, the ordinary
+         * transcript-free create at recording start expired the older transcript before the new take
+         * had captured a word. Cancel or fail that take and the user has strictly less readable text
+         * than before they pressed record — contrary to this migration's own "next completed save"
+         * boundary.
+         *
+         * CASUALTY 4 CANNOT CATCH THIS, and that is the point of adding this one. Casualty 4
+         * deliberately leaves the candidate PENDING so the coordinator has nothing it is permitted to
+         * expire — the destructive branch never runs there. Terminal evidence is what arms it.
+         */
+        const db = await freshDb();
+        const older = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the older take');
+        const newer = await seedPriorTake(db, '2026-09-02T10:00:00Z', 'the newer take');
+        // Terminal evidence staged WITHOUT firing the on-save convergence trigger, so the user arrives
+        // at this migration in the real pre-correction state: two readable transcripts, both settled,
+        // nothing yet converged. Evidence inserted normally would converge them here and the casualty
+        // would then be testing a cohort that no longer has anything to lose.
+        await db.exec("SET session_replication_role = 'replica'");
+        await settleEvidence(db, older, 'attributed');
+        await settleEvidence(db, newer, 'attributed');
+        await db.exec("SET session_replication_role = 'origin'");
+
+        const before = await counts(db);
+        expect(before.with_text, 'the user really is holding two readable transcripts').toBe(2);
+
+        // Press record. This is a placeholder create — no words yet.
+        await lateCreate(db, null);
+
+        const after = await counts(db);
+        expect(after.with_text, 'a placeholder took nothing away from the user').toBe(before.with_text);
+        const olderRow = await db.query<{ transcript: string | null }>(
+            'SELECT transcript FROM public.sessions WHERE id = $1', [older]);
+        expect(olderRow.rows[0].transcript, "the older transcript survives pressing record").not.toBeNull();
+        await db.close();
+    });
+
+    it('CASUALTY 6: a transcript-bearing idempotency REPLAY still owes convergence', async () => {
+        /**
+         * #1436 P1 — the duplicate short-circuit returned before taking the profile lock or invoking
+         * retention. Production enters this migration with newest-TWO rows still readable and relies on
+         * later writer calls to converge them, so replaying a successful transcript-bearing create kept
+         * reporting success with two readable transcripts indefinitely: idempotent about the ROW, and
+         * silently idempotent about the RETENTION too.
+         */
+        const db = await freshDb();
+        const key = '9f1c0f4a-6d2e-4a1b-9c7d-2b8e5a3f10cc';
+        // The pre-correction state, staged without firing the on-save trigger: two readable
+        // transcripts, both settled, and the newer one carrying the idempotency key that will be
+        // replayed. This is exactly what production looks like entering this migration.
+        // Rows are inserted NORMALLY so their `transcript_state` is set by the trigger that owns it —
+        // staging them in replica mode left text on rows still marked `not_captured`, and the
+        // migration's invariant gate correctly refused to run against that incoherent cohort. Only the
+        // EVIDENCE is staged in replica mode, because evidence is what triggers convergence and the
+        // point of this casualty is to reach the replay with two transcripts still readable.
+        const older = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the older take');
+        await db.query(
+            `INSERT INTO public.sessions (id, user_id, created_at, transcript, total_words, duration,
+                 filler_counts, status, idempotency_key)
+             VALUES (gen_random_uuid(), $1, '2026-09-02T10:00:00Z'::timestamptz, 'the replayed take',
+                     100, 600, '{"um": 1}'::jsonb, 'completed', $2)`,
+            [U, key]);
+        const replayed = (await db.query<{ id: string }>(
+            'SELECT id FROM public.sessions WHERE idempotency_key = $1', [key])).rows[0].id;
+        await db.exec("SET session_replication_role = 'replica'");
+        await settleEvidence(db, older, 'attributed');
+        await settleEvidence(db, replayed, 'attributed');
+        await db.exec("SET session_replication_role = 'origin'");
+
+        expect((await counts(db)).with_text, 'the pre-correction state really does hold two texts').toBe(2);
+
+        await db.query(
+            `SELECT public.create_session_and_update_usage($1::jsonb, 'private', $2::uuid) AS r`,
+            [JSON.stringify({ title: 'replay', duration: 600, total_words: 100, transcript: 'the replayed take' }), key]);
+
+        expect((await counts(db)).with_text, 'the replay converged rather than reporting success with two').toBe(1);
+        await db.close();
+    });
+
     it('CASUALTY 4: a transcript-FREE placeholder create survives a NON-CONVERGED cohort', async () => {
         const db = await freshDb();
         /**

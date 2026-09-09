@@ -17,7 +17,7 @@ import { resolveReadAuthority } from '../helpers/readEndpointAuthority';
 import { extractUidFromAuthStorage, sha256Hex } from './helpers/proofAuthority';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { evaluateThreeRecordingEntitlement } from './helpers/entitlementAuthority';
-import { extractPdfText, normalizeForMatch } from '../helpers/pdfText';
+import { extractPdfText, normalizeForMatch, canonicalizeForLeakCheck } from '../helpers/pdfText';
 import { validateNextActionSignal } from '../../frontend/src/contracts/nextActionSignal';
 
 // #1306 PROD-PROOF — three-session production journey on the exact deployed SHA.
@@ -650,7 +650,12 @@ test.describe('#1306 three-session newest-one retention production proof @live',
             // Asserting the state alone would pass while the transcript still sat in the row.
             for (const [label, row] of [['oldest', oldest], ['middle', middle]] as const) {
                 expect(row.transcript_state, `${label} transcript_state is expired`).toBe('expired');
-                expect(row.transcript ?? null, `${label} transcript CONTENT is gone, not merely relabelled`).toBeNull();
+                // #1436 P2 — REDUCED TO A BOOLEAN BEFORE ASSERTING. `toBeNull()` prints the RECEIVED
+                // value on failure, so the one path this proof exists to exercise — retention
+                // regressing and a transcript surviving — would publish that transcript verbatim into
+                // the public Actions log. The assertion that catches a privacy failure must not be the
+                // thing that causes one.
+                expect(row.transcript == null, `${label} transcript CONTENT is gone, not merely relabelled`).toBe(true);
             }
 
             // POSITIVE CONTROLS: each genuinely HAD a transcript before eviction, so the nulls above are
@@ -692,7 +697,10 @@ test.describe('#1306 three-session newest-one retention production proof @live',
             expect([...byAge].sort(), 'the retained row must be the genuinely newest by created_at').toEqual(byAge);
             const retainedRows = [oldest, middle, newest].filter((r) => r.transcript_state === 'available');
             expect(retainedRows.length, 'exactly ONE transcript remains readable').toBe(1);
-            expect(String(retainedRows[0].id), 'the retained row is the newest session').toBe(ids[2]);
+            // #1436 P2 — boolean, for the same reason: a failed string equality prints both raw session
+            // UUIDs into the public run output, contradicting this proof's content-free claim exactly
+            // when the wrong row was retained.
+            expect(String(retainedRows[0].id) === ids[2], 'the retained row is the newest session').toBe(true);
         });
 
         await test.step('EXACTLY three v2 completions, ZERO v1, distinct ids, full success envelope each', async () => {
@@ -865,20 +873,50 @@ test.describe('#1306 three-session newest-one retention production proof @live',
              * cannot produce a false pass. Only the BOOLEAN is asserted, and the failure message names
              * no content — the transcript never leaves process memory.
              */
-            const middleTextLeaked = normalizeForMatch(middlePdf)
-                .includes(normalizeForMatch(middleTranscriptBeforeExpiry));
+            const canonicalMiddlePdf = canonicalizeForLeakCheck(middlePdf);
+            const canonicalMiddleText = canonicalizeForLeakCheck(middleTranscriptBeforeExpiry);
+            const middleTextLeaked = canonicalMiddlePdf.includes(canonicalMiddleText);
             expect(middleTextLeaked,
                 'the expired session artifact must not carry that session\'s OWN former transcript')
                 .toBe(false);
 
-            // The membership test above is only meaningful against a real artifact. An empty or corrupt
-            // PDF trivially contains nothing, so the structure is asserted too: this is a metrics
-            // export, and it still carries the measurements expiry was never supposed to touch.
-            expect(normalizeForMatch(middlePdf).includes(normalizeForMatch(ids[1])),
+            /**
+             * POSITIVE CONTROL FOR THE CANONICALISATION ITSELF.
+             *
+             * An absence test is only as strong as its normalisation, and `normalizeForMatch` — which
+             * this used — only collapses whitespace. A leak with different case, decomposed Unicode, or
+             * a PDF text run splitting a word (`rehe arsal`) would have gone undetected and the privacy
+             * proof would have passed. This proves the canonicaliser actually FINDS the transcript in
+             * exactly those disguises, so the `false` above means absent rather than unrecognised.
+             */
+            const disguised = middleTranscriptBeforeExpiry.toUpperCase().normalize('NFD').replace(/ /g, '  ');
+            expect(canonicalizeForLeakCheck(disguised).includes(canonicalMiddleText),
+                'the canonicaliser detects the transcript through case, Unicode and spacing changes')
+                .toBe(true);
+
+            /**
+             * STRUCTURE, NOT SIZE. This asserted only a session id plus `length > 200`, which a valid
+             * but semantically corrupt export — the identifier plus an error message or padding —
+             * satisfies while omitting every retained metric. Length is not structure. The expired
+             * session's measurements are what expiry was never supposed to touch, so they are what the
+             * artifact has to still carry.
+             */
+            expect(canonicalMiddlePdf.includes(canonicalizeForLeakCheck(ids[1])),
                 'the artifact identifies the session it was exported for').toBe(true);
-            expect(middlePdf.length,
-                'a metrics artifact has substance; an empty file must not pass the membership test')
-                .toBeGreaterThan(200);
+            const middleMetrics = JSON.parse(middleMetricsBeforeExpiry) as Record<string, unknown>;
+            // NUMERIC metrics only, and only those large enough to be a real signal. The snapshot also
+            // carries jsonb columns (`filler_counts`, `next_action_signal`, `pause_metrics`) whose
+            // rendered form in a PDF is not their JSON, and a 0/1 would match incidentally anywhere in
+            // the document. These are the measurements a reader would recognise as the session's own.
+            const expectedMetricValues = Object.entries(middleMetrics)
+                .filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Math.abs(entry[1]) >= 2);
+            expect(expectedMetricValues.length,
+                'the middle session captured metrics worth asserting about').toBeGreaterThan(0);
+            const missingMetrics = expectedMetricValues
+                .filter(([, value]) => !canonicalMiddlePdf.includes(canonicalizeForLeakCheck(String(value))))
+                .map(([key]) => key);
+            expect(missingMetrics,
+                'the expired artifact still carries the measurements expiry must not touch').toEqual([]);
 
             // The oldest is off the two-row dashboard slice, so it has no control to click at all.
             await expect(page.getByTestId(`download-pdf-btn-${ids[0]}`),
