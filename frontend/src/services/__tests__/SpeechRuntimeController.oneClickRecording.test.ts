@@ -731,26 +731,131 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
         useSessionStore.getState().resetSession();
     });
 
-    it('CASUALTY: a terminal transition with a SUPERSEDED token clears the banner', async () => {
+    /**
+     * #1431 P1 — THE TWO TRANSITION-LEVEL CASUALTIES THAT LIVED HERE ARE REPLACED, NOT DELETED.
+     *
+     * They asserted that a stale/cancelled token's terminal transition CLEARS the finalizing banner.
+     * That behaviour is now removed: a stale transition carries only a lifecycle token, and when A and
+     * B share a lifecycle version it cannot tell "the latch I armed" from "the latch B armed" — so it
+     * released the successor's latch and discarded the successor's frozen transcript.
+     *
+     * What those casualties were protecting is real: the latch is the start guard, and a banner nobody
+     * can clear leaves the record control disabled. That protection now lives on the production path,
+     * where the releasing take carries a full `StopAuthority`. The three tests below cover it end to
+     * end — the rightful owner releases, a superseded take cannot, and a stale direct transition has no
+     * release side effect at all.
+     */
+    it('the rightful stop owner releases its latch through releaseFinalizingIfOwner()', async () => {
         const priv = controller as unknown as {
             lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, v?: number | null, owner?: unknown) => boolean;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: priv.serviceGeneration,
+            service: priv.service ?? null,
+        };
+
+        const owner = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: priv.serviceGeneration,
+            service: priv.service ?? null,
+            sessionId: null, recordingId: null, intentToken: null,
+        };
+
+        expect(priv.releaseFinalizingIfOwner('normal_terminal', priv.lifecycleVersion, owner),
+            'the take that armed the latch releases it').toBe(true);
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            'the banner cannot be left latched for its own owner').toBe(false);
+    });
+
+    it("a superseded take cannot release B's latch, including a same-lifecycle service replacement", async () => {
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, v?: number | null, owner?: unknown) => boolean;
+        };
+        // B armed the latch and froze its transcript. Same lifecycle version throughout: ONLY the
+        // service generation and identity separate the takes, which is the case version-only guards miss.
+        const serviceB = { id: 'B' };
+        priv.service = serviceB as never;
+        priv.serviceGeneration = 12;
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 12,
+            service: serviceB,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        useSessionStore.getState().freezeTranscriptAtStop('B is still saving these words');
+
+        const staleA = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 11,
+            service: { id: 'A' },
+            sessionId: null, recordingId: null, intentToken: null,
+        };
+
+        expect(priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion, staleA),
+            'A did not arm this latch').toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's banner stays on").toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop,
+            "B's frozen transcript survives").toBe('B is still saving these words');
+
+        // GENERATION ALONE, with the SAME service object and the same lifecycle version. The service
+        // reference can outlive a generation bump, so identity and generation are independent terms —
+        // and a claimant differing only by generation must still be refused. Without this the
+        // generation comparison is unmeasured: the case above varies identity too, so identity alone
+        // refuses it.
+        const sameServiceOlderGeneration = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 11,
+            service: serviceB,
+            sessionId: null, recordingId: null, intentToken: null,
+        };
+        expect(priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion, sameServiceOlderGeneration),
+            'an older generation cannot release, even holding the same service').toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's banner still stays on").toBe(true);
+    });
+
+    it('a stale direct transition has NO finalization-release side effect', async () => {
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
             finalizingOwnerVersion: number | null;
             transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
         };
-        useSessionStore.getState().setTranscriptFinalizing(true);
-
-        // The stop's own token, superseded while finalization was running. The latch is THIS take's —
-        // nothing newer has armed it — so this take may withdraw its own claim.
-        const staleToken = { cancelled: false, version: priv.lifecycleVersion };
         priv.finalizingOwnerVersion = priv.lifecycleVersion;
-        priv.lifecycleVersion += 1;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: priv.serviceGeneration,
+            service: priv.service ?? null,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        useSessionStore.getState().freezeTranscriptAtStop('still saving');
 
-        await priv.transition('READY', undefined, staleToken);
+        // Both shapes the removed branch used to act on: superseded, and cancelled.
+        await priv.transition('READY', undefined, { cancelled: false, version: priv.lifecycleVersion - 1 });
+        await priv.transition('READY', undefined, { cancelled: true, version: priv.lifecycleVersion });
 
-        // The user must not be left looking at "Finalizing your transcript…" forever for a take that
-        // has already finished. Whoever owns the lifecycle now, nobody is finalizing.
-        expect({ finalizing: useSessionStore.getState().isTranscriptFinalizing })
-            .toEqual({ finalizing: false });
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            'a stale transition releases nothing').toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop,
+            'and discards nothing').toBe('still saving');
     });
 
     it('CASUALTY: a stale take may NOT clear a latch a SUCCESSOR now owns', async () => {
@@ -765,10 +870,21 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
         };
 
         // A armed the latch, then was superseded; B re-armed it under the new lifecycle.
-        const aToken = { cancelled: false, version: priv.lifecycleVersion };
+        const priv2 = priv as unknown as { serviceGeneration: number; service: unknown; finalizingOwner: unknown };
+        const aToken = {
+            cancelled: false,
+            version: priv.lifecycleVersion,
+            serviceGeneration: priv2.serviceGeneration,
+        };
         priv.lifecycleVersion += 1;
+        priv2.serviceGeneration += 1;                          // B replaced the service
         useSessionStore.getState().setTranscriptFinalizing(true);
         priv.finalizingOwnerVersion = priv.lifecycleVersion;   // B owns it now
+        priv2.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: priv2.serviceGeneration,
+            service: priv2.service ?? null,
+        };
 
         await priv.transition('READY', undefined, aToken);
 
@@ -811,56 +927,6 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
             ownerReleased: priv.finalizingOwnerVersion,
         }).toEqual({ finalizing: false, ownerReleased: null });
     });
-
-    it('CASUALTY: a CANCELLED token also releases it', async () => {
-        const priv = controller as unknown as {
-            lifecycleVersion: number;
-            finalizingOwnerVersion: number | null;
-            transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
-        };
-        useSessionStore.getState().setTranscriptFinalizing(true);
-        priv.finalizingOwnerVersion = priv.lifecycleVersion;   // this take armed it
-
-        await priv.transition('TERMINATED', undefined, { cancelled: true, version: priv.lifecycleVersion });
-
-        expect({ finalizing: useSessionStore.getState().isTranscriptFinalizing })
-            .toEqual({ finalizing: false });
-    });
-});
-
-/**
- * #1431 — A STOP THAT PERSISTS MUST FINISH FINALIZING.
- *
- * CORRECTION: written while the stop was believed to be wedged. The trace shows it is not — this passes
- * on the failing head too. It is retained as a REGRESSION GUARD on the stop sequence, not as evidence
- * about the Focus Points Retry failure, whose real boundary is successor admission.
- */
-describe('#1431 — a stop that persists must finish finalizing', () => {
-    let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
-    let engine: ControlledEngine;
-
-    beforeEach(async () => {
-        localStorage.clear();
-        engine = new ControlledEngine();
-        engine.modelCached = true;
-        vi.resetModules();
-        const { sttRegistry } = await import('../transcription/STTRegistry');
-        sttRegistry.register('transformers-js', () => engine as never);
-        sttRegistry.register('private', () => engine as never);
-        useSessionStore = (await import('@/stores/useSessionStore')).useSessionStore;
-        intentApi = await import('../recordingIntent');
-        intentApi.__resetRecordingIntentForTests();
-        const mod = await import('../SpeechRuntimeController');
-        controller = mod.speechRuntimeController;
-        const priv = controller as unknown as Record<string, unknown>;
-        priv.state = 'IDLE';
-        priv.service = null;
-        priv.isEngineReady = false;
-        useSessionStore.getState().resetSession();
-        useSessionStore.getState().setRuntimeState('IDLE');
-    });
-
-    afterEach(() => vi.clearAllMocks());
 
     it('CASUALTY: after a stop, the runtime rests and the finalizing claim is withdrawn', async () => {
         await controller.startRecording(POLICY as never, []);

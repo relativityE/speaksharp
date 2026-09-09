@@ -916,4 +916,106 @@ describe('#1431 — a suspended retry and a stale error path own nothing shared'
         expect(released, "A must not release a latch it did not arm").toBe(false);
         expect(useSessionStore.getState().isTranscriptFinalizing, "B's Finalizing… stays on").toBe(true);
     });
+
+    it("CASUALTY P1-C: SERVICE IDENTITY alone protects the latch — same lifecycle, same generation", () => {
+        /**
+         * Codex P2 on `2365f87f8e`, accepted: casualty P1-B varied BOTH generation and service, so the
+         * generation comparison refused on its own and the service term was never measured. Removing
+         * service identity entirely left P1-B green.
+         *
+         * Here lifecycle version AND service generation are identical on both sides; only the service
+         * object differs. That is the only configuration in which the identity term is load-bearing.
+         */
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, v?: number | null, owner?: unknown) => boolean;
+        };
+
+        const serviceB = fakeService({ isDestroyed: () => false });
+        priv.service = serviceB as never;
+        priv.serviceGeneration = 4;
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 4,
+            service: serviceB,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+
+        const sameGenerationDifferentService = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 4,
+            service: fakeService({ isDestroyed: () => true }),
+            sessionId: 'session-A',
+            recordingId: 'recording-A',
+            intentToken: 'intent-A',
+        };
+
+        expect(
+            priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion, sameGenerationDifferentService),
+            'a different service cannot release the latch',
+        ).toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's Finalizing… stays on").toBe(true);
+
+        // NULL IS NOT A WILDCARD, on either side. A detached take carries a null service, which is
+        // exactly the state a superseded take is usually in — so treating null as "matches anything"
+        // made the term vacuous precisely when it mattered.
+        expect(
+            priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion,
+                { ...sameGenerationDifferentService, service: null }),
+            'a null service on the claimant side is not a wildcard',
+        ).toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(true);
+
+        priv.finalizingOwner = { lifecycleVersion: priv.lifecycleVersion, serviceGeneration: 4, service: null };
+        expect(
+            priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion, sameGenerationDifferentService),
+            'a null service on the armed side is not a wildcard either',
+        ).toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(true);
+    });
+
+    it("CASUALTY P1-D: a stale TERMINAL TRANSITION cannot clear the successor's latch", async () => {
+        /**
+         * PM RETURN on `2365f87f8e`. The stale-token branch in `transition()` released on
+         * `finalizingOwnerVersion === token.version` and cleared the latch and frozen transcript
+         * directly, bypassing `releaseFinalizingIfOwner()` entirely. With A cancelled and B replacing
+         * the service inside the SAME lifecycle version, A's terminal transition matched on version and
+         * switched off B's "Finalizing…" — the user watched the record control re-enable mid-save.
+         */
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            transition: (state: string, error?: Error, token?: LifecycleToken) => Promise<void>;
+        };
+
+        const serviceB = fakeService({ isDestroyed: () => false });
+        priv.service = serviceB as never;
+        priv.serviceGeneration = 9;
+        // B owns the armed latch and the frozen transcript.
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 9,
+            service: serviceB,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        useSessionStore.getState().freezeTranscriptAtStop('B is still saving these words');
+
+        // A speaks with a CANCELLED token carrying the SAME lifecycle version.
+        await priv.transition('READY', undefined, { cancelled: true, version: priv.lifecycleVersion } as LifecycleToken);
+
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            "B's Finalizing… survives A's terminal transition").toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop,
+            "B's frozen transcript survives").toBe('B is still saving these words');
+    });
 });

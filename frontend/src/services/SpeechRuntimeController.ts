@@ -437,8 +437,10 @@ export class SpeechRuntimeController {
         if (armedByFull && capturedOwner) {
             const sameTake = armedByFull.lifecycleVersion === capturedOwner.lifecycleVersion
                 && armedByFull.serviceGeneration === capturedOwner.serviceGeneration
-                && (armedByFull.service === null || capturedOwner.service === null
-                    || armedByFull.service === capturedOwner.service);
+                // STRICT identity. Treating `null` as a wildcard on either side made the term
+                // vacuous exactly when it was needed: a detached take carries a null service, which is
+                // the state a superseded take is most often in.
+                && armedByFull.service === capturedOwner.service;
             if (!sameTake) {
                 pushNativeRuntimeTrace('controller_finalizing_release_refused', {
                     reason,
@@ -2162,12 +2164,48 @@ export class SpeechRuntimeController {
             // not finished saving — a far worse defect than the stale banner this branch exists to
             // prevent. `token.version` identifies the take that is speaking; it may withdraw the claim
             // only while that claim is still its own.
-            if (isRestingTarget && this.finalizingOwnerVersion === token.version) {
-                const store = useSessionStore.getState();
-                if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
-                this.finalizingOwnerVersion = null;
-            this.finalizingOwner = null;
-                this.finalizingOwner = null;
+            /**
+             * #1431 P1 — THIS BRANCH NO LONGER RELEASES THE LATCH AT ALL.
+             *
+             * It cleared on `finalizingOwnerVersion === token.version`. A service can be replaced WITHIN
+             * one lifecycle version, so when A was cancelled while successor B armed the latch, A's
+             * stale terminal transition matched on version and switched off B's "Finalizing…" and
+             * discarded B's frozen transcript — bypassing `releaseFinalizingIfOwner()` entirely and
+             * reproducing the exact failure the full-owner correction was meant to close.
+             *
+             * It cannot be repaired in place. Full validation needs the authority captured by the take
+             * that is speaking, and this branch has only a lifecycle token; when A and B share a
+             * lifecycle version, nothing here distinguishes "the latch I armed" from "the latch B
+             * armed". A guard that cannot tell those apart is not a guard.
+             *
+             * Release is therefore left to `releaseFinalizingIfOwner()`, which every stop path calls
+             * with its captured `StopAuthority` — lifecycle version, service generation and service
+             * identity. The withdrawal this branch used to perform is redundant for those paths and
+             * unsafe for every other.
+             */
+            /**
+             * #1431 P1 — THIS BRANCH NO LONGER RELEASES THE LATCH OR THE FROZEN TRANSCRIPT.
+             *
+             * It cleared on `finalizingOwnerVersion === token.version`. A service can be replaced WITHIN
+             * one lifecycle version, so when A was cancelled while successor B armed the latch, A's
+             * stale terminal transition matched on version and switched off B's "Finalizing…" and
+             * discarded B's frozen transcript — bypassing `releaseFinalizingIfOwner()` entirely.
+             *
+             * It cannot be repaired in place. A stale transition does not carry sufficient ownership
+             * authority: it has a lifecycle token and nothing else, and when A and B share a lifecycle
+             * version nothing here distinguishes "the latch I armed" from "the latch B armed". A guard
+             * that cannot tell those apart is not a guard.
+             *
+             * Release therefore belongs solely to `releaseFinalizingIfOwner()`, which every stop path
+             * calls with its captured `StopAuthority` — lifecycle version, service generation and
+             * service identity, all strict. A stale direct transition has no finalization-release side
+             * effect at all.
+             */
+            if (isRestingTarget) {
+                pushNativeRuntimeTrace('controller_stale_terminal_latch_release_skipped', {
+                    tokenVersion: token.version,
+                    armedByVersion: this.finalizingOwnerVersion,
+                });
             }
             return;
         }
