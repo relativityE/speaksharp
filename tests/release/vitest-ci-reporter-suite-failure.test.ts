@@ -77,9 +77,26 @@ describe('Vitest CI reporter failure accounting', () => {
             name: 'exports a metrics-only PDF',
             type: 'test',
             result: { state: 'pass', duration: 3 },
+            meta: { assertionCalls: 1 },
         }] }]);
         const results = JSON.parse(readFileSync(join(tempDir, 'test-results/unit/results.json'), 'utf8'));
         expect(results.testFiles).toEqual(['frontend/src/lib/__tests__/pdfGenerator.test.ts']);
+    });
+
+    it('does not qualify a passing file when no assertion executed', () => {
+        const results = runReporter([{
+            filepath: 'tests/release/required-path.test.ts',
+            tasks: [{
+                name: 'returns without checking anything',
+                type: 'test',
+                result: { state: 'pass', duration: 1 },
+                meta: { assertionCalls: 0 },
+            }],
+        }]);
+
+        expect(results.numPassedTests).toBe(1);
+        expect(results.numAssertedTests).toBe(0);
+        expect(results.testFiles).toEqual([]);
     });
 
     it('does not qualify a collected file whose tests are all skipped or todo', () => {

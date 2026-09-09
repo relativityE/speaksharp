@@ -38,7 +38,10 @@ export default class VitestCIReporter {
             tasks.forEach(task => {
                 const titlePath = [...ancestors, task.name].filter(Boolean);
                 if (task.type === 'test') {
-                    if (task.result?.state === 'pass') stats.passed++;
+                    if (task.result?.state === 'pass') {
+                        stats.passed++;
+                        if (Number(task.meta?.assertionCalls) > 0) stats.asserted++;
+                    }
                     else if (task.result?.state === 'fail') recordFailure(task, stats, titlePath);
                     else stats.pending++;
                     stats.total++;
@@ -57,10 +60,10 @@ export default class VitestCIReporter {
             });
         };
 
-        const stats = { passed: 0, failed: 0, pending: 0, failedSuites: 0, total: 0, totalDuration: 0, failures: [] };
+        const stats = { passed: 0, asserted: 0, failed: 0, pending: 0, failedSuites: 0, total: 0, totalDuration: 0, failures: [] };
         const passedFiles = new Set();
         files.forEach((f) => {
-            const passedBefore = stats.passed;
+            const assertedBefore = stats.asserted;
             if (f.tasks) {
                 const failuresBeforeChildren = stats.failed;
                 countTests(f.tasks, stats, [f.name || f.filepath].filter(Boolean));
@@ -75,7 +78,7 @@ export default class VitestCIReporter {
                 stats.total++;
                 stats.totalDuration += (f.result?.duration || 0);
             }
-            if (stats.passed > passedBefore) passedFiles.add(f);
+            if (stats.asserted > assertedBefore) passedFiles.add(f);
         });
 
         // Ensure correct IPC discriminator handling
@@ -101,6 +104,7 @@ export default class VitestCIReporter {
 
         const bridge = {
             numPassedTests: stats.passed,
+            numAssertedTests: stats.asserted,
             numFailedTests: stats.failed,
             numFailedSuites: stats.failedSuites,
             numTotalTests: stats.total,
