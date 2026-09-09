@@ -27,11 +27,64 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
+import { __resetRecordingIntentForTests } from '../recordingIntent';
 import { useSessionStore } from '@/stores/useSessionStore';
 
 vi.mock('../../lib/logger', () => ({
     default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
+// The admission journey below runs a start all the way to CONFIRMED RECORDING, so the network
+// boundary it crosses on the way has to exist. Only the server is stubbed; the controller is real.
+vi.mock('../../lib/storage', () => ({
+    saveSession: vi.fn().mockResolvedValue({ session: null, usageExceeded: false }),
+    heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
+    completeSession: vi.fn().mockResolvedValue({}),
+}));
+vi.mock('../../lib/supabaseClient', () => ({
+    getSupabaseClient: vi.fn(() => ({
+        auth: { getSession: vi.fn().mockResolvedValue({ data: { session: null } }) },
+    })),
+}));
+
+/**
+ * A service that CONFIRMS it is recording. Admission is gated on the service's own answer (#1431), so a
+ * take that never gets one never reaches the retirement — which is exactly why the earlier attempt at
+ * casualty B proved nothing.
+ */
+const recordingService = (overrides: Record<string, unknown> = {}) => ({
+    isServiceDestroyed: () => false,
+    warmUp: vi.fn().mockResolvedValue(undefined),
+    getMode: vi.fn().mockReturnValue('private'),
+    getStrategy: vi.fn().mockReturnValue(null),
+    getState: vi.fn().mockReturnValue('RECORDING'),
+    getMetadata: vi.fn().mockReturnValue({
+        engineVersion: 'test-engine', modelName: 'test-model', deviceType: 'browser',
+    }),
+    startTranscription: vi.fn().mockResolvedValue(undefined),
+    destroy: vi.fn().mockResolvedValue(undefined),
+    setSessionId: vi.fn(),
+    updateCallbacks: vi.fn(),
+    fsm: { is: vi.fn((state: string) => state === 'RECORDING') },
+    ...overrides,
+});
+
+const deferred = () => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((settle) => { resolve = settle; });
+    return { promise, resolve };
+};
+
+const newController = () => {
+    const Controller = SpeechRuntimeController as unknown as new () => SpeechRuntimeController;
+    return new Controller() as unknown as PrivateController & {
+        lifecycleVersion: number;
+        serviceGeneration: number;
+        acceptedAttempt: { recordingId: string } | null;
+        isEngineReady: boolean;
+        isEmissionsSafe: boolean;
+        hardResetAwaited: (reason: string) => Promise<void>;
+    };
+};
 
 type PrivateController = {
     newRecordingBoundary?: unknown;
@@ -50,6 +103,7 @@ const POLICY = {
 
 describe('#1422 — a new take clears the previous take\'s completed-session identity', () => {
     beforeEach(() => {
+        __resetRecordingIntentForTests();
         useSessionStore.getState().resetSession?.();
         const c = priv();
         c.service = null;
@@ -95,51 +149,106 @@ describe('#1422 — a new take clears the previous take\'s completed-session ide
         expect(after.objectiveCoverageResult, "A's N/N coverage survives").not.toBeNull();
     });
 
-    it('a REFUSED start touches no successor-owned after-state (weaker than it looks — see note)', async () => {
+    it('CASUALTY B: a CONFIRMED admission retires all three after-state signals together', async () => {
         /**
-         * DISCLOSED: this does NOT prove the stale-admission ordering, and I am not counting it as
-         * casualty B.
+         * The half of the pair casualty A cannot prove. A only shows the after-state SURVIVING a
+         * refusal, which a controller that never retires anything also satisfies — so on its own it
+         * argues for the bug it was written against. B is what makes A a boundary rather than a
+         * one-sided preference.
          *
-         * The defect it was written for is real — retirement used to sit ABOVE the
-         * `_token.cancelled || _token.version !== this.lifecycleVersion` check, so a start that waited
-         * in `startTranscription()`, was superseded, and returned RECORDING late would clear the
-         * successor's identity on the way out. The fix moves retirement below that check and re-reads
-         * `acceptedAttempt`.
-         *
-         * But this harness has no engine, so the start never reaches the retirement at all: removing
-         * the authority check entirely leaves this test passing. What it actually proves is the
-         * narrower claim in its name — a refused start leaves the successor's after-state alone.
-         *
-         * A discriminating version needs a service that genuinely confirms RECORDING, which is the
-         * behavioural admission journey the return asks for and which is not yet built.
+         * The earlier attempt at this was not achieved: with no engine attached the start never reached
+         * admission, so deleting the retirement block outright left it green. Admission is gated on the
+         * SERVICE confirming RECORDING (#1431), so the service has to answer.
          */
-        const c = priv() as unknown as PrivateController & {
-            acceptedAttempt: unknown;
-            lifecycleVersion: number;
-            serviceGeneration: number;
-        };
+        const c = newController();
+        c.state = 'READY';
+        c.service = recordingService() as never;
 
-        // B owns the after-state.
+        // A is saved and on screen: transcript addressable, review settled, coverage complete.
+        const store = useSessionStore.getState();
+        store.setCompletedSessionId('session-A');
+        store.setFinalizedAnalysis({ sessionId: 'session-A' } as never);
+        store.setObjectiveCoverageResult([
+            { id: 'fp-0', label: 'Name the price', status: 'covered' },
+            { id: 'fp-1', label: 'State the guarantee', status: 'covered' },
+        ] as never);
+
+        await c.startRecording(POLICY as never, []);
+
+        // The admission actually happened. Without this the three assertions below would also pass on a
+        // start that refused early and left the store untouched by accident — the precise way the
+        // previous version of this casualty passed for the wrong reason.
+        expect(c.acceptedAttempt, 'B was admitted; this is not a refusal').not.toBeNull();
+
+        const after = useSessionStore.getState();
+        expect(after.completedSessionId, "A's identity is retired").toBeNull();
+        expect(after.finalizedAnalysis, "A's review is retired").toBeNull();
+        expect(after.objectiveCoverageResult, "A's coverage is retired").toBeNull();
+    });
+
+    it('B2: a superseded take returning RECORDING late retires nothing of the successor\'s', async () => {
+        /**
+         * THE JOURNEY IS REAL; THE CLAIM IS NARROWER THAN ITS FIRST DRAFT. Read the disclosure.
+         *
+         * `startTranscription()` is a genuine suspension point: A enters it, loses the lifecycle to a
+         * hard reset, and returns reporting RECORDING afterwards. That is driven here, not simulated —
+         * the fake service signals when A is actually inside the call, because waiting a fixed number
+         * of microtasks instead left A still upstream of it, never resuming, and the first draft of
+         * this casualty passed on a journey that never happened.
+         *
+         * DISCLOSED — THIS DOES NOT PIN THE RETIREMENT'S PLACEMENT. I mutated the source to find out
+         * rather than reasoning about it. Instrumenting A's path shows it stops at
+         * `checkRecordingInvariant`, which throws for a take that no longer owns the lifecycle: the
+         * producer latch is reached, the invariant is entered, and nothing after it runs. The
+         * retirement site is therefore UNREACHABLE for a superseded take, and no single-line mutation
+         * of it can be killed here — moving the block above the `_token.cancelled` check leaves this
+         * green, and so does neutering `stillOursBeforeRecording()` as well.
+         *
+         * What that means is worth stating plainly: the successor's after-state is defended by #1431's
+         * ownership guards, not by where #1422 put the retirement. The placement is still correct and
+         * still necessary — casualty B proves the block runs on a legitimate admission — but its
+         * `acceptedAttempt` re-read is defence in depth with NO discriminating casualty, because
+         * producing one needs a successor accepted between the latch and the check, which this
+         * boundary cannot be made to do honestly.
+         *
+         * So this test earns its place as the composite user-facing property — a superseded take must
+         * not take the successor's finished review off the screen — and not as proof of the ordering.
+         */
+        const c = newController();
+        c.state = 'READY';
+        const aStart = deferred();
+        const aEntered = deferred();
+        c.service = recordingService({
+            startTranscription: vi.fn().mockImplementation(() => {
+                // A HAS TO ACTUALLY BE SUSPENDED HERE before the lifecycle moves. Waiting a fixed
+                // number of microtasks instead left A still upstream of this call, so it never resumed
+                // and the test proved nothing — the first version of this casualty failed exactly that
+                // way, and passed anyway.
+                aEntered.resolve();
+                return aStart.promise;
+            }),
+        }) as never;
+
+        const aRunning = c.startRecording(POLICY as never, []).catch(() => { /* A loses; that is the point */ });
+        await aEntered.promise;
+
+        // A is now suspended inside startTranscription. The lifecycle moves on without it.
+        await c.hardResetAwaited('supersede-A');
+
+        // B owns the screen: its own saved take, its own settled review, its own coverage.
         const store = useSessionStore.getState();
         store.setCompletedSessionId('session-B');
         store.setFinalizedAnalysis({ sessionId: 'session-B' } as never);
         store.setObjectiveCoverageResult([{ id: 'fp-0', label: 'B point', status: 'covered' }] as never);
 
-        // A's accepted attempt is from an older generation — it lost ownership while suspended.
-        c.acceptedAttempt = {
-            intentToken: 'stale-intent',
-            lifecycleVersion: c.lifecycleVersion - 1,
-            recordingId: 'stale-recording',
-            serviceGeneration: c.serviceGeneration - 1,
-            service: null,
-        };
-
-        await priv().startRecording(POLICY as never, []).catch(() => { /* refusal is not the subject */ });
+        // A returns, reporting RECORDING, into a lifecycle it no longer owns.
+        aStart.resolve();
+        await aRunning;
 
         const after = useSessionStore.getState();
-        expect(after.completedSessionId, "B's identity is untouched").toBe('session-B');
-        expect(after.finalizedAnalysis, "B's review is untouched").not.toBeNull();
-        expect(after.objectiveCoverageResult, "B's coverage is untouched").not.toBeNull();
+        expect(after.completedSessionId, "B's identity survives A's late return").toBe('session-B');
+        expect(after.finalizedAnalysis, "B's review survives").not.toBeNull();
+        expect(after.objectiveCoverageResult, "B's coverage survives").not.toBeNull();
     });
 
     it('CONTROL: the start boundary still bumps the finalize token — it fences, it does not destroy', () => {

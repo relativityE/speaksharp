@@ -89,12 +89,16 @@ export interface TwoTakeaways {
     what_to_try_next?: string;
 }
 
-/** Legacy after-state adapter. The live SessionPage supplies the persisted Practice Loop review instead.
- *  When older/direct callers have no review, remain neutral: a save is not evidence that anything went well. */
-export function verdictFromSuggestions(ai: TwoTakeaways | null | undefined, fillerData?: FillerCounts | null, elapsedSeconds = 0): { verdictLine: string; fix: string } {
-    const top = guardedTopFiller(fillerData, elapsedSeconds);
-    const verdictLine = ai?.what_worked?.trim() || 'Session review not requested.';
-    const fix = ai?.what_to_try_next?.trim()
-        || (top ? `Pause instead of “${top.word}” — it was your most-used filler.` : 'Keep practicing to build your baseline.');
-    return { verdictLine, fix };
-}
+/*
+ * #1422 — `verdictFromSuggestions` IS DELETED, not merely unwired.
+ *
+ * It took a review that does not exist (the coaching prose source is retired, #1306) and returned a
+ * `verdictLine` regardless: "Session review not requested.", plus a filler-derived fix. Its caller
+ * rendered that directly above the real generated 1+1 review, so the after-state denied the review
+ * while displaying it. Its own unit tests asserted the fabricated strings, which is why the defect
+ * survived every gate.
+ *
+ * Unwiring it and leaving it exported would leave a working fabricator one import away, with a green
+ * suite vouching for its output. There is no honest caller: the persisted Practice Loop review is the
+ * only after-state coaching, and when it is absent the correct screen says nothing.
+ */
