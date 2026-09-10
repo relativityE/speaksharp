@@ -15,7 +15,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -27,6 +27,23 @@ const REPO = resolve(__dirname, '..', '..');
 const MERGE = join(REPO, 'scripts', 'merge-coverage.mjs');
 const METRICS_SH = join(REPO, 'scripts', 'run-metrics.sh');
 const MERGED_AT_ROOT = join(REPO, 'unit-metrics.json');
+const RUN_METRICS_SH = join(REPO, 'scripts', 'run-metrics.sh');
+const EVIDENCE_WRITER = join(REPO, 'scripts', 'write-software-quality-evidence.mjs');
+
+/**
+ * Environment for a spawned fixture process.
+ *
+ * `NODE_V8_COVERAGE` MUST BE STRIPPED. Vitest sets it to a shared `artifacts/coverage/.tmp`, and a
+ * child that inherits it writes its own `coverage-<pid>.json` into that directory while vitest is
+ * reading and cleaning it — which surfaced as an unhandled `ENOENT ... coverage-43.json` that failed
+ * the whole unit run without failing a single test. These subprocesses are FIXTURES, not code under
+ * measurement, so their coverage would also pollute the report they are being used to verify.
+ */
+const fixtureEnv = (extra = {}) => {
+  const env = { ...process.env, ...extra };
+  delete env.NODE_V8_COVERAGE;
+  return env;
+};
 
 /** Drives the REAL merge script over two shard files and returns what it wrote. */
 function mergeShards(shardPayloads) {
@@ -34,7 +51,18 @@ function mergeShards(shardPayloads) {
   shardPayloads.forEach((payload, index) => {
     const shardDir = join(dir, `shard-${index + 1}`);
     mkdirSync(shardDir, { recursive: true });
-    writeFileSync(join(shardDir, 'unit-metrics.json'), JSON.stringify(payload));
+    /*
+     * `null` OMITS the artifact and the string 'UNPARSEABLE' corrupts it, so the three ways a shard can
+     * fail to deliver skip identities are all reachable from one fixture. CI's `Rename Unit Metrics`
+     * step uses `mv ... || true`, so "the file simply is not there" is a real production condition,
+     * not a hypothetical.
+     */
+    if (payload !== null) {
+      writeFileSync(
+        join(shardDir, 'unit-metrics.json'),
+        payload === 'UNPARSEABLE' ? '{ this is not json' : JSON.stringify(payload),
+      );
+    }
     // The merge fails CLOSED on a missing `coverage-final.json` — shard loss is a real condition it
     // must refuse, so the fixture supplies a minimal one rather than the script being relaxed.
     writeFileSync(join(shardDir, 'coverage-final.json'), JSON.stringify({
@@ -52,7 +80,7 @@ function mergeShards(shardPayloads) {
   try {
     const run = spawnSync('node', [MERGE], {
       cwd: REPO,
-      env: { ...process.env, COVERAGE_DIR: dir, UNIT_SHARDS: String(shardPayloads.length) },
+      env: fixtureEnv({ COVERAGE_DIR: dir, UNIT_SHARDS: String(shardPayloads.length) }),
       encoding: 'utf8',
     });
     /**
@@ -65,9 +93,19 @@ function mergeShards(shardPayloads) {
      * So the exit status is tolerated, but not ignored: the merge line must be present, or a genuine
      * merge failure would masquerade as a pass.
      */
+    /*
+     * The denominator is the EXPECTED shard count and the numerator is how many actually delivered a
+     * parseable artifact, so a fixture that deliberately loses a shard asserts `1/2` rather than
+     * `2/2`. Asserting the pair — not just the word "Merged" — keeps a real merge failure from
+     * masquerading as a pass while still letting the shard-loss casualties below run.
+     */
+    const delivering = shardPayloads.filter(
+      (payload) => payload !== null && payload !== 'UNPARSEABLE',
+    ).length;
     expect(run.stdout, 'the metrics merge itself must have run')
-      .toMatch(new RegExp(`Merged unit-metrics from ${shardPayloads.length}/${shardPayloads.length} shards`));
-    return { merged: JSON.parse(readFileSync(MERGED_AT_ROOT, 'utf8')), status: run.status, stderr: run.stderr };
+      .toMatch(new RegExp(`Merged unit-metrics from ${delivering}/${shardPayloads.length} shards`));
+    const mergedRaw = readFileSync(MERGED_AT_ROOT, 'utf8');
+    return { merged: JSON.parse(mergedRaw), mergedRaw, status: run.status, stderr: run.stderr };
   } finally {
     rmSync(MERGED_AT_ROOT, { force: true });
     if (stashed) renameSync(stashed, MERGED_AT_ROOT);
@@ -103,6 +141,102 @@ const evidenceFrom = (merged) => ({
   targets: { coverage: { releaseFloor: 75 } },
   coverage: { statements: 80, branches: 80, functions: 80, lines: 80 },
 });
+
+/**
+ * #1430 P1 — DRIVE THE REAL RELEASE REPORT CHAIN, NOT A RECONSTRUCTION OF IT.
+ *
+ * `evidenceFrom()` above builds the evidence object in JavaScript. That proves the merge and the
+ * validator agree, and NOTHING about the two stages between them, which is where this field was lost
+ * twice: `run-metrics.sh` reads the merged file with jq, serializes the field into `unit_tests`, and
+ * binds it as a jq variable; `write-software-quality-evidence.mjs` then reads that serialized report
+ * and maps `unit_tests` onto `tests.unit`. A quoting, type, path or serialization regression anywhere
+ * across those two survives a hand-built evidence object — as the shipped
+ * `jq: error: $unit_skipped_test_files is not defined` proved, having passed a source-text assertion.
+ *
+ * So this runs what `full-evidence` runs: real merge -> real `run-metrics.sh` -> the serialized
+ * `test-results/metrics.json` -> the real evidence writer, which calls the release validator itself
+ * and exits non-zero when it refuses.
+ *
+ * HERMETIC. Everything downstream of the merge is driven in a temp cwd, because both scripts resolve
+ * their inputs and outputs from `process.cwd()`. Nothing in the developer's repo is read or written by
+ * these stages, and the run is independent of whether coverage, e2e or a build happen to be present.
+ * (The merge itself writes to its own module root, which is why the helper above still stashes.)
+ */
+function runRealReportChain(shardPayloads) {
+  const { mergedRaw } = mergeShards(shardPayloads);
+  const cwd = mkdtempSync(join(tmpdir(), 'release-chain-'));
+  const write = (rel, body) => {
+    const target = join(cwd, rel);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, body);
+  };
+
+  // The merge's own bytes, unmodified: this is the file `run-metrics.sh` reads in CI.
+  write('unit-metrics.json', mergedRaw);
+
+  /*
+   * The rest of the report's inputs, staged only so the run reaches the skip check. Each is set to a
+   * PASSING value, so the sole reason the validator can refuse is the one under test — if any of these
+   * were the cause, the control case below would fail too.
+   */
+  write('frontend/coverage/coverage-summary.json', JSON.stringify({
+    total: {
+      statements: { pct: 95 }, branches: { pct: 95 }, functions: { pct: 95 }, lines: { pct: 95 },
+    },
+  }));
+  write('test-results/playwright/results.json', JSON.stringify({
+    stats: { expected: 20, unexpected: 0, flaky: 0, skipped: 0 },
+  }));
+  // `initial_chunk_size` is read from the emitted entry chunk; the validator refuses
+  // `initial_chunk_metric_missing_or_unknown`, which is what a missing build would produce.
+  write('frontend/dist/index.html', '<script type="module" src="/assets/index-real.js"></script>');
+  write('frontend/dist/assets/index-real.js', 'console.log("chunk");\n'.repeat(300));
+  /*
+   * EVERY source dir the report measures must exist. `run-metrics.sh` runs
+   * `du -sk frontend/src backend docs scripts tests` under `set -o pipefail`, so a single missing
+   * directory makes the pipeline non-zero and `set -e` aborts the whole report — silently, with an
+   * empty stderr. The real repo has all five; a fixture with fewer fails for a reason that has
+   * nothing to do with skip identities.
+   */
+  for (const sourceDir of ['frontend/src', 'backend', 'docs', 'scripts', 'tests']) {
+    write(`${sourceDir}/.keep`, 'source-size probe\n');
+  }
+
+  try {
+    const metricsRun = spawnSync('bash', [RUN_METRICS_SH], {
+      cwd,
+      /*
+       * `CI` IS DELIBERATELY INHERITED, NOT CLEARED.
+       *
+       * `run-metrics.sh` hard-exits under CI on a missing e2e results file and a missing entry chunk.
+       * Both are staged above, so CI mode cannot trigger them — and running with the variable as the
+       * lane actually sets it keeps this from silently becoming a local-only path. Clearing it would
+       * exercise a branch CI never takes.
+       */
+      env: fixtureEnv({ TOTAL_RUNTIME_SECONDS: '120' }),
+      encoding: 'utf8',
+    });
+    expect(metricsRun.status, `run-metrics.sh failed: ${metricsRun.stderr}`).toBe(0);
+
+    const serializedPath = join(cwd, 'test-results', 'metrics.json');
+    expect(existsSync(serializedPath), 'the report stage wrote test-results/metrics.json').toBe(true);
+    const serialized = JSON.parse(readFileSync(serializedPath, 'utf8'));
+
+    const writerRun = spawnSync('node', [EVIDENCE_WRITER], {
+      cwd,
+      env: fixtureEnv(),
+      encoding: 'utf8',
+    });
+    const evidencePath = join(cwd, 'product_release', 'evidence', 'software-quality.latest.json');
+    const evidence = existsSync(evidencePath)
+      ? JSON.parse(readFileSync(evidencePath, 'utf8'))
+      : null;
+
+    return { serialized, writerRun, evidence };
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+}
 
 describe('#1430 P1 — a skipped release path survives merge -> metrics -> validation', () => {
   const required = MEANINGFUL_COVERAGE_MANIFEST[0];
@@ -172,8 +306,35 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
      * discriminates. The control below is its mirror.
      */
     expect(stderr, 'the merge names the shard and the reason')
-      .toMatch(/reported unit metrics without a valid `skippedTestFiles` array/);
+      .toMatch(/did not supply a parseable unit metrics artifact with a `skippedTestFiles` array/);
     expect(stderr, 'and identifies which shard').toMatch(/shard\(s\) 2/);
+  });
+
+  it('CASUALTY: a shard with NO metrics artifact at all is shard loss, not a clean shard', () => {
+    /**
+     * #1430 P1. The guard added above ran only AFTER the file existed and parsed, so the two branches
+     * that reach neither state still warned and continued: a shard could publish valid coverage and no
+     * usable `unit-metrics.json`, and the merge would then serialize skip identities from only the
+     * remaining shards. CI's rename step tolerates a missing output with `mv ... || true`, so this is
+     * the likeliest of the three failures, and it was the one left open.
+     */
+    const { stderr } = mergeShards([shard(allRequired, []), null]);
+
+    expect(stderr, 'a missing artifact is unmeasured, not empty')
+      .toMatch(/did not supply a parseable unit metrics artifact with a `skippedTestFiles` array/);
+    expect(stderr, 'and the shard is named').toMatch(/shard\(s\) 2/);
+  });
+
+  it('CASUALTY: a shard whose metrics artifact does not parse is shard loss too', () => {
+    /**
+     * Indistinguishable from absence for this evidence: we hold no skip identities from that shard and
+     * must not infer it had none. Previously this branch warned and continued as well.
+     */
+    const { stderr } = mergeShards([shard(allRequired, []), 'UNPARSEABLE']);
+
+    expect(stderr, 'an unparseable artifact is unmeasured, not empty')
+      .toMatch(/did not supply a parseable unit metrics artifact with a `skippedTestFiles` array/);
+    expect(stderr, 'and the shard is named').toMatch(/shard\(s\) 2/);
   });
 
   it('CONTROL: an EMPTY array from every shard is a measured zero and still qualifies', () => {
@@ -209,5 +370,57 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
     expect(src, 'bound as a jq variable').toMatch(/--argjson unit_skipped_test_files\s+"\$unit_skipped_test_files"/);
     // And defaulted on the no-metrics-file branch, or jq receives an unset variable and fails the same way.
     expect(src, 'defaulted when no metrics file exists').toMatch(/unit_skipped_test_files="\[\]"/);
+  });
+
+  it('CASUALTY: the REAL merge -> ci report -> evidence-writer chain refuses a skipped release path', () => {
+    /**
+     * The chain, end to end, with a skipped required path. The evidence writer runs the release
+     * validator itself and exits non-zero, so the refusal is observed where the release lane observes
+     * it — not by re-implementing the evidence object in the test.
+     */
+    const { serialized, writerRun, evidence } = runRealReportChain([
+      shard(allRequired, [required.testFile]),
+      shard(allRequired, []),
+    ]);
+
+    /*
+     * THE SERIALIZATION IS ASSERTED ON ITS TYPE, NOT JUST ITS CONTENT.
+     *
+     * The defect that shipped was a jq variable that was named but never bound. Its neighbours were
+     * quoting mistakes that turn an array into a string. `toContain` alone is true for the string
+     * '["...path..."]', so the array-ness is asserted first and separately.
+     */
+    expect(Array.isArray(serialized.unit_tests.skippedTestFiles),
+      'run-metrics.sh serialized skippedTestFiles as a JSON array').toBe(true);
+    expect(serialized.unit_tests.skippedTestFiles,
+      'and carried the skipped release path into the report').toContain(required.testFile);
+
+    // The writer maps `unit_tests` onto `tests.unit`; a rename or a dropped field lands here.
+    expect(writerRun.status, 'the evidence writer must REFUSE this report').toBe(1);
+    expect(`${writerRun.stdout}${writerRun.stderr}`, 'naming the skipped requirement')
+      .toContain(`meaningful_coverage_path_skipped:${required.id}`);
+    expect(evidence, 'and must not publish qualified evidence').toBeNull();
+  });
+
+  it('CONTROL: the same REAL chain qualifies when every shard reports an explicit empty array', () => {
+    /**
+     * The casualty's mirror, and the reason it discriminates. `[]` is a measured zero and must travel
+     * the whole chain as one: if the refusal above came from the staged coverage, e2e, runtime or
+     * bundle inputs rather than from the skip, this case would refuse too.
+     */
+    const { serialized, writerRun, evidence } = runRealReportChain([
+      shard(allRequired, []),
+      shard(allRequired, []),
+    ]);
+
+    expect(Array.isArray(serialized.unit_tests.skippedTestFiles)).toBe(true);
+    expect(serialized.unit_tests.skippedTestFiles, 'a measured zero, not a missing field').toEqual([]);
+
+    expect(writerRun.status,
+      `the evidence writer must ACCEPT this report: ${writerRun.stdout}${writerRun.stderr}`).toBe(0);
+    expect(evidence, 'qualified evidence was published').not.toBeNull();
+    expect(evidence.tests.unit.skippedTestFiles,
+      'and the empty array survived into the published evidence').toEqual([]);
+    expect(evidence.qualification.status).toBe('valid');
   });
 });

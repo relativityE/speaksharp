@@ -83,7 +83,20 @@ const metricsFieldLoss = [];
 for (let shard = 1; shard <= SHARDS; shard++) {
   const shardMetricsPath = path.join(coverageDir, `shard-${shard}`, 'unit-metrics.json');
   if (!fs.existsSync(shardMetricsPath)) {
+    /*
+     * #1430 P1 — A MISSING METRICS ARTIFACT IS ALSO FIELD LOSS.
+     *
+     * `Rename Unit Metrics` in CI tolerates a missing output with `mv ... || true`, so a shard can
+     * publish valid coverage and no usable `unit-metrics.json` at all. This branch warned and
+     * continued, so the merge then serialized skip identities from only the REMAINING shards and could
+     * still produce qualifying evidence. My earlier guard ran after the file existed and parsed, which
+     * left exactly this door open.
+     *
+     * Every expected shard must supply one parseable artifact carrying a `skippedTestFiles` array. `[]`
+     * is still accepted — that is a measured zero.
+     */
     console.warn(`Note: no unit-metrics.json for shard-${shard} (diagnostic only)`);
+    metricsFieldLoss.push(shard);
     continue;
   }
   try {
@@ -119,14 +132,18 @@ for (let shard = 1; shard <= SHARDS; shard++) {
         `${data.numFailedTests || 0} failed) in ${((data.totalDuration || 0) / 1000).toFixed(1)}s`,
     );
   } catch (e) {
+    // An unparseable artifact is indistinguishable from an absent one for this evidence: we have no
+    // skip identities from that shard and must not infer that it had none.
     console.warn(`Failed to parse ${shardMetricsPath}: ${e.message}`);
+    metricsFieldLoss.push(shard);
   }
 }
 if (metricsFieldLoss.length > 0) {
   console.error(
-    `ERROR: shard(s) ${metricsFieldLoss.join(', ')} reported unit metrics without a valid `
-    + '`skippedTestFiles` array. Skip identities are release-path evidence and a missing array is '
-    + 'unmeasured, not empty (fail closed).',
+    `ERROR: shard(s) ${[...new Set(metricsFieldLoss)].join(', ')} did not supply a parseable unit `
+    + 'metrics artifact with a `skippedTestFiles` array. Skip identities are release-path evidence, and '
+    + 'a missing artifact, an unparseable one, or a missing array is unmeasured — not empty '
+    + '(fail closed).',
   );
   process.exitCode = 1;
 }
