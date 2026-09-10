@@ -7,7 +7,7 @@ import {
     mintRecordingIntent,
     pendingRecordingIntent,
 } from '../recordingIntent';
-import { SpeechRuntimeController, type LifecycleToken } from '../SpeechRuntimeController';
+import { SpeechRuntimeController, StartRefusedFinalizationError, type LifecycleToken } from '../SpeechRuntimeController';
 import { sessionManager } from '../transcription/SessionManager';
 import type { TranscriptionServiceOptions } from '../transcription/TranscriptionService';
 import { completeSession, saveSession } from '../../lib/storage';
@@ -733,6 +733,39 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
             "and the owning stop's frozen transcript is not discarded")
             .toBe('the words the owning stop is still saving');
         expect(c.finalizingOwner, 'the ownership record stays consistent with the latch').not.toBeNull();
+    });
+
+    it('CASUALTY R6: the refusal is TYPED, so the hook cannot mistake it for a failed start', async () => {
+        /**
+         * #1431 P1 — rejecting a plain Error made `useSessionLifecycle`'s start catch treat the
+         * refusal as an engine-acquisition failure: failure telemetry, an error status, and
+         * `reset('start_failed')`, which hard-resets and DETACHES the current service. That service
+         * belongs to the finalizing take, so the fence added to preserve its transcript would have
+         * destroyed it by a longer route.
+         *
+         * The type is the whole mechanism. A bare `Error` here — even with the same message — puts the
+         * hook back on the destructive path, which is why this asserts the class and not the text.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: unknown } | null;
+            finalizingOwnerVersion: number | null;
+            serviceGeneration: number;
+            startRecording: SpeechRuntimeController['startRecording'];
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        c.finalizingOwnerVersion = c.lifecycleVersion;
+        c.finalizingOwner = {
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: {} as never,
+        };
+
+        await expect(c.startRecording()).rejects.toBeInstanceOf(StartRefusedFinalizationError);
+
+        const settlement = { resolve: vi.fn(), reject: vi.fn() };
+        await c.startRecording(undefined, [], true, settlement as never);
+        expect(settlement.reject.mock.calls[0][0], 'the resumed settlement carries the same type')
+            .toBeInstanceOf(StartRefusedFinalizationError);
     });
 
     it('CASUALTY R5: release REFUSES a caller that supplies no captured authority', async () => {

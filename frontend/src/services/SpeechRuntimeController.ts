@@ -326,6 +326,26 @@ const createEmptyTranscriptLifecycleState = (): TranscriptLifecycleState => ({
  * copy differs. Routed through the normal stop-error path so it reuses the existing FAILED +
  * recovery-draft architecture rather than inventing a second one.
  */
+/**
+ * #1431 P1 — A CONTROLLED REFUSAL IS NOT AN ACQUISITION FAILURE.
+ *
+ * The owner fence rejects, because a Start that never began must not resolve as success. But
+ * `useSessionLifecycle`'s start catch treats EVERY rejection as an engine-acquisition failure: it
+ * emits failure telemetry, overwrites the status, and calls `reset('start_failed')` — which hard-
+ * resets and DETACHES the service whose stop is still finalizing. The fence meant to preserve that
+ * work would have destroyed it, by a longer route.
+ *
+ * A distinct type is what lets the hook tell the two apart. The refusal still reaches the caller —
+ * the promise rejects and a resumed settlement is rejected — while the hook returns without touching
+ * the owner.
+ */
+export class StartRefusedFinalizationError extends Error {
+    constructor() {
+        super('START_REFUSED_FINALIZATION_IN_PROGRESS');
+        this.name = 'StartRefusedFinalizationError';
+    }
+}
+
 export class FinalizationTimeoutError extends Error {
     readonly timeoutMs: number;
     constructor(timeoutMs: number) {
@@ -3479,7 +3499,7 @@ export class SpeechRuntimeController {
                 armedByVersion: this.finalizingOwnerVersion,
                 live: this.lifecycleVersion,
             });
-            const refusal = new Error('START_REFUSED_FINALIZATION_IN_PROGRESS');
+            const refusal = new StartRefusedFinalizationError();
             if (resumedFromPreparation) {
                 carriedSettlement?.reject(refusal);
                 return;
