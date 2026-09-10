@@ -1,5 +1,10 @@
 # Moonshine windowed E/F — run manifest
 
+> **HISTORICAL EVIDENCE — point-in-time measurement, NOT current release truth.**
+> This manifest records the two probe runs executed against source SHA
+> `697730ac0cd9bd0d646ba5876eb145719b3500d3`. Current model-comparison authority
+> remains the exact deployed release and the governed #1432 evidence packet.
+
 Provenance for the two retained artifacts in this directory. Recorded so the run can be reproduced and
 so nothing here has to be taken on trust. **Both artifacts are the probe's own bytes, unedited**; the
 SHA-256 values below were recomputed from the committed files, not copied from the probe's stdout.
