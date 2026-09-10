@@ -264,8 +264,12 @@ async function main(): Promise<void> {
             bootId: (cells[3] ?? null) as string | null,
             properties: {
                 outcome: cells[4] ?? null,
-                state: cells[5] ?? null,
+                to_state: cells[5] ?? null,
                 acquired_candidate_id: cells[6] ?? null,
+                expected_candidate_id: cells[7] ?? null,
+                candidate_id: cells[8] ?? null,
+                engine: cells[9] ?? null,
+                runtime_version: cells[10] ?? null,
             },
         };
     });

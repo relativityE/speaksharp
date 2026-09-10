@@ -142,8 +142,11 @@ export function buildReadbackQuery(params: {
      */
     return `
         SELECT event, timestamp, properties.journey_id AS journey_id, properties.boot_id AS boot_id,
-               properties.outcome AS outcome, properties.state AS state,
-               properties.acquired_candidate_id AS acquired_candidate_id
+               properties.outcome AS outcome, properties.to_state AS to_state,
+               properties.acquired_candidate_id AS acquired_candidate_id,
+               properties.expected_candidate_id AS expected_candidate_id,
+               properties.candidate_id AS candidate_id,
+               properties.engine AS engine, properties.runtime_version AS runtime_version
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}

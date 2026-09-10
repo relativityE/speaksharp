@@ -21,13 +21,27 @@ const stageNamed = (name: string): QualificationStage =>
 const row = (event: string, properties: Record<string, unknown> = {}): DecodedTelemetryRow =>
     ({ event, properties });
 
+/** The three selectable candidates the down-selection compares. */
+const MODELS = ['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'] as const;
+let MODEL: string = MODELS[0];
+
 /** A complete, honest journey for one stage: every required family, every invariant satisfied. */
-const completeRows = (stage: QualificationStage): DecodedTelemetryRow[] => stage.requiredFamilies.map((family) => {
+const completeRows = (stage: QualificationStage, model: string = MODELS[0]): DecodedTelemetryRow[] => (
+    MODEL = model, stage.requiredFamilies.map((family) => {
     if (family === 'feedback_submit') return row(family, { outcome: 'stored' });
-    if (family === 'recording_state') return row(family, { state: 'RECORDING' });
-    if (family === 'private_model_acquisition_success') return row(family, { acquired_candidate_id: 'v2:base.en' });
-    return row(family);
-});
+    // `to_state` — the property `emitRecordingState()` actually publishes. The fixture said `state`,
+    // which is the same defect the production query had: it decoded null on every real row.
+    if (family === 'recording_state') {
+        return row(family, { to_state: 'RECORDING', candidate_id: MODEL, engine: 'private', runtime_version: 'r1' });
+    }
+    if (family === 'private_model_acquisition_success') {
+        return row(family, { acquired_candidate_id: MODEL, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' });
+    }
+    if (family === 'private_model_acquisition_start') {
+        return row(family, { expected_candidate_id: MODEL, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' });
+    }
+    return row(family, { candidate_id: MODEL, engine: 'private', runtime_version: 'r1' });
+}));
 
 describe('#1421 P1 — every UI stage must be evidenced at readback', () => {
     it('POSITIVE CONTROL: a complete journey qualifies every stage', () => {
@@ -49,6 +63,72 @@ describe('#1421 P1 — every UI stage must be evidenced at readback', () => {
                     .toContain(`${stage.stage}: missing required family ${family}`);
             }
         }
+    });
+
+    it('POSITIVE CONTROL: each of the three selectable models qualifies on its own coherent row', () => {
+        /**
+         * #1421 P1 — the binding must ACCEPT each candidate the down-selection compares, not merely
+         * reject mismatches. A rule that holds every model is as useless for a comparison as one that
+         * accepts the wrong one.
+         */
+        const stage = stageNamed('session_during');
+        for (const model of MODELS) {
+            expect(evaluateQualificationStage(stage, completeRows(stage, model)), `${model} qualifies`)
+                .toEqual([]);
+        }
+    });
+
+    it('CASUALTY: configured != acquired HOLDs', () => {
+        /**
+         * #1421 P1 — the invariant required ONE non-blank `acquired_candidate_id` and stopped, so a run
+         * configured for one model that acquired another satisfied the claimed three-model binding and
+         * would have attributed one model's results to another. Requiring a value is not requiring the
+         * right value.
+         */
+        const stage = stageNamed('session_during');
+        const rows = completeRows(stage, 'v2:base.en').map((r) => (
+            r.event === 'private_model_acquisition_start'
+                ? row(r.event, { ...r.properties, expected_candidate_id: 'v4:distil:q4' })
+                : r));
+
+        expect(evaluateQualificationStage(stage, rows).join(' | '))
+            .toMatch(/configured candidate is not the one that was acquired/);
+    });
+
+    it('CASUALTY: acquired != running HOLDs', () => {
+        // The other half: the loader fetched one model and a different one is what actually ran.
+        const stage = stageNamed('session_during');
+        const rows = completeRows(stage, 'v2:base.en').map((r) => (
+            r.event === 'private_model_acquisition_success'
+                ? row(r.event, { ...r.properties, acquired_candidate_id: 'moonshine:streaming-medium' })
+                : r));
+
+        expect(evaluateQualificationStage(stage, rows).join(' | '))
+            .toMatch(/configured candidate is not the one that was acquired|acquired candidate is not the one that ran/);
+    });
+
+    it('CASUALTY: an UNIDENTIFIABLE runtime HOLDs', () => {
+        // `candidate_id` names the model; `engine` and `runtime_version` are what attribute it to a
+        // build. The envelope nulls all three as a set when attribution is unverified, so a candidate
+        // named with no engine is the "we cannot say what ran" state.
+        const stage = stageNamed('session_during');
+        const rows = completeRows(stage, 'v2:base.en').map((r) =>
+            row(r.event, { ...r.properties, engine: null, runtime_version: null }));
+
+        expect(evaluateQualificationStage(stage, rows).join(' | '))
+            .toMatch(/no verified engine or runtime version/);
+    });
+
+    it('CASUALTY: MIXED running candidates in one journey HOLDs', () => {
+        // Two takes in one row. Averaging them is the contamination the binding exists to refuse.
+        const stage = stageNamed('session_during');
+        const rows = [
+            ...completeRows(stage, 'v2:base.en'),
+            row('recording_state', { to_state: 'RECORDING', candidate_id: 'v4:distil:q4', engine: 'private', runtime_version: 'r1' }),
+        ];
+
+        expect(evaluateQualificationStage(stage, rows).join(' | '))
+            .toMatch(/more than one running candidate identity/);
     });
 
     it('CASUALTY (b): a journey with NO acquired candidate identity HOLDs', () => {

@@ -198,6 +198,8 @@ export const EVENT_SCHEMAS = Object.freeze({
      */
     private_model_acquisition_start: {
         acquired_candidate_id: slug(), model_identity: slug(), asset_pin_digest: slug(128),
+        // #1421 P1 — the CONFIGURED identity, so the readback can require configured = acquired = running.
+        expected_candidate_id: slug(),
         release_id: slug(), trigger: enumOf(['warmup', 'explicit-setup']),
         cache_result: enumOf(['hit', 'miss', 'partial', 'unobservable']),
         init_sequence: { kind: 'int', min: 0, max: 100_000 } as FieldRule,

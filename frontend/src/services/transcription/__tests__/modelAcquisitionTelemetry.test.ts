@@ -218,6 +218,20 @@ describe('#1259s the event body is content-free', () => {
             // which strips producer values and substitutes what the engine RESOLVED. During a cold load
             // nothing has resolved, so naming the subject there had it overwritten with null.
             'acquired_candidate_id', 'model_identity', 'asset_pin_digest', 'release_id', 'trigger',
+            /**
+             * #1421 P1 — the CONFIGURED identity, added deliberately.
+             *
+             * The readback proves a three-model down-selection by requiring configured = acquired =
+             * running. `acquired_candidate_id` and the envelope's `candidate_id` supplied the last two;
+             * the configured identity lived only inside the client's candidate gate and was never
+             * emitted, so the binding could only check that SOME model was acquired — not that it was
+             * the one the run was configured for.
+             *
+             * Content-free: an opaque candidate slug from a closed set of three, no more identifying
+             * than `acquired_candidate_id` beside it. This casualty is doing exactly its job by
+             * objecting; the entry is the deliberate answer, not a suppression.
+             */
+            'expected_candidate_id',
             'cache_result', 'network_used', 'network_bytes', 'asset_count',
             'download_ms', 'init_ms', 'total_ms', 'outcome', 'error_code',
             // #1259: the bounded completeness signal. `measurement_reason_code` is a CLOSED vocabulary;

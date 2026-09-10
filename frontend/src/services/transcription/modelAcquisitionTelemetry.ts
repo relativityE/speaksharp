@@ -24,6 +24,7 @@
  */
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { nextInitContext } from '@/services/telemetry/reinitObservation';
+import { runtimeCandidateExpectation } from '@/services/transcription/runtimeCandidateSwitch';
 import type {
     MeasurementCompleteness, MeasurementReasonCode,
 } from './acquisitionNetworkObservation';
@@ -257,6 +258,16 @@ export function recordAcquisitionStart(subject: AcquisitionSubject, cacheResult:
     emit('private_model_acquisition_start', {
         ...subjectProps(subject),
         cache_result: cacheResult,
+        /**
+         * #1421 P1 — WHAT THIS RUN WAS CONFIGURED FOR.
+         *
+         * The readback proves a three-model down-selection by requiring configured = acquired =
+         * running. `acquired_candidate_id` and the envelope's `candidate_id` supplied the last two; the
+         * configured identity existed only inside the client's candidate gate and was never published,
+         * so the binding could only ever check that SOME model was acquired — not that it was the right
+         * one. Null when no expectation is configured, never a guess.
+         */
+        expected_candidate_id: runtimeCandidateExpectation() ?? null,
         ...nextInitContext(),
     });
 }

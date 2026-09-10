@@ -184,6 +184,7 @@ export interface DecodedTelemetryRow {
     properties?: Record<string, unknown> | null;
 }
 
+
 const has = (rows: readonly DecodedTelemetryRow[], event: string) => rows.some(r => r?.event === event);
 const propsOf = (rows: readonly DecodedTelemetryRow[], event: string) =>
     rows.filter(r => r?.event === event).map(r => r?.properties ?? {});
@@ -199,11 +200,60 @@ const propsOf = (rows: readonly DecodedTelemetryRow[], event: string) =>
  * identities in one journey means the row describes two takes, and averaging them is exactly the
  * contamination this exists to refuse.
  */
+const idsOf = (rows: readonly DecodedTelemetryRow[], event: string, field: string) =>
+    new Set(propsOf(rows, event).map(p => p?.[field]).filter(v => typeof v === 'string' && v.length > 0) as string[]);
+
 const modelIdentityIsCoherent = (rows: readonly DecodedTelemetryRow[]): string | null => {
-    const acquired = new Set(propsOf(rows, 'private_model_acquisition_success')
-        .map(p => p?.acquired_candidate_id).filter(v => typeof v === 'string' && v.length > 0));
+    const acquired = idsOf(rows, 'private_model_acquisition_success', 'acquired_candidate_id');
     if (acquired.size === 0) return 'no acquired candidate identity was recorded for this journey';
     if (acquired.size > 1) return 'more than one acquired candidate identity in one journey';
+
+    /**
+     * #1421 P1 — EQUALITY, NOT MERE PRESENCE.
+     *
+     * This required one non-blank `acquired_candidate_id` and stopped. A run configured for one model
+     * that acquired or ran another therefore satisfied the claimed three-model binding, and the
+     * down-selection evidence it produced would attribute one model's results to another. Requiring a
+     * value is not requiring the right value.
+     *
+     * Three identities, all governed and all now fetched by the readback:
+     *   expected_candidate_id — what the run was CONFIGURED for, from the candidate expectation;
+     *   acquired_candidate_id — what the loader actually ACQUIRED;
+     *   candidate_id          — what the envelope verified as RUNNING, on every governed row.
+     *
+     * All three must agree. Any missing term HOLDs rather than being skipped: an absent identity is
+     * exactly the state in which a mismatch cannot be ruled out.
+     */
+    const expected = idsOf(rows, 'private_model_acquisition_start', 'expected_candidate_id');
+    if (expected.size === 0) return 'no configured (expected) candidate identity was recorded';
+    if (expected.size > 1) return 'more than one configured candidate identity in one journey';
+
+    const running = new Set(rows.map(r => r?.properties?.candidate_id)
+        .filter(v => typeof v === 'string' && v.length > 0) as string[]);
+    if (running.size === 0) return 'no running candidate identity was recorded for this journey';
+    if (running.size > 1) return 'more than one running candidate identity in one journey';
+
+    /**
+     * AN UNIDENTIFIABLE RUNTIME HOLDS. `candidate_id` alone names the model; `engine` and
+     * `runtime_version` are what make the running identity attributable to a build. The envelope
+     * publishes all three together and sets them to null as a set when attribution is unverified, so a
+     * row naming a candidate with no engine or runtime version is exactly the "we cannot say what ran"
+     * state — which must not qualify a down-selection row.
+     */
+    const engines = new Set(rows.map(r => r?.properties?.engine)
+        .filter(v => typeof v === 'string' && v.length > 0) as string[]);
+    const runtimes = new Set(rows.map(r => r?.properties?.runtime_version)
+        .filter(v => typeof v === 'string' && v.length > 0) as string[]);
+    if (engines.size === 0 || runtimes.size === 0) {
+        return 'the running candidate carries no verified engine or runtime version';
+    }
+    if (engines.size > 1 || runtimes.size > 1) {
+        return 'more than one running engine or runtime version in one journey';
+    }
+
+    const [a] = [...acquired]; const [e] = [...expected]; const [r] = [...running];
+    if (e !== a) return 'the configured candidate is not the one that was acquired';
+    if (a !== r) return 'the acquired candidate is not the one that ran';
     return null;
 };
 
@@ -233,8 +283,11 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
                 // An accepted intent that never reaches RECORDING is the F-01 defect: the click was
                 // taken and nothing ran. A journey missing that transition has not proven a take began.
                 name: 'accepted_intent_reached_recording',
+                // `to_state` is what `emitRecordingState()` publishes and what the governed schema
+                // declares. Reading `state` decoded null on every real row, so this invariant could
+                // never find RECORDING and every honest During readback would have HELD.
                 check: (rows) => (has(rows, 'recording_intent')
-                    && !propsOf(rows, 'recording_state').some(p => p?.state === 'RECORDING')
+                    && !propsOf(rows, 'recording_state').some(p => p?.to_state === 'RECORDING')
                     ? 'an accepted recording intent never reached RECORDING'
                     : null),
             },
