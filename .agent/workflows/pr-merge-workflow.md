@@ -39,10 +39,20 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    gh pr checks <PR#> --watch --interval 30
    ```
    On red: `gh pr checks <PR#>` → open the failing job's log → fix on the same branch (pushing again re-runs CI).
-8. **Merge — only after green** (auto-merge is **disabled** on this repo, so merge manually):
+8. **Merge — only after green, and only through the guarded command.** Auto-merge is disabled on this
+   repo, so the merge is invoked by hand — which is exactly why it must not be invoked *directly*:
    ```bash
-   gh pr merge <PR#> --squash --delete-branch
+   GITHUB_TOKEN=$GH_TOKEN pnpm merge:guarded \
+     --repo=relativityE/speaksharp --pr=<PR#> --sha=<exact-head-sha> \
+     --receipt=<review-qualification.json from the green run>
    ```
+   **Do not run `gh pr merge` directly.** GitHub emits no workflow event when a review thread is
+   resolved or unresolved, so a green `review-qualification` check stays green after a P0/P1 thread is
+   reopened — nothing re-runs and nothing revalidates. `merge:guarded` is the only place this repository
+   invokes a merge: immediately before merging it re-reads live thread state over GraphQL, revalidates
+   the age of the green run's receipt, and refuses on a reopened thread, a stale or undated receipt, an
+   unreadable read, or a head that moved since authorization. On a hold it exits non-zero having called
+   nothing.
 9. **Strict mode / serial landing:** every merge advances `main`, so any other open PR goes **BEHIND**. Bring it current first (this re-runs its CI), then merge — land PRs one at a time:
    ```bash
    gh pr update-branch <PR#>   # then re-watch checks, then merge
