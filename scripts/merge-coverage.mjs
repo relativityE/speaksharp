@@ -78,6 +78,8 @@ const mergedMetrics = {
   failures: [],
 };
 let metricsMergedCount = 0;
+// Shards that merged counts but reported no skipped-file identities. See the P1 note below.
+const metricsFieldLoss = [];
 for (let shard = 1; shard <= SHARDS; shard++) {
   const shardMetricsPath = path.join(coverageDir, `shard-${shard}`, 'unit-metrics.json');
   if (!fs.existsSync(shardMetricsPath)) {
@@ -93,7 +95,23 @@ for (let shard = 1; shard <= SHARDS; shard++) {
     mergedMetrics.totalDuration += data.totalDuration || 0;
     mergedMetrics.numPendingTests += data.numPendingTests || 0;
     if (Array.isArray(data.testFiles)) mergedMetrics.testFiles.push(...data.testFiles);
-    if (Array.isArray(data.skippedTestFiles)) mergedMetrics.skippedTestFiles.push(...data.skippedTestFiles);
+    /*
+     * #1430 P1 — A SHARD THAT OMITS SKIP IDENTITIES IS UNMEASURED, NOT CLEAN.
+     *
+     * This silently ignored a shard whose `skippedTestFiles` was absent or not an array. Counts and
+     * `testFiles` still merged, `run-metrics.sh` defaulted the field to `[]`, and the validator reads a
+     * missing value as "no skipped paths" — so the evidence could qualify having never observed skip
+     * identities at all. That is the same absence-as-zero substitution this whole field exists to
+     * prevent, one layer up: a release-path casualty could be skipped and nothing would know.
+     *
+     * A shard that reported counts but no skip identities is therefore SHARD LOSS for this evidence,
+     * and it fails closed like any other. `[]` from a shard is fine — that is a measured zero.
+     */
+    if (!Array.isArray(data.skippedTestFiles)) {
+      metricsFieldLoss.push(shard);
+    } else {
+      mergedMetrics.skippedTestFiles.push(...data.skippedTestFiles);
+    }
     if (Array.isArray(data.failures)) mergedMetrics.failures = mergedMetrics.failures.concat(data.failures);
     metricsMergedCount++;
     console.log(
@@ -103,6 +121,14 @@ for (let shard = 1; shard <= SHARDS; shard++) {
   } catch (e) {
     console.warn(`Failed to parse ${shardMetricsPath}: ${e.message}`);
   }
+}
+if (metricsFieldLoss.length > 0) {
+  console.error(
+    `ERROR: shard(s) ${metricsFieldLoss.join(', ')} reported unit metrics without a valid `
+    + '`skippedTestFiles` array. Skip identities are release-path evidence and a missing array is '
+    + 'unmeasured, not empty (fail closed).',
+  );
+  process.exitCode = 1;
 }
 if (metricsMergedCount > 0) {
   mergedMetrics.testFiles = [...new Set(mergedMetrics.testFiles)].sort();

@@ -67,7 +67,7 @@ function mergeShards(shardPayloads) {
      */
     expect(run.stdout, 'the metrics merge itself must have run')
       .toMatch(new RegExp(`Merged unit-metrics from ${shardPayloads.length}/${shardPayloads.length} shards`));
-    return JSON.parse(readFileSync(MERGED_AT_ROOT, 'utf8'));
+    return { merged: JSON.parse(readFileSync(MERGED_AT_ROOT, 'utf8')), status: run.status, stderr: run.stderr };
   } finally {
     rmSync(MERGED_AT_ROOT, { force: true });
     if (stashed) renameSync(stashed, MERGED_AT_ROOT);
@@ -111,7 +111,7 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
   it('CASUALTY: a required file skipped in ONE shard yields meaningful_coverage_path_skipped', () => {
     // End to end: the real merge subprocess unions the field across shards, and the validator then
     // rejects the path. Deleting either the merge push or the dedupe breaks this.
-    const merged = mergeShards([
+    const { merged } = mergeShards([
       shard(allRequired, [required.testFile]),
       shard(allRequired, []),
     ]);
@@ -126,7 +126,7 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
 
   it('POSITIVE CONTROL: an unrelated skipped file is reported but blocks no required path', () => {
     const unrelated = 'frontend/src/services/__tests__/someUnrelatedThing.test.ts';
-    const merged = mergeShards([
+    const { merged } = mergeShards([
       shard(allRequired, [unrelated]),
       shard(allRequired, []),
     ]);
@@ -139,13 +139,51 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
   });
 
   it('CASUALTY: the merge DEDUPES a path skipped in more than one shard', () => {
-    const merged = mergeShards([
+    const { merged } = mergeShards([
       shard(allRequired, [required.testFile]),
       shard(allRequired, [required.testFile]),
     ]);
 
     expect(merged.skippedTestFiles.filter((f) => f === required.testFile))
       .toHaveLength(1);
+  });
+
+  it('CASUALTY: a shard that OMITS skip identities is unmeasured, not clean — the merge fails closed', () => {
+    /**
+     * #1430 P1. The merge silently ignored a shard whose `skippedTestFiles` was absent or not an array.
+     * Counts and `testFiles` still merged, `run-metrics.sh` defaulted the field to `[]`, and the
+     * validator reads a missing value as "no skipped paths" — so the evidence could qualify having
+     * never observed skip identities at all. Codex reproduced `valid: true` with the field omitted.
+     *
+     * That is absence substituted for a measured zero, which is the exact substitution this field was
+     * added to prevent. A shard reporting counts but no identities is shard loss for this evidence.
+     */
+    const withoutField = { ...shard(allRequired, []) };
+    delete withoutField.skippedTestFiles;
+
+    const { stderr } = mergeShards([shard(allRequired, []), withoutField]);
+
+    /**
+     * ASSERTED ON THE SPECIFIC MESSAGE, NOT THE EXIT STATUS.
+     *
+     * The merge already exits non-zero on per-file coverage thresholds that a synthetic two-file
+     * fixture cannot satisfy, so `status !== 0` is true whether or not this correction exists — it
+     * would have passed before the fix and proved nothing. The named reason is the only assertion that
+     * discriminates. The control below is its mirror.
+     */
+    expect(stderr, 'the merge names the shard and the reason')
+      .toMatch(/reported unit metrics without a valid `skippedTestFiles` array/);
+    expect(stderr, 'and identifies which shard').toMatch(/shard\(s\) 2/);
+  });
+
+  it('CONTROL: an EMPTY array from every shard is a measured zero and still qualifies', () => {
+    // Failing closed on absence must not fail on a genuine "nothing was skipped". `[]` is evidence.
+    const { merged, stderr } = mergeShards([shard(allRequired, []), shard(allRequired, [])]);
+
+    expect(stderr, 'an empty array is a measured zero, not field loss')
+      .not.toMatch(/without a valid `skippedTestFiles` array/);
+    expect(merged.skippedTestFiles).toEqual([]);
+    expect(validateSoftwareQualityEvidence(evidenceFrom(merged)).valid).toBe(true);
   });
 
   it('CASUALTY: run-metrics.sh both READS and SERIALIZES the field', () => {
