@@ -33,17 +33,24 @@ const EVIDENCE_WRITER = join(REPO, 'scripts', 'write-software-quality-evidence.m
 /**
  * Environment for a spawned fixture process.
  *
- * `NODE_V8_COVERAGE` MUST BE STRIPPED. Vitest sets it to a shared `artifacts/coverage/.tmp`, and a
- * child that inherits it writes its own `coverage-<pid>.json` into that directory while vitest is
- * reading and cleaning it — which surfaced as an unhandled `ENOENT ... coverage-43.json` that failed
- * the whole unit run without failing a single test. These subprocesses are FIXTURES, not code under
- * measurement, so their coverage would also pollute the report they are being used to verify.
+ * `NODE_V8_COVERAGE` MUST BE SET TO THE EMPTY STRING — **deleting it does not work.**
+ *
+ * Vitest points it at a shared `artifacts/coverage/.tmp`. A child that inherits it writes its own
+ * `coverage-<pid>.json` into that directory while vitest is reading and cleaning it, which surfaced as
+ * an unhandled `ENOENT ... coverage-43.json` that failed the whole unit run without failing a single
+ * test. These subprocesses are FIXTURES, not code under measurement, so their coverage would also
+ * pollute the very report they are used to verify.
+ *
+ * My first attempt deleted the key from the supplied `env` and asserted that suppressed it. It does
+ * not: Node re-propagates the parent's coverage directory to children even when the key is absent from
+ * `env`, because subprocess coverage is a deliberate feature. Measured on Node v22.12.0 — a child
+ * spawned with the key deleted still observed the parent's directory, while a child given `''`
+ * observed `''`. The race disappearing after that change was timing, not the change.
+ *
+ * The empty string is the documented "off" value, and `assertsFixtureCoverageDisabled` below proves a
+ * real child observes it that way rather than trusting this comment.
  */
-const fixtureEnv = (extra = {}) => {
-  const env = { ...process.env, ...extra };
-  delete env.NODE_V8_COVERAGE;
-  return env;
-};
+const fixtureEnv = (extra = {}) => ({ ...process.env, ...extra, NODE_V8_COVERAGE: '' });
 
 /** Drives the REAL merge script over two shard files and returns what it wrote. */
 function mergeShards(shardPayloads) {
@@ -370,6 +377,75 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
     expect(src, 'bound as a jq variable').toMatch(/--argjson unit_skipped_test_files\s+"\$unit_skipped_test_files"/);
     // And defaulted on the no-metrics-file branch, or jq receives an unset variable and fails the same way.
     expect(src, 'defaulted when no metrics file exists').toMatch(/unit_skipped_test_files="\[\]"/);
+  });
+
+  it('CASUALTY: under a coverage-ACTIVE parent, fixtureEnv leaves the child with coverage disabled', () => {
+    /**
+     * #1430 P1. Proves the suppression instead of asserting it in a comment.
+     *
+     * TWO LEVELS, DELIBERATELY. Propagation happens only from a process where V8 coverage is genuinely
+     * active, and that cannot be simulated by putting the key into a child's `env` object — an earlier
+     * version of this case did exactly that and its control read `null`, because the vitest worker had
+     * no coverage of its own. So a real coverage-active PARENT is spawned and IT spawns the children.
+     * That is the CI topology: vitest runs under V8 coverage and these fixtures are its grandchildren.
+     *
+     * IT IS BOUND TO `fixtureEnv`, NOT TO THE STRING `''`. The probe reproduces whatever `fixtureEnv`
+     * decided — the key set to its value, or the key absent if it omits it — so reverting the helper to
+     * `delete env.NODE_V8_COVERAGE` makes the first expectation read the parent's directory and fail.
+     * A previous version hardcoded `''` in the probe and the mutant survived, which is the whole reason
+     * this note exists.
+     *
+     * The `deleted` control makes the first expectation non-vacuous: it shows Node handing the parent's
+     * directory to a child that never asked for it.
+     */
+    const probe = mkdtempSync(join(tmpdir(), 'cov-probe-'));
+    try {
+      const child = join(probe, 'child.mjs');
+      const parent = join(probe, 'parent.mjs');
+      const covDir = join(probe, 'cov');
+      writeFileSync(child, 'process.stdout.write(JSON.stringify(process.env.NODE_V8_COVERAGE ?? null));');
+
+      // What the helper under test ACTUALLY produces for this key.
+      const produced = fixtureEnv();
+      const decision = {
+        sets: Object.prototype.hasOwnProperty.call(produced, 'NODE_V8_COVERAGE'),
+        value: produced.NODE_V8_COVERAGE ?? null,
+      };
+
+      writeFileSync(parent, [
+        "import { spawnSync } from 'node:child_process';",
+        `const child = ${JSON.stringify(child)};`,
+        `const decision = ${JSON.stringify(decision)};`,
+        "const read = (env) => spawnSync(process.execPath, [child], { env, encoding: 'utf8' }).stdout;",
+        // Reproduce fixtureEnv's decision exactly, whatever it was.
+        "const asFixture = { ...process.env };",
+        "if (decision.sets) { asFixture.NODE_V8_COVERAGE = decision.value; }",
+        "else { delete asFixture.NODE_V8_COVERAGE; }",
+        "const deleted = { ...process.env };",
+        "delete deleted.NODE_V8_COVERAGE;",
+        'process.stdout.write(JSON.stringify({',
+        '  underFixture: JSON.parse(read(asFixture)),',
+        '  deleted: JSON.parse(read(deleted)),',
+        '}));',
+      ].join('\n'));
+
+      const run = spawnSync(process.execPath, [parent], {
+        // The parent really runs under coverage; this is what enables propagation at all.
+        env: { ...process.env, NODE_V8_COVERAGE: covDir },
+        encoding: 'utf8',
+      });
+      expect(run.status, `coverage probe failed: ${run.stderr}`).toBe(0);
+      const observed = JSON.parse(run.stdout);
+
+      expect(observed.underFixture,
+        'a fixture child spawned under fixtureEnv sees coverage DISABLED, not the parent directory')
+        .toBe('');
+      expect(observed.deleted,
+        'CONTROL: omitting the key does NOT suppress it — Node propagates the parent directory')
+        .toBe(covDir);
+    } finally {
+      rmSync(probe, { recursive: true, force: true });
+    }
   });
 
   it('CASUALTY: the REAL merge -> ci report -> evidence-writer chain refuses a skipped release path', () => {
