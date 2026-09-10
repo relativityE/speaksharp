@@ -56,6 +56,17 @@ vi.mock('@/stores/useSessionStore', () => ({
     useSessionStore: vi.fn(),
 }));
 vi.mock('@/services/SpeechRuntimeController', () => ({
+    /**
+     * #1431 P1 — the hook now distinguishes a controlled owner-fence refusal from a failed start, so
+     * the mocked module must export the type. Without it the import is undefined and every
+     * `instanceof` in the start catch throws before the behaviour under test is reached.
+     */
+    StartRefusedFinalizationError: class StartRefusedFinalizationError extends Error {
+        constructor() {
+            super('START_REFUSED_FINALIZATION_IN_PROGRESS');
+            this.name = 'StartRefusedFinalizationError';
+        }
+    },
     speechRuntimeController: {
         startRecording: vi.fn(),
         stopRecording: vi.fn(async () => ({ 
@@ -282,6 +293,42 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
      * recording (a late frame during teardown) would fall into its START branch and create exactly the
      * stray recording this issue exists to eliminate. A stale event must be cleared, never toggled.
      */
+    /**
+     * #1431 — THE START GUARD ITSELF, not the boolean behind it.
+     *
+     * `isTranscriptFinalizing` exists to hold this guard closed: while a take is finalizing,
+     * `handleStartStop` must refuse a start outright, so a second take cannot be admitted into a
+     * session the first has not finished writing.
+     *
+     * My first casualty for this asserted the LATCH and claimed to assert the refusal. Codex was right
+     * that it did not: a regression removing the check here would have left it green while take C was
+     * admitted. This drives the real hook and asserts what the user's click actually does.
+     */
+    it('#1431: a start is REFUSED while a previous take is still finalizing', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,               // nothing is recording...
+            runtimeState: 'READY',            // ...and the runtime looks ready...
+            elapsedTime: 0,
+            startTime: null,
+            isTranscriptFinalizing: true,     // ...but the previous take is still finalizing.
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        await act(async () => { await result.current.handleStartStop(); });
+
+        // The click is refused at the guard — no recording is started for a session still being written.
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        // And the control is not interactive, so the refusal is visible rather than silent.
+        expect(result.current.isButtonDisabled).toBe(true);
+    });
+
     it('#1089: a stale capture-backstop event while Ready is cleared and NEVER starts a recording', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
@@ -770,6 +817,58 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             type: 'error',
             message: '⚠️ Microphone access is blocked. Allow microphone access and try again.'
         });
+    });
+
+    it('CASUALTY: an owner-fence REFUSAL is not a failed start — no reset, no failure event, no status', async () => {
+        /**
+         * #1431 P1 — THE DEFECT WAS HERE, IN THIS CATCH.
+         *
+         * The controller's owner fence rejects a Start while a stop is still finalizing. This catch
+         * treated EVERY rejection as an engine-acquisition failure: it emitted `recording_start_failed`,
+         * overwrote `sttStatus`, and called `reset('start_failed')` — which detaches the current
+         * service. That service belongs to the finalizing take, so the fence added to preserve its
+         * transcript would have destroyed it here instead, by a longer route.
+         *
+         * The sibling test above is the CONTROL: an ordinary `NotAllowedError` must still reset and
+         * still publish an error. The pair is what makes the distinction real rather than asserted.
+         */
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(
+            Object.assign(new Error('START_REFUSED_FINALIZATION_IN_PROGRESS'), {
+                name: 'StartRefusedFinalizationError',
+            }),
+        );
+
+        const mockStore = createTestSessionStore({
+            isListening: false,
+            runtimeState: 'READY',
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useProfile).mockReturnValue({
+            profile: { id: 'test-user', subscription_status: 'pro', email: 'test@example.com' } as UserProfile,
+            isVerified: true,
+        });
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: { can_start: true, subscription_status: 'pro', is_pro: true, streak_count: 0 },
+            isLoading: false, isError: false, error: null, status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (<TranscriptionProvider>{children}</TranscriptionProvider>),
+        });
+
+        await act(async () => { await result.current.handleStartStop(); });
+
+        expect(speechRuntimeController.reset,
+            "the finalizing take's service must not be detached").not.toHaveBeenCalledWith('start_failed');
+        expect(pushSpy.mock.calls.map((c) => c[0]),
+            'a refusal is not a start failure').not.toContain('recording_start_failed');
+        expect(mockStore.getState().sttStatus.type,
+            "the owner's session keeps its own status").not.toBe('error');
     });
 
     it('surfaces the sanitized engine-start leaf name on the recording_start_failed event (Decision 1C)', async () => {

@@ -476,6 +476,19 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const isObjective = Array.isArray(effObjectivePoints) && effObjectivePoints.length > 0;
 
     // Live coverage, derived from the growing transcript via the local keyword matcher (nothing leaves the
+    /**
+     * RESOLVED IN FAVOUR OF `main` (#1427's shipped latch). #1431 merge.
+     *
+     * Both sides fix the same defect — a retry goes after-state -> during without passing through
+     * `before`, so the previous take's latched indices survived and the pace card read the old N/N
+     * from the retry's first frame. This branch latched a Set of indices; `main` latches a Map of
+     * the strongest observed status (missing < partial < covered), which additionally stops a
+     * transcript rewrite erasing a partial match or turning a prior full match amber.
+     *
+     * `main`'s is the shipped behaviour and strictly the stronger of the two, so it wins outright
+     * rather than being blended: keeping this branch's Set alongside it would reintroduce the
+     * weaker guarantee under a second name.
+     */
     // device). The latch retains the strongest observed status (missing < partial < covered), so transcript
     // rewrites cannot erase a partial match or turn a prior full match amber. It resets on a fresh session.
     const coveredLatch = React.useRef<Map<number, FocusCoverageRow>>(new Map());

@@ -43,4 +43,3 @@ export function evaluateRuntimeCandidateTakeGate(): RuntimeCandidateTakeGate {
 
     return { enabled: true, allowed: refusal === null, expected, requested, observed, refusal };
 }
-

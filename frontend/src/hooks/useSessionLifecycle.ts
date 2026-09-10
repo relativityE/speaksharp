@@ -16,7 +16,9 @@ import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
 import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionTiers';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
-import { speechRuntimeController } from '@/services/SpeechRuntimeController';
+import { speechRuntimeController,
+    StartRefusedFinalizationError,
+} from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
@@ -621,6 +623,36 @@ export const useSessionLifecycle = () => {
                 });
             } catch (error) {
                 const err = error as Error;
+                /**
+                 * #1431 P1 — A CONTROLLED REFUSAL IS NOT A FAILED START, AND MUST NOT RESET THE OWNER.
+                 *
+                 * Everything below treats a rejection as an engine-acquisition failure: failure
+                 * telemetry, an error status, and `reset('start_failed')`, which hard-resets and
+                 * DETACHES the current service. When the controller's owner fence refuses a Start
+                 * because a stop is still finalizing, that service belongs to the finalizing take — so
+                 * the fence added to preserve its transcript would have destroyed it here instead, by a
+                 * longer route.
+                 *
+                 * Return without publishing anything. The refusal already rejected the caller's promise
+                 * and its carried settlement, so nothing is silently reported as success; the owning
+                 * stop keeps its service, its latch and its frozen transcript, and the record control
+                 * stays disabled until that stop releases them.
+                 */
+                /**
+                 * `instanceof` OR the name, deliberately both.
+                 *
+                 * `instanceof` is the strong check and is what casualty R6 pins at the controller. But
+                 * it compares constructor identity, so it fails whenever the controller module is
+                 * evaluated twice — a duplicated bundle, or a test that mocks the module — and failing
+                 * it here falls through to `reset('start_failed')`, which detaches the finalizing
+                 * take's service. A guard whose failure mode is the destructive path must not depend on
+                 * module identity alone.
+                 */
+                if (err instanceof StartRefusedFinalizationError
+                    || err?.name === 'StartRefusedFinalizationError') {
+                    isProcessingRef.current = false;
+                    return;
+                }
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
                 const latestMode = requestedMode;
                 const message = getStartFailureMessage(err, latestMode);

@@ -90,3 +90,55 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         expect(evidence).not.toHaveTextContent(/^Detected at/);
     });
 });
+
+/**
+ * #1429 E — the rail is what the user reads back. Every point they entered must be there, in the
+ * order they entered it, with its own coverage. Rendering a subset, or reordering covered points
+ * ahead of undetected ones, tells the user a different story than the one they set up.
+ */
+describe('FocusPointsRail — every configured point renders in the configured order', () => {
+    const SEVEN: FocusCoverageRow[] = [
+        'Name the price',
+        'State the guarantee',
+        'Cover the timeline',
+        'Explain the onboarding',
+        'Mention the support team',
+        'Describe the migration plan',
+        'Confirm the renewal terms',
+    ].map((label, index) => ({
+        label,
+        status: index % 2 === 0 ? 'covered' : 'missing',
+        covered: index % 2 === 0,
+        coveredAtSec: index % 2 === 0 ? index * 10 : null,
+        quote: index % 2 === 0 ? `quote for ${label}` : null,
+    }));
+
+    const renderedLabels = (): string[] =>
+        screen.getAllByTestId(/^focus-point-\d+$/).map((row) => row.textContent ?? '');
+
+    it.each(['before', 'during', 'after'] as const)('renders all seven, in order, in the %s state', (sessionState) => {
+        render(<FocusPointsRail rows={SEVEN} topic="Sales or product pitch" sessionState={sessionState} />);
+
+        expect(screen.getAllByTestId(/^focus-point-\d+$/)).toHaveLength(7);
+        SEVEN.forEach((row, index) => {
+            expect(renderedLabels()[index]).toContain(row.label);
+        });
+    });
+
+    it('CASUALTY: a covered point is not promoted above an undetected one', () => {
+        render(<FocusPointsRail rows={SEVEN} topic={null} sessionState="after" />);
+
+        const statuses = screen.getAllByTestId(/^focus-point-\d+$/).map((row) => row.getAttribute('data-status'));
+        expect(statuses).toEqual(['covered', 'missing', 'covered', 'missing', 'covered', 'missing', 'covered']);
+    });
+
+    it('the completed snapshot keeps each point WITH its own coverage, not a shared verdict', () => {
+        render(<FocusPointsRail rows={SEVEN} topic={null} sessionState="after" />);
+
+        // Detected rows carry their own timestamp; undetected rows carry none and claim none.
+        expect(screen.getByTestId('focus-point-0-covered-at')).toBeInTheDocument();
+        expect(screen.queryByTestId('focus-point-1-covered-at')).toBeNull();
+        expect(screen.getByTestId('focus-point-1-not-detected')).toBeInTheDocument();
+        expect(screen.queryByTestId('focus-point-0-not-detected')).toBeNull();
+    });
+});
