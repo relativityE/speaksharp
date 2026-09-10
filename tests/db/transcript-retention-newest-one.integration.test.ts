@@ -265,19 +265,29 @@ describe('newest-ONE transcript retention, executed against the real migrations'
     status text,`,
             '',
         ));
-        const legacy = (await legacyDb.query<{ id: string }>(
+        const legacyRows = (await legacyDb.query<{ id: string; total_words: number | null }>(
             `INSERT INTO public.sessions
                (user_id, created_at, transcript, total_words, duration, filler_counts)
-             VALUES ($1, '2026-02-20T10:00:00Z', 'a save from before lifecycle status', 90, 60, '{}'::jsonb)
-             RETURNING id`,
+             VALUES
+               ($1, '2026-02-18T10:00:00Z', 'a pre-status save with a measured count', 90, 60, '{}'::jsonb),
+               ($1, '2026-02-19T10:00:00Z', 'a pre-status save with a zero count', 0, 60, '{}'::jsonb),
+               ($1, '2026-02-20T10:00:00Z', 'a pre-status save with no count', NULL, 60, '{}'::jsonb)
+             RETURNING id, total_words`,
             [U],
-        )).rows[0].id;
+        )).rows;
+        const [legacyMeasured, legacyZero, legacyNull] = legacyRows.map((row) => row.id);
+        expect(legacyRows.map((row) => row.total_words)).toEqual([90, 0, null]);
 
         await legacyDb.exec(PHASE2_SESSION_COLUMNS);
         const defaulted = (await legacyDb.query<{
             status: string; idempotency_key: string | null; expires_at: string | null;
-        }>('SELECT status, idempotency_key, expires_at FROM public.sessions WHERE id = $1', [legacy])).rows[0];
-        expect(defaulted).toEqual({ status: 'active', idempotency_key: null, expires_at: null });
+        }>(`SELECT status, idempotency_key, expires_at FROM public.sessions
+            WHERE id = ANY($1) ORDER BY created_at ASC`, [legacyRows.map((row) => row.id)])).rows;
+        expect(defaulted).toEqual([
+            { status: 'active', idempotency_key: null, expires_at: null },
+            { status: 'active', idempotency_key: null, expires_at: null },
+            { status: 'active', idempotency_key: null, expires_at: null },
+        ]);
 
         // Control: a real post-status active row carries the lifecycle metadata introduced with the
         // column. The historical classifier must not turn an in-progress recovery into a completed save.
@@ -287,6 +297,17 @@ describe('newest-ONE transcript retention, executed against the real migrations'
                 idempotency_key, expires_at, status)
              VALUES ($1, '2026-08-02T10:00:00Z', 'an active recovery', 30, 20, '{}'::jsonb,
                      gen_random_uuid(), '2026-08-02T11:00:00Z', 'active')
+             RETURNING id`,
+            [U],
+        )).rows[0].id;
+
+        // Discriminating control: a post-status direct insert can look exactly like a historical row
+        // (both lifecycle markers omitted). Its creation boundary proves it is not part of the legacy
+        // cohort, so the classifier must leave it active.
+        const postStatusLookalike = (await legacyDb.query<{ id: string }>(
+            `INSERT INTO public.sessions
+               (user_id, created_at, transcript, total_words, duration, filler_counts, status)
+             VALUES ($1, '2026-08-02T11:00:00Z', 'a post-status active lookalike', 30, 20, '{}'::jsonb, 'active')
              RETURNING id`,
             [U],
         )).rows[0].id;
@@ -301,30 +322,35 @@ describe('newest-ONE transcript retention, executed against the real migrations'
         // Apply the real correction after the legacy row exists. Its historical classification must
         // happen before the completed-only functions are used.
         await legacyDb.exec(NEWEST_ONE);
-        const classified = (await legacyDb.query<{ status: string }>(
-            'SELECT status FROM public.sessions WHERE id = $1', [legacy],
-        )).rows[0].status;
-        expect(classified).toBe('completed');
-        expect((await legacyDb.query<{ status: string }>(
-            'SELECT status FROM public.sessions WHERE id = $1', [active],
-        )).rows[0].status).toBe('active');
+        const classified = (await legacyDb.query<{ id: string; status: string }>(
+            `SELECT id, status FROM public.sessions
+             WHERE id = ANY($1) ORDER BY created_at ASC`,
+            [[...legacyRows.map((row) => row.id), active, postStatusLookalike]],
+        )).rows;
+        expect(classified.map((row) => row.status)).toEqual([
+            'completed', 'completed', 'completed', 'active', 'active',
+        ]);
 
         const current = await seedSession(
             legacyDb, U, '2026-08-03T10:00:00Z', 'the current completed save', 120, 'completed',
         );
-        await giveTerminalEvidence(legacyDb, [legacy], U);
+        await giveTerminalEvidence(legacyDb, [legacyMeasured, legacyZero, legacyNull], U);
         await armRetention(legacyDb, U);
         await legacyDb.query('SELECT public.activate_transcript_retention_newest_one()');
         await legacyDb.query('SELECT public.converge_transcript_retention($1)', [U]);
 
         const rows = (await legacyDb.query<{ id: string; transcript: string | null; transcript_state: string }>(
             `SELECT id, transcript, transcript_state FROM public.sessions
-             WHERE id = ANY($1) ORDER BY created_at ASC`, [[legacy, active, current]],
+             WHERE id = ANY($1) ORDER BY created_at ASC`,
+            [[legacyMeasured, legacyZero, legacyNull, active, postStatusLookalike, current]],
         )).rows;
         expect(rows.map((row) => ({ id: row.id, hasText: row.transcript !== null, state: row.transcript_state })))
             .toEqual([
-                { id: legacy, hasText: false, state: 'expired' },
+                { id: legacyMeasured, hasText: false, state: 'expired' },
+                { id: legacyZero, hasText: false, state: 'expired' },
+                { id: legacyNull, hasText: false, state: 'expired' },
                 { id: active, hasText: true, state: 'available' },
+                { id: postStatusLookalike, hasText: true, state: 'available' },
                 { id: current, hasText: true, state: 'available' },
             ]);
     });

@@ -138,18 +138,22 @@ GRANT SELECT ON TABLE public.transcript_retention_tombstones TO service_role;
 
 -- The status column arrived in 20260309000000 with DEFAULT 'active'. PostgreSQL therefore labelled
 -- every session saved by the earlier transcript-writing RPC as active, even though those rows are
--- immutable completed saves. They are identifiable without a date guess: the pre-status writer did
--- not know either idempotency_key or expires_at, required a non-empty transcript, positive duration
--- and positive word count, and left both later lifecycle columns NULL when the ALTER was applied.
--- Classify that closed historical shape before completed-only ranking is installed. This changes only
+-- immutable completed saves. The historical writer required only positive duration and non-empty
+-- transcript; total_words was accepted as zero or NULL, so it is not completion authority. The two
+-- later lifecycle columns are also insufficient by themselves because entitled post-status direct
+-- inserts may omit both. Constrain the repair to rows created before the status-column migration's
+-- version boundary: a row before that boundary cannot have been created under the post-status active
+-- lifecycle, while a later lookalike is deliberately left active. This conservative boundary may
+-- leave an ambiguous clock-skewed row unclassified, but it cannot manufacture a completed save.
+-- Classify that proven historical shape before completed-only ranking is installed. This changes only
 -- metadata; installation remains transcript-inert and activation remains separately authorised.
 UPDATE public.sessions
 SET status = 'completed'
 WHERE status = 'active'
+  AND created_at < TIMESTAMPTZ '2026-03-09 00:00:00+00'
   AND idempotency_key IS NULL
   AND expires_at IS NULL
   AND duration > 0
-  AND total_words > 0
   AND transcript IS NOT NULL
   AND transcript ~ '[^[:space:]]';
 
