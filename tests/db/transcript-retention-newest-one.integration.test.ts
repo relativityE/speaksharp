@@ -212,6 +212,38 @@ describe('newest-ONE transcript retention, executed against the real migrations'
             ]);
     });
 
+    it('CASUALTY: the mutation ranks completed saves only when an active recovery is newest', async () => {
+        // This calls the destructive mutation directly. The read helper has its own completed-only
+        // predicate, so a coordinator-path test cannot prove that the mutation's three independent
+        // rankings preserve the same eligibility rule.
+        const olderCompleted = await seedSession(
+            db, OTHER, '2026-08-01T10:00:00Z', 'the older completed save', 100, 'completed',
+        );
+        const newerCompleted = await seedSession(
+            db, OTHER, '2026-08-02T10:00:00Z', 'the newest completed save', 120, 'completed',
+        );
+        const activeRecovery = await seedSession(
+            db, OTHER, '2026-08-03T10:00:00Z', 'an active recovery is not a save', 140, 'active',
+        );
+
+        const result = (await db.query<{ r: { expired_count: number; has_more: boolean } }>(
+            'SELECT public.expire_transcripts_newest_one($1, 10) AS r', [OTHER],
+        )).rows[0].r;
+
+        expect(result).toEqual(expect.objectContaining({ expired_count: 1, has_more: false }));
+        const rows = (await db.query<{ id: string; transcript: string | null; transcript_state: string }>(
+            `SELECT id, transcript, transcript_state FROM public.sessions
+             WHERE id = ANY($1) ORDER BY created_at ASC`,
+            [[olderCompleted, newerCompleted, activeRecovery]],
+        )).rows;
+        expect(rows.map((row) => ({ id: row.id, hasText: row.transcript !== null, state: row.transcript_state })))
+            .toEqual([
+                { id: olderCompleted, hasText: false, state: 'expired' },
+                { id: newerCompleted, hasText: true, state: 'available' },
+                { id: activeRecovery, hasText: true, state: 'available' },
+            ]);
+    });
+
     it('CASUALTY: tombstones and activation are unavailable to clients but auditable by service_role', async () => {
         const privileges = (await db.query<{
             anon_read: boolean; authenticated_read: boolean; service_read: boolean;

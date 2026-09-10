@@ -219,7 +219,8 @@ BEGIN
     SELECT id, user_id, transcript,
            row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
     FROM public.sessions
-    WHERE transcript IS NOT NULL
+    WHERE status = 'completed'
+      AND transcript IS NOT NULL
       AND transcript ~ '[^[:space:]]'
       AND (p_user_id IS NULL OR user_id = p_user_id)
   ),
@@ -239,7 +240,8 @@ BEGIN
     SELECT id, user_id, transcript,
            row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
     FROM public.sessions
-    WHERE transcript IS NOT NULL
+    WHERE status = 'completed'
+      AND transcript IS NOT NULL
       AND transcript ~ '[^[:space:]]'
       AND (p_user_id IS NULL OR user_id = p_user_id)
   ),
@@ -265,7 +267,8 @@ BEGIN
     SELECT 1 FROM (
       SELECT row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
       FROM public.sessions
-      WHERE transcript IS NOT NULL
+      WHERE status = 'completed'
+        AND transcript IS NOT NULL
         AND transcript ~ '[^[:space:]]'
         AND (p_user_id IS NULL OR user_id = p_user_id)
     ) r WHERE r.rn > 1
