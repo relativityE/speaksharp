@@ -85,16 +85,19 @@ const thread = (isResolved, body) => ({
   },
 });
 
-const receipt = (minutesOld, extra = {}) => {
+/** `omit` deletes keys AFTER the merge, so a case can model a receipt that never had the field. */
+const receipt = (minutesOld, extra = {}, omit = []) => {
   const file = join(dir, 'review-qualification.json');
-  writeFileSync(file, JSON.stringify({
+  const body = {
     // A BOUND receipt: qualified, no reasons, no findings, and addressed to this PR and this head.
     // Codex found the boundary checked only `generatedAt`, so a fresh receipt from another PR passed.
     qualified: true, reasons: [], findingCount: 0,
     pullRequestNumber: 1430, currentSha: HEAD, reviewedSha: HEAD,
     generatedAt: new Date(Date.now() - minutesOld * 60 * 1000).toISOString(),
     ...extra,
-  }));
+  };
+  for (const key of omit) delete body[key];
+  writeFileSync(file, JSON.stringify(body));
   return file;
 };
 
@@ -268,6 +271,51 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
 
     expect(mergeAttempted).toBe(false);
     expect(run.stderr).toContain('pre_merge_receipt_not_qualified');
+  });
+
+  it('CASUALTY: a receipt that OMITS reasons or findingCount refuses — absence is not a zero', () => {
+    /**
+     * Codex P1 at `e2d72b66cf`, reproduced by invoking the merge with a fresh, matching,
+     * `qualified: true` receipt that simply left both fields out. My predicates asked whether a present
+     * value was bad, so a missing one sailed through.
+     *
+     * This is the same error as #1430's own original finding — a missing `skippedTestFiles` array read as
+     * "nothing was skipped". I required presence there and defaulted to permissive in the boundary
+     * guarding it, which is why this case names the shape rather than only the outcome.
+     */
+    for (const omit of [['reasons'], ['findingCount'], ['reasons', 'findingCount']]) {
+      const { run, mergeAttempted } = runCli({
+        threads: [thread(true, 'P1 Badge — resolved')],
+        receiptPath: receipt(1, {}, omit),
+      });
+      expect(mergeAttempted, `omitting ${omit.join('+')} must not merge`).toBe(false);
+      expect(run.stderr).toContain('pre_merge_receipt_not_qualified');
+    }
+  });
+
+  it('CASUALTY: MALFORMED reasons or findingCount refuse — wrong type is not a zero either', () => {
+    /**
+     * The typed half of the same finding. `reasons: 'open_findings:1'` defeated `Array.isArray`, and
+     * `findingCount: '0'` defeated `> 0` — a string is not greater than zero. A negative count is
+     * likewise not a measured zero. Each is now refused for BEING the wrong shape rather than for
+     * comparing unfavourably.
+     */
+    const malformed = [
+      { reasons: 'open_findings:1' },
+      { reasons: {} },
+      { findingCount: '0' },
+      { findingCount: -1 },
+      { findingCount: 1.5 },
+      { findingCount: null },
+    ];
+    for (const extra of malformed) {
+      const { run, mergeAttempted } = runCli({
+        threads: [thread(true, 'P1 Badge — resolved')],
+        receiptPath: receipt(1, extra),
+      });
+      expect(mergeAttempted, `${JSON.stringify(extra)} must not merge`).toBe(false);
+      expect(run.stderr).toContain('pre_merge_receipt_not_qualified');
+    }
   });
 
   it('CASUALTY: a TRUNCATED live read — zero visible findings does not merge', () => {

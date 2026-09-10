@@ -68,11 +68,26 @@ export const PRE_MERGE_HOLD = Object.freeze({
 function bindingHolds({ receipt, prNumber, expectedHeadSha, codes }) {
   const holds = [];
   const head = String(expectedHeadSha ?? '').toLowerCase();
+  /*
+   * EVERY FIELD IS REQUIRED TO BE PRESENT AND CORRECTLY TYPED. ABSENCE IS NOT A ZERO.
+   *
+   * Codex P1 at `e2d72b66cf`, reproduced by invoking the executor with a fresh, matching,
+   * `qualified: true` receipt that simply OMITTED `reasons` and `findingCount`. My predicates were
+   * `Array.isArray(reasons) && length > 0` and `(findingCount ?? 0) > 0`, so every one of these passed:
+   * both fields missing; `reasons: 'open_findings:1'` as a string, where `Array.isArray` is false;
+   * `findingCount: '0'` as a string, where `> 0` is false; and a negative count.
+   *
+   * This is the same error as #1430's own original finding — a missing `skippedTestFiles` array read as
+   * "nothing was skipped" — which I required presence for in the merge script and then defaulted to
+   * permissive in the boundary guarding it. So the contract here is explicit: `reasons` must BE an empty
+   * array and `findingCount` must BE the integer zero. A receipt that cannot state these plainly is
+   * malformed, and malformed evidence fails closed.
+   */
   if (receipt?.qualified !== true) holds.push(codes.notQualified);
-  // `reasons` is the receipt's own account of why it is not qualified. A non-empty list with
-  // `qualified: true` would be incoherent, so it is refused rather than reconciled.
-  if (Array.isArray(receipt?.reasons) && receipt.reasons.length > 0) holds.push(codes.notQualified);
-  if ((receipt?.findingCount ?? 0) > 0) holds.push(codes.notQualified);
+  if (!Array.isArray(receipt?.reasons) || receipt.reasons.length !== 0) holds.push(codes.notQualified);
+  if (!Number.isInteger(receipt?.findingCount) || receipt.findingCount !== 0) {
+    holds.push(codes.notQualified);
+  }
   // A receipt that names no pull request cannot be shown to address THIS one.
   if (prNumber !== undefined && Number(receipt?.pullRequestNumber) !== Number(prNumber)) {
     holds.push(codes.wrongPr);
