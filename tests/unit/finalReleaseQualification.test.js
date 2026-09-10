@@ -8,6 +8,7 @@ import {
   applyEnforcementToReceipt,
   readReviewThreadResolutionEnforcement,
   buildReviewReceipt,
+  resolveQualificationTarget,
   reviewThreadResolutionIsEnforced,
 } from '../../scripts/collect-review-qualification.mjs';
 import {
@@ -291,12 +292,32 @@ describe('Q-08 automated review qualification', () => {
      *
      * Three outcomes, kept distinct: enforced, not enforced, and unreadable.
      */
+    /*
+     * #1430 P1 — `unverified` NOW HOLDS, REVERSING WHAT THIS CASE USED TO ASSERT.
+     *
+     * It previously required `qualified === true`, on the reasoning that a credential gap is not the
+     * candidate's defect. That reasoning did not account for REOPENED THREADS: GitHub emits no event
+     * when a thread is resolved or unresolved, so no trigger list can refresh a green check after a
+     * reopen. The only remaining protection is the repository enforcing conversation resolution at
+     * merge — so if enforcement cannot be verified, neither can that protection, and a stale green
+     * plus unknown enforcement is exactly how a reopened P1 merges.
+     *
+     * The receipt still distinguishes the two causes, so an operator fixes credentials or protection
+     * rather than guessing which is missing.
+     */
     const unverified = applyEnforcementToReceipt({ qualified: true, reasons: [] }, 'unverified');
-    expect(unverified.qualified, 'a credential gap is not the candidate\'s defect').toBe(true);
-    expect(unverified.reasons, 'and must never be stated as absent enforcement')
-      .not.toContain('review_thread_resolution_not_enforced_at_merge');
-    expect(unverified.warnings, 'it is surfaced, not silently dropped')
+    expect(unverified.qualified, 'unverifiable enforcement is unverifiable protection').toBe(false);
+    expect(unverified.reasons, 'and the reason names the credential gap, not absent enforcement')
       .toContain('review_thread_resolution_enforcement_unverified');
+    expect(unverified.reasons, 'never stated as a definite absence we did not observe')
+      .not.toContain('review_thread_resolution_not_enforced_at_merge');
+    expect(unverified.warnings, 'still surfaced for audit')
+      .toContain('review_thread_resolution_enforcement_unverified');
+
+    const enforced = applyEnforcementToReceipt({ qualified: true, reasons: [] }, true);
+    // CONTROL: live enforcement is what lets a qualifying head stay qualified. Without this, the case
+    // above would pass against a function that simply always disqualifies.
+    expect(enforced.qualified, 'live enforcement keeps a qualifying head qualified').toBe(true);
 
     const absent = applyEnforcementToReceipt({ qualified: true, reasons: [] }, false);
     expect(absent.qualified, 'a READ absence is still a real finding and still blocks').toBe(false);
@@ -845,5 +866,114 @@ describe('Q-08 software-quality evidence completeness', () => {
     expect(verifyAt).toBeLessThan(generateAt);
     expect(generateAt).toBeLessThan(uploadAt);
     expect(workflow.slice(uploadAt, uploadAt + 120)).not.toContain('if: always()');
+  });
+});
+
+/**
+ * #1430 P1 — A REOPENED THREAD CANNOT RETAIN A QUALIFYING RESULT.
+ *
+ * GitHub emits NO workflow event when a review thread is resolved or unresolved, so no trigger list can
+ * refresh a check after a reopen — a green `review-qualification` from before the reopen stays green.
+ * There is no trigger to add, and inventing one would be worse than the gap.
+ *
+ * Two things therefore have to hold, and both are asserted here:
+ *   1. whenever the check DOES run, an unresolved release finding disqualifies the head; and
+ *   2. qualification depends on LIVE, VERIFIABLE conversation-resolution enforcement, so that in the
+ *      window where the check has not re-run, the repository itself blocks the merge — and when that
+ *      enforcement cannot be verified, the result HOLDS rather than standing.
+ */
+describe('#1430 P1 — reopened threads and push qualification', () => {
+  const reviewedSha = 'a'.repeat(40);
+  const bot = { login: 'chatgpt-codex-connector' };
+  const pullWith = (threads) => ({
+    number: 1,
+    headRefOid: reviewedSha,
+    baseRefName: 'main',
+    files: { nodes: [{ path: 'scripts/collect-review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+    reviews: {
+      nodes: [{ author: bot, state: 'COMMENTED', commit: { oid: reviewedSha }, body: 'reviewed', submittedAt: '2026-09-10T00:00:00Z' }],
+      pageInfo: { hasPreviousPage: false },
+    },
+    reviewThreads: { nodes: threads, pageInfo: { hasNextPage: false } },
+  });
+  const thread = (isResolved, body) => ({
+    isResolved,
+    comments: {
+      nodes: [{ author: bot, body, commit: { oid: reviewedSha }, originalCommit: { oid: reviewedSha }, pullRequestReview: { commit: { oid: reviewedSha } } }],
+      pageInfo: { hasPreviousPage: false },
+    },
+  });
+
+  it('CASUALTY: an UNRESOLVED release finding at the reviewed head does not qualify', () => {
+    // The reopen case at the data level: a thread that was resolved and is now open again is simply an
+    // unresolved thread, and the receipt must refuse it whenever the check runs.
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith([thread(false, 'P1 Badge — a live release finding')]),
+      expectedHeadSha: reviewedSha,
+    });
+    expect(receipt.qualified, 'a reopened P1 thread cannot ride a qualifying receipt').toBe(false);
+  });
+
+  it('CONTROL: the same head with that thread RESOLVED does qualify', () => {
+    // Without this the case above would pass against a receipt builder that refuses everything.
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith([thread(true, 'P1 Badge — addressed and resolved')]),
+      expectedHeadSha: reviewedSha,
+    });
+    expect(receipt.qualified, 'resolution is what clears it').toBe(true);
+  });
+
+  it('CASUALTY: a qualifying receipt HOLDS when resolution enforcement cannot be verified', () => {
+    /**
+     * The window the reopen exploits. The check may not re-run at all, so the standing protection has
+     * to be the repository's own enforcement — and an unverifiable enforcement is an unverifiable
+     * protection, which must not read as qualified.
+     */
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith([thread(true, 'P1 Badge — resolved')]),
+      expectedHeadSha: reviewedSha,
+    });
+    expect(receipt.qualified, 'qualifying on its own terms first').toBe(true);
+    expect(applyEnforcementToReceipt(receipt, 'unverified').qualified,
+      'but it cannot stand while the mechanism that would catch a reopen is unverifiable').toBe(false);
+  });
+
+  describe('the push lane fails closed', () => {
+    const withFetch = async (payload, fn) => {
+      const original = globalThis.fetch;
+      globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => payload });
+      try { return await fn(); } finally { globalThis.fetch = original; }
+    };
+    const pushSha = 'b'.repeat(40);
+    const target = () => resolveQualificationTarget({
+      repository: 'o/r', expectedHeadSha: pushSha, token: 't', explicitNumber: '', eventName: 'push',
+    });
+
+    it('CASUALTY: a DIRECT push with no associated merged PR holds', async () => {
+      // The defect this whole correction exists for: `review-qualification` used to skip `push`
+      // entirely, so a commit pushed straight to `main` was reported release-qualified having had no
+      // review authority examined at all.
+      await withFetch([], async () => {
+        await expect(target()).rejects.toThrow(/push_without_verifiable_associated_pr:0/);
+      });
+    });
+
+    it('CASUALTY: an AMBIGUOUS push with two associated merged PRs holds', async () => {
+      const merged = (n) => ({ number: n, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: reviewedSha } });
+      await withFetch([merged(1), merged(2)], async () => {
+        await expect(target()).rejects.toThrow(/push_without_verifiable_associated_pr:2/);
+      });
+    });
+
+    it('CONTROL: one associated merged PR qualifies the SHA IT WAS REVIEWED AT, not the merge commit', async () => {
+      /**
+       * The reviewed SHA and the pushed SHA are different commits after a squash. Returning the pushed
+       * merge commit would qualify a commit nobody reviewed, so this pins which one governs — and it is
+       * what makes the two holds above meaningful rather than a blanket refusal of all pushes.
+       */
+      await withFetch([{ number: 7, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: reviewedSha } }], async () => {
+        await expect(target()).resolves.toEqual({ number: 7, reviewedSha });
+      });
+    });
   });
 });

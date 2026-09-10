@@ -765,7 +765,11 @@ jobs:
   review-qualification:
     name: exact-head-review-qualification
     needs: [scope, full-evidence]
-    if: ${{ always() && github.event_name != 'push' && needs.scope.outputs.full_required == 'true' && needs.full-evidence.result == 'success' }}
+    # #1430 P1 — RUNS ON PUSH TOO. Skipping `push` meant a commit that reached `main` directly was
+    # reported release-qualified with no review authority examined at all, and `main` is the ref the
+    # release is cut from. The push lane resolves the merged associated PR and qualifies the SHA that PR
+    # was reviewed at; a direct push has no such PR and HOLDS. See resolveQualificationTarget.
+    if: ${{ always() && needs.scope.outputs.full_required == 'true' && needs.full-evidence.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -774,6 +778,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
           REVIEW_QUALIFICATION_FILE: ${{ runner.temp }}/review-qualification.json
         run: node scripts/collect-review-qualification.mjs
       - name: Upload qualified exact-head review receipt
@@ -829,10 +834,21 @@ jobs:
             const results = raw && typeof raw === "object"
               ? Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, v && v.result]))
               : null;
-            // Exact-head review is pre-merge authority. A default-branch push is verification of an
-            // already-merged tree, never a new merge qualification decision.
+            /*
+             * #1430 P1 — `review-qualification` IS REQUIRED ON A PUSH AS WELL.
+             *
+             * The previous reasoning was that a default-branch push verifies an already-merged tree
+             * rather than making a new merge decision. But dropping the job from the required set meant
+             * a push that was NOT a merge — a direct push to `main` — produced a green verification
+             * having proven nothing about review authority. The push lane now establishes the merged
+             * associated PR and the SHA it was reviewed at, and holds when it cannot, so requiring the
+             * job here is what makes that check load-bearing instead of advisory.
+             *
+             * `postMergePush` still selects the REPORT wording, because a push genuinely is verification
+             * of a merged tree rather than a pre-merge decision. Only the required-set exclusion is gone.
+             */
             const postMergePush = process.env.EVENT_NAME === "push";
-            const required = postMergePush ? REQUIRED_JOBS : [...REQUIRED_JOBS, "review-qualification"];
+            const required = [...REQUIRED_JOBS, "review-qualification"];
             const decision = evaluateMergeQualification({
               fullRequired: process.env.FULL_REQUIRED,
               results,
