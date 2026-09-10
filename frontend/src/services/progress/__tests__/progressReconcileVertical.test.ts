@@ -49,6 +49,10 @@ interface Ctl {
         sessionId: string,
         attributionStatus: string | undefined,
         metricsPersisted: boolean,
+        // #1431 P1 — REQUIRED. The Progress seam writes SHARED state (the Start gate, the Focus Points
+        // briefs, the coverage rail), so every caller states whether it still owns those surfaces.
+        // These tests drive the seam directly as the current take, so they claim `() => true`.
+        canPublishShared: () => boolean,
     ) => Promise<{ kind: string; reason?: string }>;
 }
 function makeController(userId: string | null): Ctl {
@@ -93,7 +97,7 @@ describe('a real Progress failure creates durable debt, blocks Start, and one re
         rpc.mockResolvedValue({ data: null, error: { message: 'transient' } });
 
         const outcome = await controller.completeProgressForRecording(
-            { mode: 'open_mic' }, SESSION, 'verified', true,
+            { mode: 'open_mic' }, SESSION, 'verified', true, () => true,
         );
 
         // Exactly the three bounded attempts were spent — no more, no fewer.
@@ -144,7 +148,7 @@ describe('a real Progress failure creates durable debt, blocks Start, and one re
         rpc.mockImplementation(() => new Promise((r) => { release = r as typeof release; }));
 
         const controller = makeController(OWNER);
-        const completion = controller.completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true);
+        const completion = controller.completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true, () => true);
         for (let i = 0; i < 50; i++) await Promise.resolve();
 
         // Mid-flight — this is the window a reload used to lose entirely.
@@ -160,7 +164,7 @@ describe('a real Progress failure creates durable debt, blocks Start, and one re
     it('CONTROL: a retry that still fails leaves both the debt and the gate blocked', async () => {
         const controller = makeController(OWNER);
         rpc.mockResolvedValue({ data: null, error: { message: 'transient' } });
-        await controller.completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true);
+        await controller.completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true, () => true);
 
         const unlocks = countUnlocks();
         const result = await reconcileProgressEvaluations(OWNER, []); // still failing
@@ -173,7 +177,7 @@ describe('a real Progress failure creates durable debt, blocks Start, and one re
     it('CONTROL: a successful evaluation whose queue clear FAILS must not drain and must not unlock', async () => {
         const controller = makeController(OWNER);
         rpc.mockResolvedValue({ data: null, error: { message: 'transient' } });
-        await controller.completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true);
+        await controller.completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true, () => true);
 
         const unlocks = countUnlocks();
         rpc.mockResolvedValue({ data: 'eval-vertical-1', error: null });
@@ -196,7 +200,7 @@ describe('a real Progress failure creates durable debt, blocks Start, and one re
         vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
 
         const outcome = await controller.completeProgressForRecording(
-            { mode: 'open_mic' }, SESSION, 'verified', true,
+            { mode: 'open_mic' }, SESSION, 'verified', true, () => true,
         );
         vi.restoreAllMocks();
 
@@ -211,7 +215,7 @@ describe('a real Progress failure creates durable debt, blocks Start, and one re
         const controller = makeController(null);
         rpc.mockResolvedValue({ data: null, error: { message: 'transient' } });
         const outcome = await controller.completeProgressForRecording(
-            { mode: 'open_mic' }, SESSION, 'verified', true,
+            { mode: 'open_mic' }, SESSION, 'verified', true, () => true,
         );
         expect(outcome).toMatchObject({ kind: 'unresolved', reason: 'queue_unavailable' });
         expect(useSessionStore.getState().progressGate).toMatchObject({ sessionId: SESSION, state: 'unresolved' });

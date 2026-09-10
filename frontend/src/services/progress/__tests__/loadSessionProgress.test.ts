@@ -50,7 +50,7 @@ vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ from, rpc }
 import { loadSessionProgress } from '../loadSessionProgress';
 
 const ev = (session_id: string, over: Record<string, unknown> = {}) => ({
-    session_id, eligible: true, exclusion_reasons: [], clarity_raw: 90, filler_count: 3, wpm: 140,
+    session_id, eligible: true, exclusion_reasons: [], clarity_raw: 90, filler_count: 3, error_marker_count: 0, wpm: 140,
     word_count: 200, cohort_key: 'private|v2|base|clarity_v1', baseline_session_id: null,
     previous_comparable_session_id: null, ...over,
 });
@@ -78,6 +78,43 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(await loadSessionProgress('s2')).toMatchObject({ status: 'ineligible', reasons: ['too_few_words'] });
         currentError = { message: 'offline' };
         expect(await loadSessionProgress('s2')).toMatchObject({ status: 'error' });
+    });
+
+    it.each([
+        ['missing', null],
+        ['negative', -1],
+        ['fractional', 1.5],
+    ])('refuses an eligible-marked row with %s filler evidence before producing coaching', async (_label, filler_count) => {
+        current = ev('s2', { filler_count });
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({
+            status: 'unavailable',
+            message: 'Progress evidence is incomplete for this session.',
+        });
+        expect(rpc).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['missing', null],
+        ['negative', -1],
+        ['fractional', 1.5],
+    ])('refuses an eligible-marked row with %s error-marker evidence before producing coaching', async (_label, error_marker_count) => {
+        current = ev('s2', { error_marker_count });
+        expect(await loadSessionProgress('s2')).toMatchObject({
+            status: 'unavailable',
+            message: 'Progress evidence is incomplete for this session.',
+        });
+        expect(rpc).not.toHaveBeenCalled();
+    });
+
+    it('refuses movement when a persisted comparison row has incomplete evidence', async () => {
+        current = ev('s2', { baseline_session_id: 's1', previous_comparable_session_id: 's1' });
+        references = [ev('s1', { clarity_raw: 84, error_marker_count: null })];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.direction.deltaPoints).toBeNull();
+        expect(view.disclosure).toBeNull();
     });
 
     it('uses persisted baseline/previous references without client history', async () => {
