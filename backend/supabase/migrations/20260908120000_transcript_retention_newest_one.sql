@@ -136,6 +136,23 @@ ALTER TABLE public.transcript_retention_tombstones ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.transcript_retention_tombstones FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.transcript_retention_tombstones TO service_role;
 
+-- The status column arrived in 20260309000000 with DEFAULT 'active'. PostgreSQL therefore labelled
+-- every session saved by the earlier transcript-writing RPC as active, even though those rows are
+-- immutable completed saves. They are identifiable without a date guess: the pre-status writer did
+-- not know either idempotency_key or expires_at, required a non-empty transcript, positive duration
+-- and positive word count, and left both later lifecycle columns NULL when the ALTER was applied.
+-- Classify that closed historical shape before completed-only ranking is installed. This changes only
+-- metadata; installation remains transcript-inert and activation remains separately authorised.
+UPDATE public.sessions
+SET status = 'completed'
+WHERE status = 'active'
+  AND idempotency_key IS NULL
+  AND expires_at IS NULL
+  AND duration > 0
+  AND total_words > 0
+  AND transcript IS NOT NULL
+  AND transcript ~ '[^[:space:]]';
+
 -- 2) The shared predicate: which sessions must have their transcript expired for one user.
 --    Rank 1 (newest by created_at DESC, id DESC) is never returned.
 CREATE OR REPLACE FUNCTION public.transcript_sessions_to_expire(p_user_id uuid)

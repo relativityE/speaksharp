@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const M = (f: string) => readFileSync(resolve(process.cwd(), 'backend', 'supabase', 'migrations', f), 'utf8');
+const PHASE2 = M('20260309000000_phase2_integration.sql');
 const TRANSCRIPT_STATE = M('20260801000000_sessions_transcript_state.sql');
 const NEWEST_TWO = M('20260803000000_transcript_retention_newest_two.sql');
 const PROGRESS_EVALS = M('20260731120000_session_progress_evaluations.sql');
@@ -25,6 +26,13 @@ const PREFLIGHT = M('20260805000000_transcript_retention_preflight.sql');
 const COMPLETE_V2 = M('20260819120000_complete_session_v2_atomic_retention_1314.sql');
 /** The correction under test. Applied AFTER the shipped ones, exactly as Production would run it. */
 const NEWEST_ONE = M('20260908120000_transcript_retention_newest_one.sql');
+
+// Execute the exact sessions-column ALTER from the historical migration in the legacy-row casualty.
+// The rest of phase2 owns unrelated tables/functions whose dependencies are outside this focused DB.
+const PHASE2_SESSION_COLUMNS = PHASE2.match(
+    /ALTER TABLE public\.sessions\s+ADD COLUMN IF NOT EXISTS idempotency_key[\s\S]*?status TEXT DEFAULT 'active';/,
+)?.[0];
+if (!PHASE2_SESSION_COLUMNS) throw new Error('phase2 sessions-column migration block not found');
 
 const U = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -52,7 +60,9 @@ const BOOTSTRAP = `
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz,
     transcript text,
-    total_words int, duration int, filler_counts jsonb, status text,
+    total_words int, duration int, filler_counts jsonb,
+    idempotency_key uuid, expires_at timestamptz, engine_version text, model_name text, device_type text,
+    status text,
     next_action_signal jsonb, status_reason text, clarity_score double precision,
     wpm double precision, pause_metrics jsonb
   );
@@ -241,6 +251,81 @@ describe('newest-ONE transcript retention, executed against the real migrations'
                 { id: olderCompleted, hasText: false, state: 'expired' },
                 { id: newerCompleted, hasText: true, state: 'available' },
                 { id: activeRecovery, hasText: true, state: 'available' },
+            ]);
+    });
+
+    it('CASUALTY: a transcript saved before the status column is classified and participates in newest-one', async () => {
+        const legacyDb = new PGlite();
+        // Start with the same focused schema minus `status`: this is the shape that existed when the
+        // 20251219000000 writer persisted transcripts. The row is inserted before executing the exact
+        // status-column ALTER from 20260309000000, so the casualty covers migration history, not a
+        // post-migration fixture pretending to be old.
+        await legacyDb.exec(BOOTSTRAP.replace(
+            `idempotency_key uuid, expires_at timestamptz, engine_version text, model_name text, device_type text,
+    status text,`,
+            '',
+        ));
+        const legacy = (await legacyDb.query<{ id: string }>(
+            `INSERT INTO public.sessions
+               (user_id, created_at, transcript, total_words, duration, filler_counts)
+             VALUES ($1, '2026-02-20T10:00:00Z', 'a save from before lifecycle status', 90, 60, '{}'::jsonb)
+             RETURNING id`,
+            [U],
+        )).rows[0].id;
+
+        await legacyDb.exec(PHASE2_SESSION_COLUMNS);
+        const defaulted = (await legacyDb.query<{
+            status: string; idempotency_key: string | null; expires_at: string | null;
+        }>('SELECT status, idempotency_key, expires_at FROM public.sessions WHERE id = $1', [legacy])).rows[0];
+        expect(defaulted).toEqual({ status: 'active', idempotency_key: null, expires_at: null });
+
+        // Control: a real post-status active row carries the lifecycle metadata introduced with the
+        // column. The historical classifier must not turn an in-progress recovery into a completed save.
+        const active = (await legacyDb.query<{ id: string }>(
+            `INSERT INTO public.sessions
+               (user_id, created_at, transcript, total_words, duration, filler_counts,
+                idempotency_key, expires_at, status)
+             VALUES ($1, '2026-08-02T10:00:00Z', 'an active recovery', 30, 20, '{}'::jsonb,
+                     gen_random_uuid(), '2026-08-02T11:00:00Z', 'active')
+             RETURNING id`,
+            [U],
+        )).rows[0].id;
+
+        await legacyDb.exec(TRANSCRIPT_STATE);
+        await legacyDb.exec(NEWEST_TWO);
+        await legacyDb.exec(PROGRESS_EVALS);
+        await legacyDb.exec(CONVERGE);
+        await legacyDb.exec(PREFLIGHT);
+        await legacyDb.exec(COMPLETE_V2);
+
+        // Apply the real correction after the legacy row exists. Its historical classification must
+        // happen before the completed-only functions are used.
+        await legacyDb.exec(NEWEST_ONE);
+        const classified = (await legacyDb.query<{ status: string }>(
+            'SELECT status FROM public.sessions WHERE id = $1', [legacy],
+        )).rows[0].status;
+        expect(classified).toBe('completed');
+        expect((await legacyDb.query<{ status: string }>(
+            'SELECT status FROM public.sessions WHERE id = $1', [active],
+        )).rows[0].status).toBe('active');
+
+        const current = await seedSession(
+            legacyDb, U, '2026-08-03T10:00:00Z', 'the current completed save', 120, 'completed',
+        );
+        await giveTerminalEvidence(legacyDb, [legacy], U);
+        await armRetention(legacyDb, U);
+        await legacyDb.query('SELECT public.activate_transcript_retention_newest_one()');
+        await legacyDb.query('SELECT public.converge_transcript_retention($1)', [U]);
+
+        const rows = (await legacyDb.query<{ id: string; transcript: string | null; transcript_state: string }>(
+            `SELECT id, transcript, transcript_state FROM public.sessions
+             WHERE id = ANY($1) ORDER BY created_at ASC`, [[legacy, active, current]],
+        )).rows;
+        expect(rows.map((row) => ({ id: row.id, hasText: row.transcript !== null, state: row.transcript_state })))
+            .toEqual([
+                { id: legacy, hasText: false, state: 'expired' },
+                { id: active, hasText: true, state: 'available' },
+                { id: current, hasText: true, state: 'available' },
             ]);
     });
 

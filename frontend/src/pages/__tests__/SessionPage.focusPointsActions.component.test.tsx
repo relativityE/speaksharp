@@ -17,15 +17,30 @@ import SessionPage from '../SessionPage';
 import { useSessionStore } from '@/stores/useSessionStore';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import * as RecoveryHook from '@/hooks/useUnresolvedRecovery';
+import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
 
 vi.mock('@/hooks/useSessionLifecycle', () => ({ useSessionLifecycle: vi.fn() }));
 vi.mock('@/hooks/useUnresolvedRecovery', () => ({ useUnresolvedRecovery: vi.fn() }));
 // These tests exercise completed-review ACTION wiring, so model the retained transcript authority that
 // a real completed review supplies. Working memory is purged at this point and cannot license coverage.
+// CONFIGURABLE, because "the review is already available" is not the only state the after-screen has.
+// The e2e that caught the retry regression reaches this screen while the saved-transcript read is still
+// in flight — coverage cannot be derived yet and the rail renders in its pending form. A mock that is
+// permanently available cannot see that screen at all, which is why the component test passed while the
+// journey failed.
+const { reviewRead } = vi.hoisted(() => ({
+    reviewRead: {
+        current: {
+            data: { transcript_state: 'available', transcript: 'Opening hook. The ask.' } as unknown,
+            isFetching: false,
+        },
+    },
+}));
 vi.mock('@/hooks/useSession', () => ({
     useSession: () => ({
-        data: { transcript_state: 'available', transcript: 'Opening hook. The ask.' },
-        isFetching: false,
+        data: reviewRead.current.data,
+        isFetching: reviewRead.current.isFetching,
+        failureCount: 0,
         refetch: vi.fn(),
     }),
 }));
@@ -83,6 +98,7 @@ vi.mock('@/components/session/ObjectiveSetupForm', () => ({
 const mockLifecycle = vi.mocked(SessionLifecycleHook.useSessionLifecycle);
 const mockRecovery = vi.mocked(RecoveryHook.useUnresolvedRecovery);
 const handleStartStop = vi.fn();
+const settleReviewLatency = vi.fn();
 /**
  * The analytics prompt is LIFECYCLE state, not store state. The double models it as a real value the
  * page can turn off, because "did the page leave the terminal after-projection?" is exactly the P1.
@@ -102,6 +118,7 @@ const lifecycle = (over: Record<string, unknown> = {}) => ({
     sttStatus: { type: 'ready' as const, message: 'Ready' },
     modelLoadingProgress: null, mode: 'private' as const, setMode: vi.fn(),
     elapsedTime: 0, handleStartStop, showAnalyticsPrompt: promptOn, setShowAnalyticsPrompt,
+    settleReviewLatency,
     sessionFeedbackMessage: null,
     pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
     transcriptContent: '', fillerData: {}, isProUser: true, isButtonDisabled: false,
@@ -136,6 +153,13 @@ const givenAfterReview = () => {
         () => lifecycle() as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>,
     );
     const s = useSessionStore.getState();
+    const reconciliation = reconcileFinalizedFillers('Opening hook. The ask.', {});
+    s.setFinalizedAnalysis({
+        sessionId: 'session-1',
+        mode: 'private',
+        reconciliation,
+        persistedTotal: reconciliation.persistedTotal,
+    });
     s.setCompletedObjectiveBrief(BRIEF);
     s.setObjectiveCoverageResult([
         { label: 'Opening hook', covered: true, coveredAtSec: 12, quote: null },
@@ -199,6 +223,11 @@ describe('#1407 Edit — reachable before a Focus Points take', () => {
 });
 
 describe('#1407 Start a new set — reachable after review', () => {
+    it('#1428 settles review latency only from the rendered retained-review boundary', async () => {
+        givenAfterReview();
+        await waitFor(() => expect(settleReviewLatency).toHaveBeenCalledWith('available'));
+    });
+
     it('CASUALTY: "Start a new set" is RENDERED through the real page chain', () => {
         givenAfterReview();
         expect(screen.getByTestId('focus-points-new-set')).toBeInTheDocument();
@@ -259,6 +288,25 @@ describe('#1407 — Retry and Open Mic are untouched', () => {
         await user.click(screen.getByTestId('focus-points-retry'));
         expect(handleStartStop).toHaveBeenCalled();
         expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: 'brief-1' });
+    });
+
+    it('CASUALTY: Retry starts a take even while the saved-transcript read is STILL PENDING', async () => {
+        // The journey reaches this screen before the review read settles: coverage cannot be derived,
+        // so the rail renders in its `coveragePending` form. Retry belongs to the user's brief, not to
+        // the transcript, and must not wait on a read it does not depend on. The existing retry test
+        // could not see this because its `useSession` mock is permanently available.
+        const user = userEvent.setup();
+        reviewRead.current = { data: undefined, isFetching: true };
+
+        givenAfterReview();
+
+        const retry = screen.getByTestId('focus-points-retry');
+        await user.click(retry);
+
+        expect({
+            started: handleStartStop.mock.calls.length > 0,
+            briefRebound: useSessionStore.getState().activeObjectiveBrief?.briefId,
+        }).toEqual({ started: true, briefRebound: 'brief-1' });
     });
 
     it('Open Mic (no brief) shows no Focus Points actions at all', () => {

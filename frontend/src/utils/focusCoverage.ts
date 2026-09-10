@@ -17,6 +17,7 @@
  */
 import { computeObjectiveCoverage, type TranscriptSegment } from '@/services/objective/objectiveCoverage';
 import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
+import type { CoverageRailPoint } from '@/components/session/CoverageRail';
 
 export interface FocusCoverageRow {
     label: string;
@@ -36,6 +37,56 @@ export interface FocusCoverage {
     nextIndex: number | null;
     /** Covering phrases, in transcript order, for the coverage highlights in slot B. */
     coveredQuotes: string[];
+}
+
+/**
+ * Apply the stop-seam result to the terminal presentation.
+ *
+ * The retained transcript is useful for quotes/highlights, but it is not the terminal scoring authority:
+ * the stop seam evaluated timestamped segments against the immutable brief (including its configured
+ * cues). Re-running the weaker view matcher over flattened text can disagree and turn a detected point
+ * into a false negative. A missing/misaligned authority returns null so the caller can render an honest
+ * pending state instead of manufacturing a score.
+ */
+export function applyFinalizedCoverageAuthority(
+    derived: FocusCoverage,
+    points: string[],
+    authority: CoverageRailPoint[] | null,
+): FocusCoverage | null {
+    const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
+    if (!authority || authority.length !== cleanPoints.length || derived.rows.length !== cleanPoints.length) {
+        return null;
+    }
+    if (authority.some((row, index) =>
+        row.label !== cleanPoints[index] || !['covered', 'partial', 'missing'].includes(row.status))) return null;
+
+    const rows = derived.rows.map((row, index) => {
+        const status = authority[index].status;
+        // The stop seam sends an evidence offset for both `covered` and `partial`; both are therefore
+        // detected. Preserve the richer status for the amber/green rail while keeping the binary count
+        // aligned with the server verdict.
+        const covered = status === 'covered' || status === 'partial';
+        return {
+            ...row,
+            status,
+            covered,
+            // The persisted stop-seam authority currently carries status only. Even when the weaker
+            // presentation matcher reaches the same status, it may have selected a different span. Do
+            // not attach a quote or timestamp that the terminal result cannot verify.
+            coveredAtSec: null,
+            quote: null,
+        };
+    });
+    const coveredCount = rows.filter((row) => row.covered).length;
+    const nextIndex = rows.findIndex((row) => !row.covered);
+    return {
+        rows,
+        total: rows.length,
+        coveredCount,
+        nextIndex: nextIndex === -1 ? null : nextIndex,
+        // Terminal attribution is withheld until the stop-seam authority carries exact evidence.
+        coveredQuotes: [],
+    };
 }
 
 /**
@@ -98,7 +149,7 @@ export function deriveFocusCoverage(
     points: string[],
     transcript: string,
     elapsedSeconds: number,
-    latched?: Set<number>,
+    latched?: ReadonlyMap<number, FocusCoverageRow>,
 ): FocusCoverage {
     const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
     const total = cleanPoints.length;
@@ -110,16 +161,19 @@ export function deriveFocusCoverage(
     const briefPoints = cleanPoints.map((label, i) => ({ id: `fp-${i}`, label }));
     const { coverage } = computeObjectiveCoverage(briefPoints, segments, elapsedSeconds);
 
+    const statusRank: Record<CoverageStatus, number> = { missing: 0, partial: 1, covered: 2 };
     const rows: FocusCoverageRow[] = coverage.map((c, i) => {
-        const latchedCovered = latched?.has(i) ?? false;
-        const covered = c.status === 'covered' || latchedCovered;
-        return {
+        // Live STT corrections may temporarily remove or weaken a match. Preserve the strongest status
+        // actually observed in this take without converting partial evidence into a full detection.
+        const current: FocusCoverageRow = {
             label: cleanPoints[i],
-            status: covered ? 'covered' : c.status,
-            covered,
-            coveredAtSec: covered ? (c.evidence?.timestampSec ?? null) : null,
-            quote: covered ? (c.evidence?.quote ?? null) : null,
+            status: c.status,
+            covered: c.status === 'covered' || c.status === 'partial',
+            coveredAtSec: c.status === 'missing' ? null : (c.evidence?.timestampSec ?? null),
+            quote: c.status === 'missing' ? null : (c.evidence?.quote ?? null),
         };
+        const prior = latched?.get(i);
+        return prior && statusRank[prior.status] > statusRank[current.status] ? prior : current;
     });
 
     const coveredCount = rows.filter((r) => r.covered).length;

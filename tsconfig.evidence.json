@@ -29,5 +29,8 @@
     "baseUrl": ".",
     "paths": { "@/*": ["frontend/src/*"] }
   },
-  "include": ["tests/evidence/**/*.ts"]
+  "include": [
+    "tests/evidence/**/*.ts",
+    "scripts/private-v2-worker-evidence.mts"
+  ]
 }

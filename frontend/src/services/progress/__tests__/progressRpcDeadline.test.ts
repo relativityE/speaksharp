@@ -34,6 +34,10 @@ const SESSION = 'sess-deadline';
 interface Ctl {
     completeProgressForRecording: (
         ctx: { mode: 'open_mic' }, sessionId: string, attributionStatus: string | undefined, metricsPersisted: boolean,
+        // #1431 P1 — REQUIRED. The Progress seam writes SHARED state (Start gate, Focus Points briefs,
+        // coverage rail), so every caller states whether it still owns those surfaces. These tests
+        // drive the seam as the current take, so they claim `() => true` explicitly.
+        canPublishShared: () => boolean,
     ) => Promise<{ kind: string; reason?: string }>;
 }
 function makeController(): Ctl {
@@ -64,7 +68,7 @@ describe('a Progress RPC that never settles', () => {
 
         let settled = false;
         const completion = makeController()
-            .completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true)
+            .completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true, () => true)
             .then((o) => { settled = true; return o; });
 
         for (let i = 0; i < 50; i++) await Promise.resolve();
@@ -92,7 +96,7 @@ describe('a Progress RPC that never settles', () => {
             // Downstream recommendation/attempt calls are incidental here and resolve at once.
             : Promise.resolve({ data: null, error: null })));
 
-        const completion = makeController().completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true);
+        const completion = makeController().completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true, () => true);
         await vi.advanceTimersByTimeAsync(PROGRESS_RPC_ATTEMPT_TIMEOUT_MS);
         const outcome = await completion;
 
