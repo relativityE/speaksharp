@@ -11,16 +11,18 @@
  * command cannot become a second, softer opinion about what counts as egress.
  *
  * Usage:
- *   node scripts/human-test/observe-take.mjs --candidate <id> --release <sha> [--port 9222]
- *     [--app http://127.0.0.1:5174] [--out product_release/evidence/...] [--dry-run]
+ *   node scripts/human-test/observe-take.mjs --candidate <id> --release <sha>
+ *     --journey <open_mic|focus_points>
+ *     --authorization </absolute/path/to/signed-envelope.json> [--port 9222]
+ *     [--app https://speaksharp-public.vercel.app] [--out product_release/evidence/...] [--dry-run]
  */
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { WebSocket } from 'ws';
 import { assertLoopbackOrigin, selectAppTarget, safeTargetForEvidence } from './cdpTarget.mjs';
 import { IDENTITY_PROBE, auditEgress, receiptVerdict } from './observer.mjs';
 import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE } from './payloadTripwire.mjs';
-import { MODEL_COMPARISON_CDP_ARM, modelComparisonSwitchExpression } from './modelComparisonArm.mjs';
+import { modelComparisonArmExpression, modelComparisonSwitchExpression } from './modelComparisonArm.mjs';
 
 const arg = (name, fallback = null) => {
     const i = process.argv.indexOf(`--${name}`);
@@ -29,14 +31,21 @@ const arg = (name, fallback = null) => {
 const flag = (name) => process.argv.includes(`--${name}`);
 
 const PORT = Number(arg('port', '9222'));
-const APP = arg('app', 'http://127.0.0.1:5174');
+const APP = arg('app', 'https://speaksharp-public.vercel.app');
 const CANDIDATE = arg('candidate');
+const JOURNEY = arg('journey');
 const RELEASE = arg('release');
+const AUTHORIZATION_PATH = arg('authorization');
 const OUT = arg('out', `product_release/evidence/human-test/receipt-${Date.now()}.json`);
 const DRY_RUN = flag('dry-run');
 
-if (!CANDIDATE || !RELEASE) {
-    console.error('required: --candidate <id> --release <sha>');
+if (!CANDIDATE || !['open_mic', 'focus_points'].includes(JOURNEY) || !RELEASE || !AUTHORIZATION_PATH) {
+    console.error('required: --candidate <id> --journey <open_mic|focus_points> --release <sha> --authorization <signed-envelope.json>');
+    process.exit(2);
+}
+let signedAuthorization;
+try { signedAuthorization = JSON.parse(readFileSync(AUTHORIZATION_PATH, 'utf8')); } catch {
+    console.error('authorization must be a readable signed JSON envelope');
     process.exit(2);
 }
 // 127.0.0.1 only. `localhost` can resolve off-loopback, and a remote debugging endpoint is the last
@@ -96,7 +105,9 @@ const main = async () => {
     // #1426 — THE PRODUCTION SWITCH IS CLOSED UNTIL CDP ARMS THIS DOCUMENT BEFORE APP BOOT.
     // This is deliberately not a URL, storage value, build flag, or visible control. Installing after
     // navigation is too late: main.tsx has already decided whether the switch surface should exist.
-    await client.send('Page.addScriptToEvaluateOnNewDocument', { source: MODEL_COMPARISON_CDP_ARM });
+    const authorizationInstaller = await client.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: modelComparisonArmExpression(signedAuthorization),
+    });
 
     // WORKERS TOO — this is where the audio actually is. Private STT runs its model in a Web Worker, so
     // a main-document-only tripwire would watch the one context least likely to hold PCM and call the
@@ -206,6 +217,12 @@ const main = async () => {
     // receipt: it reads as proof that a take happened.
     notePhase('pre-record');
     await client.send('Page.navigate', { url: APP });
+    // ONE DOCUMENT ONLY. `addScriptToEvaluateOnNewDocument` otherwise survives reload/navigation and
+    // would reinstall the same signed envelope into every later document during its TTL. The current
+    // document has already received it; remove the installer before the operator can reload and replay.
+    await client.send('Page.removeScriptToEvaluateOnNewDocument', {
+        identifier: authorizationInstaller.identifier,
+    });
 
     // The `--candidate` argument used to be only an EXPECTATION in the final receipt: this command
     // never applied it to the page. A three-row run could therefore record the configured v2 model
@@ -225,7 +242,7 @@ const main = async () => {
     if (!surfaceReady) throw new Error('model-comparison CDP surface did not install before the take');
 
     const switched = await client.send('Runtime.evaluate', {
-        expression: modelComparisonSwitchExpression(CANDIDATE),
+        expression: modelComparisonSwitchExpression(CANDIDATE, JOURNEY),
         returnByValue: true,
         awaitPromise: true,
     });
@@ -431,6 +448,10 @@ const main = async () => {
         expectedCandidate: CANDIDATE,
         requestedCandidate: probe?.requestedCandidate ?? null,
         observedCandidate: probe?.observedCandidate ?? null,
+        observedJourney: probe?.observedJourney ?? null,
+        controlNonce: signedAuthorization?.payload?.nonce ?? null,
+        evidenceDocumentId: signedAuthorization?.payload?.evidenceDocumentId ?? null,
+        persistedSessionId: probe?.persistedSessionId ?? null,
         release: probe?.release ?? null,
         target: safeTargetForEvidence(target),
         dryRun: DRY_RUN,

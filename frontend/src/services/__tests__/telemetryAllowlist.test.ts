@@ -26,6 +26,9 @@ describe('#1259 T1 — approved fields survive (events stay analyzable)', () => 
         const input = {
             mode: 'private', duration_seconds: 61, word_count: 180, wpm: 118,
             filler_count: 4, clarity_score: 82, is_new_streak_day: true, streak_count: 3,
+            comparison_nonce: 'comparison-nonce-123456',
+            comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+            comparison_session_binding_sha256: 'a'.repeat(64),
             session_coaching_experiment: 'session_coaching_v1',
             // Real producer values, not invented ones — see the vocabulary regression below.
             session_coaching_variant: REAL_ASSIGNMENT.variant,
@@ -69,6 +72,12 @@ describe('#1259 T1 — approved fields survive (events stay analyzable)', () => 
             outcome: 'available',
         });
         expect(stop.dropped).toEqual(expect.arrayContaining(['error_message', 'target_ms']));
+    });
+
+    it('requires a lowercase 64-character digest for the comparison session binding', () => {
+        expect(isValidForEventField('session_saved', 'comparison_session_binding_sha256', 'a'.repeat(64))).toBe(true);
+        expect(isValidForEventField('session_saved', 'comparison_session_binding_sha256', 'A'.repeat(64))).toBe(false);
+        expect(isValidForEventField('session_saved', 'comparison_session_binding_sha256', 'a'.repeat(63))).toBe(false);
     });
 
     it('keeps the diagnosable fields on recording_start_failed', () => {
@@ -134,6 +143,14 @@ describe('#1259 T1 — content is rejected', () => {
     it('rejects an over-long string in an approved field', () => {
         const { dropped } = projectEventProps('session_saved', { mode: 'x'.repeat(121) });
         expect(dropped).toContain('mode');
+    });
+
+    it('allows only a bounded content-free comparison nonce on start/save receipts', () => {
+        for (const event of ['session_started', 'session_saved']) {
+            expect(isValidForEventField(event, 'comparison_nonce', 'comparison-nonce-123456')).toBe(true);
+            expect(isValidForEventField(event, 'comparison_nonce', 'not a bounded nonce')).toBe(false);
+        }
+        expect(isValidForEventField('session_saved', 'persisted_session_id', 'session-123')).toBe(false);
     });
 
     it('rejects non-primitives, and no longer waves strings through on shape alone', () => {

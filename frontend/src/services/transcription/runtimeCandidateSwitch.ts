@@ -26,6 +26,10 @@ import {
     CANDIDATES, UnknownCandidateError,
     type Candidate, type CandidateId, type EngineKind,
 } from './candidateRegistry';
+import {
+    consumeModelComparisonTakeAuthorization, hasModelComparisonAuthorization,
+    type ModelComparisonJourney,
+} from './modelComparisonAuthorization';
 
 /**
  * The engines the product facade can actually construct.
@@ -50,14 +54,11 @@ export const COMPARISON_CANDIDATE_IDS = Object.freeze([
  * Installed before app code by the loopback CDP harness. A Symbol avoids a string-named page control;
  * no application code exports a setter, and a normal Production navigation never creates it.
  */
-export const MODEL_COMPARISON_CDP_ARM_KEY = 'speaksharp.model-comparison.cdp';
-
 export function runtimeCandidateAccessAllowed(
     env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
-    root: typeof globalThis = globalThis,
 ): boolean {
     return env?.VITE_INTERNAL_BUILD === 'true'
-        || (root as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)] === true;
+        || hasModelComparisonAuthorization();
 }
 
 /** States in which the engine is doing something that a swap would corrupt. */
@@ -67,6 +68,7 @@ export const SWITCH_BLOCKING_STATES: readonly string[] = Object.freeze([
 
 export type SwitchFailureCode =
     | 'not_armed' | 'unknown_candidate' | 'not_comparison_candidate' | 'engine_not_integrated'
+    | 'candidate_not_comparison_ready'
     | 'busy' | 'switch_in_progress' | 'no_executor' | 'teardown_failed' | 'init_failed'
     // The engine came up, but not as the candidate that was asked for. Distinct from `init_failed`
     // because nothing failed: this is the success path producing the wrong model.
@@ -150,6 +152,7 @@ export async function switchCandidate(
      * added without a provider path would then fall through and run the configured model under its id.
      */
     candidates: typeof CANDIDATES = CANDIDATES,
+    requestedJourney?: ModelComparisonJourney,
 ): Promise<SwitchOutcome> {
     if (!runtimeCandidateAccessAllowed(_env)) {
         return {
@@ -171,6 +174,18 @@ export async function switchCandidate(
         };
     }
     const candidate = candidates[id as CandidateId];
+    // `activationReady` answers whether a model may be the public DEFAULT. That would incorrectly
+    // exclude v4, whose missing evidence is this exact human comparison. `comparisonReady` instead
+    // answers whether the harness path itself is known-good. Internal builds keep the explicit escape
+    // for diagnosis; the signed canonical Production run fails closed until its preflight is present.
+    if (_env.VITE_INTERNAL_BUILD !== 'true' && !candidate.comparisonReady) {
+        return {
+            ok: false,
+            code: 'candidate_not_comparison_ready',
+            reason: `candidate "${candidate.id}" is not ready for a trustworthy Production comparison: `
+                + `${candidate.comparisonNotReadyReason ?? 'no comparison-readiness evidence recorded'}`,
+        };
+    }
     const integrationRefusal = engineIntegrationRefusal(candidate);
     if (integrationRefusal) {
         // FAIL CLOSED. Falling through would run the configured engine under the requested id.
@@ -185,6 +200,17 @@ export async function switchCandidate(
     const state = String(executor.currentState() ?? '');
     if (SWITCH_BLOCKING_STATES.includes(state)) {
         return { ok: false, code: 'busy', reason: `refused while ${state}: finish or stop the session first` };
+    }
+
+    // Internal builds are test-only and keep their multi-hop convenience. Canonical Production gets
+    // one signed candidate/journey row: the arm is consumed immediately before engine mutation.
+    if (_env.VITE_INTERNAL_BUILD !== 'true'
+        && !consumeModelComparisonTakeAuthorization(id, requestedJourney)) {
+        return {
+            ok: false,
+            code: 'not_armed',
+            reason: 'the signed Production authorization does not match this candidate/journey or was already used',
+        };
     }
 
     // Captured so the closure below cannot observe a later re-registration mid-switch.

@@ -61,6 +61,7 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only), read by `
 | `VITE_PAYMENTS_ENABLED` | optional | B (Vercel only) | Explicit frontend payments kill-switch (P0.1). Default OFF. `arePaymentsEnabled()` is true only when this === `"true"` AND the publishable key is live. Mirrors backend `PAYMENTS_ENABLED`; both must be deliberately enabled to sell Pro. |
 | `VITE_SENTRY_DSN` | optional | A | Absent → error monitoring disabled. |
 | `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | optional | A | Analytics; absent → disabled. |
+| `VITE_MODEL_COMPARISON_PUBLIC_KEY` | optional | B (Production only for an authorized comparison window) | Client-public Ed25519 verification key for the hidden three-model CDP comparison surface. The private signing key never enters Vercel, the browser, GitHub, or this repository. Missing/invalid key or missing, stale, replayed, wrong-origin, or wrong-release signed authorization keeps the switch closed. Remove after the PO downselection unless a later release explicitly reauthorizes comparison. |
 | `VITE_LOG_LEVEL` | optional | A | Client log level. |
 | `VITE_ENABLE_SENTRY_TRACING` / `_REPLAY` / `_CONSOLE_CAPTURE` | optional | A/B | Sentry feature flags. |
 | `VITE_AUTH_MODE` / `VITE_AUTH_TIMEOUT` | optional | A/B | Authentication configuration. |
@@ -95,7 +96,7 @@ Many `secrets.*` are non-secret config over-classified as Secrets; a small numbe
 
 ### 2.4 Vercel Project Env (Home B)
 
-The real production values for the §2.1 `VITE_*` live here (Production scope) plus platform vars, all encrypted at rest in Vercel: the public `VITE_*` set (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, live `VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_SENTRY_DSN`/`VITE_POSTHOG_KEY`/`VITE_POSTHOG_HOST`), `OPS_STATUS_PASSWORD` (a real secret — gates the Ops status page), and the auto-provided `VERCEL_GIT_COMMIT_SHA`.
+The real production values for the §2.1 `VITE_*` live here (Production scope) plus platform vars, all encrypted at rest in Vercel: the public `VITE_*` set (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, live `VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_SENTRY_DSN`/`VITE_POSTHOG_KEY`/`VITE_POSTHOG_HOST`), the temporary client-public `VITE_MODEL_COMPARISON_PUBLIC_KEY` during an explicitly authorized three-model comparison window, `OPS_STATUS_PASSWORD` (a real secret — gates the Ops status page), and the auto-provided `VERCEL_GIT_COMMIT_SHA`. The matching model-comparison private key remains in the PO/Ops signing environment only; it is never a Vercel value.
 
 ### 2.5 Feature-flag & runtime vars (code-verified)
 

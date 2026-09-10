@@ -37,7 +37,7 @@ describe('model switch — combined real-controller ordering', () => {
     let initSpy: MockInstance<(mode?: TranscriptionMode) => Promise<void>>;
     const order: string[] = [];
 
-    beforeEach(() => {
+    beforeEach(async () => {
         order.length = 0;
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
@@ -54,7 +54,7 @@ describe('model switch — combined real-controller ordering', () => {
                 const selected = runtimeCandidateOverride();
                 if (selected) recordResolvedEngine({ candidateId: selected } as never);
             });
-        installRuntimeCandidateSwitch(INTERNAL);
+        await installRuntimeCandidateSwitch(INTERNAL);
     });
     afterEach(() => {
         initSpy.mockRestore();

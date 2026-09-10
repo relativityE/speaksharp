@@ -25,6 +25,11 @@ import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcrip
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import {
+    modelComparisonControlNonce,
+    modelComparisonEvidenceDocumentId,
+    modelComparisonSessionBindingSha256,
+} from '@/services/transcription/modelComparisonAuthorization';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
@@ -261,8 +266,14 @@ export const useSessionLifecycle = () => {
                 }
 
                 const streakResult = updateStreak(); // UI layer still needs streak for display
+                const comparisonSessionBinding = await modelComparisonSessionBindingSha256(
+                    speechRuntimeController.getSessionId(),
+                );
                 analyticsBuffer.push('session_saved', {
                     mode: effectiveMode,
+                    comparison_nonce: modelComparisonControlNonce(),
+                    comparison_evidence_document_id: modelComparisonEvidenceDocumentId(),
+                    comparison_session_binding_sha256: comparisonSessionBinding,
                     duration_seconds: elapsedTime,
                     word_count: metrics.wordCount,
                     wpm: metrics.wpm,
@@ -425,6 +436,8 @@ export const useSessionLifecycle = () => {
                     mode: latestMode,
                     requested_mode: requestedMode,
                     user_tier: effectiveSubscriptionStatus,
+                    comparison_nonce: modelComparisonControlNonce(),
+                    comparison_evidence_document_id: modelComparisonEvidenceDocumentId(),
                     ...getSessionCoachingExperimentProperties(),
                 });
             } catch (error) {

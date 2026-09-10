@@ -11,17 +11,12 @@ import { effectiveCandidate } from '../candidateSelection';
 import {
     switchCandidate, registerSwitchExecutor, runtimeCandidateOverride,
     clearRuntimeCandidateOverride, onRuntimeCandidateChange, SWITCH_BLOCKING_STATES,
-    engineIntegrationRefusal, MODEL_COMPARISON_CDP_ARM_KEY,
+    engineIntegrationRefusal,
 } from '../runtimeCandidateSwitch';
+import { authorizeProduction, resetAuthorization } from './modelComparisonAuthorization.helper';
 
 const INTERNAL = { VITE_INTERNAL_BUILD: 'true' };
 const PRODUCTION = { VITE_INTERNAL_BUILD: undefined };
-const armProduction = () => {
-    Object.defineProperty(globalThis, Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY), {
-        value: true, configurable: true,
-    });
-};
-const disarmProduction = () => { delete (globalThis as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)]; };
 
 function executor(state = 'READY') {
     const calls: string[] = [];
@@ -42,8 +37,8 @@ function executor(state = 'READY') {
 }
 
 describe('the in-page model switch', () => {
-    beforeEach(() => { disarmProduction(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
-    afterEach(() => { disarmProduction(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
+    beforeEach(() => { resetAuthorization(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
+    afterEach(() => { resetAuthorization(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
 
     it('CASUALTY: the FULL comparison runs in one page — v2 → distil → moonshine → v2', async () => {
         // The sequence the human test actually performs. Moonshine was refused here until it was
@@ -96,17 +91,59 @@ describe('the in-page model switch', () => {
     });
 
     it('CASUALTY: canonical Production can run the three-model CDP comparison', async () => {
-        armProduction();
+        expect((await authorizeProduction()).accepted).toBe(true);
         registerSwitchExecutor(executor());
-        const out = await switchCandidate('v4:distil:q4', PRODUCTION);
+        const out = await switchCandidate('v4:distil:q4', PRODUCTION, CANDIDATES, 'open_mic');
         expect(out).toEqual({ ok: true, candidate: 'v4:distil:q4' });
         expect(runtimeCandidateOverride()).toBe('v4:distil:q4');
     });
 
-    it('CASUALTY: registry membership does not widen the three-model comparison', async () => {
-        armProduction();
+    it('CASUALTY: canonical Production can run Moonshine after its real-runtime E/F preflight', async () => {
+        expect((await authorizeProduction({
+            candidateId: 'moonshine:streaming-medium',
+            nonce: 'moonshine-preflight-123456',
+        })).accepted).toBe(true);
+        registerSwitchExecutor(executor());
+        const out = await switchCandidate(
+            'moonshine:streaming-medium', PRODUCTION, CANDIDATES, 'open_mic',
+        );
+        expect(out).toEqual({ ok: true, candidate: 'moonshine:streaming-medium' });
+        expect(runtimeCandidateOverride()).toBe('moonshine:streaming-medium');
+    });
+
+    it('CASUALTY: canonical Production refuses a comparison arm whose preflight is incomplete', async () => {
+        expect((await authorizeProduction({
+            candidateId: 'moonshine:streaming-medium',
+            nonce: 'moonshine-preflight-refusal-123456',
+        })).accepted).toBe(true);
+        const incomplete = {
+            ...CANDIDATES,
+            'moonshine:streaming-medium': {
+                ...CANDIDATES['moonshine:streaming-medium'],
+                comparisonReady: false,
+                comparisonNotReadyReason: 'synthetic missing preflight',
+            },
+        } as typeof CANDIDATES;
         const e = executor(); registerSwitchExecutor(e);
-        const out = await switchCandidate('v4:base:q4', PRODUCTION);
+        const out = await switchCandidate(
+            'moonshine:streaming-medium', PRODUCTION, incomplete, 'open_mic',
+        );
+        expect(out).toMatchObject({ ok: false, code: 'candidate_not_comparison_ready' });
+        expect(e.teardown).not.toHaveBeenCalled();
+        expect(runtimeCandidateOverride()).toBeNull();
+    });
+
+    it('CASUALTY: canonical Production spends one authorization on one row', async () => {
+        expect((await authorizeProduction()).accepted).toBe(true);
+        registerSwitchExecutor(executor());
+        expect((await switchCandidate('v4:distil:q4', PRODUCTION, CANDIDATES, 'open_mic')).ok).toBe(true);
+        expect(await switchCandidate('v2:base.en', PRODUCTION, CANDIDATES, 'open_mic'))
+            .toMatchObject({ ok: false, code: 'not_armed' });
+    });
+
+    it('CASUALTY: registry membership does not widen the three-model comparison', async () => {
+        const e = executor(); registerSwitchExecutor(e);
+        const out = await switchCandidate('v4:base:q4', INTERNAL);
         expect(out).toMatchObject({ ok: false, code: 'not_comparison_candidate' });
         expect(e.teardown).not.toHaveBeenCalled();
         expect(runtimeCandidateOverride()).toBeNull();
