@@ -66,7 +66,24 @@ SET search_path = pg_catalog, pg_temp
 AS $$ SELECT 'newest_one_v1'::text $$;
 
 -- 2) The shared predicate: which sessions must have their transcript expired for one user.
---    Rank 1 (newest by created_at DESC, id DESC) is never returned.
+--    Rank 1 (newest COMPLETED save, by created_at DESC, id DESC) is never returned.
+/*
+ * #1436 P1 — ONLY A COMPLETED SAVE HOLDS A RANK. AN ACTIVE ROW IS NOT A SAVE.
+ *
+ * This ranked every transcript-bearing row regardless of status, so an ACTIVE recovery row — one
+ * whose take is still in progress and may never complete — ranked first and pushed the user's last
+ * genuinely completed save to rank 2, where any convergence would expire it.
+ *
+ * Gating the CREATE path was not enough, and this is the third time in this lane that I closed the
+ * door that was named and left the others open. Convergence is also invoked from
+ * `trg_spe_converge_retention` when a delayed evaluation for some EARLIER session finally settles;
+ * that call reaches this predicate with the active recovery row still present and expires the
+ * completed save, before the recovery has produced anything to replace it. The create-site gate
+ * cannot see that path, because the create is long finished by then.
+ *
+ * The rule belongs here, in the shared predicate every caller goes through — the coordinator, the
+ * bounded mutation, the preflight and the R3 aggregate — rather than at each call site.
+ */
 CREATE OR REPLACE FUNCTION public.transcript_sessions_to_expire(p_user_id uuid)
 RETURNS TABLE(session_id uuid)
 LANGUAGE sql
@@ -80,6 +97,7 @@ AS $$
     WHERE user_id = p_user_id
       AND transcript IS NOT NULL
       AND transcript ~ '[^[:space:]]'
+      AND status = 'completed'
   ) ranked
   WHERE rn > 1
 $$;
