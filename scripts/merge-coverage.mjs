@@ -64,6 +64,17 @@ const mergedMetrics = {
   totalDuration: 0,
   numPendingTests: 0,
   testFiles: [],
+  /**
+   * #1430 P1 — CARRIED ACROSS SHARDS, or the release-path skip check is inert in real CI.
+   *
+   * The reporter emits `skippedTestFiles` per shard, and the validator rejects a manifest path that
+   * appears in it. This merge dropped the field, `run-metrics.sh` never serialized it, and the
+   * validator's `Array.isArray(...) ? ... : []` default turned the absence into "nothing was skipped".
+   * So on the sharded path — the only path CI takes — a required release-path file whose acceptance
+   * casualty was skipped still qualified. The unit test injected the field directly and proved nothing
+   * about the pipeline that has to deliver it.
+   */
+  skippedTestFiles: [],
   failures: [],
 };
 let metricsMergedCount = 0;
@@ -82,6 +93,7 @@ for (let shard = 1; shard <= SHARDS; shard++) {
     mergedMetrics.totalDuration += data.totalDuration || 0;
     mergedMetrics.numPendingTests += data.numPendingTests || 0;
     if (Array.isArray(data.testFiles)) mergedMetrics.testFiles.push(...data.testFiles);
+    if (Array.isArray(data.skippedTestFiles)) mergedMetrics.skippedTestFiles.push(...data.skippedTestFiles);
     if (Array.isArray(data.failures)) mergedMetrics.failures = mergedMetrics.failures.concat(data.failures);
     metricsMergedCount++;
     console.log(
@@ -94,6 +106,9 @@ for (let shard = 1; shard <= SHARDS; shard++) {
 }
 if (metricsMergedCount > 0) {
   mergedMetrics.testFiles = [...new Set(mergedMetrics.testFiles)].sort();
+  // Union across shards, deduped: one file can be split across shards, and a skip in ANY shard is a
+  // skip for that path.
+  mergedMetrics.skippedTestFiles = [...new Set(mergedMetrics.skippedTestFiles)].sort();
   fs.writeFileSync(path.join(ROOT, 'unit-metrics.json'), JSON.stringify(mergedMetrics, null, 2));
   console.log(
     `Merged unit-metrics from ${metricsMergedCount}/${SHARDS} shards: ${mergedMetrics.numTotalTests} tests total, ` +

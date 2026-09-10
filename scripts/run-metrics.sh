@@ -36,6 +36,9 @@ else
     unit_skipped=$(jq '.numPendingTests' "$unit_metrics_file")
     unit_total=$(jq '.numTotalTests' "$unit_metrics_file")
     unit_test_files=$(jq '.testFiles // []' "$unit_metrics_file")
+    # #1430 P1 — serialized alongside `testFiles`. Without it the validator sees no skips and a
+    # required release-path file whose acceptance casualty was skipped qualifies on the CI path.
+    unit_skipped_test_files=$(jq '.skippedTestFiles // []' "$unit_metrics_file")
 fi
 
 # ─── Coverage Metrics ─────────────────────────────────────────────────────────
@@ -199,7 +202,8 @@ jq -n \
         "failed":  $unit_failed,
         "skipped": $unit_skipped,
         "total":   $unit_total,
-        "testFiles": $unit_test_files
+        "testFiles": $unit_test_files,
+        "skippedTestFiles": $unit_skipped_test_files
     },
     "coverage": {
         "statements": $coverage_statements,
