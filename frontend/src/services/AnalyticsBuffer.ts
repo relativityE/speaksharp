@@ -462,10 +462,17 @@ class AnalyticsBuffer {
       // qualify a release. See the note on `attemptedEventFamilies`.
       //
       // Governed only, because `evaluateTelemetryCompleteness()` treats every name outside
-      // `GOVERNED_EVENTS` as unrecognised and forces HOLD. The ordinary Private path emits
-      // `private_model_acquisition_*`, which are deliberately outside the registry and carry their own
-      // allowlist — so recording them here made a NORMAL, complete Private session unable to qualify.
-      // Private telemetry is audited on its own terms; it is not part of the governed-family question.
+      // `GOVERNED_EVENTS` as unrecognised and forces HOLD.
+      //
+      // #1421 P1 — `private_model_acquisition_start` / `_success` USED to be excluded here for exactly
+      // that reason: they were instrumented but unregistered, so recording them as attempted made a
+      // NORMAL, complete Private session unable to qualify. The exclusion fixed that and left a hole —
+      // a journey could return QUALIFIED with no evidence any model was ever acquired, and the readback
+      // had no `acquired_candidate_id` with which to prove configured = acquired = running.
+      //
+      // They are now registered in `EVENT_SCHEMAS`, so completeness RECOGNISES them instead of holding
+      // on them, and this line admits them by the same rule as every other governed family. No special
+      // case: the registry decides.
       if (isGovernedEvent(event.event)) attemptedFamilies.add(event.event);
     } catch (err) {
       logger.warn({ err, event: event.event }, '[AnalyticsBuffer] Failed to send event to PostHog');

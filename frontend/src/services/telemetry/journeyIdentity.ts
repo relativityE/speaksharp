@@ -41,9 +41,43 @@ function mintId(): string {
     return `j-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
+/**
+ * #1421 P1 — THE BOOT AUTHORITY. ONE PAGE/APP BOOTSTRAP, ONE OPAQUE ID.
+ *
+ * A JOURNEY BOUNDARY IS NOT A BOOT BOUNDARY, and the readback qualification was built as if it were.
+ * `ensureJourneyBoundary()` begins a new journey on every non-product -> product transition, so one
+ * browser boot legitimately contains SEVERAL journeys — while `telemetry_positive_control` is emitted
+ * once per boot and `account_identified` only when identity settles. Inferring the boot from journey
+ * ORDERING was wrong in both directions and could not be made right by tuning the window: it either
+ * let another boot's receipts qualify the selected journey, or rejected the boot's own receipts
+ * because an earlier journey of the SAME boot became the lower bound.
+ *
+ * The information simply was not in the data, so it is put there. Minted lazily on first read like
+ * `journey_id`, and — unlike the journey — NEVER re-minted: a value that changed mid-boot would be
+ * indistinguishable from a second boot and would reintroduce the same ambiguity one layer down.
+ * `beginJourney()` therefore does not touch it, which is the whole point.
+ *
+ * It is a random tab-local value, meaningful only for joining events to each other, and carries no
+ * account, session or user-authored data — the same constraint every other correlation id here obeys.
+ */
+let bootId: string | null = null;
 let journeyId: string | null = null;
 let attemptId: string | null = null;
 let attemptSeq = 0;
+
+/** The boot this tab is running. Stable for the lifetime of the page; never re-minted. */
+export function currentBootId(): string {
+    if (!bootId) bootId = mintId();
+    return bootId;
+}
+
+/**
+ * Test seam only. Production has no way to end a boot except by loading the page again — which is
+ * exactly what a boot IS, and why no production caller may reset this.
+ */
+export function __resetBootIdentityForTests(): void {
+    bootId = null;
+}
 
 /**
  * The current journey, minted on first read.

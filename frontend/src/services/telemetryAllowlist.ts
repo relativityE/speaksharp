@@ -178,6 +178,56 @@ const COACHING_CORE = {
  * An event absent from this object is UNGOVERNED and ships no properties at all.
  */
 export const EVENT_SCHEMAS = Object.freeze({
+    /**
+     * #1421 P1 — MODEL ACQUISITION IS GOVERNED, so a readback can REQUIRE it.
+     *
+     * These two families were instrumented and deliberately kept OUT of this registry:
+     * `evaluateTelemetryCompleteness()` HOLDs on any name it does not recognise, so recording them as
+     * attempted made a normal, complete Private session fail to qualify. The exclusion was the correct
+     * local fix for that, and it had a consequence nobody had to accept: a journey could return
+     * QUALIFIED with no evidence that any model was ever acquired.
+     *
+     * That is precisely the diagnostic blindness the next real-world test cannot afford. It is also the
+     * only place `acquired_candidate_id` is published, so without these the readback cannot prove
+     * configured = acquired = running for a three-model down-selection — it can only prove that
+     * something ran.
+     *
+     * Registering them here makes completeness RECOGNISE them rather than hold on them, which is what
+     * the exclusion was working around. Content-free throughout: closed sets, counts, booleans and
+     * bounded reason codes, never a URL, a host, a filename or a free-form error.
+     */
+    private_model_acquisition_start: {
+        acquired_candidate_id: slug(), model_identity: slug(), asset_pin_digest: slug(128),
+        release_id: slug(), trigger: enumOf(['warmup', 'explicit-setup']),
+        cache_result: enumOf(['hit', 'miss', 'partial', 'unobservable']),
+        init_sequence: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        ms_since_previous_ready: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        previous_teardown_cause: slug(),
+    },
+    private_model_acquisition_success: {
+        acquired_candidate_id: slug(), model_identity: slug(), asset_pin_digest: slug(128),
+        release_id: slug(), trigger: enumOf(['warmup', 'explicit-setup']),
+        cache_result: enumOf(['hit', 'miss', 'partial', 'unobservable']),
+        measurement_completeness: enumOf(['complete', 'partial', 'unobservable']),
+        measurement_reason_code: enumOf([
+            'timing_unavailable', 'no_scope_declared', 'no_entries_recorded',
+            'scope_matched_nothing', 'sizes_opaque', 'requests_outside_scope',
+        ]),
+        out_of_scope_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        asset_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        network_used: { kind: 'bool' } as FieldRule,
+        // Complete-measurement fields. Null under a partial observation by construction — a real number
+        // over an unknown fraction is not the same claim, and publishing it under these names is how an
+        // unmeasured load looked measured.
+        network_bytes: { kind: 'int', min: 0, max: 10_000_000_000 } as FieldRule,
+        download_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        init_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        partial_network_bytes: { kind: 'int', min: 0, max: 10_000_000_000 } as FieldRule,
+        partial_download_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        total_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        outcome: enumOf(['success']),
+    },
+
     // ── session outcome loop ────────────────────────────────────────────────
     session_started: {
         mode: enumOf(STT_MODES), requested_mode: enumOf(STT_MODES), user_tier: enumOf(TIERS),

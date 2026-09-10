@@ -36,10 +36,11 @@ import {
 } from '../frontend/src/services/telemetry/completenessGate';
 import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
 import { resolveQualifyingIdentity } from '../frontend/src/services/telemetry/qualifyingIdentity';
+import { QUALIFICATION_STAGES, evaluateQualificationStage } from '../frontend/src/services/telemetry/completenessGate';
 import {
     bootScopedReceiptFamilies,
     buildReadbackQuery,
-    resolveBootWindow,
+    resolveBootAuthority,
 } from '../frontend/src/services/telemetry/bootScopedReceipts';
 
 /**
@@ -56,7 +57,19 @@ type Evidence = {
     gate: 'TELEMETRY-READBACK-COMPLETENESS';
     release_sha: string | null;
     journey_id: string | null;
+    /**
+     * #1421 P1 — WHICH BOOT THE EVIDENCE CAME FROM.
+     *
+     * Published, unlike `distinct_id`: this is an ephemeral random value minted per page bootstrap,
+     * tied to no account, session or user-authored content, and it is the fact a reader needs to check
+     * that both receipt families and the journey came from the SAME boot. A qualification that claims
+     * boot binding without naming the boot cannot be audited.
+     */
+    boot_id: string | null;
     traffic_type: string | null;
+    /** The UI stages this run declared it exercised, and any stage evidence it could not produce. */
+    stages_declared?: string[];
+    stage_reasons?: string[];
     identity_bound?: boolean;
     window_hours: number;
     observed_families: string[];
@@ -97,6 +110,8 @@ function hold(reason: string, observed: string[] = []): never {
         gate: 'TELEMETRY-READBACK-COMPLETENESS',
         release_sha: releaseSha,
         journey_id: journeyId,
+        // A refusal can happen before the boot authority is resolved — an honest null, never a guess.
+        boot_id: null,
         traffic_type: trafficType,
         window_hours: windowHours,
         observed_families: observed,
@@ -242,11 +257,21 @@ async function main(): Promise<void> {
     // saw, junk included, because a decoder that tidies its input cannot report that the input was wrong.
     const readback = rows.map((row) => {
         const cells = Array.isArray(row) ? row : [row];
-        return { event: cells[0] as string, timestamp: cells[1] as string, journeyId: (cells[2] ?? null) as string | null };
+        return {
+            event: cells[0] as string,
+            timestamp: cells[1] as string,
+            journeyId: (cells[2] ?? null) as string | null,
+            bootId: (cells[3] ?? null) as string | null,
+            properties: {
+                outcome: cells[4] ?? null,
+                state: cells[5] ?? null,
+                acquired_candidate_id: cells[6] ?? null,
+            },
+        };
     });
 
-    const bootWindow = resolveBootWindow(readback, journeyId, PRE_JOURNEY_EVENT_FAMILIES);
-    if (!bootWindow.ok) hold(`journey ${journeyId}: ${bootWindow.reason}`);
+    const boot = resolveBootAuthority(readback, journeyId);
+    if (!boot.ok) hold(`journey ${journeyId}: ${boot.reason}`);
 
     // Journey-scoped families are already bound by the query. The two pre-journey families are bound
     // here, to the boot that produced this journey — a receipt from any other boot is not evidence
@@ -254,14 +279,44 @@ async function main(): Promise<void> {
     const journeyFamilies = readback
         .filter((row) => row.journeyId === journeyId)
         .map((row) => row.event);
-    const bootFamilies = bootScopedReceiptFamilies(readback, bootWindow.window, PRE_JOURNEY_EVENT_FAMILIES);
+    const bootFamilies = bootScopedReceiptFamilies(readback, boot.bootId, PRE_JOURNEY_EVENT_FAMILIES);
     const observed = [...new Set([...journeyFamilies, ...bootFamilies])] as string[];
+
+    /**
+     * #1421 P1 — THE UI STAGES THIS RUN CLAIMS TO HAVE EXERCISED, DECLARED NOT GUESSED.
+     *
+     * An Open Mic run legitimately produces no Focus Points coverage, so requiring every stage of
+     * every run would hold on honest evidence. Inferring the stage from what ARRIVED is worse: it
+     * would let a run that silently produced nothing for a stage qualify by appearing not to have
+     * exercised it — the exact absence this gate exists to catch.
+     *
+     * The operator declares the stages; the gate then proves them. An undeclared or unknown stage is a
+     * HOLD, so the declaration cannot be skipped or misspelled into a pass.
+     */
+    const declared = (process.env.QUALIFICATION_STAGES ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    if (declared.length === 0) {
+        hold('QUALIFICATION_STAGES is not set: a run must declare which UI stages it exercised');
+    }
+    const stageReasons: string[] = [];
+    for (const name of declared) {
+        const stage = QUALIFICATION_STAGES.find((candidate) => candidate.stage === name);
+        if (!stage) {
+            stageReasons.push(`unknown qualification stage '${name}'`);
+            continue;
+        }
+        // Stage evidence is scoped to THIS journey plus this boot's receipts — the same rows the
+        // family check uses, never the whole readback.
+        const scoped = readback.filter((r) => r.journeyId === journeyId
+            || (PRE_JOURNEY_EVENT_FAMILIES as readonly string[]).includes(r.event));
+        stageReasons.push(...evaluateQualificationStage(stage, scoped));
+    }
 
     const result = evaluateTelemetryCompleteness(observed);
     const evidence: Evidence = {
         gate: 'TELEMETRY-READBACK-COMPLETENESS',
         release_sha: releaseSha,
         journey_id: journeyId,
+        boot_id: boot.bootId,
         traffic_type: trafficType,
         // Bound, never printed: a distinct_id identifies a person. Recording that the binding happened is
         // the auditable fact; the value itself is not ours to publish in release evidence.
@@ -269,15 +324,17 @@ async function main(): Promise<void> {
         window_hours: windowHours,
         observed_families: observed.filter((n) => typeof n === 'string'),
         required_families: [...REQUIRED_EVENT_FAMILIES],
-        verdict: result.verdict,
+        stages_declared: declared,
+        stage_reasons: stageReasons,
+        verdict: stageReasons.length > 0 ? 'HOLD' : result.verdict,
         missing: result.missing,
         unrecognised: result.unrecognised,
         reasons: result.reasons,
     };
     console.log(`TELEMETRY_READBACK_QUALIFICATION_EVIDENCE ${JSON.stringify(evidence)}`);
 
-    if (result.verdict !== 'QUALIFIED') {
-        console.error(`HOLD — ${result.reasons.join('; ')}`);
+    if (result.verdict !== 'QUALIFIED' || stageReasons.length > 0) {
+        console.error(`HOLD — ${[...result.reasons, ...stageReasons].join('; ')}`);
         process.exit(1);
     }
     console.log(`QUALIFIED — every required governed family was INGESTED for journey ${journeyId} on ${releaseSha}.`);

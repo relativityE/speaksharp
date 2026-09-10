@@ -132,7 +132,24 @@ describe('#1421 P1 — the completeness gate is wired and demands what a session
         }
         analyticsBuffer.push('private_model_acquisition_start' as Parameters<typeof analyticsBuffer.push>[0], {}, 'CRITICAL');
 
-        expect(attemptedEventFamilies()).not.toContain('private_model_acquisition_start');
+        /**
+         * #1421 P1 — DELIBERATELY INVERTED. This pinned the EXCLUSION.
+         *
+         * `private_model_acquisition_start` was instrumented but unregistered, so recording it as
+         * attempted made completeness HOLD on an unrecognised name and a normal Private session could
+         * not qualify. Excluding it from the attempted set fixed that symptom, and this assertion
+         * locked the workaround in place.
+         *
+         * The cost was the hole underneath: a journey could return QUALIFIED with no evidence that any
+         * model was ever acquired, and the readback had no `acquired_candidate_id` with which to prove
+         * configured = acquired = running for a three-model down-selection.
+         *
+         * The family is now registered in `EVENT_SCHEMAS`, so completeness RECOGNISES it rather than
+         * holding on it. The exclusion no longer applies, and the assertion that pinned it must go with
+         * it — the surrounding claim of this test, that an ordinary complete Private session still
+         * QUALIFIES, is unchanged and is what still guards the original defect.
+         */
+        expect(attemptedEventFamilies()).toContain('private_model_acquisition_start');
         const result = currentRunCompleteness();
         expect({ verdict: result.verdict, unrecognised: result.unrecognised })
             .toEqual({ verdict: 'QUALIFIED', unrecognised: [] });

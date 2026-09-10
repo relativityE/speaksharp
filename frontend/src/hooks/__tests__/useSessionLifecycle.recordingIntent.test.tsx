@@ -339,6 +339,19 @@ describe('#1259 F01 — every intent reaches analytics through the real hook', (
     });
 
     it('an ACCEPTED start reports its intent BEFORE startRecording is awaited', async () => {
+        /**
+         * THE START MUST ACTUALLY SUCCEED FOR THIS ORDERING CLAIM TO MEAN ANYTHING.
+         *
+         * Integrating #1428 added a refused-start early return: if the controller has not reached
+         * RECORDING after `startRecording` resolves, the latency timer settles `refused` and the hook
+         * returns WITHOUT pushing `session_started` — correctly, since a start that never began is not
+         * a started session and reporting one would fabricate it.
+         *
+         * The controller mock defaults to `IDLE`, so this test was asserting an ordering against a
+         * `session_started` that no longer exists (`indexOf` returning -1). Making the mock report
+         * RECORDING, as a successful start does, is what the assertion always assumed and never stated.
+         */
+        vi.mocked(speechRuntimeController.getState).mockReturnValue('RECORDING' as never);
         const { result } = mountWith({ runtimeState: 'READY' });
         await act(async () => { await result.current.handleStartStop(); });
 

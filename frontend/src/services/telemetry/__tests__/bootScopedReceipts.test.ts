@@ -1,93 +1,157 @@
 /**
- * #1421 P1 — a receipt from a different boot must not qualify this journey.
+ * #1421 P1 — a receipt belongs to a BOOT, and a boot is declared, not inferred.
  *
- * The readback scoped `account_identified` and `telemetry_positive_control` only by identity, release,
- * traffic class and a 24-hour window. When the controlled account boots twice in that window, the
- * SELECTED journey could be missing both of its own receipts and qualify on the other boot's — the
- * exact union the journey filter exists to close, re-opened for the two families that cannot be
- * journey-scoped.
+ * Two earlier corrections inferred the boot from journey ORDERING and were wrong in both directions:
+ * one let another boot's receipts qualify the selected journey, the other rejected the boot's own
+ * receipts because an earlier journey of the SAME boot became the lower bound. `ensureJourneyBoundary()`
+ * starts a new journey on every non-product -> product transition, so one boot legitimately contains
+ * several journeys while the receipts are emitted once per boot. Ordering cannot separate "new boot"
+ * from "re-entered the product". These drive the declared-authority rule that replaced it.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import {
+    __resetBootIdentityForTests,
+    beginJourney,
+    currentBootId,
+} from '../journeyIdentity';
 import {
     bootScopedReceiptFamilies,
-    receiptBelongsToBoot,
-    resolveBootWindow,
-    type TimestampedEvent,
     buildReadbackQuery,
+    resolveBootAuthority,
+    receiptBelongsToBoot,
 } from '../bootScopedReceipts';
 
-const PRE_JOURNEY = ['account_identified', 'telemetry_positive_control'];
-const at = (iso: string, event: string, journeyId: string | null = null): TimestampedEvent =>
-    ({ event, timestamp: iso, journeyId });
+const RECEIPTS = ['account_identified', 'telemetry_positive_control'];
+const row = (event: string, journeyId: string | null, bootId: string | null) =>
+    ({ event, timestamp: '2026-09-09T10:00:00Z', journeyId, bootId });
 
-describe('#1421 — pre-journey receipts are bound to the boot that produced the journey', () => {
-    /**
-     * TWO BOOTS, ONE ACCOUNT, ONE WINDOW. Boot 1 emitted both receipts and ran journey-A. Boot 2
-     * emitted NEITHER and ran journey-B, the journey under selection.
-     */
-    // PRODUCTION ENVELOPE: the receipts carry the PRE-PRODUCT journey id that exists before the
-    // selected journey is minted. Giving them `journeyId: null` — as my first fixture did — hid a P1
-    // in which the receipts became their own lower bound and every legitimate run HELD.
-    const twoBoots: TimestampedEvent[] = [
-        at('2026-09-09T08:00:00Z', 'account_identified', 'pre-product-1'),
-        at('2026-09-09T08:00:01Z', 'telemetry_positive_control', 'pre-product-1'),
-        at('2026-09-09T08:05:00Z', 'session_started', 'journey-A'),
-        at('2026-09-09T08:09:00Z', 'session_saved', 'journey-A'),
-        at('2026-09-09T09:00:00Z', 'session_started', 'journey-B'),
-        at('2026-09-09T09:04:00Z', 'session_saved', 'journey-B'),
-    ];
+describe('#1421 P1 — the boot authority is declared, not inferred from journey ordering', () => {
+    it('POSITIVE CONTROL: one ordinary controlled boot with its own receipts QUALIFIES', () => {
+        /**
+         * The case that must keep working. Every HOLD below is only worth having if the normal path
+         * still passes — a rule that refuses everything is not a gate, it is an outage, and the
+         * previous correction was exactly that for any second journey.
+         */
+        const rows = [
+            row('account_identified', 'pre-product', 'boot-1'),
+            row('telemetry_positive_control', 'pre-product', 'boot-1'),
+            row('recording_started', 'journey-A', 'boot-1'),
+        ];
 
-    it('CASUALTY: the selected journey cannot borrow an earlier boot\'s receipts', () => {
-        const resolved = resolveBootWindow(twoBoots, 'journey-B', PRE_JOURNEY);
-        expect(resolved.ok).toBe(true);
-        if (!resolved.ok) return;
-
-        expect(
-            bootScopedReceiptFamilies(twoBoots, resolved.window, PRE_JOURNEY),
-            "journey-B's boot produced no receipts of its own",
-        ).toEqual([]);
+        const boot = resolveBootAuthority(rows, 'journey-A');
+        expect(boot.ok, 'an ordinary boot resolves its authority').toBe(true);
+        if (!boot.ok) return;
+        expect(bootScopedReceiptFamilies(rows, boot.bootId, RECEIPTS).sort(),
+            'and both of its own receipt families qualify').toEqual([...RECEIPTS].sort());
     });
 
-    it('CONTROL: the boot that DID emit them qualifies on its own receipts', () => {
-        // Without this the casualty above would also pass if the window rejected everything.
-        const resolved = resolveBootWindow(twoBoots, 'journey-A', PRE_JOURNEY);
-        expect(resolved.ok).toBe(true);
-        if (!resolved.ok) return;
+    it('CASUALTY: ONE boot, TWO journeys — both associate with that boot and keep its receipts', () => {
+        /**
+         * The regression the position rule introduced. A tab leaves the product and re-enters without
+         * reloading, so `ensureJourneyBoundary()` mints journey B inside the same boot. The receipts
+         * were emitted once, at sign-in, BEFORE journey A. Under the window rule journey A became
+         * B's lower bound and excluded them, so an otherwise complete second journey always HELD.
+         */
+        const rows = [
+            row('account_identified', 'pre-product', 'boot-1'),
+            row('telemetry_positive_control', 'pre-product', 'boot-1'),
+            row('recording_started', 'journey-A', 'boot-1'),
+            row('recording_started', 'journey-B', 'boot-1'),
+        ];
 
-        expect(
-            bootScopedReceiptFamilies(twoBoots, resolved.window, PRE_JOURNEY).sort(),
-            'journey-A owns the receipts emitted before it',
-        ).toEqual(['account_identified', 'telemetry_positive_control']);
-    });
-
-    it('CASUALTY: a receipt from a LATER boot cannot qualify an earlier journey', () => {
-        const laterBoot = [...twoBoots, at('2026-09-09T10:00:00Z', 'account_identified')];
-        const resolved = resolveBootWindow(laterBoot, 'journey-A', PRE_JOURNEY);
-        expect(resolved.ok).toBe(true);
-        if (!resolved.ok) return;
-
-        const window = resolved.window;
-        expect(receiptBelongsToBoot(at('2026-09-09T10:00:00Z', 'account_identified'), window),
-            'a receipt emitted after the journey began is a different boot').toBe(false);
-    });
-
-    it('a journey with no readable events HOLDS rather than matching unbounded', () => {
-        expect(resolveBootWindow(twoBoots, 'journey-missing', PRE_JOURNEY))
-            .toEqual({ ok: false, reason: expect.stringContaining('no boot to bind its receipts to') });
-    });
-
-    it('an unparseable timestamp is unusable, never in-window', () => {
-        const resolved = resolveBootWindow(twoBoots, 'journey-B', PRE_JOURNEY);
-        expect(resolved.ok).toBe(true);
-        if (!resolved.ok) return;
-        for (const bad of [null, undefined, '', 'not-a-date', Number.NaN]) {
-            expect(receiptBelongsToBoot({ event: 'account_identified', timestamp: bad }, resolved.window))
-                .toBe(false);
+        for (const journey of ['journey-A', 'journey-B']) {
+            const boot = resolveBootAuthority(rows, journey);
+            expect(boot.ok, `${journey} resolves its boot`).toBe(true);
+            if (!boot.ok) continue;
+            expect(boot.bootId).toBe('boot-1');
+            expect(bootScopedReceiptFamilies(rows, boot.bootId, RECEIPTS).sort(),
+                `${journey} keeps the receipts its own boot emitted`).toEqual([...RECEIPTS].sort());
         }
+    });
+
+    it('CASUALTY: TWO boots, same account/release/class — the other boot\'s receipts do not qualify', () => {
+        /**
+         * The original defect, and the one the position rule was supposed to close. Boot 2's journey
+         * has no receipts of its own; boot 1's must not stand in for them.
+         */
+        const rows = [
+            row('account_identified', 'pre-product', 'boot-1'),
+            row('telemetry_positive_control', 'pre-product', 'boot-1'),
+            row('recording_started', 'journey-A', 'boot-1'),
+            row('recording_started', 'journey-B', 'boot-2'),
+        ];
+
+        const boot = resolveBootAuthority(rows, 'journey-B');
+        expect(boot.ok).toBe(true);
+        if (!boot.ok) return;
+        expect(boot.bootId).toBe('boot-2');
+        expect(bootScopedReceiptFamilies(rows, boot.bootId, RECEIPTS),
+            "boot 1's receipts are not evidence about boot 2").toEqual([]);
+    });
+
+    it('CASUALTY: a journey with NO boot identity HOLDs', () => {
+        // Fails closed. A qualification that cannot establish which boot produced the evidence has not
+        // qualified anything, and an absent id is unusable authority — never a wildcard that matches all.
+        const rows = [row('recording_started', 'journey-A', null)];
+        const boot = resolveBootAuthority(rows, 'journey-A');
+        expect(boot.ok).toBe(false);
+        if (boot.ok) return;
+        expect(boot.reason).toMatch(/no boot identity/);
+    });
+
+    it('CASUALTY: a journey whose rows CONFLICT about the boot HOLDs', () => {
+        const rows = [
+            row('recording_started', 'journey-A', 'boot-1'),
+            row('recording_stopped', 'journey-A', 'boot-2'),
+        ];
+        const boot = resolveBootAuthority(rows, 'journey-A');
+        expect(boot.ok).toBe(false);
+        if (boot.ok) return;
+        expect(boot.reason).toMatch(/more than one boot identity/);
+    });
+
+    it('CASUALTY: a BLANK boot id is refused, not silently skipped', () => {
+        // Skipping the blank row and accepting the rest would let one well-formed row speak for a
+        // journey whose other rows disagree — the conflict case, wearing a different mask.
+        const rows = [
+            row('recording_started', 'journey-A', 'boot-1'),
+            row('recording_stopped', 'journey-A', '   '),
+        ];
+        expect(resolveBootAuthority(rows, 'journey-A').ok).toBe(false);
+        expect(receiptBelongsToBoot(row('account_identified', null, '  '), 'boot-1'),
+            'a blank id matches nothing').toBe(false);
+    });
+
+    it('CASUALTY: another boot\'s receipts INSIDE the same timestamp window still do not qualify', () => {
+        /**
+         * The position rule's whole premise was that timing separates boots. It does not, and this
+         * pins that the replacement does not quietly depend on timing either: every row here carries
+         * the SAME instant, so a window-based rule has nothing to work with and only the declared
+         * authority can decide. Account, release and traffic class are identical by construction.
+         */
+        const at = '2026-09-09T10:00:00Z';
+        const rows = [
+            { event: 'account_identified', timestamp: at, journeyId: 'pre-product', bootId: 'boot-1' },
+            { event: 'telemetry_positive_control', timestamp: at, journeyId: 'pre-product', bootId: 'boot-1' },
+            { event: 'recording_started', timestamp: at, journeyId: 'journey-B', bootId: 'boot-2' },
+        ];
+
+        const boot = resolveBootAuthority(rows, 'journey-B');
+        expect(boot.ok).toBe(true);
+        if (!boot.ok) return;
+        expect(bootScopedReceiptFamilies(rows, boot.bootId, RECEIPTS),
+            'identical timestamps do not make another boot\'s receipts ours').toEqual([]);
+    });
+
+    it('CASUALTY: a journey with no readable events HOLDs', () => {
+        const boot = resolveBootAuthority([row('recording_started', 'journey-Z', 'boot-9')], 'journey-A');
+        expect(boot.ok).toBe(false);
+        if (boot.ok) return;
+        expect(boot.reason).toMatch(/no readable events/);
     });
 });
 
-describe('#1421 P1 — the readback fetches what the boot window depends on', () => {
+describe('#1421 P1 — the readback fetches what the boot authority depends on', () => {
     const quote = (value: string) => `'${value.replace(/'/g, "''")}'`;
     const query = () => buildReadbackQuery({
         windowHours: 24,
@@ -99,41 +163,38 @@ describe('#1421 P1 — the readback fetches what the boot window depends on', ()
     });
 
     it('CASUALTY: it does NOT restrict rows to the selected journey', () => {
-        /**
-         * The query restricted to `journey_id = <selected> OR event IN <receipt families>` — the only
-         * two things `resolveBootWindow` may not use as a boundary. The one input that produces
-         * `window.after`, an EARLIER product journey by the same identity, was never fetched, so the
-         * lower bound was always null and an earlier boot's receipts still qualified the later journey.
-         *
-         * The binding was inert in production while the resolver's own casualties, which are handed
-         * rows directly, stayed green. That is why this asserts the QUERY and not the resolver.
-         */
+        // The receipts are emitted under the PRE-PRODUCT journey, so a query scoped to the selected
+        // journey id cannot return them at all — and the boot authority would have nothing to match.
         expect(query()).not.toMatch(/journey_id\s*=/);
     });
 
     it('CASUALTY: it still binds identity, release, traffic class and the governed vocabulary', () => {
-        // Widening the scope must not widen it past the person, the build or the allowlist: those are
-        // what make a receipt evidence about THIS run rather than about somebody else's.
+        // Widening the scope must not widen it past the person, the build or the allowlist.
         const q = query();
         expect(q).toContain("distinct_id = 'person-1'");
         expect(q).toContain("properties.release_sha = 'abc123'");
         expect(q).toContain("properties.traffic_type = 'controlled'");
         expect(q).toContain("event IN ('account_identified', 'telemetry_positive_control', 'recording_started')");
     });
+});
 
-    it('CASUALTY: an earlier product journey now bounds the boot, so its receipts are refused', () => {
-        // The end-to-end consequence, driven through the resolver with the rows the corrected query
-        // returns: boot A's receipt must not qualify boot B's journey.
-        const rows = [
-            { event: 'account_identified', timestamp: '2026-09-09T10:00:00Z', journeyId: 'pre-product' },
-            { event: 'recording_started', timestamp: '2026-09-09T10:05:00Z', journeyId: 'journey-A' },
-            { event: 'recording_started', timestamp: '2026-09-09T12:00:00Z', journeyId: 'journey-B' },
-        ];
-        const window = resolveBootWindow(rows, 'journey-B', ['account_identified']);
-        expect(window.ok).toBe(true);
-        if (!window.ok) return;
-        expect(window.window.after, "journey A's row is the lower bound").not.toBeNull();
-        expect(bootScopedReceiptFamilies(rows, window.window, ['account_identified']),
-            "boot A's receipt is not evidence about boot B").toEqual([]);
+describe('#1421 P1 — the boot id identifies a boot, and a reload is a new boot', () => {
+    it('CASUALTY: it is stable within a boot and DIFFERENT after a reload', () => {
+        /**
+         * Both halves matter. A value that changed mid-boot would be indistinguishable from a second
+         * boot and would reintroduce the ambiguity this replaced; a value that survived a reload would
+         * let the previous boot's receipts qualify the new one, which is the original defect.
+         *
+         * `beginJourney()` deliberately does NOT touch it — that is the entire point of the fix.
+         */
+        __resetBootIdentityForTests();
+        const first = currentBootId();
+        expect(currentBootId(), 'stable within one boot').toBe(first);
+        beginJourney();
+        expect(currentBootId(), 'a new journey is NOT a new boot').toBe(first);
+
+        // A reload is the only thing that ends a boot.
+        __resetBootIdentityForTests();
+        expect(currentBootId(), 'a reload mints a different boot').not.toBe(first);
     });
 });

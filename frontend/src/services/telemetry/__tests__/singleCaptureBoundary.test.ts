@@ -25,6 +25,18 @@ const APPROVED = new Set([
     'services/AnalyticsBuffer.ts',               // THE capture boundary
     'services/transcription/safetyKill.ts',      // feature flag reads only
     'services/transcription/privateV4Flags.ts',  // feature flag reads only
+    /**
+     * #1428's RUM configuration, approved on integration with `main`.
+     *
+     * TYPE-ONLY: `import type { CaptureResult, SupportedWebVitalsMetrics } from 'posthog-js'`. The
+     * import is erased at compile time, so this module cannot reach the SDK at runtime and cannot
+     * capture — it exports an options object that `main.tsx` passes to `posthog.init`.
+     *
+     * Listed rather than teaching the scanner to skip `import type`: the scanner staying strict is what
+     * makes any NEW module touching the SDK trip this test and require a justification here. That
+     * tripwire is the point, and one honest entry costs less than a blanket exemption.
+     */
+    'services/productionRum.ts',
 ]);
 
 /** Only the boundary may capture. Flag readers import the SDK but must never emit. */

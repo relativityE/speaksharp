@@ -18,7 +18,9 @@
  */
 import { attributionFromEngine, type CandidateAttribution, type ResolvedEngineMetadata } from './candidateAttribution';
 import { resolveTrafficType, type TrafficSignals, type TrafficType } from './trafficType';
-import { currentJourneyId, currentAttemptId, currentAttemptSeq } from './journeyIdentity';
+import { currentJourneyId, currentAttemptId, currentAttemptSeq,
+    currentBootId,
+} from './journeyIdentity';
 
 export interface EventEnvelope extends CandidateAttribution {
     release_sha: string | null;
@@ -32,6 +34,11 @@ export interface EventEnvelope extends CandidateAttribution {
      * attempt and `attempt_seq` is 0 — honest absence, never a fabricated join key.
      */
     journey_id: string;
+    /**
+     * #1421 P1 — the BOOT this journey ran in. Ambient for the same reason `journey_id` is: a producer
+     * can forget it, and one that supplies it can claim a boot it does not belong to.
+     */
+    boot_id: string;
     attempt_id: string | null;
     attempt_seq: number;
 }
@@ -39,7 +46,7 @@ export interface EventEnvelope extends CandidateAttribution {
 /** The keys the envelope owns. A producer may never set these; the seam always does. */
 export const ENVELOPE_KEYS: readonly string[] = Object.freeze([
     'release_sha', 'traffic_type', 'candidate_id', 'engine', 'runtime_version', 'asset_digest',
-    'journey_id', 'attempt_id', 'attempt_seq',
+    'journey_id', 'boot_id', 'attempt_id', 'attempt_seq',
 ]);
 
 export interface EnvelopeSources {
@@ -84,6 +91,7 @@ export function buildEnvelope(
         // Read at BUILD time, which for a buffered event is push time — the same snapshot discipline
         // that keeps `candidate_id` from drifting to whatever model resolved by the time the queue drained.
         journey_id: currentJourneyId(),
+        boot_id: currentBootId(),
         attempt_id: currentAttemptId(),
         attempt_seq: currentAttemptSeq(),
         ...(modelAttributionVerified

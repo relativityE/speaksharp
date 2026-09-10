@@ -150,3 +150,137 @@ export function evaluateTelemetryCompleteness(
         reasons,
     };
 }
+
+/**
+ * #1421 P1 — SCENARIO PROFILES: WHICH FAMILIES EACH UI STAGE MUST PRODUCE.
+ *
+ * `REQUIRED_EVENT_FAMILIES` is the generic session spine, and a journey could return QUALIFIED with
+ * every Share Feedback, During and After family absent — the readback said "the session happened"
+ * and nothing about whether the surfaces under test were observable. A test that cannot diagnose the
+ * failures it was run to find is not evidence.
+ *
+ * A TABLE, NOT A FRAMEWORK. Each stage owns its required families and, where a family alone is not
+ * enough, a predicate over the decoded rows. Adding a stage is a row here; it needs no new machinery,
+ * and the qualifier keeps its single verdict path. Missing stage data is a HOLD, like every other
+ * absence in this gate.
+ *
+ * Predicates read decoded READBACK rows only — never producer objects, DOM state, an HTTP status or a
+ * send buffer — and they may only ask closed-set, count, boolean or hash questions. They never see
+ * transcript, feedback prose, audio, URLs or tokens, because those never leave the process.
+ */
+export interface QualificationStage {
+    readonly stage: string;
+    readonly requiredFamilies: readonly GovernedEvent[];
+    /** Extra conditions over the decoded rows for this journey. Each returns a HOLD reason, or null. */
+    readonly invariants: readonly {
+        readonly name: string;
+        readonly check: (rows: readonly DecodedTelemetryRow[]) => string | null;
+    }[];
+}
+
+/** One decoded readback row. Governed properties only — the query selects nothing else. */
+export interface DecodedTelemetryRow {
+    event: string;
+    properties?: Record<string, unknown> | null;
+}
+
+const has = (rows: readonly DecodedTelemetryRow[], event: string) => rows.some(r => r?.event === event);
+const propsOf = (rows: readonly DecodedTelemetryRow[], event: string) =>
+    rows.filter(r => r?.event === event).map(r => r?.properties ?? {});
+
+/**
+ * THE THREE-MODEL BINDING.
+ *
+ * A down-selection is only defensible if the row proves the candidate that was CONFIGURED is the one
+ * that was ACQUIRED and the one that RAN. `private_model_acquisition_success` is the only governed
+ * family carrying `acquired_candidate_id`, which is why registering it was a prerequisite for this.
+ *
+ * A mismatch, a missing identity, or more than one identity in a single controlled row all HOLD: two
+ * identities in one journey means the row describes two takes, and averaging them is exactly the
+ * contamination this exists to refuse.
+ */
+const modelIdentityIsCoherent = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const acquired = new Set(propsOf(rows, 'private_model_acquisition_success')
+        .map(p => p?.acquired_candidate_id).filter(v => typeof v === 'string' && v.length > 0));
+    if (acquired.size === 0) return 'no acquired candidate identity was recorded for this journey';
+    if (acquired.size > 1) return 'more than one acquired candidate identity in one journey';
+    return null;
+};
+
+export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze([
+    {
+        stage: 'share_feedback',
+        // Open -> field state -> submit attempted. The storage RESULT is carried on `feedback_submit`
+        // itself, so a submit with no outcome cannot read as a successful one.
+        requiredFamilies: ['feedback_dialog_opened', 'feedback_field', 'feedback_submit'],
+        invariants: [{
+            name: 'submit_has_storage_outcome',
+            check: (rows) => (propsOf(rows, 'feedback_submit').some(p => p?.outcome === undefined || p?.outcome === null)
+                ? 'a feedback submit was recorded with no storage outcome'
+                : null),
+        }],
+    },
+    {
+        stage: 'session_during',
+        requiredFamilies: [
+            'recording_intent', 'recording_state', 'session_started',
+            'private_model_acquisition_start', 'private_model_acquisition_success',
+            'transcript_stability', 'mic_observability',
+        ],
+        invariants: [
+            { name: 'model_identity_coherent', check: modelIdentityIsCoherent },
+            {
+                // An accepted intent that never reaches RECORDING is the F-01 defect: the click was
+                // taken and nothing ran. A journey missing that transition has not proven a take began.
+                name: 'accepted_intent_reached_recording',
+                check: (rows) => (has(rows, 'recording_intent')
+                    && !propsOf(rows, 'recording_state').some(p => p?.state === 'RECORDING')
+                    ? 'an accepted recording intent never reached RECORDING'
+                    : null),
+            },
+        ],
+    },
+    {
+        stage: 'session_after_open_mic',
+        requiredFamilies: [
+            'session_saved', 'transcript_authority', 'filler_measurement',
+            'retention_observation', 'practice_loop', 'stage_latency',
+        ],
+        invariants: [{
+            // A saved session whose review has no transcript authority is the "saved count with blank
+            // review" case: the count says it worked and the user sees nothing.
+            name: 'saved_session_has_transcript_authority',
+            check: (rows) => (has(rows, 'session_saved') && !has(rows, 'transcript_authority')
+                ? 'a saved session produced no transcript authority for its review'
+                : null),
+        }],
+    },
+    {
+        stage: 'session_after_focus_points',
+        requiredFamilies: [
+            'session_saved', 'transcript_authority', 'coverage_evaluation', 'coverage_point',
+            'filler_measurement', 'retention_observation', 'practice_loop', 'stage_latency',
+        ],
+        invariants: [{
+            // A coverage verdict with no per-position rows is a headline with nothing behind it.
+            name: 'coverage_evaluation_has_points',
+            check: (rows) => (has(rows, 'coverage_evaluation') && !has(rows, 'coverage_point')
+                ? 'a coverage evaluation published no per-point verdicts'
+                : null),
+        }],
+    },
+]);
+
+/** HOLD reasons for one stage, or an empty list when the stage is fully evidenced. */
+export function evaluateQualificationStage(
+    stage: QualificationStage,
+    rows: readonly DecodedTelemetryRow[],
+): string[] {
+    const missing = stage.requiredFamilies.filter((family) => !has(rows, family));
+    const reasons = missing.map((family) => `${stage.stage}: missing required family ${family}`);
+    for (const invariant of stage.invariants) {
+        const failure = invariant.check(rows);
+        if (failure !== null) reasons.push(`${stage.stage}: ${failure}`);
+    }
+    return reasons;
+}
