@@ -46,12 +46,15 @@ function recorderGh() {
  * A stand-in GraphQL endpoint. The CLI's live reader is a real `fetch`, so the read is intercepted at
  * the network boundary rather than by swapping the reader — which keeps the CLI under test whole.
  */
-function fakeGraphql({ threads, headRefOid = HEAD }) {
+function fakeGraphql({ threads, headRefOid = HEAD, truncatedThreads = false }) {
   const pullRequest = {
     number: 1430,
     headRefOid,
     baseRefName: 'main',
     files: { nodes: [{ path: 'scripts/pre-merge-gate.mjs' }], pageInfo: { hasNextPage: false } },
+    // `truncatedThreads` models a PR with more than 100 review threads: the first page came back
+    // clean while another page exists, which is the second defect Codex found.
+    ...(truncatedThreads ? {} : {}),
     reviews: {
       nodes: [{
         author: { login: bot }, state: 'COMMENTED', commit: { oid: HEAD },
@@ -59,7 +62,7 @@ function fakeGraphql({ threads, headRefOid = HEAD }) {
       }],
       pageInfo: { hasPreviousPage: false },
     },
-    reviewThreads: { nodes: threads, pageInfo: { hasNextPage: false } },
+    reviewThreads: { nodes: threads, pageInfo: { hasNextPage: truncatedThreads } },
   };
   const body = JSON.stringify({ data: { repository: { pullRequest } } });
   const loader = join(dir, 'fetch-stub.mjs');
@@ -85,15 +88,18 @@ const thread = (isResolved, body) => ({
 const receipt = (minutesOld, extra = {}) => {
   const file = join(dir, 'review-qualification.json');
   writeFileSync(file, JSON.stringify({
-    qualified: true, reasons: [], currentSha: HEAD, reviewedSha: HEAD,
+    // A BOUND receipt: qualified, no reasons, no findings, and addressed to this PR and this head.
+    // Codex found the boundary checked only `generatedAt`, so a fresh receipt from another PR passed.
+    qualified: true, reasons: [], findingCount: 0,
+    pullRequestNumber: 1430, currentSha: HEAD, reviewedSha: HEAD,
     generatedAt: new Date(Date.now() - minutesOld * 60 * 1000).toISOString(),
     ...extra,
   }));
   return file;
 };
 
-function runCli({ threads, receiptPath, sha = HEAD, headRefOid = HEAD }) {
-  const stub = fakeGraphql({ threads, headRefOid });
+function runCli({ threads, receiptPath, sha = HEAD, headRefOid = HEAD, truncatedThreads = false }) {
+  const stub = fakeGraphql({ threads, headRefOid, truncatedThreads });
   const run = spawnSync(process.execPath, ['--import', stub, CLI,
     '--repo=relativityE/speaksharp', '--pr=1430', `--sha=${sha}`,
     ...(receiptPath ? [`--receipt=${receiptPath}`] : [])], {
@@ -170,6 +176,116 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
 
     expect(mergeAttempted).toBe(false);
     expect(run.stderr).toContain('pre_merge_receipt_missing');
+  });
+
+
+  it('CASUALTY: a receipt from ANOTHER pull request — gh is never invoked', () => {
+    /**
+     * Codex P1 at `bef689f007`. The boundary validated the receipt's AGE and nothing else, so a
+     * perfectly fresh receipt issued for a different pull request satisfied it. Freshness says when
+     * evidence was produced, never what it was produced ABOUT.
+     */
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')],
+      receiptPath: receipt(1, { pullRequestNumber: 9999 }),
+    });
+
+    expect(mergeAttempted).toBe(false);
+    expect(run.stderr).toContain('pre_merge_receipt_addresses_another_pull_request');
+  });
+
+  it('CASUALTY: a receipt for ANOTHER head — gh is never invoked', () => {
+    // Same omission, the other axis: a receipt about a different commit than the one authorized.
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')],
+      receiptPath: receipt(1, { currentSha: 'a'.repeat(40), reviewedSha: 'a'.repeat(40) }),
+    });
+
+    expect(mergeAttempted).toBe(false);
+    expect(run.stderr).toContain('pre_merge_receipt_addresses_another_head');
+  });
+
+  it('CASUALTY: an UNQUALIFIED receipt — gh is never invoked', () => {
+    // An ineligible run's receipt is still a fresh, well-addressed file. Its own verdict is the point.
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')],
+      receiptPath: receipt(1, { qualified: false, reasons: ['open_findings:1'] }),
+    });
+
+    expect(mergeAttempted).toBe(false);
+    expect(run.stderr).toContain('pre_merge_receipt_not_qualified');
+  });
+
+  it('CASUALTY: `qualified: false` with NO stated reasons still refuses', () => {
+    /**
+     * ISOLATES THE `qualified` PREDICATE, and it exists because a mutation proved the need.
+     *
+     * The case above sets `qualified: false` AND a non-empty `reasons`, so deleting the `qualified`
+     * check alone left it passing — the reasons check caught it and the mutant survived. A receipt that
+     * declares itself unqualified while listing no reason is incoherent, and incoherent evidence must be
+     * refused rather than reconciled: the flag is the verdict, and the list is only its explanation.
+     */
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')],
+      receiptPath: receipt(1, { qualified: false, reasons: [] }),
+    });
+
+    expect(mergeAttempted).toBe(false);
+    expect(run.stderr).toContain('pre_merge_receipt_not_qualified');
+  });
+
+  it('CASUALTY: `qualified: true` alongside stated reasons still refuses', () => {
+    /**
+     * The mirror isolation, added for the same reason as its twin: with every reasons-bearing fixture
+     * also carrying `qualified: false`, deleting the reasons check left the suite passing.
+     *
+     * A receipt asserting BOTH that it qualified and that it has reasons not to is self-contradictory.
+     * The safe reading of a contradiction is the unfavourable one — a producer that appended a reason
+     * and forgot to clear the flag must not be trusted over its own stated reason.
+     */
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')],
+      receiptPath: receipt(1, { qualified: true, reasons: ['reviewed_sha_is_not_current_head'] }),
+    });
+
+    expect(mergeAttempted).toBe(false);
+    expect(run.stderr).toContain('pre_merge_receipt_not_qualified');
+  });
+
+  it('CASUALTY: a receipt claiming qualified while reporting findings still refuses', () => {
+    /**
+     * The third and last of the coherence isolations, each added because a mutation survived without it.
+     * With `qualified` and `reasons` both clean, only `findingCount` can refuse here.
+     *
+     * The three together say one thing: this boundary refuses a receipt that contradicts itself on ANY
+     * axis, rather than picking whichever field happens to look permissive. A coherent producer never
+     * emits these shapes — which is exactly why an incoherent one must not be believed.
+     */
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')],
+      receiptPath: receipt(1, { qualified: true, reasons: [], findingCount: 2 }),
+    });
+
+    expect(mergeAttempted).toBe(false);
+    expect(run.stderr).toContain('pre_merge_receipt_not_qualified');
+  });
+
+  it('CASUALTY: a TRUNCATED live read — zero visible findings does not merge', () => {
+    /**
+     * The second Codex P1, and the sharper one. The visible page is clean, so a boundary judging by
+     * `findingCount` sees zero and merges — while a reopened P0/P1 sits on a page it never fetched.
+     * `buildReviewReceipt()` already reports this as `review_threads_incomplete`; the fix is to consume
+     * that verdict instead of counting what happened to come back.
+     */
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')],
+      receiptPath: receipt(1),
+      truncatedThreads: true,
+    });
+
+    expect(mergeAttempted, 'an incomplete read is not a clean one').toBe(false);
+    expect(run.stderr).toContain('pre_merge_live_receipt_not_qualified');
+    expect(run.stderr, 'and it names WHY it could not be trusted').toContain('review_threads_incomplete');
   });
 
   it('POSITIVE CONTROL: a fresh receipt and a clean live read DOES invoke gh, with the exact head', () => {

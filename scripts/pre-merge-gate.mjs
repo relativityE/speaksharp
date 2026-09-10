@@ -40,7 +40,48 @@ export const PRE_MERGE_HOLD = Object.freeze({
   LIVE_READ_FAILED: 'pre_merge_live_thread_read_failed',
   HEAD_MOVED: 'pre_merge_head_moved',
   LIVE_FINDINGS: 'pre_merge_live_release_findings',
+  /*
+   * Codex P1s at `bef689f007`, and both were mine. The boundary validated the stored receipt's AGE and
+   * nothing else, and judged the live read by `findingCount` alone.
+   *
+   * A fresh receipt from ANOTHER pull request, another head, or a run that was never eligible therefore
+   * passed — the age was all that was ever checked. And `findingCount` counts only what the first page
+   * returned, so a pull request with more than 100 threads/reviews/files/comments could hide a reopened
+   * P0/P1 on page two and still merge. `buildReviewReceipt()` already reports both conditions in
+   * `qualified`/`reasons`, including the `*_incomplete` pagination reasons; the boundary looked past that
+   * verdict and re-derived a weaker one.
+   *
+   * Both receipts are now BOUND: qualified, no reasons, and addressed to this pull request and this head.
+   */
+  RECEIPT_NOT_QUALIFIED: 'pre_merge_receipt_not_qualified',
+  RECEIPT_WRONG_PR: 'pre_merge_receipt_addresses_another_pull_request',
+  RECEIPT_WRONG_HEAD: 'pre_merge_receipt_addresses_another_head',
+  LIVE_NOT_QUALIFIED: 'pre_merge_live_receipt_not_qualified',
 });
+
+/**
+ * Is this receipt qualified, addressed to this merge, and free of reasons?
+ *
+ * Shared by the stored and the live receipt on purpose: the two failure modes Codex found were the same
+ * omission applied to each, so one predicate closes both and neither can drift from the other.
+ */
+function bindingHolds({ receipt, prNumber, expectedHeadSha, codes }) {
+  const holds = [];
+  const head = String(expectedHeadSha ?? '').toLowerCase();
+  if (receipt?.qualified !== true) holds.push(codes.notQualified);
+  // `reasons` is the receipt's own account of why it is not qualified. A non-empty list with
+  // `qualified: true` would be incoherent, so it is refused rather than reconciled.
+  if (Array.isArray(receipt?.reasons) && receipt.reasons.length > 0) holds.push(codes.notQualified);
+  if ((receipt?.findingCount ?? 0) > 0) holds.push(codes.notQualified);
+  // A receipt that names no pull request cannot be shown to address THIS one.
+  if (prNumber !== undefined && Number(receipt?.pullRequestNumber) !== Number(prNumber)) {
+    holds.push(codes.wrongPr);
+  }
+  const currentSha = String(receipt?.currentSha ?? '').toLowerCase();
+  const reviewedSha = String(receipt?.reviewedSha ?? '').toLowerCase();
+  if (currentSha !== head || reviewedSha !== head) holds.push(codes.wrongHead);
+  return [...new Set(holds)];
+}
 
 /**
  * Decide whether a merge may be invoked, and invoke it only if so.
@@ -75,6 +116,17 @@ export async function guardedMerge({
     else if (now - producedAt > maxAgeMs) {
       holds.push(`${PRE_MERGE_HOLD.RECEIPT_STALE}:${Math.round((now - producedAt) / 1000)}s`);
     }
+    // Age alone was the whole of the old check. A fresh receipt from another PR or head passed it.
+    holds.push(...bindingHolds({
+      receipt: priorReceipt,
+      prNumber,
+      expectedHeadSha,
+      codes: {
+        notQualified: PRE_MERGE_HOLD.RECEIPT_NOT_QUALIFIED,
+        wrongPr: PRE_MERGE_HOLD.RECEIPT_WRONG_PR,
+        wrongHead: PRE_MERGE_HOLD.RECEIPT_WRONG_HEAD,
+      },
+    }));
   }
 
   /*
@@ -96,8 +148,20 @@ export async function guardedMerge({
     if (!liveHead || liveHead !== expected) holds.push(PRE_MERGE_HOLD.HEAD_MOVED);
 
     const liveReceipt = buildReviewReceipt({ pullRequest: live, expectedHeadSha: expected });
+    /*
+     * THE LIVE RECEIPT'S OWN VERDICT GOVERNS, not a count taken from it.
+     *
+     * `buildReviewReceipt()` sets `qualified: false` with a `*_incomplete` reason when the read was
+     * truncated — more than 100 threads, reviews, files or thread comments — and `findingCount` only
+     * ever describes the page that came back. Judging by the count alone let a reopened P0/P1 on page
+     * two read as zero findings and merge. The count is still reported, because it says WHY.
+     */
     if ((liveReceipt.findingCount ?? 0) > 0) {
       holds.push(`${PRE_MERGE_HOLD.LIVE_FINDINGS}:${liveReceipt.findingCount}`);
+    }
+    if (liveReceipt.qualified !== true) {
+      const why = (liveReceipt.reasons ?? []).join('|') || 'unqualified';
+      holds.push(`${PRE_MERGE_HOLD.LIVE_NOT_QUALIFIED}:${why}`);
     }
   }
 

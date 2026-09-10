@@ -51,13 +51,22 @@ const thread = (isResolved, body) => ({
 
 const RELEASE_FINDING_BODY = 'P1 Badge — a live release finding';
 
-/** The receipt the earlier green run produced. Age is the variable under test. */
-const receiptAgedMinutes = (minutes) => ({
+/**
+ * The receipt the earlier green run produced. Age is the variable under test, so everything else is a
+ * BOUND receipt: qualified, no reasons, no findings, and addressed to this pull request and this head.
+ *
+ * Binding is not incidental here — Codex found the boundary validated only `generatedAt`, so a fresh
+ * receipt from another PR or head passed. The dedicated cases below vary each of those fields.
+ */
+const receiptAgedMinutes = (minutes, over = {}) => ({
   qualified: true,
   reasons: [],
+  findingCount: 0,
+  pullRequestNumber: 1430,
   currentSha: HEAD,
   reviewedSha: HEAD,
   generatedAt: new Date(Date.now() - minutes * 60 * 1000).toISOString(),
+  ...over,
 });
 
 const runGate = async ({ threads, priorReceipt, expectedHeadSha = HEAD, reader }) => {
