@@ -1,5 +1,5 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { PROGRESS_FORMULA_VERSION, type ExclusionReason, type ProgressEvaluation } from './buildProgressEvaluation';
+import { hasCompleteEligibleProgressEvidence, PROGRESS_FORMULA_VERSION, type ExclusionReason, type ProgressEvaluation } from './buildProgressEvaluation';
 import { describeDirection, buildTakeaways, type DirectionResult, type Takeaways } from './progressPresentation';
 import { reconcileProgressRecommendation } from './recordProgress';
 
@@ -61,6 +61,7 @@ interface EvalRow {
     exclusion_reasons: ExclusionReason[] | null;
     clarity_raw: number | null;
     filler_count: number | null;
+    error_marker_count: number | null;
     wpm: number | null;
     word_count: number | null;
     cohort_key: string | null;
@@ -83,12 +84,12 @@ function toEvaluation(row: EvalRow): ProgressEvaluation {
         snapshotOrigin: 'at_save', durationSeconds: 0, wordCount: row.word_count ?? 0,
         clarityEvidenceAvailable: row.eligible, engine: null, engineVersion: null, modelName: null,
         attributionStatus: null, eligible: row.eligible, exclusionReasons: row.exclusion_reasons ?? [],
-        clarityRaw: row.clarity_raw, fillerCount: row.filler_count, errorMarkerCount: null,
+        clarityRaw: row.clarity_raw, fillerCount: row.filler_count, errorMarkerCount: row.error_marker_count,
         wpm: row.wpm, cohortKey: row.cohort_key,
     };
 }
 
-const EVAL_FIELDS = 'session_id, eligible, exclusion_reasons, clarity_raw, filler_count, wpm, word_count, cohort_key, baseline_session_id, previous_comparable_session_id';
+const EVAL_FIELDS = 'session_id, eligible, exclusion_reasons, clarity_raw, filler_count, error_marker_count, wpm, word_count, cohort_key, baseline_session_id, previous_comparable_session_id';
 
 /** Mirrors PostgreSQL tuple ordering: (created_at, session_id) < (current.created_at, current.session_id). */
 function isEarlierSession(
@@ -155,6 +156,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
     const validReference = (row: EvalRow, expectedId: string | null): boolean =>
         !!expectedId && row.session_id === expectedId && row.session_id !== sessionId
         && row.eligible && row.cohort_key === currentRow.cohort_key
+        && hasCompleteEligibleProgressEvidence(toEvaluation(row))
         && chronology.has(sessionId) && chronology.has(row.session_id)
         && isEarlierSession(
             { id: row.session_id, createdAt: chronology.get(row.session_id) as number },
@@ -172,6 +174,9 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
     const current = toEvaluation(currentRow);
     const baseline = baselineRow ? toEvaluation(baselineRow) : null;
     const previous = previousRow ? toEvaluation(previousRow) : null;
+    if (!hasCompleteEligibleProgressEvidence(current)) {
+        return { status: 'unavailable', sessionId, message: 'Progress evidence is incomplete for this session.' };
+    }
     let comparison: 'baseline' | 'previous' | 'restarted';
     // Retention can NULL/delete the referenced baseline while a later previous row survives. Without the
     // baseline, the stored direction chain is incomplete: never turn `describeDirection(current, null)`

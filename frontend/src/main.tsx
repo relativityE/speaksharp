@@ -22,6 +22,7 @@ import { installStaleChunkRecovery } from './lib/staleChunkRecovery';
 import { analyticsBuffer } from './services/AnalyticsBuffer';
 import { emitPositiveControl } from './services/telemetry/telemetryHealth';
 import { whenIdentitySettled } from '@/services/transcription/modelAcquisitionTelemetry';
+import { PRODUCTION_RUM_OPTIONS } from './services/productionRum';
 
 declare global {
   interface Window {
@@ -197,11 +198,8 @@ const renderApp = async (initialSession: Session | null = null) => {
           try {
             posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
               api_host: import.meta.env.VITE_POSTHOG_HOST,
-              autocapture: false,
-              capture_pageview: false,
+              ...PRODUCTION_RUM_OPTIONS,
               capture_exceptions: enableSentryConsoleCapture,
-              capture_performance: false,
-              disable_session_recording: true,
               debug: import.meta.env.MODE === 'development',
             });
             transportInitialized = true;
