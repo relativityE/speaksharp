@@ -187,6 +187,31 @@ describe('newest-ONE transcript retention, executed against the real migrations'
             .toBe(true);
     });
 
+    it('CASUALTY: a delayed evaluation cannot let an active recovery outrank and expire the saved take', async () => {
+        // The active row is newer and carries text, but it is not yet a completed save. The evaluation
+        // insert below exercises the REAL trigger path: without the completed-status predicate, the
+        // active row ranks first and this legitimate completed save is selected for expiry as rank 2.
+        const completed = await seedSession(
+            db, OTHER, '2026-08-01T10:00:00Z', 'the take the user already saved', 100, 'completed',
+        );
+        const activeRecovery = await seedSession(
+            db, OTHER, '2026-08-02T10:00:00Z', 'a recovery that has not completed', 120, 'active',
+        );
+        await armRetention(db, OTHER);
+
+        await giveTerminalEvidence(db, [completed], OTHER);
+
+        const rows = (await db.query<{ id: string; transcript: string | null; transcript_state: string }>(
+            `SELECT id, transcript, transcript_state FROM public.sessions
+             WHERE id = ANY($1) ORDER BY created_at ASC`, [[completed, activeRecovery]],
+        )).rows;
+        expect(rows.map((row) => ({ id: row.id, hasText: row.transcript !== null, state: row.transcript_state })))
+            .toEqual([
+                { id: completed, hasText: true, state: 'available' },
+                { id: activeRecovery, hasText: true, state: 'available' },
+            ]);
+    });
+
     it('CASUALTY: tombstones and activation are unavailable to clients but auditable by service_role', async () => {
         const privileges = (await db.query<{
             anon_read: boolean; authenticated_read: boolean; service_read: boolean;
