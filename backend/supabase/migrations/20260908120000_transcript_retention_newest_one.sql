@@ -149,6 +149,11 @@ AS $$
     SELECT id, row_number() OVER (ORDER BY created_at DESC, id DESC) AS rn
     FROM public.sessions
     WHERE user_id = p_user_id
+      -- Only a completed save may participate in newest-one ranking. An active late-create
+      -- recovery can contain text before complete_session_v2 establishes save authority; if
+      -- it ranked first, a delayed evaluation for the prior completed session could expire
+      -- the user's last saved transcript before the recovery ever completes.
+      AND status = 'completed'
       AND transcript IS NOT NULL
       AND transcript ~ '[^[:space:]]'
   ) ranked
