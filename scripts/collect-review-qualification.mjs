@@ -4,7 +4,18 @@ import { pathToFileURL } from 'node:url';
 import { evaluateReviewQualification, formatReviewQualification } from './review-qualification.mjs';
 
 const CODEX_LOGINS = new Set(['chatgpt-codex-connector', 'chatgpt-codex-connector[bot]']);
-const RELEASE_FINDING = /P[012]\s+Badge|\bP[012]\b/i;
+/**
+ * #1430 P1 — ONLY P0/P1 BLOCKS. P2 IS COUNTED AND REPORTED, NEVER BLOCKING.
+ *
+ * This matched `P[012]`, so a single P2 — hardening, a nit, a suggestion — disqualified the head and
+ * failed the merge gate. That contradicts the standing closure rule, under which P2 and below route to
+ * the hardening ledger and do not hold a release. A gate that blocks on advisory findings trains people
+ * to bypass it, which costs more than the findings are worth.
+ *
+ * P2s are still surfaced on the receipt so nothing is hidden by being non-blocking.
+ */
+const RELEASE_FINDING = /P[01]\s+Badge|\bP[01]\b/i;
+const ADVISORY_FINDING = /P2\s+Badge|\bP2\b/i;
 
 function isCodex(login) {
   return CODEX_LOGINS.has(String(login ?? '').toLowerCase());
@@ -35,6 +46,13 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   const reviewBodyFindings = reviews.filter((review) => RELEASE_FINDING.test(review?.body ?? ''));
   const blockingReviews = reviews.filter((review) => review?.state === 'CHANGES_REQUESTED');
   const findingCount = threadFindings.length + reviewBodyFindings.length + blockingReviews.length;
+  // Counted for the receipt only — never added to `findingCount`, which is what gates qualification.
+  const advisoryCount = (pullRequest?.reviewThreads?.nodes ?? []).filter((thread) =>
+    thread?.isResolved === false
+    && (thread?.comments?.nodes ?? []).some((comment) =>
+      isCodex(comment?.author?.login)
+      && (comment?.pullRequestReview?.commit?.oid ?? comment?.originalCommit?.oid ?? comment?.commit?.oid)?.toLowerCase?.() === head
+      && ADVISORY_FINDING.test(comment?.body ?? ''))).length;
 
   const evaluated = evaluateReviewQualification({
     currentSha: head,
@@ -49,6 +67,8 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     reasons: [...reasons, ...evaluated.reasons],
     pullRequestNumber: pullRequest?.number ?? null,
     reviewSubmittedAt: latest?.submittedAt ?? null,
+    /** Open P2 findings at this head. Reported for the ledger; deliberately not blocking. */
+    advisoryFindingCount: advisoryCount,
   };
 }
 
@@ -87,6 +107,20 @@ async function githubRequest(path, token, init = {}) {
   return response.json();
 }
 
+/**
+ * #1430 P1 — "COULD NOT READ" IS NOT "NOT CONFIGURED".
+ *
+ * Branch protection and rulesets need admin scope. `github.token` does not carry it, so these reads
+ * return 401/403/404 and this returned `null` — which the caller then reported as
+ * `review_thread_resolution_not_enforced_at_merge`, a definite statement that the repository does NOT
+ * enforce review-thread resolution. The gate was asserting a fact it had no ability to observe, on a
+ * repository where the enforcement may well be configured.
+ *
+ * The three outcomes are now distinct: readable and enforced, readable and not enforced, and
+ * UNREADABLE. Only the middle one is a finding about the repository.
+ */
+const UNREADABLE = Symbol('unreadable');
+
 async function optionalGithubRequest(path, token) {
   const response = await fetch(`https://api.github.com${path}`, {
     headers: {
@@ -95,17 +129,28 @@ async function optionalGithubRequest(path, token) {
       'X-GitHub-Api-Version': '2022-11-28',
     },
   });
-  if (response.status === 403 || response.status === 404) return null;
+  // 401 is included deliberately: an invalid or expired credential is the same epistemic state as an
+  // unauthorised one — we cannot see the setting — and it must not be reported as its absence.
+  if (response.status === 401 || response.status === 403 || response.status === 404) return UNREADABLE;
   if (!response.ok) throw new Error(`github_api_${response.status}`);
   return response.json();
 }
 
-async function readReviewThreadResolutionEnforcement({ repository, branch, token }) {
+/**
+ * Returns `true`, `false`, or `'unverified'` — never conflating the last two.
+ *
+ * If BOTH admin surfaces are unreadable we know nothing and say so. If either is readable, the
+ * enforcement question can be answered from what we could see.
+ */
+export async function readReviewThreadResolutionEnforcement({ repository, branch, token }) {
   const encodedBranch = encodeURIComponent(branch);
-  const [branchProtection, branchRules] = await Promise.all([
+  const [rawProtection, rawRules] = await Promise.all([
     optionalGithubRequest(`/repos/${repository}/branches/${encodedBranch}/protection`, token),
     optionalGithubRequest(`/repos/${repository}/rules/branches/${encodedBranch}?per_page=100`, token),
   ]);
+  if (rawProtection === UNREADABLE && rawRules === UNREADABLE) return 'unverified';
+  const branchProtection = rawProtection === UNREADABLE ? null : rawProtection;
+  const branchRules = rawRules === UNREADABLE ? null : rawRules;
   const rulesetIds = Array.isArray(branchRules)
     ? [...new Set(branchRules
       .filter((rule) => rule?.type === 'pull_request'
@@ -113,8 +158,9 @@ async function readReviewThreadResolutionEnforcement({ repository, branch, token
         && Number.isInteger(rule?.ruleset_id))
       .map((rule) => rule.ruleset_id))]
     : [];
-  const branchRulesets = await Promise.all(rulesetIds.map((rulesetId) =>
+  const rawRulesets = await Promise.all(rulesetIds.map((rulesetId) =>
     optionalGithubRequest(`/repos/${repository}/rulesets/${rulesetId}?includes_parents=true`, token)));
+  const branchRulesets = rawRulesets.filter((ruleset) => ruleset !== UNREADABLE);
   return reviewThreadResolutionIsEnforced({ branchProtection, branchRules, branchRulesets });
 }
 
@@ -136,6 +182,28 @@ async function readPullRequest({ repository, number, token }) {
   });
   if (payload.errors?.length || !payload.data?.repository?.pullRequest) throw new Error('github_graphql_pull_request_unavailable');
   return payload.data.repository.pullRequest;
+}
+
+/**
+ * #1430 P1 — UNVERIFIED IS REPORTED, NOT BLOCKING.
+ *
+ * A definite `false` is a real finding about the base branch and still disqualifies the head. An
+ * `'unverified'` is a statement about THIS RUN's credentials, not about the repository, and failing
+ * the gate on it makes every candidate unqualifiable for a reason no candidate can fix. It is
+ * surfaced on the receipt so the gap stays visible and auditable rather than silent.
+ *
+ * Extracted and exported deliberately: while this decision lived inline in `main()` no casualty could
+ * reach it, and a mutation collapsing `unverified` back into `not_enforced` survived the suite.
+ */
+export function applyEnforcementToReceipt(receipt, enforcement) {
+  if (enforcement === false) {
+    receipt.qualified = false;
+    receipt.reasons.push('review_thread_resolution_not_enforced_at_merge');
+  } else if (enforcement === 'unverified') {
+    receipt.warnings = [...(receipt.warnings ?? []), 'review_thread_resolution_enforcement_unverified'];
+  }
+  receipt.reviewThreadResolutionEnforced = enforcement;
+  return receipt;
 }
 
 async function main() {
@@ -161,11 +229,7 @@ async function main() {
       branch: pullRequest.baseRefName,
       token,
     });
-    if (!reviewThreadResolutionEnforced) {
-      receipt.qualified = false;
-      receipt.reasons.push('review_thread_resolution_not_enforced_at_merge');
-    }
-    receipt.reviewThreadResolutionEnforced = reviewThreadResolutionEnforced;
+    applyEnforcementToReceipt(receipt, reviewThreadResolutionEnforced);
     if (process.env.REVIEW_QUALIFICATION_FILE) {
       writeFileSync(process.env.REVIEW_QUALIFICATION_FILE, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
     }

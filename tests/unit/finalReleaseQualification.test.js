@@ -5,6 +5,8 @@ import {
   isSubstantiveImplementationFile,
 } from '../../scripts/review-qualification.mjs';
 import {
+  applyEnforcementToReceipt,
+  readReviewThreadResolutionEnforcement,
   buildReviewReceipt,
   reviewThreadResolutionIsEnforced,
 } from '../../scripts/collect-review-qualification.mjs';
@@ -93,7 +95,110 @@ describe('Q-08 automated review qualification', () => {
       .toContain('github_pr_head_is_not_workflow_head');
   });
 
-  it('CASUALTY: an unresolved current-head Codex P0/P1/P2 fails qualification', () => {
+  const prWithFinding = (body) => ({
+    number: 1430,
+    headRefOid: SHA,
+    files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+    reviews: {
+      nodes: [{ author: { login: 'chatgpt-codex-connector[bot]' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+      pageInfo: { hasPreviousPage: false },
+    },
+    reviewThreads: {
+      nodes: [{
+        isResolved: false,
+        comments: {
+          nodes: [{
+            author: { login: 'chatgpt-codex-connector' },
+            commit: { oid: SHA }, originalCommit: { oid: SHA }, pullRequestReview: { commit: { oid: SHA } },
+            body,
+          }],
+          pageInfo: { hasPreviousPage: false },
+        },
+      }],
+      pageInfo: { hasNextPage: false },
+    },
+  });
+
+  it('CASUALTY: a 401 from an invalid credential is UNREADABLE, not a hard failure', async () => {
+    /**
+     * #1430 — the regression that took exact-head CI down at `5fbfc28563`. `GH_PAT` is expired and
+     * returns 401; `optionalGithubRequest` handled only 403/404, so a 401 threw `github_api_401` and
+     * the whole job failed with one uninformative reason instead of three honest ones.
+     *
+     * An invalid credential is the same epistemic state as an unauthorised one — we cannot see the
+     * setting — so it resolves to `unverified` rather than exploding.
+     */
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({}) });
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 'expired',
+      })).resolves.toBe('unverified');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('CONTROL: a genuine server error is still a hard failure, not silently unverified', async () => {
+    // The relaxation must not swallow real breakage: 500 is not an authorisation state.
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 't',
+      })).rejects.toThrow(/github_api_500/);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('CASUALTY: enforcement we could not READ is not reported as enforcement that is ABSENT', () => {
+    /**
+     * #1430 P1 — branch protection and rulesets need admin scope, which `github.token` lacks, so those
+     * reads returned 401/403/404 and the gate published
+     * `review_thread_resolution_not_enforced_at_merge` — a definite claim that the repository does NOT
+     * enforce review-thread resolution. It was asserting a fact it had no ability to observe.
+     *
+     * Three outcomes, kept distinct: enforced, not enforced, and unreadable.
+     */
+    const unverified = applyEnforcementToReceipt({ qualified: true, reasons: [] }, 'unverified');
+    expect(unverified.qualified, 'a credential gap is not the candidate\'s defect').toBe(true);
+    expect(unverified.reasons, 'and must never be stated as absent enforcement')
+      .not.toContain('review_thread_resolution_not_enforced_at_merge');
+    expect(unverified.warnings, 'it is surfaced, not silently dropped')
+      .toContain('review_thread_resolution_enforcement_unverified');
+
+    const absent = applyEnforcementToReceipt({ qualified: true, reasons: [] }, false);
+    expect(absent.qualified, 'a READ absence is still a real finding and still blocks').toBe(false);
+    expect(absent.reasons).toContain('review_thread_resolution_not_enforced_at_merge');
+  });
+
+  it('CASUALTY: an unresolved P2 does NOT block, and is reported rather than hidden', () => {
+    /**
+     * #1430 P1 — `RELEASE_FINDING` matched `P[012]`, so one advisory finding disqualified the head and
+     * failed the merge gate. That contradicts the standing closure rule, under which P2 and below route
+     * to the hardening ledger and never hold a release. A gate that blocks on advice trains people to
+     * bypass it, which costs more than the advice is worth.
+     *
+     * Non-blocking is not the same as invisible: the count is published on the receipt.
+     */
+    const receipt = buildReviewReceipt({ pullRequest: prWithFinding('P2 Badge: tidy this later'), expectedHeadSha: SHA });
+
+    expect(receipt.findingCount, 'a P2 is not a blocking finding').toBe(0);
+    expect(receipt.qualified, 'and it does not disqualify the head').toBe(true);
+    expect(receipt.advisoryFindingCount, 'but it is still counted and reported').toBe(1);
+  });
+
+  it('CONTROL: a P1 at the same head still blocks', () => {
+    // The half that must not regress with the P2 relaxation: narrowing the severity band must not
+    // narrow it past the findings that genuinely hold a release.
+    const receipt = buildReviewReceipt({ pullRequest: prWithFinding('P1 Badge: current defect'), expectedHeadSha: SHA });
+
+    expect(receipt.findingCount).toBe(1);
+    expect(receipt.qualified, 'a P1 still disqualifies').toBe(false);
+  });
+
+  it('CASUALTY: an unresolved current-head Codex P0/P1 fails qualification', () => {
     const github = {
       number: 1430,
       headRefOid: SHA,
