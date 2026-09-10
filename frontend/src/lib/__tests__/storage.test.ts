@@ -133,9 +133,9 @@ describe('storage.ts', () => {
         const mockProfile = { subscription_status: 'free' } as UserProfile;
         const mockSessionData = { user_id: 'user1', duration: 60 };
 
-        it('should return null session if sessionData or userId is missing', async () => {
+        it('returns an explicit failure if sessionData or userId is missing', async () => {
             const result = await saveSession({} as unknown as Parameters<typeof saveSession>[0], mockProfile);
-            expect(result).toEqual({ session: null, usageExceeded: false });
+            expect(result).toEqual({ status: 'failed', reason: 'invalid_input' });
             expect(logger.error).toHaveBeenCalledWith('Save Session: Session data and user ID are required.');
         });
 
@@ -152,7 +152,7 @@ describe('storage.ts', () => {
                 p_session_data: mockSessionData,
                 p_engine_type: 'native'
             }));
-            expect(result).toEqual({ session: mockNewSession, usageExceeded: false });
+            expect(result).toEqual({ status: 'saved', session: mockNewSession });
         });
 
         it('should pass correct engine_type to RPC', async () => {
@@ -207,14 +207,29 @@ describe('storage.ts', () => {
             expect(caller).toHaveProperty('ground_truth');   // stripped from the payload copy, not from the caller
         });
 
-        it('should handle rpc error', async () => {
+        it('CASUALTY: an RPC error is an explicit failure, never a null success lookalike', async () => {
             const mockError = { message: 'RPC Error' };
             mockSupabase.rpc.mockResolvedValue({ data: null, error: mockError });
 
             const result = await saveSession(mockSessionData, mockProfile);
 
-            expect(result).toEqual({ session: null, usageExceeded: false });
+            expect(result).toEqual({ status: 'failed', reason: 'rpc_error' });
             expect(logger.error).toHaveBeenCalledWith({ error: mockError }, 'Error during atomic session save and usage update:');
+        });
+
+        it('distinguishes usage denial and a malformed success envelope', async () => {
+            mockSupabase.rpc.mockResolvedValueOnce({
+                data: { new_session: null, usage_exceeded: true, error: 'max_concurrent_sessions_reached' },
+                error: null,
+            });
+            await expect(saveSession(mockSessionData, mockProfile)).resolves.toEqual({
+                status: 'usage_exceeded', error: 'max_concurrent_sessions_reached',
+            });
+
+            mockSupabase.rpc.mockResolvedValueOnce({ data: { usage_exceeded: false }, error: null });
+            await expect(saveSession(mockSessionData, mockProfile)).resolves.toEqual({
+                status: 'failed', reason: 'server_rejected',
+            });
         });
     });
 

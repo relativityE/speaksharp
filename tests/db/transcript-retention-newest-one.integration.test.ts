@@ -81,6 +81,8 @@ async function freshDb(): Promise<PGlite> {
     await db.exec(COMPLETE_V2);
     // ...and then the correction, in migration order.
     await db.exec(NEWEST_ONE);
+    // Policy mechanics in this suite run only after the explicit post-test activation boundary.
+    await db.query('SELECT public.activate_transcript_retention_newest_one()');
     return db;
 }
 
@@ -174,6 +176,39 @@ describe('newest-ONE transcript retention, executed against the real migrations'
             { state: 'expired', text: false },   // second-newest — the behaviour change
             { state: 'available', text: true },  // newest
         ]);
+
+        const tombstones = (await db.query<{ session_id: string; transcript: string }>(
+            `SELECT session_id, transcript FROM public.transcript_retention_tombstones
+             WHERE user_id = $1 ORDER BY session_id`, [U],
+        )).rows;
+        expect(new Set(tombstones.map((r) => r.session_id)), 'every removal has a reversible tombstone')
+            .toEqual(new Set([oldest, middle]));
+        expect(tombstones.every((r) => r.transcript.trim().length > 0), 'the tombstone preserves exact text')
+            .toBe(true);
+    });
+
+    it('CASUALTY: tombstones and activation are unavailable to clients but auditable by service_role', async () => {
+        const privileges = (await db.query<{
+            anon_read: boolean; authenticated_read: boolean; service_read: boolean;
+            anon_activate: boolean; authenticated_activate: boolean; service_activate: boolean;
+        }>(`
+          SELECT
+            has_table_privilege('anon', 'public.transcript_retention_tombstones', 'SELECT') AS anon_read,
+            has_table_privilege('authenticated', 'public.transcript_retention_tombstones', 'SELECT') AS authenticated_read,
+            has_table_privilege('service_role', 'public.transcript_retention_tombstones', 'SELECT') AS service_read,
+            has_function_privilege('anon', 'public.activate_transcript_retention_newest_one()', 'EXECUTE') AS anon_activate,
+            has_function_privilege('authenticated', 'public.activate_transcript_retention_newest_one()', 'EXECUTE') AS authenticated_activate,
+            has_function_privilege('service_role', 'public.activate_transcript_retention_newest_one()', 'EXECUTE') AS service_activate
+        `)).rows[0];
+
+        expect(privileges).toEqual({
+            anon_read: false,
+            authenticated_read: false,
+            service_read: true,
+            anon_activate: false,
+            authenticated_activate: false,
+            service_activate: true,
+        });
     });
 
     it('CASUALTY: history and derived metrics survive the expiry', async () => {

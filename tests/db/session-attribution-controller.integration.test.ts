@@ -72,13 +72,13 @@ vi.mock('@/lib/storage', () => ({
     idempotencyKey?: string,
     metadata?: { engineVersion?: string; modelName?: string; deviceType?: string },   // #1161 finding 6
   ) => {
-    if (H.failSave) return { session: null, usageExceeded: false };
+    if (H.failSave) return { status: 'failed', reason: 'rpc_error' };
     if (idempotencyKey) {
       const existing = await H.db.query<{ id: string }>(
         'SELECT id FROM public.sessions WHERE idempotency_key = $1 AND user_id = $2',
         [idempotencyKey, data.user_id],
       );
-      if (existing.rows[0]) return { session: { id: existing.rows[0].id }, usageExceeded: false };
+      if (existing.rows[0]) return { status: 'saved', session: { id: existing.rows[0].id } };
     }
     // #1161 finding 6: persist the engine provenance metadata the controller passes (mirrors the production
     // create_session_and_update_usage p_engine_version/p_model_name/p_device_type), so a recovered row keeps it.
@@ -88,7 +88,7 @@ vi.mock('@/lib/storage', () => ({
       [data.user_id, data.title ?? null, data.duration ?? 0, data.transcript ?? ' ', engineType ?? null,
        metadata?.engineVersion ?? null, metadata?.modelName ?? null, metadata?.deviceType ?? null, idempotencyKey ?? null],
     );
-    return { session: { id: res.rows[0].id }, usageExceeded: false };
+    return { status: 'saved', session: { id: res.rows[0].id } };
   },
   // completeSession → UPDATE status/transcript/duration on the given row (never inserts).
   completeSession: async (

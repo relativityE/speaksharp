@@ -43,7 +43,7 @@ jobs:
       # hashing the result; `tests/db/transcript-retention-newest-one.integration.test.ts` recomputes
       # it and fails if it drifts. The superseded newest-two digest was
       # 029a72bf14bfd2ab18260c6477c56493 and is pinned in the historical preflight suite.
-      EXPECTED_PREFLIGHT_FUNCTION_MD5: e3b62348891251edb333907d927485e4
+      EXPECTED_PREFLIGHT_FUNCTION_MD5: 8591a125c886da3063c05aafdf73e324
     steps:
       - uses: actions/checkout@v4
 

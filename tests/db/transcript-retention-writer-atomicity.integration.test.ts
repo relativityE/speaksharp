@@ -79,7 +79,7 @@ const BOOTSTRAP = `
     RETURNS jsonb LANGUAGE sql AS $fn$ SELECT jsonb_build_object('success', true) $fn$;
 `;
 
-async function freshDb(): Promise<PGlite> {
+async function freshDb(activate = true): Promise<PGlite> {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(TRANSCRIPT_STATE);
@@ -89,6 +89,9 @@ async function freshDb(): Promise<PGlite> {
     await db.exec(PREFLIGHT);
     await db.exec(COMPLETE_V2);
     await db.exec(NEWEST_ONE);
+    // Writer-policy cases below exercise the explicitly activated state. Deployment-inertness has its own
+    // casualty, which applies the same migration without invoking this service-role-only boundary.
+    if (activate) await db.query('SELECT public.activate_transcript_retention_newest_one()');
     return db;
 }
 
@@ -179,14 +182,41 @@ describe('#1436 — newest-one is armed by a post-rollout save, not by deploymen
     }
 
     it('CASUALTY A: deploying the migration deletes nothing', async () => {
-        const db = await freshDb();
+        const db = await freshDb(false);
         await preRolloutUser(db);
 
         const result = await db.query<{ r: { status?: string; reason?: string } }>(
             'SELECT public.converge_transcript_retention($1) AS r', [U]);
-        expect(result.rows[0].r?.status, 'convergence is a no-op until armed').toBe('deferred');
-        expect(result.rows[0].r?.reason, 'and it says why').toBe('retention_not_armed');
+        expect(result.rows[0].r?.status, 'convergence is a no-op until activation').toBe('deferred');
+        expect(result.rows[0].r?.reason, 'and it says why').toBe('retention_not_activated');
         expect((await counts(db)).with_text, 'both transcripts survive deployment').toBe(2);
+        await db.close();
+    });
+
+    it('CASUALTY A2: inert installation still saves a completed transcript without retiring any prior text', async () => {
+        const db = await freshDb(false);
+        await preRolloutUser(db);
+        const active = (await db.query<{ id: string }>(
+            `INSERT INTO public.sessions (user_id, created_at, total_words, duration, status)
+             VALUES ($1, '2026-09-03T10:00:00Z'::timestamptz, 100, 60, 'active') RETURNING id`,
+            [U],
+        )).rows[0].id;
+
+        const res = (await db.query<{ r: Record<string, unknown> }>(
+            `SELECT public.complete_session_v2(p_session_id => $1::uuid, p_status => 'completed',
+                 p_next_action => '{"kind":"practice_again"}'::jsonb, p_filler_counts => '{}'::jsonb,
+                 p_final_transcript => 'the real-world-test take') AS r`, [active],
+        )).rows[0].r;
+
+        expect(res.transcript_outcome, 'the new transcript is truthfully retained while policy is inert')
+            .toBe('retained');
+        expect(verdict(res)).toEqual(expect.objectContaining({
+            status: 'deferred', reason: 'retention_not_activated',
+        }));
+        expect((await counts(db)).with_text, 'no prior transcript was retired during the test window').toBe(3);
+        expect((await db.query<{ n: number }>(
+            'SELECT COUNT(*)::int AS n FROM public.transcript_retention_tombstones',
+        )).rows[0].n, 'an inert policy creates no tombstones because it performs no expiry').toBe(0);
         await db.close();
     });
 
@@ -437,14 +467,13 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
         await db.close();
     });
 
-    it('CASUALTY F: a completion that does NOT retain its transcript leaves no arming behind', async () => {
+    it('CASUALTY F: a non-converged completion FAILS atomically and leaves no arming behind', async () => {
         /**
          * #1436 P1 — a save arms only if it actually kept text. `complete_session_v2` arms inside the
          * transcript subtransaction, so a RAISED convergence failure reverts the arming with it. The
-         * uncovered path is the one that does not raise: the coordinator RETURNS `pending`, the
-         * subtransaction commits, and the transcript is withdrawn afterwards. Leaving the arming row
-         * there would arm the user on the strength of a save that retained nothing — and the older
-         * take's evaluation, the moment it settles, would expire their text on that false signal.
+         * uncovered path is the one where the coordinator RETURNS `pending`. Reporting success after
+         * NULLing the new transcript loses the user's words. The whole completion must instead roll back,
+         * leaving the row retryable and the controller's recovery draft authoritative.
          */
         const db = await freshDb();
         // An older readable take whose evaluation has NOT settled: convergence must defer on it.
@@ -455,16 +484,19 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
              VALUES ($1, '2026-09-04T10:00:00Z'::timestamptz, 100, 600, 'active') RETURNING id`,
             [U])).rows[0].id;
 
-        const res = (await db.query<{ r: Record<string, unknown> }>(
+        await expect(db.query<{ r: Record<string, unknown> }>(
             `SELECT public.complete_session_v2(p_session_id => $1::uuid, p_status => 'completed',
                  p_next_action => '{"kind":"practice_again"}'::jsonb, p_filler_counts => '{}'::jsonb,
-                 p_final_transcript => 'the take that was not retained') AS r`, [active])).rows[0].r;
+                 p_final_transcript => 'the take that must remain retryable') AS r`, [active]))
+            .rejects.toThrow(/retention did not converge \(status=pending\)/i);
 
-        expect(res.transcript_outcome, 'the save honestly reports the text was not retained')
-            .toBe('retention_failed');
         expect((await db.query<{ n: number }>(
             'SELECT COUNT(*)::int AS n FROM public.transcript_retention_arming WHERE user_id = $1', [U],
         )).rows[0].n, 'and it armed nothing').toBe(0);
+        expect((await db.query<{ status: string; transcript: string | null }>(
+            'SELECT status, transcript FROM public.sessions WHERE id = $1', [active],
+        )).rows[0], 'the attempted completion is wholly rolled back and remains retryable')
+            .toEqual({ status: 'active', transcript: null });
         expect((await counts(db)).with_text, "the older take is untouched — it was never the user's to lose here")
             .toBe(1);
         await db.close();

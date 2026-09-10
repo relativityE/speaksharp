@@ -112,6 +112,24 @@ The real production values for the §2.1 `VITE_*` live here (Production scope) p
 
 ---
 
+### 2.6 Newest-one transcript-retention activation
+
+The `newest_one_v1` migration uses a two-stage rollout: install the reviewed schema/functions with
+`activation_status=installed_inert`, then activate only through the service-role-only
+`activate_transcript_retention_newest_one()` boundary after the real-world test and a green aggregate
+preflight. Installation therefore cannot retire text. Expiry copies the exact transcript into the
+client-inaccessible `transcript_retention_tombstones` table before clearing it from the user-readable session;
+session and account deletion cascade through that recovery copy.
+
+This two-stage path is primary because the standalone read-only preflight can describe the current cohort but
+cannot prevent a migration runner from applying definitions immediately afterward, cannot make a bad policy
+reversible, and cannot guarantee that the inspected cohort is unchanged at activation. Keeping activation in
+the schema creates an enforceable boundary: the preflight proves readiness while inert, PO/Ops explicitly
+activates the exact installed policy afterward, and any scheduled reaper remains a separately authorized
+post-test action. Neither installation nor the preflight authorizes activation, convergence, or a backfill.
+
+---
+
 ## 3. Secrets & rotation
 
 > **Status: not an active action item.** Owner ruling (2026-06-08): the "committed secrets" were a misclassification — the tracked `.env.test` entries held mock values, and a full-tree/full-history scan found no real secret ever committed. Real provider secrets live only in the secret stores and were never exposed. This runbook is retained as reference in case a *real* exposure ever occurs.

@@ -186,19 +186,24 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
  * @param {string} engineType - The transcription engine type used.
  * @param {string} idempotencyKey - Optional unique key for the session.
  * @param {object} metadata - Optional engine/device metadata.
- * @returns {Promise<{session: object|null, usageExceeded: boolean}>}
+ * @returns {Promise<SaveSessionResult>}
  */
+export type SaveSessionResult =
+  | { status: 'saved'; session: PracticeSession }
+  | { status: 'usage_exceeded'; error?: string }
+  | { status: 'failed'; reason: 'invalid_input' | 'rpc_error' | 'server_rejected' };
+
 export const saveSession = async (
   sessionData: Partial<PracticeSession> & { user_id: string },
   profile: UserProfile,
   engineType: string = 'native',
   idempotencyKey?: string,
   metadata?: { engineVersion?: string; modelName?: string; deviceType?: string }
-): Promise<{ session: PracticeSession | null, usageExceeded: boolean, usageError?: string }> => {
+): Promise<SaveSessionResult> => {
   const supabase = getSupabaseClient();
   if (!sessionData || !sessionData.user_id) {
     logger.error('Save Session: Session data and user ID are required.');
-    return { session: null, usageExceeded: false };
+    return { status: 'failed', reason: 'invalid_input' };
   }
 
   // Strip every content-bearing field that the retention contract does NOT retain, before it can reach the DB —
@@ -226,14 +231,12 @@ export const saveSession = async (
 
   if (error) {
     logger.error({ error }, 'Error during atomic session save and usage update:');
-    return { session: null, usageExceeded: false };
+    return { status: 'failed', reason: 'rpc_error' };
   }
 
-  return {
-    session: data?.new_session || null,
-    usageExceeded: data?.usage_exceeded || false,
-    usageError: data?.error,
-  };
+  if (data?.usage_exceeded === true) return { status: 'usage_exceeded', error: data?.error };
+  if (data?.new_session) return { status: 'saved', session: data.new_session as PracticeSession };
+  return { status: 'failed', reason: 'server_rejected' };
 };
 
 /**

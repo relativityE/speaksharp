@@ -23,9 +23,9 @@
 -- The old mutation is DROPPED rather than left behind with its original body: a function still reachable
 -- under its old name would keep the newest-two rule alive for any caller that reaches it.
 --
--- complete_session_v2 is untouched. It CALLS converge_transcript_retention rather than reimplementing the
--- rule, so the atomic completion path inherits this correction. No client ships the count — the application
--- reads transcript_state only.
+-- complete_session_v2 is redefined below so an active-policy convergence failure aborts the save instead of
+-- NULLing the new transcript and reporting success. No client ships the count — the application reads
+-- transcript_state only.
 --
 -- DELIBERATELY NOT TOUCHED: the several analytics functions containing `LIMIT 2`. Those are a recent-session
 -- projection for the dashboard, not retention. Changing them would be a different defect.
@@ -35,13 +35,14 @@
 --
 --   * Every user with two or more transcript-bearing sessions currently has a SECOND-NEWEST transcript they
 --     can open and export. This expires it on that user's next convergence.
---   * The expiry is IRREVERSIBLE from within the schema: `transcript` is set to NULL, not flagged.
---   * It takes effect on each user's NEXT completed save, because convergence runs inside
---     complete_session_v2. A backfill sweep is a separate, explicitly authorized action.
+--   * Expired text leaves the user-readable session row but is preserved in a service-only tombstone, so a
+--     policy defect remains recoverable through an explicitly authorised forward migration.
+--   * Installation is inert. It takes effect only after PO/Ops invokes the service-role-only activation RPC;
+--     a scheduled reaper remains a separate, explicitly authorized action after the real-world test.
 --
 --   REQUIRED BEFORE APPLICATION:
---     1. Back up `sessions.id, user_id, transcript` for rows at rank > 1, retained long enough to restore.
---     2. Run the dry-run below; have the affected-row total reviewed.
+--     1. Run the dry-run below; have the affected-row total reviewed.
+--     2. Confirm the preflight reports `activation_status=installed_inert` and a ready verdict.
 --     3. Confirm `supabase migration list` records this migration as applied — applying SQL directly writes
 --        no ledger row.
 --
@@ -53,8 +54,8 @@
 --       WHERE transcript IS NOT NULL AND transcript ~ '[^[:space:]]'
 --     ) r WHERE r.rn > 1;
 --
---   ROLLBACK: a further forward-only migration restoring the newest-two definitions, THEN restoring text
---   from the step-1 backup. Reverting the functions alone does not bring back expired transcripts.
+--   ROLLBACK: a further forward-only migration restores the prior definitions and copies exact text back from
+--   transcript_retention_tombstones. Reverting the functions alone does not restore the user-readable rows.
 -- =========================================================================================================
 
 -- 1) Policy marker.
@@ -64,6 +65,76 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path = pg_catalog, pg_temp
 AS $$ SELECT 'newest_one_v1'::text $$;
+
+-- Installation and activation are deliberately separate. Merging/deploying the reviewed definition must
+-- not begin retiring transcripts while the real-world test is still running. PO/Ops activates this exact
+-- policy explicitly after that test; until then every convergence call reports a truthful deferred result.
+CREATE TABLE IF NOT EXISTS public.transcript_retention_activation (
+  singleton      boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  policy_version text NOT NULL CHECK (policy_version = 'newest_one_v1'),
+  activated_at   timestamptz
+);
+
+INSERT INTO public.transcript_retention_activation (singleton, policy_version, activated_at)
+VALUES (true, 'newest_one_v1', NULL)
+ON CONFLICT (singleton) DO NOTHING;
+
+ALTER TABLE public.transcript_retention_activation ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.transcript_retention_activation FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.transcript_retention_is_active()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE((SELECT activated_at IS NOT NULL
+                   FROM public.transcript_retention_activation
+                   WHERE singleton), false)
+$$;
+
+CREATE OR REPLACE FUNCTION public.activate_transcript_retention_newest_one()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_activated_at timestamptz;
+BEGIN
+  UPDATE public.transcript_retention_activation
+  SET activated_at = COALESCE(activated_at, now())
+  WHERE singleton AND policy_version = public.transcript_retention_policy_version()
+  RETURNING activated_at INTO v_activated_at;
+
+  IF v_activated_at IS NULL THEN
+    RAISE EXCEPTION 'activate_transcript_retention_newest_one: reviewed policy row missing or mismatched'
+      USING ERRCODE = '55000';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'status', 'activated',
+    'policy_version', public.transcript_retention_policy_version(),
+    'activated_at', v_activated_at
+  );
+END;
+$$;
+
+-- Expiry removes text from the user-readable sessions surface, but does not destroy it. This service-only
+-- tombstone makes a policy defect recoverable by a later, explicitly authorised forward migration. Both
+-- foreign keys cascade so deleting a session or account still deletes every copy of its transcript.
+CREATE TABLE IF NOT EXISTS public.transcript_retention_tombstones (
+  session_id     uuid PRIMARY KEY REFERENCES public.sessions(id) ON DELETE CASCADE,
+  user_id        uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  transcript     text NOT NULL CHECK (transcript ~ '[^[:space:]]'),
+  policy_version text NOT NULL CHECK (policy_version = 'newest_one_v1'),
+  tombstoned_at  timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.transcript_retention_tombstones ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.transcript_retention_tombstones FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.transcript_retention_tombstones TO service_role;
 
 -- 2) The shared predicate: which sessions must have their transcript expired for one user.
 --    Rank 1 (newest by created_at DESC, id DESC) is never returned.
@@ -125,22 +196,60 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
 
-  SET LOCAL session_replication_role = 'replica';
+  -- A tombstone is immutable evidence for one exact live transcript. Refuse a contradiction rather than
+  -- overwrite either copy or destroy the only known-good one.
+  IF EXISTS (
+    SELECT 1
+    FROM public.sessions s
+    JOIN public.transcript_retention_tombstones t ON t.session_id = s.id
+    WHERE s.transcript IS NOT NULL
+      AND (t.user_id IS DISTINCT FROM s.user_id OR t.transcript IS DISTINCT FROM s.transcript)
+      AND (p_user_id IS NULL OR s.user_id = p_user_id)
+  ) THEN
+    RAISE EXCEPTION 'expire_transcripts_newest_one: tombstone contradiction in scope; refusing to run'
+      USING ERRCODE = '23514';
+  END IF;
 
   WITH ranked AS (
-    SELECT id, row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
+    SELECT id, user_id, transcript,
+           row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
     FROM public.sessions
     WHERE transcript IS NOT NULL
       AND transcript ~ '[^[:space:]]'
       AND (p_user_id IS NULL OR user_id = p_user_id)
   ),
-  batch AS (
-    SELECT id FROM ranked WHERE rn > 1 ORDER BY id LIMIT p_batch_size
+  batch AS MATERIALIZED (
+    SELECT id, user_id, transcript FROM ranked WHERE rn > 1 ORDER BY id LIMIT p_batch_size
+  )
+  INSERT INTO public.transcript_retention_tombstones
+    (session_id, user_id, transcript, policy_version)
+  SELECT id, user_id, transcript, public.transcript_retention_policy_version()
+  FROM batch
+  ON CONFLICT (session_id) DO NOTHING;
+
+  -- Preserve under normal FK enforcement first. Only the sessions state transition needs the trigger bypass.
+  SET LOCAL session_replication_role = 'replica';
+
+  WITH ranked AS (
+    SELECT id, user_id, transcript,
+           row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
+    FROM public.sessions
+    WHERE transcript IS NOT NULL
+      AND transcript ~ '[^[:space:]]'
+      AND (p_user_id IS NULL OR user_id = p_user_id)
+  ),
+  batch AS MATERIALIZED (
+    SELECT id, user_id, transcript FROM ranked WHERE rn > 1 ORDER BY id LIMIT p_batch_size
   )
   UPDATE public.sessions s
   SET transcript = NULL,
       transcript_state = 'expired'
-  WHERE s.id IN (SELECT id FROM batch);
+  FROM batch b
+  WHERE s.id = b.id
+    AND EXISTS (
+      SELECT 1 FROM public.transcript_retention_tombstones t
+      WHERE t.session_id = b.id AND t.user_id = b.user_id AND t.transcript = b.transcript
+    );
   GET DIAGNOSTICS v_affected = ROW_COUNT;
 
   SET LOCAL session_replication_role = 'origin';
@@ -243,6 +352,14 @@ DECLARE
 BEGIN
   IF p_user_id IS NULL THEN
     RAISE EXCEPTION 'converge_transcript_retention: p_user_id is required' USING ERRCODE = '22004';
+  END IF;
+
+  IF NOT public.transcript_retention_is_active() THEN
+    RETURN jsonb_build_object(
+      'status', 'deferred',
+      'reason', 'retention_not_activated',
+      'policy_version', public.transcript_retention_policy_version()
+    );
   END IF;
 
   -- Fail closed on an unknown/forked retention policy version (R1 is the single authority). #1161 authority
@@ -463,18 +580,26 @@ BEGIN
       'not_captured_with_text', v_viol.not_captured_with_text, 'unknown_state', v_viol.unknown_state),
     'simulation', v_sim,
     'bytes', v_bytes,
-    'identity', jsonb_build_object('schema_ok', true, 'read_only', true, 'physical_shrink_claimed', false)
+    'identity', jsonb_build_object(
+      'schema_ok', true,
+      'read_only', true,
+      'physical_shrink_claimed', false,
+      'activation_status', CASE WHEN public.transcript_retention_is_active() THEN 'active' ELSE 'installed_inert' END)
   );
 END;
 $$;
 
 -- 6) PRIVILEGES — least privilege, fail closed. CREATE grants EXECUTE to PUBLIC by default.
 REVOKE ALL ON FUNCTION public.transcript_retention_policy_version()          FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.transcript_retention_is_active()               FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.activate_transcript_retention_newest_one()     FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.transcript_sessions_to_expire(uuid)            FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.expire_transcripts_newest_one(uuid, integer)   FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.converge_transcript_retention(uuid)            FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.transcript_retention_policy_version()        TO service_role;
+GRANT EXECUTE ON FUNCTION public.transcript_retention_is_active()             TO service_role;
+GRANT EXECUTE ON FUNCTION public.activate_transcript_retention_newest_one()   TO service_role;
 GRANT EXECUTE ON FUNCTION public.transcript_sessions_to_expire(uuid)          TO service_role;
 GRANT EXECUTE ON FUNCTION public.expire_transcripts_newest_one(uuid, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.converge_transcript_retention(uuid)          TO service_role;
@@ -567,10 +692,8 @@ DECLARE
     v_effective_tier TEXT;
     v_final_duration INT;
     v_retention JSONB := NULL;
-    v_retention_error TEXT := NULL;
     v_idempotent BOOLEAN := false;
     v_eligible BOOLEAN := false;
-    v_subtxn_failed BOOLEAN := false;
     v_wrote_transcript BOOLEAN := false;
     v_retention_status TEXT := NULL;
     v_effective_status TEXT;
@@ -673,13 +796,9 @@ BEGIN
 
     -- (2) TRANSCRIPT + RETENTION, TOGETHER, IN ONE SUBTRANSACTION.
     --
-    -- Both must be in the SAME subtransaction. If the transcript landed first and convergence then failed, the
-    -- row would be transcript-bearing AND unrotated — precisely the third-transcript breach this exists to
-    -- prevent. Rolling the two back together is what makes the at-most-two invariant hold on the failure path:
-    -- from a valid starting state, a failed convergence CANNOT INCREASE the transcript-bearing row count.
-    --
-    -- The session write above is already durable, so the user keeps the practice session and its metrics; only
-    -- the new transcript is forfeited. The outcome is REPORTED, never swallowed.
+    -- The transcript, metrics and retention decision belong to ONE RPC transaction. If active retention cannot
+    -- converge, the function raises below and PostgreSQL rolls all of them back. The caller therefore receives a
+    -- retryable failure and keeps its recovery draft; it is never told that discarded words were saved.
     IF v_eligible THEN
         BEGIN
             IF p_final_transcript IS NOT NULL AND NOT v_idempotent THEN
@@ -717,45 +836,18 @@ BEGIN
             END IF;
             v_retention := public.converge_transcript_retention(auth.uid());
             v_retention_status := v_retention->>'status';
-        EXCEPTION
-            -- query_canceled (57014, statement_timeout/cancel) is NOT caught by WHEN OTHERS and would otherwise
-            -- escape this subtransaction, abort the whole function, and roll back the DURABLE session-metrics
-            -- write above with it. Catch it explicitly so the savepoint rolls back only the transcript+retention
-            -- and the session/metrics survive (verified against real PostgreSQL).
-            WHEN query_canceled THEN
-                v_subtxn_failed := true; v_retention_error := SQLSTATE;
-            WHEN OTHERS THEN
-                -- Content-free: SQLSTATE only. A retention error must never echo a transcript or row content.
-                v_subtxn_failed := true; v_retention_error := SQLSTATE;
         END;
 
-        -- NEWEST-TWO INVARIANT, enforced on the RESULT, not just on exceptions. converge_transcript_retention
-        -- can RETURN 'pending' (Option A: an older session's terminal Progress evidence is not yet durable) or
-        -- 'non_converged' (a backlog beyond one bounded batch) WITHOUT raising. In either case it did NOT reduce
-        -- to two transcript-bearing rows, so keeping THIS session's newly-written transcript would leave a THIRD
-        -- — a direct breach of the at-most-two contract. Revert our transcript write (a durable UPDATE, outside
-        -- the subtransaction) so the session and its metrics stay, but the new transcript is not retained. On a
-        -- caught exception the savepoint already reverted the transcript; this handles the no-exception,
-        -- did-not-converge case the earlier version missed.
-        IF v_wrote_transcript AND NOT v_subtxn_failed
-           AND COALESCE(v_retention_status, 'error') IS DISTINCT FROM 'converged' THEN
-            UPDATE public.sessions SET transcript = NULL, updated_at = now()
-            WHERE id = p_session_id AND user_id = auth.uid();
-            /*
-             * #1436 P1 — AND THE ARMING GOES WITH IT.
-             *
-             * Arming is written inside the subtransaction, so the EXCEPTION path already reverts it.
-             * This is the no-exception path: convergence RETURNED `pending`/`non_converged`, the
-             * subtransaction committed, and the transcript is being withdrawn out here. Leaving the
-             * arming row would arm the user on a save that retained no text — the exact "a failed save
-             * cannot leave arming behind" boundary — and the next settling evaluation would then expire
-             * their older transcript on the strength of a save that kept nothing.
-             *
-             * Scoped to `armed_by_session`: if this user was already armed by an EARLIER successful
-             * save, that arming is a fact about that save and must survive this one.
-             */
-            DELETE FROM public.transcript_retention_arming
-            WHERE user_id = auth.uid() AND armed_by_session = p_session_id;
+        -- Installing the definition is intentionally inert until PO/Ops activates it after the real-world test.
+        -- Once active, anything short of convergence is a SAVE FAILURE and rolls back the whole RPC.
+        IF v_wrote_transcript
+           AND COALESCE(v_retention_status, 'error') IS DISTINCT FROM 'converged'
+           AND NOT (
+             v_retention_status = 'deferred'
+             AND v_retention->>'reason' IN ('retention_not_activated', 'retention_not_armed')
+           ) THEN
+            RAISE EXCEPTION 'complete_session_v2: transcript retention did not converge (status=%)',
+              COALESCE(v_retention_status, 'error') USING ERRCODE = '55000';
         END IF;
     END IF;
 
@@ -768,10 +860,6 @@ BEGIN
     -- claim as "this transcript is retained", and a client must be able to switch exhaustively rather than
     -- infer from an absence.
     v_outcome := CASE
-        -- A raised failure OR a non-converged retention RESULT both mean "the new transcript is not retained".
-        WHEN v_subtxn_failed
-          OR (v_wrote_transcript AND COALESCE(v_retention_status, 'error') IS DISTINCT FROM 'converged')
-                                                          THEN 'retention_failed'
         WHEN v_session.transcript_state = 'expired'       THEN 'expired'
         WHEN v_session.transcript_state = 'available'     THEN 'retained'
         WHEN p_final_transcript IS NULL                   THEN 'not_provided'
@@ -789,9 +877,7 @@ BEGIN
         'transcript_retained', (v_outcome = 'retained'),
         'retention', COALESCE(
             v_retention,
-            CASE WHEN v_subtxn_failed
-                 THEN jsonb_build_object('status', 'error', 'sqlstate', v_retention_error)
-                 ELSE jsonb_build_object('status', 'skipped', 'reason', 'not_an_eligible_completion') END)
+            jsonb_build_object('status', 'skipped', 'reason', 'not_an_eligible_completion'))
     );
 END;
 $$;
@@ -1086,7 +1172,11 @@ BEGIN
      */
     IF v_writes_transcript
        AND v_initial_at_cap
-       AND COALESCE(v_retention->>'status', 'error') <> 'converged' THEN
+       AND COALESCE(v_retention->>'status', 'error') <> 'converged'
+       AND NOT (
+         v_retention->>'status' = 'deferred'
+         AND v_retention->>'reason' IN ('retention_not_activated', 'retention_not_armed')
+       ) THEN
         RAISE EXCEPTION 'create_session_and_update_usage: transcript retention did not converge (status=%)',
             COALESCE(v_retention->>'status', 'error')
             USING ERRCODE = '55000';

@@ -46,6 +46,8 @@ describe('storage.ts validation', () => {
         } as unknown as Partial<PracticeSession> & { user_id: string };
 
         const result = await saveSession(sessionData, mockUser as unknown as UserProfile);
+        expect(result.status).toBe('saved');
+        if (result.status !== 'saved') throw new Error('expected successful save');
         expect(result.session).toBeDefined();
         expect(mockRpc).toHaveBeenCalled();
         const payload = mockRpc.mock.calls[0][1] as { p_session_data: Record<string, unknown> };

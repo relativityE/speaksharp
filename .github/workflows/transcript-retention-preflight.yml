@@ -92,7 +92,7 @@ jobs:
           # `tests/db/transcript-retention-newest-one.integration.test.ts`, which recomputes it and fails
           # if this value drifts. It is not transcribed from anywhere. The historical newest-two digest
           # was 029a72bf14bfd2ab18260c6477c56493 and is pinned in the newest-two identity test.
-          EXPECTED_PREFLIGHT_FUNCTION_MD5: e3b62348891251edb333907d927485e4
+          EXPECTED_PREFLIGHT_FUNCTION_MD5: 8591a125c886da3063c05aafdf73e324
         run: |
           set -euo pipefail
           [ -n "${PREFLIGHT_READONLY_DB_URL:-}" ] || { echo "::error::PREFLIGHT_READONLY_DB_URL secret missing"; exit 1; }
@@ -119,6 +119,7 @@ jobs:
           import sys, json
           v = json.loads(sys.stdin.read())
           assert v["policy_version"] == "newest_one_v1", "unexpected policy version"
+          assert v["identity"]["activation_status"] == "installed_inert", "policy must remain inert before PO activation"
           assert v["status"] in ("ready", "blocked"), "bad status"
           for grp in ("counts", "contradictions", "simulation"):
               for k, val in v[grp].items():
