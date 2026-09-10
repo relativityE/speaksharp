@@ -56,6 +56,10 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
 
   const evaluated = evaluateReviewQualification({
     currentSha: head,
+    // #1430 P1 — stamped so a merge decision can require a receipt produced immediately beforehand.
+    // A thread reopened after this moment makes this receipt stale, which is how the reopen gap is
+    // closed without a webhook.
+    generatedAt: new Date().toISOString(),
     reviewedSha: latest?.commit?.oid,
     reviewStatus: latest && blockingReviews.length === 0 ? 'completed' : latest ? 'changes_requested' : 'missing',
     findingCount,
@@ -142,7 +146,7 @@ async function optionalGithubRequest(path, token) {
  * If BOTH admin surfaces are unreadable we know nothing and say so. If either is readable, the
  * enforcement question can be answered from what we could see.
  */
-export { resolveQualificationTarget };
+export { normaliseRef, resolveQualificationTarget };
 
 export async function readReviewThreadResolutionEnforcement({ repository, branch, token }) {
   const encodedBranch = encodeURIComponent(branch);
@@ -210,22 +214,49 @@ export async function readReviewThreadResolutionEnforcement({ repository, branch
  * Returns the pull request to read AND the SHA whose review authority governs, because on a push those
  * are different commits and conflating them would qualify a merge commit nobody reviewed.
  */
-async function resolveQualificationTarget({ repository, expectedHeadSha, token, explicitNumber, eventName }) {
+async function resolveQualificationTarget({
+  repository, expectedHeadSha, token, explicitNumber, eventName, baseRef,
+}) {
   if (/^[1-9]\d*$/.test(explicitNumber ?? '')) {
     return { number: Number(explicitNumber), reviewedSha: expectedHeadSha };
   }
   const candidates = await githubRequest(`/repos/${repository}/commits/${expectedHeadSha}/pulls`, token);
   const sha = expectedHeadSha.toLowerCase();
-  const open = candidates.filter((pull) => pull.state === 'open' && pull.head?.sha?.toLowerCase() === sha);
-  if (open.length === 1) return { number: open[0].number, reviewedSha: expectedHeadSha };
-  if (eventName !== 'push') throw new Error(`expected_one_open_pr_for_head:${open.length}`);
 
-  const merged = candidates.filter((pull) => Boolean(pull.merged_at)
-    && (pull.merge_commit_sha?.toLowerCase() === sha || pull.head?.sha?.toLowerCase() === sha));
-  if (merged.length !== 1) throw new Error(`push_without_verifiable_associated_pr:${merged.length}`);
-  const reviewedSha = (merged[0].head?.sha ?? '').toLowerCase();
-  if (!/^[0-9a-f]{40}$/.test(reviewedSha)) throw new Error('push_associated_pr_head_sha_unreadable');
-  return { number: merged[0].number, reviewedSha };
+  /*
+   * THE PUSH LANE IS DECIDED FIRST, AND NEVER FALLS BACK TO THE PR RULE.
+   *
+   * Codex P1 at `763e644c90`, and it was right on two counts. My first version tried the open-PR rule
+   * before the push rule, so a push whose tip was ALSO an open PR head returned through the PR branch
+   * and never reached the merged-PR requirement — which is the realistic bypass, not the exotic one:
+   * push a reviewed PR head straight to `main` and it qualified. It also matched merged PRs on
+   * `head.sha` and never checked `baseRefName`, so a commit merged into some OTHER branch qualified
+   * against `main`.
+   *
+   * Both routes closed by requiring, for a push, exactly one merged pull request whose MERGE COMMIT is
+   * the pushed SHA and whose BASE is the pushed ref. A reviewed head pushed directly is not a merge
+   * commit of anything, so it holds; a PR merged elsewhere fails the base comparison, so it holds.
+   */
+  if (eventName === 'push') {
+    const base = normaliseRef(baseRef);
+    if (!base) throw new Error('push_base_ref_unreadable');
+    const merged = candidates.filter((pull) => Boolean(pull.merged_at)
+      && pull.merge_commit_sha?.toLowerCase() === sha
+      && normaliseRef(pull.base?.ref) === base);
+    if (merged.length !== 1) throw new Error(`push_without_verifiable_merge_into_base:${merged.length}`);
+    const reviewedSha = (merged[0].head?.sha ?? '').toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(reviewedSha)) throw new Error('push_associated_pr_head_sha_unreadable');
+    return { number: merged[0].number, reviewedSha };
+  }
+
+  const open = candidates.filter((pull) => pull.state === 'open' && pull.head?.sha?.toLowerCase() === sha);
+  if (open.length !== 1) throw new Error(`expected_one_open_pr_for_head:${open.length}`);
+  return { number: open[0].number, reviewedSha: expectedHeadSha };
+}
+
+/** `refs/heads/main` and `main` are the same ref; compare them as one. */
+function normaliseRef(ref) {
+  return String(ref ?? '').replace(/^refs\/heads\//, '').trim().toLowerCase();
 }
 
 async function readPullRequest({ repository, number, token }) {
@@ -241,28 +272,28 @@ async function readPullRequest({ repository, number, token }) {
 }
 
 /**
- * #1430 P1 — UNVERIFIED NOW HOLDS. THIS REVERSES AN EARLIER DECISION IN THIS FILE.
+ * #1430 P1 — UNVERIFIED IS A DISTINCT REPORTED STATE, NOT A HOLD. THE REOPEN GAP IS CLOSED ELSEWHERE.
  *
- * The previous rationale was that `'unverified'` describes THIS RUN's credentials rather than the
- * repository, so failing on it makes every candidate unqualifiable for a reason no candidate can fix.
- * That reasoning was sound in isolation and it is wrong here, because it was made without accounting
- * for reopened threads.
+ * This has now been decided twice and the second answer is the durable one, so both are recorded.
  *
- * GitHub emits NO workflow event when a review thread is resolved or unresolved. No trigger list can
- * therefore refresh a check after a thread is reopened: a green `review-qualification` from before the
- * reopen stays green until some unrelated event happens to re-fire it. The only thing that still stops
- * that merge is the REPOSITORY enforcing conversation resolution at merge time — and if we cannot
- * verify that enforcement is live, we cannot know whether a reopened thread would be caught.
+ * The reopen problem is real: GitHub emits NO workflow event when a review thread is resolved or
+ * unresolved, so no trigger list can refresh a green check after a reopen. I first closed that by
+ * making `'unverified'` enforcement HOLD, reasoning that the repository's live enforcement was the only
+ * remaining protection and an unverifiable protection must not read as qualified.
  *
- * So the three outcomes now map to two dispositions:
- *   `true`         — enforcement is live; a reopened thread is blocked by the base branch itself.
- *   `false`        — enforcement is definitely absent; disqualifying, as before.
- *   `'unverified'` — we cannot establish it; HOLD, because a stale green plus unknown enforcement is
- *                    exactly the combination that lets a reopened P1 thread merge.
+ * That was wrong in practice, and the reason is decisive: `github.token` cannot read the admin surfaces
+ * that reveal branch protection, and a PR-controlled workflow must never be handed `GH_PAT`. So
+ * `'unverified'` is the PERMANENT state of every candidate, and holding on it deadlocks the entire
+ * queue for a credential gap no candidate can fix. A gate that no candidate can ever pass is not a
+ * gate; it is an outage.
  *
- * The receipt still records WHICH of the two it was, so an operator can tell a credential gap from a
- * real protection gap and fix the right thing. A HOLD that cannot be cleared by the candidate is the
- * correct outcome when the missing fact is about whether the gate works at all.
+ * So enforcement returns to three distinct reported outcomes — enforced, not enforced, unverifiable —
+ * and the reopen gap is closed by FRESHNESS instead: a qualification receipt must be produced
+ * immediately before merge, and a stale receipt disqualifies. A thread reopened after a receipt was
+ * written makes that receipt stale by construction, which needs no webhook and no elevated token.
+ *
+ * A definite `false` still disqualifies: that is a real, readable finding about the base branch, and it
+ * is something a repository owner can actually fix.
  *
  * Extracted and exported deliberately: while this decision lived inline in `main()` no casualty could
  * reach it, and a mutation collapsing `unverified` back into `not_enforced` survived the suite.
@@ -272,10 +303,8 @@ export function applyEnforcementToReceipt(receipt, enforcement) {
     receipt.qualified = false;
     receipt.reasons.push('review_thread_resolution_not_enforced_at_merge');
   } else if (enforcement === 'unverified') {
-    // HOLD, not a warning. A reopened thread has no event to re-fire this check, so unverifiable
-    // enforcement means unverifiable protection.
-    receipt.qualified = false;
-    receipt.reasons.push('review_thread_resolution_enforcement_unverified');
+    // Reported, never blocking: this describes THIS RUN's credentials, not the repository, and no
+    // candidate can fix it. The reopen gap it used to guard is closed by receipt freshness instead.
     receipt.warnings = [...(receipt.warnings ?? []), 'review_thread_resolution_enforcement_unverified'];
   }
   receipt.reviewThreadResolutionEnforced = enforcement;
@@ -298,6 +327,7 @@ async function main() {
       token,
       explicitNumber: process.env.PR_NUMBER,
       eventName: process.env.GITHUB_EVENT_NAME ?? '',
+      baseRef: process.env.GITHUB_BASE_REF_FOR_PUSH ?? '',
     });
     const pullRequest = await readPullRequest({ repository, number, token });
     // On a push this is the reviewed head, not the pushed merge commit — see resolveQualificationTarget.

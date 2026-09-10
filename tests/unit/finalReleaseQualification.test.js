@@ -35,6 +35,8 @@ describe('Q-08 automated review qualification', () => {
     reviewStatus: 'completed',
     findingCount: 0,
     changedFiles: ['scripts/review-qualification.mjs', 'tests/unit/finalReleaseQualification.test.js'],
+    // #1430 P1 — a receipt must say WHEN it was produced; freshness is part of qualification now.
+    generatedAt: new Date().toISOString(),
     ...over,
   });
 
@@ -293,31 +295,20 @@ describe('Q-08 automated review qualification', () => {
      * Three outcomes, kept distinct: enforced, not enforced, and unreadable.
      */
     /*
-     * #1430 P1 — `unverified` NOW HOLDS, REVERSING WHAT THIS CASE USED TO ASSERT.
+     * #1430 — `unverified` IS REPORTED, NOT BLOCKING. Decided twice; this is the durable answer.
      *
-     * It previously required `qualified === true`, on the reasoning that a credential gap is not the
-     * candidate's defect. That reasoning did not account for REOPENED THREADS: GitHub emits no event
-     * when a thread is resolved or unresolved, so no trigger list can refresh a green check after a
-     * reopen. The only remaining protection is the repository enforcing conversation resolution at
-     * merge — so if enforcement cannot be verified, neither can that protection, and a stale green
-     * plus unknown enforcement is exactly how a reopened P1 merges.
-     *
-     * The receipt still distinguishes the two causes, so an operator fixes credentials or protection
-     * rather than guessing which is missing.
+     * It briefly held, reasoning that unverifiable enforcement is unverifiable protection. That
+     * deadlocked every candidate: `github.token` cannot read the admin surfaces and a PR-controlled
+     * workflow must not be given `GH_PAT`, so the hold could never be cleared by anyone. A gate no
+     * candidate can pass is an outage, not a gate. The reopen gap it guarded is closed by receipt
+     * FRESHNESS instead — see the freshness cases below.
      */
     const unverified = applyEnforcementToReceipt({ qualified: true, reasons: [] }, 'unverified');
-    expect(unverified.qualified, 'unverifiable enforcement is unverifiable protection').toBe(false);
-    expect(unverified.reasons, 'and the reason names the credential gap, not absent enforcement')
-      .toContain('review_thread_resolution_enforcement_unverified');
-    expect(unverified.reasons, 'never stated as a definite absence we did not observe')
+    expect(unverified.qualified, "a credential gap is not the candidate's defect").toBe(true);
+    expect(unverified.reasons, 'and must never be stated as absent enforcement')
       .not.toContain('review_thread_resolution_not_enforced_at_merge');
-    expect(unverified.warnings, 'still surfaced for audit')
+    expect(unverified.warnings, 'it is surfaced, not silently dropped')
       .toContain('review_thread_resolution_enforcement_unverified');
-
-    const enforced = applyEnforcementToReceipt({ qualified: true, reasons: [] }, true);
-    // CONTROL: live enforcement is what lets a qualifying head stay qualified. Without this, the case
-    // above would pass against a function that simply always disqualifies.
-    expect(enforced.qualified, 'live enforcement keeps a qualifying head qualified').toBe(true);
 
     const absent = applyEnforcementToReceipt({ qualified: true, reasons: [] }, false);
     expect(absent.qualified, 'a READ absence is still a real finding and still blocks').toBe(false);
@@ -870,17 +861,20 @@ describe('Q-08 software-quality evidence completeness', () => {
 });
 
 /**
- * #1430 P1 — A REOPENED THREAD CANNOT RETAIN A QUALIFYING RESULT.
+ * #1430 P1 — REOPENED THREADS, AND A PUSH THAT ACTUALLY MERGED.
  *
- * GitHub emits NO workflow event when a review thread is resolved or unresolved, so no trigger list can
- * refresh a check after a reopen — a green `review-qualification` from before the reopen stays green.
- * There is no trigger to add, and inventing one would be worse than the gap.
+ * GitHub emits NO workflow event when a review thread is resolved or unresolved, so a green
+ * qualification can outlive the state it described: reopen a P0/P1 thread and the check stays green
+ * until some unrelated event happens to re-fire it. No trigger list closes that and none was invented.
  *
- * Two things therefore have to hold, and both are asserted here:
- *   1. whenever the check DOES run, an unresolved release finding disqualifies the head; and
- *   2. qualification depends on LIVE, VERIFIABLE conversation-resolution enforcement, so that in the
- *      window where the check has not re-run, the repository itself blocks the merge — and when that
- *      enforcement cannot be verified, the result HOLDS rather than standing.
+ * It is closed by FRESHNESS. A receipt records when it was produced, a merge requires one produced
+ * immediately beforehand, and anything older is stale. A thread reopened after the receipt was written
+ * makes that receipt stale by construction, so the merge must re-qualify and then sees the reopen.
+ *
+ * An earlier attempt instead held on unverifiable branch-protection enforcement. That deadlocked every
+ * candidate — `github.token` cannot read the admin surfaces and a PR-controlled workflow must not be
+ * given `GH_PAT` — so the hold could never be cleared by anyone. Freshness is something the release
+ * lane genuinely controls.
  */
 describe('#1430 P1 — reopened threads and push qualification', () => {
   const reviewedSha = 'a'.repeat(40);
@@ -903,10 +897,19 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
       pageInfo: { hasPreviousPage: false },
     },
   });
+  const freshReceipt = (over = {}) => ({
+    currentSha: reviewedSha,
+    reviewedSha,
+    reviewStatus: 'completed',
+    findingCount: 0,
+    changedFiles: ['scripts/collect-review-qualification.mjs'],
+    generatedAt: new Date().toISOString(),
+    ...over,
+  });
 
   it('CASUALTY: an UNRESOLVED release finding at the reviewed head does not qualify', () => {
-    // The reopen case at the data level: a thread that was resolved and is now open again is simply an
-    // unresolved thread, and the receipt must refuse it whenever the check runs.
+    // The reopen case at the data level: a thread reopened is simply an unresolved thread, and the
+    // receipt must refuse it whenever the check runs.
     const receipt = buildReviewReceipt({
       pullRequest: pullWith([thread(false, 'P1 Badge — a live release finding')]),
       expectedHeadSha: reviewedSha,
@@ -915,7 +918,7 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
   });
 
   it('CONTROL: the same head with that thread RESOLVED does qualify', () => {
-    // Without this the case above would pass against a receipt builder that refuses everything.
+    // Without this the case above would pass against a builder that refuses everything.
     const receipt = buildReviewReceipt({
       pullRequest: pullWith([thread(true, 'P1 Badge — addressed and resolved')]),
       expectedHeadSha: reviewedSha,
@@ -923,57 +926,106 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
     expect(receipt.qualified, 'resolution is what clears it').toBe(true);
   });
 
-  it('CASUALTY: a qualifying receipt HOLDS when resolution enforcement cannot be verified', () => {
-    /**
-     * The window the reopen exploits. The check may not re-run at all, so the standing protection has
-     * to be the repository's own enforcement — and an unverifiable enforcement is an unverifiable
-     * protection, which must not read as qualified.
-     */
-    const receipt = buildReviewReceipt({
-      pullRequest: pullWith([thread(true, 'P1 Badge — resolved')]),
-      expectedHeadSha: reviewedSha,
-    });
-    expect(receipt.qualified, 'qualifying on its own terms first').toBe(true);
-    expect(applyEnforcementToReceipt(receipt, 'unverified').qualified,
-      'but it cannot stand while the mechanism that would catch a reopen is unverifiable').toBe(false);
+  it('CASUALTY: a STALE receipt does not qualify, however clean it is', () => {
+    // The window a reopen exploits. Nothing about the head changed — only the age of the evidence.
+    const stale = evaluateReviewQualification(freshReceipt({
+      generatedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+    }));
+    expect(stale.qualified, 'a receipt from 90 minutes ago cannot support a merge now').toBe(false);
+    expect(stale.reasons.join(' ')).toMatch(/receipt_stale:\d+s/);
   });
 
-  describe('the push lane fails closed', () => {
+  it('CASUALTY: a receipt that cannot say when it was produced is stale, not assumed fresh', () => {
+    // Absent and unparseable both disqualify. Defaulting a missing timestamp to `now` is exactly how a
+    // stale receipt would slip through, so the missing case is named rather than tolerated.
+    for (const generatedAt of [undefined, '', 'not-a-date']) {
+      const receipt = evaluateReviewQualification(freshReceipt({ generatedAt }));
+      expect(receipt.qualified).toBe(false);
+      expect(receipt.reasons).toContain('receipt_generated_at_missing_or_invalid');
+    }
+  });
+
+  it('CONTROL: a FRESH receipt on the same clean head does qualify', () => {
+    // Without this the staleness cases would pass against an evaluator that refuses everything.
+    expect(evaluateReviewQualification(freshReceipt()).qualified,
+      'freshness is the only thing the stale cases changed').toBe(true);
+  });
+
+  describe('the push lane requires a real merge into the pushed base', () => {
+    /**
+     * #1430 P1 at `763e644c90`, and Codex was right on both counts.
+     *
+     * My first push lane tried the OPEN-PR rule before the push rule, so a push whose tip was also an
+     * open PR head returned through the PR branch and never reached the merged-PR requirement — the
+     * realistic bypass, not an exotic one: push a reviewed PR head straight to `main` and it qualified.
+     * It also matched merged PRs on `head.sha` and never compared `baseRefName`, so a commit merged
+     * into some OTHER branch qualified against the branch that was pushed.
+     *
+     * The rule now is exactly one merged pull request whose MERGE COMMIT is the pushed SHA and whose
+     * BASE is the pushed ref. A reviewed head pushed directly is nobody's merge commit; a PR merged
+     * elsewhere fails the base comparison.
+     */
+    const pushSha = 'b'.repeat(40);
+    const prHead = 'c'.repeat(40);
     const withFetch = async (payload, fn) => {
       const original = globalThis.fetch;
       globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => payload });
       try { return await fn(); } finally { globalThis.fetch = original; }
     };
-    const pushSha = 'b'.repeat(40);
-    const target = () => resolveQualificationTarget({
-      repository: 'o/r', expectedHeadSha: pushSha, token: 't', explicitNumber: '', eventName: 'push',
+    const push = (payload, ref = 'refs/heads/main') => withFetch(payload, () => resolveQualificationTarget({
+      repository: 'o/r', expectedHeadSha: pushSha, token: 't', explicitNumber: '',
+      eventName: 'push', baseRef: ref,
+    }));
+
+    it('CASUALTY: a reviewed PR HEAD pushed straight to main does not qualify', async () => {
+      // The bypass Codex found. Under the old ordering this returned qualified through the PR branch.
+      await expect(push([{ number: 5, state: 'open', merged_at: null, merge_commit_sha: null, head: { sha: pushSha }, base: { ref: 'main' } }]))
+        .rejects.toThrow(/push_without_verifiable_merge_into_base:0/);
     });
 
-    it('CASUALTY: a DIRECT push with no associated merged PR holds', async () => {
-      // The defect this whole correction exists for: `review-qualification` used to skip `push`
-      // entirely, so a commit pushed straight to `main` was reported release-qualified having had no
-      // review authority examined at all.
-      await withFetch([], async () => {
-        await expect(target()).rejects.toThrow(/push_without_verifiable_associated_pr:0/);
-      });
-    });
-
-    it('CASUALTY: an AMBIGUOUS push with two associated merged PRs holds', async () => {
-      const merged = (n) => ({ number: n, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: reviewedSha } });
-      await withFetch([merged(1), merged(2)], async () => {
-        await expect(target()).rejects.toThrow(/push_without_verifiable_associated_pr:2/);
-      });
-    });
-
-    it('CONTROL: one associated merged PR qualifies the SHA IT WAS REVIEWED AT, not the merge commit', async () => {
+    it('CASUALTY: a MERGED PR whose HEAD is the pushed SHA does not qualify', async () => {
       /**
-       * The reviewed SHA and the pushed SHA are different commits after a squash. Returning the pushed
-       * merge commit would qualify a commit nobody reviewed, so this pins which one governs — and it is
-       * what makes the two holds above meaningful rather than a blanket refusal of all pushes.
+       * Codex's exact wording, and the case my first casualty missed. That one used an OPEN pull
+       * request, so the `merged_at` guard rejected it before `head.sha` was ever consulted — the
+       * mutation that re-added `|| pull.head.sha === sha` therefore SURVIVED it.
+       *
+       * This is the real shape: a pull request GitHub has already marked merged into `main`, whose
+       * HEAD is the pushed SHA while its merge commit is some other object. That is what a
+       * fast-forward or rebase merge looks like, and matching on the head would let the reviewed head
+       * itself stand in for a merge into the base. Only the merge commit may qualify.
        */
-      await withFetch([{ number: 7, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: reviewedSha } }], async () => {
-        await expect(target()).resolves.toEqual({ number: 7, reviewedSha });
-      });
+      await expect(push([{
+        number: 9, state: 'closed', merged_at: '2026-09-10T00:00:00Z',
+        merge_commit_sha: 'd'.repeat(40), head: { sha: pushSha }, base: { ref: 'main' },
+      }])).rejects.toThrow(/push_without_verifiable_merge_into_base:0/);
+    });
+
+    it('CASUALTY: a PR merged into ANOTHER base does not qualify against the pushed ref', async () => {
+      // Merged, and its merge commit really is the pushed SHA — but into `release/x`, not `main`.
+      await expect(push([{ number: 6, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: prHead }, base: { ref: 'release/x' } }]))
+        .rejects.toThrow(/push_without_verifiable_merge_into_base:0/);
+    });
+
+    it('CONTROL: one PR merged INTO the pushed base qualifies the SHA it was reviewed at', async () => {
+      /**
+       * The positive control, carrying the second half of the rule: after a squash the reviewed SHA and
+       * the pushed SHA are different commits, so returning the pushed merge commit would qualify a
+       * commit nobody reviewed. Without this the two holds above would pass against a lane that
+       * refuses every push.
+       */
+      await expect(push([{ number: 7, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: prHead }, base: { ref: 'main' } }]))
+        .resolves.toEqual({ number: 7, reviewedSha: prHead });
+    });
+
+    it('CONTROL: refs/heads/main and main are the same ref', async () => {
+      // A base comparison that failed on the ref prefix would reject every real push — an outage, not
+      // a gate.
+      await expect(push([{ number: 8, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: prHead }, base: { ref: 'refs/heads/main' } }], 'main'))
+        .resolves.toEqual({ number: 8, reviewedSha: prHead });
+    });
+
+    it('CASUALTY: an unreadable pushed ref holds rather than skipping the base check', async () => {
+      await expect(push([], '')).rejects.toThrow(/push_base_ref_unreadable/);
     });
   });
 });

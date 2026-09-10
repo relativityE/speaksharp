@@ -779,6 +779,9 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
+          # The pushed ref, so the push lane can require the associated PR's base to MATCH it. Without
+          # this a PR merged into another branch would qualify against the branch that was pushed.
+          GITHUB_BASE_REF_FOR_PUSH: ${{ github.ref }}
           REVIEW_QUALIFICATION_FILE: ${{ runner.temp }}/review-qualification.json
         run: node scripts/collect-review-qualification.mjs
       - name: Upload qualified exact-head review receipt

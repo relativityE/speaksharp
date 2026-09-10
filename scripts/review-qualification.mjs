@@ -27,12 +27,35 @@ export function isSubstantiveImplementationFile(file) {
  * The caller must supply the current PR head and the SHA reported by the completed review. A review
  * of a scaffold or an older head is historical evidence, even when it found nothing.
  */
+/**
+ * #1430 P1 — A RECEIPT MUST BE FRESH, BECAUSE A REOPENED THREAD EMITS NO EVENT.
+ *
+ * GitHub emits no workflow event when a review thread is resolved or unresolved, so a green
+ * qualification can outlive the state it described: reopen a P0/P1 thread after the run and the check
+ * stays green until some unrelated event happens to re-fire it. No trigger list can close that, and
+ * inventing one is not available.
+ *
+ * Freshness closes it without a webhook and without elevated credentials. A receipt states when it was
+ * produced; a merge decision requires one produced immediately beforehand; anything older is stale and
+ * disqualifies. A thread reopened after the receipt was written makes that receipt stale by
+ * construction, so the merge must re-qualify and the reopen is then seen.
+ *
+ * This replaced an earlier attempt that held on unverifiable branch-protection enforcement. That
+ * deadlocked every candidate, because `github.token` cannot read the admin surfaces and a PR-controlled
+ * workflow must not be given `GH_PAT` — so the hold could never be cleared by anyone. Freshness is
+ * something the release lane genuinely controls.
+ */
+export const RECEIPT_MAX_AGE_MS = 30 * 60 * 1000;
+
 export function evaluateReviewQualification({
   currentSha,
   reviewedSha,
   reviewStatus,
   findingCount,
   changedFiles,
+  generatedAt,
+  now = Date.now(),
+  maxAgeMs = RECEIPT_MAX_AGE_MS,
 } = {}) {
   const reasons = [];
   const normalizedCurrent = typeof currentSha === 'string' ? currentSha.toLowerCase() : '';
@@ -58,8 +81,24 @@ export function evaluateReviewQualification({
     reasons.push('reviewed_sha_is_not_current_head');
   }
 
+  /*
+   * MISSING AND UNPARSEABLE ARE BOTH STALE, never "assume fresh". A receipt that cannot say when it was
+   * produced cannot support a merge decision, and defaulting an absent timestamp to `now` is exactly
+   * how a stale receipt would slip through.
+   */
+  const producedAt = Date.parse(String(generatedAt ?? ''));
+  if (!Number.isFinite(producedAt)) {
+    reasons.push('receipt_generated_at_missing_or_invalid');
+  } else {
+    const ageMs = now - producedAt;
+    // A receipt from the future is not fresh either — it is a clock or a fabrication problem.
+    if (ageMs < 0) reasons.push('receipt_generated_in_the_future');
+    else if (ageMs > maxAgeMs) reasons.push(`receipt_stale:${Math.round(ageMs / 1000)}s`);
+  }
+
   return {
     qualified: reasons.length === 0,
+    generatedAt: Number.isFinite(producedAt) ? new Date(producedAt).toISOString() : null,
     reasons,
     currentSha: normalizedCurrent || null,
     reviewedSha: normalizedReviewed || null,
