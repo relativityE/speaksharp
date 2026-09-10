@@ -434,6 +434,25 @@ export class SpeechRuntimeController {
          * separate those takes, and they are exactly what `stopStillOwnsSharedState` already compares.
          */
         const armedByFull = this.finalizingOwner;
+        /**
+         * #1431 P1 — STRICT IDENTITY IS NOT OPTIONAL.
+         *
+         * This was `if (armedByFull && capturedOwner)`, so a call arriving WITHOUT a captured
+         * authority skipped the full-identity comparison entirely and fell through to the
+         * version-only check below, which defaults `owner` to the LIVE lifecycle version. That is
+         * exactly the comparison this correction exists to replace: a take that supplies nothing gets
+         * a weaker test than one that supplies its authority. Every stop path already passes its
+         * captured `StopAuthority`, so requiring it costs nothing and removes the soft path.
+         */
+        if (armedByFull && !capturedOwner) {
+            pushNativeRuntimeTrace('controller_finalizing_release_refused', {
+                reason,
+                cause: 'no_captured_authority',
+                armedByLifecycle: armedByFull.lifecycleVersion,
+                live: this.lifecycleVersion,
+            });
+            return false;
+        }
         if (armedByFull && capturedOwner) {
             const sameTake = armedByFull.lifecycleVersion === capturedOwner.lifecycleVersion
                 && armedByFull.serviceGeneration === capturedOwner.serviceGeneration
@@ -2931,8 +2950,39 @@ export class SpeechRuntimeController {
         this.producerIntegrityTeardown = null;
         this.resetTranscriptLifecycle();
         store.updateTranscript('', '');
-        store.freezeTranscriptAtStop(null);
-        store.setTranscriptFinalizing(false);
+        /**
+         * #1431 P1 — THE THIRD WRITER. A NEW RECORDING MAY NOT REAP A LIVE OWNER'S STATE.
+         *
+         * `isTranscriptFinalizing` has three writers of `false`: `releaseFinalizingIfOwner()`, the
+         * terminal reducer branch, and this one. Owner-scoping the first two left this one clearing
+         * BOTH the latch and the frozen transcript unconditionally, with no owner check — so the claim
+         * in those two comments, that release belongs solely to `releaseFinalizingIfOwner()`, was still
+         * untrue. This is the third time on this lane that I closed the door that was named and left
+         * another open.
+         *
+         * The reachable path is not hypothetical and does not need a race with an outside caller:
+         * `transition()` fires `void this.startRecording(...)` on the `resumingFromPreparation` branch
+         * about fifty lines after the reducer above deferred the latch release to its owner, and
+         * `startRecording()` calls this reset before any fence. Only command-queue ordering separated
+         * the deferral from the reap.
+         *
+         * It also left the two halves inconsistent: clearing the latch without clearing
+         * `this.finalizingOwner` leaves an owner recorded for a latch that is already down, and every
+         * later terminal transition then defers to an owner that will never release — the stuck banner,
+         * reintroduced from the other side.
+         *
+         * So while an owner exists, this reset touches neither. The owning stop still holds both, and
+         * `releaseFinalizingIfOwner()` remains the only path that hands them back.
+         */
+        if (this.finalizingOwner === null) {
+            store.freezeTranscriptAtStop(null);
+            store.setTranscriptFinalizing(false);
+        } else {
+            pushNativeRuntimeTrace('controller_new_recording_reset_preserved_owned_finalization', {
+                armedByVersion: this.finalizingOwnerVersion,
+                live: this.lifecycleVersion,
+            });
+        }
         store.updateFillerData({});
         // #1306 Option A: drop the prior take's terminal metric snapshot so it never lingers onto a new session.
         store.setFinalizedWordCount(null);
@@ -3377,6 +3427,66 @@ export class SpeechRuntimeController {
          */
         carriedSettlement?: IntentSettlement,
     ): Promise<void> {
+        /**
+         * #1431 P1 — THE CONTROLLER ENTRY FENCE. NO START OVER A LIVE FINALIZATION OWNER.
+         *
+         * `isTranscriptFinalizing` is the start guard in `useSessionLifecycle`, but only ONE of the
+         * five non-test callers of this method goes through that hook. The one that matters is inside
+         * `transition()` itself: the `resumingFromPreparation` branch fires `void this.startRecording(…)`
+         * about fifty lines after the terminal reducer deferred the latch release to its owner. Only
+         * command-queue ordering separated the deferral from the new take.
+         *
+         * Fencing `resetAnalysisStateForNewRecording()` alone was not enough and is not what this
+         * replaces. That would preserve the owner's TEXT while still admitting an overlapping take —
+         * two recordings live against one session, which is the condition the latch exists to prevent.
+         * The refusal has to be here, at the first controller entry boundary.
+         *
+         * BEFORE ANY SHARED MUTATION, deliberately: ahead of the candidate-identity gate below, which
+         * emits governed telemetry and writes `sttStatus`. A refused start must leave no trace on the
+         * owner's session — no telemetry, no reset, no service, no lock, no store write.
+         *
+         * A resumed attempt REJECTS its carried settlement rather than resolving: the original click
+         * did not get a recording, and resolving would report success for a take that never began. A
+         * fresh direct caller throws for the same reason. Neither is the no-op that a double-click on
+         * an already-running recording legitimately is.
+         */
+        /**
+         * KEYED ON THE LIVE LATCH, NOT THE RECORDED OWNER ALONE.
+         *
+         * `finalizingOwner` is cleared in exactly one place — `releaseFinalizingIfOwner()`. A stop that
+         * ends without reaching it therefore leaves the record set forever, and a fence reading only
+         * that record would refuse EVERY subsequent Start for the life of the tab: the record control
+         * disabled with no way back, which is the unrecoverable lockout #1089 exists to prevent. My
+         * first version of this fence did exactly that, and the Progress suites caught it.
+         *
+         * What must be protected is a finalization that is actually in flight, and that is the LATCH.
+         * An owner recorded while the latch is already down is bookkeeping residue, not a live stop —
+         * it is cleared here so the inconsistency cannot accumulate, and the Start proceeds.
+         */
+        const finalizationInFlight = this.finalizingOwner !== null
+            && useSessionStore.getState().isTranscriptFinalizing === true;
+        if (this.finalizingOwner !== null && !finalizationInFlight) {
+            pushNativeRuntimeTrace('controller_start_cleared_stale_finalizing_owner', {
+                armedByVersion: this.finalizingOwnerVersion,
+                live: this.lifecycleVersion,
+            });
+            this.finalizingOwner = null;
+            this.finalizingOwnerVersion = null;
+        }
+        if (finalizationInFlight) {
+            pushNativeRuntimeTrace('controller_start_refused_finalization_owner_live', {
+                resumedFromPreparation,
+                armedByVersion: this.finalizingOwnerVersion,
+                live: this.lifecycleVersion,
+            });
+            const refusal = new Error('START_REFUSED_FINALIZATION_IN_PROGRESS');
+            if (resumedFromPreparation) {
+                carriedSettlement?.reject(refusal);
+                return;
+            }
+            throw refusal;
+        }
+
         // #1426 — THE SWITCH'S SUCCESS IS NOT THE TAKE'S AUTHORITY.
         //
         // A scored model-comparison take is admitted only after recomputing requested === observed ===
@@ -4202,6 +4312,14 @@ export class SpeechRuntimeController {
              * "may this stop still publish?" answerable after each one, instead of a warn-and-continue.
              */
             const stopAuthority = this.captureStopAuthority(token.version, this.service, this.sessionId);
+            /**
+             * #1431 P1 — set ONLY when the rightful owner performs its own terminal lifecycle advance.
+             *
+             * From that point `stopAuthority`/`token` are stale by design and would classify the owner
+             * as superseded. Null until then, so the pre-advance paths keep using the authority that is
+             * still correct for them.
+             */
+            let terminalTuple: { lifecycleVersion: number; serviceGeneration: number; service: TranscriptionService } | null = null;
             // #1089: this sits OUTSIDE the try below, and setTranscriptFinalizing(true) has already run.
             // A throw here would leave finalization latched true forever — and finalization now disables
             // the record control, so that is an unrecoverable lockout rather than a cosmetic flag leak.
@@ -5018,6 +5136,20 @@ export class SpeechRuntimeController {
                  */
                 this.lifecycleVersion++;
                 const terminalOwnerVersion = this.lifecycleVersion;
+                /**
+                 * #1431 P1 — PUBLISHED TO THE CATCH, because after this line `stopAuthority` is stale
+                 * BY DESIGN. The rightful owner advanced the lifecycle itself to fence its own
+                 * destroyed service, so `stopStillOwnsSharedState(stopAuthority, token)` compares a
+                 * PRE-increment token against a POST-increment lifecycle and necessarily fails for the
+                 * owner. A destroy rejection therefore reached the catch, was classified stale, skipped
+                 * FAILED/recovery publication entirely, and left the controller sitting in STOPPING —
+                 * no error, no recovery draft, no way back for the user.
+                 */
+                terminalTuple = {
+                    lifecycleVersion: terminalOwnerVersion,
+                    serviceGeneration: this.serviceGeneration,
+                    service,
+                };
                 // Scoped here too, for one expression of the rule rather than two. On this path it is
                 // equivalent to the unconditional stop — ownership was just established and there is no
                 // await between — so a mutant swapping it survives. Noted rather than presented as
@@ -5147,7 +5279,31 @@ export class SpeechRuntimeController {
                  * saying so is A's to do — addressed by the id CAPTURED at stop entry, never the live
                  * one. It then rethrows, so its caller still sees the failure, and touches nothing else.
                  */
-                if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
+                /**
+                 * #1431 P1 — CLASSIFY WITH THE TUPLE THAT IS ACTUALLY CURRENT.
+                 *
+                 * Before the rightful owner's own terminal lifecycle advance, `stopAuthority` + `token`
+                 * is the right authority. After it, that pair is stale BY CONSTRUCTION — the owner
+                 * incremented the lifecycle itself to fence its destroyed service — so
+                 * `stopStillOwnsSharedState` compares a PRE-increment token against a POST-increment
+                 * lifecycle and necessarily fails for the owner. A `destroy()` rejection therefore
+                 * reached here, was classified stale, skipped FAILED/recovery publication entirely, and
+                 * left the controller sitting in STOPPING: no error, no recovery draft, no way back.
+                 *
+                 * `terminalTuple` is set only by that advance, so its presence is exactly the signal
+                 * for which comparison applies. Every term stays load-bearing — lifecycle version,
+                 * service generation and strict service identity. A successor that swaps the service
+                 * WITHIN one lifecycle, which is what the candidate switch does, changes the
+                 * generation, so A still contains its own failure and leaves B untouched.
+                 */
+                const ownsAfterTerminalAdvance = terminalTuple !== null
+                    && this.lifecycleVersion === terminalTuple.lifecycleVersion
+                    && this.serviceGeneration === terminalTuple.serviceGeneration
+                    && (this.service === null || this.service === terminalTuple.service);
+                const stillOwnsForPublication = terminalTuple !== null
+                    ? ownsAfterTerminalAdvance
+                    : this.stopStillOwnsSharedState(stopAuthority, token);
+                if (!stillOwnsForPublication) {
                     pushNativeRuntimeTrace('controller_stop_error_publication_refused', {
                         capturedLifecycle: stopAuthority.lifecycleVersion,
                         liveLifecycle: this.lifecycleVersion,
@@ -5181,7 +5337,14 @@ export class SpeechRuntimeController {
                         }, '[SpeechRuntimeController] Failed to mark session failed after stopRecording error');
                     });
                 }
-                await this.transition('FAILED', err as Error, token);
+                /**
+                 * #1431 P1 — NOT THE STALE TOKEN. `token.version` is pre-increment, so passing it here
+                 * after the owner's own advance sends the transition down the stale-token branch, which
+                 * returns before publishing anything. The owner would have been refused its own FAILED
+                 * state. After a terminal advance the tuple check above IS the revalidation, so the
+                 * transition runs unscoped; before one, the token is still current and is still used.
+                 */
+                await this.transition('FAILED', err as Error, terminalTuple !== null ? undefined : token);
                 this.releaseFinalizingIfOwner('stop_failed', stopAuthority.lifecycleVersion, stopAuthority);
                 if (err instanceof FinalizationTimeoutError) {
                     // #1089: name the real failure instead of hanging on Finalizing… forever. The control
