@@ -12,6 +12,7 @@
  *
  * Usage:
  *   node scripts/human-test/observe-take.mjs --candidate <id> --release <sha>
+ *     --journey <open_mic|focus_points>
  *     --authorization </absolute/path/to/signed-envelope.json> [--port 9222]
  *     [--app https://speaksharp-public.vercel.app] [--out product_release/evidence/...] [--dry-run]
  */
@@ -32,13 +33,14 @@ const flag = (name) => process.argv.includes(`--${name}`);
 const PORT = Number(arg('port', '9222'));
 const APP = arg('app', 'https://speaksharp-public.vercel.app');
 const CANDIDATE = arg('candidate');
+const JOURNEY = arg('journey');
 const RELEASE = arg('release');
 const AUTHORIZATION_PATH = arg('authorization');
 const OUT = arg('out', `product_release/evidence/human-test/receipt-${Date.now()}.json`);
 const DRY_RUN = flag('dry-run');
 
-if (!CANDIDATE || !RELEASE || !AUTHORIZATION_PATH) {
-    console.error('required: --candidate <id> --release <sha> --authorization <signed-envelope.json>');
+if (!CANDIDATE || !['open_mic', 'focus_points'].includes(JOURNEY) || !RELEASE || !AUTHORIZATION_PATH) {
+    console.error('required: --candidate <id> --journey <open_mic|focus_points> --release <sha> --authorization <signed-envelope.json>');
     process.exit(2);
 }
 let signedAuthorization;
@@ -240,7 +242,7 @@ const main = async () => {
     if (!surfaceReady) throw new Error('model-comparison CDP surface did not install before the take');
 
     const switched = await client.send('Runtime.evaluate', {
-        expression: modelComparisonSwitchExpression(CANDIDATE),
+        expression: modelComparisonSwitchExpression(CANDIDATE, JOURNEY),
         returnByValue: true,
         awaitPromise: true,
     });

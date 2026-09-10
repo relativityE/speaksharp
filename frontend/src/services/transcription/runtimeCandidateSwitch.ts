@@ -26,7 +26,10 @@ import {
     CANDIDATES, UnknownCandidateError,
     type Candidate, type CandidateId, type EngineKind,
 } from './candidateRegistry';
-import { hasModelComparisonAuthorization } from './modelComparisonAuthorization';
+import {
+    consumeModelComparisonTakeAuthorization, hasModelComparisonAuthorization,
+    type ModelComparisonJourney,
+} from './modelComparisonAuthorization';
 
 /**
  * The engines the product facade can actually construct.
@@ -148,6 +151,7 @@ export async function switchCandidate(
      * added without a provider path would then fall through and run the configured model under its id.
      */
     candidates: typeof CANDIDATES = CANDIDATES,
+    requestedJourney?: ModelComparisonJourney,
 ): Promise<SwitchOutcome> {
     if (!runtimeCandidateAccessAllowed(_env)) {
         return {
@@ -183,6 +187,17 @@ export async function switchCandidate(
     const state = String(executor.currentState() ?? '');
     if (SWITCH_BLOCKING_STATES.includes(state)) {
         return { ok: false, code: 'busy', reason: `refused while ${state}: finish or stop the session first` };
+    }
+
+    // Internal builds are test-only and keep their multi-hop convenience. Canonical Production gets
+    // one signed candidate/journey row: the arm is consumed immediately before engine mutation.
+    if (_env.VITE_INTERNAL_BUILD !== 'true'
+        && !consumeModelComparisonTakeAuthorization(id, requestedJourney)) {
+        return {
+            ok: false,
+            code: 'not_armed',
+            reason: 'the signed Production authorization does not match this candidate/journey or was already used',
+        };
     }
 
     // Captured so the closure below cannot observe a later re-registration mid-switch.

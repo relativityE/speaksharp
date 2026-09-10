@@ -11,6 +11,7 @@ describe('#1432 signed CDP Production authorization', () => {
     payload: {
       version: 'speaksharp.model-comparison-authorization.v1', releaseSha: 'a'.repeat(40),
       origin: 'https://speaksharp-public.vercel.app', nonce: 'nonce-1234567890abcdef',
+      candidateId: 'v4:distil:q4', journey: 'open_mic',
       issuedAt: '2026-09-08T12:00:00.000Z', expiresAt: '2026-09-08T12:01:00.000Z',
     },
     signature: 'signed-envelope-value',
@@ -56,7 +57,7 @@ describe('#1432 signed CDP Production authorization', () => {
 
   it('the CDP switch applies the requested arm and reads all three identity terms', async () => {
     const candidate = 'v4:distil:q4';
-    globalThis.__SS_SWITCH_CANDIDATE__ = async (id) => ({ ok: true, candidate: id });
+    globalThis.__SS_SWITCH_CANDIDATE__ = async (id, journey) => ({ ok: true, candidate: id, journey });
     globalThis.__SS_ACTIVE_CANDIDATE__ = () => ({
       requested: candidate,
       observed: candidate,
@@ -64,9 +65,9 @@ describe('#1432 signed CDP Production authorization', () => {
       matches: true,
     });
     try {
-      const receipt = await new Function(`return ${modelComparisonSwitchExpression(candidate)}`)();
+      const receipt = await new Function(`return ${modelComparisonSwitchExpression(candidate, 'focus_points')}`)();
       expect(receipt).toEqual({
-        outcome: { ok: true, candidate },
+        outcome: { ok: true, candidate, journey: 'focus_points' },
         active: { requested: candidate, observed: candidate, expected: candidate, matches: true },
       });
     } finally {
@@ -81,7 +82,7 @@ describe('#1432 signed CDP Production authorization', () => {
     globalThis.__SS_SWITCH_CANDIDATE__ = async () => ({ ok: false, code: 'unknown_candidate' });
     globalThis.__SS_ACTIVE_CANDIDATE__ = () => null;
     try {
-      await new Function(`return ${modelComparisonSwitchExpression(hostile)}`)();
+      await new Function(`return ${modelComparisonSwitchExpression(hostile, 'open_mic')}`)();
       expect(globalThis.__escaped).toBe(true);
     } finally {
       delete globalThis.__escaped;

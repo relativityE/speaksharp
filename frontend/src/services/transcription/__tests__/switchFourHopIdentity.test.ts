@@ -65,7 +65,7 @@ const stubEngine = (): IPrivateSTTEngine => ({
 } as unknown as IPrivateSTTEngine);
 
 const active = () => (window as unknown as {
-    __SS_SWITCH_CANDIDATE__: (id: string) => Promise<{ ok: boolean; code?: string }>;
+    __SS_SWITCH_CANDIDATE__: (id: string, journey: 'open_mic' | 'focus_points') => Promise<{ ok: boolean; code?: string }>;
     __SS_ACTIVE_CANDIDATE__: () => { requested: string; observed: string | null; matches: boolean };
 });
 
@@ -87,9 +87,7 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
             const engine = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
             await engine.init();
         });
-        // No internal-build flag: this is the canonical-Production CDP path #1426 must expose.
-        const { env } = placeSignedAuthorization();
-        await installRuntimeCandidateSwitch(env);
+        // No internal-build flag: every hop below gets its own signed Production row.
     });
 
     afterEach(() => {
@@ -106,7 +104,9 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
     it('CASUALTY: every hop reaches READY with requested === observed', async () => {
         const seen: Array<{ requested: string; observed: string | null; matches: boolean }> = [];
         for (const id of SEQUENCE) {
-            const outcome = await active().__SS_SWITCH_CANDIDATE__(id);
+            const { env } = placeSignedAuthorization({ candidateId: id, nonce: `nonce-${id}-${Date.now()}` });
+            expect(await installRuntimeCandidateSwitch(env)).toBe(true);
+            const outcome = await active().__SS_SWITCH_CANDIDATE__(id, 'open_mic');
             expect(outcome.ok, `hop to ${id} failed: ${outcome.code}`).toBe(true);
             seen.push(active().__SS_ACTIVE_CANDIDATE__());
         }
@@ -123,13 +123,17 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
         // The dangerous residue: `resolvedEngine()` used to survive a failed switch, so the app kept
         // reporting the PREVIOUS model as the running one. An observed identity that outlives its engine
         // reads as evidence, which is worse than reporting nothing.
-        await active().__SS_SWITCH_CANDIDATE__('v4:distil:q4');
+        let authorization = placeSignedAuthorization({ candidateId: 'v4:distil:q4' });
+        expect(await installRuntimeCandidateSwitch(authorization.env)).toBe(true);
+        await active().__SS_SWITCH_CANDIDATE__('v4:distil:q4', 'open_mic');
         expect(active().__SS_ACTIVE_CANDIDATE__().observed).toBe('v4:distil:q4');
 
         (speechRuntimeController.initiateModelDownload as unknown as { mockImplementation: (f: () => Promise<void>) => void })
             .mockImplementation(async () => { throw new Error('engine failed to start'); });
 
-        const outcome = await active().__SS_SWITCH_CANDIDATE__('moonshine:streaming-medium');
+        authorization = placeSignedAuthorization({ candidateId: 'moonshine:streaming-medium' });
+        expect(await installRuntimeCandidateSwitch(authorization.env)).toBe(true);
+        const outcome = await active().__SS_SWITCH_CANDIDATE__('moonshine:streaming-medium', 'open_mic');
         expect(outcome.ok).toBe(false);
         const state = active().__SS_ACTIVE_CANDIDATE__();
         expect(state.observed, 'the outgoing model must not be reported as running').toBeNull();

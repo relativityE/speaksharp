@@ -7,24 +7,29 @@
  */
 
 export const MODEL_COMPARISON_AUTH_KEY = 'speaksharp.model-comparison.authorization';
+export const MODEL_COMPARISON_REPLAY_KEY = 'speaksharp.model-comparison.consumed.v1';
 const VERSION = 'speaksharp.model-comparison-authorization.v1';
 const MAX_TTL_MS = 5 * 60_000;
 const CLOCK_SKEW_MS = 30_000;
+const COMPARISON_CANDIDATES = new Set(['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium']);
+
+export type ModelComparisonJourney = 'open_mic' | 'focus_points';
 
 interface AuthorizationPayload {
     version: typeof VERSION;
     releaseSha: string;
     origin: string;
     nonce: string;
+    candidateId: string;
+    journey: ModelComparisonJourney;
     issuedAt: string;
     expiresAt: string;
 }
 
 interface SignedAuthorization { payload: AuthorizationPayload; signature: string }
 
-const consumed = new Set<string>();
-let authorized = false;
-let authorizedNonce: string | null = null;
+let armed: AuthorizationPayload | null = null;
+let activeNonce: string | null = null;
 
 const decodeBase64 = (value: string): ArrayBuffer => {
     const binary = atob(value.replace(/-/g, '+').replace(/_/g, '/'));
@@ -40,6 +45,8 @@ const serializedPayload = (payload: AuthorizationPayload): ArrayBuffer => {
         releaseSha: payload.releaseSha,
         origin: payload.origin,
         nonce: payload.nonce,
+        candidateId: payload.candidateId,
+        journey: payload.journey,
         issuedAt: payload.issuedAt,
         expiresAt: payload.expiresAt,
     }));
@@ -56,18 +63,47 @@ const validShape = (value: unknown): value is SignedAuthorization => {
         && typeof payload.releaseSha === 'string' && /^[0-9a-f]{40}$/.test(payload.releaseSha)
         && typeof payload.origin === 'string'
         && typeof payload.nonce === 'string' && /^[A-Za-z0-9._:-]{16,128}$/.test(payload.nonce)
+        && typeof payload.candidateId === 'string' && COMPARISON_CANDIDATES.has(payload.candidateId)
+        && (payload.journey === 'open_mic' || payload.journey === 'focus_points')
         && typeof payload.issuedAt === 'string' && typeof payload.expiresAt === 'string'
         && typeof auth.signature === 'string' && auth.signature.length > 20;
 };
 
-export function hasModelComparisonAuthorization(): boolean { return authorized; }
+export function hasModelComparisonAuthorization(): boolean { return armed !== null; }
 
 /**
  * Content-free join between the signed browser authorization and governed lifecycle telemetry.
  * This is deliberately the authorization nonce, never a user or database session identifier.
  */
 export function modelComparisonControlNonce(): string | null {
-    return authorized ? authorizedNonce : null;
+    return activeNonce;
+}
+
+type ReplayLedger = Record<string, string>;
+
+function claimDurableNonce(payload: AuthorizationPayload, root: typeof globalThis, now: number): boolean {
+    let storage: Storage;
+    try {
+        storage = root.localStorage;
+        const raw = storage.getItem(MODEL_COMPARISON_REPLAY_KEY);
+        const parsed = raw === null ? {} : JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+        const ledger = Object.fromEntries(Object.entries(parsed as ReplayLedger).filter(([, expiresAt]) =>
+            typeof expiresAt === 'string' && Number.isFinite(Date.parse(expiresAt)) && Date.parse(expiresAt) >= now - CLOCK_SKEW_MS,
+        ));
+        if (Object.prototype.hasOwnProperty.call(ledger, payload.nonce)) return false;
+        ledger[payload.nonce] = payload.expiresAt;
+        // This ledger is denial state, not authority: deleting it cannot mint a valid signature.
+        // The controlled test protocol permits one browser tab, so this also closes document reload
+        // replay without inventing a server-side capability service for the release experiment.
+        storage.setItem(MODEL_COMPARISON_REPLAY_KEY, JSON.stringify(ledger));
+        const persisted = JSON.parse(storage.getItem(MODEL_COMPARISON_REPLAY_KEY) ?? 'null') as ReplayLedger | null;
+        return persisted?.[payload.nonce] === payload.expiresAt;
+    } catch {
+        // Production comparison authority must survive a document/module replacement. If durable
+        // same-origin storage cannot make the nonce use visible to the next document, fail closed.
+        return false;
+    }
 }
 
 export async function consumeModelComparisonAuthorization(
@@ -75,13 +111,13 @@ export async function consumeModelComparisonAuthorization(
     root: typeof globalThis = globalThis,
     now = Date.now(),
 ): Promise<boolean> {
-    authorized = false;
-    authorizedNonce = null;
+    armed = null;
+    activeNonce = null;
     const carrier = root as unknown as Record<symbol, unknown>;
     const symbol = Symbol.for(MODEL_COMPARISON_AUTH_KEY);
     const value = carrier[symbol];
     try { delete carrier[symbol]; } catch { /* fail closed below */ }
-    if (!validShape(value) || consumed.has(value.payload.nonce)) return false;
+    if (!validShape(value)) return false;
 
     const release = (root as typeof globalThis & { __APP_RELEASE__?: string }).__APP_RELEASE__;
     const origin = (root as typeof globalThis & { location?: Location }).location?.origin;
@@ -100,16 +136,38 @@ export async function consumeModelComparisonAuthorization(
             { name: 'Ed25519' }, key, decodeBase64(value.signature), serializedPayload(value.payload),
         );
         if (!valid) return false;
-        consumed.add(value.payload.nonce);
-        authorizedNonce = value.payload.nonce;
-        authorized = true;
+        // Claim before exposing the surface. The module-private capability below is then usable for
+        // exactly one candidate/journey switch; the durable claim prevents the signed bearer from
+        // becoming fresh again after a reload or `vi.resetModules()`.
+        if (!claimDurableNonce(value.payload, root, now)) return false;
+        armed = value.payload;
         return true;
     } catch { return false; }
 }
 
+/** Consume the verified capability at the actual switch boundary, exactly once and for its signed row. */
+export function consumeModelComparisonTakeAuthorization(
+    candidateId: string,
+    journey: ModelComparisonJourney | undefined,
+    now = Date.now(),
+): boolean {
+    const capability = armed;
+    // Any attempt spends the module-private arm. A caller cannot probe alternate rows until one fits.
+    armed = null;
+    if (!capability || capability.candidateId !== candidateId || capability.journey !== journey) return false;
+    const expiresAt = Date.parse(capability.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt < now) return false;
+    activeNonce = capability.nonce;
+    return true;
+}
+
 /** Test-only reset; no Production caller can mint authority through it. */
 export function resetModelComparisonAuthorizationForTest(): void {
-    authorized = false;
-    authorizedNonce = null;
-    consumed.clear();
+    armed = null;
+    activeNonce = null;
+}
+
+/** Test-only reset of the off-module replay authority. */
+export function resetModelComparisonReplayLedgerForTest(root: typeof globalThis = globalThis): void {
+    try { root.localStorage.removeItem(MODEL_COMPARISON_REPLAY_KEY); } catch { /* no storage in this test */ }
 }

@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
-import { consumeModelComparisonAuthorization, modelComparisonControlNonce } from '../modelComparisonAuthorization';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+    consumeModelComparisonAuthorization, consumeModelComparisonTakeAuthorization,
+    modelComparisonControlNonce,
+} from '../modelComparisonAuthorization';
 import { authorizeProduction, placeSignedAuthorization, resetAuthorization } from './modelComparisonAuthorization.helper';
 
 describe('#1432 signed Production model-comparison authorization', () => {
@@ -9,6 +12,8 @@ describe('#1432 signed Production model-comparison authorization', () => {
     it('accepts one valid release/origin-bound Ed25519 envelope', async () => {
         const accepted = await authorizeProduction();
         expect(accepted.accepted).toBe(true);
+        expect(modelComparisonControlNonce()).toBeNull();
+        expect(consumeModelComparisonTakeAuthorization('v4:distil:q4', 'open_mic')).toBe(true);
         expect(modelComparisonControlNonce()).toBe(accepted.authorization.payload.nonce);
     });
 
@@ -28,6 +33,32 @@ describe('#1432 signed Production model-comparison authorization', () => {
             value: placed.authorization, configurable: true,
         });
         expect(await consumeModelComparisonAuthorization(placed.env, window)).toBe(false);
+    });
+
+    it('CASUALTY: replay stays refused after the module is replaced by a new document', async () => {
+        const placed = placeSignedAuthorization();
+        expect(await consumeModelComparisonAuthorization(placed.env, window)).toBe(true);
+        vi.resetModules();
+        Object.defineProperty(window, Symbol.for('speaksharp.model-comparison.authorization'), {
+            value: placed.authorization, configurable: true,
+        });
+        const replacement = await import('../modelComparisonAuthorization');
+        expect(await replacement.consumeModelComparisonAuthorization(placed.env, window)).toBe(false);
+    });
+
+    it('CASUALTY: one signed row authorizes exactly one matching switch', async () => {
+        await authorizeProduction();
+        expect(consumeModelComparisonTakeAuthorization('v4:distil:q4', 'open_mic')).toBe(true);
+        expect(consumeModelComparisonTakeAuthorization('v4:distil:q4', 'open_mic')).toBe(false);
+    });
+
+    it('CASUALTY: candidate or journey substitution spends and refuses the signed row', async () => {
+        await authorizeProduction();
+        expect(consumeModelComparisonTakeAuthorization('v2:base.en', 'open_mic')).toBe(false);
+        expect(consumeModelComparisonTakeAuthorization('v4:distil:q4', 'open_mic')).toBe(false);
+
+        await authorizeProduction({ nonce: `second-${Date.now()}-nonce`, journey: 'focus_points' });
+        expect(consumeModelComparisonTakeAuthorization('v4:distil:q4', 'open_mic')).toBe(false);
     });
 
     it('refuses a page-authored envelope with an arbitrary signature', async () => {

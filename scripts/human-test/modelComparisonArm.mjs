@@ -15,13 +15,13 @@ export function modelComparisonArmExpression(authorization) {
 }
 
 /** One CDP evaluation: switch the model, then read the page's independent identity receipt. */
-export function modelComparisonSwitchExpression(candidate) {
+export function modelComparisonSwitchExpression(candidate, journey) {
   return `(async () => {
     const w = globalThis;
     if (typeof w.__SS_SWITCH_CANDIDATE__ !== 'function' || typeof w.__SS_ACTIVE_CANDIDATE__ !== 'function') {
       return { outcome: { ok: false, code: 'surface_missing' }, active: null };
     }
-    const outcome = await w.__SS_SWITCH_CANDIDATE__(${JSON.stringify(candidate)});
+    const outcome = await w.__SS_SWITCH_CANDIDATE__(${JSON.stringify(candidate)}, ${JSON.stringify(journey)});
     return { outcome, active: w.__SS_ACTIVE_CANDIDATE__() };
   })()`;
 }

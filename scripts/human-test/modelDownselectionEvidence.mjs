@@ -141,7 +141,7 @@ function validateReceipt(receipt, row, releaseSha, path, problems) {
   expectEqual(receipt.persistedSessionId, row.persistedSessionId, `${path}.receipt.persistedSessionId`, problems);
 }
 
-function validateTelemetryReadback(readback, releaseSha, problems) {
+function validateTelemetryReadback(readback, releaseSha, telemetryResolver, problems) {
   const keys = ['source', 'queryId', 'decodedAt', 'positiveControlNonce', 'events'];
   if (!exactKeys(readback, keys, 'telemetryReadback', problems)) return [];
   expectEqual(readback.source, 'posthog_decoded_readback', 'telemetryReadback.source', problems);
@@ -155,6 +155,20 @@ function validateTelemetryReadback(readback, releaseSha, problems) {
   if (!Array.isArray(readback.events)) {
     problems.push('telemetryReadback.events must be an array');
     return [];
+  }
+
+  let authoritative = null;
+  if (typeof telemetryResolver !== 'function') {
+    problems.push('telemetryReadback has no independent PostHog authority resolver');
+  } else {
+    try { authoritative = telemetryResolver(readback.queryId); } catch {
+      problems.push('telemetryReadback could not be read from authenticated PostHog authority');
+    }
+  }
+  if (!isObject(authoritative)) {
+    problems.push('telemetryReadback is not present in authenticated PostHog authority');
+  } else if (JSON.stringify(stable(authoritative)) !== JSON.stringify(stable(readback))) {
+    problems.push('telemetryReadback differs from authenticated PostHog authority');
   }
 
   const eventKeys = [
@@ -216,6 +230,7 @@ function validateCandidateEvidence(rows, events, releaseSha, baseDir, problems) 
   const correlations = new Set();
   const receiptDigests = new Set();
   const exactKeysSeen = new Set();
+  const controlNonces = new Set();
 
   for (const [index, row] of rows.entries()) {
     const path = `candidateEvidence[${index}]`;
@@ -236,6 +251,10 @@ function validateCandidateEvidence(rows, events, releaseSha, baseDir, problems) 
     if (!Number.isInteger(row.attemptSeq) || row.attemptSeq < 1) problems.push(`${path}.attemptSeq must be positive`);
     if (typeof row.controlNonce !== 'string' || !TOKEN.test(row.controlNonce)) {
       problems.push(`${path}.controlNonce is invalid`);
+    } else if (controlNonces.has(row.controlNonce)) {
+      problems.push(`${path}.controlNonce reuses signed take authority ${row.controlNonce}`);
+    } else {
+      controlNonces.add(row.controlNonce);
     }
     if (typeof row.persistedSessionId !== 'string' || !TOKEN.test(row.persistedSessionId)) {
       problems.push(`${path}.persistedSessionId is invalid`);
@@ -303,11 +322,28 @@ function validateOutputShape(output, path, problems) {
   }
 }
 
-function validateGeminiEvidence(observations, requiredTakeKeys, problems) {
+function validateGeminiEvidence(observations, requiredTakeKeys, geminiResolver, problems) {
   if (!Array.isArray(observations)) {
     problems.push('geminiEvidence must be an array');
     return;
   }
+  let authoritative = null;
+  if (typeof geminiResolver !== 'function') {
+    problems.push('geminiEvidence has no trusted persisted-session authority resolver');
+  } else {
+    try { authoritative = geminiResolver(); } catch {
+      problems.push('geminiEvidence could not be read from trusted persisted-session authority');
+    }
+  }
+  if (!Array.isArray(authoritative)) {
+    problems.push('geminiEvidence is not present in trusted persisted-session authority');
+  }
+
+  const authorityBySession = new Map((Array.isArray(authoritative) ? authoritative : []).map((row) => [
+    row?.persistedSessionId,
+    row,
+  ]));
+
   const freshByTake = new Map();
   const quotaOrdinals = new Set();
   let validCacheReplay = false;
@@ -324,6 +360,23 @@ function validateGeminiEvidence(observations, requiredTakeKeys, problems) {
     if (!['fresh', 'cached'].includes(observation.source)) problems.push(`${path}.source is invalid`);
     expectEqual(observation.model, LOCKED_GEMINI_CONTRACT.model, `${path}.model`, problems);
     validateOutputShape(observation.output, `${path}.output`, problems);
+    const sessionAuthority = authorityBySession.get(observation.persistedSessionId);
+    if (!isObject(sessionAuthority)) {
+      problems.push(`${path} has no trusted readback for persisted session ${observation.persistedSessionId}`);
+    } else {
+      expectEqual(sessionAuthority.suggestionDigest, observation.output?.suggestionDigest,
+        `${path} trusted persisted-session suggestionDigest`, problems);
+      expectEqual(sessionAuthority.whatWorkedWhitespaceWords, observation.output?.whatWorkedWhitespaceWords,
+        `${path} trusted persisted-session whatWorkedWhitespaceWords`, problems);
+      expectEqual(sessionAuthority.whatToImproveWhitespaceWords, observation.output?.whatToImproveWhitespaceWords,
+        `${path} trusted persisted-session whatToImproveWhitespaceWords`, problems);
+      expectEqual(sessionAuthority.readable, observation.output?.readable,
+        `${path} trusted persisted-session readable`, problems);
+    }
+
+    // The trusted session readback proves that the exact coaching payload reached persistence.
+    // Provider/model/quota authority is deliberately owned by #1424/#1434 rather than copied into
+    // this credentialed database reader; this validator still enforces their packet contract below.
 
     if (observation.source === 'fresh') {
       expectEqual(observation.providerRequestMade, true, `${path}.providerRequestMade`, problems);
@@ -441,9 +494,9 @@ export function validateModelDownselectionEvidence(value, options = {}) {
   validateEnvironment(value.environment, problems);
   validateGeminiContract(value.geminiContract, problems);
   const releaseSha = typeof value.environment?.releaseSha === 'string' ? value.environment.releaseSha : '';
-  const events = validateTelemetryReadback(value.telemetryReadback, releaseSha, problems);
+  const events = validateTelemetryReadback(value.telemetryReadback, releaseSha, options.telemetryResolver, problems);
   const requiredTakeKeys = validateCandidateEvidence(value.candidateEvidence, events, releaseSha, baseDir, problems);
-  validateGeminiEvidence(value.geminiEvidence, requiredTakeKeys, problems);
+  validateGeminiEvidence(value.geminiEvidence, requiredTakeKeys, options.geminiResolver, problems);
   validateSelection(
     value.selection,
     completedEvidenceDigest(value),

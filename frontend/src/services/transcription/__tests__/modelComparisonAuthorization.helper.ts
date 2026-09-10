@@ -1,7 +1,7 @@
 import { generateKeyPairSync, sign } from 'node:crypto';
 import {
     MODEL_COMPARISON_AUTH_KEY, consumeModelComparisonAuthorization,
-    resetModelComparisonAuthorizationForTest,
+    resetModelComparisonAuthorizationForTest, resetModelComparisonReplayLedgerForTest,
 } from '../modelComparisonAuthorization';
 
 const RELEASE = 'a'.repeat(40);
@@ -14,6 +14,8 @@ export function placeSignedAuthorization(overrides: Record<string, unknown> = {}
         releaseSha: RELEASE,
         origin: window.location.origin,
         nonce: `nonce-${now}-${Math.random().toString(16).slice(2)}`,
+        candidateId: 'v4:distil:q4',
+        journey: 'open_mic',
         issuedAt: new Date(now - 1_000).toISOString(),
         expiresAt: new Date(now + 60_000).toISOString(),
         ...overrides,
@@ -34,6 +36,7 @@ export async function authorizeProduction(overrides: Record<string, unknown> = {
 
 export function resetAuthorization(): void {
     resetModelComparisonAuthorizationForTest();
+    resetModelComparisonReplayLedgerForTest(window);
     delete (window as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_AUTH_KEY)];
     delete (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__;
 }

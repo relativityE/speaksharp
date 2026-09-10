@@ -14,13 +14,15 @@ describe('#1432 model-comparison authorization signer', () => {
     const { privateKey, publicKey } = keys();
     const authorization = createModelComparisonAuthorization({
       releaseSha: 'a'.repeat(40), privateKey, now: Date.parse('2026-09-08T12:00:00.000Z'),
-      ttlSeconds: 90, nonce: 'signed-run-1234567890',
+      ttlSeconds: 90, nonce: 'signed-run-1234567890', candidateId: 'v4:distil:q4', journey: 'focus_points',
     });
     expect(authorization.payload).toEqual({
       version: MODEL_COMPARISON_AUTH_VERSION,
       releaseSha: 'a'.repeat(40),
       origin: MODEL_COMPARISON_PRODUCTION_ORIGIN,
       nonce: 'signed-run-1234567890',
+      candidateId: 'v4:distil:q4',
+      journey: 'focus_points',
       issuedAt: '2026-09-08T12:00:00.000Z',
       expiresAt: '2026-09-08T12:01:30.000Z',
     });
@@ -38,10 +40,13 @@ describe('#1432 model-comparison authorization signer', () => {
     ['zero TTL', { ttlSeconds: 0 }, /ttl-seconds/],
     ['overlong TTL', { ttlSeconds: 301 }, /ttl-seconds/],
     ['wrong key type', { privateKey: generateKeyPairSync('rsa', { modulusLength: 1024 }).privateKey }, /Ed25519/],
+    ['wrong candidate', { candidateId: 'v4:base:q4' }, /three comparison candidates/],
+    ['wrong journey', { journey: 'dashboard' }, /journey/],
   ])('fails closed on %s', (_label, override, message) => {
     const { privateKey } = keys();
     expect(() => createModelComparisonAuthorization({
-      releaseSha: 'b'.repeat(40), privateKey, nonce: 'signed-run-1234567890', ...override,
+      releaseSha: 'b'.repeat(40), privateKey, nonce: 'signed-run-1234567890',
+      candidateId: 'v4:distil:q4', journey: 'open_mic', ...override,
     })).toThrow(message);
   });
 });

@@ -14,6 +14,8 @@ const HASH = (character) => character.repeat(64);
 const ISO = '2026-09-07T12:00:00.000Z';
 const ARTIFACT_DIR = mkdtempSync(join(tmpdir(), 'speaksharp-model-evidence-'));
 const LIVE_APPROVALS = new Map();
+const LIVE_TELEMETRY = new Map();
+let LIVE_GEMINI = [];
 afterAll(() => rmSync(ARTIFACT_DIR, { recursive: true, force: true }));
 
 const writeArtifact = (name, value) => {
@@ -85,7 +87,7 @@ function validEvidence() {
     environment: { origin: PRODUCTION_ORIGIN, releaseSha: RELEASE },
     geminiContract: { ...LOCKED_GEMINI_CONTRACT },
     telemetryReadback: {
-      source: 'posthog_decoded_readback', queryId: 'posthog-query-1432', decodedAt: ISO,
+      source: 'posthog_decoded_readback', queryId: `posthog-query-${suffix}`, decodedAt: ISO,
       positiveControlNonce: 'pc-test-nonce', events,
     },
     candidateEvidence, geminiEvidence,
@@ -94,6 +96,14 @@ function validEvidence() {
       sitsOut: COMPARISON_CANDIDATES[2], approvalArtifact: null, approvalSha256: null,
     },
   };
+  LIVE_TELEMETRY.set(evidence.telemetryReadback.queryId, structuredClone(evidence.telemetryReadback));
+  LIVE_GEMINI = evidence.candidateEvidence.map((row, index) => ({
+    persistedSessionId: row.persistedSessionId,
+    suggestionDigest: evidence.geminiEvidence[index].output.suggestionDigest,
+    whatWorkedWhitespaceWords: evidence.geminiEvidence[index].output.whatWorkedWhitespaceWords,
+    whatToImproveWhitespaceWords: evidence.geminiEvidence[index].output.whatToImproveWhitespaceWords,
+    readable: evidence.geminiEvidence[index].output.readable,
+  }));
   const approvalValue = {
     html_url: 'https://github.com/relativityE/speaksharp/issues/1399#issuecomment-123456789',
     author_association: 'OWNER', user: { login: 'relativityE' }, created_at: ISO,
@@ -116,6 +126,8 @@ const holdProblems = (value) => {
   const result = validateModelDownselectionEvidence(value, {
     baseDir: ARTIFACT_DIR,
     approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
+    telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
+    geminiResolver: () => structuredClone(LIVE_GEMINI),
   });
   expect(result.verdict).toBe('HOLD');
   return result.problems.join('\n');
@@ -126,6 +138,8 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     expect(validateModelDownselectionEvidence(validEvidence(), {
       baseDir: ARTIFACT_DIR,
       approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
+      telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
+      geminiResolver: () => structuredClone(LIVE_GEMINI),
     }))
       .toEqual({ verdict: 'PASS', problems: [] });
   });
@@ -206,6 +220,18 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     expect(holdProblems(noControl)).toMatch(/exactly one telemetry_positive_control/);
   });
 
+  it('CASUALTY: rejects contributor-authored PostHog rows that differ from authenticated readback', () => {
+    const evidence = validEvidence();
+    evidence.telemetryReadback.events.find((event) => event.event === 'session_saved').wordCount = 999;
+    expect(holdProblems(evidence)).toMatch(/differs from authenticated PostHog authority/);
+  });
+
+  it('CASUALTY: rejects one signed comparison nonce reused for a second test row', () => {
+    const evidence = validEvidence();
+    evidence.candidateEvidence[1].controlNonce = evidence.candidateEvidence[0].controlNonce;
+    expect(holdProblems(evidence)).toMatch(/reuses signed take authority/);
+  });
+
   it('binds every Gemini observation to the exact verified take', () => {
     const stale = validEvidence(); stale.geminiEvidence[0].attemptId = 'old-attempt';
     expect(holdProblems(stale)).toMatch(/does not match a verified exact take/);
@@ -220,6 +246,27 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     expect(holdProblems(tooMany)).toMatch(/requestNumber must be between 1 and 10/);
     const noCache = validEvidence(); noCache.geminiEvidence.pop();
     expect(holdProblems(noCache)).toMatch(/readable cache replay/);
+  });
+
+  it('CASUALTY: rejects contributor-authored Gemini rows that lack trusted session-bound readback', () => {
+    const evidence = validEvidence();
+    evidence.geminiEvidence[0].providerRequestMade = false;
+    expect(holdProblems(evidence)).toMatch(/providerRequestMade|trusted persisted-session/);
+
+    const forgedDigest = validEvidence();
+    forgedDigest.geminiEvidence[0].output.suggestionDigest = HASH('e');
+    expect(holdProblems(forgedDigest)).toMatch(/trusted persisted-session suggestionDigest/);
+  });
+
+  it('fails closed when either independent authority resolver is absent', () => {
+    const evidence = validEvidence();
+    const result = validateModelDownselectionEvidence(evidence, {
+      baseDir: ARTIFACT_DIR,
+      approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
+    });
+    expect(result.verdict).toBe('HOLD');
+    expect(result.problems.join('\n')).toMatch(/no independent PostHog authority resolver/);
+    expect(result.problems.join('\n')).toMatch(/no trusted persisted-session authority resolver/);
   });
 
   it('requires a separately loaded owner-authored approval bound to the packet digest', () => {
@@ -245,6 +292,8 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     const result = validateModelDownselectionEvidence(noLiveAuthority, {
       baseDir: ARTIFACT_DIR,
       approvalResolver: () => null,
+      telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
+      geminiResolver: () => structuredClone(LIVE_GEMINI),
     });
     expect(result.verdict).toBe('HOLD');
     expect(result.problems.join('\n')).toMatch(/not present in live GitHub readback/);

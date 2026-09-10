@@ -93,9 +93,17 @@ describe('the in-page model switch', () => {
     it('CASUALTY: canonical Production can run the three-model CDP comparison', async () => {
         expect((await authorizeProduction()).accepted).toBe(true);
         registerSwitchExecutor(executor());
-        const out = await switchCandidate('v4:distil:q4', PRODUCTION);
+        const out = await switchCandidate('v4:distil:q4', PRODUCTION, CANDIDATES, 'open_mic');
         expect(out).toEqual({ ok: true, candidate: 'v4:distil:q4' });
         expect(runtimeCandidateOverride()).toBe('v4:distil:q4');
+    });
+
+    it('CASUALTY: canonical Production spends one authorization on one row', async () => {
+        expect((await authorizeProduction()).accepted).toBe(true);
+        registerSwitchExecutor(executor());
+        expect((await switchCandidate('v4:distil:q4', PRODUCTION, CANDIDATES, 'open_mic')).ok).toBe(true);
+        expect(await switchCandidate('v2:base.en', PRODUCTION, CANDIDATES, 'open_mic'))
+            .toMatchObject({ ok: false, code: 'not_armed' });
     });
 
     it('CASUALTY: registry membership does not widen the three-model comparison', async () => {

@@ -23,6 +23,8 @@ function payloadBytes(payload) {
     releaseSha: payload.releaseSha,
     origin: payload.origin,
     nonce: payload.nonce,
+    candidateId: payload.candidateId,
+    journey: payload.journey,
     issuedAt: payload.issuedAt,
     expiresAt: payload.expiresAt,
   }));
@@ -35,6 +37,8 @@ export function createModelComparisonAuthorization({
   privateKey,
   now = Date.now(),
   nonce = randomBytes(24).toString('base64url'),
+  candidateId,
+  journey,
 }) {
   if (!SHA40.test(releaseSha ?? '')) throw new Error('release must be a full lowercase git SHA');
   if (origin !== MODEL_COMPARISON_PRODUCTION_ORIGIN) {
@@ -44,6 +48,10 @@ export function createModelComparisonAuthorization({
     throw new Error(`ttl-seconds must be an integer from 1 to ${MODEL_COMPARISON_MAX_TTL_SECONDS}`);
   }
   if (!/^[A-Za-z0-9._:-]{16,128}$/.test(nonce)) throw new Error('nonce is invalid');
+  if (!['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'].includes(candidateId)) {
+    throw new Error('candidate must be one of the three comparison candidates');
+  }
+  if (!['open_mic', 'focus_points'].includes(journey)) throw new Error('journey must be open_mic or focus_points');
   const key = privateKey?.type === 'private' && typeof privateKey.export === 'function'
     ? privateKey
     : createPrivateKey(privateKey);
@@ -53,6 +61,8 @@ export function createModelComparisonAuthorization({
     releaseSha,
     origin,
     nonce,
+    candidateId,
+    journey,
     issuedAt: new Date(now).toISOString(),
     expiresAt: new Date(now + ttlSeconds * 1_000).toISOString(),
   };
@@ -77,10 +87,12 @@ function main() {
   const releaseSha = arg('release');
   const keyPath = arg('private-key');
   const outPath = arg('out');
+  const candidateId = arg('candidate');
+  const journey = arg('journey');
   const ttlRaw = arg('ttl-seconds') ?? '120';
   const showPublicKey = process.argv.includes('--show-public-key');
-  if (!keyPath || (!showPublicKey && (!releaseSha || !outPath))) {
-    throw new Error('required: --release <sha> --private-key </absolute/operator/key.pem> --out <envelope.json> [--ttl-seconds 120]');
+  if (!keyPath || (!showPublicKey && (!releaseSha || !outPath || !candidateId || !journey))) {
+    throw new Error('required: --release <sha> --candidate <id> --journey <open_mic|focus_points> --private-key </absolute/operator/key.pem> --out <envelope.json> [--ttl-seconds 120]');
   }
   if (!isAbsolute(keyPath)) throw new Error('private-key path must be absolute and outside the repository');
   const repositoryRoot = resolve(process.cwd());
@@ -98,6 +110,8 @@ function main() {
     releaseSha,
     ttlSeconds: Number(ttlRaw),
     privateKey,
+    candidateId,
+    journey,
   });
   writeFileSync(outPath, `${JSON.stringify(authorization, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   console.log(`wrote short-lived authorization for ${authorization.payload.releaseSha}`);

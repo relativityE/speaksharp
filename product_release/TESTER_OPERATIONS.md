@@ -155,10 +155,10 @@ Focus Points count is user-selected within the MVP's 1–7 range; the comparison
 any other count. Every point the user enters and substantively speaks must remain present, in order, and be
 evaluated. Immediately before each take:
 
-1. Create a fresh two-minute envelope bound to the deployed SHA:
-   `corepack pnpm human-test:sign-comparison -- --release <40-char-sha> --private-key /absolute/operator/key.pem --out /absolute/operator/envelope.json`.
+1. Create a fresh two-minute envelope bound to the deployed SHA and the exact test row:
+   `corepack pnpm human-test:sign-comparison -- --release <40-char-sha> --candidate <candidate-id> --journey <open_mic|focus_points> --private-key /absolute/operator/key.pem --out /absolute/operator/envelope.json`.
 2. Start the observer:
-   `corepack pnpm human-test:observe -- --candidate <candidate-id> --release <40-char-sha> --authorization /absolute/operator/envelope.json --out /absolute/evidence/receipt.json`.
+   `corepack pnpm human-test:observe -- --candidate <candidate-id> --journey <open_mic|focus_points> --release <40-char-sha> --authorization /absolute/operator/envelope.json --out /absolute/evidence/receipt.json`.
 3. Use the product normally while the observer runs: start, speak, stop, wait for persistence and review,
    inspect Focus Points when applicable, and use Practice again/Retry where the run requires it. Do not
    refresh or reuse an envelope; the authorization is removed after the first document and its nonce is
@@ -169,11 +169,17 @@ the saved session has a named persistence ID; the receipt is non-dry-run `PASS`;
 PostHog readback links the same release, candidate, journey, attempt, sequence, and signed comparison nonce.
 The raw database session ID must not enter PostHog. Gemini evidence binds that persisted ID independently.
 
-Run `corepack pnpm human-test:validate-downselection -- /absolute/evidence/model-downselection.json` only
+Run `corepack pnpm human-test:validate-downselection -- /absolute/evidence/model-downselection.json --telemetry-authority /absolute/trusted/posthog-readback.json --gemini-authority /absolute/trusted/gemini-session-readback.json` only
 after all six candidate/journey cells and the locked Gemini evidence are present. The validator must remain
 `HOLD` until a separate Product Owner-authored approval artifact names distinct primary, fallback, and
 sits-out roles and cites the exact completed packet digest. The validation command requires authenticated
-GitHub CLI read access (or `GH_BIN` pointing to it) and compares that retained artifact to the live comment;
+GitHub CLI read access (or `GH_BIN` pointing to it), plus the separately downloaded artifacts from the
+trusted default-branch readback job. It compares the retained approval to the live comment and both inline
+evidence sections to those independent authorities;
+a local or edited JSON file cannot substitute because the command verifies GitHub artifact attestations for
+both authority files before reading them. Generate those files by dispatching
+`model-downselection-authority.yml` from the default branch against the commit containing the completed
+packet, then download the attested artifact without editing it;
 a local JSON file claiming `OWNER` authority cannot pass by itself. A passing packet is decision evidence; it is not
 merge, deployment, migration, or runtime-promotion authorization.
 
