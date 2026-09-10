@@ -158,5 +158,18 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
     const src = readFileSync(METRICS_SH, 'utf8');
     expect(src, 'extracted from the merged metrics').toMatch(/unit_skipped_test_files=\$\(jq '\.skippedTestFiles \/\/ \[\]'/);
     expect(src, 'serialized into unit_tests').toMatch(/"skippedTestFiles": \$unit_skipped_test_files/);
+    /**
+     * ...AND BOUND AS A JQ VARIABLE. This is the line I originally omitted, and CI caught it:
+     *
+     *   jq: error: $unit_skipped_test_files is not defined at <top-level>, line 8
+     *
+     * The serialization sits inside a jq PROGRAM, so a shell variable of the same name is invisible to
+     * it — the value has to be passed with `--argjson`. Asserting the serialization alone proved the
+     * field was named and nothing about it being reachable, which is the same "wired at one end only"
+     * defect this whole test exists to prevent. Three lines are required, so three are asserted.
+     */
+    expect(src, 'bound as a jq variable').toMatch(/--argjson unit_skipped_test_files\s+"\$unit_skipped_test_files"/);
+    // And defaulted on the no-metrics-file branch, or jq receives an unset variable and fails the same way.
+    expect(src, 'defaulted when no metrics file exists').toMatch(/unit_skipped_test_files="\[\]"/);
   });
 });

@@ -30,6 +30,7 @@ if [ ! -f "$unit_metrics_file" ]; then
     unit_skipped="null"
     unit_total="null"
     unit_test_files="[]"
+    unit_skipped_test_files="[]"
 else
     unit_passed=$(jq '.numPassedTests' "$unit_metrics_file")
     unit_failed=$(jq '.numFailedTests' "$unit_metrics_file")
@@ -177,6 +178,7 @@ jq -n \
   --argjson unit_skipped          "$unit_skipped" \
   --argjson unit_total            "$unit_total" \
   --argjson unit_test_files       "$unit_test_files" \
+  --argjson unit_skipped_test_files "$unit_skipped_test_files" \
   --argjson coverage_statements   "$coverage_statements" \
   --argjson coverage_branches     "$coverage_branches" \
   --argjson coverage_functions    "$coverage_functions" \
