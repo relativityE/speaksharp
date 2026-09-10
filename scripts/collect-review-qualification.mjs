@@ -148,9 +148,22 @@ export async function readReviewThreadResolutionEnforcement({ repository, branch
     optionalGithubRequest(`/repos/${repository}/branches/${encodedBranch}/protection`, token),
     optionalGithubRequest(`/repos/${repository}/rules/branches/${encodedBranch}?per_page=100`, token),
   ]);
-  if (rawProtection === UNREADABLE && rawRules === UNREADABLE) return 'unverified';
+  /**
+   * #1430 P1 — ONE UNREADABLE SURFACE IS STILL BLINDNESS.
+   *
+   * My first version reported `unverified` only when BOTH surfaces were unreadable. Exact-head CI
+   * disproved it: `/rules/branches/main` is readable and returns an empty list, while
+   * `/branches/main/protection` needs admin scope and is not. Treating the readable half as the whole
+   * answer concluded "not enforced" from a list that cannot see legacy branch protection at all — the
+   * same false claim in a narrower disguise.
+   *
+   * Enforcement can be established by EITHER surface, so a definite `false` requires having read BOTH.
+   * If either is unreadable and what we could read does not positively establish enforcement, the
+   * honest answer is that we do not know.
+   */
   const branchProtection = rawProtection === UNREADABLE ? null : rawProtection;
   const branchRules = rawRules === UNREADABLE ? null : rawRules;
+  const anyUnreadable = rawProtection === UNREADABLE || rawRules === UNREADABLE;
   const rulesetIds = Array.isArray(branchRules)
     ? [...new Set(branchRules
       .filter((rule) => rule?.type === 'pull_request'
@@ -161,7 +174,19 @@ export async function readReviewThreadResolutionEnforcement({ repository, branch
   const rawRulesets = await Promise.all(rulesetIds.map((rulesetId) =>
     optionalGithubRequest(`/repos/${repository}/rulesets/${rulesetId}?includes_parents=true`, token)));
   const branchRulesets = rawRulesets.filter((ruleset) => ruleset !== UNREADABLE);
-  return reviewThreadResolutionIsEnforced({ branchProtection, branchRules, branchRulesets });
+  /*
+   * #1430 P1 — AN UNREADABLE RULESET DETAIL IS ALSO BLINDNESS.
+   *
+   * A referenced ruleset whose detail could not be read was filtered out here and then evaluated as
+   * absent, so a rule that DOES require review-thread resolution could be dropped and the answer come
+   * back `false`. Any unreadable relevant surface — protection, the rules list, or a referenced
+   * ruleset — means we cannot conclude absence.
+   */
+  const anyRulesetUnreadable = rawRulesets.some((ruleset) => ruleset === UNREADABLE);
+  const enforced = reviewThreadResolutionIsEnforced({ branchProtection, branchRules, branchRulesets });
+  // A positive finding stands on what we could read. A negative one requires having read everything.
+  if (enforced) return true;
+  return (anyUnreadable || anyRulesetUnreadable) ? 'unverified' : false;
 }
 
 async function resolvePullRequestNumber({ repository, expectedHeadSha, token, explicitNumber }) {

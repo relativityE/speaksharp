@@ -117,6 +117,18 @@ export function validateSoftwareQualityEvidence(
     reasons.push('meaningful_coverage_manifest_missing');
   } else {
     const executed = new Set(Array.isArray(unit?.testFiles) ? unit.testFiles : []);
+    /**
+     * #1430 P1 — A RELEASE PATH MAY NOT BE SIGNED OFF BY A NEIGHBOUR'S PASSING TEST.
+     *
+     * `testFiles` admits a file as soon as ONE test in it asserted, so a manifest-listed release-path
+     * file could hold one passing test and a SKIPPED acceptance casualty, appear here as executed, and
+     * satisfy the requirement while the criterion it exists to prove never ran. The zero-skip release
+     * floor was declared and then not enforced at the only granularity that matters.
+     *
+     * Rejected per PATH rather than suite-wide: a skip elsewhere in the unit suite is not a release
+     * claim, and failing on it would push people to delete the manifest rather than fix the skip.
+     */
+    const skippedPaths = new Set(Array.isArray(unit?.skippedTestFiles) ? unit.skippedTestFiles : []);
     if (executed.size === 0) reasons.push('meaningful_coverage_execution_receipt_missing');
     for (const requirement of meaningfulCoverageManifest) {
       if (requirement.evidenceType !== 'behavior-casualty') {
@@ -124,6 +136,9 @@ export function validateSoftwareQualityEvidence(
       }
       if (!executed.has(requirement.testFile)) {
         reasons.push(`meaningful_coverage_path_missing:${requirement.id}`);
+      }
+      if (skippedPaths.has(requirement.testFile)) {
+        reasons.push(`meaningful_coverage_path_skipped:${requirement.id}`);
       }
     }
   }

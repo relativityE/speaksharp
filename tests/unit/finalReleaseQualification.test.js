@@ -119,6 +119,136 @@ describe('Q-08 automated review qualification', () => {
     },
   });
 
+  it('CASUALTY: ONE readable surface cannot conclude "not enforced" for the other', async () => {
+    /**
+     * #1430 P1, found by exact-head CI on my own first fix. `/rules/branches/<b>` is readable and
+     * returns an empty list; `/branches/<b>/protection` needs admin scope and is not. Reporting
+     * `unverified` only when BOTH were unreadable let the readable half speak for the whole answer,
+     * and an empty rules list cannot see legacy branch protection at all — so the gate again stated
+     * "not enforced" about something it could not observe.
+     *
+     * Enforcement can come from either surface, so a definite `false` requires having read both.
+     */
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => (String(url).includes('/protection')
+      ? { ok: false, status: 403, json: async () => ({}) }
+      : { ok: true, status: 200, json: async () => [] });
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 't',
+      })).resolves.toBe('unverified');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  describe('#1430 P1 — a definite "not enforced" requires having read BOTH surfaces', () => {
+    /**
+     * Enforcement can be established by EITHER surface: legacy branch protection with
+     * `required_conversation_resolution`, or an active ruleset requiring review-thread resolution. So a
+     * POSITIVE finding stands on whichever surface proved it, while a NEGATIVE one is only sound when
+     * both were readable. My first correction reported `unverified` solely when both were unreadable,
+     * which let a readable-but-empty rules list speak for unreadable legacy protection.
+     */
+    // Returns the verdict; each case asserts it itself. Asserting inside the helper hid the
+    // expectation from `vitest/expect-expect`, which reads a test with no visible `expect` as one that
+    // proves nothing — and on a release gate that lint is right to be strict.
+    const enforcementUnder = async (handler) => {
+      const original = globalThis.fetch;
+      globalThis.fetch = handler;
+      try {
+        return await readReviewThreadResolutionEnforcement({
+          repository: 'o/r', branch: 'main', token: 't',
+        });
+      } finally {
+        globalThis.fetch = original;
+      }
+    };
+    const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+    const denied = { ok: false, status: 403, json: async () => ({}) };
+    const ENFORCING_RULE = [{ type: 'pull_request', parameters: { required_review_thread_resolution: true }, ruleset_id: 7 }];
+    const ENFORCING_PROTECTION = {
+      required_conversation_resolution: { enabled: true },
+      enforce_admins: { enabled: true },
+      required_pull_request_reviews: {},
+    };
+
+    it('CASUALTY: empty rules + UNREADABLE protection is unverified, not "not enforced"', async () => {
+      const verdict = await enforcementUnder(async (url) => (String(url).includes('/protection') ? denied : ok([])));
+      expect(verdict).toBe('unverified');
+    });
+
+    it('CASUALTY: UNREADABLE rules + empty protection is unverified, not "not enforced"', async () => {
+      const verdict = await enforcementUnder(async (url) => (String(url).includes('/rules/branches') ? denied : ok({})));
+      expect(verdict).toBe('unverified');
+    });
+
+    it('enforcement found on the RULESET surface establishes it, even with protection empty', async () => {
+      const verdict = await enforcementUnder(async (url) => {
+        const u = String(url);
+        if (u.includes('/protection')) return ok({});
+        if (u.includes('/rules/branches')) return ok(ENFORCING_RULE);
+        return ok({ id: 7, enforcement: 'active', bypass_actors: [] });
+      });
+      expect(verdict).toBe(true);
+    });
+
+    it('enforcement found on the legacy PROTECTION surface establishes it, even with rules empty', async () => {
+      const verdict = await enforcementUnder(async (url) => (String(url).includes('/protection') ? ok(ENFORCING_PROTECTION) : ok([])));
+      expect(verdict).toBe(true);
+    });
+
+    it('CONTROL: both readable and negative is a real "not enforced"', async () => {
+      const verdict = await enforcementUnder(async (url) => (String(url).includes('/protection')
+        ? ok({ required_conversation_resolution: { enabled: false } })
+        : ok([])));
+      expect(verdict).toBe(false);
+    });
+  });
+
+  it('CASUALTY: an unreadable RULESET DETAIL is blindness too, not absence', async () => {
+    /**
+     * #1430 P1 — the rules list can be readable and name a ruleset that requires review-thread
+     * resolution, while that ruleset's own detail needs admin scope and is not readable. Filtering the
+     * unreadable detail out and evaluating what remained dropped the very rule that would have proven
+     * enforcement, and returned the definite `false`.
+     */
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes('/protection')) return { ok: true, status: 200, json: async () => ({}) };
+      if (u.includes('/rules/branches')) {
+        return { ok: true, status: 200, json: async () => ([
+          { type: 'pull_request', parameters: { required_review_thread_resolution: true }, ruleset_id: 7 },
+        ]) };
+      }
+      // The referenced ruleset's detail — admin-scoped, unreadable.
+      return { ok: false, status: 403, json: async () => ({}) };
+    };
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 't',
+      })).resolves.toBe('unverified');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('CONTROL: both surfaces readable and negative is a real "not enforced"', async () => {
+    // The relaxation must not swallow the genuine finding it exists to preserve.
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => (String(url).includes('/protection')
+      ? { ok: true, status: 200, json: async () => ({ required_conversation_resolution: { enabled: false } }) }
+      : { ok: true, status: 200, json: async () => [] });
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 't',
+      })).resolves.toBe(false);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it('CASUALTY: a 401 from an invalid credential is UNREADABLE, not a hard failure', async () => {
     /**
      * #1430 — the regression that took exact-head CI down at `5fbfc28563`. `GH_PAT` is expired and
@@ -520,6 +650,54 @@ describe('Q-08 software-quality evidence completeness', () => {
     targets: { coverage: { releaseFloor: COVERAGE_RELEASE_FLOOR } },
     coverage: { statements: 80, branches: 80, functions: 80, lines: 80 },
     ...over,
+  });
+
+  it('CASUALTY: a release-path file that SKIPPED a casualty is not signed off by its neighbours', () => {
+    /**
+     * #1430 P1 — `testFiles` admits a file as soon as ONE test in it asserted. A manifest-listed
+     * release-path file could therefore hold one passing test and a SKIPPED acceptance casualty, be
+     * reported as executed, and satisfy meaningful coverage while the criterion it exists to prove
+     * never ran. The suite-level skip count stayed non-negative, so nothing objected.
+     *
+     * The zero-skip release floor is now enforced at the only granularity that matters: the path.
+     */
+    const target = MEANINGFUL_COVERAGE_MANIFEST[0];
+    const result = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: {
+          passed: 99,
+          failed: 0,
+          skipped: 1,
+          total: 100,
+          testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
+          skippedTestFiles: [target.testFile],
+        },
+        e2e: { passed: 20, failed: 0, skipped: 0, total: 20 },
+      },
+    }));
+
+    expect(result.valid, 'a skipped release path cannot qualify').toBe(false);
+    expect(result.reasons).toContain(`meaningful_coverage_path_skipped:${target.id}`);
+  });
+
+  it('CONTROL: a skip OUTSIDE the manifest does not block the release', () => {
+    // Rejecting per path rather than suite-wide is deliberate. A skip elsewhere in the unit suite is
+    // not a release claim, and failing on it would push people to delete the manifest, not fix the skip.
+    const result = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: {
+          passed: 99,
+          failed: 0,
+          skipped: 1,
+          total: 100,
+          testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
+          skippedTestFiles: ['frontend/src/services/__tests__/someUnrelatedThing.test.ts'],
+        },
+        e2e: { passed: 20, failed: 0, skipped: 0, total: 20 },
+      },
+    }));
+
+    expect(result.valid, 'an unrelated skip is not a release-path claim').toBe(true);
   });
 
   it('accepts complete metrics using the shared coverage authority', () => {
