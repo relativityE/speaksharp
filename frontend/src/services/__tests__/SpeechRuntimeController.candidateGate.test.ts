@@ -34,6 +34,7 @@ const PRIVATE_POLICY = {
 
 describe('#1426 recording authority enforces model identity', () => {
     beforeEach(async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
         registerSwitchExecutor({
@@ -47,10 +48,11 @@ describe('#1426 recording authority enforces model identity', () => {
         speechRuntimeController.service = null;
         useSessionStore.getState().resetSession();
         delete (window as unknown as { __SS_PRIVATE_EVENTS__?: unknown }).__SS_PRIVATE_EVENTS__;
-        await switchCandidate('moonshine:streaming-medium', { VITE_INTERNAL_BUILD: 'true' });
+        await switchCandidate('moonshine:streaming-medium');
     });
 
     afterEach(() => {
+        vi.unstubAllEnvs();
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
         registerSwitchExecutor(null);

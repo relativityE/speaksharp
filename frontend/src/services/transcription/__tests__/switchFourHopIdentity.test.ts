@@ -104,8 +104,8 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
     it('CASUALTY: every hop reaches READY with requested === observed', async () => {
         const seen: Array<{ requested: string; observed: string | null; matches: boolean }> = [];
         for (const id of SEQUENCE) {
-            const { env } = placeSignedAuthorization({ candidateId: id, nonce: `nonce-${id}-${Date.now()}` });
-            expect(await installRuntimeCandidateSwitch(env)).toBe(true);
+            placeSignedAuthorization({ candidateId: id, nonce: `nonce-${id}-${Date.now()}` });
+            expect(await installRuntimeCandidateSwitch()).toBe(true);
             const outcome = await active().__SS_SWITCH_CANDIDATE__(id, 'open_mic');
             expect(outcome.ok, `hop to ${id} failed: ${outcome.code}`).toBe(true);
             seen.push(active().__SS_ACTIVE_CANDIDATE__());
@@ -123,16 +123,16 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
         // The dangerous residue: `resolvedEngine()` used to survive a failed switch, so the app kept
         // reporting the PREVIOUS model as the running one. An observed identity that outlives its engine
         // reads as evidence, which is worse than reporting nothing.
-        let authorization = placeSignedAuthorization({ candidateId: 'v4:distil:q4' });
-        expect(await installRuntimeCandidateSwitch(authorization.env)).toBe(true);
+        placeSignedAuthorization({ candidateId: 'v4:distil:q4' });
+        expect(await installRuntimeCandidateSwitch()).toBe(true);
         await active().__SS_SWITCH_CANDIDATE__('v4:distil:q4', 'open_mic');
         expect(active().__SS_ACTIVE_CANDIDATE__().observed).toBe('v4:distil:q4');
 
         (speechRuntimeController.initiateModelDownload as unknown as { mockImplementation: (f: () => Promise<void>) => void })
             .mockImplementation(async () => { throw new Error('engine failed to start'); });
 
-        authorization = placeSignedAuthorization({ candidateId: 'moonshine:streaming-medium' });
-        expect(await installRuntimeCandidateSwitch(authorization.env)).toBe(true);
+        placeSignedAuthorization({ candidateId: 'moonshine:streaming-medium' });
+        expect(await installRuntimeCandidateSwitch()).toBe(true);
         const outcome = await active().__SS_SWITCH_CANDIDATE__('moonshine:streaming-medium', 'open_mic');
         expect(outcome.ok).toBe(false);
         const state = active().__SS_ACTIVE_CANDIDATE__();

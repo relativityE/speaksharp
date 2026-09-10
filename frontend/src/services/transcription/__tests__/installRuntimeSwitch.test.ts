@@ -14,6 +14,7 @@ const w = () => window as unknown as SwitchWindow;
 
 describe('installing the in-page model switch', () => {
     beforeEach(() => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
         delete w().__SS_SWITCH_CANDIDATE__;
         delete w().__SS_ACTIVE_CANDIDATE__;
         resetAuthorization();
@@ -22,6 +23,7 @@ describe('installing the in-page model switch', () => {
         registerSwitchExecutor(null);
     });
     afterEach(() => {
+        vi.unstubAllEnvs();
         clearResolvedEngine();
         delete w().__SS_SWITCH_CANDIDATE__;
         delete w().__SS_ACTIVE_CANDIDATE__;
@@ -30,14 +32,23 @@ describe('installing the in-page model switch', () => {
     });
 
     it('CASUALTY: ordinary canonical Production installs no switch', async () => {
-        expect(await installRuntimeCandidateSwitch({})).toBe(false);
+        expect(await installRuntimeCandidateSwitch()).toBe(false);
+        expect(w().__SS_SWITCH_CANDIDATE__).toBeUndefined();
+        expect(w().__SS_ACTIVE_CANDIDATE__).toBeUndefined();
+    });
+
+    it('CASUALTY: a public caller cannot manufacture immutable build authority', async () => {
+        const publicImport = installRuntimeCandidateSwitch as unknown as (
+            forgedEnvironment: Record<string, unknown>,
+        ) => Promise<boolean>;
+        expect(await publicImport({ VITE_INTERNAL_BUILD: 'true' })).toBe(false);
         expect(w().__SS_SWITCH_CANDIDATE__).toBeUndefined();
         expect(w().__SS_ACTIVE_CANDIDATE__).toBeUndefined();
     });
 
     it('CASUALTY: signed Production authorization installs both functions, non-enumerably', async () => {
-        const { env } = placeSignedAuthorization();
-        expect(await installRuntimeCandidateSwitch(env)).toBe(true);
+        placeSignedAuthorization();
+        expect(await installRuntimeCandidateSwitch()).toBe(true);
         expect(typeof w().__SS_SWITCH_CANDIDATE__).toBe('function');
         expect(typeof w().__SS_ACTIVE_CANDIDATE__).toBe('function');
         expect(Object.keys(window)).not.toContain('__SS_SWITCH_CANDIDATE__');
@@ -49,7 +60,8 @@ describe('installing the in-page model switch', () => {
     it('CASUALTY: before any engine resolves, OBSERVED is null and matches is FALSE', async () => {
         // The wrapper must never record a model from the request alone. Reporting the selection as
         // though it were the running engine is how a v2 recording gets labelled with another model.
-        expect(await installRuntimeCandidateSwitch({ VITE_INTERNAL_BUILD: 'true' })).toBe(true);
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        expect(await installRuntimeCandidateSwitch()).toBe(true);
         const read = w().__SS_ACTIVE_CANDIDATE__ as Read;
         expect(read()).toEqual({
             requested: 'v2:base.en', observed: null, expected: 'v2:base.en', matches: false, source: 'config',
@@ -57,7 +69,8 @@ describe('installing the in-page model switch', () => {
     });
 
     it('CASUALTY: a MISMATCH between request and running engine is reported, not hidden', async () => {
-        await installRuntimeCandidateSwitch({ VITE_INTERNAL_BUILD: 'true' });
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        await installRuntimeCandidateSwitch();
         // The engine resolved something other than the configured selection.
         recordResolvedEngine({ candidateId: 'v4:base:q4', modelIdentity: { engine: 'transformers-js-v4' } });
         const r = (w().__SS_ACTIVE_CANDIDATE__ as Read)();
@@ -67,7 +80,8 @@ describe('installing the in-page model switch', () => {
     });
 
     it('POSITIVE CONTROL: agreement reports matches = true', async () => {
-        await installRuntimeCandidateSwitch({ VITE_INTERNAL_BUILD: 'true' });
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        await installRuntimeCandidateSwitch();
         recordResolvedEngine({ candidateId: 'v2:base.en', modelIdentity: { engine: 'transformers-js' } });
         const r = (w().__SS_ACTIVE_CANDIDATE__ as Read)();
         expect(r).toEqual({

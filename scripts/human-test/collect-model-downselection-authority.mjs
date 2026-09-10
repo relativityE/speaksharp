@@ -20,6 +20,7 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
 const words = (value) => value.trim().split(/\s+/).filter(Boolean).length;
 const SESSION_BINDING_VERSION = 'speaksharp.model-comparison-session-binding.v1';
+const USER_DIGEST_VERSION = 'speaksharp.ai-suggestion-user.v1';
 
 export const modelComparisonSessionBindingSha256 = (controlNonce, persistedSessionId) => sha256(
   JSON.stringify([SESSION_BINDING_VERSION, controlNonce, persistedSessionId]),
@@ -121,12 +122,39 @@ export function geminiSessionReadback(rows) {
       what_worked: value.what_worked.trim(),
       what_to_try_next: value.what_to_try_next.trim(),
     };
+    const receiptValue = Array.isArray(row?.ai_suggestion_authority_receipts)
+      ? row.ai_suggestion_authority_receipts[0]
+      : row?.ai_suggestion_authority_receipts;
+    if (!receiptValue || typeof receiptValue !== 'object' || Array.isArray(receiptValue)
+      || receiptValue.provider !== 'google_gemini'
+      || receiptValue.provider_request_made !== true
+      || typeof receiptValue.model !== 'string' || !TOKEN.test(receiptValue.model)
+      || receiptValue.quota_scope !== 'user_utc_day'
+      || typeof receiptValue.quota_utc_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(receiptValue.quota_utc_date)
+      || !Number.isInteger(receiptValue.quota_limit) || receiptValue.quota_limit <= 0
+      || !Number.isInteger(receiptValue.quota_request_number) || receiptValue.quota_request_number <= 0
+      || receiptValue.quota_request_number > receiptValue.quota_limit
+      || !Number.isInteger(receiptValue.cache_read_count) || receiptValue.cache_read_count < 0
+      || typeof row?.user_id !== 'string' || !UUID_V4.test(row.user_id)) {
+      throw new Error(`persisted session ${index} has no valid server-owned Gemini authority receipt`);
+    }
     return {
       persistedSessionId: row.id,
       suggestionDigest: sha256(JSON.stringify(normalized)),
       whatWorkedWhitespaceWords: words(normalized.what_worked),
       whatToImproveWhitespaceWords: words(normalized.what_to_try_next),
       readable: true,
+      provider: receiptValue.provider,
+      model: receiptValue.model,
+      providerRequestMade: receiptValue.provider_request_made,
+      quota: {
+        scope: receiptValue.quota_scope,
+        userDigest: sha256(JSON.stringify([USER_DIGEST_VERSION, row.user_id])),
+        utcDate: receiptValue.quota_utc_date,
+        limit: receiptValue.quota_limit,
+        requestNumber: receiptValue.quota_request_number,
+      },
+      cacheReplayObserved: receiptValue.cache_read_count > 0,
     };
   });
 }
@@ -160,7 +188,9 @@ export async function collectAuthorities({ evidence, env = process.env, fetchImp
   const serviceRole = required(env.SUPABASE_SERVICE_ROLE_KEY, 'SUPABASE_SERVICE_ROLE_KEY');
   const sessionFilter = `(${sessions.join(',')})`;
   const supabaseResponse = await fetchImpl(
-    `${supabaseUrl}/rest/v1/sessions?select=id,ai_suggestions&id=in.${encodeURIComponent(sessionFilter)}`,
+    `${supabaseUrl}/rest/v1/sessions?select=id,user_id,ai_suggestions,ai_suggestion_authority_receipts(`
+      + 'provider,model,provider_request_made,quota_scope,quota_utc_date,quota_limit,quota_request_number,cache_read_count)'
+      + `&id=in.${encodeURIComponent(sessionFilter)}`,
     { headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}` } },
   );
   const sessionRows = await jsonResponse(supabaseResponse, 'Supabase coaching readback');

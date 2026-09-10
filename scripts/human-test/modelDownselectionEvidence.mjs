@@ -393,14 +393,24 @@ function validateGeminiEvidence(observations, requiredTakeKeys, geminiResolver, 
         `${path} trusted persisted-session whatToImproveWhitespaceWords`, problems);
       expectEqual(sessionAuthority.readable, observation.output?.readable,
         `${path} trusted persisted-session readable`, problems);
+      expectEqual(sessionAuthority.provider, 'google_gemini', `${path} trusted provider`, problems);
+      expectEqual(sessionAuthority.model, observation.model, `${path} trusted provider model`, problems);
     }
 
-    // The trusted session readback proves that the exact coaching payload reached persistence.
-    // Provider/model/quota authority is deliberately owned by #1424/#1434 rather than copied into
-    // this credentialed database reader; this validator still enforces their packet contract below.
+    // Provider, model, quota and cache-replay facts come from the server-owned receipt joined by the
+    // credentialed readback. The contributor packet is compared to those facts; it is never authority
+    // for its own claim that a paid request happened (or did not happen).
 
     if (observation.source === 'fresh') {
       expectEqual(observation.providerRequestMade, true, `${path}.providerRequestMade`, problems);
+      if (isObject(sessionAuthority)) {
+        expectEqual(sessionAuthority.providerRequestMade, observation.providerRequestMade,
+          `${path} trusted providerRequestMade`, problems);
+        for (const key of ['scope', 'userDigest', 'utcDate', 'limit', 'requestNumber']) {
+          expectEqual(sessionAuthority.quota?.[key], observation.quota?.[key],
+            `${path} trusted quota.${key}`, problems);
+        }
+      }
       if (freshByTake.has(observationKey)) problems.push(`${path} duplicates fresh coaching for ${observationKey}`);
       else freshByTake.set(observationKey, observation);
       const quotaKeys = ['scope', 'userDigest', 'utcDate', 'limit', 'requestNumber'];
@@ -424,6 +434,9 @@ function validateGeminiEvidence(observations, requiredTakeKeys, geminiResolver, 
     } else {
       expectEqual(observation.providerRequestMade, false, `${path}.providerRequestMade`, problems);
       expectEqual(observation.quota, null, `${path}.quota`, problems);
+      if (isObject(sessionAuthority)) {
+        expectEqual(sessionAuthority.cacheReplayObserved, true, `${path} trusted cache replay`, problems);
+      }
       const fresh = freshByTake.get(observationKey);
       if (!fresh) problems.push(`${path} has no preceding fresh observation for ${observationKey}`);
       else if (fresh.output?.suggestionDigest !== observation.output?.suggestionDigest) {

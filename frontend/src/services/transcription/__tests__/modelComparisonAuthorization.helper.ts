@@ -1,4 +1,5 @@
 import { generateKeyPairSync, sign } from 'node:crypto';
+import { vi } from 'vitest';
 import {
     MODEL_COMPARISON_AUTH_KEY, consumeModelComparisonAuthorization,
     resetModelComparisonAuthorizationForTest, resetModelComparisonReplayLedgerForTest,
@@ -27,6 +28,9 @@ export function placeSignedAuthorization(overrides: Record<string, unknown> = {}
     Object.defineProperty(window, Symbol.for(MODEL_COMPARISON_AUTH_KEY), {
         value: { payload, signature }, configurable: true,
     });
+    // Test-only build-environment injection. Production installers read immutable `import.meta.env`
+    // and expose no parameter through which page code can manufacture an internal build or key.
+    vi.stubEnv('VITE_MODEL_COMPARISON_PUBLIC_KEY', rawPublicKey);
     return { env: { VITE_MODEL_COMPARISON_PUBLIC_KEY: rawPublicKey }, authorization: { payload, signature } };
 }
 

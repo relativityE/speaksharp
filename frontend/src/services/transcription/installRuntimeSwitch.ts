@@ -32,11 +32,16 @@ interface SwitchWindow {
 }
 
 export async function installRuntimeCandidateSwitch(
-    env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
 ): Promise<boolean> {
     if (typeof window === 'undefined') return false;
-    if (env.VITE_INTERNAL_BUILD !== 'true' && !await consumeModelComparisonAuthorization(env, window)) return false;
-    if (!runtimeCandidateAccessAllowed(env)) return false;
+    // Build authority is immutable application configuration, never a value supplied by the caller.
+    // This function remains importable from the public chunk, so accepting `env` here would let page
+    // code call it with `{ VITE_INTERNAL_BUILD: 'true' }` and install the real executor without a
+    // signed Production authorization.
+    const env = import.meta.env as unknown as Record<string, unknown>;
+    if (import.meta.env.VITE_INTERNAL_BUILD !== 'true'
+        && !await consumeModelComparisonAuthorization(env, window)) return false;
+    if (!runtimeCandidateAccessAllowed()) return false;
 
     registerSwitchExecutor({
         // The lifecycle state the whole app already publishes, rather than a second opinion that could
@@ -76,7 +81,7 @@ export async function installRuntimeCandidateSwitch(
         Object.defineProperty(w, key, { value, enumerable: false, configurable: true, writable: false });
     };
     installHidden('__SS_SWITCH_CANDIDATE__', (id: string, journey?: 'open_mic' | 'focus_points') =>
-        switchCandidate(id, env, undefined, journey));
+        switchCandidate(id, undefined, journey));
     installHidden('__SS_ACTIVE_CANDIDATE__', () => {
         // REQUESTED vs OBSERVED, reported separately and never conflated.
         //

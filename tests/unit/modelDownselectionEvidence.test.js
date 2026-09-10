@@ -111,6 +111,11 @@ function validEvidence() {
     whatWorkedWhitespaceWords: evidence.geminiEvidence[index].output.whatWorkedWhitespaceWords,
     whatToImproveWhitespaceWords: evidence.geminiEvidence[index].output.whatToImproveWhitespaceWords,
     readable: evidence.geminiEvidence[index].output.readable,
+    provider: 'google_gemini',
+    model: evidence.geminiEvidence[index].model,
+    providerRequestMade: true,
+    quota: structuredClone(evidence.geminiEvidence[index].quota),
+    cacheReplayObserved: index === 0,
   }));
   const approvalValue = {
     html_url: 'https://github.com/relativityE/speaksharp/issues/1399#issuecomment-123456789',
@@ -295,6 +300,18 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     const forgedDigest = validEvidence();
     forgedDigest.geminiEvidence[0].output.suggestionDigest = HASH('e');
     expect(holdProblems(forgedDigest)).toMatch(/trusted persisted-session suggestionDigest/);
+
+    const forgedModel = validEvidence();
+    forgedModel.geminiEvidence[0].model = 'gemini-forged';
+    expect(holdProblems(forgedModel)).toMatch(/trusted provider model/);
+
+    const forgedQuota = validEvidence();
+    forgedQuota.geminiEvidence[0].quota.requestNumber = 9;
+    expect(holdProblems(forgedQuota)).toMatch(/trusted quota.requestNumber/);
+
+    const unobservedCache = validEvidence();
+    LIVE_GEMINI[0].cacheReplayObserved = false;
+    expect(holdProblems(unobservedCache)).toMatch(/trusted cache replay/);
   });
 
   it('fails closed when either independent authority resolver is absent', () => {

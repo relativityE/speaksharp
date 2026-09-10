@@ -101,17 +101,38 @@ describe('#1432 trusted model-downselection authority collector', () => {
   it('derives Gemini digest and word counts from persisted session readback, not packet claims', () => {
     const authority = geminiSessionReadback([{
       id: 'session-1',
+      user_id: '22222222-2222-4222-8222-222222222222',
       ai_suggestions: {
         version: 'gemini_coaching_v1', what_worked: 'Clear concise opening',
         what_to_try_next: 'Pause before your recommendation',
+      },
+      ai_suggestion_authority_receipts: {
+        provider: 'google_gemini', model: 'gemini-3.6-flash', provider_request_made: true,
+        quota_scope: 'user_utc_day', quota_utc_date: '2026-09-10', quota_limit: 10,
+        quota_request_number: 1, cache_read_count: 1,
       },
     }]);
     expect(authority).toMatchObject([{
       persistedSessionId: 'session-1', whatWorkedWhitespaceWords: 3,
       whatToImproveWhitespaceWords: 4, readable: true,
+      provider: 'google_gemini', model: 'gemini-3.6-flash', providerRequestMade: true,
+      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: 10, requestNumber: 1 },
+      cacheReplayObserved: true,
     }]);
     expect(authority[0].suggestionDigest).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(authority)).not.toMatch(/Clear concise|Pause before/);
+  });
+
+  it('refuses persisted coaching without its server-owned authority receipt', () => {
+    expect(() => geminiSessionReadback([{
+      id: 'session-1',
+      user_id: '22222222-2222-4222-8222-222222222222',
+      ai_suggestions: {
+        version: 'gemini_coaching_v1', what_worked: 'Clear concise opening',
+        what_to_try_next: 'Pause before your recommendation',
+      },
+      ai_suggestion_authority_receipts: null,
+    }])).toThrow(/no valid server-owned Gemini authority receipt/);
   });
 
   it('queries PostHog and Supabase independently and emits no coaching content', async () => {
@@ -121,10 +142,16 @@ describe('#1432 trusted model-downselection authority collector', () => {
       0, null, 'pc-authority-123456', true,
       null, null,
     ]];
-    const sessions = evidence.candidateEvidence.map((row) => ({
+    const sessions = evidence.candidateEvidence.map((row, index) => ({
       id: row.persistedSessionId,
+      user_id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
       ai_suggestions: {
         version: 'gemini_coaching_v1', what_worked: 'Clear opening', what_to_try_next: 'Pause before closing',
+      },
+      ai_suggestion_authority_receipts: {
+        provider: 'google_gemini', model: 'gemini-3.6-flash', provider_request_made: true,
+        quota_scope: 'user_utc_day', quota_utc_date: '2026-09-10', quota_limit: 10,
+        quota_request_number: index + 1, cache_read_count: index === 0 ? 1 : 0,
       },
     }));
     const fetchImpl = vi.fn()
@@ -148,6 +175,11 @@ describe('#1432 trusted model-downselection authority collector', () => {
       schemaVersion: 'speaksharp.posthog-readback-authority.v1', releaseSha: RELEASE,
     });
     expect(authority.gemini.observations).toHaveLength(6);
+    expect(authority.gemini.observations[0]).toMatchObject({
+      provider: 'google_gemini', model: 'gemini-3.6-flash', providerRequestMade: true,
+      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: 10, requestNumber: 1 },
+      cacheReplayObserved: true,
+    });
     expect(JSON.stringify(authority)).not.toMatch(/Clear opening|Pause before closing|posthog-secret|supabase-secret/);
   });
 });

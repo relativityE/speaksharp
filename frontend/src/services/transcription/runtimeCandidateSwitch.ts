@@ -55,9 +55,8 @@ export const COMPARISON_CANDIDATE_IDS = Object.freeze([
  * no application code exports a setter, and a normal Production navigation never creates it.
  */
 export function runtimeCandidateAccessAllowed(
-    env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
 ): boolean {
-    return env?.VITE_INTERNAL_BUILD === 'true'
+    return import.meta.env.VITE_INTERNAL_BUILD === 'true'
         || hasModelComparisonAuthorization();
 }
 
@@ -144,17 +143,20 @@ export function onRuntimeCandidateChange(fn: (id: CandidateId | null) => void): 
  */
 export async function switchCandidate(
     id: string,
-    _env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
     /**
-     * The candidate table. Injected like `env` so the "engine the facade cannot construct" refusal
-     * stays provable: every REGISTERED engine is buildable now, so proving that guard through a real
+     * The candidate table is test-injected so the "engine the facade cannot construct" refusal stays
+     * provable: every REGISTERED engine is buildable now, so proving that guard through a real
      * candidate would mean deleting it the moment its last example was integrated — and the next engine
      * added without a provider path would then fall through and run the configured model under its id.
      */
     candidates: typeof CANDIDATES = CANDIDATES,
     requestedJourney?: ModelComparisonJourney,
 ): Promise<SwitchOutcome> {
-    if (!runtimeCandidateAccessAllowed(_env)) {
+    // `VITE_INTERNAL_BUILD` is deliberately read from Vite's compiled build environment. Accepting an
+    // environment object from the caller let page code import this public chunk and manufacture an
+    // internal build at runtime, bypassing both the signature and the one-row authorization.
+    const internalBuild = import.meta.env.VITE_INTERNAL_BUILD === 'true';
+    if (!runtimeCandidateAccessAllowed()) {
         return {
             ok: false,
             code: 'not_armed',
@@ -178,7 +180,7 @@ export async function switchCandidate(
     // exclude v4, whose missing evidence is this exact human comparison. `comparisonReady` instead
     // answers whether the harness path itself is known-good. Internal builds keep the explicit escape
     // for diagnosis; the signed canonical Production run fails closed until its preflight is present.
-    if (_env.VITE_INTERNAL_BUILD !== 'true' && !candidate.comparisonReady) {
+    if (!internalBuild && !candidate.comparisonReady) {
         return {
             ok: false,
             code: 'candidate_not_comparison_ready',
@@ -204,7 +206,7 @@ export async function switchCandidate(
 
     // Internal builds are test-only and keep their multi-hop convenience. Canonical Production gets
     // one signed candidate/journey row: the arm is consumed immediately before engine mutation.
-    if (_env.VITE_INTERNAL_BUILD !== 'true'
+    if (!internalBuild
         && !consumeModelComparisonTakeAuthorization(id, requestedJourney)) {
         return {
             ok: false,
