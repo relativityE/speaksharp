@@ -49,6 +49,20 @@ export const PRIVATE_TELEMETRY_ALLOWED_PROPS = [
     // user id, no free-form error text.
     'candidate_id',
     'acquired_candidate_id', 'model_identity',
+    /**
+     * #1421 P1 — THE CONFIGURED IDENTITY MUST SURVIVE THE SEND BOUNDARY.
+     *
+     * `AnalyticsBuffer.send()` routes every event whose name begins with `private_` through
+     * `sanitizePrivateTelemetryProps()`, so a field registered ONLY in the general event schema is
+     * stripped here and never reaches PostHog. Adding `expected_candidate_id` to the schema therefore
+     * put it on no wire at all: the readback decoded null and `modelIdentityIsCoherent()` HELD every
+     * `session_during` qualification, for all three candidates, with "no configured (expected)
+     * candidate identity".
+     *
+     * Content-free on the same terms as `acquired_candidate_id` beside it: an opaque candidate slug
+     * from a closed set of three, carrying no account, session or user-authored data.
+     */
+    'expected_candidate_id',
     // #1259: bounded completeness signal. `measurement_reason_code` is a closed vocabulary; the
     // free-form `unobservableReason` is deliberately NOT here and must never be emitted.
     'measurement_completeness', 'measurement_reason_code', 'out_of_scope_count',

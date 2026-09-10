@@ -23,12 +23,26 @@ import {
 
 /** Exactly the property set the acquisition events emit. */
 const ACQUISITION_FIELDS = [
+    /**
+     * #1421 P1 — `expected_candidate_id` BELONGS IN THIS LIST, and its absence is defect 2 again.
+     *
+     * I registered the field in the general event schema and stopped there. Every acquisition event is
+     * named `private_*`, so `send()` runs its properties through `sanitizePrivateTelemetryProps()` —
+     * the field was stripped, the readback decoded null, and `modelIdentityIsCoherent()` HELD every
+     * `session_during` qualification for all three candidates.
+     *
+     * This is the third defect this file exists for and it is the same one as the second. Listing the
+     * field here is what makes the "every approved field survives the REAL projection" casualty below
+     * cover it, so the next omission fails a test instead of a release.
+     */
+    'expected_candidate_id',
     'acquired_candidate_id', 'model_identity', 'asset_pin_digest', 'release_id', 'trigger',
     'cache_result', 'network_used', 'network_bytes', 'asset_count',
     'download_ms', 'init_ms', 'total_ms', 'outcome', 'error_code',
 ] as const;
 
 const fullPayload = () => ({
+    expected_candidate_id: 'moonshine:streaming-medium',
     acquired_candidate_id: 'moonshine:streaming-medium',
     model_identity: 'moonshine-medium@pinned',
     asset_pin_digest: 'sha256-abc',
