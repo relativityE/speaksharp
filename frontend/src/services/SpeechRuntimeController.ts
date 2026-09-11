@@ -982,6 +982,25 @@ export class SpeechRuntimeController {
      *  so the lock cannot lose a race to a rapid engine change right after Start. Released by transition()
      *  once a real state (INITIATING/…/terminal) is reached, where the lifecycle/pending predicates take over. */
     private engineSelectionIntentLocked = false;
+    /**
+     * #1433 RETURN `5636795476` — ONE SETTLEMENT PER UNRESOLVED TAKE.
+     *
+     * Retry Save now keeps its slot until Progress settles, so a second click during that await would find the
+     * slot still set and complete, attest and evaluate the same recording again. A retry requested while a
+     * settlement is in flight for the same lifecycle joins it; after a reset or service replacement (a new
+     * lifecycle or generation) a retry starts its own.
+     */
+    private retrySettlement: { owner: string; attempt: Promise<boolean> } | null = null;
+
+    private joinRetrySettlement(run: () => Promise<boolean>): Promise<boolean> {
+        const owner = `${this.lifecycleVersion}:${this.serviceGeneration}`;
+        if (this.retrySettlement && this.retrySettlement.owner === owner) return this.retrySettlement.attempt;
+        const attempt: Promise<boolean> = run().finally(() => {
+            if (this.retrySettlement?.attempt === attempt) this.retrySettlement = null;
+        });
+        this.retrySettlement = { owner, attempt };
+        return attempt;
+    }
     /** #1033: TRUE once a recording has actually BEGUN (transition to RECORDING) and has NOT yet reached a
      *  terminal resolution — durable save + attribution success, an approved discard, or successful Retry Save.
      *  This keeps the lock through POST-START failures (heartbeat/STT/runtime/stop/finalization/attribution),
@@ -1032,7 +1051,11 @@ export class SpeechRuntimeController {
      * moves pending→verified/unverified; on failure it stays pending and remains retryable. Idempotent
      * (returns true when nothing is pending).
      */
-    public async retryPendingAttribution(): Promise<boolean> {
+    public retryPendingAttribution(): Promise<boolean> {
+        return this.joinRetrySettlement(() => this.settlePendingAttribution());
+    }
+
+    private async settlePendingAttribution(): Promise<boolean> {
         const pending = this.pendingAttributionRetry;
         if (!pending) return true;
         const targetSessionId = pending.sessionId;
@@ -1061,6 +1084,22 @@ export class SpeechRuntimeController {
             // #1161: re-post evidence to the trusted server producer. null = transient failure → stay retryable.
             const res = await this.attestSessionEngine(pending.sessionId, pending.evidence);
             if (res === null) return false;
+            const progressContext = pending.progressContext ?? { mode: 'unknown' as const };
+            await this.completeProgressForRecording(
+                progressContext,
+                targetSessionId,
+                res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
+                pending.progressMetrics?.persisted ?? false,
+                // #1431 P1 — the real authority, re-evaluated at each shared write inside. This was
+                // `() => true`; see the note at the top of this method for why being user-initiated is
+                // not ownership.
+                retryStillOwnsSharedState,
+            );
+            this.retireObjectiveBriefAfterSettlement(progressContext, retryStillOwnsSharedState);
+            // #1433 RETURN `5636795476` — SETTLE FIRST, THEN RESOLVE. The slot and the lock stay authoritative through
+            // the awaited Progress evaluation and the owner-fenced brief retirement above; only then is the slot
+            // cleared, the saved marker published and the recording unlocked. Unlocking first let Navigation apply
+            // a deferred Open Mic while the objective evaluation was still suspended.
             // compare-and-clear: clear ONLY if the slot still holds the session we just promoted — if it
             // changed to another session while the update was in flight, leave that one intact (#1033).
             if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
@@ -1084,18 +1123,6 @@ export class SpeechRuntimeController {
                 });
                 });
             }
-            const progressContext = pending.progressContext ?? { mode: 'unknown' as const };
-            await this.completeProgressForRecording(
-                progressContext,
-                targetSessionId,
-                res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
-                pending.progressMetrics?.persisted ?? false,
-                // #1431 P1 — the real authority, re-evaluated at each shared write inside. This was
-                // `() => true`; see the note at the top of this method for why being user-initiated is
-                // not ownership.
-                retryStillOwnsSharedState,
-            );
-            this.retireObjectiveBriefAfterSettlement(progressContext, retryStillOwnsSharedState);
             return true;
         } catch {
             return false;
@@ -1110,7 +1137,11 @@ export class SpeechRuntimeController {
      * Same session id throughout (never a duplicate). Idempotent: returns true when nothing is pending.
      * Session-safe compare-and-clear: only clears the slot it actually resolved.
      */
-    public async retryRecordingSave(): Promise<boolean> {
+    public retryRecordingSave(): Promise<boolean> {
+        return this.joinRetrySettlement(() => this.settleRecordingSave());
+    }
+
+    private async settleRecordingSave(): Promise<boolean> {
         const fullSave = this.pendingFullSaveRetry;
         if (fullSave) {
             let targetSessionId = fullSave.sessionId;
@@ -1195,23 +1226,6 @@ export class SpeechRuntimeController {
                 // have been re-pointed to another session mid-flight, though the single-unresolved invariant
                 // makes that near-impossible); never clear a different session's unresolved work.
                 if (this.pendingFullSaveRetry?.sessionId === targetSessionId) {
-                    // Slots are this retry's own bookkeeping and clear either way; only the SHARED
-                    // publications are fenced, so a superseded retry still finishes its own work.
-                    this.pendingFullSaveRetry = null;
-                    if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
-                    this.publishIfStopOwner(retryAuthority, retryToken, 'retry_full_save_settlement', () => {
-                    this.markRecordingResolved();
-                    // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
-                    // the original failure never published one — correctly, since nothing was durable then.
-                    // After recovery the row exists, the transcript is persisted and attribution is terminal,
-                    // so the marker is published here and only here: both the completion and the attestation
-                    // above have already succeeded, and both retry slots are cleared, so the status derives
-                    // as `saved`. Without this the observer never records `stop-save` for a recovered take.
-                    this.updateSessionPersisted(true, {
-                        sessionId: targetSessionId,
-                        mode: fullSave.progressContext?.mode ?? null,
-                    });
-                    });
                     const progressContext = fullSave.progressContext ?? { mode: 'unknown' as const };
                     await this.completeProgressForRecording(
                         progressContext,
@@ -1222,6 +1236,30 @@ export class SpeechRuntimeController {
                         retryStillOwnsSharedState,
                     );
                     this.retireObjectiveBriefAfterSettlement(progressContext, retryStillOwnsSharedState);
+                    // #1433 RETURN `5636795476` — SETTLE FIRST, THEN RESOLVE. The slot and the lock stay authoritative through
+                    // the awaited Progress evaluation and the owner-fenced brief retirement above; only then is the slot
+                    // cleared, the saved marker published and the recording unlocked. Unlocking first let Navigation apply
+                    // a deferred Open Mic while the objective evaluation was still suspended.
+                    // Re-checked after the await: a confirmed Discard during settlement already resolved this take.
+                    if (this.pendingFullSaveRetry?.sessionId === targetSessionId) {
+                        // Slots are this retry's own bookkeeping and clear either way; only the SHARED
+                        // publications are fenced, so a superseded retry still finishes its own work.
+                        this.pendingFullSaveRetry = null;
+                        if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
+                        this.publishIfStopOwner(retryAuthority, retryToken, 'retry_full_save_settlement', () => {
+                        this.markRecordingResolved();
+                        // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
+                        // the original failure never published one — correctly, since nothing was durable then.
+                        // After recovery the row exists, the transcript is persisted and attribution is terminal,
+                        // so the marker is published here and only here: both the completion and the attestation
+                        // above have already succeeded, and both retry slots are cleared, so the status derives
+                        // as `saved`. Without this the observer never records `stop-save` for a recovered take.
+                        this.updateSessionPersisted(true, {
+                            sessionId: targetSessionId,
+                            mode: fullSave.progressContext?.mode ?? null,
+                        });
+                        });
+                    }
                 }
                 return true;
             } catch {
@@ -1229,7 +1267,7 @@ export class SpeechRuntimeController {
             }
         }
         // No full-save failure outstanding → fall back to the attribution-only retry.
-        return this.retryPendingAttribution();
+        return this.settlePendingAttribution();
     }
 
     /**
@@ -1412,6 +1450,12 @@ export class SpeechRuntimeController {
      */
     public async discardUnresolvedRecording(): Promise<{ outcome: 'discarded' | 'retryable'; sessionId: string | null }> {
         const sessionId = this.pendingFullSaveRetry?.sessionId ?? this.pendingAttributionRetry?.sessionId ?? this.sessionId ?? null;
+        // #1433 RETURN `5636795476` item 1 — a confirmed discard is the terminal settlement of the take whose Focus
+        // Points brief was kept through recovery. The context and authority are captured before the await and the
+        // retirement is fenced after it, like every other shared write.
+        const recoveryContext = this.pendingFullSaveRetry?.progressContext ?? this.pendingAttributionRetry?.progressContext ?? null;
+        const discardAuthority = this.captureStopAuthority(this.lifecycleVersion, this.service, sessionId);
+        const discardToken = { cancelled: false, version: discardAuthority.lifecycleVersion };
 
         if (sessionId) {
             let marked = false;
@@ -1439,6 +1483,7 @@ export class SpeechRuntimeController {
 
         this.pendingFullSaveRetry = null;
         this.pendingAttributionRetry = null;
+        this.retireObjectiveBriefAfterSettlement(recoveryContext, () => this.stopStillOwnsSharedState(discardAuthority, discardToken));
         this.markRecordingResolved();
         logger.info({ sessionId, state: this.state }, '[controller] unresolved recording discarded → unlocked (#1033 B)');
         return { outcome: 'discarded', sessionId };
@@ -5306,7 +5351,13 @@ export class SpeechRuntimeController {
                 };
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
-                this.retireObjectiveBriefAfterSettlement(completedProgressContext, () => this.ownsAfterTerminalAdvance(settledTuple));
+                // #1433 RETURN `5636795476` item 1 — NOT WHILE RECOVERY IS PENDING. An attestation or save that failed on
+                // this otherwise clean stop leaves a retry slot holding the take and the lock held for Retry Save /
+                // Discard. The brief belongs to that unresolved take until recovery is terminal; the slot already
+                // carries this recording-boundary context for exactly that retirement.
+                if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry) {
+                    this.retireObjectiveBriefAfterSettlement(completedProgressContext, () => this.ownsAfterTerminalAdvance(settledTuple));
+                }
                 // #1033 (item 3): the stop path reached its NORMAL terminal — the recording was saved, discarded
                 // as no-speech/low-quality, or had nothing to persist. Unless a durable retry was stashed (a
                 // full-save or attribution failure, which keeps the lock for Retry Save), the recording is fully

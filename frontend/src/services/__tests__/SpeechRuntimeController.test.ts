@@ -651,6 +651,55 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(useSessionStore.getState().activeObjectiveBrief).toBeNull();
     });
 
+    describe('#1433 RETURN `5636795476` item 1 — an attribution-pending clean stop keeps Focus Points until recovery is terminal', () => {
+        // A clean Focus Points stop whose attestation fails leaves the take locked for Retry Save / Discard.
+        // Retiring the brief at READY anyway told Navigation the take was Open Mic while the lock still said
+        // the take was unresolved — the frozen acceptance criterion says the brief and the pending switch
+        // notice stay until recovery is terminal. The controls prove the owner still retires it then.
+        const brief = { projectId: 'project-1433-r1', briefId: 'brief-1433-r1', points: ['Name the price'], topic: 'Pitch' };
+        const META_R1 = { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' };
+        const liveBriefId = () => useSessionStore.getState().activeObjectiveBrief?.briefId ?? null;
+        const recovery = () => controller as unknown as {
+            pendingAttributionRetry: unknown;
+            retryRecordingSave: () => Promise<boolean>;
+            discardUnresolvedRecording: () => Promise<{ outcome: string }>;
+        };
+
+        const stopWithFailedAttribution = async (sessionId: string) => {
+            useSessionStore.getState().setActiveObjectiveBrief(brief);
+            finalizeObjectiveSessionOnSave.mockResolvedValue({
+                ok: true, registered: true, objectiveSessionId: 'objective-1433-r1', evidenceCount: 1, coverage: [],
+            });
+            attestInvoke.mockReset();
+            attestInvoke.mockResolvedValue({ data: null, error: { message: 'producer down' } });
+            await driveStopWithService(mkService('private', META_R1), sessionId, 'private', { mode: 'focus_points', brief });
+        };
+
+        it('CASUALTY: attestation fails on a clean stop, and READY keeps the brief while the lock holds for recovery', async () => {
+            await stopWithFailedAttribution('sess-1433-r1-stop');
+            expect(useSessionStore.getState().runtimeState).toBe('READY');
+            expect(recovery().pendingAttributionRetry, 'recovery is still pending').not.toBeNull();
+            expect(useSessionStore.getState().engineSelectionLocked, 'the lock is held for recovery').toBe(true);
+            expect(liveBriefId(), 'Focus Points stays bound while recovery is pending').toBe(brief.briefId);
+        });
+
+        it('CONTROL: a terminal Retry Save then retires the brief and releases the lock', async () => {
+            await stopWithFailedAttribution('sess-1433-r1-retry');
+            attestInvoke.mockReset();
+            attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
+            await expect(recovery().retryRecordingSave()).resolves.toBe(true);
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(false);
+            expect(liveBriefId()).toBeNull();
+        });
+
+        it('CONTROL: a confirmed Discard then retires the brief and releases the lock', async () => {
+            await stopWithFailedAttribution('sess-1433-r1-discard');
+            await expect(recovery().discardUnresolvedRecording()).resolves.toMatchObject({ outcome: 'discarded' });
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(false);
+            expect(liveBriefId()).toBeNull();
+        });
+    });
+
     it('#1354 ACCEPTANCE 1: three sequential sessions each block Start until their OWN evidence is terminal', async () => {
         // Acceptance case 1 (client-observable half). The retention outcome itself — oldest expires,
         // newest two retained, metrics intact — is a PRODUCTION assertion and belongs to Attempt 10;
