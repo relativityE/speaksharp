@@ -23,7 +23,19 @@ import { join, resolve } from 'node:path';
 const REPO = resolve(__dirname, '..', '..');
 const CLI = join(REPO, 'scripts', 'pre-merge-gate.mjs');
 const HEAD = 'e'.repeat(40);
+/** The authorized base: `main` at the SHA the exact-head/base authorization named. */
+const BASE = 'b'.repeat(40);
+const REPOSITORY = 'relativityE/speaksharp';
 const bot = 'chatgpt-codex-connector';
+
+/**
+ * The CLI falls back to GITHUB_REPOSITORY / PR_NUMBER / EXPECTED_* when a flag is absent, and CI defines
+ * GITHUB_REPOSITORY. Without blanking these, a case that OMITS `--repo` would pass locally and silently
+ * borrow the runner's repository in CI. Blanked, a flag's absence is really an absence.
+ */
+const ISOLATED_ENV = {
+  GITHUB_REPOSITORY: '', PR_NUMBER: '', EXPECTED_HEAD_SHA: '', EXPECTED_BASE_SHA: '', REVIEW_QUALIFICATION_FILE: '',
+};
 
 let dir;
 let marker;
@@ -46,7 +58,10 @@ function recorderGh() {
  * A stand-in GraphQL endpoint. The CLI's live reader is a real `fetch`, so the read is intercepted at
  * the network boundary rather than by swapping the reader — which keeps the CLI under test whole.
  */
-function fakeGraphql({ threads, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false }) {
+function fakeGraphql({
+  threads, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false,
+  liveBase = BASE, liveRepository = REPOSITORY,
+}) {
   const pullRequest = {
     number: 1430,
     headRefOid,
@@ -90,6 +105,11 @@ globalThis.fetch = async (_url, init) => {
   if (query.includes('} comments(last:100){nodes{author{login} authorAssociation')) {
     payload.data.repository.pullRequest.comments = JSON.parse(comments);
   }
+  // Base identity likewise comes back only when the gate asks for it.
+  if (/\\bbaseRefOid\\b/.test(query)) payload.data.repository.pullRequest.baseRefOid = ${JSON.stringify(liveBase ?? null)};
+  if (query.includes('baseRepository{nameWithOwner}')) {
+    payload.data.repository.pullRequest.baseRepository = { nameWithOwner: ${JSON.stringify(liveRepository ?? null)} };
+  }
   return { ok: true, status: 200, json: async () => payload };
 };
 `);
@@ -116,6 +136,7 @@ const receipt = (minutesOld, extra = {}, omit = []) => {
     // Codex found the boundary checked only `generatedAt`, so a fresh receipt from another PR passed.
     qualified: true, reasons: [], findingCount: 0,
     pullRequestNumber: 1430, currentSha: HEAD, reviewedSha: HEAD,
+    repository: REPOSITORY, baseSha: BASE,
     generatedAt: new Date(Date.now() - minutesOld * 60 * 1000).toISOString(),
     ...extra,
   };
@@ -124,13 +145,18 @@ const receipt = (minutesOld, extra = {}, omit = []) => {
   return file;
 };
 
-function runCli({ threads, receiptPath, sha = HEAD, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false }) {
-  const stub = fakeGraphql({ threads, headRefOid, truncatedThreads, cleanResultOnly });
+function runCli({
+  threads, receiptPath, sha = HEAD, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false,
+  repository = REPOSITORY, baseSha = BASE, liveBase = BASE, liveRepository = REPOSITORY,
+}) {
+  const stub = fakeGraphql({ threads, headRefOid, truncatedThreads, cleanResultOnly, liveBase, liveRepository });
+  // `null` omits the flag entirely, so a case can model an operator who never supplied it.
   const run = spawnSync(process.execPath, ['--import', stub, CLI,
-    '--repo=relativityE/speaksharp', '--pr=1430', `--sha=${sha}`,
+    ...(repository === null ? [] : [`--repo=${repository}`]), '--pr=1430', `--sha=${sha}`,
+    ...(baseSha === null ? [] : [`--base-sha=${baseSha}`]),
     ...(receiptPath ? [`--receipt=${receiptPath}`] : [])], {
     cwd: REPO,
-    env: { ...process.env, GITHUB_TOKEN: 'test-token', GUARDED_MERGE_GH_BIN: recorderGh() },
+    env: { ...process.env, ...ISOLATED_ENV, GITHUB_TOKEN: 'test-token', GUARDED_MERGE_GH_BIN: recorderGh() },
     encoding: 'utf8',
   });
   return { run, mergeAttempted: existsSync(marker) };
@@ -169,9 +195,9 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
     // No fetch stub: the live read throws. An unreadable thread state is not an empty one, and a
     // transient API failure must never become permission to merge.
     const run = spawnSync(process.execPath, [CLI,
-      '--repo=relativityE/speaksharp', '--pr=1430', `--sha=${HEAD}`, `--receipt=${receipt(1)}`], {
+      '--repo=relativityE/speaksharp', '--pr=1430', `--sha=${HEAD}`, `--base-sha=${BASE}`, `--receipt=${receipt(1)}`], {
       cwd: REPO,
-      env: { ...process.env, GITHUB_TOKEN: 'test-token', GUARDED_MERGE_GH_BIN: recorderGh() },
+      env: { ...process.env, ...ISOLATED_ENV, GITHUB_TOKEN: 'test-token', GUARDED_MERGE_GH_BIN: recorderGh() },
       encoding: 'utf8',
     });
 
@@ -359,6 +385,48 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
     expect(run.stderr, 'and it names WHY it could not be trusted').toContain('review_threads_incomplete');
   });
 
+  it('CASUALTY: an OMITTED --repo never invokes gh', () => {
+    // `ISOLATED_ENV` blanks the GITHUB_REPOSITORY fallback, so this observes a genuinely absent repository.
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')], receiptPath: receipt(1), repository: null,
+    });
+    expect(mergeAttempted, 'no repository, no merge').toBe(false);
+    expect(run.status).toBe(2);
+  });
+
+  it('CASUALTY: a WRONG --repo never invokes gh — the guard and the merge must name one repository', () => {
+    /**
+     * Codex P1 `3986417417`. The guard validated `--repo` while `gh pr merge <n>` resolved `<n>` against
+     * whatever repository the checkout belongs to. The stored receipt and the live pull request are both
+     * bound to the repository GitHub reports, so naming another one refuses before `gh` is reached.
+     */
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')], receiptPath: receipt(1), repository: 'someone/else',
+    });
+    expect(mergeAttempted).toBe(false);
+    expect(run.stderr).toContain('pre_merge_receipt_addresses_another_repository');
+    expect(run.stderr).toContain('pre_merge_live_pull_request_in_another_repository');
+  });
+
+  it('CASUALTY: a matching head on an ADVANCED base never invokes gh', () => {
+    // Codex P1 `3986417422`, driven through the real CLI and the real query text.
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')], receiptPath: receipt(1), liveBase: 'c'.repeat(40),
+    });
+    expect(mergeAttempted, 'the reviewed head must not land on an unreviewed base').toBe(false);
+    expect(run.stderr).toContain('pre_merge_base_moved');
+  });
+
+  it('CASUALTY: a MISSING or MALFORMED --base-sha never invokes gh', () => {
+    for (const baseSha of [null, 'not-a-sha', BASE.slice(1)]) {
+      const { run, mergeAttempted } = runCli({
+        threads: [thread(true, 'P1 Badge — resolved')], receiptPath: receipt(1), baseSha,
+      });
+      expect(mergeAttempted, `--base-sha ${JSON.stringify(baseSha)} must not merge`).toBe(false);
+      expect(run.status, 'an unusable authorization is a usage error').toBe(2);
+    }
+  });
+
   it('POSITIVE CONTROL: a clean-result COMMENT with no review object DOES invoke gh', () => {
     /**
      * Codex P1 `3985755149` at `c33644cd3e`. When Codex finds nothing it posts an issue comment and
@@ -398,5 +466,6 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
     const invokedWith = readFileSync(marker, 'utf8');
     expect(invokedWith, 'squash-merges the named PR').toContain('pr merge 1430 --squash');
     expect(invokedWith, 'and pins the exact authorized head').toContain(`--match-head-commit ${HEAD}`);
+    expect(invokedWith, 'in the repository the guard validated').toContain('--repo relativityE/speaksharp');
   });
 });

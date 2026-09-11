@@ -57,6 +57,19 @@ export const PRE_MERGE_HOLD = Object.freeze({
   RECEIPT_WRONG_PR: 'pre_merge_receipt_addresses_another_pull_request',
   RECEIPT_WRONG_HEAD: 'pre_merge_receipt_addresses_another_head',
   LIVE_NOT_QUALIFIED: 'pre_merge_live_receipt_not_qualified',
+  /*
+   * #1430 P1s `3986417417` + `3986417422`. The guard bound the HEAD and nothing else about where the merge
+   * lands: `gh pr merge <n>` resolved `<n>` in whatever repository the checkout belongs to, and a reviewed
+   * head could squash onto a `main` that advanced after authorization. A merge is now authorized for one
+   * repository, one pull request, one head and one base, and each of them is checked.
+   */
+  REPOSITORY_UNAUTHORIZED: 'pre_merge_repository_missing_or_malformed',
+  BASE_UNAUTHORIZED: 'pre_merge_base_sha_missing_or_malformed',
+  RECEIPT_WRONG_REPOSITORY: 'pre_merge_receipt_addresses_another_repository',
+  RECEIPT_WRONG_BASE: 'pre_merge_receipt_addresses_another_base',
+  LIVE_WRONG_REPOSITORY: 'pre_merge_live_pull_request_in_another_repository',
+  BASE_MOVED: 'pre_merge_base_moved',
+  BASE_NOT_MAIN: 'pre_merge_base_branch_is_not_main',
 });
 
 /**
@@ -65,7 +78,7 @@ export const PRE_MERGE_HOLD = Object.freeze({
  * Shared by the stored and the live receipt on purpose: the two failure modes Codex found were the same
  * omission applied to each, so one predicate closes both and neither can drift from the other.
  */
-function bindingHolds({ receipt, prNumber, expectedHeadSha, codes }) {
+function bindingHolds({ receipt, repository, prNumber, expectedHeadSha, expectedBaseSha, codes }) {
   const holds = [];
   const head = String(expectedHeadSha ?? '').toLowerCase();
   /*
@@ -95,6 +108,13 @@ function bindingHolds({ receipt, prNumber, expectedHeadSha, codes }) {
   const currentSha = String(receipt?.currentSha ?? '').toLowerCase();
   const reviewedSha = String(receipt?.reviewedSha ?? '').toLowerCase();
   if (currentSha !== head || reviewedSha !== head) holds.push(codes.wrongHead);
+  // The same rule for WHERE the evidence applies: an absent repository or base is not a match.
+  if (!receipt?.repository || String(receipt.repository) !== String(repository ?? '')) {
+    holds.push(codes.wrongRepository);
+  }
+  if (!receipt?.baseSha || String(receipt.baseSha).toLowerCase() !== String(expectedBaseSha ?? '').toLowerCase()) {
+    holds.push(codes.wrongBase);
+  }
   return [...new Set(holds)];
 }
 
@@ -108,6 +128,7 @@ export async function guardedMerge({
   repository,
   prNumber,
   expectedHeadSha,
+  expectedBaseSha,
   token,
   priorReceipt,
   readPullRequest,
@@ -116,6 +137,13 @@ export async function guardedMerge({
   maxAgeMs = RECEIPT_MAX_AGE_MS,
 } = {}) {
   const holds = [];
+
+  /*
+   * THE AUTHORIZATION ITSELF MUST BE WELL-FORMED before anything is compared against it. An empty or
+   * malformed value would otherwise "match" evidence that is equally empty or equally malformed.
+   */
+  if (!/^[^/\s]+\/[^/\s]+$/.test(String(repository ?? ''))) holds.push(PRE_MERGE_HOLD.REPOSITORY_UNAUTHORIZED);
+  if (!/^[0-9a-f]{40}$/i.test(String(expectedBaseSha ?? ''))) holds.push(PRE_MERGE_HOLD.BASE_UNAUTHORIZED);
 
   /*
    * THE RECEIPT'S AGE IS CHECKED FIRST, and a missing one is a hold rather than a reason to skip the
@@ -134,12 +162,16 @@ export async function guardedMerge({
     // Age alone was the whole of the old check. A fresh receipt from another PR or head passed it.
     holds.push(...bindingHolds({
       receipt: priorReceipt,
+      repository,
       prNumber,
       expectedHeadSha,
+      expectedBaseSha,
       codes: {
         notQualified: PRE_MERGE_HOLD.RECEIPT_NOT_QUALIFIED,
         wrongPr: PRE_MERGE_HOLD.RECEIPT_WRONG_PR,
         wrongHead: PRE_MERGE_HOLD.RECEIPT_WRONG_HEAD,
+        wrongRepository: PRE_MERGE_HOLD.RECEIPT_WRONG_REPOSITORY,
+        wrongBase: PRE_MERGE_HOLD.RECEIPT_WRONG_BASE,
       },
     }));
   }
@@ -161,6 +193,21 @@ export async function guardedMerge({
     const expected = String(expectedHeadSha ?? '').toLowerCase();
     // The authorization named a SHA. If the head moved, this decision is about a different tree.
     if (!liveHead || liveHead !== expected) holds.push(PRE_MERGE_HOLD.HEAD_MOVED);
+
+    /*
+     * THE BASE AND THE REPOSITORY, LIVE. The authorization named one base SHA in one repository. If the
+     * base advanced, the reviewed head would land on a tree nobody reviewed; if the pull request lives in
+     * another repository, this is not the merge that was authorized. Missing is a hold, never a skip.
+     * `gh pr merge` has no match-base flag, so this read is the base check.
+     */
+    // The authorization is for `main`. Another branch is not that merge, even if its tip equals the base SHA.
+    if (live?.baseRefName !== 'main') holds.push(PRE_MERGE_HOLD.BASE_NOT_MAIN);
+    const liveBase = live?.baseRefOid?.toLowerCase?.() ?? '';
+    if (!liveBase || liveBase !== String(expectedBaseSha ?? '').toLowerCase()) holds.push(PRE_MERGE_HOLD.BASE_MOVED);
+    const liveRepository = String(live?.baseRepository?.nameWithOwner ?? '');
+    if (!liveRepository || liveRepository !== String(repository ?? '')) {
+      holds.push(PRE_MERGE_HOLD.LIVE_WRONG_REPOSITORY);
+    }
 
     const liveReceipt = buildReviewReceipt({ pullRequest: live, expectedHeadSha: expected });
     /*
@@ -185,7 +232,7 @@ export async function guardedMerge({
     return { merged: false, holds, mergeInvoked: false };
   }
 
-  const result = await mergeExecutor({ repository, number: prNumber, expectedHeadSha });
+  const result = await mergeExecutor({ repository, number: prNumber, expectedHeadSha, expectedBaseSha });
   return { merged: true, holds: [], mergeInvoked: true, result };
 }
 
@@ -222,10 +269,12 @@ async function readPullRequestLive({ repository, number, token }) {
  * whether a merge was ATTEMPTED — the observation that cannot be satisfied by a gate which reports a
  * refusal and merges anyway. It defaults to the real binary, so production behaviour is unchanged.
  */
-function ghMergeExecutor({ number, expectedHeadSha }) {
+function ghMergeExecutor({ repository, number, expectedHeadSha }) {
   const bin = process.env.GUARDED_MERGE_GH_BIN || 'gh';
+  // `--repo` is the repository the guard validated. Without it `gh` resolves the number against whatever
+  // repository the current checkout belongs to (Codex P1 `3986417417`).
   const args = ['pr', 'merge', String(number), '--squash', '--delete-branch',
-    '--match-head-commit', String(expectedHeadSha)];
+    '--match-head-commit', String(expectedHeadSha), '--repo', String(repository)];
   const run = spawnSync(bin, args, { stdio: 'inherit' });
   if (run.status !== 0) throw new Error(`gh_pr_merge_failed_status_${run.status}`);
   return { invoked: true, args };
@@ -243,13 +292,14 @@ export async function main(argv = process.argv.slice(2)) {
   const repository = arg('repo') ?? process.env.GITHUB_REPOSITORY ?? '';
   const prNumber = arg('pr') ?? process.env.PR_NUMBER ?? '';
   const expectedHeadSha = arg('sha') ?? process.env.EXPECTED_HEAD_SHA ?? '';
+  const expectedBaseSha = arg('base-sha') ?? process.env.EXPECTED_BASE_SHA ?? '';
   const receiptPath = arg('receipt') ?? process.env.REVIEW_QUALIFICATION_FILE ?? '';
   const token = process.env.GITHUB_TOKEN ?? '';
 
   if (!/^[^/]+\/[^/]+$/.test(repository) || !/^[1-9]\d*$/.test(prNumber)
-      || !/^[0-9a-f]{40}$/i.test(expectedHeadSha) || !token) {
-    console.error('MERGE HELD: usage --repo=<owner/name> --pr=<n> --sha=<40-hex> --receipt=<file>, '
-      + 'with GITHUB_TOKEN set');
+      || !/^[0-9a-f]{40}$/i.test(expectedHeadSha) || !/^[0-9a-f]{40}$/i.test(expectedBaseSha) || !token) {
+    console.error('MERGE HELD: usage --repo=<owner/name> --pr=<n> --sha=<40-hex head> --base-sha=<40-hex base> '
+      + '--receipt=<file>, with GITHUB_TOKEN set');
     return 2;
   }
 
@@ -263,6 +313,7 @@ export async function main(argv = process.argv.slice(2)) {
     repository,
     prNumber: Number(prNumber),
     expectedHeadSha,
+    expectedBaseSha,
     token,
     priorReceipt,
     readPullRequest: readPullRequestLive,
@@ -273,7 +324,7 @@ export async function main(argv = process.argv.slice(2)) {
     console.error(`MERGE HELD: ${outcome.holds.join(', ')}`);
     return 1;
   }
-  console.log(`MERGED ${repository}#${prNumber} at ${expectedHeadSha}`);
+  console.log(`MERGED ${repository}#${prNumber} at ${expectedHeadSha} onto base ${expectedBaseSha}`);
   return 0;
 }
 

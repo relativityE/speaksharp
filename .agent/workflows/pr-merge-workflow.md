@@ -43,7 +43,7 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    repo, so the merge is invoked by hand — which is exactly why it must not be invoked *directly*:
    ```bash
    GITHUB_TOKEN=$GH_TOKEN pnpm merge:guarded \
-     --repo=relativityE/speaksharp --pr=<PR#> --sha=<exact-head-sha> \
+     --repo=relativityE/speaksharp --pr=<PR#> --sha=<exact-head-sha> --base-sha=<exact-base-sha> \
      --receipt=<review-qualification.json from the green run>
    ```
    **Do not run `gh pr merge` directly.** GitHub emits no workflow event when a review thread is
@@ -51,7 +51,7 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    reopened — nothing re-runs and nothing revalidates. `merge:guarded` is the only place this repository
    invokes a merge: immediately before merging it re-reads live thread state over GraphQL, revalidates
    the age of the green run's receipt, and refuses on a reopened thread, a stale or undated receipt, an
-   unreadable read, or a head that moved since authorization. On a hold it exits non-zero having called
+   unreadable read, a head or base that moved since authorization, or a pull request in another repository. On a hold it exits non-zero having called
    nothing.
 9. **Strict mode / serial landing:** every merge advances `main`, so any other open PR goes **BEHIND**. Bring it current first (this re-runs its CI), then merge — land PRs one at a time:
    ```bash

@@ -19,13 +19,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { guardedMerge, PRE_MERGE_HOLD } from '../../scripts/pre-merge-gate.mjs';
 
 const HEAD = 'e'.repeat(40);
+/** The authorized base: `main` at the SHA the exact-head/base authorization named. */
+const BASE = 'b'.repeat(40);
+const REPOSITORY = 'relativityE/speaksharp';
 const bot = { login: 'chatgpt-codex-connector' };
 
 /** A pull request as the LIVE GraphQL read returns it, with `threads` decided per case. */
-const livePull = (threads) => ({
+const livePull = (threads, over = {}) => ({
   number: 1430,
   headRefOid: HEAD,
   baseRefName: 'main',
+  baseRefOid: BASE,
+  baseRepository: { nameWithOwner: REPOSITORY },
   files: { nodes: [{ path: 'scripts/pre-merge-gate.mjs' }], pageInfo: { hasNextPage: false } },
   reviews: {
     nodes: [{
@@ -35,6 +40,7 @@ const livePull = (threads) => ({
     pageInfo: { hasPreviousPage: false },
   },
   reviewThreads: { nodes: threads, pageInfo: { hasNextPage: false } },
+  ...over,
 });
 
 const thread = (isResolved, body) => ({
@@ -65,17 +71,22 @@ const receiptAgedMinutes = (minutes, over = {}) => ({
   pullRequestNumber: 1430,
   currentSha: HEAD,
   reviewedSha: HEAD,
+  repository: REPOSITORY,
+  baseSha: BASE,
   generatedAt: new Date(Date.now() - minutes * 60 * 1000).toISOString(),
   ...over,
 });
 
-const runGate = async ({ threads, priorReceipt, expectedHeadSha = HEAD, reader }) => {
+const runGate = async ({
+  threads, priorReceipt, expectedHeadSha = HEAD, expectedBaseSha = BASE, repository = REPOSITORY, reader, live,
+}) => {
   const mergeExecutor = vi.fn(async () => ({ sha: 'merged' }));
-  const readPullRequest = reader ?? vi.fn(async () => livePull(threads));
+  const readPullRequest = reader ?? vi.fn(async () => livePull(threads, live));
   const outcome = await guardedMerge({
-    repository: 'relativityE/speaksharp',
+    repository,
     prNumber: 1430,
     expectedHeadSha,
+    expectedBaseSha,
     token: 't',
     priorReceipt,
     readPullRequest,
@@ -165,5 +176,136 @@ describe('#1430 P1 — the pre-merge boundary rereads live state and revalidates
 
     expect(mergeExecutor).not.toHaveBeenCalled();
     expect(outcome.holds).toContain(PRE_MERGE_HOLD.HEAD_MOVED);
+  });
+});
+
+describe('#1430 P1s `3986417422` + `3986417417` — the merge is bound to the authorized base and repository', () => {
+  const ADVANCED = 'c'.repeat(40);
+  const resolved = () => [thread(true, 'P1 Badge — addressed and resolved')];
+
+  /*
+   * EVERY REFUSAL BELOW IS ASSERTED WITH `toEqual([code])`, NOT `toContain`. A fixture that tripped two
+   * predicates would prove neither, and a mutation deleting one of them would survive behind the other.
+   * Where a malformed value is under test it is supplied CONSISTENTLY to the authorization, the receipt and
+   * the live read, so the shape check is the only thing left that can refuse.
+   */
+
+  it('CASUALTY: a matching head on an ADVANCED live base refuses the merge', async () => {
+    /**
+     * Codex P1 `3986417422`. The receipt and the authorization agree on the base; only the live base has
+     * moved. Binding the head alone let the same reviewed head squash-land on a `main` nobody reviewed, and
+     * this repository has no "require branch up to date" protection that would catch it instead.
+     */
+    const { outcome, mergeExecutor } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1), live: { baseRefOid: ADVANCED },
+    });
+    expect(mergeExecutor, 'a moved base must never merge').not.toHaveBeenCalled();
+    expect(outcome.holds).toEqual([PRE_MERGE_HOLD.BASE_MOVED]);
+  });
+
+  it('CASUALTY: a live read with NO base OID refuses rather than skipping the comparison', async () => {
+    const { outcome, mergeExecutor } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1), live: { baseRefOid: undefined },
+    });
+    expect(mergeExecutor).not.toHaveBeenCalled();
+    expect(outcome.holds).toEqual([PRE_MERGE_HOLD.BASE_MOVED]);
+  });
+
+  it('CASUALTY: a MALFORMED authorized base SHA refuses, even when every other source repeats it', async () => {
+    for (const bad of ['not-a-sha', BASE.slice(1), `${BASE}0`, 'g'.repeat(40)]) {
+      const { outcome, mergeExecutor } = await runGate({
+        threads: resolved(),
+        expectedBaseSha: bad,
+        priorReceipt: receiptAgedMinutes(1, { baseSha: bad }),
+        live: { baseRefOid: bad },
+      });
+      expect(mergeExecutor, `base ${JSON.stringify(bad)} must not merge`).not.toHaveBeenCalled();
+      expect(outcome.holds).toEqual([PRE_MERGE_HOLD.BASE_UNAUTHORIZED]);
+    }
+  });
+
+  it('CASUALTY: a MISSING authorized base SHA refuses', async () => {
+    const { outcome, mergeExecutor } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1), expectedBaseSha: null,
+    });
+    expect(mergeExecutor).not.toHaveBeenCalled();
+    expect(outcome.holds).toContain(PRE_MERGE_HOLD.BASE_UNAUTHORIZED);
+  });
+
+  it('CASUALTY: a stored receipt produced against ANOTHER base refuses', async () => {
+    const { outcome, mergeExecutor } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1, { baseSha: ADVANCED }),
+    });
+    expect(mergeExecutor).not.toHaveBeenCalled();
+    expect(outcome.holds).toEqual([PRE_MERGE_HOLD.RECEIPT_WRONG_BASE]);
+  });
+
+  it('CASUALTY: a stored receipt that OMITS its base refuses — absence is not a match', async () => {
+    const { outcome, mergeExecutor } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1, { baseSha: undefined }),
+    });
+    expect(mergeExecutor).not.toHaveBeenCalled();
+    expect(outcome.holds).toEqual([PRE_MERGE_HOLD.RECEIPT_WRONG_BASE]);
+  });
+
+  it('CASUALTY: a stored receipt for ANOTHER repository refuses', async () => {
+    const { outcome, mergeExecutor } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1, { repository: 'someone/else' }),
+    });
+    expect(mergeExecutor).not.toHaveBeenCalled();
+    expect(outcome.holds).toEqual([PRE_MERGE_HOLD.RECEIPT_WRONG_REPOSITORY]);
+  });
+
+  it('CASUALTY: a live pull request in ANOTHER repository, or naming none, refuses', async () => {
+    for (const baseRepository of [{ nameWithOwner: 'someone/else' }, undefined]) {
+      const { outcome, mergeExecutor } = await runGate({
+        threads: resolved(), priorReceipt: receiptAgedMinutes(1), live: { baseRepository },
+      });
+      expect(mergeExecutor, `live repository ${JSON.stringify(baseRepository)} must not merge`).not.toHaveBeenCalled();
+      expect(outcome.holds).toEqual([PRE_MERGE_HOLD.LIVE_WRONG_REPOSITORY]);
+    }
+  });
+
+  it('CASUALTY: a MALFORMED authorized repository refuses, even when every other source repeats it', async () => {
+    for (const bad of ['no-slash', 'a/b/c', 'own er/name']) {
+      const { outcome, mergeExecutor } = await runGate({
+        threads: resolved(),
+        repository: bad,
+        priorReceipt: receiptAgedMinutes(1, { repository: bad }),
+        live: { baseRepository: { nameWithOwner: bad } },
+      });
+      expect(mergeExecutor, `repository ${JSON.stringify(bad)} must not merge`).not.toHaveBeenCalled();
+      expect(outcome.holds).toEqual([PRE_MERGE_HOLD.REPOSITORY_UNAUTHORIZED]);
+    }
+  });
+
+  it('CASUALTY: a pull request whose base branch is NOT `main` refuses, even when its base SHA matches', async () => {
+    /**
+     * The authorization is for `main` at one SHA. A pull request targeting any other branch is not that
+     * merge, even when that branch's tip happens to equal the authorized base SHA — which is exactly the
+     * case the SHA comparison alone cannot tell apart. A missing branch name is a hold, not a skip.
+     */
+    for (const baseRefName of ['release', 'Main', undefined]) {
+      const { outcome, mergeExecutor } = await runGate({
+        threads: resolved(), priorReceipt: receiptAgedMinutes(1), live: { baseRefName },
+      });
+      expect(mergeExecutor, `base branch ${JSON.stringify(baseRefName)} must not merge`).not.toHaveBeenCalled();
+      expect(outcome.holds).toEqual([PRE_MERGE_HOLD.BASE_NOT_MAIN]);
+    }
+  });
+
+  it('POSITIVE CONTROL: the exact repository, PR, head and base DOES invoke the merge, passing all four', async () => {
+    /**
+     * Without this every refusal above could pass against a gate that refuses everything. The executor's
+     * arguments are asserted as well, because repository propagation is the other half of `3986417417`: a
+     * guard that validated one repository and merged in whichever one the checkout belongs to would still
+     * count as "invoked".
+     */
+    const { outcome, mergeExecutor } = await runGate({ threads: resolved(), priorReceipt: receiptAgedMinutes(1) });
+    expect(outcome).toMatchObject({ merged: true, mergeInvoked: true, holds: [] });
+    expect(mergeExecutor).toHaveBeenCalledTimes(1);
+    expect(mergeExecutor).toHaveBeenCalledWith({
+      repository: REPOSITORY, number: 1430, expectedHeadSha: HEAD, expectedBaseSha: BASE,
+    });
   });
 });
