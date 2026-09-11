@@ -665,9 +665,13 @@ export default class TranscriptionService {
       ? await this.strategy.checkAvailability()
       : { isAvailable: true };
 
+    // #1259: captured at METHOD scope so the acquisition trigger below reads the same value the
+    // availability gates used. Recomputing it later would ask a state machine that has since moved on.
+    let isExplicitInit = forceExplicit;
+
     // Skip availability gating for 'mock' mode
     if (mode !== 'mock') {
-      const isExplicitInit = this.fsm.is('ENGINE_INITIALIZING') || forceExplicit;
+      isExplicitInit = this.fsm.is('ENGINE_INITIALIZING') || forceExplicit;
 
       // Gate 1: the user has to be ASKED, and must be able to answer.
       //
@@ -800,6 +804,13 @@ export default class TranscriptionService {
       if (!strategy) return;
 
       logger.debug('[TRACE] ENGINE_INIT_START');
+      // #1259: NAME WHY THIS LOAD IS HAPPENING, from the authority that knows. `isExplicitInit` is
+      // already the distinction between a user act and a background pulse; without passing it the
+      // acquisition telemetry reported every load as `explicit-setup`, including warm-ups that found
+      // the model cached and initialised it — the cheapest loads there are, averaged into the
+      // population that measures what a user actually waits for.
+      const acquiring = this.strategy as { setAcquisitionTrigger?: (t: 'warmup' | 'explicit-setup') => void };
+      acquiring.setAcquisitionTrigger?.(isExplicitInit ? 'explicit-setup' : 'warmup');
       const initResult = await this.strategy.init(STT_CONFIG.STRATEGY_INIT_TIMEOUT_MS, isMock);
 
       if (version !== this.strategyVersion) {

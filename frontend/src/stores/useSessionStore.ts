@@ -31,6 +31,9 @@ interface TranscriptState {
 // SttStatus imported from '@/types/transcription'
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
+import { noteTranscriptUpdate, emitTranscriptStability } from '@/services/telemetry/transcriptStability';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
 
 export type NativeFormattingUiStatus = 'idle' | 'pending' | 'complete' | 'failed';
 
@@ -302,7 +305,7 @@ const sentenceCaseStart = (text: string): string => {
     return `${text.slice(0, firstLetterIndex)}${text.charAt(firstLetterIndex).toUpperCase()}${text.slice(firstLetterIndex + 1)}`;
 };
 
-export const useSessionStore = create<SessionStore>((set) => {
+export const useSessionStore = create<SessionStore>((set, get) => {
     const instanceId = Math.random().toString(36).substring(7);
     if (typeof window !== 'undefined') {
         (window as unknown as { __LAST_STORE_ID__: string }).__LAST_STORE_ID__ = instanceId;
@@ -373,12 +376,13 @@ export const useSessionStore = create<SessionStore>((set) => {
         }),
 
     updateTranscript: (transcriptText, partial = '') => {
-        set({
-            transcript: {
-                transcript: sentenceCaseStart(transcriptText),
-                partial: sentenceCaseStart(partial),
-            },
-        });
+        const committed = sentenceCaseStart(transcriptText);
+        const provisional = sentenceCaseStart(partial);
+        // #1259 F04 — counted here, on every update, and reported ONCE at finalization. This is the
+        // single place both halves of the transcript change, and an event per update would be the
+        // per-frame stream the contract forbids.
+        noteTranscriptUpdate(committed, provisional);
+        set({ transcript: { transcript: committed, partial: provisional } });
     },
 
     updateFillerData: (data) =>
@@ -592,10 +596,32 @@ export const useSessionStore = create<SessionStore>((set) => {
     setProgressGateResolvedFor: (progressGateResolvedFor) => set({ progressGateResolvedFor }),
     setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
 
-    setTranscriptFinalizing: (isTranscriptFinalizing) =>
-        set({
-            isTranscriptFinalizing,
-        }),
+    setTranscriptFinalizing: (isTranscriptFinalizing) => {
+        // #1259 F05 — FINALIZATION ENDS HERE, and only here. The controller flips this flag false from
+        // nine different exit paths; instrumenting those would drift the moment a tenth appears, and
+        // would miss whichever one actually ran during the failure we are trying to see.
+        const wasFinalizing = get().isTranscriptFinalizing;
+        set({ isTranscriptFinalizing });
+        if (wasFinalizing && !isTranscriptFinalizing) {
+            const state = get();
+            // #1259 F16 — the decode has settled. Time spent here is a MODEL problem, and separating
+            // it from save and render is the whole point of the chain.
+            markCompletionStage('final_transcript');
+            // #1259 F04 — the churn summary belongs at the same moment: finalization is when the
+            // motion stops, and it is the only point where "how much did it move" has a final answer.
+            emitTranscriptStability(state.transcript.transcript, state.transcript.partial);
+            emitTranscriptAuthority({
+                stage: 'finalize',
+                // The COMMITTED text, not the partial. A partial is still in flux by definition, and
+                // F05 asks what the authority settled on.
+                authoritative: state.transcript.transcript,
+                // `finalizedAnalysis` is published only after persistence, so its presence at
+                // finalization time is itself informative: absent here is the normal case.
+                sessionIdPresent: Boolean(state.finalizedAnalysis?.sessionId),
+                persisted: state.sessionSaved,
+            });
+        }
+    },
 
     setPauseMetrics: (pauseMetrics) =>
         set({
