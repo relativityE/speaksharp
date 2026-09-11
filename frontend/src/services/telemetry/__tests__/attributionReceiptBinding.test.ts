@@ -147,7 +147,7 @@ describe('#1421 P1 `3984043475` — each saved take needs exactly one verified r
     });
 
     it('both After profiles enforce it, and nothing else does', () => {
-        for (const stage of QUALIFICATION_STAGES) {
+        const observed = QUALIFICATION_STAGES.map((stage) => {
             const rows: DecodedTelemetryRow[] = stage.requiredFamilies.map((family) => {
                 if (family === 'session_saved') return saved();
                 if (family === 'model_attribution_receipt') return receipt(take(), 'unverified');
@@ -156,13 +156,21 @@ describe('#1421 P1 `3984043475` — each saved take needs exactly one verified r
             });
             const reasons = evaluateQualificationStage(stage, rows);
             const binding = `${stage.stage}: a saved take has an attribution receipt that is not verified`;
-            if (stage.stage.startsWith('session_after_')) {
-                expect(stage.requiredFamilies, `${stage.stage} requires the receipt`).toContain('model_attribution_receipt');
-                expect(reasons, `${stage.stage} enforces the binding`).toContain(binding);
-            } else {
-                expect(reasons, `${stage.stage} does not`).not.toContain(binding);
-            }
-        }
+            return {
+                stage: stage.stage,
+                requiresReceipt: stage.requiredFamilies.includes('model_attribution_receipt'),
+                enforcesBinding: reasons.includes(binding),
+            };
+        });
+        const isAfter = (stage: string) => stage.startsWith('session_after_');
+        // The After profiles exist, so the comparison below cannot pass vacuously.
+        expect(observed.filter(({ stage }) => isAfter(stage)).length).toBeGreaterThan(0);
+        // Every After profile requires the receipt and enforces the binding; no other profile enforces it.
+        expect(observed).toEqual(observed.map(({ stage, requiresReceipt }) => ({
+            stage,
+            requiresReceipt: isAfter(stage) ? true : requiresReceipt,
+            enforcesBinding: isAfter(stage),
+        })));
     });
 });
 
