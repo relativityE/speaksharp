@@ -393,7 +393,10 @@ $$;
  * `ON CONFLICT DO NOTHING` keeps the first arming instant, which is the fact worth retaining.
  */
 CREATE TABLE IF NOT EXISTS public.transcript_retention_arming (
-    user_id           uuid PRIMARY KEY,
+    -- #1436 Codex P1 `3994032734`: the account-deletion zero-residue contract binds independently of
+    -- retention, and every sibling table here cascades. Without this reference a deleted account left its
+    -- arming row behind forever, since nothing anywhere deletes from this table.
+    user_id           uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     armed_at          timestamptz NOT NULL DEFAULT now(),
     armed_by_session  uuid
 );

@@ -360,6 +360,44 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
         await db.close();
     });
 
+    it('CASUALTY (`3994032734`): deleting the account leaves NO arming row behind', async () => {
+        /**
+         * The zero-residue contract binds independently of retention (ARCHITECTURE.md §5, ADR-2), and
+         * nothing in the repository ever deletes from this table, so without a cascading reference a
+         * deleted account kept its arming row forever. Every sibling table in this migration already
+         * cascades from `auth.users` or `sessions`.
+         */
+        const db = await freshDb();
+        await lateCreate(db, 'a post-rollout take that arms the user');
+        expect((await db.query<{ n: number }>(
+            'SELECT COUNT(*)::int AS n FROM public.transcript_retention_arming WHERE user_id = $1', [U],
+        )).rows[0].n, 'the successful save armed the user').toBe(1);
+
+        /*
+         * Production cascades `sessions.user_id` to `auth.users` (`20260212000000_database_hardening.sql`),
+         * but this suite deliberately loads only the retention migrations, so its `sessions` FK is the
+         * non-cascading variant and the account delete would trip it before reaching the arming row. The
+         * session rows are therefore removed first: what this case proves is the ARMING cascade, which is
+         * the residue Codex found, not the sessions cascade that already exists.
+         */
+        await db.query('DELETE FROM public.sessions WHERE user_id = $1', [U]);
+        await db.query('DELETE FROM auth.users WHERE id = $1', [U]);
+
+        expect((await db.query<{ n: number }>(
+            'SELECT COUNT(*)::int AS n FROM public.transcript_retention_arming WHERE user_id = $1', [U],
+        )).rows[0].n, 'and deleting the account left no arming residue').toBe(0);
+        await db.close();
+    });
+
+    it('CONTROL (`3994032734`): an ordinary save still arms, and the cascade does not fire early', async () => {
+        const db = await freshDb();
+        await lateCreate(db, 'a post-rollout take that arms the user');
+        expect((await db.query<{ n: number }>(
+            'SELECT COUNT(*)::int AS n FROM public.transcript_retention_arming WHERE user_id = $1', [U],
+        )).rows[0].n, 'arming survives everything short of account deletion').toBe(1);
+        await db.close();
+    });
+
     it('CASUALTY 2: a convergence EXCEPTION rolls back just as completely as a refusal', async () => {
         const db = await freshDb();
         const prior = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the first take');
