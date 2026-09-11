@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   evaluateReviewQualification,
@@ -7,6 +7,7 @@ import {
 import {
   applyEnforcementToReceipt,
   readReviewThreadResolutionEnforcement,
+  readPullRequest,
   buildReviewReceipt,
   resolveQualificationTarget,
   reviewThreadResolutionIsEnforced,
@@ -1195,3 +1196,80 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
   });
 });
 
+describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
+  const head = 'c'.repeat(40);
+  const bot = { login: 'chatgpt-codex-connector' };
+  const clean = {
+    id: 'old-clean', author: bot, createdAt: '2026-09-10T10:00:00Z',
+    body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``,
+  };
+  const base = (comments) => ({
+    number: 1430,
+    headRefOid: head,
+    baseRefName: 'main',
+    baseRefOid: 'b'.repeat(40),
+    baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
+    files: { nodes: [{ path: 'scripts/collect-review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+    reviews: { nodes: [], pageInfo: { hasPreviousPage: false } },
+    reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    comments,
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  function serve(pages, failAt = -1) {
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      const index = call++;
+      if (index === failAt) return { ok: false, status: 502, json: async () => ({}) };
+      const comments = pages[Math.min(index, pages.length - 1)];
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { repository: { pullRequest: base(comments) } } }),
+      };
+    }));
+  }
+
+  it('CASUALTY: a clean exact-head result on an older page is loaded and qualifies', async () => {
+    serve([
+      { nodes: [{ id: 'newer', author: { login: 'human' }, body: 'status', createdAt: '2026-09-10T11:00:00Z' }], pageInfo: { hasPreviousPage: true, startCursor: 'cursor-1' } },
+      { nodes: [clean], pageInfo: { hasPreviousPage: false, startCursor: 'cursor-0' } },
+    ]);
+    const pullRequest = await readPullRequest({ repository: 'relativityE/speaksharp', number: 1430, token: 'token' });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(pullRequest.comments.nodes.map(({ id }) => id)).toEqual(['old-clean', 'newer']);
+    expect(buildReviewReceipt({ pullRequest, expectedHeadSha: head }).qualified).toBe(true);
+  });
+
+  it('CASUALTY: a later exact-head finding comment is retained and blocks', async () => {
+    const finding = {
+      id: 'new-p1', author: bot, createdAt: '2026-09-10T12:00:00Z',
+      body: `P1 Badge — current finding\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``,
+    };
+    serve([
+      { nodes: [finding], pageInfo: { hasPreviousPage: true, startCursor: 'cursor-1' } },
+      { nodes: [clean], pageInfo: { hasPreviousPage: false, startCursor: 'cursor-0' } },
+    ]);
+    const pullRequest = await readPullRequest({ repository: 'relativityE/speaksharp', number: 1430, token: 'token' });
+    const receipt = buildReviewReceipt({ pullRequest, expectedHeadSha: head });
+    expect(receipt.qualified).toBe(false);
+    expect(receipt.findingCount).toBe(1);
+  });
+
+  it('CASUALTY: a page failure and cap exhaustion both remain incomplete', async () => {
+    const truncated = { nodes: [clean], pageInfo: { hasPreviousPage: true, startCursor: 'cursor-1' } };
+    serve([truncated], 1);
+    const failed = await readPullRequest({ repository: 'relativityE/speaksharp', number: 1430, token: 'token' });
+    expect(buildReviewReceipt({ pullRequest: failed, expectedHeadSha: head }).reasons)
+      .toContain('issue_comments_incomplete');
+
+    vi.unstubAllGlobals();
+    serve([truncated]);
+    const capped = await readPullRequest({
+      repository: 'relativityE/speaksharp', number: 1430, token: 'token', pageCap: 1,
+    });
+    expect(buildReviewReceipt({ pullRequest: capped, expectedHeadSha: head }).reasons)
+      .toContain('issue_comments_incomplete');
+  });
+});

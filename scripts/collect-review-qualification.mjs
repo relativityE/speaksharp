@@ -45,6 +45,13 @@ function isCodex(login) {
   return CODEX_LOGINS.has(String(login ?? '').toLowerCase());
 }
 
+function commentNamesHead(comment, head) {
+  const named = /Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i.exec(comment?.body ?? '');
+  if (!named) return false;
+  const shortSha = named[1].toLowerCase();
+  return shortSha.length >= 7 && head.startsWith(shortSha);
+}
+
 /**
  * #1430 P1 — CODEX'S CLEAN RESULT IS NOT A REVIEW OBJECT.
  *
@@ -77,14 +84,9 @@ function findTrustedCleanResult({ pullRequest, head }) {
     // and blocked notices from the same trusted bot are not clean reviews, whatever footer they carry.
     .filter((comment) => CODEX_CLEAN_RESULT.test(comment?.body ?? ''))
     .filter((comment) => !RELEASE_FINDING.test(comment?.body ?? ''))
-    .filter((comment) => {
-      const named = /Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i.exec(comment?.body ?? '');
-      if (!named) return false;
-      // Codex abbreviates the SHA, so the named value must PREFIX the full head — never the reverse,
-      // which would let a 7-character coincidence from another branch qualify.
-      const shortSha = named[1].toLowerCase();
-      return shortSha.length >= 7 && head.startsWith(shortSha);
-    })
+    // Codex abbreviates the SHA, so the named value must PREFIX the full head — never the reverse,
+    // which would let a 7-character coincidence from another branch qualify.
+    .filter((comment) => commentNamesHead(comment, head))
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
     .at(-1) ?? null;
 }
@@ -120,14 +122,23 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
       && RELEASE_FINDING.test(comment?.body ?? '')));
   const reviewBodyFindings = reviews.filter((review) => RELEASE_FINDING.test(review?.body ?? ''));
   const blockingReviews = reviews.filter((review) => review?.state === 'CHANGES_REQUESTED');
-  const findingCount = threadFindings.length + reviewBodyFindings.length + blockingReviews.length;
+  const issueCommentFindings = (pullRequest?.comments?.nodes ?? []).filter((comment) =>
+    isCodex(comment?.author?.login)
+    && commentNamesHead(comment, head)
+    && RELEASE_FINDING.test(comment?.body ?? ''));
+  const findingCount = threadFindings.length + reviewBodyFindings.length + blockingReviews.length
+    + issueCommentFindings.length;
   // Counted for the receipt only — never added to `findingCount`, which is what gates qualification.
   const advisoryCount = (pullRequest?.reviewThreads?.nodes ?? []).filter((thread) =>
     thread?.isResolved === false
     && (thread?.comments?.nodes ?? []).some((comment) =>
       isCodex(comment?.author?.login)
       && (comment?.pullRequestReview?.commit?.oid ?? comment?.originalCommit?.oid ?? comment?.commit?.oid)?.toLowerCase?.() === head
-      && ADVISORY_FINDING.test(comment?.body ?? ''))).length;
+      && ADVISORY_FINDING.test(comment?.body ?? ''))).length
+    + (pullRequest?.comments?.nodes ?? []).filter((comment) =>
+      isCodex(comment?.author?.login)
+      && commentNamesHead(comment, head)
+      && ADVISORY_FINDING.test(comment?.body ?? '')).length;
 
   const evaluated = evaluateReviewQualification({
     currentSha: head,
@@ -356,18 +367,65 @@ function normaliseRef(ref) {
  * refused every legitimately clean PR at merge. Two copies of an evidence query can disagree about what
  * the evidence is; one exported copy cannot.
  */
-export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName baseRefOid baseRepository{nameWithOwner} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100){nodes{author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage}}}}}`;
+export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName baseRefOid baseRepository{nameWithOwner} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
 
-async function readPullRequest({ repository, number, token }) {
+/**
+ * The conversation surface is load-bearing and long-lived PRs routinely exceed one GraphQL page.
+ * Ten pages is a bounded 1,000-comment read. Reaching the cap leaves `hasPreviousPage` true so the
+ * existing receipt logic fails closed as `issue_comments_incomplete`.
+ */
+export const ISSUE_COMMENT_PAGE_CAP = 10;
+
+function commentIdentity(comment) {
+  return String(comment?.id ?? `${comment?.createdAt ?? ''}\u0000${comment?.author?.login ?? ''}\u0000${comment?.body ?? ''}`);
+}
+
+export async function readPullRequest({ repository, number, token, pageCap = ISSUE_COMMENT_PAGE_CAP }) {
   const [owner, name] = repository.split('/');
   const query = PULL_REQUEST_REVIEW_QUERY;
-  const payload = await githubRequest('/graphql', token, {
+  const requestPage = (commentsBefore = null) => githubRequest('/graphql', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables: { owner, name, number } }),
+    body: JSON.stringify({ query, variables: { owner, name, number, commentsBefore } }),
   });
+  const payload = await requestPage();
   if (payload.errors?.length || !payload.data?.repository?.pullRequest) throw new Error('github_graphql_pull_request_unavailable');
-  return payload.data.repository.pullRequest;
+  const pullRequest = payload.data.repository.pullRequest;
+  const comments = pullRequest.comments ?? { nodes: [], pageInfo: { hasPreviousPage: false } };
+  const allComments = [...(comments.nodes ?? [])];
+  let pageInfo = comments.pageInfo ?? { hasPreviousPage: false };
+  let pagesRead = 1;
+
+  while (pageInfo.hasPreviousPage === true && pagesRead < pageCap) {
+    const cursor = pageInfo.startCursor;
+    if (!cursor) break;
+    let olderPayload;
+    try {
+      olderPayload = await requestPage(cursor);
+    } catch {
+      break;
+    }
+    const older = olderPayload?.data?.repository?.pullRequest?.comments;
+    if (olderPayload?.errors?.length || !older) break;
+    allComments.unshift(...(older.nodes ?? []));
+    pageInfo = older.pageInfo ?? { hasPreviousPage: true };
+    pagesRead += 1;
+  }
+
+  const seen = new Set();
+  pullRequest.comments = {
+    nodes: allComments
+      .filter((comment) => {
+        const identity = commentIdentity(comment);
+        if (seen.has(identity)) return false;
+        seen.add(identity);
+        return true;
+      })
+      .sort((a, b) => String(a?.createdAt ?? '').localeCompare(String(b?.createdAt ?? ''))
+        || commentIdentity(a).localeCompare(commentIdentity(b))),
+    pageInfo,
+  };
+  return pullRequest;
 }
 
 /**

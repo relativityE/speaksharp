@@ -28,7 +28,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { buildReviewReceipt, PULL_REQUEST_REVIEW_QUERY } from './collect-review-qualification.mjs';
+import { buildReviewReceipt, readPullRequest as readPullRequestLive } from './collect-review-qualification.mjs';
 import { RECEIPT_MAX_AGE_MS } from './review-qualification.mjs';
 
 /** Why a merge was refused. Bounded, so a caller cannot invent a reason that reads as permission. */
@@ -282,31 +282,6 @@ export async function guardedMerge({
 
 
 /**
- * THE LIVE READER. Kept here rather than imported from the collector so the CLI has exactly one
- * dependency on GraphQL and the casualty can substitute it.
- */
-async function readPullRequestLive({ repository, number, token }) {
-  const [owner, name] = String(repository).split('/');
-  // The collector's query, not a copy: a private copy here omitted `comments` and hid every clean result.
-  const query = PULL_REQUEST_REVIEW_QUERY;
-  const res = await fetch('https://api.github.com/graphql', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/vnd.github+json',
-    },
-    body: JSON.stringify({ query, variables: { owner, name, number: Number(number) } }),
-  });
-  if (!res.ok) throw new Error(`github_graphql_http_${res.status}`);
-  const payload = await res.json();
-  if (payload.errors?.length || !payload.data?.repository?.pullRequest) {
-    throw new Error('github_graphql_pull_request_unavailable');
-  }
-  return payload.data.repository.pullRequest;
-}
-
-/**
  * THE PROTECTION READER. Reads `main`'s classic branch protection with the operator's own token and returns
  * `'enforced'` only when GitHub will reject an out-of-date head for EVERY actor: required status checks in
  * strict ("up to date") mode AND `enforce_admins`. Strict mode that admins may bypass would not bind an admin
@@ -346,7 +321,8 @@ function ghMergeExecutor({ repository, number, expectedHeadSha }) {
 }
 
 /**
- * CLI. This is the repository's merge command; `pnpm merge:guarded` routes through it.
+ * CLI. The release procedure invokes this file directly from a clean worktree pinned to the exact
+ * authorized base SHA. It must never be reached through a package script in the candidate checkout.
  *
  * The guard is not advisory here — it is the only path to the merge, because the merge call lives
  * behind it in this same module and nothing else in the repository invokes one. A hold exits non-zero

@@ -118,8 +118,7 @@
     "build:unguarded": "node scripts/pnpm-only.mjs && cd frontend && pnpm vite build --mode production",
     "build:test:unguarded": "node scripts/pnpm-only.mjs && rm -rf frontend/dist && cd frontend && pnpm vite build --mode test",
     "test:e2e:unguarded": "pnpm build:test && playwright test",
-    "test:agent:unguarded": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh agent",
-    "merge:guarded": "node scripts/pre-merge-gate.mjs"
+    "test:agent:unguarded": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh agent"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

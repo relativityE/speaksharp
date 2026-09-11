@@ -2,9 +2,8 @@
  * #1430 P1, thread `3983020005` — THE GUARD IS THE MERGE COMMAND, NOT A LIBRARY BESIDE IT.
  *
  * A previous round added `guardedMerge` with no caller. PM was right to stop it: a guard nothing routes
- * through is not load-bearing, because the documented procedure still said `gh pr merge`. So the guard
- * is now the CLI behind `pnpm merge:guarded`, it owns the only merge invocation in the repository, and
- * the workflow doc routes through it.
+ * through is not load-bearing, because the documented procedure still said `gh pr merge`. The workflow
+ * now routes through the CLI copied from the exact authorized base, never through candidate package code.
  *
  * THESE CASES DRIVE THE CLI AS A SUBPROCESS, and they assert on whether `gh` was ATTEMPTED — not on a
  * returned flag. `GUARDED_MERGE_GH_BIN` substitutes a recorder that writes a marker file when invoked,
@@ -116,7 +115,7 @@ globalThis.fetch = async (url, init) => {
   }
   const { query = '' } = JSON.parse(init?.body ?? '{}');
   const payload = JSON.parse(body);
-  if (query.includes('} comments(last:100){nodes{author{login} authorAssociation')) {
+  if (query.includes('comments(last:100,before:$commentsBefore)')) {
     payload.data.repository.pullRequest.comments = JSON.parse(comments);
   }
   // Base identity likewise comes back only when the gate asks for it.
@@ -178,6 +177,31 @@ function runCli({
   });
   return { run, mergeAttempted: existsSync(marker) };
 }
+
+describe('#1430 P1 — privileged execution comes only from the authorized base', () => {
+  it('CASUALTY: the documented path pins a clean worktree and never invokes candidate package code', () => {
+    const workflow = readFileSync(join(REPO, '.agent', 'workflows', 'pr-merge-workflow.md'), 'utf8');
+    const packageJson = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8'));
+
+    expect(packageJson.scripts?.['merge:guarded']).toBeUndefined();
+    expect(workflow).not.toContain('pnpm merge:guarded');
+    expect(workflow).toContain('git worktree add --detach "$TRUSTED_MERGE_ROOT" "$AUTHORIZED_BASE_SHA"');
+    expect(workflow).toContain('test "$(git -C "$TRUSTED_MERGE_ROOT" rev-parse HEAD)" = "$AUTHORIZED_BASE_SHA"');
+    expect(workflow).toContain('test -z "$(git -C "$TRUSTED_MERGE_ROOT" status --porcelain)"');
+    expect(workflow).toContain('cd "$TRUSTED_MERGE_ROOT"');
+    expect(workflow).toContain('"$NODE_BIN" scripts/pre-merge-gate.mjs');
+    expect(workflow.indexOf('cd "$TRUSTED_MERGE_ROOT"'))
+      .toBeLessThan(workflow.indexOf('GITHUB_TOKEN="$GH_TOKEN"'));
+  });
+
+  it('CONTROL: the one-time bootstrap executes only trusted gh and pins repository and head', () => {
+    const workflow = readFileSync(join(REPO, '.agent', 'workflows', 'pr-merge-workflow.md'), 'utf8');
+    expect(workflow).toContain('one-time #1430 bootstrap');
+    expect(workflow).toContain('trusted installed `gh` binary');
+    expect(workflow).toContain('explicit `--repo` and `--match-head-commit`');
+    expect(workflow).toMatch(/executes no\s+candidate repository code with the token/);
+  });
+});
 
 describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => {
   it('CASUALTY: a REOPENED P0/P1 thread — gh is never invoked', () => {

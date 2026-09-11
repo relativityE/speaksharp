@@ -39,20 +39,40 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    gh pr checks <PR#> --watch --interval 30
    ```
    On red: `gh pr checks <PR#>` → open the failing job's log → fix on the same branch (pushing again re-runs CI).
-8. **Merge — only after green, and only through the guarded command.** Auto-merge is disabled on this
-   repo, so the merge is invoked by hand — which is exactly why it must not be invoked *directly*:
+8. **Merge — only after green, and run the guard from the authorized base, never the PR checkout.**
+   The privileged token must not be exposed to candidate-controlled package scripts, hooks, loaders, or
+   executables. Create a clean detached worktree at the exact authorized base SHA and run that trusted
+   base's guard directly:
    ```bash
-   GITHUB_TOKEN=$GH_TOKEN pnpm merge:guarded \
-     --repo=relativityE/speaksharp --pr=<PR#> --sha=<exact-head-sha> --base-sha=<exact-base-sha> \
-     --receipt=<review-qualification.json from the green run>
+   AUTHORIZED_BASE_SHA=<exact-base-sha>
+   TRUSTED_MERGE_ROOT=$(mktemp -d)
+   NODE_BIN=$(command -v node)
+   GH_BIN=$(command -v gh)
+   git fetch origin "$AUTHORIZED_BASE_SHA"
+   git worktree add --detach "$TRUSTED_MERGE_ROOT" "$AUTHORIZED_BASE_SHA"
+   test "$(git -C "$TRUSTED_MERGE_ROOT" rev-parse HEAD)" = "$AUTHORIZED_BASE_SHA"
+   test -z "$(git -C "$TRUSTED_MERGE_ROOT" status --porcelain)"
+   (
+     cd "$TRUSTED_MERGE_ROOT"
+     env -u NODE_OPTIONS -u NODE_PATH \
+       GITHUB_TOKEN="$GH_TOKEN" GUARDED_MERGE_GH_BIN="$GH_BIN" \
+       "$NODE_BIN" scripts/pre-merge-gate.mjs \
+       --repo=relativityE/speaksharp --pr=<PR#> --sha=<exact-head-sha> \
+       --base-sha="$AUTHORIZED_BASE_SHA" \
+       --receipt=<absolute-review-qualification.json-from-the-green-run>
+   )
+   git worktree remove "$TRUSTED_MERGE_ROOT"
    ```
-   **Do not run `gh pr merge` directly.** GitHub emits no workflow event when a review thread is
+   GitHub emits no workflow event when a review thread is
    resolved or unresolved, so a green `review-qualification` check stays green after a P0/P1 thread is
-   reopened — nothing re-runs and nothing revalidates. `merge:guarded` is the only place this repository
-   invokes a merge: immediately before merging it re-reads live thread state over GraphQL, revalidates
+   reopened — nothing re-runs and nothing revalidates. The base-pinned guard is the normal merge path:
+   immediately before merging it re-reads live thread state over GraphQL, revalidates
    the age of the green run's receipt, and refuses on a reopened thread, a stale or undated receipt, an
    unreadable read, a head or base that moved since authorization, a pull request in another repository, or a `main` whose "require branches to be up to date" protection is not readable and enforced for admins (GitHub then also rejects an out-of-date head at merge time). On a hold it exits non-zero having called
-   nothing.
+   nothing. The one-time #1430 bootstrap is the sole exception because its authorized base predates the
+   guard: after exact-head/base/bootstrap PO authorization, Dev runs the trusted installed `gh` binary
+   from a neutral temporary directory with explicit `--repo` and `--match-head-commit`, executes no
+   candidate repository code with the token, and stops if GitHub's server-side protection refuses.
 9. **Strict mode / serial landing:** every merge advances `main`, so any other open PR goes **BEHIND**. Bring it current first (this re-runs its CI), then merge — land PRs one at a time:
    ```bash
    gh pr update-branch <PR#>   # then re-watch checks, then merge
