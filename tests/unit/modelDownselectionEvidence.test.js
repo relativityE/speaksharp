@@ -266,6 +266,22 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     expect(holdProblems(noControl)).toMatch(/exactly one telemetry_positive_control/);
   });
 
+  it('CASUALTY: the positive control belongs to this evidence document, not another comparison', () => {
+    const evidence = validEvidence();
+    const staleDocumentId = '33333333-3333-4333-8333-333333333333';
+    evidence.telemetryReadback.positiveControlNonce = staleDocumentId;
+    const control = evidence.telemetryReadback.events.find(
+      (event) => event.event === 'telemetry_positive_control',
+    );
+    control.controlNonce = staleDocumentId;
+    control.evidenceDocumentId = staleDocumentId;
+    LIVE_TELEMETRY.set(evidence.telemetryReadback.queryId, structuredClone(evidence.telemetryReadback));
+
+    expect(holdProblems(evidence)).toMatch(
+      /positiveControlNonce must equal evidence\.evidenceDocumentId/,
+    );
+  });
+
   it('CASUALTY: rejects contributor-authored PostHog rows that differ from authenticated readback', () => {
     const evidence = validEvidence();
     evidence.telemetryReadback.events.find((event) => event.event === 'session_saved').wordCount = 999;

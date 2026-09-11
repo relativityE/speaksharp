@@ -151,7 +151,7 @@ function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, path, pro
   expectEqual(receipt.persistedSessionId, row.persistedSessionId, `${path}.receipt.persistedSessionId`, problems);
 }
 
-function validateTelemetryReadback(readback, releaseSha, telemetryResolver, problems) {
+function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, telemetryResolver, problems) {
   const keys = ['source', 'queryId', 'decodedAt', 'positiveControlNonce', 'events'];
   if (!exactKeys(readback, keys, 'telemetryReadback', problems)) return [];
   expectEqual(readback.source, 'posthog_decoded_readback', 'telemetryReadback.source', problems);
@@ -162,6 +162,8 @@ function validateTelemetryReadback(readback, releaseSha, telemetryResolver, prob
   if (typeof readback.positiveControlNonce !== 'string' || !TOKEN.test(readback.positiveControlNonce)) {
     problems.push('telemetryReadback.positiveControlNonce must be a bounded nonce');
   }
+  expectEqual(readback.positiveControlNonce, evidenceDocumentId,
+    'telemetryReadback.positiveControlNonce must equal evidence.evidenceDocumentId', problems);
   if (!Array.isArray(readback.events)) {
     problems.push('telemetryReadback.events must be an array');
     return [];
@@ -538,7 +540,9 @@ export function validateModelDownselectionEvidence(value, options = {}) {
   validateEnvironment(value.environment, problems);
   validateGeminiContract(value.geminiContract, problems);
   const releaseSha = typeof value.environment?.releaseSha === 'string' ? value.environment.releaseSha : '';
-  const events = validateTelemetryReadback(value.telemetryReadback, releaseSha, options.telemetryResolver, problems);
+  const events = validateTelemetryReadback(
+    value.telemetryReadback, releaseSha, value.evidenceDocumentId, options.telemetryResolver, problems,
+  );
   const requiredTakeKeys = validateCandidateEvidence(
     value.candidateEvidence, events, releaseSha, value.evidenceDocumentId, baseDir, problems,
   );
