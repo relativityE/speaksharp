@@ -37,6 +37,14 @@ vi.mock('../../lib/storage', () => ({
     // return throws there — harness noise that masqueraded as a product failure.
     completeSession: vi.fn().mockResolvedValue({}),
 }));
+/**
+ * #1433 Codex P1 `3990876675` — the runtime-candidate take gate, controllable per case. Every case runs with the
+ * module's own "no comparison configured" default unless it deliberately refuses a resumed start.
+ */
+const candidateGate = vi.hoisted(() => ({ current: { enabled: false, allowed: true } as Record<string, unknown> }));
+vi.mock('@/services/transcription/runtimeCandidateTakeGate', () => ({
+    evaluateRuntimeCandidateTakeGate: () => candidateGate.current,
+}));
 vi.mock('../../lib/supabaseClient', () => ({
     getSupabaseClient: vi.fn(() => ({
         auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' } } } }) },
@@ -349,7 +357,142 @@ describe('#1415 — one click, one recording', () => {
         });
     });
 
+    describe('#1433 P1 `3979053079` — a start refused at the resumed gate releases the engine lock', () => {
+        it('releases the controller AND the published lock when the Progress gate closes during preparation', async () => {
+            // Start intent locks engine selection synchronously and publishes it. A cold start then waits
+            // for readiness; if the Progress gate shuts meanwhile, the resumed start is refused and the
+            // click is rejected. That refusal is the end of this take, so nothing may keep the selector
+            // and navigation locked behind it.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            // Read the PUBLISHED lock at the moment the caller learns of the refusal. A later, unrelated
+            // republish would otherwise hide a refusal that left the UI locked in the meantime.
+            let lockedAtRejection: boolean | null = null;
+            started.then(() => outcome.push('resolved'), (e: Error) => {
+                lockedAtRejection = useSessionStore.getState().engineSelectionLocked;
+                outcome.push(`rejected:${e.message}`);
+            });
+            await settle();
+            const priv = controller as unknown as { engineSelectionIntentLocked: boolean; capturedUserId: string | null };
+            expect(priv.engineSelectionIntentLocked, 'precondition: Start intent took the lock').toBe(true);
+            expect(useSessionStore.getState().engineSelectionLocked, 'precondition: the lock was published').toBe(true);
+
+            // Another tab queues Progress debt for THIS owner while the model is still preparing.
+            useSessionStore.setState({
+                progressGate: { sessionId: 's-prev', ownerId: priv.capturedUserId ?? null, state: 'queued' },
+            } as never);
+
+            engine.downloadEnabled = true;
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            await settle();
+
+            expect(outcome, 'the refusal must be the Progress gate, not some other path').toHaveLength(1);
+            expect(outcome[0]).toMatch(/^rejected:RECORDING_START_GATE_CLOSED:/);
+            expect(pendingRecordingIntent(), 'no take is pending after the refusal').toBeNull();
+            expect(priv.engineSelectionIntentLocked, 'controller lock released').toBe(false);
+            expect(useSessionStore.getState().engineSelectionLocked, 'published lock released').toBe(false);
+            expect(lockedAtRejection, 'published lock already released when the caller is told').toBe(false);
+        });
+
+        it('a refused resumed start publishes its own release, without relying on a later transition', async () => {
+            // Both refusals above happen inside `transition('READY')`, which republishes the lock again after
+            // the resumed start returns. That later publish hides a refusal that released only the controller
+            // flag. Resume exactly as `transition()` does, with no transition around it, and read the
+            // published lock the moment the refused start returns.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* the refusal is asserted through the published lock */ });
+            await settle();
+            expect(useSessionStore.getState().engineSelectionLocked, 'precondition: the lock was published').toBe(true);
+
+            const priv = controller as unknown as { capturedUserId: string | null };
+            useSessionStore.getState().setProgressGate({ sessionId: 's-prev', ownerId: priv.capturedUserId ?? null, state: 'queued' });
+            const resumed = intentApi.claimRecordingIntent();
+            expect(resumed, 'precondition: the click is waiting to resume').not.toBeNull();
+            void controller.startRecording(resumed!.policy ?? undefined, [...resumed!.userWords], true, resumed!.settlement);
+
+            expect(useSessionStore.getState().engineSelectionLocked, 'published in the same turn as the refusal').toBe(false);
+            await settle();
+        });
+
+        it('releases the lock when the runtime-candidate gate refuses the resumed start (Codex P1 `3990876675`)', async () => {
+            // The model-comparison identity was valid at the click and became invalid during preparation. The gate
+            // threw on the resumed start, which `transition()` fires without awaiting, so the throw reached nobody:
+            // the waiting click never settled and the lock its Start intent published was never released.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            let lockedAtRejection: boolean | null = null;
+            started.then(() => outcome.push('resolved'), (e: Error) => {
+                lockedAtRejection = useSessionStore.getState().engineSelectionLocked;
+                outcome.push(`rejected:${e.message}`);
+            });
+            await settle();
+            const priv = controller as unknown as { engineSelectionIntentLocked: boolean };
+            expect(useSessionStore.getState().engineSelectionLocked, 'precondition: the lock was published').toBe(true);
+
+            try {
+                candidateGate.current = { enabled: true, allowed: false, refusal: 'observed_mismatch' };
+                engine.downloadEnabled = true;
+                await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+                await settle();
+            } finally {
+                candidateGate.current = { enabled: false, allowed: true };
+            }
+
+            expect(outcome, 'the original click is rejected by the candidate gate')
+                .toEqual(['rejected:RUNTIME_CANDIDATE_IDENTITY_MISMATCH:observed_mismatch']);
+            expect(lockedAtRejection, 'published lock already released when the caller is told').toBe(false);
+            expect(pendingRecordingIntent(), 'no take is pending after the refusal').toBeNull();
+            expect(priv.engineSelectionIntentLocked, 'controller lock released').toBe(false);
+            expect(useSessionStore.getState().engineSelectionLocked, 'published lock released').toBe(false);
+        });
+
+        it('releases the lock when a live finalization fence refuses the resumed start', async () => {
+            // The same defect at the other refusal a resumed start can meet: the previous take is still
+            // finalizing when readiness arrives. The click is rejected, so its lock must go with it.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            let lockedAtRejection: boolean | null = null;
+            started.then(() => outcome.push('resolved'), (e: Error) => {
+                lockedAtRejection = useSessionStore.getState().engineSelectionLocked;
+                outcome.push(`rejected:${e.constructor.name}`);
+            });
+            await settle();
+            const priv = controller as unknown as { engineSelectionIntentLocked: boolean; finalizingOwner: unknown };
+            expect(useSessionStore.getState().engineSelectionLocked, 'precondition: the lock was published').toBe(true);
+
+            // A finalization that is genuinely in flight: an owner AND the latch.
+            priv.finalizingOwner = { owner: 'previous-take' };
+            useSessionStore.setState({ isTranscriptFinalizing: true } as never);
+
+            engine.downloadEnabled = true;
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            await settle();
+
+            expect(outcome, 'the refusal must be the finalization fence').toEqual(['rejected:StartRefusedFinalizationError']);
+            expect(lockedAtRejection, 'published lock already released when the caller is told').toBe(false);
+            expect(pendingRecordingIntent(), 'no take is pending after the refusal').toBeNull();
+            expect(priv.engineSelectionIntentLocked, 'controller lock released').toBe(false);
+            expect(useSessionStore.getState().engineSelectionLocked, 'published lock released').toBe(false);
+        });
+    });
+
     describe('#1415 P1 — engine and policy stay locked through preparation', () => {
+        it('publishes the lock in the same turn as Start intent, before the queue reaches INITIATING', async () => {
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* settled by the lifecycle after this synchronous assertion */ });
+
+            expect(useSessionStore.getState().runtimeState).toBe('IDLE');
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(true);
+
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('TERMINATED');
+            await settle();
+        });
+
         it('the lock is HELD while a click waits on a model download', async () => {
             engine.downloadEnabled = false;   // preparation stays open
             const started = controller.startRecording(POLICY as never, []);
@@ -361,6 +504,13 @@ describe('#1415 — one click, one recording', () => {
             // change during the download would have the recording resume on an engine the user never
             // asked for, under a policy the intent was not minted with.
             expect(controller.isEngineSelectionLocked()).toBe(true);
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(true);
+
+            // Preparation publishes an intermediate READY before it resumes the same Start. The UI
+            // projection must stay locked at that exact seam; otherwise Navigation can consume the
+            // Focus Points brief and relabel the recording that is about to begin.
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(true);
         });
 
         it('the lock is RELEASED once that exact attempt is retired', async () => {
@@ -376,6 +526,7 @@ describe('#1415 — one click, one recording', () => {
 
             // The lock lasts exactly as long as the wish — no longer.
             expect(controller.isEngineSelectionLocked()).toBe(false);
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(false);
         });
     });
 
@@ -731,26 +882,131 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
         useSessionStore.getState().resetSession();
     });
 
-    it('CASUALTY: a terminal transition with a SUPERSEDED token clears the banner', async () => {
+    /**
+     * #1431 P1 — THE TWO TRANSITION-LEVEL CASUALTIES THAT LIVED HERE ARE REPLACED, NOT DELETED.
+     *
+     * They asserted that a stale/cancelled token's terminal transition CLEARS the finalizing banner.
+     * That behaviour is now removed: a stale transition carries only a lifecycle token, and when A and
+     * B share a lifecycle version it cannot tell "the latch I armed" from "the latch B armed" — so it
+     * released the successor's latch and discarded the successor's frozen transcript.
+     *
+     * What those casualties were protecting is real: the latch is the start guard, and a banner nobody
+     * can clear leaves the record control disabled. That protection now lives on the production path,
+     * where the releasing take carries a full `StopAuthority`. The three tests below cover it end to
+     * end — the rightful owner releases, a superseded take cannot, and a stale direct transition has no
+     * release side effect at all.
+     */
+    it('the rightful stop owner releases its latch through releaseFinalizingIfOwner()', async () => {
         const priv = controller as unknown as {
             lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, v?: number | null, owner?: unknown) => boolean;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: priv.serviceGeneration,
+            service: priv.service ?? null,
+        };
+
+        const owner = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: priv.serviceGeneration,
+            service: priv.service ?? null,
+            sessionId: null, recordingId: null, intentToken: null,
+        };
+
+        expect(priv.releaseFinalizingIfOwner('normal_terminal', priv.lifecycleVersion, owner),
+            'the take that armed the latch releases it').toBe(true);
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            'the banner cannot be left latched for its own owner').toBe(false);
+    });
+
+    it("a superseded take cannot release B's latch, including a same-lifecycle service replacement", async () => {
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, v?: number | null, owner?: unknown) => boolean;
+        };
+        // B armed the latch and froze its transcript. Same lifecycle version throughout: ONLY the
+        // service generation and identity separate the takes, which is the case version-only guards miss.
+        const serviceB = { id: 'B' };
+        priv.service = serviceB as never;
+        priv.serviceGeneration = 12;
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 12,
+            service: serviceB,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        useSessionStore.getState().freezeTranscriptAtStop('B is still saving these words');
+
+        const staleA = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 11,
+            service: { id: 'A' },
+            sessionId: null, recordingId: null, intentToken: null,
+        };
+
+        expect(priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion, staleA),
+            'A did not arm this latch').toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's banner stays on").toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop,
+            "B's frozen transcript survives").toBe('B is still saving these words');
+
+        // GENERATION ALONE, with the SAME service object and the same lifecycle version. The service
+        // reference can outlive a generation bump, so identity and generation are independent terms —
+        // and a claimant differing only by generation must still be refused. Without this the
+        // generation comparison is unmeasured: the case above varies identity too, so identity alone
+        // refuses it.
+        const sameServiceOlderGeneration = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 11,
+            service: serviceB,
+            sessionId: null, recordingId: null, intentToken: null,
+        };
+        expect(priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion, sameServiceOlderGeneration),
+            'an older generation cannot release, even holding the same service').toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's banner still stays on").toBe(true);
+    });
+
+    it('a stale direct transition has NO finalization-release side effect', async () => {
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
             finalizingOwnerVersion: number | null;
             transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
         };
-        useSessionStore.getState().setTranscriptFinalizing(true);
-
-        // The stop's own token, superseded while finalization was running. The latch is THIS take's —
-        // nothing newer has armed it — so this take may withdraw its own claim.
-        const staleToken = { cancelled: false, version: priv.lifecycleVersion };
         priv.finalizingOwnerVersion = priv.lifecycleVersion;
-        priv.lifecycleVersion += 1;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: priv.serviceGeneration,
+            service: priv.service ?? null,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        useSessionStore.getState().freezeTranscriptAtStop('still saving');
 
-        await priv.transition('READY', undefined, staleToken);
+        // Both shapes the removed branch used to act on: superseded, and cancelled.
+        await priv.transition('READY', undefined, { cancelled: false, version: priv.lifecycleVersion - 1 });
+        await priv.transition('READY', undefined, { cancelled: true, version: priv.lifecycleVersion });
 
-        // The user must not be left looking at "Finalizing your transcript…" forever for a take that
-        // has already finished. Whoever owns the lifecycle now, nobody is finalizing.
-        expect({ finalizing: useSessionStore.getState().isTranscriptFinalizing })
-            .toEqual({ finalizing: false });
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            'a stale transition releases nothing').toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop,
+            'and discards nothing').toBe('still saving');
     });
 
     it('CASUALTY: a stale take may NOT clear a latch a SUCCESSOR now owns', async () => {
@@ -765,10 +1021,21 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
         };
 
         // A armed the latch, then was superseded; B re-armed it under the new lifecycle.
-        const aToken = { cancelled: false, version: priv.lifecycleVersion };
+        const priv2 = priv as unknown as { serviceGeneration: number; service: unknown; finalizingOwner: unknown };
+        const aToken = {
+            cancelled: false,
+            version: priv.lifecycleVersion,
+            serviceGeneration: priv2.serviceGeneration,
+        };
         priv.lifecycleVersion += 1;
+        priv2.serviceGeneration += 1;                          // B replaced the service
         useSessionStore.getState().setTranscriptFinalizing(true);
         priv.finalizingOwnerVersion = priv.lifecycleVersion;   // B owns it now
+        priv2.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: priv2.serviceGeneration,
+            service: priv2.service ?? null,
+        };
 
         await priv.transition('READY', undefined, aToken);
 
@@ -811,56 +1078,6 @@ describe('#1431 — a superseded terminal transition still releases the finalizi
             ownerReleased: priv.finalizingOwnerVersion,
         }).toEqual({ finalizing: false, ownerReleased: null });
     });
-
-    it('CASUALTY: a CANCELLED token also releases it', async () => {
-        const priv = controller as unknown as {
-            lifecycleVersion: number;
-            finalizingOwnerVersion: number | null;
-            transition: (s: string, e?: Error, t?: { cancelled: boolean; version: number }) => Promise<void>;
-        };
-        useSessionStore.getState().setTranscriptFinalizing(true);
-        priv.finalizingOwnerVersion = priv.lifecycleVersion;   // this take armed it
-
-        await priv.transition('TERMINATED', undefined, { cancelled: true, version: priv.lifecycleVersion });
-
-        expect({ finalizing: useSessionStore.getState().isTranscriptFinalizing })
-            .toEqual({ finalizing: false });
-    });
-});
-
-/**
- * #1431 — A STOP THAT PERSISTS MUST FINISH FINALIZING.
- *
- * CORRECTION: written while the stop was believed to be wedged. The trace shows it is not — this passes
- * on the failing head too. It is retained as a REGRESSION GUARD on the stop sequence, not as evidence
- * about the Focus Points Retry failure, whose real boundary is successor admission.
- */
-describe('#1431 — a stop that persists must finish finalizing', () => {
-    let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
-    let engine: ControlledEngine;
-
-    beforeEach(async () => {
-        localStorage.clear();
-        engine = new ControlledEngine();
-        engine.modelCached = true;
-        vi.resetModules();
-        const { sttRegistry } = await import('../transcription/STTRegistry');
-        sttRegistry.register('transformers-js', () => engine as never);
-        sttRegistry.register('private', () => engine as never);
-        useSessionStore = (await import('@/stores/useSessionStore')).useSessionStore;
-        intentApi = await import('../recordingIntent');
-        intentApi.__resetRecordingIntentForTests();
-        const mod = await import('../SpeechRuntimeController');
-        controller = mod.speechRuntimeController;
-        const priv = controller as unknown as Record<string, unknown>;
-        priv.state = 'IDLE';
-        priv.service = null;
-        priv.isEngineReady = false;
-        useSessionStore.getState().resetSession();
-        useSessionStore.getState().setRuntimeState('IDLE');
-    });
-
-    afterEach(() => vi.clearAllMocks());
 
     it('CASUALTY: after a stop, the runtime rests and the finalizing claim is withdrawn', async () => {
         await controller.startRecording(POLICY as never, []);

@@ -7,10 +7,10 @@ import {
     mintRecordingIntent,
     pendingRecordingIntent,
 } from '../recordingIntent';
-import { SpeechRuntimeController, type LifecycleToken } from '../SpeechRuntimeController';
+import { SpeechRuntimeController, StartRefusedFinalizationError, type LifecycleToken } from '../SpeechRuntimeController';
 import { sessionManager } from '../transcription/SessionManager';
 import type { TranscriptionServiceOptions } from '../transcription/TranscriptionService';
-import { completeSession } from '../../lib/storage';
+import { completeSession, saveSession } from '../../lib/storage';
 
 vi.mock('../../lib/logger', () => ({
     default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -405,6 +405,117 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         expect(useSessionStore.getState().isTranscriptFinalizing, "B's finalizing latch is untouched").toBe(true);
     });
 
+    it('CASUALTY D1: the OWNER\'s destroy() rejection reaches actionable FAILED, not a stuck STOPPING', async () => {
+        /**
+         * #1431 P1-B. The rightful terminal path increments `lifecycleVersion` itself, to fence its own
+         * about-to-be-destroyed service. If `destroy()` then rejects, the common catch classified
+         * ownership with `stopStillOwnsSharedState(stopAuthority, token)` — a PRE-increment token
+         * against a POST-increment lifecycle, which necessarily fails FOR THE OWNER.
+         *
+         * So the owner's own teardown failure was filed as somebody else's: no FAILED transition, no
+         * recovery publication, and the controller left sitting in STOPPING. The user saw a stop that
+         * never finished and never errored, with no way back and no recovery draft.
+         *
+         * P1-2 above cannot catch this — there, A is genuinely superseded and being contained is the
+         * CORRECT outcome. This is the same rejection with ownership intact, and the right outcome is
+         * the opposite one.
+         */
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            Promise.resolve({ transcript: 'A said something', stats: { accuracy: 0.9 }, success: true }),
+        );
+        const destroySpy = vi.fn().mockRejectedValue(new Error('WORKER_TEARDOWN_REFUSED'));
+        (c.service as { destroy: ReturnType<typeof vi.fn> }).destroy = destroySpy;
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+
+        await c.stopRecording().catch(() => { /* the owner's failure surfaces to its caller */ });
+
+        expect(destroySpy, 'the stop must actually reach the terminal destroy').toHaveBeenCalled();
+        expect(c.state, 'the owner reaches an actionable terminal, not a silent STOPPING')
+            .not.toBe('STOPPING');
+        expect(['FAILED', 'FAILED_VISIBLE']).toContain(c.state);
+    });
+
+    it("CASUALTY D2: a lifecycle successor during the owner's destroy rejection is left untouched", async () => {
+        // The other side of D1: if B replaced the lifecycle while destroy was rejecting, the terminal
+        // tuple no longer matches and A must contain its own failure.
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            Promise.resolve({ transcript: 'A said something', stats: { accuracy: 0.9 }, success: true }),
+        );
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+        (c.service as { destroy: ReturnType<typeof vi.fn> }).destroy = vi.fn().mockImplementation(() => {
+            c.lifecycleVersion += 1;              // B takes over DURING the rejection
+            useSessionStore.getState().setRuntimeState('RECORDING');
+            return Promise.reject(new Error('WORKER_TEARDOWN_REFUSED'));
+        });
+
+        await c.stopRecording().catch(() => { /* contained */ });
+
+        expect(c.state, "B must not be transitioned to FAILED by A's teardown").not.toBe('FAILED');
+        expect(useSessionStore.getState().runtimeState, "B's runtime state is untouched").toBe('RECORDING');
+    });
+
+    it("CASUALTY D3: a same-lifecycle SERVICE replacement during the rejection is left untouched", async () => {
+        /**
+         * The term a lifecycle-only comparison misses. The candidate switch replaces the service and
+         * its generation WITHOUT moving the lifecycle, so a check that reads only `lifecycleVersion`
+         * would still call A the owner and rethrow A's teardown failure into a catch that now belongs
+         * to B.
+         */
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            Promise.resolve({ transcript: 'A said something', stats: { accuracy: 0.9 }, success: true }),
+        );
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+        (c.service as { destroy: ReturnType<typeof vi.fn> }).destroy = vi.fn().mockImplementation(() => {
+            c.serviceGeneration += 1;             // same lifecycle, new service — the candidate switch
+            c.service = { isServiceDestroyed: () => false } as never;
+            useSessionStore.getState().setRuntimeState('RECORDING');
+            return Promise.reject(new Error('WORKER_TEARDOWN_REFUSED'));
+        });
+
+        await c.stopRecording().catch(() => { /* contained */ });
+
+        expect(c.state, "B must not be failed by A's teardown across a same-lifecycle swap")
+            .not.toBe('FAILED');
+        expect(useSessionStore.getState().runtimeState, "B's runtime state is untouched").toBe('RECORDING');
+    });
+
+    it("CASUALTY P1-2c: a superseded stop that FAILS must not mark B's row failed", async () => {
+        /**
+         * #1431 P1 (exact-head return on `af473132b`). The common stop catch read `this.sessionId`
+         * LIVE and called `completeSession(status: 'failed')` on it. When stale A's persistence work
+         * rejected after a reset, that marked B'S DATABASE ROW failed, wrote an error over B's UI and
+         * purged B's live transcript — a recording the user was still making, torn down because a take
+         * they had already abandoned lost a race.
+         *
+         * A still settles its OWN record: its session genuinely failed and saying so is A's to do. It
+         * does that against the id CAPTURED at stop entry, never the live one.
+         */
+        let superseded = false;
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            // Rejects on a later tick so the rejection is never unhandled before the stop awaits it.
+            new Promise((_resolve, reject) => {
+                setTimeout(() => reject(new Error('A could not finish its stop')), 0);
+            }),
+            () => {
+                c.lifecycleVersion += 1;
+                c.serviceGeneration += 1;
+                // B is the current session by the time A's failure lands.
+                c.sessionId = 'session-B';
+                superseded = true;
+            },
+        );
+        vi.mocked(completeSession).mockClear();
+
+        await c.stopRecording().catch(() => { /* A's own failure is the subject, not the assertion */ });
+        expect(superseded, 'the stop must actually have reached stopTranscription').toBe(true);
+
+        const failedRows = vi.mocked(completeSession).mock.calls
+            .filter(([, args]) => (args as { status?: string } | undefined)?.status === 'failed')
+            .map(([id]) => id);
+        expect(failedRows, "A's failure must never mark B's row failed").not.toContain('session-B');
+        expect(c.state, 'B must not be transitioned to FAILED by A').not.toBe('FAILED');
+    });
+
     it('CASUALTY P2-3: a late onReady during STOPPING cannot arm a watchdog that outlives its take', async () => {
         // A's engine can report ready while A is finalizing. Its generation is still current at that
         // point — the bump happens at detach — so the generation wrapper passes it through, and the
@@ -523,6 +634,233 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('CASUALTY R1: an UNSCOPED terminal transition cannot clear an OWNED latch or frozen transcript', async () => {
+        /**
+         * #1431 P1 — the reducer's `#1314 C6` clear had no owner check at all. Any unscoped
+         * `transition('FAILED')` reaching it while an owning stop was still persisting switched off
+         * `isTranscriptFinalizing` — the authoritative start guard in `useSessionLifecycle` — and the
+         * next recording then discarded the owner's frozen transcript.
+         *
+         * Two producers of exactly that transition have been found and closed at their own call sites:
+         * a late heartbeat failure, and a producer-integrity teardown during STOPPING whose
+         * lifecycle/generation check passes because neither value changes during the owning stop. Each
+         * fix left this line still accepting the next producer. It is the one point they all pass
+         * through, so the guard belongs here.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: unknown } | null;
+            serviceGeneration: number;
+            transition: (state: string, error?: Error) => Promise<void>;
+        };
+        const store = useSessionStore.getState();
+        store.setTranscriptFinalizing(true);
+        store.freezeTranscriptAtStop('the words the owning stop is still saving');
+        const owningService = {} as never;
+        c.finalizingOwnerVersion = c.lifecycleVersion;
+        c.finalizingOwner = {
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: owningService,
+        };
+
+        // The unscoped terminal transition — no token, no captured authority. This is what
+        // `failProducerIntegrity()` and the late heartbeat failure both perform.
+        await c.transition('FAILED', new Error('PRODUCER_INTEGRITY_ENGINE_CHANGED'));
+
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            "the owner's latch is untouched, so Start stays disabled").toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop,
+            "and the owner's frozen transcript survives").toBe('the words the owning stop is still saving');
+        expect(c.finalizingOwner, 'the ownership record is not cleared either').not.toBeNull();
+    });
+
+    it('CASUALTY R4: a resume-from-preparation START during owned finalization reaps nothing', async () => {
+        /**
+         * #1431 P1 — THE THIRD WRITER, found by complete-branch review after R1-R3 had already
+         * "closed" this. `resetAnalysisStateForNewRecording()` cleared BOTH the finalizing latch and
+         * the frozen transcript unconditionally, so the invariant R1 asserts — release belongs solely
+         * to `releaseFinalizingIfOwner()` — was still false with R1, R2 and R3 all green.
+         *
+         * The path needs no outside caller: `transition()` fires `void this.startRecording(...)` on
+         * the `resumingFromPreparation` branch about fifty lines after the reducer deferred the latch
+         * release to its owner, and `startRecording()` runs this reset before any fence. Only
+         * command-queue ordering separated the deferral from the reap.
+         *
+         * The second assertion is the half that would otherwise rot silently: clearing the latch while
+         * leaving `finalizingOwner` set records an owner for a latch that is already down, and every
+         * later terminal defers to an owner that will never release — the stuck banner from the other
+         * side.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: unknown } | null;
+            serviceGeneration: number;
+            service: unknown;
+            startRecording: SpeechRuntimeController['startRecording'];
+        };
+        const store = useSessionStore.getState();
+        store.setTranscriptFinalizing(true);
+        store.freezeTranscriptAtStop('the words the owning stop is still saving');
+        c.finalizingOwnerVersion = c.lifecycleVersion;
+        c.finalizingOwner = {
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: {} as never,
+        };
+
+        /**
+         * THROUGH `startRecording()`, NOT THE RESET. Guarding the reset alone would preserve the
+         * owner's TEXT while still admitting an overlapping take — two live recordings against one
+         * session, which is the condition the latch exists to prevent. The refusal has to happen at
+         * the controller entry boundary, so that is what this drives.
+         */
+        const settlement = { resolve: vi.fn(), reject: vi.fn() };
+        await c.startRecording(undefined, [], true, settlement as never);
+
+        expect(settlement.reject, 'a resumed attempt is REJECTED, never resolved as success')
+            .toHaveBeenCalled();
+        expect(settlement.resolve, 'and never resolved').not.toHaveBeenCalled();
+        expect(c.service, 'no service was created for the refused take').toBeNull();
+        await expect(c.startRecording(), 'a fresh direct caller throws rather than resolving')
+            .rejects.toThrow(/START_REFUSED_FINALIZATION_IN_PROGRESS/);
+
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            "the owning stop's latch is untouched, so the new take cannot start over it").toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop,
+            "and the owning stop's frozen transcript is not discarded")
+            .toBe('the words the owning stop is still saving');
+        expect(c.finalizingOwner, 'the ownership record stays consistent with the latch').not.toBeNull();
+    });
+
+    it('CASUALTY R6: the refusal is TYPED, so the hook cannot mistake it for a failed start', async () => {
+        /**
+         * #1431 P1 — rejecting a plain Error made `useSessionLifecycle`'s start catch treat the
+         * refusal as an engine-acquisition failure: failure telemetry, an error status, and
+         * `reset('start_failed')`, which hard-resets and DETACHES the current service. That service
+         * belongs to the finalizing take, so the fence added to preserve its transcript would have
+         * destroyed it by a longer route.
+         *
+         * The type is the whole mechanism. A bare `Error` here — even with the same message — puts the
+         * hook back on the destructive path, which is why this asserts the class and not the text.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: unknown } | null;
+            finalizingOwnerVersion: number | null;
+            serviceGeneration: number;
+            startRecording: SpeechRuntimeController['startRecording'];
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        c.finalizingOwnerVersion = c.lifecycleVersion;
+        c.finalizingOwner = {
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: {} as never,
+        };
+
+        await expect(c.startRecording()).rejects.toBeInstanceOf(StartRefusedFinalizationError);
+
+        const settlement = { resolve: vi.fn(), reject: vi.fn() };
+        await c.startRecording(undefined, [], true, settlement as never);
+        expect(settlement.reject.mock.calls[0][0], 'the resumed settlement carries the same type')
+            .toBeInstanceOf(StartRefusedFinalizationError);
+    });
+
+    it('CASUALTY R5: release REFUSES a caller that supplies no captured authority', async () => {
+        /**
+         * #1431 P1 — the strict-identity comparison was gated on `armedByFull && capturedOwner`, so a
+         * caller supplying nothing skipped it entirely and fell through to a version-only check that
+         * defaults to the LIVE lifecycle version. A take that supplies no authority was getting a
+         * WEAKER test than one that supplies it, which inverts the rule. Every stop path already
+         * passes its captured `StopAuthority`.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: unknown } | null;
+            serviceGeneration: number;
+            releaseFinalizingIfOwner: (reason: string, captured?: number | null, owner?: unknown) => boolean;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        c.finalizingOwnerVersion = c.lifecycleVersion;
+        c.finalizingOwner = {
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: {} as never,
+        };
+
+        expect(c.releaseFinalizingIfOwner('normal_terminal', c.lifecycleVersion),
+            'no captured authority means no release').toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, 'the latch survives').toBe(true);
+    });
+
+    it('CASUALTY R2: with NO owner, an ordinary terminal still clears the latch (#1314 C6 preserved)', async () => {
+        /**
+         * The half that must not regress. `#1314 C6` exists because a stop path leaving
+         * `isTranscriptFinalizing` latched true after the controller rests is the stale-banner "stuck
+         * session" defect, with the record control disabled and no way back. Owner-scoping the clear
+         * narrows a shipped correction, so this pins that the case C6 was written for still works:
+         * no owner, ordinary failure recovery, latch cleared.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            finalizingOwner: unknown | null;
+            transition: (state: string, error?: Error) => Promise<void>;
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        c.finalizingOwner = null;
+        c.finalizingOwnerVersion = null;
+
+        await c.transition('FAILED', new Error('STT_HEARTBEAT_FAILURE'));
+
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            'an unowned latch is still cleared — no stuck banner').toBe(false);
+    });
+
+    it('CASUALTY R3: release needs the FULL StopAuthority — a same-version different SERVICE is refused', async () => {
+        /**
+         * #1431 P1 — rightful release runs only through `releaseFinalizingIfOwner()` with the whole
+         * `StopAuthority`. A service can be replaced WITHIN one lifecycle version, so version equality
+         * alone does not identify a take: matching on it let a cancelled take A release successor B's
+         * latch and discard B's frozen transcript. Every term is load-bearing, and `null` is not a
+         * wildcard — a detached take carries a null service, which is the state a superseded take is
+         * most often in.
+         */
+        const c = newController() as unknown as PrivateController & {
+            finalizingOwnerVersion: number | null;
+            finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: unknown } | null;
+            serviceGeneration: number;
+            releaseFinalizingIfOwner: (reason: string, captured?: number | null, owner?: unknown) => boolean;
+        };
+        const store = useSessionStore.getState();
+        store.setTranscriptFinalizing(true);
+        store.freezeTranscriptAtStop("B's words");
+        const serviceB = {} as never;
+        const serviceA = {} as never;
+        c.finalizingOwnerVersion = c.lifecycleVersion;
+        c.finalizingOwner = {
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: serviceB,
+        };
+
+        // A carries the SAME lifecycle version and generation, and a different service.
+        const aAuthority = {
+            tokenVersion: c.lifecycleVersion,
+            lifecycleVersion: c.lifecycleVersion,
+            serviceGeneration: c.serviceGeneration,
+            service: serviceA,
+            sessionId: null,
+            recordingId: null,
+            intentToken: null,
+        };
+
+        expect(c.releaseFinalizingIfOwner('stop_failed', c.lifecycleVersion, aAuthority),
+            'A does not own B\'s latch, whatever the version says').toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's latch survives").toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop, "B's frozen transcript survives")
+            .toBe("B's words");
     });
 
     it('CASUALTY P1-3: the OWNER releases its own finalizing latch after advancing the lifecycle', async () => {
@@ -678,5 +1016,463 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
             .filter((call) => (call[1] as { status?: string } | undefined)?.status === 'failed')
             .map((call) => call[0]);
         expect(failedWrites, "A's teardown failure must not mark B's session failed").toEqual([]);
+    });
+
+    // =============================================================================================
+    // #1433 Codex P1 `3990521393` — BRIEF RETIREMENT IS A SHARED WRITE, SO IT IS FENCED LIKE ONE.
+    //
+    // `retireObjectiveBriefAfterSettlement()` cleared the active Focus Points brief whenever its ids
+    // matched the completed take's. B can start with the SAME brief A used, so ids alone cannot tell the
+    // takes apart: a stale A resuming after a hard reset or candidate switch relabelled B as Open Mic.
+    //
+    // Each path pairs the casualty with the owner's control. The owner must still retire its own brief,
+    // which is also what proves the retirement was reached at all rather than skipped by an earlier throw.
+    // =============================================================================================
+    const SHARED_BRIEF = {
+        projectId: 'p-shared', briefId: 'b-shared', points: ['one', 'two'], topic: 'shared', paceGuideSecPerPoint: 60,
+    };
+    const SHARED_FOCUS = {
+        mode: 'focus_points' as const,
+        brief: { projectId: SHARED_BRIEF.projectId, briefId: SHARED_BRIEF.briefId, points: SHARED_BRIEF.points },
+        segments: [{ text: 'one and two', startSec: 0 }],
+        durationSeconds: 30,
+    };
+    const liveBriefId = () => useSessionStore.getState().activeObjectiveBrief?.briefId ?? null;
+
+    type BriefRetryController = {
+        pendingAttributionRetry: unknown;
+        pendingFullSaveRetry: unknown;
+        recordingStartedUnresolved: boolean;
+        lifecycleVersion: number;
+        serviceGeneration: number;
+        capturedUserId: string | null;
+        attestSessionEngine: (id: string, ev: unknown) => Promise<{ attributed: boolean } | null>;
+        retryPendingAttribution: () => Promise<boolean>;
+        retryRecordingSave: () => Promise<boolean>;
+    };
+
+    /** Runs a retry for take A, suspending it inside attestation and optionally superseding it there. */
+    const retryWithSharedBrief = async (path: 'attribution' | 'full_save', supersede: boolean) => {
+        const priv = controller as unknown as BriefRetryController;
+        priv.capturedUserId = 'owner-1';
+        useSessionStore.getState().setActiveObjectiveBrief(SHARED_BRIEF as never);
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+        const entered = deferred();
+        const release = deferred();
+        priv.attestSessionEngine = async () => {
+            entered.resolve();
+            await release.promise;
+            return { attributed: true };
+        };
+        if (path === 'attribution') {
+            priv.pendingAttributionRetry = {
+                sessionId: 'session-A', evidence: null, progressContext: SHARED_FOCUS,
+                progressMetrics: { payload: null, persisted: true },
+            };
+        } else {
+            priv.pendingFullSaveRetry = {
+                sessionId: 'session-A',
+                completeArgs: { status: 'completed', duration: 30, nextActionSignal: null, metrics: {} },
+                attributionEvidence: null,
+                progressContext: SHARED_FOCUS,
+                progressMetrics: { payload: null, persisted: false },
+            };
+        }
+        priv.recordingStartedUnresolved = true;
+        const running = path === 'attribution' ? priv.retryPendingAttribution() : priv.retryRecordingSave();
+        await entered.promise;
+        if (supersede) {
+            // B takes over while A is suspended, starting with the SAME brief.
+            priv.lifecycleVersion += 1;
+            priv.serviceGeneration += 1;
+        }
+        release.resolve();
+        return running;
+    };
+
+    for (const path of ['attribution', 'full_save'] as const) {
+        it(`CONTROL (${path} retry): the OWNER still retires its own brief once Progress settles`, async () => {
+            await expect(retryWithSharedBrief(path, false), 'the retry completed').resolves.toBe(true);
+            expect(liveBriefId(), "the owner's brief is retired").toBeNull();
+        });
+
+        it(`CASUALTY (${path} retry): a take superseded during attestation leaves B's same-id brief alone`, async () => {
+            await expect(retryWithSharedBrief(path, true), 'A still finishes its own retry').resolves.toBe(true);
+            expect(liveBriefId(), "B's active brief survives stale A").toBe(SHARED_BRIEF.briefId);
+        });
+    }
+
+    /** Runs a clean Focus Points stop for take A, optionally superseding it inside the READY settlement. */
+    const stopWithSharedBrief = async (supersedeDuringReady: boolean) => {
+        useSessionStore.getState().setActiveObjectiveBrief(SHARED_BRIEF as never);
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+        const c = stoppingController(Promise.resolve({
+            transcript: 'today I covered point one and then point two in some detail', stats: { accuracy: 0.9 }, success: true,
+        })) as ReturnType<typeof stoppingController> & {
+            recordingProgressMode: unknown;
+            attestSessionEngine: (id: string, ev: unknown) => Promise<{ attributed: boolean } | null>;
+        };
+        c.recordingProgressMode = { mode: 'focus_points', brief: SHARED_FOCUS.brief };
+        c.attestSessionEngine = async () => ({ attributed: true });
+        const realTransition = c.transition.bind(c);
+        let readySettled = false;
+        c.transition = async (state, error, token, intentToken) => {
+            await realTransition(state, error, token, intentToken);
+            if (state !== 'READY') return;
+            readySettled = true;
+            if (supersedeDuringReady) {
+                // B is accepted while A's READY settlement is suspended, with the SAME brief.
+                c.lifecycleVersion += 1;
+                c.serviceGeneration += 1;
+            }
+        };
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        await c.stopRecording().catch(() => null);
+        expect(readySettled, 'the stop reached its clean READY settlement').toBe(true);
+    };
+
+    it('CONTROL (stop): the OWNER still retires its own brief after READY', async () => {
+        await stopWithSharedBrief(false);
+        expect(liveBriefId(), "the owner's brief is retired").toBeNull();
+    });
+
+    it("CASUALTY (stop): a stop superseded during its READY settlement leaves B's same-id brief alone", async () => {
+        await stopWithSharedBrief(true);
+        expect(liveBriefId(), "B's active brief survives stale A").toBe(SHARED_BRIEF.briefId);
+    });
+
+});
+
+/**
+ * #1431 P1 — THE TWO EXACT-HEAD FINDINGS RETURNED ON `af473132b`.
+ *
+ * Both are the same shape as everything else in this file and both slipped through anyway, because
+ * the paths that carry them are the ones that LOOK exempt: a user-initiated recovery, and an error
+ * handler. Neither is exempt. A suspension point does not care who started the work.
+ */
+describe('#1431 — superseded work publishes nothing into the successor', () => {
+    let controller: ReturnType<typeof newController>;
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        for (const attribute of [...document.documentElement.attributes]) {
+            if (attribute.name.startsWith('data-')) document.documentElement.removeAttribute(attribute.name);
+        }
+        controller = newController();
+        controller.state = 'READY';
+    });
+
+    it('CASUALTY P1-1: a RETRY that resumes after a reset unlocks nothing and publishes nothing', async () => {
+        /**
+         * The retry paths passed `canPublishShared: () => true`, reasoning that Retry Save is
+         * user-initiated and therefore "the current take by definition". Being user-initiated says who
+         * STARTED the work; `attestSessionEngine()` is a real suspension point, and nothing freezes the
+         * app while it is in flight. Resuming, A unlocked B's recording latch, wrote A's persistence
+         * identity over B's, and published A's Progress/brief/coverage — with an explicit authority
+         * argument vouching for it.
+         */
+        const priv = controller as unknown as {
+            pendingAttributionRetry: unknown;
+            recordingStartedUnresolved: boolean;
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            attestSessionEngine: (id: string, ev: unknown) => Promise<{ attributed: boolean } | null>;
+            retryPendingAttribution: () => Promise<boolean>;
+        };
+
+        const entered = deferred();
+        const release = deferred();
+        priv.attestSessionEngine = async () => {
+            entered.resolve();
+            await release.promise;
+            return { attributed: true };
+        };
+        const slot = {
+            sessionId: 'session-A',
+            evidence: null,
+            progressContext: { mode: 'private' },
+            progressMetrics: { payload: null, persisted: false },
+        };
+        priv.pendingAttributionRetry = slot;
+        priv.recordingStartedUnresolved = true;
+
+        const running = priv.retryPendingAttribution();
+        await entered.promise;
+
+        /**
+         * SUPERSEDE THE WAY THE OTHER CASUALTIES IN THIS FILE DO — bump the authority terms directly.
+         *
+         * My first version called `hardResetAwaited()`, which also CLEARS `pendingAttributionRetry`.
+         * The compare-and-clear below it therefore never opened, A never reached the guarded
+         * publications at all, and the casualty passed with the fence fully reverted. It measured
+         * nothing. Bumping the versions leaves the retry slot intact, so the fence is the only thing
+         * that can stop the publication.
+         */
+        priv.lifecycleVersion += 1;
+        priv.serviceGeneration += 1;
+
+        release.resolve();
+        await running;
+
+        expect(priv.pendingAttributionRetry, "A still finishes its OWN bookkeeping").toBeNull();
+        expect(priv.recordingStartedUnresolved, "B's recording latch is not unlocked by A's retry").toBe(true);
+        expect(
+            document.documentElement.getAttribute('data-session-persisted-id'),
+            "A's persistence identity is not published over B's",
+        ).not.toBe('session-A');
+    });
+
+});
+
+/**
+ * #1431 — THE TWO EXACT-HEAD P1s RETURNED ON `f6a082ca3e`.
+ *
+ * Both live past a suspension point that looked settled: an initial-save retry adopting the row it
+ * just created, and an error path releasing a latch it believed it owned.
+ */
+describe('#1431 — a suspended retry and a stale error path own nothing shared', () => {
+    let controller: ReturnType<typeof newController>;
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        controller = newController();
+        controller.state = 'READY';
+    });
+
+    it("CASUALTY P1-A: a suspended initial-save retry does not install its created row into B", async () => {
+        /**
+         * `saveSession()` is a real suspension point. A hard reset can start successor B while it is
+         * unresolved, and B begins with NO session row — so `!this.sessionId` was true and A, on
+         * resuming, assigned its own created id and telemetry context to B. B then persisted into A's
+         * row: two takes, one row, the second recording written over the first's identity.
+         */
+        const priv = controller as unknown as {
+            pendingFullSaveRetry: unknown;
+            sessionId: string | null;
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            retryRecordingSave: () => Promise<boolean>;
+        };
+
+        const entered = deferred();
+        const release = deferred();
+        vi.mocked(saveSession).mockImplementation(async () => {
+            entered.resolve();
+            await release.promise;
+            return { session: { id: 'session-A-created' }, usageExceeded: false } as never;
+        });
+
+        priv.sessionId = null;
+        priv.pendingFullSaveRetry = {
+            initialSave: true,
+            sessionId: null,
+            completeArgs: {},
+            attributionEvidence: null,
+            progressContext: { mode: 'private', userId: 'u', recordingId: 'r' },
+            progressMetrics: { payload: null, persisted: false },
+        };
+
+        const running = priv.retryRecordingSave().catch(() => false);
+        await entered.promise;
+
+        // B takes the lifecycle while A is suspended inside saveSession, and has no row of its own.
+        priv.lifecycleVersion += 1;
+        priv.serviceGeneration += 1;
+        priv.sessionId = null;
+
+        release.resolve();
+        await running;
+
+        expect(priv.sessionId, "A's created row is not installed as B's session").not.toBe('session-A-created');
+    });
+
+    it("CASUALTY P1-B: a service swap WITHIN one lifecycle cannot release the successor's latch", async () => {
+        /**
+         * The release compared the lifecycle version alone. A service can be replaced WITHIN the same
+         * lifecycle, so a stale take matched the successor's latch on version alone and switched off
+         * B's "Finalizing…" and discarded B's frozen transcript — the user watched the record control
+         * re-enable while their save was still running.
+         *
+         * The lifecycle version is deliberately IDENTICAL on both sides here; only the service
+         * generation differs. That is what makes this discriminating: a guard comparing versions alone
+         * passes it.
+         */
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, v?: number | null, owner?: unknown) => boolean;
+        };
+
+        const serviceB = fakeService({ isDestroyed: () => false });
+        priv.service = serviceB as never;
+        priv.serviceGeneration = 7;
+
+        // B armed the latch, in the CURRENT lifecycle with B's service.
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 7,
+            service: serviceB,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+
+        // Stale A: SAME lifecycle version, earlier service generation and a different service.
+        const staleAuthority = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 6,
+            service: fakeService({ isDestroyed: () => true }),
+            sessionId: 'session-A',
+            recordingId: 'recording-A',
+            intentToken: 'intent-A',
+        };
+
+        const released = priv.releaseFinalizingIfOwner('stale_error', staleAuthority.lifecycleVersion, staleAuthority);
+
+        expect(released, "A must not release a latch it did not arm").toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's Finalizing… stays on").toBe(true);
+    });
+
+    it("CASUALTY P1-C: SERVICE IDENTITY alone protects the latch — same lifecycle, same generation", () => {
+        /**
+         * Codex P2 on `2365f87f8e`, accepted: casualty P1-B varied BOTH generation and service, so the
+         * generation comparison refused on its own and the service term was never measured. Removing
+         * service identity entirely left P1-B green.
+         *
+         * Here lifecycle version AND service generation are identical on both sides; only the service
+         * object differs. That is the only configuration in which the identity term is load-bearing.
+         */
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            releaseFinalizingIfOwner: (reason: string, v?: number | null, owner?: unknown) => boolean;
+        };
+
+        const serviceB = fakeService({ isDestroyed: () => false });
+        priv.service = serviceB as never;
+        priv.serviceGeneration = 4;
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 4,
+            service: serviceB,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+
+        const sameGenerationDifferentService = {
+            tokenVersion: priv.lifecycleVersion,
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 4,
+            service: fakeService({ isDestroyed: () => true }),
+            sessionId: 'session-A',
+            recordingId: 'recording-A',
+            intentToken: 'intent-A',
+        };
+
+        expect(
+            priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion, sameGenerationDifferentService),
+            'a different service cannot release the latch',
+        ).toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing, "B's Finalizing… stays on").toBe(true);
+
+        // NULL IS NOT A WILDCARD, on either side. A detached take carries a null service, which is
+        // exactly the state a superseded take is usually in — so treating null as "matches anything"
+        // made the term vacuous precisely when it mattered.
+        expect(
+            priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion,
+                { ...sameGenerationDifferentService, service: null }),
+            'a null service on the claimant side is not a wildcard',
+        ).toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(true);
+
+        priv.finalizingOwner = { lifecycleVersion: priv.lifecycleVersion, serviceGeneration: 4, service: null };
+        expect(
+            priv.releaseFinalizingIfOwner('stale_error', priv.lifecycleVersion, sameGenerationDifferentService),
+            'a null service on the armed side is not a wildcard either',
+        ).toBe(false);
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(true);
+    });
+
+    it("CASUALTY P1-D: a stale TERMINAL TRANSITION cannot clear the successor's latch", async () => {
+        /**
+         * PM RETURN on `2365f87f8e`. The stale-token branch in `transition()` released on
+         * `finalizingOwnerVersion === token.version` and cleared the latch and frozen transcript
+         * directly, bypassing `releaseFinalizingIfOwner()` entirely. With A cancelled and B replacing
+         * the service inside the SAME lifecycle version, A's terminal transition matched on version and
+         * switched off B's "Finalizing…" — the user watched the record control re-enable mid-save.
+         */
+        const priv = controller as unknown as {
+            lifecycleVersion: number;
+            serviceGeneration: number;
+            service: unknown;
+            finalizingOwner: unknown;
+            finalizingOwnerVersion: number | null;
+            transition: (state: string, error?: Error, token?: LifecycleToken) => Promise<void>;
+        };
+
+        const serviceB = fakeService({ isDestroyed: () => false });
+        priv.service = serviceB as never;
+        priv.serviceGeneration = 9;
+        // B owns the armed latch and the frozen transcript.
+        priv.finalizingOwnerVersion = priv.lifecycleVersion;
+        priv.finalizingOwner = {
+            lifecycleVersion: priv.lifecycleVersion,
+            serviceGeneration: 9,
+            service: serviceB,
+        };
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        useSessionStore.getState().freezeTranscriptAtStop('B is still saving these words');
+
+        // A speaks with a CANCELLED token carrying the SAME lifecycle version.
+        await priv.transition('READY', undefined, { cancelled: true, version: priv.lifecycleVersion } as LifecycleToken);
+
+        expect(useSessionStore.getState().isTranscriptFinalizing,
+            "B's Finalizing… survives A's terminal transition").toBe(true);
+        expect(useSessionStore.getState().frozenTranscriptAtStop,
+            "B's frozen transcript survives").toBe('B is still saving these words');
+    });
+});
+
+describe('#1431 — a stopped heartbeat cannot fail the take that stopped it', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+    });
+
+    it("CASUALTY P1-E: an in-flight heartbeat invalidated by Stop cannot clear the finalizing latch", async () => {
+        /**
+         * `stopHeartbeat()` cleared the timer but left `heartbeatVersion` unchanged, so a request
+         * already in flight still matched every `version !== this.heartbeatVersion` guard. Its late
+         * failure could reach the threshold and perform an UNSCOPED `transition('FAILED')`, which
+         * clears `isTranscriptFinalizing` in the reducer with no owner check — re-enabling Record while
+         * the stop was still persisting.
+         *
+         * The observable term is the generation: after Stop invalidates the heartbeat, a continuation
+         * holding the old version must be stale.
+         */
+        const c = newController() as unknown as {
+            heartbeatVersion: number;
+            stopHeartbeat: () => void;
+        };
+
+        const versionHeldByInFlightRequest = c.heartbeatVersion;
+        c.stopHeartbeat();
+
+        expect(c.heartbeatVersion,
+            'stopping the heartbeat invalidates the request already in flight')
+            .not.toBe(versionHeldByInFlightRequest);
     });
 });

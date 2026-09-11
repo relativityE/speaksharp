@@ -548,4 +548,98 @@ describe('SessionOverhaulView Practice Focus (#1264)', () => {
         expect(screen.queryByTestId('practice-focus-chooser')).toBeNull();
         expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
     });
+
+    /**
+     * #1429 — RETRY MUST START AT 0/N.
+     *
+     * `coveredLatch` exists so a lit tick never regresses mid-take, and it reset only when the shell
+     * passed through `before`. "Retry these points" goes after-state -> during directly and never
+     * touches `before`, so the previous take's latched indices survived into the new take and the
+     * pace card read the old N/N from its first frame. The user pressed Retry and was told they had
+     * already covered everything.
+     *
+     * The controller-side coverage fence does not reach this: during a take the number is derived
+     * HERE, in the component, from the live transcript and this latch — not from
+     * `objectiveCoverageResult`.
+     */
+    it('CASUALTY: Retry (after -> during) starts a fresh take at 0/N, not the previous take\'s N/N', () => {
+        const points = ['Name the price', 'State the guarantee'];
+        const spoken = 'First I will name the price clearly. Then I state the guarantee we offer.';
+
+        // Take A runs to its after-state with both points covered.
+        const { rerender } = render(
+            <SessionOverhaulView
+                {...base}
+                isListening
+                objectivePoints={points}
+                transcriptContent={spoken}
+                elapsedTime={60}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('2');
+
+        rerender(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                objectivePoints={points}
+                completedObjectivePoints={points}
+                transcriptContent={spoken}
+                elapsedTime={60}
+            />,
+        );
+
+        // RETRY: straight back into a recording take, with the transcript reset as a new take begins.
+        rerender(
+            <SessionOverhaulView
+                {...base}
+                isListening
+                objectivePoints={points}
+                transcriptContent=""
+                elapsedTime={0}
+            />,
+        );
+
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        expect(
+            screen.getByTestId('coverage-pace-covered'),
+            "the retry must not inherit the previous take's coverage",
+        ).toHaveTextContent('0');
+        expect(screen.getByTestId('coverage-pace-total')).toHaveTextContent(`/${points.length}`);
+    });
+
+    it('CASUALTY: within a take, a lit tick still never regresses', () => {
+        // The other half of the latch contract, and the guarantee the retry fix could have broken.
+        // Resetting on every `during` render — rather than on ENTRY to `during` — would satisfy the
+        // retry casualty above while un-ticking a point mid-take the moment the rolling transcript
+        // stopped matching it. The user would watch a covered point go dark while still speaking.
+        const points = ['Name the price', 'State the guarantee'];
+
+        const { rerender } = render(
+            <SessionOverhaulView
+                {...base}
+                isListening
+                objectivePoints={points}
+                transcriptContent="First I will name the price clearly."
+                elapsedTime={20}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('1');
+
+        // The take continues and the rolling transcript no longer contains the covering phrase.
+        rerender(
+            <SessionOverhaulView
+                {...base}
+                isListening
+                objectivePoints={points}
+                transcriptContent="and moving on to something else entirely now"
+                elapsedTime={40}
+            />,
+        );
+
+        expect(
+            screen.getByTestId('coverage-pace-covered'),
+            'a covered point must stay covered for the rest of its take',
+        ).toHaveTextContent('1');
+    });
 });
