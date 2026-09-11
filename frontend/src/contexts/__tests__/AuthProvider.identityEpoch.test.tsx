@@ -179,3 +179,79 @@ describe('#1259 a boot-time acquisition waits for the account it belongs to', ()
         expect(__discardedCount(), 'the loss is counted, not silent').toBe(1);
     });
 });
+
+describe('#1421 P1 `3945213770` — the auth safety TIMEOUT is not a signed-out answer', () => {
+    /** Let the provider's safety timeout (stubbed short) fire while `getSession()` is still pending. */
+    const passTimeout = async () => { await act(async () => { await new Promise((r) => setTimeout(r, 80)); }); };
+
+    it('CASUALTY: the timeout fires while getSession is pending — nothing is released or settled as anonymous', async () => {
+        vi.stubEnv('VITE_AUTH_TIMEOUT', '20');
+        try {
+            let resolveSession: (v: unknown) => void = () => {};
+            mockSupabase.auth.getSession.mockReturnValue(new Promise((r) => { resolveSession = r; }));
+            // `beforeEach` itself resets the buffer identity, so the provider's own resets are counted from here.
+            const resetsBeforeRender = (posthog.reset as unknown as Mock).mock.calls.length;
+            renderProvider();
+            recordAcquisitionStart(SUBJECT, 'miss');
+            await passTimeout();
+            await drain();
+
+            expect(__pendingCount(), 'a controlled account’s event must stay quarantined past the timeout').toBe(1);
+            expect(acquisitionCaptures(), 'nothing may leave as anonymous traffic').toHaveLength(0);
+            expect((posthog.reset as unknown as Mock).mock.calls.length, 'no persisted identity is reset on a non-answer')
+                .toBe(resetsBeforeRender);
+
+            await act(async () => {
+                resolveSession({ data: { session: { user: { id: 'controlled-user' } } }, error: null });
+            });
+            await waitFor(() => expect(__settledIdentity()).toBe('controlled-user'));
+            await drain();
+
+            expect(identifyCalls()[0][0]).toBe('controlled-user');
+            expect(acquisitionCaptures(), 'released exactly once, under the account').toHaveLength(1);
+            expect(identifiedAtRelease, 'released only after the account was known').toBe(true);
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it('CONTROL: timeout, then getSession answers NO session — the signed-out visitor is released', async () => {
+        vi.stubEnv('VITE_AUTH_TIMEOUT', '20');
+        try {
+            let resolveSession: (v: unknown) => void = () => {};
+            mockSupabase.auth.getSession.mockReturnValue(new Promise((r) => { resolveSession = r; }));
+            renderProvider();
+            recordAcquisitionStart(SUBJECT, 'miss');
+            await passTimeout();
+            expect(__pendingCount()).toBe(1);
+
+            await act(async () => { resolveSession({ data: { session: null }, error: null }); });
+            await waitFor(() => expect(__pendingCount()).toBe(0));
+            await drain();
+            expect(acquisitionCaptures(), 'a definitive signed-out answer releases').toHaveLength(1);
+            expect(identifyCalls()).toHaveLength(0);
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it('CONTROL: timeout, then getSession fails terminally — released rather than stranded forever', async () => {
+        vi.stubEnv('VITE_AUTH_TIMEOUT', '20');
+        try {
+            let rejectSession: (e: unknown) => void = () => {};
+            mockSupabase.auth.getSession.mockReturnValue(new Promise((_, reject) => { rejectSession = reject; }));
+            renderProvider();
+            recordAcquisitionStart(SUBJECT, 'miss');
+            await passTimeout();
+            expect(__pendingCount()).toBe(1);
+
+            await act(async () => { rejectSession(new Error('auth unavailable')); });
+            await waitFor(() => expect(__pendingCount()).toBe(0));
+            await drain();
+            expect(acquisitionCaptures()).toHaveLength(1);
+            expect(identifyCalls()).toHaveLength(0);
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+});

@@ -142,6 +142,8 @@ export function buildReadbackQuery(params: {
      *
      * #1421 P1 `3984043475`: the ambient attempt and the attribution receipt's subject and verdict are
      * appended, never inserted, so every existing column keeps its position in the decoder.
+     * #1421 P1s `3984043479` + `3984043486`: the stage a `stage_latency` or `transcript_authority` row names,
+     * and the review receipt's two verdicts, appended the same way.
      */
     return `
         SELECT event, timestamp, properties.journey_id AS journey_id, properties.boot_id AS boot_id,
@@ -153,7 +155,9 @@ export function buildReadbackQuery(params: {
                properties.attempt_id AS attempt_id, properties.attempt_seq AS attempt_seq,
                properties.subject_boot_id AS subject_boot_id, properties.subject_journey_id AS subject_journey_id,
                properties.subject_attempt_id AS subject_attempt_id, properties.subject_attempt_seq AS subject_attempt_seq,
-               properties.attribution_status AS attribution_status
+               properties.attribution_status AS attribution_status,
+               properties.stage AS stage, properties.transcript_visibly_present AS transcript_visibly_present,
+               properties.digests_match AS digests_match
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}

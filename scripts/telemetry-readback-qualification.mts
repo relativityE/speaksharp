@@ -278,6 +278,9 @@ async function main(): Promise<void> {
                 subject_attempt_id: cells[15] ?? null,
                 subject_attempt_seq: cells[16] ?? null,
                 attribution_status: cells[17] ?? null,
+                stage: cells[18] ?? null,
+                transcript_visibly_present: cells[19] ?? null,
+                digests_match: cells[20] ?? null,
             },
         };
     });

@@ -9,6 +9,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+    FOCUS_POINTS_POST_STOP_CHAIN,
+    OPEN_MIC_POST_STOP_CHAIN,
     QUALIFICATION_STAGES,
     evaluateQualificationStage,
     type DecodedTelemetryRow,
@@ -27,7 +29,7 @@ let MODEL: string = MODELS[0];
 
 /** A complete, honest journey for one stage: every required family, every invariant satisfied. */
 const completeRows = (stage: QualificationStage, model: string = MODELS[0]): DecodedTelemetryRow[] => (
-    MODEL = model, stage.requiredFamilies.map((family) => {
+    MODEL = model, stage.requiredFamilies.flatMap((family): DecodedTelemetryRow | DecodedTelemetryRow[] => {
     if (family === 'feedback_submit') return row(family, { outcome: 'stored' });
     // `to_state` — the property `emitRecordingState()` actually publishes. The fixture said `state`,
     // which is the same defect the production query had: it decoded null on every real row.
@@ -50,6 +52,17 @@ const completeRows = (stage: QualificationStage, model: string = MODELS[0]): Dec
             subject_boot_id: 'boot-1', subject_journey_id: 'journey-1', subject_attempt_id: 'attempt-1',
             subject_attempt_seq: 1, attribution_status: 'verified',
         }), journeyId: 'journey-1', bootId: 'boot-1' };
+    }
+    // #1421 P1 `3984043479`: the review the user saw, showing the saved transcript and matching it.
+    if (family === 'transcript_authority') {
+        return row(family, { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true });
+    }
+    // #1421 P1 `3984043486`: the post-Stop chain that applies to this product, in order.
+    if (family === 'stage_latency') {
+        const chain = stage.stage === 'session_after_focus_points'
+            ? FOCUS_POINTS_POST_STOP_CHAIN
+            : OPEN_MIC_POST_STOP_CHAIN;
+        return chain.map((name, i) => ({ ...row(family, { stage: name, duration_ms: 10 }), timestamp: 1_000 + i }));
     }
     return row(family, { candidate_id: MODEL, engine: 'private', runtime_version: 'r1' });
 }));

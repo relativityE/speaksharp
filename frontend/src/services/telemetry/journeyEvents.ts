@@ -81,7 +81,10 @@ export function emitRecordingIntent(input: {
     runtimeState: string | null;
     modelReady: boolean;
 }): void {
-    if (input.kind === 'start') lastIntentAt = Date.now();
+    // #1421 P1 `3979074328` — ONLY THE ACCEPTED START ANCHORS INTENT LATENCY. A suppressed or refused click is
+    // still reported below, but it started nothing. Letting it move the mark measured `intent_to_recording`
+    // from the second click of a double-click instead of the click that actually began the recording.
+    if (input.kind === 'start' && input.outcome === 'accepted') lastIntentAt = Date.now();
     safeEmit('recording_intent', {
         intent_kind: input.kind,
         intent_outcome: input.outcome,

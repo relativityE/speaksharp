@@ -30,6 +30,7 @@ import { emitJourneyStep } from '@/services/telemetry/journeyStep';
 import { emitPracticeLoop, COUNT_NOT_APPLICABLE } from '@/services/telemetry/practiceLoopTelemetry';
 import { markCompletionStage } from '@/services/telemetry/completionStages';
 import { emitMicObservability } from '@/services/telemetry/micObservation';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import type { TranscriptView } from '@/lib/storage';
 import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
 
@@ -438,6 +439,21 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // happens: by the time the review renders the control is gone, so asking afterwards always
     // answers "no" and would report every session as missing its Stop button.
     const stopControlRenderedRef = React.useRef(false);
+    /**
+     * #1421 P1 `3979074340` — EACH ATTEMPT OBSERVES ITS OWN MICROPHONE.
+     *
+     * The level buffer reset only on a fresh `before`, and the Stop-affordance latch never reset at all. A direct
+     * Retry goes `after` → `during` without passing `before`, so the retry's F02 receipt summarised the FIRST
+     * take's samples and Stop state: a silent or disconnected retry could report signal because the take before
+     * it had one. Entering `during` from any other state is a new attempt — a first take from `before`, or a
+     * Retry from `after` — so both observations start empty there, before this render samples or latches.
+     */
+    const previousMicObservationState = React.useRef(sessionState);
+    if (sessionState === 'during' && previousMicObservationState.current !== 'during') {
+        levelsRef.current = [];
+        stopControlRenderedRef.current = false;
+    }
+    previousMicObservationState.current = sessionState;
     if (isListening) stopControlRenderedRef.current = true;
     if (isListening) {
         // Keep the FULL recording envelope (capped generously) so the after-state waveform can peak-
@@ -559,6 +575,32 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             ? [...fpTokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
             : fpTokens)
         : duringTokens;
+
+    /**
+     * #1421 P1 `3984043479` — THE REVIEW RECEIPT, FROM THE REVIEW THE USER ACTUALLY SEES (PM decision `5638627982`).
+     *
+     * `transcript_authority { stage: 'review_rendered' }` had exactly one emitter, in `LiveTranscriptPanel`,
+     * which no production surface mounts. The After stages therefore had no receipt at all for the screen that
+     * renders the review, and requiring one would have held every honest run.
+     *
+     * Same gate as the settled-review effect above (`reviewSettled = inAfter && !isFinalizing`), declared here
+     * only because the rendered tokens do not exist until this point. The render below reads the SAME
+     * `renderedReviewTokens`, so the receipt describes what is on screen rather than a parallel derivation.
+     * Both sides go through the renderer's own tokenizer: it separates fillers from adjacent punctuation and
+     * the card joins tokens with single spaces, so comparing raw text would call honest reviews "different".
+     * A mismatch here means different WORDS on screen. An unsettled or unmounted review emits nothing, and
+     * `emitTranscriptAuthority` drops repeats, so re-renders send nothing new. Counts and verdicts only.
+     */
+    const renderedReviewTokens = isObjective && fpTokens ? fpTokens : tokens;
+    const renderedReviewText = renderedReviewTokens.map((t) => t.text).join(' ');
+    React.useEffect(() => {
+        if (!reviewSettled) return;
+        emitTranscriptAuthority({
+            stage: 'review_rendered',
+            authoritative: reviewText === null ? null : tokensFromTranscript(reviewText).map((t) => t.text).join(' '),
+            rendered: renderedReviewText,
+        });
+    }, [reviewSettled, reviewText, renderedReviewText]);
 
     // §2 nudge — the live coaching for Focus Points, computed here (hook called unconditionally) and rendered
     // INSIDE the Coverage & pace card. Silent unless the pace ratio breaks (or the no-guide coverage fallback).
@@ -724,7 +766,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     audioAvailable: false,
                 }}
                 transcript={{
-                    tokens: isObjective && fpTokens ? fpTokens : tokens,
+                    tokens: renderedReviewTokens,
                     // Honest copy: the app retains no audio (transcript-only review), so highlights mark
                     // where each point landed rather than being audio-seek targets.
                     // §Duplication: the coverage FRACTION appears exactly once, in Slot C — never repeated

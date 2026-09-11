@@ -80,6 +80,17 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   // In E2E mock mode with no real session, skip the loading state entirely.
   const isE2EMockMode = ENV.isE2E;
   const [loading, setLoading] = useState(!getInjectedSession() && !isE2EMockMode);
+  /**
+   * #1421 P1 `3945213770` — TELEMETRY IDENTITY STAYS QUARANTINED UNTIL AUTHENTICATION ACTUALLY ANSWERS.
+   *
+   * The safety timeout forces `loading` false and `sessionState` null so the UI can boot, while `getSession()`
+   * may still be pending. The identity effect read that forced null as a definitively signed-out visitor: it
+   * released a controlled account's queued telemetry as anonymous customer traffic, and the late session then
+   * settled an account whose early events were already gone. Identity now settles only once authentication
+   * answers — `getSession()` returning a session or none, a terminal error, an auth event, an explicit
+   * sign-out or set session. The timeout keeps the UI moving and settles nothing.
+   */
+  const [identityAnswered, setIdentityAnswered] = useState(() => Boolean(getInjectedSession()) || isE2EMockMode);
 
   useEffect(() => {
     sessionStateRef.current = sessionState;
@@ -119,6 +130,9 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
     const userId = sessionState?.user?.id ?? null;
     if (!userId) {
+      // #1421 P1 `3945213770` — a null forced by the safety timeout is not an answer. Settle nothing, release
+      // nothing and reset nothing until authentication answers; the effect re-runs when it does.
+      if (!identityAnswered) return;
       // No active session. Clear a persisted PostHog identity if EITHER this mount identified someone
       // OR PostHog still carries a prior user's account-linked identity from an EARLIER visit. The
       // ref starts null on every fresh mount, but PostHog persists distinct_id across page loads — so
@@ -182,7 +196,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     // the queue's own epoch check can retire events that were waiting for a DIFFERENT one — a check a
     // remount cannot forget, unlike the ref above.
     markIdentitySettled(userId);
-  }, [sessionState?.user?.id, loading, internalTesterClaim, canaryClaim]);
+  }, [sessionState?.user?.id, loading, identityAnswered, internalTesterClaim, canaryClaim]);
 
   useEffect(() => {
     const injectedSession = getInjectedSession();
@@ -190,6 +204,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     if (!supabase) {
       logger.error('[AuthProvider] Supabase client is not available.');
       setLoading(false);
+      // No client means no authentication can ever arrive: that is a definitive answer.
+      setIdentityAnswered(true);
       return;
     }
 
@@ -202,6 +218,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         // If we already have a session (from initialSession or sync), skip fetch
         if (initialSession || injectedSession) {
           setLoading(false);
+          setIdentityAnswered(true);
           return;
         }
 
@@ -219,6 +236,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         logger.error({ err }, '[AuthProvider] AUTH FATAL: Could not resolve session');
       } finally {
         setLoading(false);
+        // `getSession()` has answered: a session, none, or a terminal error. Only now may a null settle.
+        setIdentityAnswered(true);
       }
     };
 
@@ -265,6 +284,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
           if (priorUserId !== null && priorUserId !== nextUserId) clearFeedbackDraft();
           sessionStateRef.current = nextSession;
           setSessionState(nextSession);
+          // An auth event is an answer from authentication itself.
+          setIdentityAnswered(true);
         };
 
         if (event === 'INITIAL_SESSION' && !newSession && (initialSession || sessionStateRef.current)) {
@@ -354,6 +375,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
     sessionStateRef.current = null;
     setSessionState(null);
+    setIdentityAnswered(true);
   }, [supabase, queryClient]);
 
   const value = useMemo((): AuthContextType => ({
@@ -367,6 +389,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       if (priorUserId !== null && priorUserId !== (s?.user?.id ?? null)) clearFeedbackDraft();
       sessionStateRef.current = s;
       setSessionState(s);
+      setIdentityAnswered(true);
     },
   }), [sessionState, loading, signOut]);
 

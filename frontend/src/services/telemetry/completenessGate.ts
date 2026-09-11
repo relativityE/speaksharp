@@ -326,6 +326,77 @@ const ATTRIBUTION_BINDING = {
     check: savedTakesHaveOneVerifiedReceipt,
 } as const;
 
+/** The readback may return a boolean property as the string `'true'`; nothing else is true. */
+const isTrue = (v: unknown): boolean => v === true || v === 'true';
+
+/**
+ * #1421 P1 `3984043479` — THE REVIEW THE USER SAW MUST HAVE SHOWN THE SAVED TRANSCRIPT.
+ *
+ * Family presence accepted `transcript_authority` from any stage, so `finalize`, `save` or `teardown` rows —
+ * or a `review_rendered` row reporting a blank or different transcript — qualified an After run that
+ * reproduced exactly the transcript-loss failure the family exists to catch. The After stages now require a
+ * `review_rendered` receipt, and every one recorded must say the transcript was visibly present AND matched
+ * the authority. A review that was ever wrong on screen is not qualifying evidence.
+ */
+export const reviewTranscriptReceiptSucceeded = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const review = propsOf(rows, 'transcript_authority').filter((p) => p?.stage === 'review_rendered');
+    if (review.length === 0) {
+        return 'no review_rendered transcript receipt was recorded, so the transcript on the review screen is unverified';
+    }
+    return review.every((p) => isTrue(p?.transcript_visibly_present) && isTrue(p?.digests_match))
+        ? null
+        : 'a review_rendered transcript receipt did not show the saved transcript (not visibly present, or not matching)';
+};
+
+const REVIEW_TRANSCRIPT_RECEIPT = {
+    name: 'review_rendered_transcript_receipt_succeeded',
+    check: reviewTranscriptReceiptSucceeded,
+} as const;
+
+/**
+ * #1421 P1 `3984043486` — THE POST-STOP CHAIN, IN ORDER, FOR THE PRODUCT THAT RAN.
+ *
+ * Any single `stage_latency` row satisfied the family check — a pre-Stop `model_acquisition` included — so
+ * an After run that lost every completion stage still qualified, and the readback could not say where the
+ * lifecycle stopped. Each After profile now requires its applicable chain (PM decision `5638627982`): Focus
+ * Points includes `evaluation_complete`; Open Mic does not, because that stage is Focus Points only. Every
+ * stage must be present, and the first occurrence of each must not precede the stage before it. A stage row
+ * with no readable timestamp HOLDs rather than being ordered by guesswork.
+ */
+export const OPEN_MIC_POST_STOP_CHAIN = Object.freeze([
+    'recording_terminated', 'final_transcript', 'session_saved', 'practice_loop_ready', 'review_rendered',
+] as const);
+export const FOCUS_POINTS_POST_STOP_CHAIN = Object.freeze([
+    'recording_terminated', 'final_transcript', 'evaluation_complete', 'session_saved', 'practice_loop_ready', 'review_rendered',
+] as const);
+
+const rowTime = (v: unknown): number => (typeof v === 'number' ? v : Date.parse(String(v ?? '')));
+
+export const postStopChainInOrder = (chain: readonly string[]) => (rows: readonly DecodedTelemetryRow[]): string | null => {
+    let previous = Number.NEGATIVE_INFINITY;
+    for (const stage of chain) {
+        const times = rows
+            .filter((r) => r?.event === 'stage_latency' && r?.properties?.stage === stage)
+            .map((r) => rowTime(r?.timestamp));
+        if (times.length === 0) return `the post-Stop chain has no ${stage} stage`;
+        if (times.some((t) => !Number.isFinite(t))) return `a ${stage} stage row has no readable timestamp`;
+        const first = Math.min(...times);
+        if (first < previous) return `the post-Stop chain is out of order at ${stage}`;
+        previous = first;
+    }
+    return null;
+};
+
+const POST_STOP_CHAIN_OPEN_MIC = {
+    name: 'open_mic_post_stop_chain_in_order',
+    check: postStopChainInOrder(OPEN_MIC_POST_STOP_CHAIN),
+} as const;
+
+const POST_STOP_CHAIN_FOCUS_POINTS = {
+    name: 'focus_points_post_stop_chain_in_order',
+    check: postStopChainInOrder(FOCUS_POINTS_POST_STOP_CHAIN),
+} as const;
+
 export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze([
     {
         stage: 'share_feedback',
@@ -376,7 +447,7 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
             check: (rows) => (has(rows, 'session_saved') && !has(rows, 'transcript_authority')
                 ? 'a saved session produced no transcript authority for its review'
                 : null),
-        }, ATTRIBUTION_BINDING],
+        }, ATTRIBUTION_BINDING, REVIEW_TRANSCRIPT_RECEIPT, POST_STOP_CHAIN_OPEN_MIC],
     },
     {
         stage: 'session_after_focus_points',
@@ -391,7 +462,7 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
             check: (rows) => (has(rows, 'coverage_evaluation') && !has(rows, 'coverage_point')
                 ? 'a coverage evaluation published no per-point verdicts'
                 : null),
-        }, ATTRIBUTION_BINDING],
+        }, ATTRIBUTION_BINDING, REVIEW_TRANSCRIPT_RECEIPT, POST_STOP_CHAIN_FOCUS_POINTS],
     },
 ]);
 

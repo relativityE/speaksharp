@@ -68,3 +68,49 @@ describe('#1259 F02 — the view summarises its own envelope', () => {
         expect(mic()[0].signal_available).toBe(false);
     });
 });
+
+describe('#1421 P1 `3979074340` — each attempt reports its own microphone evidence', () => {
+    // The describe above already spies on `push`. A second `vi.spyOn` would wrap that spy and silence its
+    // recordings, so this block reads the same spy rather than installing another.
+    const pushSpy = vi.mocked(analyticsBuffer.push);
+    const mic = () => pushSpy.mock.calls
+        .filter((c) => c[0] === 'mic_observability')
+        .map((c) => c[1] as Record<string, unknown>);
+
+    beforeEach(() => pushSpy.mockClear());
+
+    it("CASUALTY: a direct Retry (after → during) does not inherit the first take's signal", () => {
+        const { rerender } = render(<SessionOverhaulView {...base} isListening micLevel={0.4} />);
+        rerender(<SessionOverhaulView {...base} showAnalyticsPrompt transcriptContent="hello" />);
+        expect(mic()[0].signal_available, 'the first take had signal').toBe(true);
+
+        // Retry straight from the review: the review prompt is still up, and a flat meter feeds the new take.
+        rerender(<SessionOverhaulView {...base} showAnalyticsPrompt isListening micLevel={0} />);
+        rerender(<SessionOverhaulView {...base} showAnalyticsPrompt isListening micLevel={0} />);
+        rerender(<SessionOverhaulView {...base} showAnalyticsPrompt transcriptContent="hello again" />);
+
+        expect(mic()).toHaveLength(2);
+        expect(mic()[1].signal_available, "the retry's flat meter is its own evidence").toBe(false);
+        expect(mic()[1].waveform_observability).toBe('partial');
+        expect(mic()[1].stop_control_rendered, 'the retry did show its own Stop control').toBe(true);
+    });
+
+    it('CONTROL: an ordinary next take (before → during) also starts from empty evidence', () => {
+        const { rerender } = render(<SessionOverhaulView {...base} isListening micLevel={0.4} />);
+        rerender(<SessionOverhaulView {...base} showAnalyticsPrompt transcriptContent="hello" />);
+        rerender(<SessionOverhaulView {...base} />);
+        rerender(<SessionOverhaulView {...base} isListening micLevel={0} />);
+        rerender(<SessionOverhaulView {...base} showAnalyticsPrompt transcriptContent="second" />);
+
+        expect(mic()).toHaveLength(2);
+        expect(mic()[0].signal_available).toBe(true);
+        expect(mic()[1].signal_available).toBe(false);
+    });
+
+    it('CONTROL: a single take keeps its own samples and Stop latch from during through review', () => {
+        const { rerender } = render(<SessionOverhaulView {...base} isListening micLevel={0.4} />);
+        rerender(<SessionOverhaulView {...base} isListening micLevel={0.5} />);
+        rerender(<SessionOverhaulView {...base} showAnalyticsPrompt transcriptContent="hello" />);
+        expect(mic()[0]).toMatchObject({ signal_available: true, stop_control_rendered: true });
+    });
+});

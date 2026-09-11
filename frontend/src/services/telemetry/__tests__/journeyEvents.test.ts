@@ -168,3 +168,40 @@ describe('transitions, not polls', () => {
         expect(dropped).toEqual(['runtime_state_at_intent']);
     });
 });
+
+describe('#1421 P1 `3979074328` — only the accepted Start anchors intent latency', () => {
+    it('CASUALTY: a suppressed second click does not move the anchor off the accepted Start', () => {
+        vi.useFakeTimers();
+        emitRecordingIntent({ kind: 'start', outcome: 'accepted', runtimeState: 'READY', modelReady: true });
+        vi.advanceTimersByTime(1_000);
+        emitRecordingIntent({ kind: 'start', outcome: 'suppressed_in_flight', runtimeState: 'INITIATING', modelReady: true });
+        vi.advanceTimersByTime(600);
+        expect(msSinceIntent(), 'measured from the accepted click, not the suppressed one').toBe(1_600);
+        emitRecordingState('INITIATING', 'RECORDING', null);
+        drain();
+        expect(captured('recording_state')[0].ms_since_intent).toBe(1_600);
+    });
+
+    it('CASUALTY: no refused Start outcome moves the anchor', () => {
+        for (const outcome of ['suppressed_in_flight', 'suppressed_finalizing', 'blocked_usage_limit',
+            'blocked_lock_held', 'blocked_stale_client', 'failed'] as const) {
+            vi.useFakeTimers();
+            __resetJourneyEventsForTests();
+            emitRecordingIntent({ kind: 'start', outcome: 'accepted', runtimeState: 'READY', modelReady: true });
+            vi.advanceTimersByTime(2_000);
+            emitRecordingIntent({ kind: 'start', outcome, runtimeState: 'READY', modelReady: true });
+            vi.advanceTimersByTime(500);
+            expect({ outcome, since: msSinceIntent() }).toEqual({ outcome, since: 2_500 });
+            vi.useRealTimers();
+        }
+    });
+
+    it("CONTROL: the next take's accepted Start re-anchors", () => {
+        vi.useFakeTimers();
+        emitRecordingIntent({ kind: 'start', outcome: 'accepted', runtimeState: 'READY', modelReady: true });
+        vi.advanceTimersByTime(5_000);
+        emitRecordingIntent({ kind: 'start', outcome: 'accepted', runtimeState: 'READY', modelReady: true });
+        vi.advanceTimersByTime(700);
+        expect(msSinceIntent()).toBe(700);
+    });
+});
