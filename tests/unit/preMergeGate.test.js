@@ -43,13 +43,20 @@ const livePull = (threads, over = {}) => ({
   ...over,
 });
 
-const thread = (isResolved, body) => ({
+/**
+ * #1430 fix-forward `3991388525`: a RESOLVED same-head P0/P1 now blocks unless its review was dismissed with authority (#1438 PM
+ * DECISION `5639300027`). The
+ * resolved threads these cases use as "live state is clean" are therefore findings made at an EARLIER head,
+ * which is what a resolved blocker from a previous round really is. The same-head case has its own cases.
+ */
+const PRIOR_HEAD = 'a'.repeat(40);
+const thread = (isResolved, body, sha = isResolved ? PRIOR_HEAD : HEAD) => ({
   isResolved,
   comments: {
     nodes: [{
-      author: bot, body,
-      commit: { oid: HEAD }, originalCommit: { oid: HEAD },
-      pullRequestReview: { commit: { oid: HEAD } },
+      author: bot, body, createdAt: '2026-09-10T20:00:00Z',
+      commit: { oid: sha }, originalCommit: { oid: sha },
+      pullRequestReview: { state: 'COMMENTED', commit: { oid: sha } },
     }],
     pageInfo: { hasPreviousPage: false },
   },
@@ -375,6 +382,32 @@ describe('#1430 P1 `3988517243` — the merge proceeds only where GitHub itself 
     });
     expect(readBaseProtection, 'enforcement was read for the authorized repository').toHaveBeenCalledWith({
       repository: REPOSITORY, token: 't',
+    });
+    expect(mergeExecutor).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ merged: true, mergeInvoked: true, holds: [] });
+  });
+});
+
+describe('#1430 fix-forward `3991388525` — a resolved same-head blocker does not merge without an authorized dismissal', () => {
+  const sameHeadResolved = (reviewState = 'COMMENTED') => {
+    const t = thread(true, 'P1 Badge — resolved without re-review', HEAD);
+    t.comments.nodes[0].pullRequestReview.state = reviewState;
+    return [t];
+  };
+
+  it('CASUALTY: resolved at the authorized head and never dismissed — the executor is not called', async () => {
+    const { outcome, mergeExecutor } = await runGate({ threads: sameHeadResolved(), priorReceipt: receiptAgedMinutes(1) });
+    expect(mergeExecutor).not.toHaveBeenCalled();
+    // The finding is counted AND the live receipt's own verdict refuses, for the same single reason.
+    expect(outcome.holds).toEqual([
+      `${PRE_MERGE_HOLD.LIVE_FINDINGS}:1`,
+      `${PRE_MERGE_HOLD.LIVE_NOT_QUALIFIED}:open_findings:1`,
+    ]);
+  });
+
+  it('CONTROL: the same finding inside an authorized DISMISSED review merges (#1438 PM DECISION `5639300027`)', async () => {
+    const { outcome, mergeExecutor } = await runGate({
+      threads: sameHeadResolved('DISMISSED'), priorReceipt: receiptAgedMinutes(1),
     });
     expect(mergeExecutor).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({ merged: true, mergeInvoked: true, holds: [] });

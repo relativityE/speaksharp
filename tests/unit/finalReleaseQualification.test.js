@@ -880,7 +880,7 @@ describe('Q-08 software-quality evidence completeness', () => {
 describe('#1430 P1 — reopened threads and push qualification', () => {
   const reviewedSha = 'a'.repeat(40);
   const bot = { login: 'chatgpt-codex-connector' };
-  const pullWith = (threads) => ({
+  const pullWith = (threads, extra = {}) => ({
     number: 1,
     headRefOid: reviewedSha,
     baseRefName: 'main',
@@ -890,11 +890,12 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
       pageInfo: { hasPreviousPage: false },
     },
     reviewThreads: { nodes: threads, pageInfo: { hasNextPage: false } },
+    ...extra,
   });
   const thread = (isResolved, body) => ({
     isResolved,
     comments: {
-      nodes: [{ author: bot, body, commit: { oid: reviewedSha }, originalCommit: { oid: reviewedSha }, pullRequestReview: { commit: { oid: reviewedSha } } }],
+      nodes: [{ author: bot, body, createdAt: '2026-09-10T00:00:00Z', commit: { oid: reviewedSha }, originalCommit: { oid: reviewedSha }, pullRequestReview: { state: 'COMMENTED', commit: { oid: reviewedSha } } }],
       pageInfo: { hasPreviousPage: false },
     },
   });
@@ -918,13 +919,14 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
     expect(receipt.qualified, 'a reopened P1 thread cannot ride a qualifying receipt').toBe(false);
   });
 
-  it('CONTROL: the same head with that thread RESOLVED does qualify', () => {
-    // Without this the case above would pass against a builder that refuses everything.
-    const receipt = buildReviewReceipt({
-      pullRequest: pullWith([thread(true, 'P1 Badge — addressed and resolved')]),
-      expectedHeadSha: reviewedSha,
-    });
-    expect(receipt.qualified, 'resolution is what clears it').toBe(true);
+  it('CONTROL: the same head with that thread RESOLVED inside an authorized DISMISSED review does qualify', () => {
+    // Without this the case above would pass against a builder that refuses everything. Since #1430's
+    // fix-forward (`3991388525`) resolution alone never clears a same-head P0/P1, and under #1438 PM DECISION
+    // `5639300027` no comment clears one either: an authorized dismissal does.
+    const dismissed = thread(true, 'P1 Badge — addressed and resolved');
+    dismissed.comments.nodes[0].pullRequestReview.state = 'DISMISSED';
+    const receipt = buildReviewReceipt({ pullRequest: pullWith([dismissed]), expectedHeadSha: reviewedSha });
+    expect(receipt.qualified, 'an authorized dismissal is what clears it').toBe(true);
   });
 
   it('CASUALTY: a STALE receipt does not qualify, however clean it is', () => {
@@ -1055,11 +1057,20 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     reviews: { nodes: reviews, pageInfo: { hasPreviousPage: false } },
     reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
     comments: { nodes: comments, pageInfo: { hasPreviousPage: commentsTruncated } },
+    // #1438 PM RETURN `5639978861`: GitHub's lifecycle record — pushed at 23:40, marked ready at 23:50, no move since.
+    timelineItems: { nodes: [{ createdAt: '2026-09-10T23:50:00Z' }] },
+    headRefHistory: { complete: true, moves: [{ after: head, timestamp: '2026-09-10T23:40:00Z' }] },
+  });
+  // #1438 PM DECISION `5639300027`: a clean-result COMMENT is never completion authority on its own. Exact-head
+  // completion comes from a review object or Codex's review-summary system metadata, which `summaryComment` models.
+  const summaryComment = (sha) => ({
+    id: 'summary', author: bot, createdAt: '2026-09-10T23:51:30Z',
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"blockingSeverityThreshold":"P0","headSha":"${sha}","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-09-10T23:55:00Z">2026-09-10T23:55:00Z</relative-time> | \`${sha.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-09-10T23:56:00Z">2026-09-10T23:56:00Z</relative-time> | \`${sha.slice(0, 7)}\` | Draft marked ready |`,
   });
 
-  it('CASUALTY: a trusted clean comment naming the EXACT head qualifies', () => {
+  it('CASUALTY: a clean head qualifies through Codex summary metadata; the clean comment alone does not', () => {
     const receipt = buildReviewReceipt({
-      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head.slice(0, 10)), createdAt: '2026-09-10T23:51:24Z' }] }),
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head), createdAt: '2026-09-10T23:51:24Z' }, summaryComment(head)] }),
       expectedHeadSha: head,
     });
 
@@ -1067,7 +1078,13 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     expect(receipt.reviewStatus).toBe('completed');
     expect(receipt.reviewedSha).toBe(head);
     expect(receipt.findingCount, 'clean means zero findings, never unknown').toBe(0);
-    expect(receipt.reviewEvidence, 'and the basis is auditable').toBe('clean_result_comment');
+    expect(receipt.reviewEvidence, 'and the basis is auditable').toBe('codex_summary_metadata');
+
+    const commentOnly = buildReviewReceipt({
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head), createdAt: '2026-09-10T23:51:24Z' }] }),
+      expectedHeadSha: head,
+    });
+    expect(commentOnly.qualified, 'generated comment text is not completion authority').toBe(false);
   });
 
   it('CASUALTY: a trusted bot ERROR or STATUS notice with a valid footer does not qualify', () => {
@@ -1099,7 +1116,7 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     }
   });
 
-  it('CONTROL: every real sign-off variant of the canonical clean result DOES qualify', () => {
+  it('CONTROL: every real sign-off variant qualifies once Codex summary metadata marks this head completed', () => {
     // The sign-off varies run to run, so the invariant is the phrase and not the sentence. All four are
     // verbatim first lines of genuine clean results on this PR; a match that were too strict would
     // reintroduce the unsatisfiable gate this correction exists to fix.
@@ -1113,12 +1130,12 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     for (const text of cleanVariants) {
       const receipt = buildReviewReceipt({
         pullRequest: pullWith({
-          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``, createdAt: '2026-09-10T23:51:24Z' }],
+          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head}\``, createdAt: '2026-09-10T23:51:24Z' }, summaryComment(head)],
         }),
         expectedHeadSha: head,
       });
       expect(receipt.qualified, `${text.slice(0, 45)} must qualify`).toBe(true);
-      expect(receipt.reviewEvidence).toBe('clean_result_comment');
+      expect(receipt.reviewEvidence).toBe('codex_summary_metadata');
     }
   });
 
@@ -1201,11 +1218,14 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
   const bot = { login: 'chatgpt-codex-connector' };
   const clean = {
     id: 'old-clean', author: bot, createdAt: '2026-09-10T10:00:00Z',
-    body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``,
+    // #1438 PM DECISION `5639300027`: exact-head completion is Codex's summary system metadata, not comment text.
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"headSha":"${head}","pullRequestNumber":1430,"repository":"relativityE/speaksharp","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-09-10T09:30:00Z">2026-09-10T09:30:00Z</relative-time> | \`${head.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-09-10T09:31:00Z">2026-09-10T09:31:00Z</relative-time> | \`${head.slice(0, 7)}\` | Draft marked ready |`,
   };
   const base = (comments) => ({
     number: 1430,
     headRefOid: head,
+    headRefName: 'chore/final-release-qualification',
+    headRepository: { nameWithOwner: 'relativityE/speaksharp' },
     baseRefName: 'main',
     baseRefOid: 'b'.repeat(40),
     baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
@@ -1213,13 +1233,18 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
     reviews: { nodes: [], pageInfo: { hasPreviousPage: false } },
     reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
     comments,
+    timelineItems: { nodes: [{ createdAt: '2026-09-10T09:00:00Z' }] },
   });
 
   afterEach(() => vi.unstubAllGlobals());
 
   function serve(pages, failAt = -1) {
     let call = 0;
-    vi.stubGlobal('fetch', vi.fn(async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      // #1438 PM RETURN `5639978861`: the branch activity read, answered without consuming a comment page.
+      if (String(url).includes('/activity?')) {
+        return { ok: true, status: 200, json: async () => ([{ activity_type: 'push', after: head, timestamp: '2026-09-10T08:00:00Z' }]) };
+      }
       const index = call++;
       if (index === failAt) return { ok: false, status: 502, json: async () => ({}) };
       const comments = pages[Math.min(index, pages.length - 1)];
@@ -1237,7 +1262,9 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
       { nodes: [clean], pageInfo: { hasPreviousPage: false, startCursor: 'cursor-0' } },
     ]);
     const pullRequest = await readPullRequest({ repository: 'relativityE/speaksharp', number: 1430, token: 'token' });
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    const commentPageReads = globalThis.fetch.mock.calls
+      .filter(([, init]) => JSON.parse(init?.body ?? '{}').query?.includes('comments(last:100,before:$commentsBefore)'));
+    expect(commentPageReads).toHaveLength(2);
     expect(pullRequest.comments.nodes.map(({ id }) => id)).toEqual(['old-clean', 'newer']);
     expect(buildReviewReceipt({ pullRequest, expectedHeadSha: head }).qualified).toBe(true);
   });
