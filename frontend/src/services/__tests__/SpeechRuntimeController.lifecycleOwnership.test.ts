@@ -11,6 +11,9 @@ import { SpeechRuntimeController, StartRefusedFinalizationError, type LifecycleT
 import { sessionManager } from '../transcription/SessionManager';
 import type { TranscriptionServiceOptions } from '../transcription/TranscriptionService';
 import { completeSession, saveSession } from '../../lib/storage';
+import {
+    __resetJourneyIdentityForTests, beginRecordingAttempt, currentAttemptId, currentAttemptSeq, currentBootId, currentJourneyId,
+} from '../telemetry/journeyIdentity';
 
 vi.mock('../../lib/logger', () => ({
     default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -45,6 +48,7 @@ type PrivateController = {
     isEmissionsSafe: boolean;
     recordingStartedUnresolved: boolean;
     recordingEngineMode: string | null;
+    currentRecordingSubject: unknown;
     service: unknown;
     callbacksForNewService: (callbacks?: Partial<TranscriptionServiceOptions>) => Partial<TranscriptionServiceOptions>;
     checkRecordingInvariant: (token?: LifecycleToken, intentToken?: string) => Promise<void>;
@@ -1350,5 +1354,55 @@ describe('#1431 — a stopped heartbeat cannot fail the take that stopped it', (
         expect(c.heartbeatVersion,
             'stopping the heartbeat invalidates the request already in flight')
             .not.toBe(versionHeldByInFlightRequest);
+    });
+});
+
+describe('#1421 Option A — a take is bound to its attempt when it enters RECORDING', () => {
+    let controller: PrivateController;
+    const openAttempt = () => ({
+        subject_boot_id: currentBootId(),
+        subject_journey_id: currentJourneyId(),
+        subject_attempt_id: currentAttemptId(),
+        subject_attempt_seq: currentAttemptSeq(),
+    });
+    // Enter RECORDING the way a real start does: the current intent's token, and a service that confirms
+    // it is recording. Anything less is refused before RECORDING-owned state is touched.
+    const recordFor = async (token: string) => {
+        controller.state = 'ENGINE_INITIALIZING';
+        useSessionStore.getState().setRuntimeState('ENGINE_INITIALIZING');
+        controller.isEngineReady = true;
+        controller.isEmissionsSafe = true;
+        controller.service = fakeService({ isDestroyed: () => false }) as never;
+        await controller.checkRecordingInvariant(undefined, token);
+        expect(controller.state, 'precondition: the take is recording').toBe('RECORDING');
+    };
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        __resetRecordingIntentForTests();
+        __resetJourneyIdentityForTests();
+        useSessionStore.getState().resetSession();
+        controller = newController();
+    });
+
+    it('captures the attempt the accepted click opened', async () => {
+        beginRecordingAttempt();
+        const opened = openAttempt();
+        const attempt = mintRecordingIntent({ recordingId: 'recording-subject-a', policy: null, userWords: [] });
+        await recordFor(attempt.token);
+        expect(controller.currentRecordingSubject).toEqual(opened);
+    });
+
+    it('binds a take that reached RECORDING with no attempt open to the attempt RECORDING ensures, never a stale subject', async () => {
+        const stale = {
+            subject_boot_id: 'stale-boot', subject_journey_id: 'stale-journey',
+            subject_attempt_id: 'stale-attempt', subject_attempt_seq: 9,
+        };
+        controller.currentRecordingSubject = stale;
+        const attempt = mintRecordingIntent({ recordingId: 'recording-subject-b', policy: null, userWords: [] });
+        await recordFor(attempt.token);
+        expect(currentAttemptId(), 'RECORDING ensured an attempt').not.toBeNull();
+        expect(controller.currentRecordingSubject).toEqual(openAttempt());
+        expect(controller.currentRecordingSubject).not.toEqual(stale);
     });
 });

@@ -5,7 +5,9 @@ import { buildPolicyForUser, TranscriptionPolicy, type TranscriptionMode } from 
 import { useSessionStore } from '@/stores/useSessionStore';
 import { ITranscriptionService } from '../../hooks/useSpeechRecognition/useTranscriptionService';
 import { sessionManager } from '@/services/transcription/SessionManager';
-import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { getSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { analyticsBuffer } from '../AnalyticsBuffer';
+import { completeSession } from '../../lib/storage';
 import { clearPrivateRecordingIdentity, getLastPrivateIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
 
 // Mock Dependencies
@@ -817,6 +819,143 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(retryCall).toBeTruthy();
         expect((retryCall![1] as { body: { runtimeEvidence: Record<string, unknown> } }).body.runtimeEvidence).toMatchObject({ provider: 'transformers-js', engine: 'private' });
         expect(vi.mocked(storage.saveSession).mock.calls.length).toBe(saveCallsBefore); // no duplicate session created
+    });
+
+    describe('#1421 P1 `3984043475` Option A — every terminal attribution verdict names its take', () => {
+        /*
+         * The receipt's `subject_*` fields name the take whose server verdict settled, from a snapshot
+         * captured when that take was the open attempt. `driveStopWithService` jumps straight to RECORDING, so
+         * each case seeds the controller's captured subject exactly as `startRecording` would have.
+         */
+        const SUBJECT = Object.freeze({
+            subject_boot_id: 'j-boot-a',
+            subject_journey_id: 'j-journey-a',
+            subject_attempt_id: 'j-attempt-a',
+            subject_attempt_seq: 1,
+        });
+        const TAKE_B = Object.freeze({ ...SUBJECT, subject_attempt_id: 'j-attempt-b', subject_attempt_seq: 2 });
+        const META = { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' };
+        const priv = () => controller as unknown as {
+            currentRecordingSubject: unknown;
+            pendingAttributionRetry: { subject?: unknown } | null;
+            pendingFullSaveRetry: { subject?: unknown } | null;
+            retryPendingAttribution: () => Promise<boolean>;
+            retryRecordingSave: () => Promise<boolean>;
+        };
+        let push: { mock: { calls: unknown[][] }; mockRestore: () => void };
+        const receipts = () => push.mock.calls
+            .filter((call) => call[0] === 'model_attribution_receipt')
+            .map((call) => call[1]);
+
+        beforeEach(() => {
+            push = vi.spyOn(analyticsBuffer, 'push') as unknown as typeof push;
+            attestInvoke.mockReset();
+            priv().currentRecordingSubject = SUBJECT;
+        });
+        afterEach(() => push.mockRestore());
+
+        it('first try: a terminal VERIFIED verdict emits exactly one receipt naming the take', async () => {
+            attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
+            await driveStopWithService(mkService('private', META), 'sess-subject-verified', 'private');
+            expect(receipts()).toEqual([{ ...SUBJECT, attribution_status: 'verified', receipt_path: 'first_try' }]);
+        });
+
+        it('first try: a terminal UNVERIFIED verdict emits an unverified receipt, never a verified one', async () => {
+            attestInvoke.mockResolvedValue({ data: { attributed: false }, error: null });
+            await driveStopWithService(mkService('private', META), 'sess-subject-unverified', 'private');
+            expect(receipts()).toEqual([{ ...SUBJECT, attribution_status: 'unverified', receipt_path: 'first_try' }]);
+        });
+
+        it('a TRANSIENT verdict emits nothing and carries the subject into the retry slot', async () => {
+            attestInvoke.mockResolvedValueOnce({ data: null, error: { message: 'producer down' } });
+            await driveStopWithService(mkService('private', META), 'sess-subject-transient', 'private');
+            expect(receipts(), 'no terminal verdict, no receipt').toEqual([]);
+            expect(priv().pendingAttributionRetry?.subject).toEqual(SUBJECT);
+        });
+
+        it('Retry Save while ANOTHER take is current still names the ORIGINAL take, never take B', async () => {
+            attestInvoke.mockResolvedValueOnce({ data: null, error: { message: 'producer down' } });
+            await driveStopWithService(mkService('private', META), 'sess-subject-retry', 'private');
+            // Simulated contamination: a later take's identity is now the controller's current one.
+            priv().currentRecordingSubject = TAKE_B;
+            attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
+            await expect(priv().retryPendingAttribution()).resolves.toBe(true);
+            expect(receipts()).toEqual([
+                { ...SUBJECT, attribution_status: 'verified', receipt_path: 'retry_attribution' },
+            ]);
+        });
+
+        it('a take with NO valid subject (legacy or malformed) settles attribution but emits no receipt', async () => {
+            priv().currentRecordingSubject = null;
+            attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
+            await driveStopWithService(mkService('private', META), 'sess-subject-none', 'private');
+            expect(attestInvoke).toHaveBeenCalled();
+            expect(receipts()).toEqual([]);
+        });
+
+        it('a FULL-SAVE failure keeps the take in both the finalized draft and the full-save retry slot', async () => {
+            vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+            attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
+            await driveStopWithService(mkService('private', META), 'sess-subject-fullsave', 'private')
+                .catch(() => { /* the failed save is the case under test */ });
+            expect(getSessionRecoveryDraft()?.subject, 'the finalized draft names the take').toEqual(SUBJECT);
+            expect(priv().pendingFullSaveRetry?.subject, 'the full-save retry names the take').toEqual(SUBJECT);
+            expect(receipts(), 'no terminal verdict yet, no receipt').toEqual([]);
+        });
+
+        it('Retry Save of a failed FULL SAVE names the ORIGINAL take once its verdict is terminal', async () => {
+            vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+            await driveStopWithService(mkService('private', META), 'sess-subject-fullsave-retry', 'private')
+                .catch(() => { /* the failed save is the case under test */ });
+            // A later take is now current; the retried verdict must still name the original one.
+            priv().currentRecordingSubject = TAKE_B;
+            attestInvoke.mockResolvedValue({ data: { attributed: false }, error: null });
+            await expect(priv().retryRecordingSave()).resolves.toBe(true);
+            expect(receipts()).toEqual([
+                { ...SUBJECT, attribution_status: 'unverified', receipt_path: 'retry_full_save' },
+            ]);
+        });
+
+        it('a post-start failure that arms Retry Save from the finalized draft carries the draft\'s take', () => {
+            // The in-session recovery path: the take began, no specific retry was armed, and a finalized draft
+            // for THIS session and owner exists. The retry it arms must name the draft's take.
+            const c = controller as unknown as {
+                sessionId: string | null; capturedUserId: string | null; recordingStartedUnresolved: boolean;
+                ensurePostStartFailureIsActionable: () => void;
+            };
+            c.sessionId = 'sess-subject-inflight';
+            c.capturedUserId = 'test-user';
+            c.recordingStartedUnresolved = true;
+            priv().pendingAttributionRetry = null;
+            priv().pendingFullSaveRetry = null;
+            saveSessionRecoveryDraft({
+                sessionId: 'sess-subject-inflight',
+                userId: 'test-user',
+                recoveryState: 'finalized_pending_save',
+                durationSeconds: 30,
+                mode: 'private',
+                metrics: { totalWords: 120 },
+                nextActionSignal: PRODUCTION_VALID_COMPLETED_ARGS('x', 30).nextActionSignal as never,
+                subject: SUBJECT,
+            });
+            c.ensurePostStartFailureIsActionable();
+            expect(priv().pendingFullSaveRetry?.subject).toEqual(SUBJECT);
+        });
+
+        it('reload recovery restores the subject from the finalized draft into the full-save retry slot', () => {
+            saveSessionRecoveryDraft({
+                sessionId: 'sess-subject-reload',
+                userId: 'test-user',
+                recoveryState: 'finalized_pending_save',
+                durationSeconds: 30,
+                mode: 'private',
+                metrics: { totalWords: 120 },
+                nextActionSignal: PRODUCTION_VALID_COMPLETED_ARGS('x', 30).nextActionSignal as never,
+                subject: SUBJECT,
+            });
+            expect(controller.rehydrateUnresolvedRecording('test-user')).toBe(true);
+            expect(priv().pendingFullSaveRetry?.subject).toEqual(SUBJECT);
+        });
     });
 
     it('#1306: the normal completion path SENDS the finalized transcript', async () => {

@@ -230,6 +230,22 @@ export const EVENT_SCHEMAS = Object.freeze({
         outcome: enumOf(['success']),
     },
 
+    /**
+     * #1421 P1 Option A — ONE RECEIPT PER TERMINAL ATTRIBUTION VERDICT, NAMING THE TAKE IT SETTLED.
+     *
+     * The envelope's `boot_id`/`journey_id`/`attempt_id` describe the moment an event is pushed. A Retry
+     * Save can settle take A while take B is current, so the envelope alone attributed A's verdict to B.
+     * The `subject_*` fields are A's own identity, snapshotted when A was recording and carried through
+     * every retry and reload path. Emitted only on a verdict the server made terminal; a transient failure
+     * emits nothing and its eventual retry emits instead.
+     */
+    model_attribution_receipt: {
+        subject_boot_id: slug(64), subject_journey_id: slug(64), subject_attempt_id: slug(64),
+        subject_attempt_seq: { kind: 'int', min: 1, max: 1_000_000 } as FieldRule,
+        attribution_status: enumOf(['verified', 'unverified']),
+        receipt_path: enumOf(['first_try', 'retry_attribution', 'retry_full_save']),
+    },
+
     // ── session outcome loop ────────────────────────────────────────────────
     session_started: {
         mode: enumOf(STT_MODES), requested_mode: enumOf(STT_MODES), user_tier: enumOf(TIERS),

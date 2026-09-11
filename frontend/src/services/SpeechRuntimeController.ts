@@ -1,3 +1,5 @@
+import { analyticsBuffer } from './AnalyticsBuffer';
+import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
 import {
@@ -597,6 +599,8 @@ export class SpeechRuntimeController {
 
     // Cancellation tracking for startRecording
     private currentRecordingId: string | null = null;
+    /** #1421 Option A: the attempt this take belongs to, snapshotted when the take enters RECORDING. */
+    private currentRecordingSubject: RecordingSubject | null = null;
     /**
      * #1431 — THE ACCEPTED ATTEMPT: who is allowed to publish RECORDING after the intent is claimed.
      *
@@ -939,6 +943,8 @@ export class SpeechRuntimeController {
         evidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
         progressMetrics: ProgressMetricsState;
+        /** #1421 Option A: the take this verdict belongs to, never the attempt current when it settles. */
+        subject?: RecordingSubject | null;
     } | null = null;
     /** #1033 (item 2/3): last recording whose durable FULL SAVE (completeSession) failed — a strictly worse
      *  failure than an attribution-only miss (the transcript row itself is not persisted). Stashed so Retry
@@ -955,6 +961,8 @@ export class SpeechRuntimeController {
         attributionEvidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
         progressMetrics: ProgressMetricsState;
+        /** #1421 Option A: the take this verdict belongs to, never the attempt current when it settles. */
+        subject?: RecordingSubject | null;
     } | null = null;
 
     /** #1265: immutable practice-mode snapshot captured when this recording enters RECORDING. Retry paths
@@ -1074,6 +1082,7 @@ export class SpeechRuntimeController {
             // #1161: re-post evidence to the trusted server producer. null = transient failure → stay retryable.
             const res = await this.attestSessionEngine(pending.sessionId, pending.evidence);
             if (res === null) return false;
+            this.emitAttributionReceipt(pending.subject, res.attributed, 'retry_attribution');
             // compare-and-clear: clear ONLY if the slot still holds the session we just promoted — if it
             // changed to another session while the update was in flight, leave that one intact (#1033).
             if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
@@ -1194,6 +1203,7 @@ export class SpeechRuntimeController {
                 // #1161: attribution via the trusted server producer. null = transient → stay retryable.
                 const attrRes = await this.attestSessionEngine(targetSessionId, fullSave.attributionEvidence);
                 if (attrRes === null) return false;
+                this.emitAttributionReceipt(fullSave.subject, attrRes.attributed, 'retry_full_save');
                 // #1306 Step 3: the retry's separate metrics PATCH is REMOVED for the same reason as the
                 // normal path — v2 wrote every retained metric in the SAME transaction as the transcript and
                 // retention, so its acceptance above already proves they landed. #1265's concern (a completed
@@ -1394,6 +1404,7 @@ export class SpeechRuntimeController {
                     },
                 },
                 attributionEvidence: null,  // #1161: mid-recording failure has no trusted identity → no authority
+                subject: draftForThisSession.subject ?? null,
                 progressContext: this.buildProgressCompletionContext(dur),
                 progressMetrics: { payload: null, persisted: false },
             };
@@ -1481,6 +1492,7 @@ export class SpeechRuntimeController {
                 },
             },
             attributionEvidence: null,  // #1161: rehydrated recording has no trusted identity → no authority
+            subject: draft.subject ?? null,
             // The recovery draft carries no objective brief linkage. Missing mode context fails closed instead
             // of being guessed as Open Mic after reload.
             progressContext: { mode: 'unknown' },
@@ -1588,6 +1600,32 @@ export class SpeechRuntimeController {
      *  - present evidence, 4xx (server rejected the evidence) → { attributed: false } (terminal; not retryable).
      *  - either op, 5xx / network error → null (TRANSIENT; caller stashes for Retry Save).
      */
+    /**
+     * #1421 Option A — one receipt per TERMINAL attribution verdict, naming the take it settled.
+     *
+     * Called only after a non-null attestation result, so a transient failure emits nothing and its
+     * retry emits instead. A take with no valid subject (restored from a draft written before subjects
+     * existed, or one that fails validation) emits nothing rather than borrowing
+     * whichever attempt happens to be current. Telemetry must never affect attribution.
+     */
+    private emitAttributionReceipt(
+        subject: RecordingSubject | null | undefined,
+        attributed: boolean,
+        receiptPath: 'first_try' | 'retry_attribution' | 'retry_full_save',
+    ): void {
+        const take = sanitizeRecordingSubject(subject);
+        if (!take) return;
+        try {
+            analyticsBuffer.push('model_attribution_receipt', {
+                ...take,
+                attribution_status: attributed ? 'verified' : 'unverified',
+                receipt_path: receiptPath,
+            });
+        } catch {
+            // Telemetry is diagnostic; the verdict above is already durable.
+        }
+    }
+
     private async attestSessionEngine(
         sessionId: string, evidence: RuntimeEvidence | null,
     ): Promise<{ attributed: boolean } | null> {
@@ -2337,6 +2375,11 @@ export class SpeechRuntimeController {
                     // could carry the id it initiated; minting a second one here would give the recording a
                     // different id from the intent that caused it, which is the join this exists to make.
                     ensureRecordingAttempt();
+                    // #1421 Option A — BIND THIS TAKE TO ITS ATTEMPT. Only a take that records can be stopped,
+                    // and an attempt is guaranteed open here, so every stoppable take has a subject. Every
+                    // later verdict for it, including a Retry Save that settles while another take is
+                    // current, names this snapshot rather than whatever attempt is current then.
+                    this.currentRecordingSubject = captureRecordingSubject();
                     // #1259 F04 — churn is measured PER TAKE. Resetting here rather than inside the
                     // identity module keeps the dependency one-way: the store's transcript setter
                     // already reaches the telemetry layer, and importing it back would close a cycle
@@ -4503,6 +4546,9 @@ export class SpeechRuntimeController {
                     // #1161: derive the server attestation evidence NOW (before stopTranscription destroys engine
                     // metadata). null ⇒ no trusted local identity (unverified/Cloud) ⇒ no authority is produced.
                     const attestationEvidence = SpeechRuntimeController.evidenceFromIdentity(finalizingIdentity);
+                    // #1421 Option A: fixed alongside the evidence, so every path this take's verdict can
+                    // settle on (first try, either retry, reload) names the same take.
+                    const takeSubject = this.currentRecordingSubject;
                     // #1089 BOUNDED FINALIZATION. stopTranscription() runs the whole-utterance decode and
                     // has no internal ceiling; the watchdog was stopped just above. Because Finalizing…
                     // now disables the record control, a hang here means the user cannot start, stop or
@@ -4992,6 +5038,7 @@ export class SpeechRuntimeController {
                                 mode: modeForFinalization ?? 'unknown',
                                 metrics: finalMetrics,
                                 nextActionSignal: finalNextAction,
+                                subject: takeSubject,
                             });
 
                             // #1306 Step 3: the EXACT finalized transcript selected at the recording boundary is
@@ -5036,6 +5083,7 @@ export class SpeechRuntimeController {
                                         sessionId,
                                         completeArgs,
                                         attributionEvidence: attestationEvidence,
+                                        subject: takeSubject,
                                         progressContext,
                                         progressMetrics: { payload: richMetricsPayload, persisted: false },
                                     };
@@ -5062,6 +5110,7 @@ export class SpeechRuntimeController {
                                 // into the catch to stash for Retry Save (transcript already persisted, row pending).
                                 const attestResult = await this.attestSessionEngine(sessionId, attestationEvidence);
                                 if (attestResult === null) throw new Error('attestation failed (transient — retryable)');
+                                this.emitAttributionReceipt(takeSubject, attestResult.attributed, 'first_try');
                                 attributionTerminalStatus = attestResult.attributed
                                     ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED;
                                 // Clear the pending-retry ONLY if it belongs to THIS recording — a later
@@ -5085,6 +5134,7 @@ export class SpeechRuntimeController {
                                     this.pendingAttributionRetry = {
                                         sessionId,
                                         evidence: attestationEvidence,
+                                        subject: takeSubject,
                                         progressContext,
                                         // The result is filled after the ordinary rich-metrics write below.
                                         // Until then a concurrent retry fails closed rather than guessing.
