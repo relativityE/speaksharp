@@ -38,9 +38,8 @@ export async function installRuntimeCandidateSwitch(
     // This function remains importable from the public chunk, so accepting `env` here would let page
     // code call it with `{ VITE_INTERNAL_BUILD: 'true' }` and install the real executor without a
     // signed Production authorization.
-    const env = import.meta.env as unknown as Record<string, unknown>;
     if (import.meta.env.VITE_INTERNAL_BUILD !== 'true'
-        && !await consumeModelComparisonAuthorization(env, window)) return false;
+        && !await consumeModelComparisonAuthorization()) return false;
     if (!runtimeCandidateAccessAllowed()) return false;
 
     registerSwitchExecutor({

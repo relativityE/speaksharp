@@ -36,7 +36,7 @@ export function placeSignedAuthorization(overrides: Record<string, unknown> = {}
 
 export async function authorizeProduction(overrides: Record<string, unknown> = {}) {
     const placed = placeSignedAuthorization(overrides);
-    return { ...placed, accepted: await consumeModelComparisonAuthorization(placed.env, window) };
+    return { ...placed, accepted: await consumeModelComparisonAuthorization() };
 }
 
 export function resetAuthorization(): void {

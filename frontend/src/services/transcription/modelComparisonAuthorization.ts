@@ -175,11 +175,15 @@ function claimDurableNonce(payload: AuthorizationPayload, root: typeof globalThi
     }
 }
 
-export async function consumeModelComparisonAuthorization(
-    env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
-    root: typeof globalThis = globalThis,
-    now = Date.now(),
-): Promise<boolean> {
+export async function consumeModelComparisonAuthorization(): Promise<boolean> {
+    // This function is present in the public browser chunk, so none of its trust inputs may come
+    // from its caller. In Production Vite substitutes the public verification key from the reviewed
+    // build configuration, while release, origin, Web Crypto, and durable replay storage come only
+    // from the running document. Tests replace those platform/build values before calling this
+    // zero-argument boundary; they cannot pass an alternate authority through the public API.
+    const env = import.meta.env as unknown as Record<string, unknown>;
+    const root = globalThis;
+    const now = Date.now();
     armed = null;
     activeNonce = null;
     activeEvidenceDocumentId = null;
