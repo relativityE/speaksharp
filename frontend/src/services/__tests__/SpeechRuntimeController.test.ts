@@ -28,11 +28,12 @@ vi.mock('../../lib/storage', () => ({
 // #1161: the trusted server producer seam. attestInvoke stands in for
 // getSupabaseClient().functions.invoke('attest-session-engine', ...). Default: a successful Private/Browser
 // attestation ({ attributed: true }). Tests override it to simulate rejection / transient failure.
-const { attestInvoke } = vi.hoisted(() => ({
+const { attestInvoke, finalizeObjectiveSessionOnSave } = vi.hoisted(() => ({
     attestInvoke: vi.fn(
         (..._args: unknown[]): Promise<{ data: unknown; error: unknown }> =>
             Promise.resolve({ data: { attributed: true }, error: null }),
     ),
+    finalizeObjectiveSessionOnSave: vi.fn(),
 }));
 vi.mock('../../lib/supabaseClient', () => ({
     getSupabaseClient: vi.fn(() => ({
@@ -51,6 +52,9 @@ vi.mock('../progress/recordProgress', () => ({
     wireProgressEvaluationOnSave: vi.fn().mockResolvedValue({ kind: 'recorded' }),
     progressOutcomeAllowsNextRecording: (o: { kind: string }) =>
         o.kind === 'recorded' || o.kind === 'not_applicable',
+}));
+vi.mock('@/services/objective/finalizeObjectiveSessionOnSave', () => ({
+    finalizeObjectiveSessionOnSave,
 }));
 
 /**
@@ -121,6 +125,13 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
 
         vi.clearAllMocks();
+        finalizeObjectiveSessionOnSave.mockResolvedValue({
+            ok: true,
+            registered: true,
+            objectiveSessionId: 'objective-test',
+            evidenceCount: 1,
+            coverage: [],
+        });
     });
 
     afterEach(() => {
@@ -505,12 +516,17 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
     // #1033: one recording = one engine → finalization persists a VERIFIED identity tuple +
     // attribution_status atomically (row is 'pending' by DB default until then).
-    const driveStopWithService = async (svc: Record<string, unknown>, sessionId: string, mode: TranscriptionMode) => {
+    const driveStopWithService = async (
+        svc: Record<string, unknown>,
+        sessionId: string,
+        mode: TranscriptionMode,
+        progressMode: unknown = { mode: 'open_mic' },
+    ) => {
         (controller as unknown as { service: unknown }).service = svc;
         (controller as unknown as { state: string }).state = 'RECORDING';
         (controller as unknown as { sessionId: string }).sessionId = sessionId;
         // This helper jumps directly to RECORDING, bypassing the real transition that captures mode.
-        (controller as unknown as { recordingProgressMode: unknown }).recordingProgressMode = { mode: 'open_mic' };
+        (controller as unknown as { recordingProgressMode: unknown }).recordingProgressMode = progressMode;
         useSessionStore.getState().setRuntimeState('RECORDING');
         useSessionStore.getState().setSTTMode(mode);
         (controller as unknown as { handleTranscriptUpdate: (d: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
@@ -564,6 +580,124 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             attributionStatus: 'verified',
             metricsPersisted: true,
         }));
+    });
+
+    it('#1433: the real clean-stop path keeps Focus Points active until evaluation settles and READY publishes', async () => {
+        const brief = {
+            projectId: 'project-1433',
+            briefId: 'brief-1433',
+            points: ['Name the price', 'State the guarantee'],
+            topic: 'Pitch',
+        };
+        useSessionStore.getState().setActiveObjectiveBrief(brief);
+
+        let releaseObjective: (result: {
+            ok: boolean;
+            registered: boolean;
+            objectiveSessionId: string;
+            evidenceCount: number;
+            coverage: never[];
+        }) => void = () => {};
+        finalizeObjectiveSessionOnSave.mockReturnValueOnce(new Promise((resolve) => {
+            releaseObjective = resolve;
+        }));
+
+        let releaseDestroy: () => void = () => {};
+        const service = mkService(
+            'private',
+            { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' },
+        );
+        service.destroy = vi.fn(() => new Promise<void>((resolve) => {
+            releaseDestroy = resolve;
+        }));
+
+        let settled = false;
+        const completion = driveStopWithService(
+            service,
+            'sess-1433-stop-settlement',
+            'private',
+            { mode: 'focus_points', brief },
+        ).then(() => { settled = true; });
+
+        // Exhaust the ordinary completion microtasks until the controller is waiting on the
+        // deliberately deferred objective evaluation. This is the real stop path, not raw store state.
+        for (let i = 0; i < 80; i += 1) await Promise.resolve();
+        expect(finalizeObjectiveSessionOnSave).toHaveBeenCalledTimes(1);
+        expect(settled).toBe(false);
+        expect(useSessionStore.getState().runtimeState).toBe('STOPPING');
+        expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: brief.briefId });
+
+        releaseObjective({
+            ok: true,
+            registered: true,
+            objectiveSessionId: 'objective-1433',
+            evidenceCount: 1,
+            coverage: [],
+        });
+        for (let i = 0; i < 40; i += 1) await Promise.resolve();
+
+        // Objective evaluation is done, but the controller has not yet crossed READY. Clearing in
+        // completeProgressForRecording (the original defect) or anywhere before this final destroy
+        // settles would create an observable Open Mic gap during the still-STOPPING take.
+        expect(service.destroy).toHaveBeenCalledTimes(1);
+        expect(useSessionStore.getState().runtimeState).toBe('STOPPING');
+        expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: brief.briefId });
+
+        releaseDestroy();
+        await completion;
+
+        expect(useSessionStore.getState().runtimeState).toBe('READY');
+        expect(useSessionStore.getState().completedObjectiveBrief).toMatchObject({ briefId: brief.briefId });
+        expect(useSessionStore.getState().activeObjectiveBrief).toBeNull();
+    });
+
+    describe('#1433 RETURN `5636795476` item 1 — an attribution-pending clean stop keeps Focus Points until recovery is terminal', () => {
+        // A clean Focus Points stop whose attestation fails leaves the take locked for Retry Save / Discard.
+        // Retiring the brief at READY anyway told Navigation the take was Open Mic while the lock still said
+        // the take was unresolved — the frozen acceptance criterion says the brief and the pending switch
+        // notice stay until recovery is terminal. The controls prove the owner still retires it then.
+        const brief = { projectId: 'project-1433-r1', briefId: 'brief-1433-r1', points: ['Name the price'], topic: 'Pitch' };
+        const META_R1 = { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' };
+        const liveBriefId = () => useSessionStore.getState().activeObjectiveBrief?.briefId ?? null;
+        const recovery = () => controller as unknown as {
+            pendingAttributionRetry: unknown;
+            retryRecordingSave: () => Promise<boolean>;
+            discardUnresolvedRecording: () => Promise<{ outcome: string }>;
+        };
+
+        const stopWithFailedAttribution = async (sessionId: string) => {
+            useSessionStore.getState().setActiveObjectiveBrief(brief);
+            finalizeObjectiveSessionOnSave.mockResolvedValue({
+                ok: true, registered: true, objectiveSessionId: 'objective-1433-r1', evidenceCount: 1, coverage: [],
+            });
+            attestInvoke.mockReset();
+            attestInvoke.mockResolvedValue({ data: null, error: { message: 'producer down' } });
+            await driveStopWithService(mkService('private', META_R1), sessionId, 'private', { mode: 'focus_points', brief });
+        };
+
+        it('CASUALTY: attestation fails on a clean stop, and READY keeps the brief while the lock holds for recovery', async () => {
+            await stopWithFailedAttribution('sess-1433-r1-stop');
+            expect(useSessionStore.getState().runtimeState).toBe('READY');
+            expect(recovery().pendingAttributionRetry, 'recovery is still pending').not.toBeNull();
+            expect(useSessionStore.getState().engineSelectionLocked, 'the lock is held for recovery').toBe(true);
+            expect(liveBriefId(), 'Focus Points stays bound while recovery is pending').toBe(brief.briefId);
+        });
+
+        it('CONTROL: a terminal Retry Save then retires the brief and releases the lock', async () => {
+            await stopWithFailedAttribution('sess-1433-r1-retry');
+            attestInvoke.mockReset();
+            attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
+            await expect(recovery().retryRecordingSave()).resolves.toBe(true);
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(false);
+            expect(liveBriefId()).toBeNull();
+        });
+
+        it('CONTROL: a confirmed Discard then retires the brief and releases the lock', async () => {
+            await stopWithFailedAttribution('sess-1433-r1-discard');
+            await expect(recovery().discardUnresolvedRecording()).resolves.toMatchObject({ outcome: 'discarded' });
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(false);
+            expect(liveBriefId()).toBeNull();
+        });
     });
 
     it('#1354 ACCEPTANCE 1: three sequential sessions each block Start until their OWN evidence is terminal', async () => {
