@@ -37,6 +37,14 @@ vi.mock('../../lib/storage', () => ({
     // return throws there — harness noise that masqueraded as a product failure.
     completeSession: vi.fn().mockResolvedValue({}),
 }));
+/**
+ * #1433 Codex P1 `3990876675` — the runtime-candidate take gate, controllable per case. Every case runs with the
+ * module's own "no comparison configured" default unless it deliberately refuses a resumed start.
+ */
+const candidateGate = vi.hoisted(() => ({ current: { enabled: false, allowed: true } as Record<string, unknown> }));
+vi.mock('@/services/transcription/runtimeCandidateTakeGate', () => ({
+    evaluateRuntimeCandidateTakeGate: () => candidateGate.current,
+}));
 vi.mock('../../lib/supabaseClient', () => ({
     getSupabaseClient: vi.fn(() => ({
         auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' } } } }) },
@@ -406,6 +414,39 @@ describe('#1415 — one click, one recording', () => {
 
             expect(useSessionStore.getState().engineSelectionLocked, 'published in the same turn as the refusal').toBe(false);
             await settle();
+        });
+
+        it('releases the lock when the runtime-candidate gate refuses the resumed start (Codex P1 `3990876675`)', async () => {
+            // The model-comparison identity was valid at the click and became invalid during preparation. The gate
+            // threw on the resumed start, which `transition()` fires without awaiting, so the throw reached nobody:
+            // the waiting click never settled and the lock its Start intent published was never released.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            let lockedAtRejection: boolean | null = null;
+            started.then(() => outcome.push('resolved'), (e: Error) => {
+                lockedAtRejection = useSessionStore.getState().engineSelectionLocked;
+                outcome.push(`rejected:${e.message}`);
+            });
+            await settle();
+            const priv = controller as unknown as { engineSelectionIntentLocked: boolean };
+            expect(useSessionStore.getState().engineSelectionLocked, 'precondition: the lock was published').toBe(true);
+
+            try {
+                candidateGate.current = { enabled: true, allowed: false, refusal: 'observed_mismatch' };
+                engine.downloadEnabled = true;
+                await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+                await settle();
+            } finally {
+                candidateGate.current = { enabled: false, allowed: true };
+            }
+
+            expect(outcome, 'the original click is rejected by the candidate gate')
+                .toEqual(['rejected:RUNTIME_CANDIDATE_IDENTITY_MISMATCH:observed_mismatch']);
+            expect(lockedAtRejection, 'published lock already released when the caller is told').toBe(false);
+            expect(pendingRecordingIntent(), 'no take is pending after the refusal').toBeNull();
+            expect(priv.engineSelectionIntentLocked, 'controller lock released').toBe(false);
+            expect(useSessionStore.getState().engineSelectionLocked, 'published lock released').toBe(false);
         });
 
         it('releases the lock when a live finalization fence refuses the resumed start', async () => {

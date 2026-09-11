@@ -3590,7 +3590,16 @@ export class SpeechRuntimeController {
                 });
                 const message = 'Model comparison identity could not be verified. Switch the model again before recording.';
                 useSessionStore.getState().setSTTStatus({ type: 'error', message });
-                throw new Error(`RUNTIME_CANDIDATE_IDENTITY_MISMATCH:${candidateGate.refusal}`);
+                const refusal = new Error(`RUNTIME_CANDIDATE_IDENTITY_MISMATCH:${candidateGate.refusal}`);
+                // #1433 Codex P1 `3990876675` — a RESUMED start is fired unawaited by `transition()`, so a throw here
+                // reaches nobody. Settle the click that is still waiting and release the lock its Start intent
+                // published, exactly as the finalization fence above does.
+                if (resumedFromPreparation) {
+                    carriedSettlement?.reject(refusal);
+                    this.releaseRefusedStartLock();
+                    return;
+                }
+                throw refusal;
             }
         }
 
