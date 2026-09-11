@@ -43,13 +43,19 @@ const livePull = (threads, over = {}) => ({
   ...over,
 });
 
-const thread = (isResolved, body) => ({
+/**
+ * #1430 fix-forward `3991388525`: a RESOLVED same-head P0/P1 now blocks until a later clean re-review. The
+ * resolved threads these cases use as "live state is clean" are therefore findings made at an EARLIER head,
+ * which is what a resolved blocker from a previous round really is. The same-head case has its own cases.
+ */
+const PRIOR_HEAD = 'a'.repeat(40);
+const thread = (isResolved, body, sha = isResolved ? PRIOR_HEAD : HEAD) => ({
   isResolved,
   comments: {
     nodes: [{
-      author: bot, body,
-      commit: { oid: HEAD }, originalCommit: { oid: HEAD },
-      pullRequestReview: { commit: { oid: HEAD } },
+      author: bot, body, createdAt: '2026-09-10T20:00:00Z',
+      commit: { oid: sha }, originalCommit: { oid: sha },
+      pullRequestReview: { state: 'COMMENTED', commit: { oid: sha } },
     }],
     pageInfo: { hasPreviousPage: false },
   },
@@ -375,6 +381,40 @@ describe('#1430 P1 `3988517243` — the merge proceeds only where GitHub itself 
     });
     expect(readBaseProtection, 'enforcement was read for the authorized repository').toHaveBeenCalledWith({
       repository: REPOSITORY, token: 't',
+    });
+    expect(mergeExecutor).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ merged: true, mergeInvoked: true, holds: [] });
+  });
+});
+
+describe('#1430 fix-forward `3991388525` — a resolved same-head blocker does not merge without a clean re-review', () => {
+  const sameHeadResolved = () => [thread(true, 'P1 Badge — resolved without re-review', HEAD)];
+  /** A clean Codex result for this head, posted after the branch reached it, whose footer GitHub resolves to it. */
+  const cleanReReview = {
+    comments: {
+      nodes: [{
+        id: 'clean', author: bot, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:00Z',
+        body: `Codex Review: Didn't find any major issues. Swish!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
+      }],
+      pageInfo: { hasPreviousPage: false },
+    },
+    headRefMove: { after: HEAD, timestamp: '2026-09-10T19:59:00Z' },
+    resolvedAbbreviations: { [HEAD.slice(0, 10)]: HEAD },
+  };
+
+  it('CASUALTY: resolved at the authorized head and never re-reviewed — the executor is not called', async () => {
+    const { outcome, mergeExecutor } = await runGate({ threads: sameHeadResolved(), priorReceipt: receiptAgedMinutes(1) });
+    expect(mergeExecutor).not.toHaveBeenCalled();
+    // The finding is counted AND the live receipt's own verdict refuses, for the same single reason.
+    expect(outcome.holds).toEqual([
+      `${PRE_MERGE_HOLD.LIVE_FINDINGS}:1`,
+      `${PRE_MERGE_HOLD.LIVE_NOT_QUALIFIED}:open_findings:1`,
+    ]);
+  });
+
+  it('CONTROL: the same thread followed by a clean re-review bound to this head merges', async () => {
+    const { outcome, mergeExecutor } = await runGate({
+      threads: sameHeadResolved(), priorReceipt: receiptAgedMinutes(1), live: cleanReReview,
     });
     expect(mergeExecutor).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({ merged: true, mergeInvoked: true, holds: [] });

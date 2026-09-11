@@ -880,7 +880,7 @@ describe('Q-08 software-quality evidence completeness', () => {
 describe('#1430 P1 — reopened threads and push qualification', () => {
   const reviewedSha = 'a'.repeat(40);
   const bot = { login: 'chatgpt-codex-connector' };
-  const pullWith = (threads) => ({
+  const pullWith = (threads, extra = {}) => ({
     number: 1,
     headRefOid: reviewedSha,
     baseRefName: 'main',
@@ -890,11 +890,12 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
       pageInfo: { hasPreviousPage: false },
     },
     reviewThreads: { nodes: threads, pageInfo: { hasNextPage: false } },
+    ...extra,
   });
   const thread = (isResolved, body) => ({
     isResolved,
     comments: {
-      nodes: [{ author: bot, body, commit: { oid: reviewedSha }, originalCommit: { oid: reviewedSha }, pullRequestReview: { commit: { oid: reviewedSha } } }],
+      nodes: [{ author: bot, body, createdAt: '2026-09-10T00:00:00Z', commit: { oid: reviewedSha }, originalCommit: { oid: reviewedSha }, pullRequestReview: { state: 'COMMENTED', commit: { oid: reviewedSha } } }],
       pageInfo: { hasPreviousPage: false },
     },
   });
@@ -918,13 +919,25 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
     expect(receipt.qualified, 'a reopened P1 thread cannot ride a qualifying receipt').toBe(false);
   });
 
-  it('CONTROL: the same head with that thread RESOLVED does qualify', () => {
-    // Without this the case above would pass against a builder that refuses everything.
+  it('CONTROL: the same head with that thread RESOLVED and a LATER clean re-review does qualify', () => {
+    // Without this the case above would pass against a builder that refuses everything. Since the #1430
+    // fix-forward (`3991388525`) resolution alone no longer clears a same-head P0/P1: a later clean Codex
+    // result bound to this head does. Resolution without it is a casualty in postMergeCodexFindings.test.js.
     const receipt = buildReviewReceipt({
-      pullRequest: pullWith([thread(true, 'P1 Badge — addressed and resolved')]),
+      pullRequest: pullWith([thread(true, 'P1 Badge — addressed and resolved')], {
+        comments: {
+          nodes: [{
+            id: 'clean', author: bot, createdAt: '2026-09-10T01:00:00Z',
+            body: `Codex Review: Didn't find any major issues. Nice work!\n\n**Reviewed commit:** \`${reviewedSha.slice(0, 10)}\``,
+          }],
+          pageInfo: { hasPreviousPage: false },
+        },
+        headRefMove: { after: reviewedSha, timestamp: '2026-09-09T23:00:00Z' },
+        resolvedAbbreviations: { [reviewedSha.slice(0, 10)]: reviewedSha },
+      }),
       expectedHeadSha: reviewedSha,
     });
-    expect(receipt.qualified, 'resolution is what clears it').toBe(true);
+    expect(receipt.qualified, 'a later clean re-review is what clears it').toBe(true);
   });
 
   it('CASUALTY: a STALE receipt does not qualify, however clean it is', () => {
@@ -1055,6 +1068,10 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     reviews: { nodes: reviews, pageInfo: { hasPreviousPage: false } },
     reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
     comments: { nodes: comments, pageInfo: { hasPreviousPage: commentsTruncated } },
+    // #1430 fix-forward `3991388531`: the branch reached this head before the results below, and GitHub
+    // resolves the footer to it. The unbound cases live in postMergeCodexFindings.test.js.
+    headRefMove: { after: head, timestamp: '2026-09-10T23:00:00Z' },
+    resolvedAbbreviations: { [head.slice(0, 10)]: head },
   });
 
   it('CASUALTY: a trusted clean comment naming the EXACT head qualifies', () => {
@@ -1206,6 +1223,8 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
   const base = (comments) => ({
     number: 1430,
     headRefOid: head,
+    headRefName: 'chore/final-release-qualification',
+    headRepository: { nameWithOwner: 'relativityE/speaksharp' },
     baseRefName: 'main',
     baseRefOid: 'b'.repeat(40),
     baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
@@ -1219,7 +1238,15 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
 
   function serve(pages, failAt = -1) {
     let call = 0;
-    vi.stubGlobal('fetch', vi.fn(async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      // #1430 fix-forward `3991388531`: the branch move and footer resolution that bind a clean result.
+      // Answered without consuming a comment page, so `failAt` still indexes page reads only.
+      if (String(url).includes('/activity?')) {
+        return { ok: true, status: 200, json: async () => ([{ activity_type: 'push', after: head, timestamp: '2026-09-10T09:00:00Z' }]) };
+      }
+      if (JSON.parse(init?.body ?? '{}').query?.includes('object(expression:$expression)')) {
+        return { ok: true, status: 200, json: async () => ({ data: { repository: { object: { oid: head } } } }) };
+      }
       const index = call++;
       if (index === failAt) return { ok: false, status: 502, json: async () => ({}) };
       const comments = pages[Math.min(index, pages.length - 1)];
@@ -1237,7 +1264,9 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
       { nodes: [clean], pageInfo: { hasPreviousPage: false, startCursor: 'cursor-0' } },
     ]);
     const pullRequest = await readPullRequest({ repository: 'relativityE/speaksharp', number: 1430, token: 'token' });
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    const commentPageReads = globalThis.fetch.mock.calls
+      .filter(([, init]) => JSON.parse(init?.body ?? '{}').query?.includes('comments(last:100,before:$commentsBefore)'));
+    expect(commentPageReads).toHaveLength(2);
     expect(pullRequest.comments.nodes.map(({ id }) => id)).toEqual(['old-clean', 'newer']);
     expect(buildReviewReceipt({ pullRequest, expectedHeadSha: head }).qualified).toBe(true);
   });

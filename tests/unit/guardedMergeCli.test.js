@@ -59,7 +59,7 @@ function recorderGh(exitCode = 0) {
  * the network boundary rather than by swapping the reader — which keeps the CLI under test whole.
  */
 function fakeGraphql({
-  threads, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false,
+  threads, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false, laterCleanResult = false,
   liveBase = BASE, liveRepository = REPOSITORY,
   // `main`'s classic branch protection as the REST API would return it to the operator's token.
   protection = { status: 200, strict: true, enforceAdmins: true },
@@ -83,8 +83,9 @@ function fakeGraphql({
     reviewThreads: { nodes: threads, pageInfo: { hasNextPage: truncatedThreads } },
   };
   // Codex's clean result lives ONLY in the PR's issue comments, with the reviewed head in its footer.
+  // `laterCleanResult` keeps the review object AND adds the clean result after it: a later clean re-review.
   const comments = {
-    nodes: cleanResultOnly ? [{
+    nodes: (cleanResultOnly || laterCleanResult) ? [{
       author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:00Z',
       body: `Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
     }] : [],
@@ -113,8 +114,25 @@ globalThis.fetch = async (url, init) => {
       }),
     };
   }
-  const { query = '' } = JSON.parse(init?.body ?? '{}');
+  // #1430 fix-forward \`3991388531\` — the PR branch's last move, as the repository activity log reports it.
+  if (String(url).includes('/activity?')) {
+    return {
+      ok: true, status: 200,
+      json: async () => ([{ activity_type: 'push', after: ${JSON.stringify(headRefOid)}, timestamp: '2026-09-10T19:59:00Z' }]),
+    };
+  }
+  const { query = '', variables = {} } = JSON.parse(init?.body ?? '{}');
+  // GitHub resolves an abbreviated SHA to the one commit it names, or to nothing.
+  if (query.includes('object(expression:$expression)')) {
+    const live = ${JSON.stringify(headRefOid)};
+    const object = live.startsWith(variables.expression) ? { oid: live } : null;
+    return { ok: true, status: 200, json: async () => ({ data: { repository: { object } } }) };
+  }
   const payload = JSON.parse(body);
+  if (query.includes('headRepository{nameWithOwner}')) {
+    payload.data.repository.pullRequest.headRefName = 'chore/final-release-qualification';
+    payload.data.repository.pullRequest.headRepository = { nameWithOwner: ${JSON.stringify(REPOSITORY)} };
+  }
   if (query.includes('comments(last:100,before:$commentsBefore)')) {
     payload.data.repository.pullRequest.comments = JSON.parse(comments);
   }
@@ -129,13 +147,19 @@ globalThis.fetch = async (url, init) => {
   return loader;
 }
 
-const thread = (isResolved, body) => ({
+/**
+ * #1430 fix-forward `3991388525`: a RESOLVED same-head P0/P1 now blocks until a later clean re-review, so the
+ * resolved threads these cases treat as clean live state are findings from an EARLIER head. Codex cited the
+ * positive control that merged over a resolved same-head P1; that case is now a casualty of its own.
+ */
+const PRIOR_HEAD = 'a'.repeat(40);
+const thread = (isResolved, body, sha = isResolved ? PRIOR_HEAD : HEAD) => ({
   isResolved,
   comments: {
     nodes: [{
-      author: { login: bot }, body,
-      commit: { oid: HEAD }, originalCommit: { oid: HEAD },
-      pullRequestReview: { commit: { oid: HEAD } },
+      author: { login: bot }, body, createdAt: '2026-09-10T20:00:00Z',
+      commit: { oid: sha }, originalCommit: { oid: sha },
+      pullRequestReview: { state: 'COMMENTED', commit: { oid: sha } },
     }],
     pageInfo: { hasPreviousPage: false },
   },
@@ -160,11 +184,12 @@ const receipt = (minutesOld, extra = {}, omit = []) => {
 
 function runCli({
   threads, receiptPath, sha = HEAD, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false,
+  laterCleanResult = false,
   repository = REPOSITORY, baseSha = BASE, liveBase = BASE, liveRepository = REPOSITORY,
   protection, ghExitCode = 0,
 }) {
   const stub = fakeGraphql({
-    threads, headRefOid, truncatedThreads, cleanResultOnly, liveBase, liveRepository, protection,
+    threads, headRefOid, truncatedThreads, cleanResultOnly, laterCleanResult, liveBase, liveRepository, protection,
   });
   // `null` omits the flag entirely, so a case can model an operator who never supplied it.
   const run = spawnSync(process.execPath, ['--import', stub, CLI,
@@ -571,6 +596,29 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
     expect(run.status, 'and the command failed').not.toBe(0);
     expect(run.stdout).not.toContain('MERGED');
     expect(run.stderr).toContain('pre_merge_merge_rejected_by_github');
+  });
+
+  it('CASUALTY (#1430 fix-forward `3991388525`): a RESOLVED same-head P1 with no later clean re-review never invokes gh', () => {
+    /**
+     * Codex security P1 `3991388525`. The final positive control below used to merge over exactly this: a
+     * `P1 Badge` thread at the authorized head, resolved by anyone who can resolve threads, with nobody having
+     * reviewed the fix. Resolution is not re-review, so the live read counts it and holds.
+     */
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved without re-review', HEAD)], receiptPath: receipt(1),
+    });
+    expect(mergeAttempted, 'a resolved same-head blocker must not merge').toBe(false);
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain('pre_merge_live_release_findings:1');
+  });
+
+  it('CONTROL (#1430 fix-forward `3991388525`): that resolved P1 followed by a clean re-review of this head DOES invoke gh', () => {
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — fixed and re-reviewed', HEAD)], receiptPath: receipt(1), laterCleanResult: true,
+    });
+    expect(run.stderr, 'a later bound clean result clears the resolved finding').not.toContain('MERGE HELD');
+    expect(mergeAttempted).toBe(true);
+    expect(run.status).toBe(0);
   });
 
   it('POSITIVE CONTROL: a clean-result COMMENT with no review object DOES invoke gh', () => {
