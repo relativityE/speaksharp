@@ -59,7 +59,7 @@ function recorderGh(exitCode = 0) {
  * the network boundary rather than by swapping the reader — which keeps the CLI under test whole.
  */
 function fakeGraphql({
-  threads, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false, laterCleanResult = false,
+  threads, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false,
   liveBase = BASE, liveRepository = REPOSITORY,
   // `main`'s classic branch protection as the REST API would return it to the operator's token.
   protection = { status: 200, strict: true, enforceAdmins: true },
@@ -83,12 +83,17 @@ function fakeGraphql({
     reviewThreads: { nodes: threads, pageInfo: { hasNextPage: truncatedThreads } },
   };
   // Codex's clean result lives ONLY in the PR's issue comments, with the reviewed head in its footer.
-  // `laterCleanResult` keeps the review object AND adds the clean result after it: a later clean re-review.
+  // #1438 PM DECISION `5639300027`: exact-head completion is Codex's review-summary system metadata, never the
+  // clean comment's text, so `cleanResultOnly` carries both, as Codex posts them.
   const comments = {
-    nodes: (cleanResultOnly || laterCleanResult) ? [{
+    nodes: cleanResultOnly ? [{
       author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:00Z',
-      // #1438 PM RETURN `5638958869`: a clean comment is authority only when it names the FULL head.
-      body: `Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** \`${HEAD}\``,
+      body: `Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
+    }, {
+      id: 'summary', author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:01Z',
+      body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 ${JSON.stringify({
+        blockingSeverityThreshold: 'P0', headSha: HEAD, pullRequestNumber: 1430, repository: REPOSITORY, status: 'completed',
+      })} -->\n## Codex Review Summary`,
     }] : [],
     pageInfo: { hasPreviousPage: false },
   };
@@ -132,18 +137,19 @@ globalThis.fetch = async (url, init) => {
 }
 
 /**
- * #1430 fix-forward `3991388525`: a RESOLVED same-head P0/P1 now blocks until a later clean re-review, so the
+ * #1430 fix-forward `3991388525`: a RESOLVED same-head P0/P1 now blocks unless its review was dismissed with authority (#1438 PM
+ * DECISION `5639300027`), so the
  * resolved threads these cases treat as clean live state are findings from an EARLIER head. Codex cited the
  * positive control that merged over a resolved same-head P1; that case is now a casualty of its own.
  */
 const PRIOR_HEAD = 'a'.repeat(40);
-const thread = (isResolved, body, sha = isResolved ? PRIOR_HEAD : HEAD) => ({
+const thread = (isResolved, body, sha = isResolved ? PRIOR_HEAD : HEAD, reviewState = 'COMMENTED') => ({
   isResolved,
   comments: {
     nodes: [{
       author: { login: bot }, body, createdAt: '2026-09-10T20:00:00Z',
       commit: { oid: sha }, originalCommit: { oid: sha },
-      pullRequestReview: { state: 'COMMENTED', commit: { oid: sha } },
+      pullRequestReview: { state: reviewState, commit: { oid: sha } },
     }],
     pageInfo: { hasPreviousPage: false },
   },
@@ -168,12 +174,11 @@ const receipt = (minutesOld, extra = {}, omit = []) => {
 
 function runCli({
   threads, receiptPath, sha = HEAD, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false,
-  laterCleanResult = false,
   repository = REPOSITORY, baseSha = BASE, liveBase = BASE, liveRepository = REPOSITORY,
   protection, ghExitCode = 0,
 }) {
   const stub = fakeGraphql({
-    threads, headRefOid, truncatedThreads, cleanResultOnly, laterCleanResult, liveBase, liveRepository, protection,
+    threads, headRefOid, truncatedThreads, cleanResultOnly, liveBase, liveRepository, protection,
   });
   // `null` omits the flag entirely, so a case can model an operator who never supplied it.
   const run = spawnSync(process.execPath, ['--import', stub, CLI,
@@ -596,16 +601,16 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
     expect(run.stderr).toContain('pre_merge_live_release_findings:1');
   });
 
-  it('CONTROL (#1430 fix-forward `3991388525`): that resolved P1 followed by a clean re-review of this head DOES invoke gh', () => {
+  it('CONTROL (#1430 fix-forward `3991388525`): that resolved P1 inside an authorized DISMISSED review DOES invoke gh', () => {
     const { run, mergeAttempted } = runCli({
-      threads: [thread(true, 'P1 Badge — fixed and re-reviewed', HEAD)], receiptPath: receipt(1), laterCleanResult: true,
+      threads: [thread(true, 'P1 Badge — dismissed with authority', HEAD, 'DISMISSED')], receiptPath: receipt(1),
     });
-    expect(run.stderr, 'a later bound clean result clears the resolved finding').not.toContain('MERGE HELD');
+    expect(run.stderr, 'an authorized dismissal clears the resolved finding').not.toContain('MERGE HELD');
     expect(mergeAttempted).toBe(true);
     expect(run.status).toBe(0);
   });
 
-  it('POSITIVE CONTROL: a clean-result COMMENT with no review object DOES invoke gh', () => {
+  it('POSITIVE CONTROL: a Codex clean result with summary metadata and no review object DOES invoke gh', () => {
     /**
      * Codex P1 `3985755149` at `c33644cd3e`. When Codex finds nothing it posts an issue comment and
      * creates NO review object — the normal clean outcome. The live query did not select `comments`,

@@ -44,7 +44,8 @@ const livePull = (threads, over = {}) => ({
 });
 
 /**
- * #1430 fix-forward `3991388525`: a RESOLVED same-head P0/P1 now blocks until a later clean re-review. The
+ * #1430 fix-forward `3991388525`: a RESOLVED same-head P0/P1 now blocks unless its review was dismissed with authority (#1438 PM
+ * DECISION `5639300027`). The
  * resolved threads these cases use as "live state is clean" are therefore findings made at an EARLIER head,
  * which is what a resolved blocker from a previous round really is. The same-head case has its own cases.
  */
@@ -387,20 +388,14 @@ describe('#1430 P1 `3988517243` — the merge proceeds only where GitHub itself 
   });
 });
 
-describe('#1430 fix-forward `3991388525` — a resolved same-head blocker does not merge without a clean re-review', () => {
-  const sameHeadResolved = () => [thread(true, 'P1 Badge — resolved without re-review', HEAD)];
-  /** A clean Codex result posted after the finding, naming this head in full (#1438 PM RETURN `5638958869`). */
-  const cleanReReview = {
-    comments: {
-      nodes: [{
-        id: 'clean', author: bot, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:00Z',
-        body: `Codex Review: Didn't find any major issues. Swish!\n\n**Reviewed commit:** \`${HEAD}\``,
-      }],
-      pageInfo: { hasPreviousPage: false },
-    },
+describe('#1430 fix-forward `3991388525` — a resolved same-head blocker does not merge without an authorized dismissal', () => {
+  const sameHeadResolved = (reviewState = 'COMMENTED') => {
+    const t = thread(true, 'P1 Badge — resolved without re-review', HEAD);
+    t.comments.nodes[0].pullRequestReview.state = reviewState;
+    return [t];
   };
 
-  it('CASUALTY: resolved at the authorized head and never re-reviewed — the executor is not called', async () => {
+  it('CASUALTY: resolved at the authorized head and never dismissed — the executor is not called', async () => {
     const { outcome, mergeExecutor } = await runGate({ threads: sameHeadResolved(), priorReceipt: receiptAgedMinutes(1) });
     expect(mergeExecutor).not.toHaveBeenCalled();
     // The finding is counted AND the live receipt's own verdict refuses, for the same single reason.
@@ -410,9 +405,9 @@ describe('#1430 fix-forward `3991388525` — a resolved same-head blocker does n
     ]);
   });
 
-  it('CONTROL: the same thread followed by a clean re-review bound to this head merges', async () => {
+  it('CONTROL: the same finding inside an authorized DISMISSED review merges (#1438 PM DECISION `5639300027`)', async () => {
     const { outcome, mergeExecutor } = await runGate({
-      threads: sameHeadResolved(), priorReceipt: receiptAgedMinutes(1), live: cleanReReview,
+      threads: sameHeadResolved('DISMISSED'), priorReceipt: receiptAgedMinutes(1),
     });
     expect(mergeExecutor).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({ merged: true, mergeInvoked: true, holds: [] });

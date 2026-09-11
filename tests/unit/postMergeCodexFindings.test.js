@@ -1,47 +1,65 @@
 /**
- * #1430 fix-forward — the three Codex P1s that landed on #1430 AFTER it merged, and #1438's own follow-up.
- *
- * Marking #1430 ready triggered Codex's automatic code review and security review against the merged head.
- * Each group below reproduces one finding, then pins the behaviour that must survive the fix with a
- * positive control.
+ * #1430 fix-forward — the three Codex P1s that landed on #1430 AFTER it merged, and #1438's follow-ups.
  *
  *   `3991325303` — executable control files were not "substantive", so a control-only PR could never qualify.
  *   `3991388525` — a RESOLVED same-head P0/P1 stopped counting, so resolving a blocker bypassed re-review.
- *   `3991388531` — a clean result bound to the head by an abbreviated SHA prefix alone, so a head ground to
- *                  share that prefix reused an older clean result.
- *   `3992215898` — (#1438, PM RETURN `5638958869`) the first binding trusted GitHub's CURRENT abbreviation
- *                  resolution plus branch-move chronology, both of which a stale result can satisfy. Only an
- *                  immutable full identity is authority now.
- *   `3992367735` — (#1438) that identity must be the reviewed-commit MARKER; a full SHA in prose is not.
+ *   `3991388531` — a clean result bound to the head by an abbreviated SHA prefix.
+ *   `3992215898`, `3992367735`, `3992467525` — every later binding read generated comment TEXT (abbreviation
+ *                  resolution, any full SHA, the designated field), and the review requester can steer text.
+ *
+ * PM DECISION `5639300027` (bounded option C): exact-head Codex completion binds only through a review
+ * object's full `commit.oid` or Codex's structured review-summary system metadata. The metadata establishes
+ * completion only; it never clears a P0/P1.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { evaluateReviewQualification, isSubstantiveImplementationFile } from '../../scripts/review-qualification.mjs';
-import {
-  buildReviewReceipt, PULL_REQUEST_REVIEW_QUERY, readPullRequest,
-} from '../../scripts/collect-review-qualification.mjs';
+import { buildReviewReceipt, PULL_REQUEST_REVIEW_QUERY, readPullRequest } from '../../scripts/collect-review-qualification.mjs';
 
 /** The reviewed head, and a different commit ground to share its 10-character footer. */
 const HEAD = `0cb6b1ebaa${'b'.repeat(30)}`;
 const COLLIDER = `0cb6b1ebaa${'c'.repeat(30)}`;
 const FOOTER = HEAD.slice(0, 10);
 const OLDER_HEAD = 'e'.repeat(40);
+const REPO = 'relativityE/speaksharp';
+const PR = 1500;
 const bot = { login: 'chatgpt-codex-connector' };
+const human = { login: 'relativityE' };
 const at = (minute) => `2026-09-11T16:${String(minute).padStart(2, '0')}:00Z`;
 
-/** Codex's clean result. `footer` is what the comment names: the full SHA by default, or Codex's usual abbreviation. */
-const cleanResult = (sha, createdAt, { footer = sha } = {}) => ({
-  id: `clean-${sha.slice(0, 12)}-${createdAt}`, author: bot, authorAssociation: 'NONE', createdAt,
+/** Codex's clean result comment. Its text is never identity; `footer` is what its marker prints. */
+const cleanResult = (footer, createdAt = at(25), author = bot) => ({
+  id: `clean-${footer}-${createdAt}`, author, authorAssociation: 'NONE', createdAt,
   body: `Codex Review: Didn't find any major issues. Swish!\n\n**Reviewed commit:** \`${footer}\``,
 });
-const codexReview = (sha, submittedAt, state = 'COMMENTED') => ({
-  author: bot, state, commit: { oid: sha }, submittedAt,
-  body: '### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.',
+
+/** Codex's review-summary comment, carrying the structured system metadata option C binds through. */
+const summaryBody = ({ meta = {}, raw = null, running = false, marker = true, blocks = 1 } = {}) => {
+  const json = raw ?? JSON.stringify({
+    blockingSeverityThreshold: 'P0', headSha: HEAD, mergeGateEnabled: false, pullRequestNumber: PR, repository: REPO,
+    status: 'completed', ...meta,
+  });
+  const block = `<!-- codex-security-review:v1 ${json} -->`;
+  return [
+    marker ? '<!-- codex-pull-request-review-summary -->' : '',
+    ...Array.from({ length: blocks }, () => block),
+    '## Codex Review Summary',
+    `| 📝 **Code Review** | ${running ? '🔄 **Running**' : '✅ **Completed**'} | \`${HEAD.slice(0, 7)}\` | Manual request |`,
+    '| 🔒 **Security Review** | ✅ **Completed** | `0cb6b1e` | PR opened |',
+  ].join('\n');
+};
+const summary = (options = {}, author = bot) => ({
+  id: `summary-${JSON.stringify(options)}-${author.login}`, author, authorAssociation: 'NONE', createdAt: at(26),
+  body: summaryBody(options),
 });
-const findingThread = ({ sha = HEAD, createdAt, isResolved, reviewState = 'COMMENTED' }) => ({
+
+const codexReview = (sha, submittedAt, { state = 'COMMENTED', body = '### 💡 Codex Review\n\nHere are some automated review suggestions.' } = {}) => ({
+  author: bot, state, commit: { oid: sha }, submittedAt, body,
+});
+const findingThread = ({ sha = HEAD, isResolved, reviewState = 'COMMENTED' }) => ({
   isResolved,
   comments: {
     nodes: [{
-      author: bot, createdAt, body: '**P1 Badge** A release finding',
+      author: bot, body: '**P1 Badge** A release finding',
       commit: { oid: sha }, originalCommit: { oid: sha },
       pullRequestReview: { state: reviewState, commit: { oid: sha } },
     }],
@@ -49,20 +67,19 @@ const findingThread = ({ sha = HEAD, createdAt, isResolved, reviewState = 'COMME
   },
 });
 
-/** A pull request as `readPullRequest()` returns it. `extra` adds fields the collector must NOT consult. */
 const pullRequest = ({
-  head = HEAD, reviews = [], threads = [], comments = [], files = ['scripts/review-qualification.mjs'], extra = {},
+  head = HEAD, reviews = [], threads = [], comments = [], commentsTruncated = false,
+  files = ['scripts/review-qualification.mjs'],
 } = {}) => ({
-  number: 1500,
+  number: PR,
   headRefOid: head,
   baseRefName: 'main',
   baseRefOid: 'd'.repeat(40),
-  baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
+  baseRepository: { nameWithOwner: REPO },
   files: { nodes: files.map((path) => ({ path })), pageInfo: { hasNextPage: false } },
   reviews: { nodes: reviews, pageInfo: { hasPreviousPage: false } },
   reviewThreads: { nodes: threads, pageInfo: { hasNextPage: false } },
-  comments: { nodes: comments, pageInfo: { hasPreviousPage: false } },
-  ...extra,
+  comments: { nodes: comments, pageInfo: { hasPreviousPage: commentsTruncated } },
 });
 const receiptFor = (pr) => buildReviewReceipt({ pullRequest: pr, expectedHeadSha: pr.headRefOid });
 
@@ -99,198 +116,173 @@ describe('#1430 fix-forward `3991325303` — executable control files are substa
   });
 });
 
-describe('#1430 fix-forward `3991388525` — resolving a same-head blocker does not clear it without a clean re-review', () => {
-  it('CASUALTY: a RESOLVED same-head Codex P1 with no later clean re-review still blocks', () => {
+describe('#1430 fix-forward `3991388525` — a resolved same-head blocker clears only through an authorized dismissal', () => {
+  it('CASUALTY: a RESOLVED same-head Codex P1 blocks, even beside exact completed summary metadata', () => {
     const receipt = receiptFor(pullRequest({
-      reviews: [codexReview(HEAD, at(5))],
-      threads: [findingThread({ createdAt: at(5), isResolved: true })],
+      threads: [findingThread({ isResolved: true })],
+      comments: [summary()],
     }));
     expect(receipt.findingCount).toBe(1);
     expect(receipt.qualified).toBe(false);
   });
 
-  it('CASUALTY: a clean result posted BEFORE the finding does not clear it', () => {
-    const receipt = receiptFor(pullRequest({
-      reviews: [codexReview(HEAD, at(5))],
-      threads: [findingThread({ createdAt: at(5), isResolved: true })],
-      comments: [cleanResult(HEAD, at(3))],
-    }));
-    expect(receipt.findingCount).toBe(1);
-    expect(receipt.qualified).toBe(false);
-  });
-
-  it('CASUALTY: a resolved finding whose time is unknown is not assumed older than the clean result', () => {
-    const receipt = receiptFor(pullRequest({
-      reviews: [codexReview(HEAD, at(5))],
-      threads: [findingThread({ createdAt: undefined, isResolved: true })],
-      comments: [cleanResult(HEAD, at(9))],
-    }));
-    expect(receipt.findingCount).toBe(1);
-  });
-
-  it('CASUALTY: a later clean result that names the head only by abbreviation does not clear it', () => {
-    const receipt = receiptFor(pullRequest({
-      reviews: [codexReview(HEAD, at(5))],
-      threads: [findingThread({ createdAt: at(5), isResolved: true })],
-      comments: [cleanResult(HEAD, at(9), { footer: FOOTER })],
-    }));
-    expect(receipt.findingCount).toBe(1);
-  });
-
-  it('CONTROL: a LATER clean Codex result bound to the same head clears the resolved finding', () => {
-    const receipt = receiptFor(pullRequest({
-      reviews: [codexReview(HEAD, at(5))],
-      threads: [findingThread({ createdAt: at(5), isResolved: true })],
-      comments: [cleanResult(HEAD, at(9))],
-    }));
-    expect(receipt.findingCount).toBe(0);
-    expect(receipt.qualified).toBe(true);
+  it('CASUALTY: no clean comment clears it — abbreviated or full marker', () => {
+    for (const footer of [FOOTER, HEAD]) {
+      const receipt = receiptFor(pullRequest({
+        threads: [findingThread({ isResolved: true })],
+        comments: [cleanResult(footer), summary()],
+      }));
+      expect({ footer, findingCount: receipt.findingCount }).toEqual({ footer, findingCount: 1 });
+    }
   });
 
   it('CONTROL: a resolved finding inside an authorized DISMISSED review does not block', () => {
     const receipt = receiptFor(pullRequest({
-      reviews: [codexReview(HEAD, at(5), 'DISMISSED')],
-      threads: [findingThread({ createdAt: at(5), isResolved: true, reviewState: 'DISMISSED' })],
-      comments: [cleanResult(HEAD, at(3))],
+      reviews: [codexReview(HEAD, at(5), { state: 'DISMISSED' })],
+      threads: [findingThread({ isResolved: true, reviewState: 'DISMISSED' })],
+      comments: [summary()],
     }));
     expect(receipt.findingCount).toBe(0);
     expect(receipt.qualified).toBe(true);
   });
 
-  it('CONTROL: an UNRESOLVED same-head P1 still blocks, even after a later clean result or a dismissal', () => {
-    for (const reviewState of ['COMMENTED', 'DISMISSED']) {
-      const receipt = receiptFor(pullRequest({
-        reviews: [codexReview(HEAD, at(5))],
-        threads: [findingThread({ createdAt: at(5), isResolved: false, reviewState })],
-        comments: [cleanResult(HEAD, at(9))],
-      }));
-      expect({ reviewState, findingCount: receipt.findingCount }).toEqual({ reviewState, findingCount: 1 });
-    }
+  it('CONTROL: an UNRESOLVED same-head P1 blocks even when its review was dismissed', () => {
+    const receipt = receiptFor(pullRequest({
+      threads: [findingThread({ isResolved: false, reviewState: 'DISMISSED' })],
+      comments: [summary()],
+    }));
+    expect(receipt.findingCount).toBe(1);
   });
 
   it('CONTROL: a resolved P1 from an OLDER head is historical and does not block the new head', () => {
     const receipt = receiptFor(pullRequest({
-      threads: [findingThread({ sha: OLDER_HEAD, createdAt: at(1), isResolved: true })],
-      comments: [cleanResult(HEAD, at(9))],
+      threads: [findingThread({ sha: OLDER_HEAD, isResolved: true })],
+      comments: [summary()],
     }));
     expect(receipt.findingCount).toBe(0);
     expect(receipt.qualified).toBe(true);
   });
 
-  it("the live read selects what this needs: each thread comment's time and its review's state", () => {
-    expect(PULL_REQUEST_REVIEW_QUERY).toMatch(/reviewThreads\(first:100\)\{nodes\{isResolved comments\(last:100\)\{nodes\{createdAt /);
+  it("the live read selects each thread comment's review state", () => {
     expect(PULL_REQUEST_REVIEW_QUERY).toContain('pullRequestReview{state commit{oid}}');
   });
 });
 
-describe('#1430 fix-forward `3991388531` + #1438 `3992215898` — clean authority is an immutable full commit identity', () => {
-  it('CASUALTY: stale review A arriving after colliding head B never qualifies B', () => {
-    for (const footer of [FOOTER, HEAD]) {
-      const receipt = receiptFor(pullRequest({ head: COLLIDER, comments: [cleanResult(HEAD, at(25), { footer })] }));
-      expect({ footer, evidence: receipt.reviewEvidence, qualified: receipt.qualified })
-        .toEqual({ footer, evidence: null, qualified: false });
-    }
-  });
-
-  it("CASUALTY: A's later disappearance changes nothing — the facts the previous binding trusted are not consulted", () => {
-    /**
-     * Codex's `3992215898` sequence after garbage collection: GitHub now resolves the footer uniquely to B, and
-     * the branch's last move to B precedes the comment. The previous binding qualified B on exactly these facts.
-     */
-    const receipt = receiptFor(pullRequest({
-      head: COLLIDER,
-      comments: [cleanResult(HEAD, at(25), { footer: FOOTER })],
-      extra: {
-        resolvedAbbreviations: { [FOOTER]: COLLIDER },
-        headRefMove: { after: COLLIDER, timestamp: at(20) },
-        headRefHistory: { complete: true, moves: [{ after: COLLIDER, timestamp: at(20) }] },
-      },
-    }));
-    expect(receipt.reviewEvidence).toBeNull();
-    expect(receipt.qualified).toBe(false);
-  });
-
-  it('CASUALTY: an ABBREVIATED clean result for the current head does not qualify it', () => {
-    const receipt = receiptFor(pullRequest({ comments: [cleanResult(HEAD, at(25), { footer: FOOTER })] }));
-    expect(receipt.reviewEvidence).toBeNull();
+describe('#1438 PM DECISION `5639300027` — exact-head completion binds only through a review object or trusted summary metadata', () => {
+  it('CASUALTY: a clean comment with only the normal 10-character footer and no system metadata holds', () => {
+    const receipt = receiptFor(pullRequest({ comments: [cleanResult(FOOTER)] }));
+    expect(receipt).toMatchObject({ qualified: false, reviewEvidence: null });
     expect(receipt.reasons).toContain('review_not_completed:missing');
-    expect(receipt.qualified).toBe(false);
   });
 
-  it('CONTROL: one designated full-SHA attestation exactly equal to the head qualifies — including colliding head B', () => {
-    const receipt = receiptFor(pullRequest({ comments: [cleanResult(HEAD, at(25))] }));
-    expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'clean_result_comment', reviewedSha: HEAD });
-
-    const collider = receiptFor(pullRequest({ head: COLLIDER, comments: [cleanResult(COLLIDER, at(25))] }));
-    expect(collider).toMatchObject({ qualified: true, reviewEvidence: 'clean_result_comment', reviewedSha: COLLIDER });
-  });
-
-  it('CASUALTY (#1438 `3992367735`): a full SHA in PROSE is not review identity — only the reviewed-commit marker is', () => {
-    // Codex's reproduction: review A is requested with collider B's full SHA echoed, B is pushed, and the clean
-    // result carries B in prose beside A's colliding abbreviated marker.
-    const echoed = receiptFor(pullRequest({
-      head: COLLIDER,
-      comments: [{
-        ...cleanResult(HEAD, at(25)),
-        body: `Codex Review: Didn't find any major issues for ${COLLIDER}.\n\n**Reviewed commit:** \`${FOOTER}\``,
-      }],
-    }));
-    expect(echoed).toMatchObject({ qualified: false, reviewEvidence: null });
-
-    const proseOnly = receiptFor(pullRequest({
-      comments: [{ ...cleanResult(HEAD, at(25)), body: `Codex Review: Didn't find any major issues at exact head ${HEAD}.` }],
-    }));
-    expect(proseOnly).toMatchObject({ qualified: false, reviewEvidence: null });
-  });
-
-  it('CONTROL: a Codex review object bound by its full commit.oid qualifies', () => {
-    const receipt = receiptFor(pullRequest({ reviews: [codexReview(HEAD, at(25))] }));
-    expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'review_object', reviewedSha: HEAD, findingCount: 0 });
-  });
-
-  it('CASUALTY: the full head ELSEWHERE plus an abbreviated, missing, malformed or multiple attestation holds', () => {
-    // Every body also names the current head in full, in prose and in a table cell, so only the designated
-    // `**Reviewed commit:**` field can be deciding the verdict.
-    const elsewhere = `Codex Review: Didn't find any major issues at exact head ${HEAD}.\n\n| head | ${HEAD} |\n\n`;
+  it('CASUALTY: a full SHA in prose, a requester-steered marker, or a human-authored attestation holds', () => {
     const cases = {
-      'abbreviated attestation': `${elsewhere}**Reviewed commit:** \`${FOOTER}\``,
-      'no attestation at all': `${elsewhere}Swish!`,
-      'attestation without the bold label': `${elsewhere}Reviewed commit: \`${HEAD}\``,
-      '39 hex': `${elsewhere}**Reviewed commit:** \`${HEAD.slice(0, 39)}\``,
-      '41 hex': `${elsewhere}**Reviewed commit:** \`${HEAD}0\``,
-      "another commit's full SHA": `${elsewhere}**Reviewed commit:** \`${COLLIDER}\``,
-      'two attestations, head and collider': `${elsewhere}**Reviewed commit:** \`${HEAD}\`\n**Reviewed commit:** \`${COLLIDER}\``,
-      'two attestations, both the head': `${elsewhere}**Reviewed commit:** \`${HEAD}\`\n**Reviewed commit:** \`${HEAD}\``,
+      'full head in prose': { ...cleanResult(FOOTER), body: `Codex Review: Didn't find any major issues at ${HEAD}.` },
+      'Codex comment with a full designated marker (`3992467525`)': cleanResult(HEAD),
+      'human comment with a full marker': cleanResult(HEAD, at(25), human),
+      'human-authored copy of the summary metadata': summary({}, human),
     };
-    for (const [label, body] of Object.entries(cases)) {
-      const receipt = receiptFor(pullRequest({
-        comments: [{ id: label, author: bot, authorAssociation: 'NONE', createdAt: at(25), body }],
-      }));
+    for (const [label, comment] of Object.entries(cases)) {
+      const receipt = receiptFor(pullRequest({ comments: [comment] }));
       expect({ label, qualified: receipt.qualified, evidence: receipt.reviewEvidence })
         .toEqual({ label, qualified: false, evidence: null });
     }
   });
 
-  it('CASUALTY: a HUMAN naming the full head in the same words is still not authority', () => {
+  it("CASUALTY (`3992467525`): review A's comment printing colliding B in the designated field does not qualify B", () => {
     const receipt = receiptFor(pullRequest({
-      comments: [{ ...cleanResult(HEAD, at(25)), author: { login: 'relativityE' }, authorAssociation: 'OWNER' }],
+      head: COLLIDER,
+      comments: [cleanResult(COLLIDER), summary({ meta: { headSha: HEAD } })],
     }));
-    expect(receipt.qualified).toBe(false);
+    expect(receipt).toMatchObject({ qualified: false, reviewEvidence: null });
   });
 
-  describe('the live reader reads review evidence only — no abbreviation resolution, no branch chronology', () => {
+  it('CASUALTY: metadata for another head, repository or PR, malformed, duplicated, running, or not completed holds', () => {
+    const cases = {
+      'another head': { meta: { headSha: COLLIDER } },
+      'abbreviated head': { meta: { headSha: FOOTER } },
+      'uppercase head': { meta: { headSha: HEAD.toUpperCase() } },
+      'another repository': { meta: { repository: 'someone/else' } },
+      'another pull request': { meta: { pullRequestNumber: PR + 1 } },
+      'pull request number as a string': { meta: { pullRequestNumber: String(PR) } },
+      'status running': { meta: { status: 'running' } },
+      'status missing': { raw: JSON.stringify({ headSha: HEAD, repository: REPO, pullRequestNumber: PR }) },
+      'malformed JSON': { raw: `{"headSha":"${HEAD}","status":"completed"` },
+      'metadata is an array': { raw: JSON.stringify([{ headSha: HEAD, status: 'completed' }]) },
+      'duplicated block': { blocks: 2 },
+      'a review still shown running': { running: true },
+      'no summary marker': { marker: false },
+    };
+    for (const [label, options] of Object.entries(cases)) {
+      const receipt = receiptFor(pullRequest({ comments: [summary(options)] }));
+      expect({ label, qualified: receipt.qualified, evidence: receipt.reviewEvidence })
+        .toEqual({ label, qualified: false, evidence: null });
+    }
+  });
+
+  it('CASUALTY: two summary comments each carrying a block is duplicated metadata, and holds', () => {
+    const receipt = receiptFor(pullRequest({ comments: [summary(), { ...summary(), id: 'second-summary' }] }));
+    expect(receipt).toMatchObject({ qualified: false, reviewEvidence: null });
+  });
+
+  it('CASUALTY: exact completed metadata plus a live P0/P1 on ANY result surface holds', () => {
+    const cases = {
+      'unresolved review thread': { threads: [findingThread({ isResolved: false })] },
+      'resolved same-head review thread': { threads: [findingThread({ isResolved: true })] },
+      'finding in a review body': { reviews: [codexReview(HEAD, at(5), { body: '**P1 Badge** finding in the body' })] },
+      'CHANGES_REQUESTED review': { reviews: [codexReview(HEAD, at(5), { state: 'CHANGES_REQUESTED' })] },
+      'finding issue comment': { extraComments: [{ ...cleanResult(FOOTER), body: `**P1 Badge** finding\n\n**Reviewed commit:** \`${FOOTER}\`` }] },
+    };
+    for (const [label, { threads = [], reviews = [], extraComments = [] }] of Object.entries(cases)) {
+      const receipt = receiptFor(pullRequest({ threads, reviews, comments: [summary(), ...extraComments] }));
+      expect({ label, qualified: receipt.qualified, blocked: receipt.findingCount > 0 || receipt.reasons.length > 0 })
+        .toEqual({ label, qualified: false, blocked: true });
+    }
+  });
+
+  it('CASUALTY: exact completed metadata on an incomplete comment read holds', () => {
+    const receipt = receiptFor(pullRequest({ comments: [summary()], commentsTruncated: true }));
+    expect(receipt.qualified).toBe(false);
+    expect(receipt.reasons).toContain('issue_comments_incomplete');
+  });
+
+  it('CONTROL: exact trusted completed metadata, every surface complete, zero live P0/P1 qualifies', () => {
+    const receipt = receiptFor(pullRequest({ comments: [cleanResult(FOOTER), summary()] }));
+    expect(receipt).toMatchObject({
+      qualified: true, reviewEvidence: 'codex_summary_metadata', reviewedSha: HEAD, findingCount: 0, reviewStatus: 'completed',
+    });
+  });
+
+  it('CONTROL: metadata that omits the optional repository and PR fields still binds the exact head', () => {
+    const receipt = receiptFor(pullRequest({
+      comments: [summary({ raw: JSON.stringify({ headSha: HEAD, status: 'completed' }) })],
+    }));
+    expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'codex_summary_metadata' });
+  });
+
+  it('CONTROL: colliding head B qualifies only on metadata naming B itself', () => {
+    const receipt = receiptFor(pullRequest({ head: COLLIDER, comments: [summary({ meta: { headSha: COLLIDER } })] }));
+    expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'codex_summary_metadata', reviewedSha: COLLIDER });
+  });
+
+  it('CONTROL: an exact review object `commit.oid === head` still qualifies', () => {
+    const receipt = receiptFor(pullRequest({ reviews: [codexReview(HEAD, at(25))] }));
+    expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'review_object', reviewedSha: HEAD, findingCount: 0 });
+  });
+
+  describe('the live reader issues only the review query', () => {
     afterEach(() => vi.unstubAllGlobals());
 
-    it('issues exactly the review query and nothing else', async () => {
+    it('no abbreviation resolution, no branch chronology, no extra reads', async () => {
       const requests = [];
       vi.stubGlobal('fetch', async (url, init) => {
         requests.push({ path: String(url).replace('https://api.github.com', ''), query: JSON.parse(init?.body ?? '{}').query ?? null });
         return { ok: true, status: 200, json: async () => ({ data: { repository: { pullRequest: {
-          number: 1500, headRefOid: HEAD,
-          comments: { nodes: [cleanResult(HEAD, at(9), { footer: FOOTER })], pageInfo: { hasPreviousPage: false } },
+          number: PR, headRefOid: HEAD,
+          comments: { nodes: [cleanResult(FOOTER), summary()], pageInfo: { hasPreviousPage: false } },
         } } } }) };
       });
-      await readPullRequest({ repository: 'relativityE/speaksharp', number: 1500, token: 't' });
+      await readPullRequest({ repository: REPO, number: PR, token: 't' });
 
       expect(requests).toEqual([{ path: '/graphql', query: PULL_REQUEST_REVIEW_QUERY }]);
       expect(PULL_REQUEST_REVIEW_QUERY).not.toMatch(/activity|object\(expression|headRefName|headRepository/);

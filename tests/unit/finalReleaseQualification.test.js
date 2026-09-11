@@ -919,23 +919,14 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
     expect(receipt.qualified, 'a reopened P1 thread cannot ride a qualifying receipt').toBe(false);
   });
 
-  it('CONTROL: the same head with that thread RESOLVED and a LATER clean re-review does qualify', () => {
-    // Without this the case above would pass against a builder that refuses everything. Since the #1430
-    // fix-forward (`3991388525`) resolution alone no longer clears a same-head P0/P1: a later clean Codex
-    // result bound to this head does. Resolution without it is a casualty in postMergeCodexFindings.test.js.
-    const receipt = buildReviewReceipt({
-      pullRequest: pullWith([thread(true, 'P1 Badge — addressed and resolved')], {
-        comments: {
-          nodes: [{
-            id: 'clean', author: bot, createdAt: '2026-09-10T01:00:00Z',
-            body: `Codex Review: Didn't find any major issues. Nice work!\n\n**Reviewed commit:** \`${reviewedSha}\``,
-          }],
-          pageInfo: { hasPreviousPage: false },
-        },
-      }),
-      expectedHeadSha: reviewedSha,
-    });
-    expect(receipt.qualified, 'a later clean re-review is what clears it').toBe(true);
+  it('CONTROL: the same head with that thread RESOLVED inside an authorized DISMISSED review does qualify', () => {
+    // Without this the case above would pass against a builder that refuses everything. Since #1430's
+    // fix-forward (`3991388525`) resolution alone never clears a same-head P0/P1, and under #1438 PM DECISION
+    // `5639300027` no comment clears one either: an authorized dismissal does.
+    const dismissed = thread(true, 'P1 Badge — addressed and resolved');
+    dismissed.comments.nodes[0].pullRequestReview.state = 'DISMISSED';
+    const receipt = buildReviewReceipt({ pullRequest: pullWith([dismissed]), expectedHeadSha: reviewedSha });
+    expect(receipt.qualified, 'an authorized dismissal is what clears it').toBe(true);
   });
 
   it('CASUALTY: a STALE receipt does not qualify, however clean it is', () => {
@@ -1067,12 +1058,16 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
     comments: { nodes: comments, pageInfo: { hasPreviousPage: commentsTruncated } },
   });
-  // #1438 PM RETURN `5638958869`: a clean-result comment is authority only when it names the FULL head. The
-  // qualifying cases below therefore name it in full; abbreviated cases live in postMergeCodexFindings.test.js.
+  // #1438 PM DECISION `5639300027`: a clean-result COMMENT is never completion authority on its own. Exact-head
+  // completion comes from a review object or Codex's review-summary system metadata, which `summaryComment` models.
+  const summaryComment = (sha) => ({
+    id: 'summary', author: bot, createdAt: '2026-09-10T23:51:30Z',
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"blockingSeverityThreshold":"P0","headSha":"${sha}","status":"completed"} -->\n## Codex Review Summary`,
+  });
 
-  it('CASUALTY: a trusted clean comment naming the EXACT head qualifies', () => {
+  it('CASUALTY: a clean head qualifies through Codex summary metadata; the clean comment alone does not', () => {
     const receipt = buildReviewReceipt({
-      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head), createdAt: '2026-09-10T23:51:24Z' }] }),
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head), createdAt: '2026-09-10T23:51:24Z' }, summaryComment(head)] }),
       expectedHeadSha: head,
     });
 
@@ -1080,7 +1075,13 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     expect(receipt.reviewStatus).toBe('completed');
     expect(receipt.reviewedSha).toBe(head);
     expect(receipt.findingCount, 'clean means zero findings, never unknown').toBe(0);
-    expect(receipt.reviewEvidence, 'and the basis is auditable').toBe('clean_result_comment');
+    expect(receipt.reviewEvidence, 'and the basis is auditable').toBe('codex_summary_metadata');
+
+    const commentOnly = buildReviewReceipt({
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head), createdAt: '2026-09-10T23:51:24Z' }] }),
+      expectedHeadSha: head,
+    });
+    expect(commentOnly.qualified, 'generated comment text is not completion authority').toBe(false);
   });
 
   it('CASUALTY: a trusted bot ERROR or STATUS notice with a valid footer does not qualify', () => {
@@ -1112,7 +1113,7 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     }
   });
 
-  it('CONTROL: every real sign-off variant of the canonical clean result DOES qualify', () => {
+  it('CONTROL: every real sign-off variant qualifies once Codex summary metadata marks this head completed', () => {
     // The sign-off varies run to run, so the invariant is the phrase and not the sentence. All four are
     // verbatim first lines of genuine clean results on this PR; a match that were too strict would
     // reintroduce the unsatisfiable gate this correction exists to fix.
@@ -1126,12 +1127,12 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     for (const text of cleanVariants) {
       const receipt = buildReviewReceipt({
         pullRequest: pullWith({
-          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head}\``, createdAt: '2026-09-10T23:51:24Z' }],
+          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head}\``, createdAt: '2026-09-10T23:51:24Z' }, summaryComment(head)],
         }),
         expectedHeadSha: head,
       });
       expect(receipt.qualified, `${text.slice(0, 45)} must qualify`).toBe(true);
-      expect(receipt.reviewEvidence).toBe('clean_result_comment');
+      expect(receipt.reviewEvidence).toBe('codex_summary_metadata');
     }
   });
 
@@ -1214,7 +1215,8 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
   const bot = { login: 'chatgpt-codex-connector' };
   const clean = {
     id: 'old-clean', author: bot, createdAt: '2026-09-10T10:00:00Z',
-    body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${head}\``,
+    // #1438 PM DECISION `5639300027`: exact-head completion is Codex's summary system metadata, not comment text.
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"headSha":"${head}","pullRequestNumber":1430,"repository":"relativityE/speaksharp","status":"completed"} -->\n## Codex Review Summary`,
   };
   const base = (comments) => ({
     number: 1430,
