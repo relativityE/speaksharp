@@ -84,7 +84,7 @@ function findTrustedCleanResult({ pullRequest, head }) {
     // and blocked notices from the same trusted bot are not clean reviews, whatever footer they carry.
     .filter((comment) => CODEX_CLEAN_RESULT.test(comment?.body ?? ''))
     .filter((comment) => !RELEASE_FINDING.test(comment?.body ?? ''))
-    // The complete head, named by the comment itself: never a prefix, however it resolves. See below.
+    // The complete head, in the comment's reviewed-commit marker: never a prefix, never prose. See below.
     .filter((comment) => cleanResultBindsHead(comment, head))
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
     .at(-1) ?? null;
@@ -102,16 +102,25 @@ function findTrustedCleanResult({ pullRequest, head }) {
  * finishes after colliding B is pushed and A later becomes unavailable, the abbreviation resolves to B and
  * the chronology passes. Abbreviation resolution and branch-move chronology are therefore not authority.
  *
- * A clean-result COMMENT now qualifies only when it names the complete 40-character head itself, and every
- * full commit SHA it names is that head. An abbreviated footer fails closed however it resolves today. The
- * review OBJECT path, bound by GitHub's own full `commit.oid`, is unaffected. When Codex's standard output
- * abbreviates, the remedy is a follow-up clean confirmation stating the full SHA on the same head, never a
- * weaker collector. Finding-bearing comments keep the prefix match on purpose: over-counting a finding can
- * only hold a merge, never permit one.
+ * A clean-result COMMENT now qualifies only when its reviewed-commit marker names the complete 40-character
+ * head. An abbreviated marker fails closed however it resolves today. The review OBJECT path, bound by
+ * GitHub's own full `commit.oid`, is unaffected. When Codex's standard output abbreviates, the remedy is a
+ * follow-up clean confirmation whose marker states the full SHA on the same head, never a weaker collector.
+ *
+ * #1438 Codex P1 `3992367735` — THE MARKER, NOT ANY SHA IN THE TEXT. The first version accepted a full SHA
+ * anywhere in the body. A requester can start a review of A while asking Codex to echo the known collider
+ * B's full SHA, then push B: the clean result carries B in prose beside A's abbreviated marker, and B
+ * qualified. An incidental SHA is not review identity. Exactly one `Reviewed commit:` marker must exist and
+ * it must be the full head; prose is ignored.
+ *
+ * Finding-bearing comments keep the prefix match on purpose: over-counting a finding can only hold a merge,
+ * never permit one.
  */
 function cleanResultBindsHead(comment, head) {
-  const named = String(comment?.body ?? '').toLowerCase().match(/\b[0-9a-f]{40}\b/g) ?? [];
-  return /^[0-9a-f]{40}$/.test(head) && named.length > 0 && named.every((sha) => sha === head);
+  // Anchored to the canonical attestation field, bold label included; nothing else in the body is identity.
+  const markers = [...String(comment?.body ?? '').matchAll(/\*\*Reviewed commit:\*\*\s*`([0-9a-fA-F]+)`/g)]
+    .map((match) => match[1].toLowerCase());
+  return /^[0-9a-f]{40}$/.test(head) && markers.length === 1 && markers[0] === head;
 }
 
 /**

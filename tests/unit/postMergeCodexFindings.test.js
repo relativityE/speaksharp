@@ -12,6 +12,7 @@
  *   `3992215898` — (#1438, PM RETURN `5638958869`) the first binding trusted GitHub's CURRENT abbreviation
  *                  resolution plus branch-move chronology, both of which a stale result can satisfy. Only an
  *                  immutable full identity is authority now.
+ *   `3992367735` — (#1438) that identity must be the reviewed-commit MARKER; a full SHA in prose is not.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { evaluateReviewQualification, isSubstantiveImplementationFile } from '../../scripts/review-qualification.mjs';
@@ -216,17 +217,30 @@ describe('#1430 fix-forward `3991388531` + #1438 `3992215898` — clean authorit
     expect(receipt.qualified).toBe(false);
   });
 
-  it('CONTROL: a trusted clean result naming the exact 40-character head qualifies — in the footer or a follow-up confirmation', () => {
-    const footerResult = receiptFor(pullRequest({ comments: [cleanResult(HEAD, at(25))] }));
-    expect(footerResult).toMatchObject({ qualified: true, reviewEvidence: 'clean_result_comment', reviewedSha: HEAD });
+  it('CONTROL: one designated full-SHA attestation exactly equal to the head qualifies — including colliding head B', () => {
+    const receipt = receiptFor(pullRequest({ comments: [cleanResult(HEAD, at(25))] }));
+    expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'clean_result_comment', reviewedSha: HEAD });
 
-    const confirmation = receiptFor(pullRequest({
+    const collider = receiptFor(pullRequest({ head: COLLIDER, comments: [cleanResult(COLLIDER, at(25))] }));
+    expect(collider).toMatchObject({ qualified: true, reviewEvidence: 'clean_result_comment', reviewedSha: COLLIDER });
+  });
+
+  it('CASUALTY (#1438 `3992367735`): a full SHA in PROSE is not review identity — only the reviewed-commit marker is', () => {
+    // Codex's reproduction: review A is requested with collider B's full SHA echoed, B is pushed, and the clean
+    // result carries B in prose beside A's colliding abbreviated marker.
+    const echoed = receiptFor(pullRequest({
+      head: COLLIDER,
       comments: [{
-        id: 'confirm', author: bot, authorAssociation: 'NONE', createdAt: at(30),
-        body: `Codex Review: Didn't find any major issues at exact head ${HEAD}.`,
+        ...cleanResult(HEAD, at(25)),
+        body: `Codex Review: Didn't find any major issues for ${COLLIDER}.\n\n**Reviewed commit:** \`${FOOTER}\``,
       }],
     }));
-    expect(confirmation).toMatchObject({ qualified: true, reviewEvidence: 'clean_result_comment' });
+    expect(echoed).toMatchObject({ qualified: false, reviewEvidence: null });
+
+    const proseOnly = receiptFor(pullRequest({
+      comments: [{ ...cleanResult(HEAD, at(25)), body: `Codex Review: Didn't find any major issues at exact head ${HEAD}.` }],
+    }));
+    expect(proseOnly).toMatchObject({ qualified: false, reviewEvidence: null });
   });
 
   it('CONTROL: a Codex review object bound by its full commit.oid qualifies', () => {
@@ -234,13 +248,19 @@ describe('#1430 fix-forward `3991388531` + #1438 `3992215898` — clean authorit
     expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'review_object', reviewedSha: HEAD, findingCount: 0 });
   });
 
-  it('CASUALTY: malformed or missing full identity holds', () => {
+  it('CASUALTY: the full head ELSEWHERE plus an abbreviated, missing, malformed or multiple attestation holds', () => {
+    // Every body also names the current head in full, in prose and in a table cell, so only the designated
+    // `**Reviewed commit:**` field can be deciding the verdict.
+    const elsewhere = `Codex Review: Didn't find any major issues at exact head ${HEAD}.\n\n| head | ${HEAD} |\n\n`;
     const cases = {
-      'no SHA at all': "Codex Review: Didn't find any major issues. Swish!",
-      '39 hex': `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${HEAD.slice(0, 39)}\``,
-      '41 hex': `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${HEAD}0\``,
-      "another commit's full SHA": `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${COLLIDER}\``,
-      'two different full SHAs': `Codex Review: Didn't find any major issues for ${HEAD} and ${COLLIDER}.`,
+      'abbreviated attestation': `${elsewhere}**Reviewed commit:** \`${FOOTER}\``,
+      'no attestation at all': `${elsewhere}Swish!`,
+      'attestation without the bold label': `${elsewhere}Reviewed commit: \`${HEAD}\``,
+      '39 hex': `${elsewhere}**Reviewed commit:** \`${HEAD.slice(0, 39)}\``,
+      '41 hex': `${elsewhere}**Reviewed commit:** \`${HEAD}0\``,
+      "another commit's full SHA": `${elsewhere}**Reviewed commit:** \`${COLLIDER}\``,
+      'two attestations, head and collider': `${elsewhere}**Reviewed commit:** \`${HEAD}\`\n**Reviewed commit:** \`${COLLIDER}\``,
+      'two attestations, both the head': `${elsewhere}**Reviewed commit:** \`${HEAD}\`\n**Reviewed commit:** \`${HEAD}\``,
     };
     for (const [label, body] of Object.entries(cases)) {
       const receipt = receiptFor(pullRequest({
