@@ -372,13 +372,45 @@ export const FOCUS_POINTS_POST_STOP_CHAIN = Object.freeze([
 
 const rowTime = (v: unknown): number => (typeof v === 'number' ? v : Date.parse(String(v ?? '')));
 
+/**
+ * #1421 Codex P1 `3993611256` (PM DECISION `5641061977`, option (a)) — ONE TAKE'S CHAIN, NEVER A SPLICE.
+ *
+ * The chain took the earliest row per stage and compared only times, so a journey with two recording attempts
+ * could assemble an apparently ordered chain out of BOTH: `recording_terminated` and `final_transcript` from
+ * take A beside `session_saved` and the review stages from take B. The readback then reported QUALIFIED although
+ * no single take ever completed the chain — evidence integrity, not a latency detail.
+ *
+ * The saved take names the attempt: `session_saved` carries the governed `attempt_id` that the envelope attaches
+ * to every event, so each chain row is required to carry that SAME attempt. Missing, blank, conflicting (two
+ * saved takes disagreeing) or cross-attempt evidence HOLDs rather than being ordered by guesswork. Pre-change
+ * rows carry no attempt and therefore do not qualify — PM's item 6: no transition, no backfill.
+ */
+const attemptOf = (row: DecodedTelemetryRow | undefined): string | null => {
+    const value = row?.properties?.attempt_id;
+    return typeof value === 'string' && nonBlank(value) ? value : null;
+};
+
+const savedTakeAttempt = (rows: readonly DecodedTelemetryRow[]): { attemptId: string } | { hold: string } => {
+    const saved = rows.filter((r) => r?.event === 'session_saved');
+    if (saved.length === 0) return { hold: 'the post-Stop chain has no session_saved row to name the saved take' };
+    const attempts = new Set(saved.map((r) => attemptOf(r)));
+    if (attempts.size !== 1) return { hold: 'the saved takes disagree about which attempt the post-Stop chain belongs to' };
+    const [attemptId] = [...attempts];
+    if (attemptId === null) return { hold: 'the saved take carries no attempt identity, so its post-Stop chain cannot be bound to it' };
+    return { attemptId };
+};
+
 export const postStopChainInOrder = (chain: readonly string[]) => (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const attempt = savedTakeAttempt(rows);
+    if ('hold' in attempt) return attempt.hold;
     let previous = Number.NEGATIVE_INFINITY;
     for (const stage of chain) {
-        const times = rows
-            .filter((r) => r?.event === 'stage_latency' && r?.properties?.stage === stage)
-            .map((r) => rowTime(r?.timestamp));
-        if (times.length === 0) return `the post-Stop chain has no ${stage} stage`;
+        const staged = rows.filter((r) => r?.event === 'stage_latency' && r?.properties?.stage === stage);
+        if (staged.length === 0) return `the post-Stop chain has no ${stage} stage`;
+        // A stage row belonging to another take, or carrying no attempt at all, is not this take's evidence.
+        const own = staged.filter((r) => attemptOf(r) === attempt.attemptId);
+        if (own.length === 0) return `the post-Stop chain has no ${stage} stage for the saved take's attempt`;
+        const times = own.map((r) => rowTime(r?.timestamp));
         if (times.some((t) => !Number.isFinite(t))) return `a ${stage} stage row has no readable timestamp`;
         const first = Math.min(...times);
         if (first < previous) return `the post-Stop chain is out of order at ${stage}`;

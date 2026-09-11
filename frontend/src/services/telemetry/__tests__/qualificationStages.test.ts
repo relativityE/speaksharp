@@ -62,7 +62,9 @@ const completeRows = (stage: QualificationStage, model: string = MODELS[0]): Dec
         const chain = stage.stage === 'session_after_focus_points'
             ? FOCUS_POINTS_POST_STOP_CHAIN
             : OPEN_MIC_POST_STOP_CHAIN;
-        return chain.map((name, i) => ({ ...row(family, { stage: name, duration_ms: 10 }), timestamp: 1_000 + i }));
+        // #1421 P1 `3993611256`: the chain belongs to the saved take, so each row carries its attempt —
+        // exactly what the envelope attaches in production.
+        return chain.map((name, i) => ({ ...row(family, { stage: name, duration_ms: 10, attempt_id: 'attempt-1' }), timestamp: 1_000 + i }));
     }
     return row(family, { candidate_id: MODEL, engine: 'private', runtime_version: 'r1' });
 }));

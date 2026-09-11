@@ -95,14 +95,30 @@ export interface ErrorFingerprint {
     message_length_band: string;
 }
 
-export function fingerprintError(reason: unknown, message: string): ErrorFingerprint {
+/**
+ * #1421 Codex P1 `3993611247` (PM RETURN `5641005311`) — NOTHING DERIVED FROM THE MESSAGE ENTERS THE FINGERPRINT.
+ *
+ * The digest used to cover `normalizeErrorMessage(message)`. Normalization reduced exposure but could not remove
+ * it: an unhandled rejection that OPENS with unquoted user-authored text keeps its first eight words, and the
+ * digest is an unsalted deterministic 32-bit FNV value over them — enumerable by dictionary for a short phrase,
+ * and identical across accounts for identical content, which is exactly the property that made `transcript_digest`
+ * unacceptable. A grouping key cannot be bought with someone's words.
+ *
+ * The fingerprint is therefore derived only from AUTHORED identity: the error's class name, the reason kind, and
+ * the call site the caller names. All three are closed or authored values that no request or transcript can reach.
+ * Grouping is coarser than before — two different failures from one call site with the same class now share a
+ * fingerprint — and that is the intended trade: `logger` and Sentry keep the message for diagnosis.
+ */
+export function fingerprintError(reason: unknown, message: string, site: string): ErrorFingerprint {
     const name = reason instanceof Error && reason.name ? reason.name : null;
+    const kind = reasonKind(reason);
     return {
-        reason_kind: reasonKind(reason),
+        reason_kind: kind,
         error_name: name,
-        // The NAME is part of the fingerprint: two different error classes with the same generic text
-        // ("failed to fetch") are different failures and must not be grouped together.
-        error_fingerprint: digest(`${name ?? ''}|${normalizeErrorMessage(message)}`),
+        // Authored terms only: class name, reason kind, and the authored call-site identity. The NAME matters
+        // because two error classes with the same generic text are different failures; the SITE separates the
+        // same class raised from different surfaces, which is what the message prefix used to do.
+        error_fingerprint: digest(`${name ?? ''}|${kind}|${site}`),
         message_length_band: messageLengthBand(message.length),
     };
 }

@@ -149,13 +149,43 @@ describe('F12 — NEGATIVE CONTROLS: health must not report on itself', () => {
 describe('F12 — the error fingerprint replaces an empty schema', () => {
     it('carries class, digest and length band — and none of the message', () => {
         const message = 'duplicate key value violates unique constraint: um so basically the transcript';
-        const fp = fingerprintError(new TypeError(message), message);
+        const fp = fingerprintError(new TypeError(message), message, 'window_unhandledrejection');
         expect(fp.reason_kind).toBe('error');
         expect(fp.error_name).toBe('TypeError');
         expect(fp.message_length_band).toBe('65-256');
         const serialized = JSON.stringify(fp);
         expect(serialized).not.toContain('transcript');
         expect(serialized).not.toContain('duplicate key');
+    });
+
+    it('CASUALTY (`3993611247`): user-authored text that OPENS the message cannot change the fingerprint', () => {
+        // The defect: normalization kept the first eight words, so an unhandled rejection whose message BEGINS
+        // with what someone said produced an unsalted 32-bit digest of their words — enumerable for a short
+        // phrase and identical across accounts. Nothing message-derived may reach the analytics boundary, so two
+        // rejections of the same class from the same call site fingerprint identically however the text differs.
+        const spoken = 'i want to talk about leaving my job';
+        const a = fingerprintError(new Error('PostgrestError'), spoken, 'window_unhandledrejection');
+        const b = fingerprintError(new Error('PostgrestError'), 'entirely different words spoken here', 'window_unhandledrejection');
+        expect(a.error_fingerprint).toBe(b.error_fingerprint);
+        for (const word of ['leaving', 'job', 'spoken']) expect(JSON.stringify(a)).not.toContain(word);
+    });
+
+    it('CONTROL (`3993611247`): authored identity still separates failures — class, reason kind and call site', () => {
+        const message = 'failed to fetch';
+        const base = fingerprintError(new TypeError(message), message, 'window_unhandledrejection');
+        // A different authored class is a different failure.
+        expect(fingerprintError(new RangeError(message), message, 'window_unhandledrejection').error_fingerprint)
+            .not.toBe(base.error_fingerprint);
+        // The same class raised from a different authored call site is a different failure.
+        expect(fingerprintError(new TypeError(message), message, 'other_call_site').error_fingerprint)
+            .not.toBe(base.error_fingerprint);
+        // A non-Error rejection of the same text is a different failure, and carries no class name.
+        const thrownString = fingerprintError(message, message, 'window_unhandledrejection');
+        expect(thrownString.error_name).toBeNull();
+        expect(thrownString.error_fingerprint).not.toBe(base.error_fingerprint);
+        // And the same failure from the same site still groups.
+        expect(fingerprintError(new TypeError(message), 'failed to fetch: different tail', 'window_unhandledrejection').error_fingerprint)
+            .toBe(base.error_fingerprint);
     });
 
     it('CASUALTY: a transcript echoed into an error message never reaches the fingerprint', () => {
@@ -168,8 +198,8 @@ describe('F12 — the error fingerprint replaces an empty schema', () => {
         const withProse = `new row for relation "sessions" violates check constraint: transcript '${spoken}'`;
         const withOther = 'new row for relation "sessions" violates check constraint: transcript \'entirely different words here\'';
 
-        const a = fingerprintError(new Error('PostgrestError'), withProse);
-        const b = fingerprintError(new Error('PostgrestError'), withOther);
+        const a = fingerprintError(new Error('PostgrestError'), withProse, 'window_unhandledrejection');
+        const b = fingerprintError(new Error('PostgrestError'), withOther, 'window_unhandledrejection');
         expect(a.error_fingerprint).toBe(b.error_fingerprint);
 
         // And nothing derived from the message carries the words themselves.
@@ -182,8 +212,8 @@ describe('F12 — the error fingerprint replaces an empty schema', () => {
         // bound, so removing quote-stripping entirely left it green. Here the quote arrives immediately,
         // where only the quote rule can remove it — two identical failures whose echoed values differ must
         // still fingerprint the same.
-        const a = fingerprintError(new Error('PostgrestError'), "transcript 'i want to talk about leaving my job' rejected");
-        const b = fingerprintError(new Error('PostgrestError'), "transcript 'entirely different words spoken here today' rejected");
+        const a = fingerprintError(new Error('PostgrestError'), "transcript 'i want to talk about leaving my job' rejected", 'window_unhandledrejection');
+        const b = fingerprintError(new Error('PostgrestError'), "transcript 'entirely different words spoken here today' rejected", 'window_unhandledrejection');
         expect(a.error_fingerprint).toBe(b.error_fingerprint);
         expect(JSON.stringify(a)).not.toContain('leaving');
     });
@@ -192,8 +222,8 @@ describe('F12 — the error fingerprint replaces an empty schema', () => {
         // Not all echoes are quoted. A bounded prefix means a long tail cannot contribute, so two errors
         // sharing an authored opening group together however different their tails are.
         const head = 'could not complete session: upstream rejected the request because ';
-        const a = fingerprintError(new Error('Error'), head + 'the speaker discussed their medical results');
-        const b = fingerprintError(new Error('Error'), head + 'the speaker discussed their divorce settlement');
+        const a = fingerprintError(new Error('Error'), head + 'the speaker discussed their medical results', 'window_unhandledrejection');
+        const b = fingerprintError(new Error('Error'), head + 'the speaker discussed their divorce settlement', 'window_unhandledrejection');
         expect(a.error_fingerprint).toBe(b.error_fingerprint);
         // The SIZE difference is still reportable, without the content.
         expect(a.message_length_band).toBeDefined();
@@ -202,19 +232,19 @@ describe('F12 — the error fingerprint replaces an empty schema', () => {
     it('GROUPS the same failure across occurrences that differ only by identifiers', () => {
         // Without normalization a failure carrying a fresh id each time produces a new fingerprint every
         // occurrence, and the grouping this exists to provide never happens.
-        const a = fingerprintError(new Error('x'), 'session 41ab90ff not found after 3 retries');
-        const b = fingerprintError(new Error('x'), 'session 7cd12e04 not found after 9 retries');
+        const a = fingerprintError(new Error('x'), 'session 41ab90ff not found after 3 retries', 'window_unhandledrejection');
+        const b = fingerprintError(new Error('x'), 'session 7cd12e04 not found after 9 retries', 'window_unhandledrejection');
         expect(a.error_fingerprint).toBe(b.error_fingerprint);
     });
 
     it('SEPARATES different error classes that share generic text', () => {
-        const a = fingerprintError(new TypeError('failed to fetch'), 'failed to fetch');
-        const b = fingerprintError(new RangeError('failed to fetch'), 'failed to fetch');
+        const a = fingerprintError(new TypeError('failed to fetch'), 'failed to fetch', 'window_unhandledrejection');
+        const b = fingerprintError(new RangeError('failed to fetch'), 'failed to fetch', 'window_unhandledrejection');
         expect(a.error_fingerprint).not.toBe(b.error_fingerprint);
     });
 
     it('every fingerprint field survives the GLOBAL_UNHANDLED_REJECTION schema', () => {
-        const fp = fingerprintError(new TypeError('boom'), 'boom');
+        const fp = fingerprintError(new TypeError('boom'), 'boom', 'window_unhandledrejection');
         const { props, dropped } = projectEventProps('GLOBAL_UNHANDLED_REJECTION', { ...fp });
         // The schema was `{}`, so this event shipped nothing at all. Every derived field must land.
         expect(dropped).toEqual([]);
@@ -223,15 +253,15 @@ describe('F12 — the error fingerprint replaces an empty schema', () => {
     });
 
     it('a non-Error rejection is described, not guessed at', () => {
-        expect(fingerprintError('just a string', 'just a string').reason_kind).toBe('string');
-        expect(fingerprintError(null, 'Unknown').reason_kind).toBe('nullish');
-        expect(fingerprintError(null, 'Unknown').error_name).toBeNull();
+        expect(fingerprintError('just a string', 'just a string', 'window_unhandledrejection').reason_kind).toBe('string');
+        expect(fingerprintError(null, 'Unknown', 'window_unhandledrejection').reason_kind).toBe('nullish');
+        expect(fingerprintError(null, 'Unknown', 'window_unhandledrejection').error_name).toBeNull();
     });
 
     it('prose assigned to error.name is rejected by the schema, not shipped', () => {
         const fp = fingerprintError(Object.assign(new Error('x'), {
             name: 'we could not find the transcript you asked for',
-        }), 'x');
+        }), 'x', 'window_unhandledrejection');
         const { props, dropped } = projectEventProps('GLOBAL_UNHANDLED_REJECTION', { ...fp });
         expect(dropped).toContain('error_name');
         expect(props).not.toHaveProperty('error_name');

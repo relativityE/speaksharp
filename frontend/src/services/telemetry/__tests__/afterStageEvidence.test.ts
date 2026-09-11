@@ -27,8 +27,10 @@ const FOCUS_POINTS = stage('session_after_focus_points');
 
 const row = (event: string, properties: Record<string, unknown> = {}, extra: Partial<DecodedTelemetryRow> = {}): DecodedTelemetryRow =>
     ({ event, properties, ...extra });
-const chainRows = (chain: readonly string[], start = 1_000) =>
-    chain.map((name, i) => row('stage_latency', { stage: name, duration_ms: 10 }, { timestamp: start + i }));
+const chainRows = (chain: readonly string[], start = 1_000, attemptId: string | null = 'attempt-1') =>
+    chain.map((name, i) => row('stage_latency',
+        { stage: name, duration_ms: 10, ...(attemptId === null ? {} : { attempt_id: attemptId }) },
+        { timestamp: start + i }));
 const reviewReceipt = (over: Record<string, unknown> = {}) =>
     row('transcript_authority', { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true, ...over });
 
@@ -83,6 +85,28 @@ describe('#1421 P1 `3984043479` — the After stages require a successful review
 });
 
 describe('#1421 P1 `3984043486` — the After stages require the applicable post-Stop chain, in order', () => {
+    it('CASUALTY (`3993611256`): a chain SPLICED from two attempts HOLDs — no single take completed it', () => {
+        // Take A produced the first two stages; the saved take produced the rest. Every stage exists and the
+        // times are ordered, so before this correction the readback reported QUALIFIED for a chain nobody ran.
+        const [first, second, ...rest] = OPEN_MIC_POST_STOP_CHAIN;
+        const rows = [
+            ...base(OPEN_MIC), reviewReceipt(),
+            ...chainRows([first, second], 1_000, 'attempt-A'),
+            ...chainRows(rest, 1_100, 'attempt-1'),
+        ];
+        expect(evaluateQualificationStage(OPEN_MIC, rows))
+            .toContain(`${OPEN_MIC.stage}: the post-Stop chain has no ${first} stage for the saved take's attempt`);
+    });
+
+    it('CONTROL (`3993611256`): one complete single-attempt chain qualifies; an unattributed chain does not', () => {
+        // The saved take in `base()` is `attempt-1`, and this chain is entirely its own.
+        expect(evaluateQualificationStage(OPEN_MIC, journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN))).toEqual([]);
+        // PM item 6 — no transition and no backfill: rows emitted before the attempt was carried do not qualify.
+        const unattributed = [...base(OPEN_MIC), reviewReceipt(), ...chainRows(OPEN_MIC_POST_STOP_CHAIN, 1_000, null)];
+        expect(evaluateQualificationStage(OPEN_MIC, unattributed))
+            .toContain(`${OPEN_MIC.stage}: the post-Stop chain has no ${OPEN_MIC_POST_STOP_CHAIN[0]} stage for the saved take's attempt`);
+    });
+
     it('CONTROL: Open Mic qualifies WITHOUT evaluation_complete; Focus Points qualifies with it', () => {
         expect(OPEN_MIC_POST_STOP_CHAIN).not.toContain('evaluation_complete');
         expect(FOCUS_POINTS_POST_STOP_CHAIN).toContain('evaluation_complete');
@@ -111,7 +135,7 @@ describe('#1421 P1 `3984043486` — the After stages require the applicable post
 
     it('CASUALTY: an out-of-order chain HOLDs at the stage that arrived too early', () => {
         const rows = [...base(OPEN_MIC), reviewReceipt(), ...OPEN_MIC_POST_STOP_CHAIN.map((name, i) =>
-            row('stage_latency', { stage: name }, { timestamp: name === 'session_saved' ? 1_000 : 2_000 + i }))];
+            row('stage_latency', { stage: name, attempt_id: 'attempt-1' }, { timestamp: name === 'session_saved' ? 1_000 : 2_000 + i }))];
         expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).toMatch(/out of order at session_saved/);
     });
 
@@ -123,7 +147,7 @@ describe('#1421 P1 `3984043486` — the After stages require the applicable post
 
     it('CONTROL: ISO readback timestamps order correctly', () => {
         const rows = [...base(OPEN_MIC), reviewReceipt(), ...OPEN_MIC_POST_STOP_CHAIN.map((name, i) =>
-            row('stage_latency', { stage: name }, { timestamp: `2026-09-11T18:00:0${i}Z` }))];
+            row('stage_latency', { stage: name, attempt_id: 'attempt-1' }, { timestamp: `2026-09-11T18:00:0${i}Z` }))];
         expect(evaluateQualificationStage(OPEN_MIC, rows)).toEqual([]);
     });
 });

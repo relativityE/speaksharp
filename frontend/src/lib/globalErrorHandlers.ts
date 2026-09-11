@@ -46,8 +46,10 @@ export const setupGlobalErrorHandlers = () => {
         // reached PostHog carrying NOTHING. These fields are derived rather than copied: the class
         // name, a digest that groups identical failures, and a length band. The message itself stays
         // in the log and in Sentry, which are internal sinks with different handling.
+        // #1421 Codex P1 `3993611247`: the fingerprint is derived from authored identity only — the error class,
+        // the reason kind, and this authored call-site slug. The message never reaches it.
         analyticsBuffer.push('GLOBAL_UNHANDLED_REJECTION',
-            { ...fingerprintError(event.reason, message) }, 'CRITICAL');
+            { ...fingerprintError(event.reason, message, 'window_unhandledrejection') }, 'CRITICAL');
 
         // Add debouncing to prevent UI flooding during network outages.
         // The raw `message` is kept in logs and Sentry (internal only) — NOT in analytics, which now
