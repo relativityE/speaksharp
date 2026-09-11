@@ -51,7 +51,7 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    reopened — nothing re-runs and nothing revalidates. `merge:guarded` is the only place this repository
    invokes a merge: immediately before merging it re-reads live thread state over GraphQL, revalidates
    the age of the green run's receipt, and refuses on a reopened thread, a stale or undated receipt, an
-   unreadable read, a head or base that moved since authorization, or a pull request in another repository. On a hold it exits non-zero having called
+   unreadable read, a head or base that moved since authorization, a pull request in another repository, or a `main` whose "require branches to be up to date" protection is not readable and enforced for admins (GitHub then also rejects an out-of-date head at merge time). On a hold it exits non-zero having called
    nothing.
 9. **Strict mode / serial landing:** every merge advances `main`, so any other open PR goes **BEHIND**. Bring it current first (this re-runs its CI), then merge — land PRs one at a time:
    ```bash

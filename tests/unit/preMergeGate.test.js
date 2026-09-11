@@ -79,9 +79,13 @@ const receiptAgedMinutes = (minutes, over = {}) => ({
 
 const runGate = async ({
   threads, priorReceipt, expectedHeadSha = HEAD, expectedBaseSha = BASE, repository = REPOSITORY, reader, live,
+  // GitHub's up-to-date enforcement as the operator's credentials read it. Enforced unless a case says otherwise.
+  protection = async () => 'enforced',
+  executor,
 }) => {
-  const mergeExecutor = vi.fn(async () => ({ sha: 'merged' }));
+  const mergeExecutor = executor ?? vi.fn(async () => ({ sha: 'merged' }));
   const readPullRequest = reader ?? vi.fn(async () => livePull(threads, live));
+  const readBaseProtection = vi.fn(protection);
   const outcome = await guardedMerge({
     repository,
     prNumber: 1430,
@@ -90,9 +94,10 @@ const runGate = async ({
     token: 't',
     priorReceipt,
     readPullRequest,
+    readBaseProtection,
     mergeExecutor,
   });
-  return { outcome, mergeExecutor, readPullRequest };
+  return { outcome, mergeExecutor, readPullRequest, readBaseProtection };
 };
 
 describe('#1430 P1 — the pre-merge boundary rereads live state and revalidates the receipt', () => {
@@ -307,5 +312,71 @@ describe('#1430 P1s `3986417422` + `3986417417` — the merge is bound to the au
     expect(mergeExecutor).toHaveBeenCalledWith({
       repository: REPOSITORY, number: 1430, expectedHeadSha: HEAD, expectedBaseSha: BASE,
     });
+  });
+});
+
+describe('#1430 P1 `3988517243` — the merge proceeds only where GitHub itself enforces an up-to-date base', () => {
+  const resolved = () => [thread(true, 'P1 Badge — addressed and resolved')];
+
+  /*
+   * No client-side merge API can pin the base SHA: `gh pr merge` and every GraphQL merge input bind the HEAD
+   * only. The race between the guard's final live base read and the merge is therefore closed by GitHub's own
+   * "Require branches to be up to date before merging" rule, bound to admins too, which rejects an out-of-date
+   * head at merge time. This boundary's job is to REFUSE unless that enforcement is read and enabled, and to
+   * report GitHub's rejection honestly when the race is lost.
+   *
+   * Every refusal is asserted with `toEqual([code])`, so exactly one predicate can refuse each case.
+   */
+
+  it('CASUALTY: up-to-date enforcement read as NOT enforced refuses the merge', async () => {
+    const { outcome, mergeExecutor } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1), protection: async () => 'not_enforced',
+    });
+    expect(mergeExecutor, 'without platform enforcement the base race is open').not.toHaveBeenCalled();
+    expect(outcome.holds).toEqual([PRE_MERGE_HOLD.UP_TO_DATE_NOT_ENFORCED]);
+  });
+
+  it('CASUALTY: anything but the exact `enforced` verdict refuses — a truthy value is not enforcement', async () => {
+    for (const verdict of [true, 'ENFORCED', undefined, null, { strict: true }]) {
+      const { outcome, mergeExecutor } = await runGate({
+        threads: resolved(), priorReceipt: receiptAgedMinutes(1), protection: async () => verdict,
+      });
+      expect(mergeExecutor, `verdict ${JSON.stringify(verdict)} must not merge`).not.toHaveBeenCalled();
+      expect(outcome.holds).toEqual([PRE_MERGE_HOLD.UP_TO_DATE_NOT_ENFORCED]);
+    }
+  });
+
+  it('CASUALTY: UNREADABLE enforcement refuses — unreadable is never treated as enabled', async () => {
+    const { outcome, mergeExecutor } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1),
+      protection: async () => { throw new Error('github_api_403'); },
+    });
+    expect(mergeExecutor).not.toHaveBeenCalled();
+    expect(outcome.holds).toEqual([PRE_MERGE_HOLD.UP_TO_DATE_UNREADABLE]);
+  });
+
+  it('CASUALTY (race analogue): GitHub rejecting the merge after the final live read is reported, never as merged', async () => {
+    /**
+     * The base can still advance between the guard's last read and the merge call. With strict enforcement
+     * GitHub refuses the now out-of-date head, and the executor surfaces that as a failure. The rejection must be
+     * reported by name; it must neither escape as an unhandled error nor read as a merge.
+     */
+    const { outcome, mergeExecutor } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1),
+      executor: vi.fn(async () => { throw new Error('gh_pr_merge_failed_status_1'); }),
+    });
+    expect(mergeExecutor, 'the merge was attempted').toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ merged: false, mergeInvoked: true, holds: [PRE_MERGE_HOLD.MERGE_REJECTED] });
+  });
+
+  it('POSITIVE CONTROL: enforced up-to-date protection and the exact tuple DOES merge, after reading enforcement for this repository', async () => {
+    const { outcome, mergeExecutor, readBaseProtection } = await runGate({
+      threads: resolved(), priorReceipt: receiptAgedMinutes(1),
+    });
+    expect(readBaseProtection, 'enforcement was read for the authorized repository').toHaveBeenCalledWith({
+      repository: REPOSITORY, token: 't',
+    });
+    expect(mergeExecutor).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ merged: true, mergeInvoked: true, holds: [] });
   });
 });

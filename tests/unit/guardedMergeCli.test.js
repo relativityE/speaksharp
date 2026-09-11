@@ -47,9 +47,10 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 /** A stand-in for `gh` that records the fact it ran. Its existence is the observation. */
-function recorderGh() {
+function recorderGh(exitCode = 0) {
   const bin = join(dir, 'gh-recorder');
-  writeFileSync(bin, `#!/bin/sh\nprintf '%s' "$*" > ${JSON.stringify(marker)}\nexit 0\n`);
+  // A non-zero `exitCode` models GitHub refusing the merge after the attempt (e.g. an out-of-date head).
+  writeFileSync(bin, `#!/bin/sh\nprintf '%s' "$*" > ${JSON.stringify(marker)}\nexit ${exitCode}\n`);
   chmodSync(bin, 0o755);
   return bin;
 }
@@ -61,6 +62,8 @@ function recorderGh() {
 function fakeGraphql({
   threads, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false,
   liveBase = BASE, liveRepository = REPOSITORY,
+  // `main`'s classic branch protection as the REST API would return it to the operator's token.
+  protection = { status: 200, strict: true, enforceAdmins: true },
 }) {
   const pullRequest = {
     number: 1430,
@@ -99,7 +102,18 @@ function fakeGraphql({
   writeFileSync(loader, `
 const body = ${JSON.stringify(body)};
 const comments = ${JSON.stringify(JSON.stringify(comments))};
-globalThis.fetch = async (_url, init) => {
+globalThis.fetch = async (url, init) => {
+  // The protection read is a REST GET; everything else is the GraphQL review read.
+  if (String(url).includes('/branches/main/protection')) {
+    const p = ${JSON.stringify(protection)};
+    return {
+      ok: p.status === 200, status: p.status,
+      json: async () => ({
+        required_status_checks: p.strict === null ? null : { strict: p.strict, contexts: [] },
+        enforce_admins: { enabled: p.enforceAdmins },
+      }),
+    };
+  }
   const { query = '' } = JSON.parse(init?.body ?? '{}');
   const payload = JSON.parse(body);
   if (query.includes('} comments(last:100){nodes{author{login} authorAssociation')) {
@@ -148,15 +162,18 @@ const receipt = (minutesOld, extra = {}, omit = []) => {
 function runCli({
   threads, receiptPath, sha = HEAD, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false,
   repository = REPOSITORY, baseSha = BASE, liveBase = BASE, liveRepository = REPOSITORY,
+  protection, ghExitCode = 0,
 }) {
-  const stub = fakeGraphql({ threads, headRefOid, truncatedThreads, cleanResultOnly, liveBase, liveRepository });
+  const stub = fakeGraphql({
+    threads, headRefOid, truncatedThreads, cleanResultOnly, liveBase, liveRepository, protection,
+  });
   // `null` omits the flag entirely, so a case can model an operator who never supplied it.
   const run = spawnSync(process.execPath, ['--import', stub, CLI,
     ...(repository === null ? [] : [`--repo=${repository}`]), '--pr=1430', `--sha=${sha}`,
     ...(baseSha === null ? [] : [`--base-sha=${baseSha}`]),
     ...(receiptPath ? [`--receipt=${receiptPath}`] : [])], {
     cwd: REPO,
-    env: { ...process.env, ...ISOLATED_ENV, GITHUB_TOKEN: 'test-token', GUARDED_MERGE_GH_BIN: recorderGh() },
+    env: { ...process.env, ...ISOLATED_ENV, GITHUB_TOKEN: 'test-token', GUARDED_MERGE_GH_BIN: recorderGh(ghExitCode) },
     encoding: 'utf8',
   });
   return { run, mergeAttempted: existsSync(marker) };
@@ -425,6 +442,57 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
       expect(mergeAttempted, `--base-sha ${JSON.stringify(baseSha)} must not merge`).toBe(false);
       expect(run.status, 'an unusable authorization is a usage error').toBe(2);
     }
+  });
+
+  it('CASUALTY: `main` WITHOUT strict up-to-date enforcement never invokes gh', () => {
+    /**
+     * Codex P1 `3988517243`. No merge API can pin the base SHA, so only GitHub's "Require branches to be up to
+     * date before merging" rule closes the race between the final live base read and the merge. Without it the
+     * guard refuses, whether strict is switched off or status checks are not required at all.
+     */
+    for (const strict of [false, null]) {
+      const { run, mergeAttempted } = runCli({
+        threads: [thread(true, 'P1 Badge — resolved')], receiptPath: receipt(1),
+        protection: { status: 200, strict, enforceAdmins: true },
+      });
+      expect(mergeAttempted, `strict=${JSON.stringify(strict)} must not merge`).toBe(false);
+      expect(run.stderr).toContain('pre_merge_base_up_to_date_not_enforced');
+    }
+  });
+
+  it('CASUALTY: strict enforcement that ADMINS can bypass never invokes gh', () => {
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')], receiptPath: receipt(1),
+      protection: { status: 200, strict: true, enforceAdmins: false },
+    });
+    expect(mergeAttempted, 'an operator with admin rights would not be bound by the rule').toBe(false);
+    expect(run.stderr).toContain('pre_merge_base_up_to_date_not_enforced');
+  });
+
+  it('CASUALTY: UNREADABLE protection never invokes gh — unreadable is not enabled', () => {
+    for (const status of [401, 403, 404]) {
+      const { run, mergeAttempted } = runCli({
+        threads: [thread(true, 'P1 Badge — resolved')], receiptPath: receipt(1),
+        protection: { status, strict: true, enforceAdmins: true },
+      });
+      expect(mergeAttempted, `protection HTTP ${status} must not merge`).toBe(false);
+      expect(run.stderr).toContain('pre_merge_base_up_to_date_enforcement_unreadable');
+    }
+  });
+
+  it('CASUALTY (race analogue): GitHub REJECTING the merge exits non-zero and never reports MERGED', () => {
+    /**
+     * The base can advance between the guard's final live read and the merge call. With strict up-to-date
+     * enforcement GitHub then refuses the out-of-date head and `gh` exits non-zero. The recorder models that
+     * refusal: it records the attempt, then exits 1. The CLI must name the rejection and fail.
+     */
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved')], receiptPath: receipt(1), ghExitCode: 1,
+    });
+    expect(mergeAttempted, 'the merge was attempted').toBe(true);
+    expect(run.status, 'and the command failed').not.toBe(0);
+    expect(run.stdout).not.toContain('MERGED');
+    expect(run.stderr).toContain('pre_merge_merge_rejected_by_github');
   });
 
   it('POSITIVE CONTROL: a clean-result COMMENT with no review object DOES invoke gh', () => {

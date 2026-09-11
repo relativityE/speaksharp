@@ -70,6 +70,15 @@ export const PRE_MERGE_HOLD = Object.freeze({
   LIVE_WRONG_REPOSITORY: 'pre_merge_live_pull_request_in_another_repository',
   BASE_MOVED: 'pre_merge_base_moved',
   BASE_NOT_MAIN: 'pre_merge_base_branch_is_not_main',
+  /*
+   * #1430 P1 `3988517243`. The base can advance between the guard's final live read and the merge, and no
+   * merge API can pin it. GitHub's "Require branches to be up to date before merging", bound to admins, is what
+   * rejects an out-of-date head at merge time — so the guard requires that enforcement, and reports GitHub's
+   * rejection by name when the race is lost.
+   */
+  UP_TO_DATE_NOT_ENFORCED: 'pre_merge_base_up_to_date_not_enforced',
+  UP_TO_DATE_UNREADABLE: 'pre_merge_base_up_to_date_enforcement_unreadable',
+  MERGE_REJECTED: 'pre_merge_merge_rejected_by_github',
 });
 
 /**
@@ -132,6 +141,7 @@ export async function guardedMerge({
   token,
   priorReceipt,
   readPullRequest,
+  readBaseProtection,
   mergeExecutor,
   now = Date.now(),
   maxAgeMs = RECEIPT_MAX_AGE_MS,
@@ -227,12 +237,46 @@ export async function guardedMerge({
     }
   }
 
+  /*
+   * THE BASE RACE IS CLOSED BY GITHUB, SO REQUIRE THAT GITHUB IS CLOSING IT.
+   *
+   * `gh pr merge` and every GraphQL merge input bind the HEAD only, so the base can still advance between the
+   * live read above and the merge below. With "Require branches to be up to date before merging" enforced for
+   * admins, GitHub itself rejects an out-of-date head at merge time — the atomic check this boundary cannot
+   * perform. Only the exact `enforced` verdict passes. A read that fails (or a reader that was never supplied)
+   * is unreadable, and unreadable is never enabled.
+   */
+  let upToDate;
+  let upToDateUnreadable = false;
+  try {
+    upToDate = await readBaseProtection({ repository, token });
+  } catch {
+    upToDateUnreadable = true;
+  }
+  if (upToDateUnreadable) holds.push(PRE_MERGE_HOLD.UP_TO_DATE_UNREADABLE);
+  else if (upToDate !== 'enforced') holds.push(PRE_MERGE_HOLD.UP_TO_DATE_NOT_ENFORCED);
+
   if (holds.length > 0) {
     // The executor is NEVER reached on a hold. That is the whole contract.
     return { merged: false, holds, mergeInvoked: false };
   }
 
-  const result = await mergeExecutor({ repository, number: prNumber, expectedHeadSha, expectedBaseSha });
+  /*
+   * The merge can still be refused — above all when the base advanced after the final live read and GitHub
+   * rejects the now out-of-date head. That is a rejection to report by name: never an unhandled error, and
+   * never a merge.
+   */
+  let result;
+  try {
+    result = await mergeExecutor({ repository, number: prNumber, expectedHeadSha, expectedBaseSha });
+  } catch (error) {
+    return {
+      merged: false,
+      holds: [PRE_MERGE_HOLD.MERGE_REJECTED],
+      mergeInvoked: true,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
   return { merged: true, holds: [], mergeInvoked: true, result };
 }
 
@@ -260,6 +304,27 @@ async function readPullRequestLive({ repository, number, token }) {
     throw new Error('github_graphql_pull_request_unavailable');
   }
   return payload.data.repository.pullRequest;
+}
+
+/**
+ * THE PROTECTION READER. Reads `main`'s classic branch protection with the operator's own token and returns
+ * `'enforced'` only when GitHub will reject an out-of-date head for EVERY actor: required status checks in
+ * strict ("up to date") mode AND `enforce_admins`. Strict mode that admins may bypass would not bind an admin
+ * operator. Any non-OK response throws, and the caller holds on it as unreadable.
+ */
+async function readBaseProtectionLive({ repository, token }) {
+  const res = await fetch(`https://api.github.com/repos/${repository}/branches/main/protection`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (!res.ok) throw new Error(`github_protection_http_${res.status}`);
+  const protection = await res.json();
+  return protection?.required_status_checks?.strict === true && protection?.enforce_admins?.enabled === true
+    ? 'enforced'
+    : 'not_enforced';
 }
 
 /**
@@ -317,11 +382,17 @@ export async function main(argv = process.argv.slice(2)) {
     token,
     priorReceipt,
     readPullRequest: readPullRequestLive,
+    readBaseProtection: readBaseProtectionLive,
     mergeExecutor: ghMergeExecutor,
   });
 
   if (!outcome.mergeInvoked) {
     console.error(`MERGE HELD: ${outcome.holds.join(', ')}`);
+    return 1;
+  }
+  if (!outcome.merged) {
+    // Attempted and refused — e.g. GitHub rejected an out-of-date head after the base advanced.
+    console.error(`MERGE NOT COMPLETED: ${outcome.holds.join(', ')} (${outcome.error ?? 'no detail'})`);
     return 1;
   }
   console.log(`MERGED ${repository}#${prNumber} at ${expectedHeadSha} onto base ${expectedBaseSha}`);
