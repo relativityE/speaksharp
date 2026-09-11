@@ -339,9 +339,19 @@ function normaliseRef(ref) {
   return String(ref ?? '').replace(/^refs\/heads\//, '').trim().toLowerCase();
 }
 
+/**
+ * #1430 P1 `3985755149` — ONE QUERY FOR EVERY READER OF REVIEW EVIDENCE.
+ *
+ * The pre-merge gate had its own copy of this query. When the clean-result surface became load-bearing
+ * I added `comments` here and not there, so the gate could never see Codex's zero-finding result and
+ * refused every legitimately clean PR at merge. Two copies of an evidence query can disagree about what
+ * the evidence is; one exported copy cannot.
+ */
+export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100){nodes{author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage}}}}}`;
+
 async function readPullRequest({ repository, number, token }) {
   const [owner, name] = repository.split('/');
-  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100){nodes{author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage}}}}}`;
+  const query = PULL_REQUEST_REVIEW_QUERY;
   const payload = await githubRequest('/graphql', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

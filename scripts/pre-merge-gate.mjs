@@ -28,7 +28,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { buildReviewReceipt } from './collect-review-qualification.mjs';
+import { buildReviewReceipt, PULL_REQUEST_REVIEW_QUERY } from './collect-review-qualification.mjs';
 import { RECEIPT_MAX_AGE_MS } from './review-qualification.mjs';
 
 /** Why a merge was refused. Bounded, so a caller cannot invent a reason that reads as permission. */
@@ -196,7 +196,8 @@ export async function guardedMerge({
  */
 async function readPullRequestLive({ repository, number, token }) {
   const [owner, name] = String(repository).split('/');
-  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}}}}}`;
+  // The collector's query, not a copy: a private copy here omitted `comments` and hid every clean result.
+  const query = PULL_REQUEST_REVIEW_QUERY;
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
     headers: {

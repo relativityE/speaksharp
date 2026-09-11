@@ -46,7 +46,7 @@ function recorderGh() {
  * A stand-in GraphQL endpoint. The CLI's live reader is a real `fetch`, so the read is intercepted at
  * the network boundary rather than by swapping the reader — which keeps the CLI under test whole.
  */
-function fakeGraphql({ threads, headRefOid = HEAD, truncatedThreads = false }) {
+function fakeGraphql({ threads, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false }) {
   const pullRequest = {
     number: 1430,
     headRefOid,
@@ -56,7 +56,8 @@ function fakeGraphql({ threads, headRefOid = HEAD, truncatedThreads = false }) {
     // clean while another page exists, which is the second defect Codex found.
     ...(truncatedThreads ? {} : {}),
     reviews: {
-      nodes: [{
+      // `cleanResultOnly` models Codex's zero-finding outcome, which creates NO review object at all.
+      nodes: cleanResultOnly ? [] : [{
         author: { login: bot }, state: 'COMMENTED', commit: { oid: HEAD },
         body: 'reviewed', submittedAt: '2026-09-10T20:00:00Z',
       }],
@@ -64,11 +65,33 @@ function fakeGraphql({ threads, headRefOid = HEAD, truncatedThreads = false }) {
     },
     reviewThreads: { nodes: threads, pageInfo: { hasNextPage: truncatedThreads } },
   };
+  // Codex's clean result lives ONLY in the PR's issue comments, with the reviewed head in its footer.
+  const comments = {
+    nodes: cleanResultOnly ? [{
+      author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:00Z',
+      body: `Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
+    }] : [],
+    pageInfo: { hasPreviousPage: false },
+  };
   const body = JSON.stringify({ data: { repository: { pullRequest } } });
   const loader = join(dir, 'fetch-stub.mjs');
+  /**
+   * THE STUB ANSWERS THE QUERY IT IS SENT. It used to return one canned payload whatever was asked,
+   * so no case could observe what the gate actually requests from GitHub — which is how a live query
+   * missing `comments` stayed green. Real GraphQL omits every field that is not selected; so does this.
+   * Only the top-level issue-comment selection carries `authorAssociation`, which is what it keys on.
+   */
   writeFileSync(loader, `
 const body = ${JSON.stringify(body)};
-globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => JSON.parse(body) });
+const comments = ${JSON.stringify(JSON.stringify(comments))};
+globalThis.fetch = async (_url, init) => {
+  const { query = '' } = JSON.parse(init?.body ?? '{}');
+  const payload = JSON.parse(body);
+  if (query.includes('} comments(last:100){nodes{author{login} authorAssociation')) {
+    payload.data.repository.pullRequest.comments = JSON.parse(comments);
+  }
+  return { ok: true, status: 200, json: async () => payload };
+};
 `);
   return loader;
 }
@@ -101,8 +124,8 @@ const receipt = (minutesOld, extra = {}, omit = []) => {
   return file;
 };
 
-function runCli({ threads, receiptPath, sha = HEAD, headRefOid = HEAD, truncatedThreads = false }) {
-  const stub = fakeGraphql({ threads, headRefOid, truncatedThreads });
+function runCli({ threads, receiptPath, sha = HEAD, headRefOid = HEAD, truncatedThreads = false, cleanResultOnly = false }) {
+  const stub = fakeGraphql({ threads, headRefOid, truncatedThreads, cleanResultOnly });
   const run = spawnSync(process.execPath, ['--import', stub, CLI,
     '--repo=relativityE/speaksharp', '--pr=1430', `--sha=${sha}`,
     ...(receiptPath ? [`--receipt=${receiptPath}`] : [])], {
@@ -334,6 +357,23 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
     expect(mergeAttempted, 'an incomplete read is not a clean one').toBe(false);
     expect(run.stderr).toContain('pre_merge_live_receipt_not_qualified');
     expect(run.stderr, 'and it names WHY it could not be trusted').toContain('review_threads_incomplete');
+  });
+
+  it('POSITIVE CONTROL: a clean-result COMMENT with no review object DOES invoke gh', () => {
+    /**
+     * Codex P1 `3985755149` at `c33644cd3e`. When Codex finds nothing it posts an issue comment and
+     * creates NO review object — the normal clean outcome. The live query did not select `comments`,
+     * so the gate could never see that evidence and refused every legitimately clean PR at merge.
+     *
+     * Every other case in this file carries a review object, which is why none of them could notice.
+     * No threads and a fresh bound receipt, so the clean-result comment is the only thing that can
+     * qualify this read — and the stub returns it only if the gate actually asks for it.
+     */
+    const { run, mergeAttempted } = runCli({ threads: [], receiptPath: receipt(1), cleanResultOnly: true });
+
+    expect(run.stderr, 'no hold may be reported for a clean-result comment').not.toContain('MERGE HELD');
+    expect(mergeAttempted, 'a clean-result comment alone is sufficient evidence to merge').toBe(true);
+    expect(run.status).toBe(0);
   });
 
   it('POSITIVE CONTROL: a fresh receipt and a clean live read DOES invoke gh, with the exact head', () => {
