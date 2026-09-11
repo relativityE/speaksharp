@@ -11,10 +11,16 @@
 
 # SpeakSharp Roadmap
 
+> **Baseline `55912522ebf4aa11672cdc42413e557b408f3f25`** (`main`, 2026-09-05, #1419). The deployed
+> release is recorded separately in `RELEASE_STATUS.md` and is a READ of production, never inferred
+> from this pointer — `main` moving is not a deploy.
+
+This file contains unfinished work only. Completion belongs in git history and dated evidence; current deployment facts belong in `RELEASE_STATUS.md`.
+
 <!-- CURRENCY-BLOCK
-baseline: c4665156212dd03cd6d7b91c49bed90dea868b5a
+baseline: 55912522ebf4aa11672cdc42413e557b408f3f25
 deployed-release: c4665156212dd03cd6d7b91c49bed90dea868b5a
-verified-on: 2026-09-04
+verified-on: 2026-09-05
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged

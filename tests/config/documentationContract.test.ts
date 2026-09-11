@@ -438,13 +438,36 @@ describe('#1258 currency guard — release status and roadmap must not contradic
     expect(COORDINATION).toContain(short);
   });
 
-  it('the recorded baseline is a real ancestor without misclassifying a long-lived PR as stale', () => {
-    // A branch may legitimately contain many review commits above the last verified `main`. Counting
-    // baseline..HEAD therefore measures PR size, not currency. This local guard proves ancestry and
-    // internal consistency; RELEASE_STATUS explicitly requires GitHub `main` and Production to be
-    // re-read externally because a committed test cannot observe either moving authority.
+  it('the recorded baseline is a REAL, RECENT ancestor of the MAINLINE', () => {
+    // The check that actually measures staleness. "Both files agree" and "the SHA appears in the
+    // prose" are both satisfied by a superseded commit — `5f378898` is still named in RELEASE_STATUS
+    // as a worked example, so a mutant that set the baseline back to it passed every other assertion
+    // here. Distance is the thing that cannot be faked by editing prose.
+    //
+    // MEASURED AGAINST `origin/main`, NOT `HEAD`. `baseline..HEAD` counts the CURRENT BRANCH's own
+    // commits, so a long recovery branch failed for being long rather than for being stale: this
+    // branch scored 27 against a baseline that was `main`'s exact tip — a false failure on a board
+    // that was perfectly current. What the docstring describes, and what a reader is harmed by, is
+    // the board lagging the MAINLINE.
+    //
+    // Measured on real data rather than argued, including the mutant this guard exists to catch:
+    //
+    //                                      ..HEAD   ..origin/main   ..merge-base
+    //   this branch, baseline = main tip      27          0               0
+    //   superseded 5f378898 (still in prose)  95         38               0
+    //
+    // `merge-base` was rejected on that evidence: the merge-base of an old commit and a branch
+    // descended from it IS that old commit, so the superseded baseline scores 0 and passes silently.
+    // Trading a false failure for a false pass is strictly worse than the defect being fixed.
     try {
       execFileSync('git', ['cat-file', '-e', `${status.baseline}^{commit}`], { stdio: 'pipe' });
+      // From `main`'s independent fix for this same defect, kept: the baseline must be a real
+      // ANCESTOR, not merely a commit that exists somewhere in the repository.
+      //
+      // Its distance half is deliberately NOT kept. That version proves ancestry and stops, which
+      // passes the superseded `5f378898` — an ancestor by definition — and so removes the staleness
+      // detection this guard is named for. Ancestry plus mainline distance keeps both properties:
+      // a long-lived branch is not misclassified, and a genuinely stale board still fails.
       execFileSync('git', ['merge-base', '--is-ancestor', status.baseline, 'HEAD'], { stdio: 'pipe' });
     } catch (error) {
       throw new Error(
@@ -452,6 +475,33 @@ describe('#1258 currency guard — release status and roadmap must not contradic
         + `${(error as Error).message.split('\n')[0]}`,
       );
     }
+
+    let mainline: string;
+    try {
+      // CI checks out full history (`ci.yml` sets `fetch-depth: 0`), so this ref is present. Where it
+      // is not — a shallow checkout, a renamed remote — this FAILS LOUDLY and by name. It must never
+      // degrade to a weaker measure: converting a false failure into a false pass is the one outcome
+      // worse than the problem being fixed.
+      mainline = execFileSync('git', ['rev-parse', '--verify', 'origin/main^{commit}'], { encoding: 'utf8' }).trim();
+    } catch (error) {
+      throw new Error(
+        'cannot resolve `origin/main`, so staleness against the mainline is UNMEASURED. This check '
+        + 'does not fall back to a weaker comparison: a shallow checkout fails here rather than '
+        + `passing quietly. Underlying: ${(error as Error).message.split('\n')[0]}`,
+      );
+    }
+
+    const distance = Number(
+      execFileSync('git', ['rev-list', '--count', `${status.baseline}..${mainline}`], { encoding: 'utf8' }).trim(),
+    );
+    expect(Number.isFinite(distance)).toBe(true);
+    // Generous, because a board legitimately lags a little — but a board thirty commits behind the
+    // mainline is describing a product state that no longer exists, which is the failure this exists
+    // to catch.
+    expect(distance, `baseline is ${distance} commits behind origin/main — currentize the SSOTs`)
+      .toBeLessThanOrEqual(25);
+    // From `main`: the file must SAY that it cannot read the moving authorities, so a reader is
+    // not misled into thinking this local guard verified GitHub or Production.
     expect(STATUS).toMatch(/cannot read a moving GitHub branch or Production deployment/i);
   });
 

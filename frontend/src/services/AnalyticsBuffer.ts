@@ -3,10 +3,13 @@ import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
 import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetrySanitizer';
+import { sanitizeV4TelemetryProps, isV4TelemetryEvent } from './transcription/privateV4TelemetrySanitizer';
 import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
+import { beginJourney } from './telemetry/journeyIdentity';
 import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources, type EventEnvelope } from './telemetry/envelope';
 import { buildTrafficSignals } from './telemetry/trafficType';
 import { resolvedEngine } from './telemetry/runtimeAttribution';
+import { recordDrop, recordFlush, setTelemetryHealthEmitter, isHealthEvent } from './telemetry/telemetryHealth';
 
 
 /**
@@ -48,6 +51,32 @@ interface AnalyticsEvent {
 // Widening the pattern only defers the problem to the next field someone invents. Event properties are now
 // projected onto a per-event allowlist in `telemetryAllowlist.ts`, which fails CLOSED on anything unknown.
 
+/**
+ * Every governed family for which this tab has ATTEMPTED a send. Names only — never properties, never
+ * Private names.
+ *
+ * NOT "delivered", and the distinction is the whole point. `posthog.capture()` is fire-and-forget: it
+ * returns once the SDK has accepted the event, which says nothing about whether the server ingested it.
+ * Calling that delivery would be the same false-pass one layer along from calling the producer call
+ * delivery — a tab whose requests all failed in the network would still report a full set.
+ *
+ * So this is producer/SDK-attempt evidence, and it is not release evidence. It answers "did this tab
+ * try to emit the required families?", which is worth knowing while debugging a session. Whether the
+ * required families actually EXIST is answered only by reading them back from the server — see
+ * `scripts/telemetry-readback-qualification.mts`, which is what governs a release.
+ */
+const attemptedFamilies = new Set<string>();
+
+/** The families this tab attempted. A copy, so a caller cannot edit the record it is reading. */
+export function attemptedEventFamilies(): string[] {
+  return [...attemptedFamilies];
+}
+
+/** Test seam only. */
+export function __resetObservedEventFamiliesForTests(): void {
+  attemptedFamilies.clear();
+}
+
 class AnalyticsBuffer {
   private static instance: AnalyticsBuffer;
 
@@ -71,6 +100,18 @@ class AnalyticsBuffer {
   private static currentAccountId: string | null = null;
 
   /**
+   * #1259 — the SERVER'S claim that this account is an internal tester.
+   *
+   * Held beside the account id because it arrives with the same session and has the same lifetime. It
+   * is never read from a build-time list: a `VITE_*` allowlist would compile the tester account ids
+   * into the public bundle, which is how the first attempt at this failed review.
+   */
+  private static currentInternalTesterClaim = false;
+
+  /** The server's claim that this account is the automated qualification canary. Same rules. */
+  private static currentCanaryClaim = false;
+
+  /**
    * THE PRODUCTION SOURCES — the default, not an opt-in.
    *
    * This used to default to `() => ({})`, so every field was null and every session read as `user`
@@ -91,6 +132,8 @@ class AnalyticsBuffer {
       trafficSignals: buildTrafficSignals(
         import.meta.env as unknown as Record<string, string | undefined>,
         AnalyticsBuffer.currentAccountId,
+        AnalyticsBuffer.currentInternalTesterClaim,
+        AnalyticsBuffer.currentCanaryClaim,
       ),
     };
   }
@@ -116,6 +159,10 @@ class AnalyticsBuffer {
   /** @internal */
   public readonly MAX_QUEUE_SIZE = 1000;
   private readonly BATCH_SIZE = 10;
+  /** Backpressure drops since the last report. Counted in push(), reported on drain — see push(). */
+  private backpressureDropped = 0;
+  /** Whether this drain carried anything other than health events. Breaks the report/requeue loop. */
+  private sentNonHealthSinceDrain = false;
 
   // Non-PII identity observability probe (mirrored to window.__SS_ANALYTICS_IDENTITY__) so a deployed
   // proof can confirm EXACTLY which step of the identify path ran — without guessing from network
@@ -130,7 +177,46 @@ class AnalyticsBuffer {
 
   private constructor() {
     if (typeof window !== 'undefined') {
-      window.addEventListener('pagehide', () => this.drainSynchronously());
+      /**
+       * #1259 F12 — REPORT THE TEARDOWN DRAIN, not just perform it.
+       *
+       * `pagehide_drained` was declared as a flush outcome and allowlisted, and no production path ever
+       * emitted it — so the health signal could not distinguish "the queue was forced out as the tab
+       * closed" from an ordinary flush, nor say how much was still pending when it happened. A declared
+       * outcome nothing can produce reads, in a dashboard, exactly like one that never occurred.
+       *
+       * Measured BEFORE the drain, because the depth after it is always zero and the interesting number
+       * is what teardown had to force. Emitted first, then drained, so the health event is itself in the
+       * queue this drain flushes — on `pagehide` there is no later opportunity to send it.
+       */
+      window.addEventListener('pagehide', () => {
+        /**
+         * CAPACITY-SAFE. The report must not cost a product receipt, and must not understate the drop it
+         * causes.
+         *
+         * At a full queue, enqueueing this health event evicts the oldest entry and increments
+         * `backpressureDropped` — AFTER the value being reported was read. So the observability signal
+         * destroyed a real receipt and then under-reported by exactly the drop it had just caused. On
+         * `pagehide` there is no later flush to correct it: the tab closes with the wrong number.
+         *
+         * Space is therefore reserved BEFORE reporting. If the queue is at capacity, one entry is
+         * evicted deliberately and counted, so the number sent already includes the cost of sending it.
+         * Deliberate and counted is a different thing from incidental and invisible — the receipt is
+         * still lost, but the report says so.
+         *
+         * Depth is measured before the drain, because afterwards it is always zero and the interesting
+         * number is what teardown had to force.
+         */
+        if (this.queue.length >= this.MAX_QUEUE_SIZE) {
+          this.queue.shift();
+          this.backpressureDropped += 1;
+        }
+        const pending = this.queue.length;
+        const dropped = this.backpressureDropped;
+        this.backpressureDropped = 0;
+        recordFlush('pagehide_drained', pending, dropped);
+        this.drainSynchronously();
+      });
     }
   }
 
@@ -172,6 +258,13 @@ class AnalyticsBuffer {
     modelAttributionVerified = true,
   ): void {
 
+    // NOTE: the completeness record is NOT written here. It used to be, on the argument that the gate
+    // asks whether the instrumentation ran rather than whether the transport delivered. That argument
+    // was wrong about this gate. Its whole purpose is to notice that a required event is ABSENT FROM
+    // THE READBACK, and an event recorded here and then evicted by the backpressure branch a few lines
+    // below is absent from the readback while the gate reports QUALIFIED — the exact false pass it was
+    // built to prevent. The record is written at delivery, in `send()`.
+
     const analyticsEvent: AnalyticsEvent = {
       event,
       properties,
@@ -192,6 +285,12 @@ class AnalyticsBuffer {
     // Backpressure: Drop oldest if queue is full
     if (this.queue.length >= this.MAX_QUEUE_SIZE) {
       this.queue.shift(); // Drop oldest
+      // #1259 F12 — a silent backpressure drop is indistinguishable from an event that was never
+      // produced, so it must be reported. NOT from here: emitting inside the full-queue branch pushes
+      // an event into the queue that is already full, which drops another, which emits again — an
+      // unbounded recursion whose first symptom would be a hung tab. Counted here, reported once the
+      // queue actually drains.
+      this.backpressureDropped += 1;
     }
 
     this.queue.push(analyticsEvent);
@@ -254,6 +353,15 @@ class AnalyticsBuffer {
     } else {
       this.isFlushing = false;
       logger.debug('[AnalyticsBuffer] Background flush complete');
+      // Report a drain ONLY when this pass carried real traffic. A health event is itself queued, so
+      // reporting every drain means: drain -> emit health -> queue non-empty -> drain -> emit health,
+      // forever. The flag makes the loop close after one report.
+      if (this.sentNonHealthSinceDrain) {
+        this.sentNonHealthSinceDrain = false;
+        const dropped = this.backpressureDropped;
+        this.backpressureDropped = 0;
+        recordFlush(dropped > 0 ? 'backpressure_dropped' : 'drained', this.queue.length, dropped);
+      }
     }
   }
 
@@ -266,9 +374,26 @@ class AnalyticsBuffer {
   }
 
   /**
+   * #1259 F12 — the health emitter, injected rather than imported by the health module.
+   *
+   * The dependency runs one way: the boundary knows how to send, the health module knows what is worth
+   * saying. Wiring it the other way would make a telemetry module import the buffer that imports it.
+   */
+  public wireHealthEmitter(): void {
+    setTelemetryHealthEmitter((event, props, priority) => {
+      // A health event that reported its own drops would emit another health event, and a telemetry
+      // outage would become a telemetry flood. The health module already refuses to report on health
+      // events; this is the same guard at the boundary, where it cannot be bypassed.
+      if (!isHealthEvent(event)) return;
+      this.push(event as AnalyticsEventName, props, priority);
+    });
+  }
+
+  /**
    * Internal sender to PostHog and Sentry.
    */
   private send(event: AnalyticsEvent): void {
+    if (!isHealthEvent(event.event)) this.sentNonHealthSinceDrain = true;
     try {
       // #1259 P2 — SECOND redaction boundary for Private events. The first boundary is the emitter
       // allowlist (`sanitizePrivateTelemetryProps`). Here, at the send boundary,
@@ -286,7 +411,17 @@ class AnalyticsBuffer {
       const isPrivateEvent = event.event.startsWith('private_');
       let sanitized: Record<string, unknown> | undefined;
       if (isPrivateEvent) {
-        sanitized = sanitizePrivateTelemetryProps(event.properties);
+        // #1259 — TWO ALLOWLISTS SHARE THE `private_*` NAMESPACE, so the namespace alone cannot pick one.
+        //
+        // `private_stt_v4_*` events used to leave through their own `posthog.capture` in
+        // privateV4Telemetry, which is why they had a separate projection at all. Routing them here
+        // without this branch would have applied the Private allowlist to them and dropped EVERY v4
+        // field — `engine`, `dtype`, `resolvedDevice`, `loadMs`, `fallbackReason` — turning a
+        // side-channel leak into three silently empty events, which is the worse failure: it looks
+        // like working telemetry.
+        sanitized = isV4TelemetryEvent(event.event)
+          ? sanitizeV4TelemetryProps(event.properties)
+          : sanitizePrivateTelemetryProps(event.properties);
       } else {
         const projected = projectEventProps(event.event, event.properties);
         sanitized = projected.props;
@@ -296,6 +431,10 @@ class AnalyticsBuffer {
             { event: event.event, droppedKeys: projected.dropped, governed: isGovernedEvent(event.event) },
             '[AnalyticsBuffer] dropped non-allowlisted telemetry properties',
           );
+          // #1259 F12 — and EMIT it. A drop that exists only in a browser console is invisible in
+          // Production, which is how a silently empty event stays silently empty. The keys stay local;
+          // only the count and the source event travel.
+          recordDrop(event.event, projected.dropped.length, isGovernedEvent(event.event));
         }
       }
       // #1259 T2 — THE ENVELOPE IS APPLIED HERE, at the same single boundary, and LAST.
@@ -314,6 +453,27 @@ class AnalyticsBuffer {
         $priority: event.priority,
         $ts: event.timestamp
       });
+
+      // #1259 — RECORDED AT THE SEND ATTEMPT, AND ONLY FOR GOVERNED FAMILIES.
+      //
+      // Here rather than at `push()`, because an event that was produced and then evicted by
+      // backpressure never reached the SDK at all. But this is still only an ATTEMPT: capture() is
+      // fire-and-forget, so nothing here establishes ingestion, and nothing here may be used to
+      // qualify a release. See the note on `attemptedEventFamilies`.
+      //
+      // Governed only, because `evaluateTelemetryCompleteness()` treats every name outside
+      // `GOVERNED_EVENTS` as unrecognised and forces HOLD.
+      //
+      // #1421 P1 — `private_model_acquisition_start` / `_success` USED to be excluded here for exactly
+      // that reason: they were instrumented but unregistered, so recording them as attempted made a
+      // NORMAL, complete Private session unable to qualify. The exclusion fixed that and left a hole —
+      // a journey could return QUALIFIED with no evidence any model was ever acquired, and the readback
+      // had no `acquired_candidate_id` with which to prove configured = acquired = running.
+      //
+      // They are now registered in `EVENT_SCHEMAS`, so completeness RECOGNISES them instead of holding
+      // on them, and this line admits them by the same rule as every other governed family. No special
+      // case: the registry decides.
+      if (isGovernedEvent(event.event)) attemptedFamilies.add(event.event);
     } catch (err) {
       logger.warn({ err, event: event.event }, '[AnalyticsBuffer] Failed to send event to PostHog');
     }
@@ -333,12 +493,56 @@ class AnalyticsBuffer {
    * Every caller passes only `user.id` (AuthProvider.tsx:105 is the sole one), so the parameter carried
    * no traffic and only carried risk. Removing it makes the leak unavailable rather than unused.
    */
+  /**
+   * Record the server's internal-tester claim for the signed-in account.
+   *
+   * Separate from `identify` so the claim cannot be supplied by a caller that merely knows a user id:
+   * it must come from the session the server issued.
+   */
+  public setCanaryClaim(claim: boolean): void {
+    AnalyticsBuffer.currentCanaryClaim = claim === true;
+  }
+
+  public setInternalTesterClaim(claim: boolean): void {
+    // Strict `=== true`: a truthy string or a stray object from a malformed session must not grant
+    // an internal classification. Anything that is not exactly the boolean the server issued is
+    // treated as no claim at all.
+    AnalyticsBuffer.currentInternalTesterClaim = claim === true;
+  }
+
   public identify(userId: string): void {
+    // #1259 P1 — NO CORRELATION SCOPE CROSSES AN ACCOUNT BOUNDARY.
+    //
+    // Account A finishes a take, signs out, and account B signs in in the same tab before any accepted
+    // Start. Nothing in that path closes the attempt: retirement happens where the NEXT take begins,
+    // and product exit does not touch it. So B's `account_identified` — emitted immediately below,
+    // through the same envelope — inherited A's `attempt_id` and `attempt_seq`, joining two people's
+    // events under one correlation key. That is the one failure mode this identifier must not have.
+    //
+    // Retired BEFORE the capture, not after: `captureAccountIdentified()` builds its envelope during
+    // this call, so a retirement that ran afterwards would clean up everything except the very event
+    // that carried the confusion.
+    //
+    // Only on a CHANGE, and only away from a previously identified account. Re-identifying the same
+    // account (a token refresh, a revisit) is not a boundary, and retiring there would sever a take
+    // from its own save. A first identification after anonymous use is likewise the same person
+    // arriving, not a different one.
+    // Retiring only the ATTEMPT was not enough. `journey_id` is the wider correlation key and it is
+    // what actually joins events together: leaving it in place meant B's whole visit was reported
+    // inside A's journey, so the two people's events remained joinable by the very field the envelope
+    // exists to provide. `attempt_seq` and the initialisation ordinals continue across it too, so B's
+    // first take would report as A's second. `beginJourney()` mints a new journey AND clears the
+    // attempt and its ordinal, which is the entire scope.
+    const previousAccountId = AnalyticsBuffer.currentAccountId;
+    const nextAccountId = userId || null;
+    if (previousAccountId !== null && previousAccountId !== nextAccountId) {
+      beginJourney();
+    }
 
     // Record BEFORE the capture below: `account_identified` is itself a governed event, and an
     // account identified after the fact would emit that first event as `user` traffic — precisely the
     // canary-looks-like-a-user confusion the field exists to remove.
-    AnalyticsBuffer.currentAccountId = userId || null;
+    AnalyticsBuffer.currentAccountId = nextAccountId;
     this.identityProbe.identifyCalls += 1;
     try {
       posthog.identify(userId);
@@ -430,6 +634,10 @@ class AnalyticsBuffer {
    * identity (and so PostHog feature-flag evaluation reverts to the anonymous/default cohort).
    */
   public resetIdentity(): void {
+    // Sign-out is an account boundary too, and the same rule applies: whatever was open belonged to the
+    // person who just left. Retiring the whole journey here also means the guard in `identify()` does
+    // not depend on `currentAccountId` surviving sign-out to notice the change.
+    beginJourney();
     try {
       posthog.reset();
       // Re-evaluate flags for the fresh anonymous id so a signed-out shared device does not retain

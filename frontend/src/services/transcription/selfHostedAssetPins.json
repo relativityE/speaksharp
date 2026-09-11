@@ -1,0 +1,69 @@
+{
+  "note": "SHA-256 and byte count of every file this product SHIPS for the self-hosted v2 candidate. The shipping default is served from our own origin, so its assets are these bytes and nothing else. Recorded from frontend/public/models/whisper-base.en; a test re-derives this list and its digest from that directory, so an added, removed or edited file FAILS rather than silently re-identifying the model.",
+  "servedFrom": "/models/whisper-base.en",
+  "pinSource": "frontend/public/models/whisper-base.en",
+  "digestConstruction": "sha256 over '<path>:<sha256>\\n' lines, sorted by path",
+  "recordedAt": "2026-09-03",
+  "files": [
+    {
+      "path": "added_tokens.json",
+      "sha256": "598c98875c01fe7ebd08ba6779f052f1136de6d36d9e7b99e04b432f78ecb28d",
+      "bytes": 2082
+    },
+    {
+      "path": "config.json",
+      "sha256": "5c390f2c6ba84ddeb7e362cd8b2123832911407850174e64d7081ccc36df2d64",
+      "bytes": 2202
+    },
+    {
+      "path": "generation_config.json",
+      "sha256": "1e57ed56ad1bd7f08a49ece7fe7daada674573805a35f8bdbbe68380aab5b1ee",
+      "bytes": 1500
+    },
+    {
+      "path": "merges.txt",
+      "sha256": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+      "bytes": 456318
+    },
+    {
+      "path": "normalizer.json",
+      "sha256": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd",
+      "bytes": 52666
+    },
+    {
+      "path": "onnx/decoder_model_merged_quantized.onnx",
+      "sha256": "a25afc5858a20aabb7652cb2d555996ebe10691a69bbdb423d5073d52f060325",
+      "bytes": 53707027
+    },
+    {
+      "path": "onnx/encoder_model_quantized.onnx",
+      "sha256": "d0d4e59e2842617b39787cece73d7e8f76f99b1697d3386c0e682eca2269f4a1",
+      "bytes": 23200856
+    },
+    {
+      "path": "preprocessor_config.json",
+      "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+      "bytes": 339
+    },
+    {
+      "path": "special_tokens_map.json",
+      "sha256": "7da611d517fe29e77335b8d8384e71795fb7b37cbf95bdc3b5252fa7e09dd1f8",
+      "bytes": 1717
+    },
+    {
+      "path": "tokenizer.json",
+      "sha256": "c6ee8f089220a5b1188f6426456772572671c6141ae007eecb83c6a8349f5deb",
+      "bytes": 2128494
+    },
+    {
+      "path": "tokenizer_config.json",
+      "sha256": "e082c1ad251541bf277967a703252cddd4bb37a71a43737e03d050c22ec08238",
+      "bytes": 835
+    },
+    {
+      "path": "vocab.json",
+      "sha256": "f6bd25a65e4e63ca31360e9fb11c7e4f9a391a78385d640acd814092dd6eee4f",
+      "bytes": 999186
+    }
+  ]
+}
