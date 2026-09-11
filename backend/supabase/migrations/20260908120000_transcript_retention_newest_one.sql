@@ -617,6 +617,7 @@ BEGIN
            row_number() OVER (PARTITION BY s.user_id ORDER BY s.created_at DESC, s.id DESC) AS rn
     FROM public.sessions s
     WHERE (p_scope='all_users' OR s.user_id = p_user_id)
+      AND s.status = 'completed'
       AND s.transcript IS NOT NULL AND s.transcript ~ '[^[:space:]]'
   ),
   -- Outgoing candidates = transcript-bearing rank > 1 (would be expired by the authorized scrub).

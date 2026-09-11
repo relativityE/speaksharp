@@ -360,6 +360,13 @@ describe('newest-ONE transcript retention, executed against the real migrations'
         );
         await giveTerminalEvidence(legacyDb, [legacyMeasured, legacyZero, legacyNull], U);
         await armRetention(legacyDb, U);
+        const preflight = (await legacyDb.query<{ result: {
+            status: string; counts: { legacy_classification_pending: number; pending_evidence_backlog: number };
+        } }>(`SELECT public.transcript_retention_preflight('single_user', $1) AS result`, [U])).rows[0].result;
+        expect(preflight).toEqual(expect.objectContaining({
+            status: 'ready',
+            counts: expect.objectContaining({ legacy_classification_pending: 0, pending_evidence_backlog: 0 }),
+        }));
         await legacyDb.query('SELECT public.activate_transcript_retention_newest_one()');
         await legacyDb.query('SELECT public.converge_transcript_retention($1)', [U]);
 

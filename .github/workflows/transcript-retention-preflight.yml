@@ -92,7 +92,7 @@ jobs:
           # `tests/db/transcript-retention-newest-one.integration.test.ts`, which recomputes it and fails
           # if this value drifts. It is not transcribed from anywhere. The historical newest-two digest
           # was 029a72bf14bfd2ab18260c6477c56493 and is pinned in the newest-two identity test.
-          EXPECTED_PREFLIGHT_FUNCTION_MD5: f57a9773bce9a162452f17445c437e74
+          EXPECTED_PREFLIGHT_FUNCTION_MD5: 2e9c6b8a8a24a4d2937614c77064f47c
         run: |
           set -euo pipefail
           [ -n "${PREFLIGHT_READONLY_DB_URL:-}" ] || { echo "::error::PREFLIGHT_READONLY_DB_URL secret missing"; exit 1; }
