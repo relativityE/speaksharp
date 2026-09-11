@@ -87,7 +87,8 @@ function fakeGraphql({
   const comments = {
     nodes: (cleanResultOnly || laterCleanResult) ? [{
       author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:00Z',
-      body: `Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
+      // #1438 PM RETURN `5638958869`: a clean comment is authority only when it names the FULL head.
+      body: `Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** \`${HEAD}\``,
     }] : [],
     pageInfo: { hasPreviousPage: false },
   };
@@ -114,25 +115,8 @@ globalThis.fetch = async (url, init) => {
       }),
     };
   }
-  // #1430 fix-forward \`3991388531\` — the PR branch's last move, as the repository activity log reports it.
-  if (String(url).includes('/activity?')) {
-    return {
-      ok: true, status: 200,
-      json: async () => ([{ activity_type: 'push', after: ${JSON.stringify(headRefOid)}, timestamp: '2026-09-10T19:59:00Z' }]),
-    };
-  }
-  const { query = '', variables = {} } = JSON.parse(init?.body ?? '{}');
-  // GitHub resolves an abbreviated SHA to the one commit it names, or to nothing.
-  if (query.includes('object(expression:$expression)')) {
-    const live = ${JSON.stringify(headRefOid)};
-    const object = live.startsWith(variables.expression) ? { oid: live } : null;
-    return { ok: true, status: 200, json: async () => ({ data: { repository: { object } } }) };
-  }
+  const { query = '' } = JSON.parse(init?.body ?? '{}');
   const payload = JSON.parse(body);
-  if (query.includes('headRepository{nameWithOwner}')) {
-    payload.data.repository.pullRequest.headRefName = 'chore/final-release-qualification';
-    payload.data.repository.pullRequest.headRepository = { nameWithOwner: ${JSON.stringify(REPOSITORY)} };
-  }
   if (query.includes('comments(last:100,before:$commentsBefore)')) {
     payload.data.repository.pullRequest.comments = JSON.parse(comments);
   }

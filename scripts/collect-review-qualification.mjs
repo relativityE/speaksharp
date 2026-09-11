@@ -84,10 +84,8 @@ function findTrustedCleanResult({ pullRequest, head }) {
     // and blocked notices from the same trusted bot are not clean reviews, whatever footer they carry.
     .filter((comment) => CODEX_CLEAN_RESULT.test(comment?.body ?? ''))
     .filter((comment) => !RELEASE_FINDING.test(comment?.body ?? ''))
-    // Codex abbreviates the SHA, so the named value must PREFIX the full head — never the reverse,
-    // which would let a 7-character coincidence from another branch qualify — AND bind to the full head
-    // through GitHub, because a prefix alone can be ground.
-    .filter((comment) => commentNamesHead(comment, head) && cleanResultBindsHead(comment, pullRequest, head))
+    // The complete head, named by the comment itself: never a prefix, however it resolves. See below.
+    .filter((comment) => cleanResultBindsHead(comment, head))
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
     .at(-1) ?? null;
 }
@@ -96,33 +94,24 @@ function findTrustedCleanResult({ pullRequest, head }) {
  * #1430 fix-forward, Codex P1 `3991388531` — A CLEAN RESULT BINDS TO THE FULL HEAD, NOT TO A PREFIX.
  *
  * Codex's footer names a 10-character abbreviation, and `head.startsWith()` accepted it alone, so a head
- * ground to share that prefix reused an older clean result and was stamped as reviewed. Two facts read
- * from GitHub now bind it, and each covers what the other cannot:
+ * ground to share that prefix reused an older clean result and was stamped as reviewed.
  *
- *   GITHUB RESOLVES THE ABBREVIATION TO THIS HEAD. While a ground collider and the reviewed commit both
- *   exist, the abbreviation is ambiguous, GitHub resolves it to nothing, and it binds nothing.
+ * #1438 Codex P1 `3992215898` + PM RETURN `5638958869` — ONLY AN IMMUTABLE EXACT IDENTITY IS AUTHORITY.
+ * The first correction resolved the abbreviation through GitHub and required the comment to follow the
+ * branch's move to the head. Neither can say which colliding commit a comment reviewed: if review A
+ * finishes after colliding B is pushed and A later becomes unavailable, the abbreviation resolves to B and
+ * the chronology passes. Abbreviation resolution and branch-move chronology are therefore not authority.
  *
- *   IT WAS POSTED AFTER THE PR BRANCH LAST MOVED TO THIS HEAD. A result posted before the head reached
- *   the branch cannot be about it — which still holds if GitHub no longer has the older colliding commit
- *   and the abbreviation has become unique again.
- *
- * Either fact missing, unreadable or unparseable binds nothing. Finding-bearing comments keep the prefix
- * match on purpose: over-counting a finding can only hold a merge, never permit one.
+ * A clean-result COMMENT now qualifies only when it names the complete 40-character head itself, and every
+ * full commit SHA it names is that head. An abbreviated footer fails closed however it resolves today. The
+ * review OBJECT path, bound by GitHub's own full `commit.oid`, is unaffected. When Codex's standard output
+ * abbreviates, the remedy is a follow-up clean confirmation stating the full SHA on the same head, never a
+ * weaker collector. Finding-bearing comments keep the prefix match on purpose: over-counting a finding can
+ * only hold a merge, never permit one.
  */
-function cleanResultBindsHead(comment, pullRequest, head) {
-  const abbreviation = namedCommitAbbreviation(comment);
-  const resolved = abbreviation ? pullRequest?.resolvedAbbreviations?.[abbreviation] : undefined;
-  if (typeof resolved !== 'string' || resolved.toLowerCase() !== head) return false;
-  const move = pullRequest?.headRefMove;
-  if (String(move?.after ?? '').toLowerCase() !== head) return false;
-  const movedAt = Date.parse(String(move?.timestamp ?? ''));
-  const postedAt = Date.parse(String(comment?.createdAt ?? ''));
-  return Number.isFinite(movedAt) && Number.isFinite(postedAt) && postedAt > movedAt;
-}
-
-function namedCommitAbbreviation(comment) {
-  const named = /Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i.exec(comment?.body ?? '');
-  return named ? named[1].toLowerCase() : null;
+function cleanResultBindsHead(comment, head) {
+  const named = String(comment?.body ?? '').toLowerCase().match(/\b[0-9a-f]{40}\b/g) ?? [];
+  return /^[0-9a-f]{40}$/.test(head) && named.length > 0 && named.every((sha) => sha === head);
 }
 
 /**
@@ -426,7 +415,7 @@ function normaliseRef(ref) {
  * refused every legitimately clean PR at merge. Two copies of an evidence query can disagree about what
  * the evidence is; one exported copy cannot.
  */
-export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{createdAt author{login} body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
+export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName baseRefOid baseRepository{nameWithOwner} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{createdAt author{login} body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
 
 /**
  * The conversation surface is load-bearing and long-lived PRs routinely exceed one GraphQL page.
@@ -484,55 +473,7 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
         || commentIdentity(a).localeCompare(commentIdentity(b))),
     pageInfo,
   };
-  // #1430 fix-forward `3991388531` — the two GitHub facts that bind an abbreviated clean-result footer.
-  pullRequest.headRefMove = await readHeadRefMove({ pullRequest, token });
-  pullRequest.resolvedAbbreviations = await resolveCleanResultAbbreviations({ owner, name, pullRequest, token });
   return pullRequest;
-}
-
-export const COMMIT_ABBREVIATION_QUERY = `query($owner:String!,$name:String!,$expression:String!){repository(owner:$owner,name:$name){object(expression:$expression){oid}}}`;
-
-/**
- * When the PR branch last moved, and to which commit — from the repository activity log, which keeps full
- * SHAs and push times even after the branch is deleted on merge (the push lane reads exactly that case).
- * A deletion is not a move. Unreadable or empty is `null`, which binds no clean result.
- */
-async function readHeadRefMove({ pullRequest, token }) {
-  const repository = pullRequest?.headRepository?.nameWithOwner;
-  const branch = pullRequest?.headRefName;
-  if (!repository || !branch) return null;
-  const activity = await optionalGithubRequest(
-    `/repos/${repository}/activity?ref=${encodeURIComponent(`refs/heads/${branch}`)}&per_page=10`,
-    token,
-  );
-  if (activity === UNREADABLE || !Array.isArray(activity)) return null;
-  const latestMove = activity
-    .filter((entry) => entry?.activity_type !== 'branch_deletion')
-    .sort((a, b) => String(b?.timestamp ?? '').localeCompare(String(a?.timestamp ?? '')))[0];
-  return latestMove ? { after: String(latestMove.after ?? '').toLowerCase(), timestamp: latestMove.timestamp ?? null } : null;
-}
-
-/**
- * Resolve each clean-result footer that abbreviates this head through GitHub. An ambiguous or unknown
- * abbreviation resolves to `null`. Footers that do not abbreviate the head cannot bind it and are not read.
- */
-async function resolveCleanResultAbbreviations({ owner, name, pullRequest, token }) {
-  const head = pullRequest?.headRefOid?.toLowerCase?.() ?? '';
-  const abbreviations = [...new Set((pullRequest?.comments?.nodes ?? [])
-    .filter((comment) => isCodex(comment?.author?.login) && CODEX_CLEAN_RESULT.test(comment?.body ?? ''))
-    .map(namedCommitAbbreviation)
-    .filter((abbreviation) => abbreviation && head.startsWith(abbreviation)))];
-  const resolved = {};
-  for (const expression of abbreviations) {
-    const payload = await githubRequest('/graphql', token, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: COMMIT_ABBREVIATION_QUERY, variables: { owner, name, expression } }),
-    });
-    const oid = payload?.data?.repository?.object?.oid;
-    resolved[expression] = typeof oid === 'string' ? oid.toLowerCase() : null;
-  }
-  return resolved;
 }
 
 /**

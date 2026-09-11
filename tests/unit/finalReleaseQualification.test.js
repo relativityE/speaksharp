@@ -928,12 +928,10 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
         comments: {
           nodes: [{
             id: 'clean', author: bot, createdAt: '2026-09-10T01:00:00Z',
-            body: `Codex Review: Didn't find any major issues. Nice work!\n\n**Reviewed commit:** \`${reviewedSha.slice(0, 10)}\``,
+            body: `Codex Review: Didn't find any major issues. Nice work!\n\n**Reviewed commit:** \`${reviewedSha}\``,
           }],
           pageInfo: { hasPreviousPage: false },
         },
-        headRefMove: { after: reviewedSha, timestamp: '2026-09-09T23:00:00Z' },
-        resolvedAbbreviations: { [reviewedSha.slice(0, 10)]: reviewedSha },
       }),
       expectedHeadSha: reviewedSha,
     });
@@ -1068,15 +1066,13 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     reviews: { nodes: reviews, pageInfo: { hasPreviousPage: false } },
     reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
     comments: { nodes: comments, pageInfo: { hasPreviousPage: commentsTruncated } },
-    // #1430 fix-forward `3991388531`: the branch reached this head before the results below, and GitHub
-    // resolves the footer to it. The unbound cases live in postMergeCodexFindings.test.js.
-    headRefMove: { after: head, timestamp: '2026-09-10T23:00:00Z' },
-    resolvedAbbreviations: { [head.slice(0, 10)]: head },
   });
+  // #1438 PM RETURN `5638958869`: a clean-result comment is authority only when it names the FULL head. The
+  // qualifying cases below therefore name it in full; abbreviated cases live in postMergeCodexFindings.test.js.
 
   it('CASUALTY: a trusted clean comment naming the EXACT head qualifies', () => {
     const receipt = buildReviewReceipt({
-      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head.slice(0, 10)), createdAt: '2026-09-10T23:51:24Z' }] }),
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head), createdAt: '2026-09-10T23:51:24Z' }] }),
       expectedHeadSha: head,
     });
 
@@ -1130,7 +1126,7 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     for (const text of cleanVariants) {
       const receipt = buildReviewReceipt({
         pullRequest: pullWith({
-          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``, createdAt: '2026-09-10T23:51:24Z' }],
+          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head}\``, createdAt: '2026-09-10T23:51:24Z' }],
         }),
         expectedHeadSha: head,
       });
@@ -1218,13 +1214,11 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
   const bot = { login: 'chatgpt-codex-connector' };
   const clean = {
     id: 'old-clean', author: bot, createdAt: '2026-09-10T10:00:00Z',
-    body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``,
+    body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${head}\``,
   };
   const base = (comments) => ({
     number: 1430,
     headRefOid: head,
-    headRefName: 'chore/final-release-qualification',
-    headRepository: { nameWithOwner: 'relativityE/speaksharp' },
     baseRefName: 'main',
     baseRefOid: 'b'.repeat(40),
     baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
@@ -1238,15 +1232,7 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
 
   function serve(pages, failAt = -1) {
     let call = 0;
-    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
-      // #1430 fix-forward `3991388531`: the branch move and footer resolution that bind a clean result.
-      // Answered without consuming a comment page, so `failAt` still indexes page reads only.
-      if (String(url).includes('/activity?')) {
-        return { ok: true, status: 200, json: async () => ([{ activity_type: 'push', after: head, timestamp: '2026-09-10T09:00:00Z' }]) };
-      }
-      if (JSON.parse(init?.body ?? '{}').query?.includes('object(expression:$expression)')) {
-        return { ok: true, status: 200, json: async () => ({ data: { repository: { object: { oid: head } } } }) };
-      }
+    vi.stubGlobal('fetch', vi.fn(async () => {
       const index = call++;
       if (index === failAt) return { ok: false, status: 502, json: async () => ({}) };
       const comments = pages[Math.min(index, pages.length - 1)];

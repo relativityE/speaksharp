@@ -389,17 +389,15 @@ describe('#1430 P1 `3988517243` — the merge proceeds only where GitHub itself 
 
 describe('#1430 fix-forward `3991388525` — a resolved same-head blocker does not merge without a clean re-review', () => {
   const sameHeadResolved = () => [thread(true, 'P1 Badge — resolved without re-review', HEAD)];
-  /** A clean Codex result for this head, posted after the branch reached it, whose footer GitHub resolves to it. */
+  /** A clean Codex result posted after the finding, naming this head in full (#1438 PM RETURN `5638958869`). */
   const cleanReReview = {
     comments: {
       nodes: [{
         id: 'clean', author: bot, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:00Z',
-        body: `Codex Review: Didn't find any major issues. Swish!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
+        body: `Codex Review: Didn't find any major issues. Swish!\n\n**Reviewed commit:** \`${HEAD}\``,
       }],
       pageInfo: { hasPreviousPage: false },
     },
-    headRefMove: { after: HEAD, timestamp: '2026-09-10T19:59:00Z' },
-    resolvedAbbreviations: { [HEAD.slice(0, 10)]: HEAD },
   };
 
   it('CASUALTY: resolved at the authorized head and never re-reviewed — the executor is not called', async () => {
