@@ -22,6 +22,7 @@ interface MockOptions {
   quota?: Record<string, unknown>;
   quotaError?: unknown;
   updateError?: unknown;
+  legacyUpdateError?: unknown;
   readback?: unknown;
   authorityError?: unknown;
   authorityResult?: boolean;
@@ -104,8 +105,10 @@ function mockSupabase(options: MockOptions = {}) {
       if (name === 'persist_ai_suggestion_with_authority_v1') {
         state.authorityRpcCount++;
         state.authorityArgs = args ?? null;
-        state.updated = { ai_suggestions: args?.p_suggestions };
-        state.filters.push(['id', args?.p_session_id], ['user_id', args?.p_user_id]);
+        if (!options.updateError) {
+          state.updated = { ai_suggestions: args?.p_suggestions };
+          state.filters.push(['id', args?.p_session_id], ['user_id', args?.p_user_id]);
+        }
         return Promise.resolve({
           data: options.updateError ? null : (options.readback ?? args?.p_suggestions),
           error: options.updateError ?? null,
@@ -144,10 +147,10 @@ function mockSupabase(options: MockOptions = {}) {
           },
           select: (_columns: string) => query,
           single: () => Promise.resolve({
-            data: options.updateError
+            data: options.legacyUpdateError
               ? null
               : { ai_suggestions: options.readback ?? (state.updated as { ai_suggestions?: unknown })?.ai_suggestions },
-            error: options.updateError ?? null,
+            error: options.legacyUpdateError ?? null,
           }),
         };
         return query;
@@ -353,6 +356,21 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       p_quota_limit: 20,
       p_quota_request_number: 1,
     });
+  });
+
+  await t.step('keeps product saves working while Edge precedes the receipt migration', async () => {
+    resetProvider();
+    const skewed = mockSupabase({ updateError: { code: 'PGRST202', message: 'function not in schema cache' } });
+    const res = await handler(request(), skewed.create);
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).suggestions, suggestionA);
+    assertEquals(skewed.state.authorityRpcCount, 1);
+    assertEquals(skewed.state.filters, [['id', 'session-a'], ['user_id', 'pro-user']]);
+
+    resetProvider();
+    const realFailure = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), realFailure.create)).status, 503);
+    assertEquals(realFailure.state.filters, []);
   });
 
   await t.step('materially different saved sessions produce different grounded coaching', async () => {

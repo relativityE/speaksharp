@@ -262,6 +262,9 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             comparison_nonce: 'binding-vector-123456',
             comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
             comparison_session_binding_sha256: '79fb824b7746e990fce8913b12e004b18ea1f706ff69722a3da91fb25289e478',
+            journey_id: 'binding-vector-123456',
+            attempt_id: 'binding-vector-123456',
+            attempt_seq: 1,
         });
         pushSpy.mockRestore();
         resetAuthorization();

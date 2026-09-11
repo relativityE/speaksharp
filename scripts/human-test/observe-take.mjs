@@ -450,7 +450,13 @@ const main = async () => {
         observedCandidate: probe?.observedCandidate ?? null,
         observedJourney: probe?.observedJourney ?? null,
         controlNonce: signedAuthorization?.payload?.nonce ?? null,
+        // The app derives these exact content-free correlation fields from the signed one-use nonce.
+        // Recording them here lets the operator copy observed authority instead of inventing packet ids.
+        journeyId: signedAuthorization?.payload?.nonce ?? null,
+        attemptId: signedAuthorization?.payload?.nonce ?? null,
+        attemptSeq: 1,
         evidenceDocumentId: signedAuthorization?.payload?.evidenceDocumentId ?? null,
+        positiveControlNonce: signedAuthorization?.payload?.evidenceDocumentId ?? null,
         persistedSessionId: probe?.persistedSessionId ?? null,
         release: probe?.release ?? null,
         target: safeTargetForEvidence(target),

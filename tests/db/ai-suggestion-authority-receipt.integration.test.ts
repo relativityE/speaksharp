@@ -29,7 +29,10 @@ beforeEach(async () => {
     CREATE TABLE public.sessions (
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES public.user_profiles(id),
-      ai_suggestions jsonb
+      ai_suggestions jsonb,
+      title text, duration integer, total_words integer, filler_words jsonb, custom_words jsonb,
+      accuracy numeric, ground_truth text, transcript text, clarity_score numeric, wpm numeric,
+      status text, status_reason text, pause_metrics jsonb, transcript_state text, updated_at timestamptz
     );
     CREATE TABLE public.ai_suggestion_usage_daily (
       user_id uuid NOT NULL REFERENCES public.user_profiles(id),
@@ -42,6 +45,7 @@ beforeEach(async () => {
     INSERT INTO public.ai_suggestion_usage_daily (user_id, usage_date, request_count)
       VALUES ('${USER}', '2026-09-10', 1), ('${OTHER_USER}', '2026-09-10', 1);
     GRANT SELECT, UPDATE ON public.sessions TO service_role;
+    GRANT UPDATE ON public.sessions TO authenticated;
     GRANT SELECT ON public.user_profiles TO service_role;
     GRANT SELECT ON public.ai_suggestion_usage_daily TO service_role;
   `);
@@ -52,8 +56,8 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
   it('atomically saves coaching with provider and quota authority, then records cache reuse', async () => {
     const saved = await db.query<{ value: unknown }>(`
       SELECT public.persist_ai_suggestion_with_authority_v1(
-        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', 'gemini-3.6-flash',
-        'user_utc_day', '2026-09-10', 10, 1
+        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', 'gemini-3-flash-preview',
+        'user_utc_day', '2026-09-10', 20, 1
       ) AS value
     `, [SUGGESTIONS]);
     expect(saved.rows[0].value).toEqual(JSON.parse(SUGGESTIONS));
@@ -63,7 +67,7 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
       quota_request_number: number; cache_read_count: number;
     }>('SELECT provider, model, quota_limit, quota_request_number, cache_read_count FROM public.ai_suggestion_authority_receipts');
     expect(receipt.rows).toEqual([{
-      provider: 'google_gemini', model: 'gemini-3.6-flash', quota_limit: 10,
+      provider: 'google_gemini', model: 'gemini-3-flash-preview', quota_limit: 20,
       quota_request_number: 1, cache_read_count: 0,
     }]);
 
@@ -81,7 +85,7 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
     await expect(db.query(`
       SELECT public.persist_ai_suggestion_with_authority_v1(
         '${SESSION}', '${OTHER_USER}', $1::jsonb,
-        'google_gemini', 'gemini-3.6-flash', 'user_utc_day', '2026-09-10', 10, 1
+        'google_gemini', 'gemini-3-flash-preview', 'user_utc_day', '2026-09-10', 20, 1
       )
     `, [SUGGESTIONS])).rejects.toThrow(/session is missing or unowned/);
     const receipts = await db.query<{ count: number }>(
@@ -97,8 +101,8 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
   it('refuses a receipt whose quota ordinal is not present in the server ledger', async () => {
     await expect(db.query(`
       SELECT public.persist_ai_suggestion_with_authority_v1(
-        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', 'gemini-3.6-flash',
-        'user_utc_day', '2026-09-10', 10, 2
+        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', 'gemini-3-flash-preview',
+        'user_utc_day', '2026-09-10', 20, 2
       )
     `, [SUGGESTIONS])).rejects.toThrow(/not backed by the usage ledger/);
     const session = await db.query<{ ai_suggestions: unknown }>(
@@ -108,20 +112,23 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
   });
 
   it('does not grant browser roles access to the authority table or RPCs', async () => {
-    const grants = await db.query<{ role_name: string; table_read: boolean; rpc_run: boolean }>(`
+    const grants = await db.query<{
+      role_name: string; table_read: boolean; rpc_run: boolean; suggestion_write: boolean;
+    }>(`
       SELECT role_name,
              has_table_privilege(role_name, 'public.ai_suggestion_authority_receipts', 'SELECT') AS table_read,
              has_function_privilege(
                role_name,
                'public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer)',
                'EXECUTE'
-             ) AS rpc_run
+             ) AS rpc_run,
+             has_column_privilege(role_name, 'public.sessions', 'ai_suggestions', 'UPDATE') AS suggestion_write
         FROM (VALUES ('anon'), ('authenticated')) AS roles(role_name)
        ORDER BY role_name
     `);
     expect(grants.rows).toEqual([
-      { role_name: 'anon', table_read: false, rpc_run: false },
-      { role_name: 'authenticated', table_read: false, rpc_run: false },
+      { role_name: 'anon', table_read: false, rpc_run: false, suggestion_write: false },
+      { role_name: 'authenticated', table_read: false, rpc_run: false, suggestion_write: false },
     ]);
   });
 });

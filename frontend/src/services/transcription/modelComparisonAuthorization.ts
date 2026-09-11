@@ -8,6 +8,7 @@
 
 export const MODEL_COMPARISON_AUTH_KEY = 'speaksharp.model-comparison.authorization';
 export const MODEL_COMPARISON_REPLAY_KEY = 'speaksharp.model-comparison.consumed.v1';
+export const MODEL_COMPARISON_POSITIVE_CONTROL_KEY = 'speaksharp.model-comparison.positive-control.v1';
 const VERSION = 'speaksharp.model-comparison-authorization.v1';
 const MAX_TTL_MS = 5 * 60_000;
 const CLOCK_SKEW_MS = 30_000;
@@ -88,6 +89,40 @@ export function modelComparisonControlNonce(): string | null {
 /** Signed document identifier shared by the six authorized rows in one down-selection packet. */
 export function modelComparisonEvidenceDocumentId(): string | null {
     return activeEvidenceDocumentId;
+}
+
+/**
+ * Correlation is derived from the signed, one-use take nonce rather than from operator-authored packet
+ * fields. Each authorization nonce is unique, so the three values identify exactly one take while
+ * carrying no account, transcript, or database-session identity.
+ */
+export function modelComparisonTelemetryContext(): Record<string, string | number> {
+    if (!activeNonce) return {};
+    return { journey_id: activeNonce, attempt_id: activeNonce, attempt_seq: 1 };
+}
+
+/**
+ * Claim the one governed transport control for an evidence document. The document id is already
+ * Ops-signed and is reused across its six takes; durable denial state makes only the first successful
+ * authorized switch emit. Deleting the ledger cannot mint model-switch authority.
+ */
+export function claimModelComparisonPositiveControl(
+    root: typeof globalThis = globalThis,
+): string | null {
+    if (!activeEvidenceDocumentId) return null;
+    try {
+        const raw = root.localStorage.getItem(MODEL_COMPARISON_POSITIVE_CONTROL_KEY);
+        const parsed = raw === null ? {} : JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+        const ledger = parsed as Record<string, true>;
+        if (ledger[activeEvidenceDocumentId] === true) return null;
+        ledger[activeEvidenceDocumentId] = true;
+        root.localStorage.setItem(MODEL_COMPARISON_POSITIVE_CONTROL_KEY, JSON.stringify(ledger));
+        const persisted = JSON.parse(root.localStorage.getItem(MODEL_COMPARISON_POSITIVE_CONTROL_KEY) ?? 'null');
+        return persisted?.[activeEvidenceDocumentId] === true ? activeEvidenceDocumentId : null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -207,4 +242,5 @@ export function resetModelComparisonAuthorizationForTest(): void {
 /** Test-only reset of the off-module replay authority. */
 export function resetModelComparisonReplayLedgerForTest(root: typeof globalThis = globalThis): void {
     try { root.localStorage.removeItem(MODEL_COMPARISON_REPLAY_KEY); } catch { /* no storage in this test */ }
+    try { root.localStorage.removeItem(MODEL_COMPARISON_POSITIVE_CONTROL_KEY); } catch { /* no storage in this test */ }
 }

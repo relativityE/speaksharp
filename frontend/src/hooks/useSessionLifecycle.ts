@@ -28,6 +28,7 @@ import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
     modelComparisonControlNonce,
     modelComparisonEvidenceDocumentId,
+    modelComparisonTelemetryContext,
     modelComparisonSessionBindingSha256,
 } from '@/services/transcription/modelComparisonAuthorization';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
@@ -273,6 +274,7 @@ export const useSessionLifecycle = () => {
                     mode: effectiveMode,
                     comparison_nonce: modelComparisonControlNonce(),
                     comparison_evidence_document_id: modelComparisonEvidenceDocumentId(),
+                    ...modelComparisonTelemetryContext(),
                     comparison_session_binding_sha256: comparisonSessionBinding,
                     duration_seconds: elapsedTime,
                     word_count: metrics.wordCount,
@@ -438,6 +440,7 @@ export const useSessionLifecycle = () => {
                     user_tier: effectiveSubscriptionStatus,
                     comparison_nonce: modelComparisonControlNonce(),
                     comparison_evidence_document_id: modelComparisonEvidenceDocumentId(),
+                    ...modelComparisonTelemetryContext(),
                     ...getSessionCoachingExperimentProperties(),
                 });
             } catch (error) {

@@ -19,8 +19,8 @@ export const COMPARISON_CANDIDATES = Object.freeze([
 export const REQUIRED_JOURNEYS = Object.freeze(['open_mic', 'focus_points']);
 
 export const LOCKED_GEMINI_CONTRACT = Object.freeze({
-  model: 'gemini-3.6-flash',
-  uncachedRequestsPerUserUtcDay: 10,
+  model: 'gemini-3-flash-preview',
+  uncachedRequestsPerUserUtcDay: 20,
   quotaScope: 'user_utc_day',
   whatWorkedItems: 1,
   whatToImproveItems: 1,
@@ -143,6 +143,9 @@ function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, path, pro
   }
   expectEqual(receipt.observedJourney, row.journey, `${path}.receipt.observedJourney`, problems);
   expectEqual(receipt.controlNonce, row.controlNonce, `${path}.receipt.controlNonce`, problems);
+  expectEqual(receipt.journeyId, row.journeyId, `${path}.receipt.journeyId`, problems);
+  expectEqual(receipt.attemptId, row.attemptId, `${path}.receipt.attemptId`, problems);
+  expectEqual(receipt.attemptSeq, row.attemptSeq, `${path}.receipt.attemptSeq`, problems);
   expectEqual(receipt.evidenceDocumentId, evidenceDocumentId, `${path}.receipt.evidenceDocumentId`, problems);
   if (!isIsoInstant(receipt.capturedAt)) problems.push(`${path}.receipt.capturedAt must be an ISO instant`);
   expectEqual(receipt.persistedSessionId, row.persistedSessionId, `${path}.receipt.persistedSessionId`, problems);
@@ -228,6 +231,8 @@ function validateTelemetryReadback(readback, releaseSha, telemetryResolver, prob
       'telemetryReadback positive-control nonce', problems);
     expectEqual(controls[0].transportInitialized, true,
       'telemetryReadback positive-control transportInitialized', problems);
+    expectEqual(controls[0].evidenceDocumentId, readback.positiveControlNonce,
+      'telemetryReadback positive-control evidenceDocumentId', problems);
   }
   return readback.events;
 }
@@ -416,7 +421,8 @@ function validateGeminiEvidence(observations, requiredTakeKeys, geminiResolver, 
       const quotaKeys = ['scope', 'userDigest', 'utcDate', 'limit', 'requestNumber'];
       if (exactKeys(observation.quota, quotaKeys, `${path}.quota`, problems)) {
         expectEqual(observation.quota.scope, 'user_utc_day', `${path}.quota.scope`, problems);
-        expectEqual(observation.quota.limit, 10, `${path}.quota.limit`, problems);
+        expectEqual(observation.quota.limit, LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay,
+          `${path}.quota.limit`, problems);
         if (typeof observation.quota.userDigest !== 'string' || !SHA256.test(observation.quota.userDigest)) {
           problems.push(`${path}.quota.userDigest must be a lowercase SHA-256 digest`);
         }
@@ -424,8 +430,9 @@ function validateGeminiEvidence(observations, requiredTakeKeys, geminiResolver, 
           problems.push(`${path}.quota.utcDate must be YYYY-MM-DD`);
         }
         if (!Number.isInteger(observation.quota.requestNumber)
-          || observation.quota.requestNumber < 1 || observation.quota.requestNumber > 10) {
-          problems.push(`${path}.quota.requestNumber must be between 1 and 10`);
+          || observation.quota.requestNumber < 1
+          || observation.quota.requestNumber > LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay) {
+          problems.push(`${path}.quota.requestNumber must be between 1 and ${LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay}`);
         }
         const quotaKey = `${observation.quota.userDigest}/${observation.quota.utcDate}/${observation.quota.requestNumber}`;
         if (quotaOrdinals.has(quotaKey)) problems.push(`${path} duplicates uncached quota receipt ${quotaKey}`);

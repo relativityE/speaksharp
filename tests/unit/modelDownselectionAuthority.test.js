@@ -107,16 +107,16 @@ describe('#1432 trusted model-downselection authority collector', () => {
         what_to_try_next: 'Pause before your recommendation',
       },
       ai_suggestion_authority_receipts: {
-        provider: 'google_gemini', model: 'gemini-3.6-flash', provider_request_made: true,
-        quota_scope: 'user_utc_day', quota_utc_date: '2026-09-10', quota_limit: 10,
+        provider: 'google_gemini', model: 'gemini-3-flash-preview', provider_request_made: true,
+        quota_scope: 'user_utc_day', quota_utc_date: '2026-09-10', quota_limit: 20,
         quota_request_number: 1, cache_read_count: 1,
       },
     }]);
     expect(authority).toMatchObject([{
       persistedSessionId: 'session-1', whatWorkedWhitespaceWords: 3,
       whatToImproveWhitespaceWords: 4, readable: true,
-      provider: 'google_gemini', model: 'gemini-3.6-flash', providerRequestMade: true,
-      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: 10, requestNumber: 1 },
+      provider: 'google_gemini', model: 'gemini-3-flash-preview', providerRequestMade: true,
+      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: 20, requestNumber: 1 },
       cacheReplayObserved: true,
     }]);
     expect(authority[0].suggestionDigest).toMatch(/^[0-9a-f]{64}$/);
@@ -149,8 +149,8 @@ describe('#1432 trusted model-downselection authority collector', () => {
         version: 'gemini_coaching_v1', what_worked: 'Clear opening', what_to_try_next: 'Pause before closing',
       },
       ai_suggestion_authority_receipts: {
-        provider: 'google_gemini', model: 'gemini-3.6-flash', provider_request_made: true,
-        quota_scope: 'user_utc_day', quota_utc_date: '2026-09-10', quota_limit: 10,
+        provider: 'google_gemini', model: 'gemini-3-flash-preview', provider_request_made: true,
+        quota_scope: 'user_utc_day', quota_utc_date: '2026-09-10', quota_limit: 20,
         quota_request_number: index + 1, cache_read_count: index === 0 ? 1 : 0,
       },
     }));
@@ -176,8 +176,8 @@ describe('#1432 trusted model-downselection authority collector', () => {
     });
     expect(authority.gemini.observations).toHaveLength(6);
     expect(authority.gemini.observations[0]).toMatchObject({
-      provider: 'google_gemini', model: 'gemini-3.6-flash', providerRequestMade: true,
-      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: 10, requestNumber: 1 },
+      provider: 'google_gemini', model: 'gemini-3-flash-preview', providerRequestMade: true,
+      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: 20, requestNumber: 1 },
       cacheReplayObserved: true,
     });
     expect(JSON.stringify(authority)).not.toMatch(/Clear opening|Pause before closing|posthog-secret|supabase-secret/);

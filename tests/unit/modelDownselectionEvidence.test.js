@@ -33,9 +33,10 @@ function validEvidence() {
   const candidateEvidence = [];
   const events = [{
     uuid: 'event-positive-control', event: 'telemetry_positive_control', releaseSha: RELEASE,
-    candidateId: null, productMode: null, journeyId: 'boot-journey', attemptId: null, attemptSeq: 0,
-    wordCount: null, controlNonce: 'pc-test-nonce', transportInitialized: true,
-    evidenceDocumentId: null, sessionBindingSha256: null,
+    candidateId: null, productMode: null, journeyId: 'comparison-nonce-1',
+    attemptId: 'comparison-nonce-1', attemptSeq: 1,
+    wordCount: null, controlNonce: EVIDENCE_DOCUMENT_ID, transportInitialized: true,
+    evidenceDocumentId: EVIDENCE_DOCUMENT_ID, sessionBindingSha256: null,
   }];
   const geminiEvidence = [];
   let ordinal = 0;
@@ -51,7 +52,8 @@ function validEvidence() {
         verdict: 'PASS', holdKind: null, dryRun: false,
         target: { origin: PRODUCTION_ORIGIN }, release: RELEASE,
         expectedCandidate: candidateId, requestedCandidate: candidateId, observedCandidate: candidateId,
-        observedJourney: journey, controlNonce, evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
+        observedJourney: journey, controlNonce, journeyId, attemptId, attemptSeq: 1,
+        evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
         persistedSessionId, capturedAt: ISO,
       });
       candidateEvidence.push({
@@ -77,8 +79,8 @@ function validEvidence() {
       geminiEvidence.push({
         releaseSha: RELEASE, candidateId, journey, journeyId, attemptId, attemptSeq: 1,
         controlNonce, persistedSessionId, receiptSha256: receipt.digest,
-        source: 'fresh', model: 'gemini-3.6-flash', providerRequestMade: true,
-        quota: { scope: 'user_utc_day', userDigest: HASH('b'), utcDate: '2026-09-07', limit: 10, requestNumber: ordinal },
+        source: 'fresh', model: 'gemini-3-flash-preview', providerRequestMade: true,
+        quota: { scope: 'user_utc_day', userDigest: HASH('b'), utcDate: '2026-09-07', limit: 20, requestNumber: ordinal },
         output: {
           whatWorkedItems: 1, whatToImproveItems: 1, whatWorkedWhitespaceWords: 5,
           whatToImproveWhitespaceWords: 6, readable: true,
@@ -96,7 +98,7 @@ function validEvidence() {
     geminiContract: { ...LOCKED_GEMINI_CONTRACT },
     telemetryReadback: {
       source: 'posthog_decoded_readback', queryId: `posthog-query-${suffix}`, decodedAt: ISO,
-      positiveControlNonce: 'pc-test-nonce', events,
+      positiveControlNonce: EVIDENCE_DOCUMENT_ID, events,
     },
     candidateEvidence, geminiEvidence,
     selection: {
@@ -173,7 +175,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     expect(schema.properties.schemaVersion.const).toBe(MODEL_DOWNSELECTION_SCHEMA_VERSION);
     expect(schema.$defs.candidate.enum).toEqual(COMPARISON_CANDIDATES);
     expect(schema.properties.geminiContract.properties).toMatchObject({
-      model: { const: 'gemini-3.6-flash' }, uncachedRequestsPerUserUtcDay: { const: 10 },
+      model: { const: 'gemini-3-flash-preview' }, uncachedRequestsPerUserUtcDay: { const: 20 },
       whatWorkedItems: { const: 1 }, whatToImproveItems: { const: 1 },
       maxWhitespaceWordsPerPhrase: { const: 6 }, cachedResultsReadable: { const: true },
     });
@@ -285,9 +287,9 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
 
   it('enforces the locked Gemini quota, output shape, and cache replay', () => {
     const tooMany = validEvidence();
-    tooMany.geminiEvidence[0].quota.requestNumber = 11;
+    tooMany.geminiEvidence[0].quota.requestNumber = 21;
     tooMany.geminiEvidence[0].output.whatToImproveWhitespaceWords = 7;
-    expect(holdProblems(tooMany)).toMatch(/requestNumber must be between 1 and 10/);
+    expect(holdProblems(tooMany)).toMatch(/requestNumber must be between 1 and 20/);
     const noCache = validEvidence(); noCache.geminiEvidence.pop();
     expect(holdProblems(noCache)).toMatch(/readable cache replay/);
   });

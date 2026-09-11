@@ -35,6 +35,13 @@ interface SessionEvidence {
   ai_suggestions: unknown;
 }
 
+/** Only deployment skew (Edge published before its migration) may use the legacy authenticated write. */
+function authorityRpcUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  return code === 'PGRST202' || code === '42883';
+}
+
 function parseSuggestions(rawText: string): AISuggestions | null {
   try {
     const parsed = JSON.parse(rawText.trim()) as unknown;
@@ -301,7 +308,7 @@ export async function handler(
 
     // Persist the coaching value and its provider/quota authority in one service-role transaction.
     // The browser's authenticated client cannot execute this RPC or write the receipt table.
-    const { data: savedValue, error: updateError } = await createServiceRoleSupabase().rpc(
+    const { data: authoritySavedValue, error: authorityUpdateError } = await createServiceRoleSupabase().rpc(
       'persist_ai_suggestion_with_authority_v1',
       {
         p_session_id: sessionId,
@@ -315,6 +322,24 @@ export async function handler(
         p_quota_request_number: quotaRequestNumber,
       },
     );
+
+    // Merging this function deploys Edge code before the separately authorized database migration.
+    // During that bounded skew, preserve the existing product save through the authenticated/RLS path.
+    // The trusted evidence collector still HOLDs because this path creates no authority receipt. Once
+    // the migration is present its ACL removes this browser write and the atomic RPC is mandatory.
+    let savedValue = authoritySavedValue;
+    let updateError = authorityUpdateError;
+    if (authorityRpcUnavailable(authorityUpdateError)) {
+      const legacy = await supabaseClient
+        .from('sessions')
+        .update({ ai_suggestions: suggestions })
+        .eq('id', sessionId)
+        .eq('user_id', userId)
+        .select('ai_suggestions')
+        .single();
+      savedValue = legacy.data?.ai_suggestions ?? null;
+      updateError = legacy.error;
+    }
 
     const savedSuggestions = !updateError && savedValue
       ? parseSuggestions(JSON.stringify(savedValue))

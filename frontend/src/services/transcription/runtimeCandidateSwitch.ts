@@ -27,9 +27,11 @@ import {
     type Candidate, type CandidateId, type EngineKind,
 } from './candidateRegistry';
 import {
-    consumeModelComparisonTakeAuthorization, hasModelComparisonAuthorization,
+    claimModelComparisonPositiveControl, consumeModelComparisonTakeAuthorization,
+    hasModelComparisonAuthorization, modelComparisonTelemetryContext,
     type ModelComparisonJourney,
 } from './modelComparisonAuthorization';
+import { analyticsBuffer } from '../AnalyticsBuffer';
 
 /**
  * The engines the product facade can actually construct.
@@ -256,6 +258,22 @@ export async function switchCandidate(
                 ? `switched to "${override}" but the engine published no identity, so nothing can be attributed`
                 : `switched to "${override}" but the engine is running "${observed}"`,
         };
+    }
+
+    // A real transport control is produced by the same governed boundary as the lifecycle events.
+    // Emit once for the signed evidence document, only after a successful authorized Production switch
+    // and only when the analytics transport is actually initialized. Internal diagnostics carry no
+    // signed document and cannot manufacture this event.
+    if (!internalBuild && analyticsBuffer.ready) {
+        const controlNonce = claimModelComparisonPositiveControl();
+        if (controlNonce) {
+            analyticsBuffer.push('telemetry_positive_control', {
+                control_nonce: controlNonce,
+                comparison_evidence_document_id: controlNonce,
+                transport_initialized: true,
+                ...modelComparisonTelemetryContext(),
+            }, 'CRITICAL');
+        }
     }
 
     for (const l of listeners) { try { l(override); } catch { /* never break a completed switch */ } }

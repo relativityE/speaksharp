@@ -165,6 +165,12 @@ six rows; a later comparison packet requires a new id. Immediately before each t
    refresh or reuse an envelope; the authorization is removed after the first document and its nonce is
    evidence for exactly one take.
 
+The first successful authorized switch for the evidence document automatically emits the governed
+`telemetry_positive_control`; the other five switches do not. Set the packet's `positiveControlNonce`
+to the signed evidence-document UUID reported by the observer. For each candidate row, copy
+`journeyId`, `attemptId`, and `attemptSeq` from that row's observer receipt; the app derives them from
+the signed one-use nonce, so operator-authored correlation cannot substitute for emitted telemetry.
+
 A candidate row counts only when requested, expected, and observed identities agree for the whole take;
 the saved session has a named persistence ID; the receipt is non-dry-run `PASS`; and the #1421 decoded
 PostHog readback links the same release, evidence document, candidate, journey, attempt, sequence, and

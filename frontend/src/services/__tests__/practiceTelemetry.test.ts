@@ -7,6 +7,11 @@ import {
 } from '@/services/practiceTelemetry';
 
 vi.mock('@/services/AnalyticsBuffer', () => ({ analyticsBuffer: { push: vi.fn() } }));
+vi.mock('@/services/transcription/modelComparisonAuthorization', () => ({
+  modelComparisonTelemetryContext: () => ({
+    journey_id: 'signed-take-nonce', attempt_id: 'signed-take-nonce', attempt_seq: 1,
+  }),
+}));
 const push = vi.mocked(analyticsBuffer.push);
 
 // Content that must NEVER appear in any practice event payload.
@@ -30,7 +35,9 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
     expect(names).not.toContain('objective_unavailable_selected');
 
     // Every payload carries only allowlisted keys and no free-form user content.
-    const allowed = new Set(['mode', 'entry_source', 'returning_user', 'release_sha']);
+    const allowed = new Set([
+      'mode', 'entry_source', 'returning_user', 'release_sha', 'journey_id', 'attempt_id', 'attempt_seq',
+    ]);
     const allProps = push.mock.calls.map(([, props]) => (props ?? {}) as Record<string, unknown>);
     const allKeys = [...new Set(allProps.flatMap((p) => Object.keys(p)))];
     allKeys.forEach((key) => {
@@ -40,6 +47,7 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
     // `mode` is only ever the enum; no payload contains email-shaped or free-form content.
     allProps.map((p) => p.mode).filter(Boolean).forEach((m) => expect(['quick', 'objective']).toContain(m));
     allProps.forEach((p) => expect(JSON.stringify(p)).not.toMatch(/@/));
+    expect(allProps[1]).toMatchObject({ journey_id: 'signed-take-nonce' });
   });
 
   it('DROPS an out-of-enum entry_source instead of emitting arbitrary text', () => {

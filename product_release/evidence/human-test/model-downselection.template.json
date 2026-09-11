@@ -6,8 +6,8 @@
     "releaseSha": null
   },
   "geminiContract": {
-    "model": "gemini-3.6-flash",
-    "uncachedRequestsPerUserUtcDay": 10,
+    "model": "gemini-3-flash-preview",
+    "uncachedRequestsPerUserUtcDay": 20,
     "quotaScope": "user_utc_day",
     "whatWorkedItems": 1,
     "whatToImproveItems": 1,

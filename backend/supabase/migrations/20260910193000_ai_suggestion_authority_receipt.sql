@@ -29,6 +29,16 @@ ALTER TABLE public.ai_suggestion_authority_receipts FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.ai_suggestion_authority_receipts FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.ai_suggestion_authority_receipts TO service_role;
 
+-- The receipt is authoritative only while the saved coaching value cannot be rewritten separately.
+-- A column-level revoke cannot override an older table-level UPDATE grant, so rebuild the authenticated
+-- operational whitelist and deliberately omit ai_suggestions. The service-role RPC below remains the
+-- only writer and updates the value and receipt in one transaction.
+REVOKE UPDATE ON public.sessions FROM authenticated;
+GRANT UPDATE (
+  title, duration, total_words, filler_words, custom_words, accuracy, ground_truth, transcript,
+  clarity_score, wpm, status, status_reason, pause_metrics, transcript_state, updated_at
+) ON public.sessions TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.persist_ai_suggestion_with_authority_v1(
   p_session_id uuid,
   p_user_id uuid,

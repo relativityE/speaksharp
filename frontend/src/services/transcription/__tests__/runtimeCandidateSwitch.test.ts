@@ -6,6 +6,8 @@
  * corrupt a session that is mid-flight.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import posthog from 'posthog-js';
+import { analyticsBuffer } from '../../AnalyticsBuffer';
 import { CANDIDATES } from '../candidateRegistry';
 import { effectiveCandidate } from '../candidateSelection';
 import {
@@ -14,6 +16,12 @@ import {
     engineIntegrationRefusal,
 } from '../runtimeCandidateSwitch';
 import { authorizeProduction, resetAuthorization } from './modelComparisonAuthorization.helper';
+
+vi.mock('posthog-js', () => ({
+    default: {
+        capture: vi.fn(), identify: vi.fn(), reloadFeatureFlags: vi.fn(), reset: vi.fn(), init: vi.fn(),
+    },
+}));
 
 // Selection configuration remains injectable; switch AUTHORITY does not.
 const INTERNAL_SELECTION = { VITE_INTERNAL_BUILD: 'true' };
@@ -42,12 +50,17 @@ describe('the in-page model switch', () => {
         vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
         clearRuntimeCandidateOverride();
         registerSwitchExecutor(null);
+        analyticsBuffer.ready = false;
+        analyticsBuffer.queue.length = 0;
+        vi.mocked(posthog.capture).mockClear();
     });
     afterEach(() => {
         resetAuthorization();
         vi.unstubAllEnvs();
         clearRuntimeCandidateOverride();
         registerSwitchExecutor(null);
+        analyticsBuffer.ready = false;
+        analyticsBuffer.queue.length = 0;
     });
 
     it('CASUALTY: the FULL comparison runs in one page — v2 → distil → moonshine → v2', async () => {
@@ -107,6 +120,33 @@ describe('the in-page model switch', () => {
         const out = await switchCandidate('v4:distil:q4', CANDIDATES, 'open_mic');
         expect(out).toEqual({ ok: true, candidate: 'v4:distil:q4' });
         expect(runtimeCandidateOverride()).toBe('v4:distil:q4');
+    });
+
+    it('CASUALTY: the first authorized switch emits one real governed transport control per document', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
+        analyticsBuffer.ready = true;
+        const first = await authorizeProduction({ nonce: 'first-positive-control-take' });
+        expect(first.accepted).toBe(true);
+        registerSwitchExecutor(executor());
+        expect((await switchCandidate('v4:distil:q4', CANDIDATES, 'open_mic')).ok).toBe(true);
+
+        const second = await authorizeProduction({
+            nonce: 'second-positive-control-take', candidateId: 'v2:base.en',
+        });
+        expect(second.accepted).toBe(true);
+        expect((await switchCandidate('v2:base.en', CANDIDATES, 'open_mic')).ok).toBe(true);
+
+        const controls = vi.mocked(posthog.capture).mock.calls
+            .filter(([event]) => event === 'telemetry_positive_control');
+        expect(controls).toHaveLength(1);
+        expect(controls[0][1]).toMatchObject({
+            control_nonce: '11111111-1111-4111-8111-111111111111',
+            comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+            transport_initialized: true,
+            journey_id: 'first-positive-control-take',
+            attempt_id: 'first-positive-control-take',
+            attempt_seq: 1,
+        });
     });
 
     it('CASUALTY: canonical Production can run Moonshine after its real-runtime E/F preflight', async () => {

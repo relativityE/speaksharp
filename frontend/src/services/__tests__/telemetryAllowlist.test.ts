@@ -27,6 +27,9 @@ describe('#1259 T1 — approved fields survive (events stay analyzable)', () => 
             mode: 'private', duration_seconds: 61, word_count: 180, wpm: 118,
             filler_count: 4, clarity_score: 82, is_new_streak_day: true, streak_count: 3,
             comparison_nonce: 'comparison-nonce-123456',
+            journey_id: 'comparison-nonce-123456',
+            attempt_id: 'comparison-nonce-123456',
+            attempt_seq: 1,
             comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
             comparison_session_binding_sha256: 'a'.repeat(64),
             session_coaching_experiment: 'session_coaching_v1',
@@ -149,8 +152,34 @@ describe('#1259 T1 — content is rejected', () => {
         for (const event of ['session_started', 'session_saved']) {
             expect(isValidForEventField(event, 'comparison_nonce', 'comparison-nonce-123456')).toBe(true);
             expect(isValidForEventField(event, 'comparison_nonce', 'not a bounded nonce')).toBe(false);
+            expect(isValidForEventField(event, 'journey_id', 'comparison-nonce-123456')).toBe(true);
+            expect(isValidForEventField(event, 'attempt_id', 'comparison-nonce-123456')).toBe(true);
+            expect(isValidForEventField(event, 'attempt_seq', 1)).toBe(true);
+            expect(isValidForEventField(event, 'attempt_seq', 2)).toBe(false);
         }
         expect(isValidForEventField('session_saved', 'persisted_session_id', 'session-123')).toBe(false);
+    });
+
+    it('governs the real transport positive control with closed, content-free fields', () => {
+        expect(projectEventProps('telemetry_positive_control', {
+            control_nonce: '11111111-1111-4111-8111-111111111111',
+            comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+            transport_initialized: true,
+            journey_id: 'comparison-nonce-123456',
+            attempt_id: 'comparison-nonce-123456',
+            attempt_seq: 1,
+            prose: 'never ship me',
+        })).toEqual({
+            props: {
+                control_nonce: '11111111-1111-4111-8111-111111111111',
+                comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+                transport_initialized: true,
+                journey_id: 'comparison-nonce-123456',
+                attempt_id: 'comparison-nonce-123456',
+                attempt_seq: 1,
+            },
+            dropped: ['prose'],
+        });
     });
 
     it('rejects non-primitives, and no longer waves strings through on shape alone', () => {
