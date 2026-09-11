@@ -7,6 +7,7 @@ const MAX_TRANSCRIPT_CHARS = 8000;
 const AI_SUGGESTION_DAILY_LIMIT = 20;
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
+type ServiceRoleClientFactory = () => SupabaseClient;
 
 interface AISuggestions {
   version: 'gemini_coaching_v1';
@@ -34,6 +35,13 @@ interface SessionEvidence {
   ai_suggestions: unknown;
 }
 
+/** Only deployment skew (Edge published before its migration) may use the legacy authenticated write. */
+function authorityRpcUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  return code === 'PGRST202' || code === '42883';
+}
+
 function parseSuggestions(rawText: string): AISuggestions | null {
   try {
     const parsed = JSON.parse(rawText.trim()) as unknown;
@@ -57,7 +65,11 @@ function parseSuggestions(rawText: string): AISuggestions | null {
 }
 
 // Define the handler with dependency injection for testability
-export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
+export async function handler(
+  req: Request,
+  createSupabase: SupabaseClientFactory,
+  createServiceRoleSupabase: ServiceRoleClientFactory = () => createSupabase(null),
+) {
   // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
   // auth or Supabase/AI provider access.
   const corsRejection = corsGuard(req);
@@ -131,6 +143,17 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       ? parseSuggestions(JSON.stringify(session.ai_suggestions))
       : null;
     if (cachedSuggestions) {
+      // A cache replay is evidence only when the server-owned receipt records that the request really
+      // returned before quota/provider work. The browser packet cannot assert this fact for itself.
+      const { data: cacheRecorded, error: cacheReceiptError } = await createServiceRoleSupabase().rpc(
+        'record_ai_suggestion_cache_read_v1',
+        { p_session_id: sessionId, p_user_id: userId },
+      );
+      if (cacheReceiptError || cacheRecorded !== true) {
+        // Legacy cached coaching predates the authority receipt. Keep the already-saved product result
+        // readable; the trusted evidence collector still HOLDs because no receipt/cache count exists.
+        console.error('AI coaching cache authority was not recorded:', cacheReceiptError);
+      }
       return new Response(JSON.stringify({ suggestions: cachedSuggestions }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 200,
@@ -234,6 +257,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     `;
 
     let suggestions: AISuggestions | null = null;
+    let observedProviderModel: string | null = null;
 
     try {
       const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
@@ -250,6 +274,10 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       } else {
         const responseData = await geminiResponse.json();
         const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+        observedProviderModel = typeof responseData?.modelVersion === 'string'
+          && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
+          ? responseData.modelVersion
+          : null;
         suggestions = typeof rawText === 'string'
           ? parseSuggestions(rawText)
           : null;
@@ -258,7 +286,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       console.error('Gemini API request failed:', error);
     }
 
-    if (!suggestions) {
+    if (!suggestions || !observedProviderModel) {
       console.error('Gemini response did not contain valid suggestions JSON.');
       return new Response(JSON.stringify({ error: 'AI coaching could not be generated. Please try again.' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
@@ -266,17 +294,55 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       });
     }
 
-    // Persist and read back the exact value before reporting success.
-    const { data: savedSession, error: updateError } = await supabaseClient
-      .from('sessions')
-      .update({ ai_suggestions: suggestions })
-      .eq('id', sessionId)
-      .eq('user_id', userId)
-      .select('ai_suggestions')
-      .single();
+    const quotaLimit = quotaResult?.limit;
+    const quotaRequestNumber = quotaResult?.used;
+    if (!Number.isInteger(quotaLimit) || !Number.isInteger(quotaRequestNumber)
+      || Number(quotaLimit) <= 0 || Number(quotaRequestNumber) <= 0
+      || Number(quotaRequestNumber) > Number(quotaLimit)) {
+      console.error('AI suggestion quota receipt was incomplete.');
+      return new Response(JSON.stringify({ error: 'AI coaching authority could not be verified. Please try again.' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 503,
+      });
+    }
 
-    const savedSuggestions = !updateError && savedSession?.ai_suggestions
-      ? parseSuggestions(JSON.stringify(savedSession.ai_suggestions))
+    // Persist the coaching value and its provider/quota authority in one service-role transaction.
+    // The browser's authenticated client cannot execute this RPC or write the receipt table.
+    const { data: authoritySavedValue, error: authorityUpdateError } = await createServiceRoleSupabase().rpc(
+      'persist_ai_suggestion_with_authority_v1',
+      {
+        p_session_id: sessionId,
+        p_user_id: userId,
+        p_suggestions: suggestions,
+        p_provider: 'google_gemini',
+        p_model: observedProviderModel,
+        p_quota_scope: 'user_utc_day',
+        p_quota_utc_date: new Date().toISOString().slice(0, 10),
+        p_quota_limit: quotaLimit,
+        p_quota_request_number: quotaRequestNumber,
+      },
+    );
+
+    // Merging this function deploys Edge code before the separately authorized database migration.
+    // During that bounded skew, preserve the existing product save through the authenticated/RLS path.
+    // The trusted evidence collector still HOLDs because this path creates no authority receipt. Once
+    // the migration is present its ACL removes this browser write and the atomic RPC is mandatory.
+    let savedValue = authoritySavedValue;
+    let updateError = authorityUpdateError;
+    if (authorityRpcUnavailable(authorityUpdateError)) {
+      const legacy = await supabaseClient
+        .from('sessions')
+        .update({ ai_suggestions: suggestions })
+        .eq('id', sessionId)
+        .eq('user_id', userId)
+        .select('ai_suggestions')
+        .single();
+      savedValue = legacy.data?.ai_suggestions ?? null;
+      updateError = legacy.error;
+    }
+
+    const savedSuggestions = !updateError && savedValue
+      ? parseSuggestions(JSON.stringify(savedValue))
       : null;
     if (!savedSuggestions || JSON.stringify(savedSuggestions) !== JSON.stringify(suggestions)) {
       console.error('Failed to save and verify AI suggestions:', updateError);
@@ -309,7 +375,13 @@ if (import.meta.main) {
         Deno.env.get('SUPABASE_ANON_KEY') ?? '',
         { global: { headers: { Authorization: authHeader! } } }
       );
+    const serviceRoleClientFactory: ServiceRoleClientFactory = () =>
+      createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+        { auth: { persistSession: false, autoRefreshToken: false } },
+      );
 
-    return handler(req, supabaseClientFactory);
+    return handler(req, supabaseClientFactory, serviceRoleClientFactory);
   });
 }

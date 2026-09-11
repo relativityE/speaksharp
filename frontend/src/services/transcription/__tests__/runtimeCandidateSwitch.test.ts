@@ -6,22 +6,25 @@
  * corrupt a session that is mid-flight.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import posthog from 'posthog-js';
+import { analyticsBuffer } from '../../AnalyticsBuffer';
 import { CANDIDATES } from '../candidateRegistry';
 import { effectiveCandidate } from '../candidateSelection';
 import {
     switchCandidate, registerSwitchExecutor, runtimeCandidateOverride,
     clearRuntimeCandidateOverride, onRuntimeCandidateChange, SWITCH_BLOCKING_STATES,
-    engineIntegrationRefusal, MODEL_COMPARISON_CDP_ARM_KEY,
+    engineIntegrationRefusal,
 } from '../runtimeCandidateSwitch';
+import { authorizeProduction, resetAuthorization } from './modelComparisonAuthorization.helper';
 
-const INTERNAL = { VITE_INTERNAL_BUILD: 'true' };
-const PRODUCTION = { VITE_INTERNAL_BUILD: undefined };
-const armProduction = () => {
-    Object.defineProperty(globalThis, Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY), {
-        value: true, configurable: true,
-    });
-};
-const disarmProduction = () => { delete (globalThis as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)]; };
+vi.mock('posthog-js', () => ({
+    default: {
+        capture: vi.fn(), identify: vi.fn(), reloadFeatureFlags: vi.fn(), reset: vi.fn(), init: vi.fn(),
+    },
+}));
+
+// Selection configuration remains injectable; switch AUTHORITY does not.
+const INTERNAL_SELECTION = { VITE_INTERNAL_BUILD: 'true' };
 
 function executor(state = 'READY') {
     const calls: string[] = [];
@@ -42,8 +45,23 @@ function executor(state = 'READY') {
 }
 
 describe('the in-page model switch', () => {
-    beforeEach(() => { disarmProduction(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
-    afterEach(() => { disarmProduction(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
+    beforeEach(() => {
+        resetAuthorization();
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        clearRuntimeCandidateOverride();
+        registerSwitchExecutor(null);
+        analyticsBuffer.ready = false;
+        analyticsBuffer.queue.length = 0;
+        vi.mocked(posthog.capture).mockClear();
+    });
+    afterEach(() => {
+        resetAuthorization();
+        vi.unstubAllEnvs();
+        clearRuntimeCandidateOverride();
+        registerSwitchExecutor(null);
+        analyticsBuffer.ready = false;
+        analyticsBuffer.queue.length = 0;
+    });
 
     it('CASUALTY: the FULL comparison runs in one page — v2 → distil → moonshine → v2', async () => {
         // The sequence the human test actually performs. Moonshine was refused here until it was
@@ -52,8 +70,8 @@ describe('the in-page model switch', () => {
         const e = executor(); registerSwitchExecutor(e);
         const hops: Array<{ id: string; outcome: unknown; running: string }> = [];
         for (const id of ['v4:distil:q4', 'moonshine:streaming-medium', 'v2:base.en'] as const) {
-            const outcome = await switchCandidate(id, INTERNAL);
-            hops.push({ id, outcome, running: effectiveCandidate(undefined, INTERNAL, false).candidate.id });
+            const outcome = await switchCandidate(id);
+            hops.push({ id, outcome, running: effectiveCandidate(undefined, INTERNAL_SELECTION, false).candidate.id });
         }
         expect(hops).toEqual([
             { id: 'v4:distil:q4', outcome: { ok: true, candidate: 'v4:distil:q4' }, running: 'v4:distil:q4' },
@@ -76,7 +94,7 @@ describe('the in-page model switch', () => {
 
     it('POSITIVE CONTROL: moonshine is now switchable', async () => {
         registerSwitchExecutor(executor());
-        expect((await switchCandidate('moonshine:streaming-medium', INTERNAL)).ok).toBe(true);
+        expect((await switchCandidate('moonshine:streaming-medium')).ok).toBe(true);
     });
 
     it('CASUALTY: a SECOND switch is refused while one is still running', async () => {
@@ -86,35 +104,105 @@ describe('the in-page model switch', () => {
         e.teardown = vi.fn(async () => { await gate; });
         registerSwitchExecutor(e);
 
-        const first = switchCandidate('v4:distil:q4', INTERNAL);
-        const second = await switchCandidate('v2:base.en', INTERNAL);
+        const first = switchCandidate('v4:distil:q4');
+        const second = await switchCandidate('v2:base.en');
         expect(second).toMatchObject({ ok: false, code: 'switch_in_progress' });
         release();
         expect((await first).ok).toBe(true);
         // and once it settles, switching works again
-        expect((await switchCandidate('v2:base.en', INTERNAL)).ok).toBe(true);
+        expect((await switchCandidate('v2:base.en')).ok).toBe(true);
     });
 
     it('CASUALTY: canonical Production can run the three-model CDP comparison', async () => {
-        armProduction();
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
+        expect((await authorizeProduction()).accepted).toBe(true);
         registerSwitchExecutor(executor());
-        const out = await switchCandidate('v4:distil:q4', PRODUCTION);
+        const out = await switchCandidate('v4:distil:q4', CANDIDATES, 'open_mic');
         expect(out).toEqual({ ok: true, candidate: 'v4:distil:q4' });
         expect(runtimeCandidateOverride()).toBe('v4:distil:q4');
     });
 
-    it('CASUALTY: registry membership does not widen the three-model comparison', async () => {
-        armProduction();
+    it('CASUALTY: the first authorized switch emits one real governed transport control per document', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
+        analyticsBuffer.ready = true;
+        const first = await authorizeProduction({ nonce: 'first-positive-control-take' });
+        expect(first.accepted).toBe(true);
+        registerSwitchExecutor(executor());
+        expect((await switchCandidate('v4:distil:q4', CANDIDATES, 'open_mic')).ok).toBe(true);
+
+        const second = await authorizeProduction({
+            nonce: 'second-positive-control-take', candidateId: 'v2:base.en',
+        });
+        expect(second.accepted).toBe(true);
+        expect((await switchCandidate('v2:base.en', CANDIDATES, 'open_mic')).ok).toBe(true);
+
+        const controls = vi.mocked(posthog.capture).mock.calls
+            .filter(([event]) => event === 'telemetry_positive_control');
+        expect(controls).toHaveLength(1);
+        expect(controls[0][1]).toMatchObject({
+            control_nonce: '11111111-1111-4111-8111-111111111111',
+            comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+            transport_initialized: true,
+            journey_id: 'first-positive-control-take',
+            attempt_id: 'first-positive-control-take',
+            attempt_seq: 1,
+        });
+    });
+
+    it('CASUALTY: canonical Production can run Moonshine after its real-runtime E/F preflight', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
+        expect((await authorizeProduction({
+            candidateId: 'moonshine:streaming-medium',
+            nonce: 'moonshine-preflight-123456',
+        })).accepted).toBe(true);
+        registerSwitchExecutor(executor());
+        const out = await switchCandidate('moonshine:streaming-medium', CANDIDATES, 'open_mic');
+        expect(out).toEqual({ ok: true, candidate: 'moonshine:streaming-medium' });
+        expect(runtimeCandidateOverride()).toBe('moonshine:streaming-medium');
+    });
+
+    it('CASUALTY: canonical Production refuses a comparison arm whose preflight is incomplete', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
+        expect((await authorizeProduction({
+            candidateId: 'moonshine:streaming-medium',
+            nonce: 'moonshine-preflight-refusal-123456',
+        })).accepted).toBe(true);
+        const incomplete = {
+            ...CANDIDATES,
+            'moonshine:streaming-medium': {
+                ...CANDIDATES['moonshine:streaming-medium'],
+                comparisonReady: false,
+                comparisonNotReadyReason: 'synthetic missing preflight',
+            },
+        } as typeof CANDIDATES;
         const e = executor(); registerSwitchExecutor(e);
-        const out = await switchCandidate('v4:base:q4', PRODUCTION);
+        const out = await switchCandidate('moonshine:streaming-medium', incomplete, 'open_mic');
+        expect(out).toMatchObject({ ok: false, code: 'candidate_not_comparison_ready' });
+        expect(e.teardown).not.toHaveBeenCalled();
+        expect(runtimeCandidateOverride()).toBeNull();
+    });
+
+    it('CASUALTY: canonical Production spends one authorization on one row', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
+        expect((await authorizeProduction()).accepted).toBe(true);
+        registerSwitchExecutor(executor());
+        expect((await switchCandidate('v4:distil:q4', CANDIDATES, 'open_mic')).ok).toBe(true);
+        expect(await switchCandidate('v2:base.en', CANDIDATES, 'open_mic'))
+            .toMatchObject({ ok: false, code: 'not_armed' });
+    });
+
+    it('CASUALTY: registry membership does not widen the three-model comparison', async () => {
+        const e = executor(); registerSwitchExecutor(e);
+        const out = await switchCandidate('v4:base:q4');
         expect(out).toMatchObject({ ok: false, code: 'not_comparison_candidate' });
         expect(e.teardown).not.toHaveBeenCalled();
         expect(runtimeCandidateOverride()).toBeNull();
     });
 
     it('CASUALTY: an ordinary Production page cannot call the switch without the CDP arm', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
         const e = executor(); registerSwitchExecutor(e);
-        expect(await switchCandidate('v2:base.en', PRODUCTION)).toMatchObject({ ok: false, code: 'not_armed' });
+        expect(await switchCandidate('v2:base.en')).toMatchObject({ ok: false, code: 'not_armed' });
         expect(e.teardown).not.toHaveBeenCalled();
     });
 
@@ -124,7 +212,7 @@ describe('the in-page model switch', () => {
         const leakedOverride: string[] = [];
         for (const state of SWITCH_BLOCKING_STATES) {
             const e = executor(state); registerSwitchExecutor(e);
-            const out = await switchCandidate('v4:distil:q4', INTERNAL);
+            const out = await switchCandidate('v4:distil:q4');
             if (!out.ok && out.code === 'busy') refused.push(state);
             if ((e.teardown as unknown as { mock: { calls: unknown[] } }).mock.calls.length > 0) touchedEngine.push(state);
             if (runtimeCandidateOverride() !== null) leakedOverride.push(state);
@@ -137,20 +225,20 @@ describe('the in-page model switch', () => {
 
     it('POSITIVE CONTROL: it is ALLOWED from a settled state', async () => {
         registerSwitchExecutor(executor('READY'));
-        expect((await switchCandidate('v4:distil:q4', INTERNAL)).ok).toBe(true);
+        expect((await switchCandidate('v4:distil:q4')).ok).toBe(true);
     });
 
     it('CASUALTY: the safety kill still outranks the switch', async () => {
         registerSwitchExecutor(executor());
-        await switchCandidate('v4:distil:q4', INTERNAL);
-        const sel = effectiveCandidate(undefined, INTERNAL, /* killEngaged */ true);
+        await switchCandidate('v4:distil:q4');
+        const sel = effectiveCandidate(undefined, INTERNAL_SELECTION, /* killEngaged */ true);
         expect(sel.candidate.id).toBe('v2:base.en');
         expect(sel.fallbackCause).toBe('remote_safety_kill');
     });
 
     it('CASUALTY: an unknown id changes nothing', async () => {
         const e = executor(); registerSwitchExecutor(e);
-        const out = await switchCandidate('v9:imaginary', INTERNAL);
+        const out = await switchCandidate('v9:imaginary');
         expect(out).toMatchObject({ ok: false, code: 'unknown_candidate' });
         expect(e.teardown).not.toHaveBeenCalled();
         expect(runtimeCandidateOverride()).toBeNull();
@@ -160,7 +248,7 @@ describe('the in-page model switch', () => {
         const e = executor();
         e.teardown = vi.fn(async () => { throw new Error('worker would not die'); });
         registerSwitchExecutor(e);
-        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        const out = await switchCandidate('v4:distil:q4');
         expect(out).toMatchObject({ ok: false, code: 'teardown_failed' });
         expect(runtimeCandidateOverride()).toBeNull();
     });
@@ -169,21 +257,21 @@ describe('the in-page model switch', () => {
         const e = executor();
         e.initialize = vi.fn(async () => { throw new Error('model would not load'); });
         registerSwitchExecutor(e);
-        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        const out = await switchCandidate('v4:distil:q4');
         expect(out).toMatchObject({ ok: false, code: 'init_failed' });
         // Reporting the OLD candidate here would name a model that is not running.
         expect(runtimeCandidateOverride()).toBe('v4:distil:q4');
     });
 
     it('with no engine registered it refuses instead of pretending', async () => {
-        expect(await switchCandidate('v4:distil:q4', INTERNAL)).toMatchObject({ ok: false, code: 'no_executor' });
+        expect(await switchCandidate('v4:distil:q4')).toMatchObject({ ok: false, code: 'no_executor' });
     });
 
     it('subscribers are told what is now running', async () => {
         registerSwitchExecutor(executor());
         const seen: (string | null)[] = [];
         const off = onRuntimeCandidateChange((id) => seen.push(id));
-        await switchCandidate('v4:distil:q4', INTERNAL);
+        await switchCandidate('v4:distil:q4');
         clearRuntimeCandidateOverride();
         off();
         expect(seen).toEqual(['v4:distil:q4', null]);
@@ -191,13 +279,24 @@ describe('the in-page model switch', () => {
 
     it('clearing the override hands the decision back to config', async () => {
         registerSwitchExecutor(executor());
-        await switchCandidate('v4:distil:q4', INTERNAL);
+        await switchCandidate('v4:distil:q4');
         clearRuntimeCandidateOverride();
-        expect(effectiveCandidate(undefined, INTERNAL, false).candidate.id).toBe(CANDIDATES['v2:base.en'].id);
+        expect(effectiveCandidate(undefined, INTERNAL_SELECTION, false).candidate.id).toBe(CANDIDATES['v2:base.en'].id);
     });
 });
 
 describe('the switch refuses to report success for a model that is not running', () => {
+    beforeEach(() => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        clearRuntimeCandidateOverride();
+        registerSwitchExecutor(null);
+    });
+    afterEach(() => {
+        vi.unstubAllEnvs();
+        clearRuntimeCandidateOverride();
+        registerSwitchExecutor(null);
+    });
+
     it('CASUALTY: a mismatch between requested and observed FAILS the switch', async () => {
         // Initialising without throwing is not evidence the requested model is the one running. A
         // resolver that quietly fell back completes just as cleanly, and reporting ok there hands the
@@ -206,7 +305,7 @@ describe('the switch refuses to report success for a model that is not running',
         e.useSelectionAsObserved = false;
         e.observed = 'v2:base.en';
 
-        const out = await switchCandidate('moonshine:streaming-medium', INTERNAL);
+        const out = await switchCandidate('moonshine:streaming-medium');
         expect(out).toMatchObject({ ok: false, code: 'identity_mismatch' });
         expect(out.ok === false && out.reason).toMatch(/is running "v2:base.en"/);
         // The engine is torn down rather than left running under a label we have refused.
@@ -218,14 +317,14 @@ describe('the switch refuses to report success for a model that is not running',
         e.useSelectionAsObserved = false;
         e.observed = null;
 
-        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        const out = await switchCandidate('v4:distil:q4');
         expect(out).toMatchObject({ ok: false, code: 'identity_mismatch' });
         expect(out.ok === false && out.reason).toMatch(/published no identity/);
     });
 
     it('POSITIVE CONTROL: agreement still reports success', async () => {
         const e = executor(); registerSwitchExecutor(e);
-        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        const out = await switchCandidate('v4:distil:q4');
         expect(out).toEqual({ ok: true, candidate: 'v4:distil:q4' });
     });
 });

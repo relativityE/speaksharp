@@ -22,8 +22,6 @@ vi.mock('../../../lib/logger', () => ({
     default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
-const INTERNAL = { VITE_INTERNAL_BUILD: 'true' };
-
 /** A service whose destruction we hold open, so ordering is observable rather than inferred. */
 function deferredService() {
     let release!: () => void;
@@ -37,7 +35,8 @@ describe('model switch — combined real-controller ordering', () => {
     let initSpy: MockInstance<(mode?: TranscriptionMode) => Promise<void>>;
     const order: string[] = [];
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
         order.length = 0;
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
@@ -54,9 +53,10 @@ describe('model switch — combined real-controller ordering', () => {
                 const selected = runtimeCandidateOverride();
                 if (selected) recordResolvedEngine({ candidateId: selected } as never);
             });
-        installRuntimeCandidateSwitch(INTERNAL);
+        await installRuntimeCandidateSwitch();
     });
     afterEach(() => {
+        vi.unstubAllEnvs();
         initSpy.mockRestore();
         registerSwitchExecutor(null);
         clearRuntimeCandidateOverride();
@@ -69,7 +69,7 @@ describe('model switch — combined real-controller ordering', () => {
         const { svc, destroyed, release } = deferredService();
         speechRuntimeController.service = svc;
 
-        const pending = switchCandidate('v4:distil:q4', INTERNAL);
+        const pending = switchCandidate('v4:distil:q4');
 
         // Give the switch every chance to run ahead: several microtask turns and a macrotask.
         await Promise.resolve();
@@ -92,7 +92,7 @@ describe('model switch — combined real-controller ordering', () => {
         const { svc, release } = deferredService();
         speechRuntimeController.service = svc;
 
-        const pending = switchCandidate('v4:distil:q4', INTERNAL);
+        const pending = switchCandidate('v4:distil:q4');
         await Promise.resolve();
         // Already unknown while the old engine is still dying — never the model that is going away.
         expect(resolvedEngine()).toBeNull();
@@ -110,7 +110,7 @@ describe('model switch — combined real-controller ordering', () => {
         initSpy.mockImplementationOnce(async () => { throw new Error('model would not load'); });
         speechRuntimeController.service = null;
 
-        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        const out = await switchCandidate('v4:distil:q4');
         expect(out).toMatchObject({ ok: false, code: 'init_failed' });
         expect(resolvedEngine()).toBeNull();
     });
@@ -121,7 +121,7 @@ describe('model switch — combined real-controller ordering', () => {
         const { svc, destroyed, release } = deferredService();
         speechRuntimeController.service = svc;
 
-        const pending = switchCandidate('moonshine:streaming-medium', INTERNAL);
+        const pending = switchCandidate('moonshine:streaming-medium');
         await Promise.resolve();
         await new Promise((r) => setTimeout(r, 20));
         expect(destroyed.value).toBe(false);
@@ -135,7 +135,7 @@ describe('model switch — combined real-controller ordering', () => {
 
     it('POSITIVE CONTROL: with no service attached the switch still completes', async () => {
         speechRuntimeController.service = null;
-        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        const out = await switchCandidate('v4:distil:q4');
         expect(out.ok).toBe(true);
         expect(initSpy).toHaveBeenCalledTimes(1);
     });

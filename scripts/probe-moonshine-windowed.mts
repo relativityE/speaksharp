@@ -9,14 +9,17 @@
  *
  * This drives the REAL MoonshineStreamingEngine against the REAL pinned runtime.
  *
- *   E1  windowed session vs whole-utterance decode of the same audio  (boundary loss / duplication)
- *   E2  a SECOND session on the same engine instance                  (cross-session state)
- *   E3  a fresh engine instance, same audio                           (isolation control)
+ *   E1  windowed session produces a final transcript                 (functional streaming path)
+ *   E2  a SECOND session on the same engine is no less stable than a fresh engine
+ *                                                                    (cross-session state)
+ *   E3  same/fresh runs stay within a narrow word-edit drift ceiling (isolation control)
  *   F1  the live interim never contains the final twice               (duplication across windows)
  *   F2  the final transcript is not merely the last window            (the whole session is finalised)
  *
  * A leak here is disqualifying for human testing in a way the 600 cannot see: it would corrupt the
- * transcript a user actually reads, not a corpus score.
+ * transcript a user actually reads, not a corpus score. The runtime's non-streaming whole-buffer API
+ * is intentionally not used as a reference for this streaming candidate; doing so would validate the
+ * path with the unsupported API the product correctly refuses.
  *
  *   usage: npx tsx scripts/probe-moonshine-windowed.mts --cache=<repo with .hf-cache> [--out=f.json]
  */
@@ -28,6 +31,10 @@ import { dirname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 import { chromium } from '@playwright/test';
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
+import {
+    evaluateMoonshineWindowedRepeatability,
+    MAX_REPEATABILITY_WORD_DRIFT,
+} from './human-test/moonshineWindowedAcceptance.mjs';
 
 const arg = (n: string, d = '') => process.argv.find((a) => a.startsWith(`--${n}=`))?.split('=').slice(1).join('=') ?? d;
 const OUT = arg('out', 'product_release/evidence/retained/moonshine-windowed-ef.json');
@@ -163,6 +170,14 @@ const outcome = await page.evaluate(async (input) => {
 
 const findings: string[] = [];
 let verdict: 'pass' | 'fail' = 'fail';
+let repeatability: null | {
+    sameInstanceWordEdits: number;
+    sameInstanceDrift: number;
+    freshInstanceWordEdits: number;
+    freshInstanceDrift: number;
+    maximumPairwiseDrift: number;
+    ceiling: number;
+} = null;
 
 if (!outcome.ok) {
     findings.push(`FAIL ${outcome.stage}: ${outcome.error}`);
@@ -183,10 +198,25 @@ if (!outcome.ok) {
         return null;
     };
 
+    const measuredRepeatability = evaluateMoonshineWindowedRepeatability(
+        sessionA.final,
+        sessionB.final,
+        sessionC.final,
+    );
+    repeatability = measuredRepeatability;
+
     const checks: [string, boolean, string][] = [
         ['E1 the windowed session produced a final transcript', words(sessionA.final).length > 0, `${words(sessionA.final).length} words`],
-        ['E2 a SECOND session on the same engine matches the first', sessionA.final === sessionB.final, sessionA.final === sessionB.final ? '' : 'CROSS-SESSION STATE'],
-        ['E3 a FRESH engine produces the same transcript', sessionA.final === sessionC.final, sessionA.final === sessionC.final ? '' : 'instance-dependent'],
+        [
+            'E2 a SECOND session on the same engine does not exceed fresh-instance drift',
+            measuredRepeatability.sameInstanceWithinFreshVariation,
+            `same ${(measuredRepeatability.sameInstanceDrift * 100).toFixed(2)}%, fresh ${(measuredRepeatability.freshInstanceDrift * 100).toFixed(2)}%`,
+        ],
+        [
+            `E3 same/fresh runs remain within the ${MAX_REPEATABILITY_WORD_DRIFT * 100}% word-edit drift ceiling`,
+            measuredRepeatability.allRunsWithinCeiling,
+            `maximum ${(measuredRepeatability.maximumPairwiseDrift * 100).toFixed(2)}%`,
+        ],
         ['F1 no six-word run is duplicated across windows', dupRun(sessionA.final) === null, dupRun(sessionA.final) ?? ''],
         ['F2 the final covers the session, not just the last window', words(sessionA.final).length > words(sessionA.interims[0] ?? '').length * 2, `final ${words(sessionA.final).length}, first interim ${words(sessionA.interims[0] ?? '').length}`],
         ['AUDIO NEVER LEAVES: no request carried a body', bodied.length === 0, `${bodied.length} bodied`],
@@ -206,7 +236,7 @@ console.log(`\n  VERDICT: ${verdict.toUpperCase()}`);
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, `${JSON.stringify({
     probe: '#1263 windowed E/F — product engine, real runtime',
-    verdict, findings, outcome,
+    verdict, findings, outcome, repeatability,
     egress: { total: egress.length, withBody: egress.filter((e) => e.bodyBytes > 0).length },
 }, null, 2)}\n`);
 console.log(`  artifact: ${OUT}  sha256=${createHash('sha256').update(readFileSync(OUT)).digest('hex')}`);

@@ -13,6 +13,8 @@ import type { UsageLimitCheck } from '../useUsageLimit';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import type { UserProfile } from '@/types/user';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { consumeModelComparisonTakeAuthorization } from '@/services/transcription/modelComparisonAuthorization';
+import { authorizeProduction, resetAuthorization } from '@/services/transcription/__tests__/modelComparisonAuthorization.helper';
 
 // Mock ALL hooks used inside useSessionLifecycle
 vi.mock('@/hooks/useProfile', () => ({
@@ -79,6 +81,7 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
         warmUp: vi.fn().mockResolvedValue(undefined), // real warmUp is async — the return-reload does `.catch()` on it
         getState: vi.fn(() => 'IDLE'),
         getIdleReclamationGeneration: vi.fn(() => 0),
+        getSessionId: vi.fn(() => '22222222-2222-4222-8222-222222222222'),
         requestModeChange: vi.fn(() => ({ accepted: true })),
         updatePolicy: vi.fn(),
         syncForensicState: vi.fn(),
@@ -224,6 +227,47 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             } as UserProfile,
             isVerified: true
         });
+    });
+
+    it('#1432 CASUALTY: emits the signed document and exact persisted-session binding on save', async () => {
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        await authorizeProduction({
+            nonce: 'binding-vector-123456',
+            evidenceDocumentId: '11111111-1111-4111-8111-111111111111',
+        });
+        expect(consumeModelComparisonTakeAuthorization('v4:distil:q4', 'open_mic')).toBe(true);
+
+        const mockStore = createTestSessionStore({
+            sttMode: 'private', isListening: true, runtimeState: 'RECORDING', elapsedTime: 10,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript, chunks: [], interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } }, startListening: mockStartListening,
+            stopListening: mockStopListening, isListening: true, isReady: true, isSupported: true,
+            error: null, reset: mockReset, pauseMetrics: basePauseMetrics, modelLoadingProgress: null,
+            sttStatus: { type: 'recording', message: 'Speak now' }, mode: 'private', micWarning: null,
+            micLevel: 0, hasSpeechActivity: false,
+        });
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        await act(async () => { await result.current.handleStartStop(); });
+
+        const saved = pushSpy.mock.calls.find(([event]) => event === 'session_saved');
+        expect(saved?.[1]).toMatchObject({
+            comparison_nonce: 'binding-vector-123456',
+            comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+            comparison_session_binding_sha256: '79fb824b7746e990fce8913b12e004b18ea1f706ff69722a3da91fb25289e478',
+            journey_id: 'binding-vector-123456',
+            attempt_id: 'binding-vector-123456',
+            attempt_seq: 1,
+        });
+        pushSpy.mockRestore();
+        resetAuthorization();
     });
 
     it('does not stop an entitled recording when accumulated usage exceeds former limits', async () => {

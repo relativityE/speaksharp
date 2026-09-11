@@ -4,43 +4,51 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { installRuntimeCandidateSwitch } from '../installRuntimeSwitch';
 import {
-    registerSwitchExecutor, clearRuntimeCandidateOverride, MODEL_COMPARISON_CDP_ARM_KEY,
+    registerSwitchExecutor, clearRuntimeCandidateOverride,
 } from '../runtimeCandidateSwitch';
+import { placeSignedAuthorization, resetAuthorization } from './modelComparisonAuthorization.helper';
 import { recordResolvedEngine, clearResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 
 interface SwitchWindow { __SS_SWITCH_CANDIDATE__?: unknown; __SS_ACTIVE_CANDIDATE__?: unknown }
 const w = () => window as unknown as SwitchWindow;
-const arm = () => Object.defineProperty(window, Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY), {
-    value: true, configurable: true,
-});
-const disarm = () => { delete (window as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)]; };
 
 describe('installing the in-page model switch', () => {
     beforeEach(() => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
         delete w().__SS_SWITCH_CANDIDATE__;
         delete w().__SS_ACTIVE_CANDIDATE__;
-        disarm();
+        resetAuthorization();
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
         registerSwitchExecutor(null);
     });
     afterEach(() => {
+        vi.unstubAllEnvs();
         clearResolvedEngine();
         delete w().__SS_SWITCH_CANDIDATE__;
         delete w().__SS_ACTIVE_CANDIDATE__;
-        disarm();
+        resetAuthorization();
         registerSwitchExecutor(null);
     });
 
-    it('CASUALTY: ordinary canonical Production installs no switch', () => {
-        expect(installRuntimeCandidateSwitch({})).toBe(false);
+    it('CASUALTY: ordinary canonical Production installs no switch', async () => {
+        expect(await installRuntimeCandidateSwitch()).toBe(false);
         expect(w().__SS_SWITCH_CANDIDATE__).toBeUndefined();
         expect(w().__SS_ACTIVE_CANDIDATE__).toBeUndefined();
     });
 
-    it('CASUALTY: CDP-armed Production installs both functions, non-enumerably', () => {
-        arm();
-        expect(installRuntimeCandidateSwitch({})).toBe(true);
+    it('CASUALTY: a public caller cannot manufacture immutable build authority', async () => {
+        const publicImport = installRuntimeCandidateSwitch as unknown as (
+            forgedEnvironment: Record<string, unknown>,
+        ) => Promise<boolean>;
+        expect(await publicImport({ VITE_INTERNAL_BUILD: 'true' })).toBe(false);
+        expect(w().__SS_SWITCH_CANDIDATE__).toBeUndefined();
+        expect(w().__SS_ACTIVE_CANDIDATE__).toBeUndefined();
+    });
+
+    it('CASUALTY: signed Production authorization installs both functions, non-enumerably', async () => {
+        placeSignedAuthorization();
+        expect(await installRuntimeCandidateSwitch()).toBe(true);
         expect(typeof w().__SS_SWITCH_CANDIDATE__).toBe('function');
         expect(typeof w().__SS_ACTIVE_CANDIDATE__).toBe('function');
         expect(Object.keys(window)).not.toContain('__SS_SWITCH_CANDIDATE__');
@@ -49,18 +57,20 @@ describe('installing the in-page model switch', () => {
 
     type Read = () => { requested: string; observed: string | null; expected: string; matches: boolean; source: string };
 
-    it('CASUALTY: before any engine resolves, OBSERVED is null and matches is FALSE', () => {
+    it('CASUALTY: before any engine resolves, OBSERVED is null and matches is FALSE', async () => {
         // The wrapper must never record a model from the request alone. Reporting the selection as
         // though it were the running engine is how a v2 recording gets labelled with another model.
-        expect(installRuntimeCandidateSwitch({ VITE_INTERNAL_BUILD: 'true' })).toBe(true);
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        expect(await installRuntimeCandidateSwitch()).toBe(true);
         const read = w().__SS_ACTIVE_CANDIDATE__ as Read;
         expect(read()).toEqual({
             requested: 'v2:base.en', observed: null, expected: 'v2:base.en', matches: false, source: 'config',
         });
     });
 
-    it('CASUALTY: a MISMATCH between request and running engine is reported, not hidden', () => {
-        installRuntimeCandidateSwitch({ VITE_INTERNAL_BUILD: 'true' });
+    it('CASUALTY: a MISMATCH between request and running engine is reported, not hidden', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        await installRuntimeCandidateSwitch();
         // The engine resolved something other than the configured selection.
         recordResolvedEngine({ candidateId: 'v4:base:q4', modelIdentity: { engine: 'transformers-js-v4' } });
         const r = (w().__SS_ACTIVE_CANDIDATE__ as Read)();
@@ -69,8 +79,9 @@ describe('installing the in-page model switch', () => {
         expect(r.matches).toBe(false);
     });
 
-    it('POSITIVE CONTROL: agreement reports matches = true', () => {
-        installRuntimeCandidateSwitch({ VITE_INTERNAL_BUILD: 'true' });
+    it('POSITIVE CONTROL: agreement reports matches = true', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        await installRuntimeCandidateSwitch();
         recordResolvedEngine({ candidateId: 'v2:base.en', modelIdentity: { engine: 'transformers-js' } });
         const r = (w().__SS_ACTIVE_CANDIDATE__ as Read)();
         expect(r).toEqual({

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     clearRuntimeCandidateOverride,
     registerSwitchExecutor,
@@ -16,16 +16,18 @@ const armComparison = async (candidate: 'v2:base.en' | 'v4:distil:q4' | 'moonshi
         initialize: async () => {},
         observedCandidate: () => runtimeCandidateOverride(),
     });
-    expect(await switchCandidate(candidate, { VITE_INTERNAL_BUILD: 'true' })).toEqual({ ok: true, candidate });
+    expect(await switchCandidate(candidate)).toEqual({ ok: true, candidate });
 };
 
 describe('#1426 take-boundary three-way identity gate', () => {
     beforeEach(() => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
         registerSwitchExecutor(null);
     });
     afterEach(() => {
+        vi.unstubAllEnvs();
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
         registerSwitchExecutor(null);
