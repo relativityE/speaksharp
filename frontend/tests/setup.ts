@@ -413,7 +413,12 @@ beforeEach(async () => {
     }
 });
 
-afterEach(async () => {
+afterEach(async ({ task }) => {
+    // The CI reporter uses this worker-recorded value to distinguish a test that
+    // actually executed an assertion from a vacuous function that merely returned.
+    // Task metadata is serialized back to the reporter with the result.
+    (task.meta as { assertionCalls?: number }).assertionCalls = expect.getState().assertionCalls;
+
     // 0. Clean up STT Registry (Identity Stabilization)
     if (sttRegistry) sttRegistry.clear();
 

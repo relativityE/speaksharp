@@ -1021,6 +1021,130 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
             .map((call) => call[0]);
         expect(failedWrites, "A's teardown failure must not mark B's session failed").toEqual([]);
     });
+
+    // =============================================================================================
+    // #1433 Codex P1 `3990521393` — BRIEF RETIREMENT IS A SHARED WRITE, SO IT IS FENCED LIKE ONE.
+    //
+    // `retireObjectiveBriefAfterSettlement()` cleared the active Focus Points brief whenever its ids
+    // matched the completed take's. B can start with the SAME brief A used, so ids alone cannot tell the
+    // takes apart: a stale A resuming after a hard reset or candidate switch relabelled B as Open Mic.
+    //
+    // Each path pairs the casualty with the owner's control. The owner must still retire its own brief,
+    // which is also what proves the retirement was reached at all rather than skipped by an earlier throw.
+    // =============================================================================================
+    const SHARED_BRIEF = {
+        projectId: 'p-shared', briefId: 'b-shared', points: ['one', 'two'], topic: 'shared', paceGuideSecPerPoint: 60,
+    };
+    const SHARED_FOCUS = {
+        mode: 'focus_points' as const,
+        brief: { projectId: SHARED_BRIEF.projectId, briefId: SHARED_BRIEF.briefId, points: SHARED_BRIEF.points },
+        segments: [{ text: 'one and two', startSec: 0 }],
+        durationSeconds: 30,
+    };
+    const liveBriefId = () => useSessionStore.getState().activeObjectiveBrief?.briefId ?? null;
+
+    type BriefRetryController = {
+        pendingAttributionRetry: unknown;
+        pendingFullSaveRetry: unknown;
+        recordingStartedUnresolved: boolean;
+        lifecycleVersion: number;
+        serviceGeneration: number;
+        capturedUserId: string | null;
+        attestSessionEngine: (id: string, ev: unknown) => Promise<{ attributed: boolean } | null>;
+        retryPendingAttribution: () => Promise<boolean>;
+        retryRecordingSave: () => Promise<boolean>;
+    };
+
+    /** Runs a retry for take A, suspending it inside attestation and optionally superseding it there. */
+    const retryWithSharedBrief = async (path: 'attribution' | 'full_save', supersede: boolean) => {
+        const priv = controller as unknown as BriefRetryController;
+        priv.capturedUserId = 'owner-1';
+        useSessionStore.getState().setActiveObjectiveBrief(SHARED_BRIEF as never);
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+        const entered = deferred();
+        const release = deferred();
+        priv.attestSessionEngine = async () => {
+            entered.resolve();
+            await release.promise;
+            return { attributed: true };
+        };
+        if (path === 'attribution') {
+            priv.pendingAttributionRetry = {
+                sessionId: 'session-A', evidence: null, progressContext: SHARED_FOCUS,
+                progressMetrics: { payload: null, persisted: true },
+            };
+        } else {
+            priv.pendingFullSaveRetry = {
+                sessionId: 'session-A',
+                completeArgs: { status: 'completed', duration: 30, nextActionSignal: null, metrics: {} },
+                attributionEvidence: null,
+                progressContext: SHARED_FOCUS,
+                progressMetrics: { payload: null, persisted: false },
+            };
+        }
+        priv.recordingStartedUnresolved = true;
+        const running = path === 'attribution' ? priv.retryPendingAttribution() : priv.retryRecordingSave();
+        await entered.promise;
+        if (supersede) {
+            // B takes over while A is suspended, starting with the SAME brief.
+            priv.lifecycleVersion += 1;
+            priv.serviceGeneration += 1;
+        }
+        release.resolve();
+        return running;
+    };
+
+    for (const path of ['attribution', 'full_save'] as const) {
+        it(`CONTROL (${path} retry): the OWNER still retires its own brief once Progress settles`, async () => {
+            await expect(retryWithSharedBrief(path, false), 'the retry completed').resolves.toBe(true);
+            expect(liveBriefId(), "the owner's brief is retired").toBeNull();
+        });
+
+        it(`CASUALTY (${path} retry): a take superseded during attestation leaves B's same-id brief alone`, async () => {
+            await expect(retryWithSharedBrief(path, true), 'A still finishes its own retry').resolves.toBe(true);
+            expect(liveBriefId(), "B's active brief survives stale A").toBe(SHARED_BRIEF.briefId);
+        });
+    }
+
+    /** Runs a clean Focus Points stop for take A, optionally superseding it inside the READY settlement. */
+    const stopWithSharedBrief = async (supersedeDuringReady: boolean) => {
+        useSessionStore.getState().setActiveObjectiveBrief(SHARED_BRIEF as never);
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+        const c = stoppingController(Promise.resolve({
+            transcript: 'today I covered point one and then point two in some detail', stats: { accuracy: 0.9 }, success: true,
+        })) as ReturnType<typeof stoppingController> & {
+            recordingProgressMode: unknown;
+            attestSessionEngine: (id: string, ev: unknown) => Promise<{ attributed: boolean } | null>;
+        };
+        c.recordingProgressMode = { mode: 'focus_points', brief: SHARED_FOCUS.brief };
+        c.attestSessionEngine = async () => ({ attributed: true });
+        const realTransition = c.transition.bind(c);
+        let readySettled = false;
+        c.transition = async (state, error, token, intentToken) => {
+            await realTransition(state, error, token, intentToken);
+            if (state !== 'READY') return;
+            readySettled = true;
+            if (supersedeDuringReady) {
+                // B is accepted while A's READY settlement is suspended, with the SAME brief.
+                c.lifecycleVersion += 1;
+                c.serviceGeneration += 1;
+            }
+        };
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        await c.stopRecording().catch(() => null);
+        expect(readySettled, 'the stop reached its clean READY settlement').toBe(true);
+    };
+
+    it('CONTROL (stop): the OWNER still retires its own brief after READY', async () => {
+        await stopWithSharedBrief(false);
+        expect(liveBriefId(), "the owner's brief is retired").toBeNull();
+    });
+
+    it("CASUALTY (stop): a stop superseded during its READY settlement leaves B's same-id brief alone", async () => {
+        await stopWithSharedBrief(true);
+        expect(liveBriefId(), "B's active brief survives stale A").toBe(SHARED_BRIEF.briefId);
+    });
+
 });
 
 /**
