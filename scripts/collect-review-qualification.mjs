@@ -61,23 +61,62 @@ const SUMMARY_MARKER = '<!-- codex-pull-request-review-summary -->';
 const SUMMARY_METADATA = /<!--\s*codex-security-review:v1\s+(\{[^]*?\})\s*-->/g;
 
 /**
- * #1438 Codex P1 `3992603040` (PM DECISION `5639821873`) — THE CODE REVIEW MUST HAVE COMPLETED TOO.
+ * #1438 Codex P1s `3992603040` + `3992907765` (PM DECISION `5639821873`, PM RETURN `5639978861`) — BOTH AUTOMATIC
+ * REVIEWS MUST HAVE COMPLETED FOR THIS HEAD'S READY TRIGGER, BY GITHUB'S OWN LIFECYCLE RECORD.
  *
- * `codex-security-review:v1` reports the security review. With the code review failed or cancelled, nothing in the
- * summary says `**Running**`, and completed security metadata qualified a head no completed code review covered.
- * Exactly one canonical `📝 **Code Review**` table row must exist, and its status cell must be `✅ **Completed**`.
- * Failed, cancelled, running, missing, duplicated, malformed or unknown rows all hold. The row's abbreviated commit
- * is display only: identity stays with the metadata head, and this check can only refuse.
+ * `codex-security-review:v1` names the SECURITY review's full head. A failed or cancelled code review left no
+ * `**Running**` (`3992603040`), and a Completed Code Review row left over from head A sat beside security metadata
+ * for head B and qualified B with no code review of B (`3992907765`). Codex writes no structured code-review
+ * metadata, so the binding comes from GitHub's lifecycle record, not from generated text:
+ *
+ *   exactly one canonical Code Review row and one Security Review row, each `✅ **Completed**` with a readable
+ *   completion time, a display commit that prefixes the metadata head, and trigger `Draft marked ready`;
+ *   the latest GitHub `ReadyForReviewEvent`, which both rows must have completed after; and
+ *   the branch activity log (full SHAs): the head was already the branch head when Ready occurred, and the branch
+ *   has not moved since — away-and-back and a re-push included. A branch deletion (merge cleanup) is not a move.
+ *
+ * Manual-request completions never use this fallback. Missing, truncated, ambiguous or unreadable evidence holds.
+ * Identity still comes only from the metadata head; the rows and the lifecycle record can only refuse.
  */
-const CODE_REVIEW_ROW_LABEL = '📝 **Code Review**';
+const READY_TRIGGER = 'Draft marked ready';
+const COMPLETED_STATUS = /^✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">[^<]*<\/relative-time>$/;
 
-function codeReviewCompleted(body) {
+function completedReviewRow(body, keyword, label) {
   const rows = body.split('\n')
     .map((line) => line.trim())
-    .filter((line) => line.startsWith('|') && line.includes('Code Review'));
-  if (rows.length !== 1) return false;
+    .filter((line) => line.startsWith('|') && line.includes(keyword));
+  if (rows.length !== 1) return null;
   const cells = rows[0].split('|').slice(1, -1).map((cell) => cell.trim());
-  return cells.length >= 2 && cells[0] === CODE_REVIEW_ROW_LABEL && /^✅ \*\*Completed\*\*(\s|$)/.test(cells[1]);
+  if (cells.length !== 4 || cells[0] !== label || cells[3] !== READY_TRIGGER) return null;
+  const status = COMPLETED_STATUS.exec(cells[1]);
+  const commit = /^`([0-9a-f]{7,40})`$/.exec(cells[2]);
+  const completedAt = status ? Date.parse(status[1]) : Number.NaN;
+  if (!Number.isFinite(completedAt) || !commit) return null;
+  return { completedAt, commit: commit[1] };
+}
+
+function automaticReviewsBindHead({ body, pullRequest, head }) {
+  const code = completedReviewRow(body, 'Code Review', '📝 **Code Review**');
+  const security = completedReviewRow(body, 'Security Review', '🔒 **Security Review**');
+  if (!code || !security || !head.startsWith(code.commit) || !head.startsWith(security.commit)) return false;
+
+  const readyEvents = pullRequest?.timelineItems?.nodes;
+  if (!Array.isArray(readyEvents) || readyEvents.length === 0) return false;
+  const readyTimes = readyEvents.map((event) => Date.parse(String(event?.createdAt ?? '')));
+  if (readyTimes.some((time) => !Number.isFinite(time))) return false;
+  const readyAt = Math.max(...readyTimes);
+  if (!(code.completedAt > readyAt && security.completedAt > readyAt)) return false;
+
+  const history = pullRequest?.headRefHistory;
+  if (history?.complete !== true || !Array.isArray(history.moves) || history.moves.length === 0) return false;
+  const moves = history.moves.map((move) => ({
+    after: String(move?.after ?? '').toLowerCase(),
+    at: Date.parse(String(move?.timestamp ?? '')),
+  }));
+  if (moves.some((move) => !Number.isFinite(move.at) || move.at > readyAt)) return false;
+  const lastMoveAt = Math.max(...moves.map((move) => move.at));
+  const headsAtReady = new Set(moves.filter((move) => move.at === lastMoveAt).map((move) => move.after));
+  return headsAtReady.size === 1 && headsAtReady.has(head);
 }
 
 function findTrustedCompletionMetadata({ pullRequest, head }) {
@@ -91,9 +130,9 @@ function findTrustedCompletionMetadata({ pullRequest, head }) {
   if (!body.includes(SUMMARY_MARKER)) return null;
   // A review the summary still shows running has not completed, whatever the metadata block says.
   if (/\*\*Running\*\*/.test(body)) return null;
-  // #1438 Codex P1 `3992603040`, PM DECISION `5639821873` — the metadata is the SECURITY review's. A code review
-  // that failed or was cancelled leaves no `**Running**`, so its completion must be read positively.
-  if (!codeReviewCompleted(body)) return null;
+  // #1438 Codex P1s `3992603040` + `3992907765` — both automatic reviews must have completed for THIS head's Ready
+  // trigger, bound through GitHub's lifecycle record. See `automaticReviewsBindHead`.
+  if (!automaticReviewsBindHead({ body, pullRequest, head })) return null;
   let metadata;
   try {
     metadata = JSON.parse(raw);
@@ -403,7 +442,7 @@ function normaliseRef(ref) {
  * refused every legitimately clean PR at merge. Two copies of an evidence query can disagree about what
  * the evidence is; one exported copy cannot.
  */
-export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName baseRefOid baseRepository{nameWithOwner} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
+export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
 
 /**
  * The conversation surface is load-bearing and long-lived PRs routinely exceed one GraphQL page.
@@ -461,7 +500,34 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
         || commentIdentity(a).localeCompare(commentIdentity(b))),
     pageInfo,
   };
+  // #1438 PM RETURN `5639978861` — the branch moves the Ready-trigger binding is checked against.
+  pullRequest.headRefHistory = await readHeadRefHistory({ pullRequest, token });
   return pullRequest;
+}
+
+/** Activity-log entries read for one branch. A full page may hide more, so it reports the history incomplete. */
+export const HEAD_REF_HISTORY_PAGE_SIZE = 100;
+
+/**
+ * The PR branch's moves — full SHAs and times — from GitHub's repository activity log, which keeps them after the
+ * branch is deleted on merge (the push lane reads exactly that case). A deletion is not a move. Unreadable is
+ * `null`, and a full page is `complete: false`; the Ready-trigger binding holds on either.
+ */
+async function readHeadRefHistory({ pullRequest, token }) {
+  const repository = pullRequest?.headRepository?.nameWithOwner;
+  const branch = pullRequest?.headRefName;
+  if (!repository || !branch) return null;
+  const activity = await optionalGithubRequest(
+    `/repos/${repository}/activity?ref=${encodeURIComponent(`refs/heads/${branch}`)}&per_page=${HEAD_REF_HISTORY_PAGE_SIZE}`,
+    token,
+  );
+  if (activity === UNREADABLE || !Array.isArray(activity)) return null;
+  return {
+    complete: activity.length < HEAD_REF_HISTORY_PAGE_SIZE,
+    moves: activity
+      .filter((entry) => entry?.activity_type !== 'branch_deletion')
+      .map((entry) => ({ after: String(entry?.after ?? '').toLowerCase(), timestamp: entry?.timestamp ?? null })),
+  };
 }
 
 /**

@@ -93,7 +93,7 @@ function fakeGraphql({
       id: 'summary', author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:01Z',
       body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 ${JSON.stringify({
         blockingSeverityThreshold: 'P0', headSha: HEAD, pullRequestNumber: 1430, repository: REPOSITORY, status: 'completed',
-      })} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** | \`${HEAD.slice(0, 7)}\` | Manual request |`,
+      })} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-09-10T20:03:00Z">2026-09-10T20:03:00Z</relative-time> | \`${HEAD.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-09-10T20:04:00Z">2026-09-10T20:04:00Z</relative-time> | \`${HEAD.slice(0, 7)}\` | Draft marked ready |`,
     }] : [],
     pageInfo: { hasPreviousPage: false },
   };
@@ -120,8 +120,19 @@ globalThis.fetch = async (url, init) => {
       }),
     };
   }
+  // #1438 PM RETURN 5639978861 — the branch activity log: pushed at 19:59, marked ready at 20:00:30, no move since.
+  if (String(url).includes('/activity?')) {
+    return { ok: true, status: 200, json: async () => ([{ activity_type: 'push', after: ${JSON.stringify(headRefOid)}, timestamp: '2026-09-10T19:59:00Z' }]) };
+  }
   const { query = '' } = JSON.parse(init?.body ?? '{}');
   const payload = JSON.parse(body);
+  if (query.includes('headRepository{nameWithOwner}')) {
+    payload.data.repository.pullRequest.headRefName = 'fix/1430-post-merge-codex-p1s';
+    payload.data.repository.pullRequest.headRepository = { nameWithOwner: ${JSON.stringify(REPOSITORY)} };
+  }
+  if (query.includes('READY_FOR_REVIEW_EVENT')) {
+    payload.data.repository.pullRequest.timelineItems = { nodes: [{ createdAt: '2026-09-10T20:00:30Z' }] };
+  }
   if (query.includes('comments(last:100,before:$commentsBefore)')) {
     payload.data.repository.pullRequest.comments = JSON.parse(comments);
   }

@@ -1057,12 +1057,15 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     reviews: { nodes: reviews, pageInfo: { hasPreviousPage: false } },
     reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
     comments: { nodes: comments, pageInfo: { hasPreviousPage: commentsTruncated } },
+    // #1438 PM RETURN `5639978861`: GitHub's lifecycle record — pushed at 23:40, marked ready at 23:50, no move since.
+    timelineItems: { nodes: [{ createdAt: '2026-09-10T23:50:00Z' }] },
+    headRefHistory: { complete: true, moves: [{ after: head, timestamp: '2026-09-10T23:40:00Z' }] },
   });
   // #1438 PM DECISION `5639300027`: a clean-result COMMENT is never completion authority on its own. Exact-head
   // completion comes from a review object or Codex's review-summary system metadata, which `summaryComment` models.
   const summaryComment = (sha) => ({
     id: 'summary', author: bot, createdAt: '2026-09-10T23:51:30Z',
-    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"blockingSeverityThreshold":"P0","headSha":"${sha}","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** | \`${sha.slice(0, 7)}\` | Manual request |`,
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"blockingSeverityThreshold":"P0","headSha":"${sha}","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-09-10T23:55:00Z">2026-09-10T23:55:00Z</relative-time> | \`${sha.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-09-10T23:56:00Z">2026-09-10T23:56:00Z</relative-time> | \`${sha.slice(0, 7)}\` | Draft marked ready |`,
   });
 
   it('CASUALTY: a clean head qualifies through Codex summary metadata; the clean comment alone does not', () => {
@@ -1216,11 +1219,13 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
   const clean = {
     id: 'old-clean', author: bot, createdAt: '2026-09-10T10:00:00Z',
     // #1438 PM DECISION `5639300027`: exact-head completion is Codex's summary system metadata, not comment text.
-    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"headSha":"${head}","pullRequestNumber":1430,"repository":"relativityE/speaksharp","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** | \`${head.slice(0, 7)}\` | Manual request |`,
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"headSha":"${head}","pullRequestNumber":1430,"repository":"relativityE/speaksharp","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-09-10T09:30:00Z">2026-09-10T09:30:00Z</relative-time> | \`${head.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-09-10T09:31:00Z">2026-09-10T09:31:00Z</relative-time> | \`${head.slice(0, 7)}\` | Draft marked ready |`,
   };
   const base = (comments) => ({
     number: 1430,
     headRefOid: head,
+    headRefName: 'chore/final-release-qualification',
+    headRepository: { nameWithOwner: 'relativityE/speaksharp' },
     baseRefName: 'main',
     baseRefOid: 'b'.repeat(40),
     baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
@@ -1228,13 +1233,18 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
     reviews: { nodes: [], pageInfo: { hasPreviousPage: false } },
     reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
     comments,
+    timelineItems: { nodes: [{ createdAt: '2026-09-10T09:00:00Z' }] },
   });
 
   afterEach(() => vi.unstubAllGlobals());
 
   function serve(pages, failAt = -1) {
     let call = 0;
-    vi.stubGlobal('fetch', vi.fn(async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      // #1438 PM RETURN `5639978861`: the branch activity read, answered without consuming a comment page.
+      if (String(url).includes('/activity?')) {
+        return { ok: true, status: 200, json: async () => ([{ activity_type: 'push', after: head, timestamp: '2026-09-10T08:00:00Z' }]) };
+      }
       const index = call++;
       if (index === failAt) return { ok: false, status: 502, json: async () => ({}) };
       const comments = pages[Math.min(index, pages.length - 1)];
