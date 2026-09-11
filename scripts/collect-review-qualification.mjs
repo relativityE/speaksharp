@@ -72,8 +72,9 @@ const SUMMARY_METADATA = /<!--\s*codex-security-review:v1\s+(\{[^]*?\})\s*-->/g;
  *   exactly one canonical Code Review row and one Security Review row, each `✅ **Completed**` with a readable
  *   completion time, a display commit that prefixes the metadata head, and trigger `Draft marked ready`;
  *   the latest GitHub `ReadyForReviewEvent`, which both rows must have completed after; and
- *   the branch activity log (full SHAs): the head was already the branch head when Ready occurred, and the branch
- *   has not moved since — away-and-back and a re-push included. A branch deletion (merge cleanup) is not a move.
+ *   the branch activity log (full SHAs): the head was already the branch head when Ready occurred, the branch
+ *   has not moved since — away-and-back and a re-push included — and no other commit the branch ever pointed at
+ *   shares either row's display commit (`3993098954`). A branch deletion (merge cleanup) is not a move.
  *
  * Manual-request completions never use this fallback. Missing, truncated, ambiguous or unreadable evidence holds.
  * Identity still comes only from the metadata head; the rows and the lifecycle record can only refuse.
@@ -113,6 +114,11 @@ function automaticReviewsBindHead({ body, pullRequest, head }) {
     after: String(move?.after ?? '').toLowerCase(),
     at: Date.parse(String(move?.timestamp ?? '')),
   }));
+  // #1438 Codex security P1 `3993098954` — A DISPLAY COMMIT NAMES THE HEAD ONLY WHEN NO OTHER BRANCH COMMIT SHARES IT.
+  // Codex reviews only commits the branch pointed at, so a prefix unique across the complete history cannot be another
+  // run's row; a shared one (A's in-flight review completing after colliding B's Ready) holds.
+  const namesOnlyHead = (prefix) => moves.every((move) => move.after === head || !move.after.startsWith(prefix));
+  if (!namesOnlyHead(code.commit) || !namesOnlyHead(security.commit)) return false;
   // #1438 Codex P1 `3993066903` (PM RETURN `5640173238`) — AT OR AFTER. GitHub's activity and Ready times share a
   // one-second granularity, so a move in the Ready second cannot be shown to precede Ready: it holds like a later one.
   if (moves.some((move) => !Number.isFinite(move.at) || move.at >= readyAt)) return false;

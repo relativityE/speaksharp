@@ -382,11 +382,33 @@ describe('#1438 exact-head completion — a review object, or trusted summary me
     expect(receipt.reasons).toContain('issue_comments_incomplete');
   });
 
-  it('CONTROL: exact B was the branch head before Ready, never moved after, both rows completed for that Ready trigger, metadata names full B, zero P0/P1 — qualifies', () => {
+  it('CASUALTY (`3993098954`): a row prefix that another commit on the branch shares cannot name the head — A completing after B\'s Ready holds', () => {
+    // Declared here so the lint rule sees an assertion; the checks run through `holds()`.
+    expect.hasAssertions();
+    // A (`HEAD`) was the head earlier; B (`COLLIDER`) shares its first 10 characters and was the head at Ready. A's
+    // in-flight code review completing after B's Ready prints the same display commit a review of B would.
+    const collidingHistory = [{ after: HEAD, timestamp: at(5) }, { after: COLLIDER, timestamp: at(10) }];
+    const colliding = (options) => pullRequest({
+      head: COLLIDER, moves: collidingHistory,
+      comments: [cleanResult(FOOTER), summary({ meta: { headSha: COLLIDER }, ...options })],
+    });
+    const distinct = COLLIDER.slice(0, 11);
+    holds('both rows print the shared 7-character prefix', colliding());
+    holds('code row prints the shared prefix', colliding({ securityRows: [securityRow({ commit: distinct })] }));
+    holds('security row prints the shared prefix', colliding({ codeRows: [codeRow({ commit: distinct })] }));
+    holds('rows print the shared 10-character prefix', colliding({
+      codeRows: [codeRow({ commit: FOOTER })], securityRows: [securityRow({ commit: FOOTER })],
+    }));
+  });
+
+  it('CONTROL (`3993098954`): exact B was the branch head before Ready, never moved after, both rows name only B on the branch, metadata names full B, zero P0/P1 — qualifies', () => {
+    const distinct = COLLIDER.slice(0, 11);
     const receipt = receiptFor(pullRequest({
       head: COLLIDER,
       moves: [{ after: HEAD, timestamp: at(5) }, { after: COLLIDER, timestamp: at(10) }],
-      comments: [cleanResult(FOOTER), summary({ meta: { headSha: COLLIDER } })],
+      comments: [cleanResult(FOOTER), summary({
+        meta: { headSha: COLLIDER }, codeRows: [codeRow({ commit: distinct })], securityRows: [securityRow({ commit: distinct })],
+      })],
     }));
     expect(receipt).toMatchObject({
       qualified: true, reviewEvidence: 'codex_summary_metadata', reviewedSha: COLLIDER, findingCount: 0, reviewStatus: 'completed',
