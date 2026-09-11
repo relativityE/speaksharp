@@ -29,6 +29,8 @@ describe('F13 — a zero that cannot be verified is not a zero', () => {
         emitFillerMeasurement({
             candidateId: 'v2:base.en', detectorInputWords: 88, detectorInputFillers: 0,
             reportedFillers: 0, clarityScore: 90, durationSeconds: 90,
+            // #1421: producers must state it; the stop path is the only real one and it is `pending`.
+            attributionState: 'pending',
         });
         drain();
         const r = rows()[0];
@@ -44,6 +46,8 @@ describe('F13 — a zero that cannot be verified is not a zero', () => {
         emitFillerMeasurement({
             candidateId: 'v2:base.en', detectorInputWords: 88, detectorInputFillers: 7,
             reportedFillers: 7, clarityScore: 71, durationSeconds: 90,
+            // #1421: producers must state it; the stop path is the only real one and it is `pending`.
+            attributionState: 'pending',
         });
         drain();
         expect(rows()[0].completeness).toBe('complete');
@@ -54,6 +58,8 @@ describe('F13 — a zero that cannot be verified is not a zero', () => {
         emitFillerMeasurement({
             candidateId: 'v2:base.en', detectorInputWords: 0, detectorInputFillers: 0,
             reportedFillers: 0, clarityScore: null, durationSeconds: 5,
+            // #1421: producers must state it; the stop path is the only real one and it is `pending`.
+            attributionState: 'pending',
         });
         drain();
         expect(rows()[0].completeness).toBe('no_speech');
@@ -76,6 +82,8 @@ describe('F13 — a zero that cannot be verified is not a zero', () => {
         emitFillerMeasurement({
             candidateId: 'v2:base.en', detectorInputWords: 88, detectorInputFillers: 0,
             reportedFillers: 0, clarityScore: 90, durationSeconds: 90,
+            // #1421: producers must state it; the stop path is the only real one and it is `pending`.
+            attributionState: 'pending',
         });
         drain();
         const serialized = JSON.stringify(rows()[0]);
@@ -92,5 +100,80 @@ describe('F13 — a zero that cannot be verified is not a zero', () => {
         });
         expect(dropped).toEqual([]);
         expect(Object.keys(props)).toHaveLength(8);
+    });
+});
+
+/**
+ * #1421 P1 — A FILLER ROW IS NOT EVIDENCE OF CANDIDATE ATTRIBUTION.
+ *
+ * The measurement is produced inside `stopRecording()` at the point the save-selected transcript is
+ * known — BEFORE the first `completeSession()` and long before `attestSessionEngine()`. It therefore
+ * carries the candidate the engine had resolved, not one any persistence confirmed. A take whose
+ * completion or attribution later failed had already published a row naming that candidate, and
+ * nothing downstream could distinguish it from a confirmed one.
+ *
+ * These assert at the FINAL CONSUMER — the payload `posthog.capture` receives, after the real
+ * `projectEventProps` governed projection — because the defect is about what a reader of the wire can
+ * conclude, and a call-site assertion would prove nothing about what survives the boundary.
+ */
+describe('#1421 attribution_state travels to the wire and is bounded', () => {
+    const measurement = (attributionState: 'pending' | 'verified') => {
+        emitFillerMeasurement({
+            candidateId: 'moonshine:streaming-medium', detectorInputWords: 40,
+            detectorInputFillers: 3, reportedFillers: 3, clarityScore: null,
+            durationSeconds: 12, attributionState,
+        });
+        drain();
+    };
+
+    it('CASUALTY: the stop path\'s measurement reaches the wire as PENDING, never verified', () => {
+        /**
+         * `pending` is the only value the stop path produces, and it is a REQUIRED field, so a producer
+         * cannot omit its way into `verified`. What this pins is that the distinction survives the
+         * governed projection rather than being dropped as an unknown property — the exact failure that
+         * put `expected_candidate_id` on no wire at all on this same lane.
+         */
+        measurement('pending');
+
+        const row = rows()[0];
+        expect(row, 'the governed projection kept the field').toHaveProperty('attribution_state');
+        // Failed persistence or attestation cannot retroactively qualify this row, because the row
+        // never claimed to be qualified in the first place.
+        expect(row.attribution_state, 'the stop path publishes pending').toBe('pending');
+        // The measurement itself is still real: the guard is about attribution, not about the numbers.
+        expect(row.detector_input_fillers).toBe(3);
+        expect(row.candidate_id_observed).toBe('moonshine:streaming-medium');
+    });
+
+    it('POSITIVE CONTROL: verified is representable, so pending is a real distinction', () => {
+        // Without this the first case would pass against a field hardcoded to one value, which would
+        // prove the projection kept a constant rather than kept a discriminator.
+        measurement('verified');
+
+        expect(rows()[0].attribution_state).toBe('verified');
+    });
+
+    it('CASUALTY: an out-of-vocabulary attribution state never reaches the wire', () => {
+        /**
+         * The vocabulary is closed at the allowlist, so `verified` cannot be smuggled in under another
+         * spelling and a future producer cannot invent a third state that reads as confirmation.
+         *
+         * Asserted through the REAL emit and the REAL send boundary, not by calling the projector
+         * directly — an earlier version of this case did that and passed vacuously, because the
+         * direct call dropped the field for a valid value too. Opening the allowlist rule from
+         * `enumOf` to a free slug now fails this case, which is what makes it evidence.
+         */
+        emitFillerMeasurement({
+            candidateId: 'v2:base.en', detectorInputWords: 10, detectorInputFillers: 1,
+            reportedFillers: 1, clarityScore: null, durationSeconds: 5,
+            attributionState: 'attested_by_caller' as unknown as 'pending',
+        });
+        drain();
+
+        const row = rows()[0];
+        expect(row, 'the event itself still reached the consumer').toBeDefined();
+        expect(row.attribution_state,
+            'an unrecognised state is dropped, not forwarded as if it meant something')
+            .toBeUndefined();
     });
 });

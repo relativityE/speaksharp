@@ -32,6 +32,23 @@ import { safeEmit } from './safeEmit';
 
 export type FillerCompleteness = 'complete' | 'unobservable' | 'no_speech';
 
+/**
+ * #1421 P1 — WHETHER THIS MEASUREMENT'S CANDIDATE ATTRIBUTION HAS BEEN CONFIRMED.
+ *
+ * The measurement is produced inside `stopRecording()` at the point the save-selected transcript is
+ * known — which is BEFORE `completeSession()` and long before `attestSessionEngine()`. It therefore
+ * carries the candidate the engine had resolved, not a candidate any persistence has confirmed. A take
+ * whose completion or attribution later failed was still publishing a filler measurement attributed to
+ * that candidate, and nothing downstream could tell the two apart.
+ *
+ * `pending` says exactly that: real detector numbers, attribution not yet confirmed. It is the honest
+ * default and the only value the stop path can produce.
+ *
+ * A `filler_measurement` row is NEVER independent evidence of candidate attribution. Attribution is
+ * established by the attestation path; this field exists so a reader cannot mistake one for the other.
+ */
+export type FillerAttributionState = 'pending' | 'verified';
+
 export interface FillerMeasurementInput {
     candidateId: string | null;
     /** Words in the transcript the detector actually scored. */
@@ -42,6 +59,8 @@ export interface FillerMeasurementInput {
     reportedFillers: number | null;
     clarityScore: number | null;
     durationSeconds: number | null;
+    /** Never inferred here — the producer must state it, so a caller cannot omit it into `verified`. */
+    attributionState: FillerAttributionState;
 }
 
 export function resolveCompleteness(words: number, fillersInTranscript: number): FillerCompleteness {
@@ -61,6 +80,8 @@ export function emitFillerMeasurement(input: FillerMeasurementInput): void {
         clarity_score: input.clarityScore,
         duration_seconds: input.durationSeconds,
         completeness,
+        // Carried to the wire so the distinction survives the send boundary, not only the call site.
+        attribution_state: input.attributionState,
         // Only populated when the measurement is NOT complete, so a reason never dresses up a real one.
         unavailable_reason: completeness === 'unobservable'
             ? 'no_filler_tokens_in_transcript'

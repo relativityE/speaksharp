@@ -121,8 +121,25 @@ describe('F10 — the policy, the copy, and what the client can see', () => {
  * The receipt exists to say what policy the deployed database is believed to run, so the value it must
  * carry is the one the product requires, written out.
  */
-describe('#1436 — the retention receipt names newest-one explicitly', () => {
-    it('CASUALTY: the emitted policy and copy versions are literally newest-one', () => {
+describe('#1421 — the receipt names the DEPLOYED policy and the SHIPPED copy, separately', () => {
+    it('CASUALTY: policy is literally newest-two and copy is literally newest-one', () => {
+        /**
+         * THE PAIR IS THE POINT, AND THEY DISAGREE ON PURPOSE.
+         *
+         * `policy_version` says what the deployed database does — today, newest-TWO, because #1436 has
+         * not shipped. `copy_version` says what the user-facing text claims — newest-ONE. Their
+         * disagreement is not a bug in this receipt; it IS the defect the PO reported ("text promising
+         * one transcript beside a list holding two"), and reporting it truthfully is this module's job.
+         *
+         * This previously pinned BOTH to `newest-one`, which made `policy_version` a false belief: #1421
+         * deploys before #1436, so every receipt in the gap would have claimed a policy the database was
+         * not running, while the observed count showed two retained. The mismatch detector would have
+         * fired continuously on a falsehood for the whole down-select window, and a permanently-firing
+         * detector is one nobody reads.
+         *
+         * BOTH values flip to `newest-one` with #1436's activation — the commit that changes deployed
+         * reality owns the constant that describes it. This casualty moves with them.
+         */
         emitRetentionObservation({
             transcriptBearingBefore: 2, transcriptBearingAfter: 1,
             contentFreeHistoryCount: 3, savedTranscriptState: 'available',
@@ -131,6 +148,6 @@ describe('#1436 — the retention receipt names newest-one explicitly', () => {
 
         const row = rows()[0];
         expect({ policy: row.policy_version, copy: row.copy_version })
-            .toEqual({ policy: 'newest-one', copy: 'newest-one' });
+            .toEqual({ policy: 'newest-two', copy: 'newest-one' });
     });
 });

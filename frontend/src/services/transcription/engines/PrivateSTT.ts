@@ -803,7 +803,15 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 // nothing downstream could tell it apart from a real one.
                 const observed = boundToThisLoad && workerReceipt
                     ? workerReceipt
-                    : observeAcquisitionNetwork(prefixes, loadStartedAt);
+                    : observeAcquisitionNetwork(prefixes, loadStartedAt, undefined, {
+                        // THE MAIN WINDOW'S TIMELINE IS THE PAGE'S, NOT THIS DOWNLOAD'S. Concurrent
+                        // auth, history, analytics and image requests are certain during a
+                        // main-thread acquisition, so unmatched entries say nothing about coverage.
+                        // Coverage is proven positively instead, against the components the
+                        // candidate declares.
+                        timeline: 'shared',
+                        expectedComponents: candidate?.assets.componentCount ?? null,
+                    });
                 recordAcquisitionSuccess(subject, {
                     cacheResult,
                     // Carried through, not recomputed: only the observer knows how much of the download

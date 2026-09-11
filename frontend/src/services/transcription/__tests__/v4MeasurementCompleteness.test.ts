@@ -76,7 +76,10 @@ function workerReceipt(entries: Entry[], token: string, perfAvailable = true): A
                 : []),
         }
         : {}) as unknown as Performance;
-    const observation = observeAcquisitionNetwork(acquisitionScopeFor(V4), LOAD_START, perf);
+    const observation = observeAcquisitionNetwork(acquisitionScopeFor(V4), LOAD_START, perf,
+        // v4 loads in a dedicated worker, so these cases describe an EXCLUSIVE timeline and the
+        // out-of-scope count is evidence. Stated explicitly because the default is `shared`.
+        { timeline: 'exclusive', expectedComponents: null });
     return composeAcquisitionReceipt(observation, { token, candidateId: V4.id });
 }
 
@@ -258,5 +261,165 @@ describe('#1259 `network_used` claims only what was proven', () => {
         const opaque = cached(4).map((e) => ({ ...e, encodedBodySize: 0 }));
         const p = await publishThroughV4(opaque);
         expect(p.network_used, 'a response that hid its size proves nothing in either direction').toBeNull();
+    });
+});
+
+/**
+ * #1421 P1 — A SHARED TIMELINE'S FOREIGN TRAFFIC IS NOT THIS DOWNLOAD'S MISSING BYTES.
+ *
+ * The cases above all describe a dedicated worker, whose `self.performance` records that worker's own
+ * fetches and nothing else. Moonshine acquires on the MAIN THREAD, so `PrivateSTT` observes the main
+ * window's timeline — which records the whole page.
+ *
+ * `outOfScopeCount` was `inWindow.length - matched.length` over that timeline, and any non-zero value
+ * degraded completeness. A ~147 MB load across seven components takes seconds, during which concurrent
+ * auth, history, analytics and image requests are not merely possible but certain. Every Moonshine
+ * acquisition therefore reported `partial`, and a completeness signal that is always `partial` cannot
+ * support a candidate comparison — the harness would have degraded the model it was measuring, which
+ * is the one thing the comparison must not do.
+ *
+ * These drive the REAL observer over a REAL main-window-shaped timeline: the candidate's own pinned
+ * scope, all seven components, and unrelated page traffic interleaved with them.
+ */
+describe('#1421 acquisition completeness on a SHARED (main-window) timeline', () => {
+    const MOONSHINE = CANDIDATES['moonshine:streaming-medium'];
+    const SCOPE = acquisitionScopeFor(MOONSHINE);
+    const EXPECTED = MOONSHINE.assets.componentCount;
+
+    /** `n` of Moonshine's own pinned components, as the main window would record them. */
+    const components = (n: number): Entry[] =>
+        Array.from({ length: n }, (_, i) => ({
+            name: `${SCOPE[0]}component${i}.ort`,
+            transferSize: 1_000_000, encodedBodySize: 1_000_000, responseEnd: LOAD_START + 4000,
+        }));
+
+    /**
+     * The page's own traffic during the download. Deliberately the shapes a real session produces —
+     * Supabase auth, a history query, an analytics capture, an avatar — because the defect was that
+     * ordinary traffic of exactly this kind was being counted as unmeasured model bytes.
+     */
+    const pageTraffic = (): Entry[] => ([
+        { name: 'https://yxlapjuovrsvjswkwnrk.supabase.co/auth/v1/token', transferSize: 900, encodedBodySize: 900, responseEnd: LOAD_START + 120 },
+        { name: 'https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions', transferSize: 4_200, encodedBodySize: 4_200, responseEnd: LOAD_START + 800 },
+        { name: 'https://us.i.posthog.com/e/', transferSize: 300, encodedBodySize: 300, responseEnd: LOAD_START + 1500 },
+        { name: 'https://example.com/assets/avatar.png', transferSize: 22_000, encodedBodySize: 22_000, responseEnd: LOAD_START + 2100 },
+    ]);
+
+    const observeShared = (entries: Entry[], expectedComponents: number | null = EXPECTED) => {
+        const perf = {
+            getEntriesByType: (type: string) => (type === 'resource'
+                ? entries.map((e) => ({ startTime: LOAD_START, duration: 100, ...e }))
+                : []),
+        } as unknown as Performance;
+        return observeAcquisitionNetwork(SCOPE, LOAD_START, perf, { timeline: 'shared', expectedComponents });
+    };
+
+    it('CASUALTY: every component observed IS complete, even with the page fetching alongside it', () => {
+        /**
+         * THE DEFECT, DIRECTLY. Before the correction this returned `partial` /
+         * `requests_outside_scope` purely because four unrelated requests shared the window, and the
+         * bytes it did measure covered the entire download.
+         */
+        const o = observeShared([...components(EXPECTED as number), ...pageTraffic()]);
+
+        expect(o.completeness, 'the whole download was observed; the page fetching too is irrelevant')
+            .toBe('complete');
+        expect(o.reasonCode).toBeNull();
+        expect(o.assetCount, 'only the candidate\'s own components are counted').toBe(EXPECTED);
+        expect(o.networkBytes, 'and only their bytes').toBe((EXPECTED as number) * 1_000_000);
+        expect(o.outOfScopeCount,
+            'NULL, not 0 — a shared timeline cannot observe that nothing fell outside the scope')
+            .toBeNull();
+        expect(o.networkUsed, 'a transferred byte proves the wire').toBe(true);
+    });
+
+    it('CONTROL: a SHORTFALL of components is still partial — a redirect cannot hide here', () => {
+        // The protection the out-of-scope count used to provide, kept: assets that redirect off the
+        // declared scope stop matching, so the count falls short of what the candidate declares.
+        const o = observeShared([...components(3), ...pageTraffic()]);
+
+        expect(o.completeness).toBe('partial');
+        expect(o.reasonCode).toBe('component_shortfall');
+        expect(o.outOfScopeCount).toBeNull();
+    });
+
+    it('CONTROL: an UNDECLARED component count cannot qualify — it fails closed', () => {
+        // Coverage on a shared timeline is established only by the declared count. Without one there is
+        // no way to establish it, and the honest answer is never `complete`.
+        const o = observeShared([...components(EXPECTED as number), ...pageTraffic()], null);
+
+        expect(o.completeness).toBe('partial');
+        expect(o.reasonCode).toBe('coverage_unprovable');
+    });
+
+    it('CONTROL: a component SHORTFALL degrades an EXCLUSIVE timeline too', () => {
+        /**
+         * Required by the correction's own contract: a missing or redirected component must degrade on
+         * BOTH timelines. An exclusive timeline with nothing unmatched is not proof of coverage —
+         * components the loader never requested leave no entry to be unmatched, so `outOfScopeCount`
+         * is 0 and a three-of-seven load read `complete` before this.
+         */
+        const perf = {
+            getEntriesByType: (type: string) => (type === 'resource'
+                ? components(3).map((e) => ({ startTime: LOAD_START, duration: 100, ...e }))
+                : []),
+        } as unknown as Performance;
+        const o = observeAcquisitionNetwork(SCOPE, LOAD_START, perf,
+            { timeline: 'exclusive', expectedComponents: EXPECTED });
+
+        expect(o.outOfScopeCount, 'nothing unmatched — which is exactly why this was missed').toBe(0);
+        expect(o.completeness, 'but four declared components were never fetched').toBe('partial');
+        expect(o.reasonCode).toBe('component_shortfall');
+    });
+
+    it('CASUALTY: a caller that DECLARES NOTHING gets the conservative reading', () => {
+        /**
+         * THE DEFAULT IS A SAFETY PROPERTY, SO IT NEEDS ITS OWN CASUALTY.
+         *
+         * Every other case here passes the scope explicitly, so all of them survive flipping the
+         * default to `exclusive` — the fail-OPEN direction, where a main-window caller silently gets a
+         * timeline claim it has no right to. A mutation proved that gap, which is why this exists.
+         *
+         * Asserting merely "not complete" would not discriminate: both defaults yield `partial` for
+         * these entries. The readings differ in HOW they refuse — `shared` cannot count foreign traffic
+         * and cannot establish coverage, while `exclusive` counts it and blames the scope. So the
+         * refusal itself is what is asserted.
+         */
+        const perf = {
+            getEntriesByType: (type: string) => (type === 'resource'
+                ? [...components(EXPECTED as number), ...pageTraffic()]
+                    .map((e) => ({ startTime: LOAD_START, duration: 100, ...e }))
+                : []),
+        } as unknown as Performance;
+        // No fourth argument, deliberately.
+        const o = observeAcquisitionNetwork(SCOPE, LOAD_START, perf);
+
+        expect(o.outOfScopeCount,
+            'an undeclared caller must NOT be credited with an exclusive timeline it never claimed')
+            .toBeNull();
+        expect(o.reasonCode,
+            'and cannot establish coverage without a declared component count')
+            .toBe('coverage_unprovable');
+        expect(o.completeness).toBe('partial');
+    });
+
+    it('CONTROL: the EXCLUSIVE timeline still treats an unmatched entry as evidence', () => {
+        /**
+         * The mirror of the first case, and what makes it discriminating: the same entries on a
+         * timeline that IS the acquisition's do degrade completeness, because there an unmatched
+         * request really is an unexplained one inside the download.
+         */
+        const perf = {
+            getEntriesByType: (type: string) => (type === 'resource'
+                ? [...components(EXPECTED as number), ...pageTraffic()]
+                    .map((e) => ({ startTime: LOAD_START, duration: 100, ...e }))
+                : []),
+        } as unknown as Performance;
+        const o = observeAcquisitionNetwork(SCOPE, LOAD_START, perf,
+            { timeline: 'exclusive', expectedComponents: EXPECTED });
+
+        expect(o.completeness).toBe('partial');
+        expect(o.reasonCode).toBe('requests_outside_scope');
+        expect(o.outOfScopeCount, 'counted here, because here it means something').toBe(4);
     });
 });

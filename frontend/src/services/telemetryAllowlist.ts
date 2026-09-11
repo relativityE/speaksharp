@@ -457,6 +457,9 @@ export const EVENT_SCHEMAS = Object.freeze({
         clarity_score: { kind: 'number', min: 0, max: 100 } as FieldRule,
         duration_seconds: { kind: 'int', min: 0, max: 86_400 } as FieldRule,
         completeness: enumOf(['complete', 'unobservable', 'no_speech']),
+        // #1421 P1 — bounded, and NOT optional: a filler row never qualifies candidate attribution on
+        // its own, so the reader must always be told whether attribution was confirmed.
+        attribution_state: enumOf(['pending', 'verified']),
         unavailable_reason: enumOf(['no_filler_tokens_in_transcript', 'no_transcribed_speech']),
     },
 

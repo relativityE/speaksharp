@@ -199,7 +199,12 @@ async function init(
         // NO RECEIPT WITHOUT AN IDENTITY. An observation that cannot say which attempt it describes is
         // indistinguishable from a stale one, and the consumer would have to guess.
         acquisition = composeAcquisitionReceipt(
-            observeAcquisitionNetwork(assetPrefixes, loadStart, self.performance),
+            observeAcquisitionNetwork(assetPrefixes, loadStart, self.performance,
+                // A DEDICATED WORKER'S TIMELINE IS THE ACQUISITION'S. `self.performance`
+                // records this worker's own fetches and nothing else, so an unmatched entry
+                // really is an unexplained request inside the download — which is what makes
+                // the out-of-scope count evidence here and not on the main window.
+                { timeline: 'exclusive', expectedComponents: null }),
             attempt,
         );
     } catch {

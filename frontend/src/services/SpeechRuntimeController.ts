@@ -2354,10 +2354,26 @@ export class SpeechRuntimeController {
                     if (startWait !== null) emitStageLatency('intent_to_recording', startWait);
                 } else if (newState === 'STOPPING' && previousState === 'RECORDING') {
                     const stopWait = msSinceIntent();
+                    /*
+                     * INTENT TIMING STAYS HERE. The user's Stop is what anchors the post-Stop chain, and
+                     * `RECORDING -> STOPPING` is exactly when the runtime accepted it. This measurement is
+                     * about the intent, not about teardown, so it is unaffected by the correction below.
+                     */
                     if (stopWait !== null) emitStageLatency('recording_to_stop_intent', stopWait);
-                    // #1259 F16 — recording has actually stopped. Distinct from the user's Stop
-                    // intent: the gap between the two is the part that feels unresponsive.
-                    markCompletionStage('recording_terminated');
+                    /*
+                     * #1421 P1 — `recording_terminated` IS NOT MARKED HERE ANY MORE.
+                     *
+                     * This branch is the PRELIMINARY state transition: the controller enters `STOPPING`
+                     * and only afterwards calls and awaits `service.stopTranscription()`. Marking
+                     * termination here claimed "recording has actually stopped" at the moment the stop
+                     * was merely accepted, so every Stop-to-termination interval was short by the entire
+                     * real teardown — which is the part that feels unresponsive and the whole reason F16
+                     * measures it.
+                     *
+                     * The mark now happens where teardown truth is known: after the awaited
+                     * `stopTranscription()` resolves. A finalization timeout throws instead, and that is
+                     * the correct outcome — recording did not cleanly terminate, so nothing is claimed.
+                     */
                 }
                 emitRecordingState(previousState, newState, error?.name ?? null);
             } catch {
@@ -4507,6 +4523,16 @@ export class SpeechRuntimeController {
                     } finally {
                         if (finalizeTimer !== undefined) clearTimeout(finalizeTimer);
                     }
+                    /*
+                     * #1421 P1 — TEARDOWN TRUTH IS KNOWN HERE, AND ONLY HERE.
+                     *
+                     * Reached only when the race resolved: the service stopped and returned its final
+                     * result. A `FinalizationTimeoutError` throws out of the try above into the existing
+                     * catch, so a hung teardown records no termination rather than a false one — an
+                     * absent mark is a readable gap, a premature mark is a wrong number nothing
+                     * downstream can detect.
+                     */
+                    markCompletionStage('recording_terminated');
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
                         sessionId,
@@ -4669,6 +4695,17 @@ export class SpeechRuntimeController {
                                 .reduce((n, v) => n + (typeof v?.count === 'number' ? v.count : 0), 0);
                             emitFillerMeasurement({
                                 candidateId: resolvedEngine()?.candidateId ?? null,
+                                /*
+                                 * #1421 P1 — `pending`, ALWAYS, FROM HERE.
+                                 *
+                                 * This runs inside `stopRecording()` before the first
+                                 * `completeSession()` and well before `attestSessionEngine()`, so the
+                                 * candidate above is the one the engine resolved, not one persistence
+                                 * has confirmed. A take whose completion or attribution later fails has
+                                 * already published this row; `pending` is what stops that row being
+                                 * read as confirmed attribution.
+                                 */
+                                attributionState: 'pending',
                                 detectorInputWords: countWords(finalTranscript),
                                 detectorInputFillers: recountTotal,
                                 reportedFillers: getFillerTotal(this.liveFillerDataAtStop) ?? null,

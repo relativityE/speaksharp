@@ -67,6 +67,24 @@ vi.mock('@/stores/useSessionStore', () => ({
     useSessionStore: vi.fn(),
 }));
 vi.mock('@/services/SpeechRuntimeController', () => ({
+    /*
+     * #1421 — THE MOCK MUST CARRY THE MODULE'S ERROR CLASSES, NOT ONLY ITS INSTANCE.
+     *
+     * `handleStartStop` narrows the rejection with
+     * `err instanceof StartRefusedFinalizationError || err?.name === '...'`. The class arrived with
+     * #1431, so once #1421 integrated `main` this mock no longer provided every export the hook
+     * imports, and vitest failed the case before a single assertion ran — a STALE FIXTURE, not a
+     * product defect. The hook's own comment anticipates the mocked-module case, which is exactly why
+     * the name fallback sits beside the `instanceof`.
+     *
+     * Defined as a real class so `instanceof` is meaningful here rather than only the name fallback.
+     */
+    StartRefusedFinalizationError: class StartRefusedFinalizationError extends Error {
+        constructor(message?: string) {
+            super(message);
+            this.name = 'StartRefusedFinalizationError';
+        }
+    },
     speechRuntimeController: {
         startRecording: vi.fn(),
         stopRecording: vi.fn(async () => ({ 

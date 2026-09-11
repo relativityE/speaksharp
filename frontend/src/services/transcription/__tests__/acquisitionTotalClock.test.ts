@@ -129,9 +129,23 @@ describe('#1259 the total acquisition clock spans the cache probe', () => {
                     // Recorded WHILE the cache was being inspected — before the load began.
                     { name: `${location.origin}/models/whisper-base.en/onnx/stray.onnx`, startTime: PROBE_MS / 2,
                       responseEnd: PROBE_MS / 2 + 10, duration: 10, transferSize: 9_999, encodedBodySize: 9_999 },
-                    // The real load's own request.
-                    { name: `${location.origin}/models/whisper-base.en/onnx/encoder.onnx`, startTime: PROBE_MS + 10,
-                      responseEnd: PROBE_MS + 60, duration: 50, transferSize: 1_000, encodedBodySize: 1_000 },
+                    /*
+                     * The real load's own requests — ALL TWELVE of the components `v2:base.en`
+                     * declares, not one standing in for them.
+                     *
+                     * #1421: completeness is now established by matching the candidate's declared
+                     * component count, because on a shared (main-window) timeline the absence of
+                     * foreign traffic is unobservable and cannot establish it. A one-component fixture
+                     * therefore describes a load that fetched 1 of 12 — a genuine shortfall — and this
+                     * case is about the total clock and the stray-probe exclusion, not about a
+                     * partially fetched model. Staging the real component count keeps the subject and
+                     * drops an incidental dependency on how coverage happens to be judged.
+                     */
+                    ...Array.from({ length: 12 }, (_, i) => ({
+                        name: `${location.origin}/models/whisper-base.en/onnx/component${i}.onnx`,
+                        startTime: PROBE_MS + 10, responseEnd: PROBE_MS + 60, duration: 50,
+                        transferSize: 1_000, encodedBodySize: 1_000,
+                    })),
                   ]
                 : []
         )) as unknown as typeof performance.getEntriesByType);
@@ -149,8 +163,10 @@ describe('#1259 the total acquisition clock spans the cache probe', () => {
         await drain();
 
         const [ok] = success();
-        expect(ok.asset_count, 'only the request made after the load began belongs to the download').toBe(1);
-        expect(ok.network_bytes, 'the stray probe-window request must not inflate the transfer').toBe(1_000);
+        expect(ok.asset_count, 'only the requests made after the load began belong to the download').toBe(12);
+        expect(ok.network_bytes,
+            'the stray probe-window request must not inflate the transfer — 12 x 1_000, not 21_999')
+            .toBe(12_000);
         expect(ok.total_ms, 'while the total still spans the probe').toBe(PROBE_MS + INIT_MS);
     });
 

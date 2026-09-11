@@ -14,9 +14,17 @@
  * `policy_version` and `copy_version` are recorded SEPARATELY and deliberately. A mismatch between the
  * two is exactly the failure the PO hit: text promising one transcript beside a list holding two.
  *
- * NOTE: the deployed policy moves to newest-one with #1436. These constants move with it, and the
- * observed COUNT beside them is what proves the deployed database actually agrees — the constants are a
- * claim, the count is the evidence.
+ * NOTE ON WHICH LANE OWNS THIS CONSTANT. It reads `newest-two` because that is what the DEPLOYED
+ * database does today. It previously read `newest-one`, anticipating #1436 — which is wrong, and
+ * operationally wrong in a way the design would have masked as a finding: #1421 deploys before #1436,
+ * so every receipt in the gap would have carried a false belief beside an observation showing two
+ * retained. The mismatch detector would then be stuck on for the whole down-select window, and a
+ * permanently-firing detector is one nobody reads.
+ *
+ * A constant describing deployed reality belongs to the commit that CHANGES deployed reality. The flip
+ * to `newest-one` therefore moves with #1436's activation, not with this instrumentation. The observed
+ * COUNT beside it is what proves the deployed database actually agrees — the constant is a claim, the
+ * count is the evidence.
  *
  * Counts and states only — never a transcript, never a session id.
  */
@@ -26,15 +34,31 @@ import { safeEmit } from './safeEmit';
  * What the DEPLOYED database policy is believed to be. A constant, because the client cannot read the
  * migration — which is why it is published beside the observed count rather than instead of it.
  */
-export const RETENTION_POLICY_VERSION = 'newest-one';
+export const RETENTION_POLICY_VERSION = 'newest-two';
 
 /**
  * What the user-facing copy currently claims. Separate on purpose; a mismatch is the finding.
  *
- * Moved with the policy because the correction (#1436) changes what the database does. Leaving either
- * at `newest-two` would let a release qualify against a policy string the migration retires — and the
- * whole reason these two are separate constants is that a receipt agreeing with itself while disagreeing
- * with the deployed behaviour is the failure mode they exist to expose.
+ * THESE TWO DISAGREE RIGHT NOW, AND THAT IS THE TRUTH THEY EXIST TO REPORT.
+ *
+ * The copy says newest-ONE; the deployed database does newest-TWO until #1436 activates. That gap is
+ * exactly the defect the PO reported — "text promising one transcript beside a list holding two" — so a
+ * receipt carrying both values disagreeing is reporting a real product state, not an instrumentation
+ * artifact.
+ *
+ * An earlier revision of this file warned that leaving either constant at `newest-two` "would let a
+ * release qualify against a policy string the migration retires." That reasoning was inverted:
+ * #1421 deploys BEFORE #1436, so pinning `policy_version` to `newest-one` describes a policy the
+ * database is not running. Every receipt in the gap would then have carried a FALSE belief beside an
+ * observation showing two retained, the mismatch detector would have fired continuously on that
+ * falsehood for the whole down-select window, and a permanently-firing detector is one nobody reads.
+ * The failure mode these constants guard against is a receipt agreeing with ITSELF while disagreeing
+ * with deployed behaviour — and that is precisely what pinning both to `newest-one` would have
+ * produced.
+ *
+ * BOTH values flip to `newest-one` with #1436's activation, because a constant describing deployed
+ * reality belongs to the commit that changes deployed reality. The observed COUNT beside them is the
+ * evidence; the constants are claims.
  */
 export const RETENTION_COPY_VERSION = 'newest-one';
 

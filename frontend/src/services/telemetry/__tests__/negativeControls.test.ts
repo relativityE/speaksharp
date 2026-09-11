@@ -93,6 +93,8 @@ describe('NEGATIVE CONTROL — CONTRADICTORY: both sides are recorded, neither i
         emitFillerMeasurement({
             candidateId: 'v2:base.en', detectorInputWords: 88, detectorInputFillers: 0,
             reportedFillers: 0, clarityScore: 90, durationSeconds: 90,
+            // #1421: producers must state it; the stop path is the only real one and it is `pending`.
+            attributionState: 'pending',
         });
         drain();
         expect(rows('filler_measurement')[0].completeness).toBe('unobservable');
@@ -196,6 +198,8 @@ describe('NEGATIVE CONTROL — CONTENT: real session material cannot reach the w
         emitFillerMeasurement({
             candidateId: 'v2:base.en', detectorInputWords: 16, detectorInputFillers: 2,
             reportedFillers: 2, clarityScore: 80, durationSeconds: 30,
+            // #1421: producers must state it; the stop path is the only real one and it is `pending`.
+            attributionState: 'pending',
         });
         emitFeedbackFieldState({
             field: 'body', transition: 'entered', lengthBand: '40-199',

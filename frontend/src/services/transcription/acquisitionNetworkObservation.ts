@@ -39,7 +39,12 @@ export type MeasurementReasonCode =
     | 'no_entries_recorded'
     | 'scope_matched_nothing'
     | 'sizes_opaque'
-    | 'requests_outside_scope';
+    | 'requests_outside_scope'
+    // #1421 P1 — coverage could not be PROVEN, as distinct from being disproven. On a shared timeline
+    // the absence of foreign traffic is not observable, so completeness must be established by
+    // matching the assets the candidate declares.
+    | 'component_shortfall'
+    | 'coverage_unprovable';
 
 export interface AcquisitionNetworkObservation {
     /** How much of the acquisition these numbers cover. Never inferred by the consumer. */
@@ -76,6 +81,50 @@ const UNOBSERVED: AcquisitionNetworkObservation = {
 type TimingSource = Pick<Performance, 'getEntriesByType'> | undefined;
 
 /**
+ * #1421 P1 — WHOSE TIMELINE IS THIS, AND WHAT SHOULD IT CONTAIN?
+ *
+ * `outOfScopeCount` was read as "part of this download went unmeasured". That inference is only
+ * available when the timeline belongs to the acquisition ALONE. A dedicated worker's
+ * `self.performance` does: it records the worker's own fetches and nothing else, so an unmatched entry
+ * there really is an unexplained request inside the download.
+ *
+ * The MAIN-WINDOW timeline records the whole page. During a main-thread acquisition — Moonshine's
+ * ~147 MB across seven components is seconds long — concurrent auth, history, analytics, image and
+ * chunk requests are not merely possible, they are certain. Subtracting only the model-prefix matches
+ * therefore labelled ordinary application traffic as unmeasured download, and ANY such request forced
+ * a fully observed load to `partial` or `scope_matched_nothing`. Every Moonshine measurement would have
+ * read `partial`, and completeness that is always `partial` cannot support a candidate comparison —
+ * the harness would have degraded the very model it was measuring.
+ *
+ * So the two cases are separated rather than blended:
+ *
+ *   `exclusive` — the timeline is the acquisition's. An unmatched entry is evidence, and absence of
+ *                 unmatched entries is evidence of full coverage. Unchanged behaviour.
+ *
+ *   `shared`    — the timeline is the page's. Unmatched entries say nothing about this download, so
+ *                 they are not counted and `outOfScopeCount` is reported as null rather than as a
+ *                 number that invites the same misreading. Coverage is then proven POSITIVELY: the
+ *                 candidate declares how many components it fetches, and `complete` requires having
+ *                 matched them.
+ *
+ * Positive coverage is strictly the stronger check, which is why nothing is lost. The protection
+ * `outOfScopeCount` provided was "a redirected download must not look small, fast and complete" — a
+ * redirect off the declared scope lowers the MATCHED count, so the component check catches exactly
+ * that case, and catches it on both timelines.
+ *
+ * DEFAULTS TO `shared` ON PURPOSE. A caller that forgets to declare its timeline gets the conservative
+ * reading, and the dangerous direction — claiming exclusivity the timeline does not have — requires
+ * saying so explicitly.
+ */
+export interface AcquisitionTimelineScope {
+    timeline: 'exclusive' | 'shared';
+    /** How many components the candidate declares (`assets.componentCount`), or null if unknown. */
+    expectedComponents: number | null;
+}
+
+const SHARED_TIMELINE: AcquisitionTimelineScope = { timeline: 'shared', expectedComponents: null };
+
+/**
  * Read what was fetched for this candidate between `startedAt` and now.
  *
  * `startedAt` and the prefixes together scope the window: without the time bound a warm reload would
@@ -85,6 +134,7 @@ export function observeAcquisitionNetwork(
     prefixes: readonly string[],
     startedAt: number,
     perf: TimingSource = typeof performance !== 'undefined' ? performance : undefined,
+    scope: AcquisitionTimelineScope = SHARED_TIMELINE,
 ): AcquisitionNetworkObservation {
     if (!perf || typeof perf.getEntriesByType !== 'function') return UNOBSERVED;
     if (prefixes.length === 0) {
@@ -105,7 +155,14 @@ export function observeAcquisitionNetwork(
     // `includes`, not `startsWith`: a scope may be a served location OR a repository identity that
     // appears inside the request path.
     const matched = inWindow.filter((e) => prefixes.some((p) => e.name.includes(p)));
-    const outOfScopeCount = inWindow.length - matched.length;
+    /*
+     * COUNTED ONLY WHERE IT MEANS SOMETHING. On a shared timeline the unmatched entries are the page's
+     * own traffic, so the subtraction below would be a count of unrelated requests. Null, not zero:
+     * zero would assert "nothing fell outside the scope", which is precisely the claim a shared
+     * timeline cannot support.
+     */
+    const exclusive = scope.timeline === 'exclusive';
+    const outOfScopeCount = exclusive ? inWindow.length - matched.length : null;
 
     if (matched.length === 0) {
         if (inWindow.length > 0) {
@@ -148,9 +205,34 @@ export function observeAcquisitionNetwork(
     // when nothing in the window fell outside the scope AND every matched response reported its size.
     // Anything else is real data covering an unknown fraction of the download.
     const sizesOpaque = sized.length === 0 || anyOpaque;
-    const completeness: MeasurementCompleteness = outOfScopeCount === 0 && !sizesOpaque
-        ? 'complete'
-        : 'partial';
+    /*
+     * COVERAGE IS ESTABLISHED DIFFERENTLY ON EACH TIMELINE.
+     *
+     * `exclusive`: nothing unmatched in the window AND every matched response sized. Unchanged.
+     *
+     * `shared`: absence of foreign traffic is unobservable, so coverage is proven positively — the
+     * candidate declares its component count and we must have matched it. Without a declared count
+     * there is no way to establish coverage at all, and the honest answer is `partial`, never
+     * `complete`. That is the fail-closed direction: an undeclared candidate cannot qualify by
+     * omission.
+     */
+    const componentsKnown = scope.expectedComponents !== null;
+    const componentsProven = componentsKnown && matched.length >= (scope.expectedComponents as number);
+    /*
+     * THE COMPONENT CHECK APPLIES ON BOTH TIMELINES.
+     *
+     * An exclusive timeline with nothing unmatched is not proof of full coverage on its own: assets the
+     * loader never requested at all leave no entry to be unmatched, so `outOfScopeCount === 0` and a
+     * three-of-seven load would have read `complete`. The declared count is the only thing that
+     * distinguishes "everything was fetched" from "nothing unexpected was fetched".
+     *
+     * Where the count is unknown, an exclusive timeline still has its own evidence and keeps its
+     * previous behaviour; a shared timeline has none and cannot qualify.
+     */
+    const covered = exclusive
+        ? outOfScopeCount === 0 && (!componentsKnown || componentsProven)
+        : componentsProven;
+    const completeness: MeasurementCompleteness = covered && !sizesOpaque ? 'complete' : 'partial';
 
     // `false` IS A CLAIM ABOUT EVERY REQUEST, so only a COMPLETE observation may make it.
     //
@@ -162,9 +244,20 @@ export function observeAcquisitionNetwork(
     const networkUsed = provenNetwork
         ? true
         : (completeness === 'complete' && provenCache ? false : null);
+    /*
+     * THE REASON NAMES WHICH CHECK FAILED, not merely that one did. Coverage is reported ahead of
+     * opaque sizes because it is the stronger defect: unmeasured assets mean the numbers describe an
+     * unknown fraction, whereas opaque sizes mean a known set was fetched with bytes withheld.
+     */
+    const coverageReason: MeasurementReasonCode | null = covered
+        ? null
+        // Unmatched requests first where they are evidence: an unexplained request inside the download
+        // is a stronger statement than a count that fell short, and it is the more actionable one.
+        : (exclusive && outOfScopeCount !== 0) ? 'requests_outside_scope'
+            : componentsKnown ? 'component_shortfall' : 'coverage_unprovable';
     const reasonCode: MeasurementReasonCode | null = completeness === 'complete'
         ? null
-        : (outOfScopeCount > 0 ? 'requests_outside_scope' : 'sizes_opaque');
+        : (coverageReason ?? 'sizes_opaque');
 
     return {
         completeness,
