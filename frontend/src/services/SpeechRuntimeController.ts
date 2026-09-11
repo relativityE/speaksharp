@@ -1095,7 +1095,7 @@ export class SpeechRuntimeController {
                 // not ownership.
                 retryStillOwnsSharedState,
             );
-            this.retireObjectiveBriefAfterSettlement(progressContext);
+            this.retireObjectiveBriefAfterSettlement(progressContext, retryStillOwnsSharedState);
             return true;
         } catch {
             return false;
@@ -1221,7 +1221,7 @@ export class SpeechRuntimeController {
                         // #1431 P1 — was `() => true` on the same "current by definition" reasoning.
                         retryStillOwnsSharedState,
                     );
-                    this.retireObjectiveBriefAfterSettlement(progressContext);
+                    this.retireObjectiveBriefAfterSettlement(progressContext, retryStillOwnsSharedState);
                 }
                 return true;
             } catch {
@@ -5290,9 +5290,23 @@ export class SpeechRuntimeController {
                 // store still holding this session's raw final, which is now cleared.
                 this.purgeTranscriptWorkingMemory();
 
+                /**
+                 * #1433 Codex P1 `3990521393` — THE AUTHORITY FOR RETIRING THE BRIEF, CAPTURED HERE.
+                 *
+                 * Not `terminalTuple`: the owner's own `detachService(service)` above bumped the service
+                 * generation after that tuple was recorded, so it would refuse the rightful owner. Every
+                 * ownership check above has just passed and there is no suspension since, so this is the
+                 * owner's state exactly. `transition('READY')` is the suspension a successor can be accepted
+                 * during, and this tuple is what tells the retirement whether one was.
+                 */
+                const settledTuple = {
+                    lifecycleVersion: this.lifecycleVersion,
+                    serviceGeneration: this.serviceGeneration,
+                    service: this.service,
+                };
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
-                this.retireObjectiveBriefAfterSettlement(completedProgressContext);
+                this.retireObjectiveBriefAfterSettlement(completedProgressContext, () => this.ownsAfterTerminalAdvance(settledTuple));
                 // #1033 (item 3): the stop path reached its NORMAL terminal — the recording was saved, discarded
                 // as no-speech/low-quality, or had nothing to persist. Unless a durable retry was stashed (a
                 // full-save or attribution failure, which keeps the lock for Retry Save), the recording is fully
@@ -5351,10 +5365,7 @@ export class SpeechRuntimeController {
                  * WITHIN one lifecycle, which is what the candidate switch does, changes the
                  * generation, so A still contains its own failure and leaves B untouched.
                  */
-                const ownsAfterTerminalAdvance = terminalTuple !== null
-                    && this.lifecycleVersion === terminalTuple.lifecycleVersion
-                    && this.serviceGeneration === terminalTuple.serviceGeneration
-                    && (this.service === null || this.service === terminalTuple.service);
+                const ownsAfterTerminalAdvance = this.ownsAfterTerminalAdvance(terminalTuple);
                 const stillOwnsForPublication = terminalTuple !== null
                     ? ownsAfterTerminalAdvance
                     : this.stopStillOwnsSharedState(stopAuthority, token);
@@ -5553,12 +5564,43 @@ export class SpeechRuntimeController {
     }
 
     /**
+     * #1431 P1 — whether the take that performed its OWN terminal lifecycle advance still owns shared state.
+     *
+     * After that advance `stopAuthority` + `token` are stale by construction, so the tuple the advance
+     * recorded is the authority: lifecycle version, service generation and strict service identity. A
+     * successor that swaps the service within one lifecycle changes the generation, so it is caught too.
+     */
+    private ownsAfterTerminalAdvance(
+        tuple: { lifecycleVersion: number; serviceGeneration: number; service: TranscriptionService | null } | null,
+    ): boolean {
+        return tuple !== null
+            && this.lifecycleVersion === tuple.lifecycleVersion
+            && this.serviceGeneration === tuple.serviceGeneration
+            && (this.service === null || this.service === tuple.service);
+    }
+
+    /**
      * Retire only the brief that owned the completed take, and only after its asynchronous Progress work
      * has settled. The normal stop path calls this after READY; retry paths call it after their awaited
      * completion seam. A later brief selected for another take is never cleared by stale completion work.
+     *
+     * #1433 Codex P1 `3990521393` — AND ONLY WHILE THE CALLER STILL OWNS SHARED STATE. The id comparison
+     * cannot tell two takes apart when B started with the same brief A used, so a stale A resuming after a
+     * hard reset or candidate switch relabelled B as Open Mic. Clearing the live brief is a shared write, so
+     * it takes the same revalidated authority as every other shared publication, and no-ops without it.
      */
-    private retireObjectiveBriefAfterSettlement(context: ProgressCompletionContext | null): void {
+    private retireObjectiveBriefAfterSettlement(
+        context: ProgressCompletionContext | null,
+        ownsSharedState: () => boolean,
+    ): void {
         if (!context || context.mode !== 'focus_points') return;
+        if (!ownsSharedState()) {
+            pushNativeRuntimeTrace('controller_brief_retirement_refused', {
+                lifecycleVersion: this.lifecycleVersion,
+                serviceGeneration: this.serviceGeneration,
+            });
+            return;
+        }
         const store = useSessionStore.getState();
         const liveBrief = store.activeObjectiveBrief;
         if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
