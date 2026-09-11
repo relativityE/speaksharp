@@ -83,10 +83,17 @@ function fakeGraphql({
     reviewThreads: { nodes: threads, pageInfo: { hasNextPage: truncatedThreads } },
   };
   // Codex's clean result lives ONLY in the PR's issue comments, with the reviewed head in its footer.
+  // #1438 PM DECISION `5639300027`: exact-head completion is Codex's review-summary system metadata, never the
+  // clean comment's text, so `cleanResultOnly` carries both, as Codex posts them.
   const comments = {
     nodes: cleanResultOnly ? [{
       author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:00Z',
       body: `Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
+    }, {
+      id: 'summary', author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:01Z',
+      body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 ${JSON.stringify({
+        blockingSeverityThreshold: 'P0', headSha: HEAD, pullRequestNumber: 1430, repository: REPOSITORY, status: 'completed',
+      })} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-09-10T20:03:00Z">2026-09-10T20:03:00Z</relative-time> | \`${HEAD.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-09-10T20:04:00Z">2026-09-10T20:04:00Z</relative-time> | \`${HEAD.slice(0, 7)}\` | Draft marked ready |`,
     }] : [],
     pageInfo: { hasPreviousPage: false },
   };
@@ -113,8 +120,19 @@ globalThis.fetch = async (url, init) => {
       }),
     };
   }
+  // #1438 PM RETURN 5639978861 — the branch activity log: pushed at 19:59, marked ready at 20:00:30, no move since.
+  if (String(url).includes('/activity?')) {
+    return { ok: true, status: 200, json: async () => ([{ activity_type: 'push', after: ${JSON.stringify(headRefOid)}, timestamp: '2026-09-10T19:59:00Z' }]) };
+  }
   const { query = '' } = JSON.parse(init?.body ?? '{}');
   const payload = JSON.parse(body);
+  if (query.includes('headRepository{nameWithOwner}')) {
+    payload.data.repository.pullRequest.headRefName = 'fix/1430-post-merge-codex-p1s';
+    payload.data.repository.pullRequest.headRepository = { nameWithOwner: ${JSON.stringify(REPOSITORY)} };
+  }
+  if (query.includes('READY_FOR_REVIEW_EVENT')) {
+    payload.data.repository.pullRequest.timelineItems = { nodes: [{ createdAt: '2026-09-10T20:00:30Z' }] };
+  }
   if (query.includes('comments(last:100,before:$commentsBefore)')) {
     payload.data.repository.pullRequest.comments = JSON.parse(comments);
   }
@@ -129,13 +147,20 @@ globalThis.fetch = async (url, init) => {
   return loader;
 }
 
-const thread = (isResolved, body) => ({
+/**
+ * #1430 fix-forward `3991388525`: a RESOLVED same-head P0/P1 now blocks unless its review was dismissed with authority (#1438 PM
+ * DECISION `5639300027`), so the
+ * resolved threads these cases treat as clean live state are findings from an EARLIER head. Codex cited the
+ * positive control that merged over a resolved same-head P1; that case is now a casualty of its own.
+ */
+const PRIOR_HEAD = 'a'.repeat(40);
+const thread = (isResolved, body, sha = isResolved ? PRIOR_HEAD : HEAD, reviewState = 'COMMENTED') => ({
   isResolved,
   comments: {
     nodes: [{
-      author: { login: bot }, body,
-      commit: { oid: HEAD }, originalCommit: { oid: HEAD },
-      pullRequestReview: { commit: { oid: HEAD } },
+      author: { login: bot }, body, createdAt: '2026-09-10T20:00:00Z',
+      commit: { oid: sha }, originalCommit: { oid: sha },
+      pullRequestReview: { state: reviewState, commit: { oid: sha } },
     }],
     pageInfo: { hasPreviousPage: false },
   },
@@ -573,7 +598,30 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
     expect(run.stderr).toContain('pre_merge_merge_rejected_by_github');
   });
 
-  it('POSITIVE CONTROL: a clean-result COMMENT with no review object DOES invoke gh', () => {
+  it('CASUALTY (#1430 fix-forward `3991388525`): a RESOLVED same-head P1 with no later clean re-review never invokes gh', () => {
+    /**
+     * Codex security P1 `3991388525`. The final positive control below used to merge over exactly this: a
+     * `P1 Badge` thread at the authorized head, resolved by anyone who can resolve threads, with nobody having
+     * reviewed the fix. Resolution is not re-review, so the live read counts it and holds.
+     */
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — resolved without re-review', HEAD)], receiptPath: receipt(1),
+    });
+    expect(mergeAttempted, 'a resolved same-head blocker must not merge').toBe(false);
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain('pre_merge_live_release_findings:1');
+  });
+
+  it('CONTROL (#1430 fix-forward `3991388525`): that resolved P1 inside an authorized DISMISSED review DOES invoke gh', () => {
+    const { run, mergeAttempted } = runCli({
+      threads: [thread(true, 'P1 Badge — dismissed with authority', HEAD, 'DISMISSED')], receiptPath: receipt(1),
+    });
+    expect(run.stderr, 'an authorized dismissal clears the resolved finding').not.toContain('MERGE HELD');
+    expect(mergeAttempted).toBe(true);
+    expect(run.status).toBe(0);
+  });
+
+  it('POSITIVE CONTROL: a Codex clean result with summary metadata and no review object DOES invoke gh', () => {
     /**
      * Codex P1 `3985755149` at `c33644cd3e`. When Codex finds nothing it posts an issue comment and
      * creates NO review object — the normal clean outcome. The live query did not select `comments`,

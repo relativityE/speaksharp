@@ -17,30 +17,6 @@ const CODEX_LOGINS = new Set(['chatgpt-codex-connector', 'chatgpt-codex-connecto
 const RELEASE_FINDING = /P[01]\s+Badge|\bP[01]\b/i;
 const ADVISORY_FINDING = /P2\s+Badge|\bP2\b/i;
 
-/**
- * #1430 P1 — THE CANONICAL CLEAN RESULT, MATCHED POSITIVELY.
- *
- * Codex prefixes several different outcomes with `Codex Review:`, so the prefix proves nothing. Observed
- * on this pull request alone:
- *
- *   Codex Review: Didn't find any major issues. Keep it up!            <- clean
- *   Codex Review: Didn't find any major issues. Nice work!             <- clean (sign-off varies)
- *   Codex Review: Something went wrong. Try again later by commenting  <- NOT clean
- *   ## Blocked — Required Commit Objects Are Still Unavailable         <- NOT clean
- *
- * My recogniser previously selected a comment by three REJECTIONS — trusted author, exact head named, no
- * P0/P1 badge — and never asserted what a clean result actually says. Codex reproduced
- * `buildReviewReceipt()` qualifying on `Codex could not complete this review` plus a valid footer: a
- * failure notice read as a pass. The "Something went wrong" comment already on this PR would have done
- * the same had it carried a footer.
- *
- * This is the rule I wrote two rounds earlier and then broke: assert the shape you REQUIRE, never test
- * for the shape you reject. An absent badge is not evidence of a clean review.
- *
- * The sign-off varies and the apostrophe may be typographic, so only the invariant phrase is matched.
- */
-const CODEX_CLEAN_RESULT = /Didn[\u2019']t\s+find\s+any\s+major\s+issues/i;
-
 function isCodex(login) {
   return CODEX_LOGINS.has(String(login ?? '').toLowerCase());
 }
@@ -53,42 +29,149 @@ function commentNamesHead(comment, head) {
 }
 
 /**
- * #1430 P1 — CODEX'S CLEAN RESULT IS NOT A REVIEW OBJECT.
+ * #1438 PM DECISION `5639300027` (bounded option C) — EXACT-HEAD CODEX COMPLETION, FROM IMMUTABLE OR SYSTEM
+ * IDENTITY ONLY.
  *
- * Codex submits a review object only when it HAS findings. When it finds nothing it posts an ISSUE
- * COMMENT plus a 👍 and creates no review. Deriving the verdict from `reviews` alone therefore made this
- * gate unsatisfiable: findings present meant `open_findings`, findings absent meant
- * `review_not_completed:missing`. Both branches held, so no candidate could ever qualify — the same
- * outage shape as holding on unverifiable branch protection.
+ * Each earlier step was a reproduced bypass, so the history stays here:
  *
- * I had already recorded this surface in the #1431 post-mortem and then built a collector that ignored
- * it, which is why the recognition below is deliberately narrow rather than permissive:
+ *   #1430 — Codex's clean result is an issue COMMENT, not a review object, so reading reviews alone could
+ *           never qualify a clean head. The comment surface was admitted, by trusted author and footer.
+ *   `3991388531` — the 10-character `Reviewed commit` footer bound by prefix; a ground collision reused it.
+ *   `3992215898` — GitHub abbreviation resolution plus branch-move chronology; a race and a GC beat both.
+ *   `3992367735` — any full SHA in the body; the requester can make Codex echo a collider's SHA in prose.
+ *   `3992467525` — the designated `Reviewed commit` field; the requester can steer that generated text too.
  *
- *   TRUSTED AUTHOR ONLY. The same `CODEX_LOGINS` set the review path uses. A human — or any other bot —
- *   posting the same words proves nothing, so `authorAssociation` is not consulted and the login must
- *   match exactly.
+ * GitHub attaches no commit to an issue comment, and whatever the generated body says, the review requester
+ * can influence. Comment TEXT is therefore never identity. Exact-head completion binds only through:
  *
- *   THE EXACT HEAD, NAMED IN THE BODY. Codex writes "**Reviewed commit:** `<sha>`". A comment naming an
- *   earlier SHA is evidence about an earlier tree and is ignored, not tolerated — this is the same
- *   stale-evidence rule the rest of the receipt applies.
+ *   1. a review object, whose full `commit.oid` GitHub itself records (the caller's review path); or
+ *   2. Codex's review-summary SYSTEM METADATA: the structured `codex-security-review:v1` block Codex writes
+ *      into its own summary comment, naming the full 40-character head, `status: "completed"`, and this
+ *      repository and pull request wherever it names them.
  *
- *   NO FINDING TEXT. A comment carrying a P0/P1 badge is not a clean result whatever else it says.
+ * Everything else fails closed: no Codex-authored summary; a missing, malformed or duplicated block; another
+ * head, repository or PR; any status but completed; or a review the summary still shows running. The
+ * abbreviated code-review table row, prose and markers are never identity, and a human-authored copy is
+ * never read.
  *
- * Returns the matching comment or null. It NEVER reports findings — it can only establish that a review
- * completed with none, and the thread scan remains the sole authority on live findings.
+ * COMPLETION ONLY. This never clears, hides or overrides a finding. The caller still scans every result
+ * surface, and any current-head P0/P1 or incomplete read holds whatever this returns.
  */
-function findTrustedCleanResult({ pullRequest, head }) {
-  return (pullRequest?.comments?.nodes ?? [])
+const SUMMARY_MARKER = '<!-- codex-pull-request-review-summary -->';
+const SUMMARY_METADATA = /<!--\s*codex-security-review:v1\s+(\{[^]*?\})\s*-->/g;
+
+/**
+ * #1438 Codex P1s `3992603040` + `3992907765` (PM DECISION `5639821873`, PM RETURN `5639978861`) — BOTH AUTOMATIC
+ * REVIEWS MUST HAVE COMPLETED FOR THIS HEAD'S READY TRIGGER, BY GITHUB'S OWN LIFECYCLE RECORD.
+ *
+ * `codex-security-review:v1` names the SECURITY review's full head. A failed or cancelled code review left no
+ * `**Running**` (`3992603040`), and a Completed Code Review row left over from head A sat beside security metadata
+ * for head B and qualified B with no code review of B (`3992907765`). Codex writes no structured code-review
+ * metadata, so the binding comes from GitHub's lifecycle record, not from generated text:
+ *
+ *   exactly one canonical Code Review row and one Security Review row, each `✅ **Completed**` with a readable
+ *   completion time, a display commit that prefixes the metadata head, and trigger `Draft marked ready`;
+ *   the latest GitHub `ReadyForReviewEvent`, which both rows must have completed after; and
+ *   the branch activity log (full SHAs): the head was already the branch head when Ready occurred, the branch
+ *   has not moved since — away-and-back and a re-push included — and no other commit the branch ever pointed at
+ *   shares either row's display commit (`3993098954`). A branch deletion (merge cleanup) is not a move.
+ *
+ * Manual-request completions never use this fallback. Missing, truncated, ambiguous or unreadable evidence holds.
+ * Identity still comes only from the metadata head; the rows and the lifecycle record can only refuse.
+ */
+const READY_TRIGGER = 'Draft marked ready';
+const COMPLETED_STATUS = /^✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">[^<]*<\/relative-time>$/;
+
+function completedReviewRow(body, keyword, label) {
+  const rows = body.split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('|') && line.includes(keyword));
+  if (rows.length !== 1) return null;
+  const cells = rows[0].split('|').slice(1, -1).map((cell) => cell.trim());
+  if (cells.length !== 4 || cells[0] !== label || cells[3] !== READY_TRIGGER) return null;
+  const status = COMPLETED_STATUS.exec(cells[1]);
+  const commit = /^`([0-9a-f]{7,40})`$/.exec(cells[2]);
+  const completedAt = status ? Date.parse(status[1]) : Number.NaN;
+  if (!Number.isFinite(completedAt) || !commit) return null;
+  return { completedAt, commit: commit[1] };
+}
+
+function automaticReviewsBindHead({ body, pullRequest, head }) {
+  const code = completedReviewRow(body, 'Code Review', '📝 **Code Review**');
+  const security = completedReviewRow(body, 'Security Review', '🔒 **Security Review**');
+  if (!code || !security || !head.startsWith(code.commit) || !head.startsWith(security.commit)) return false;
+
+  const readyEvents = pullRequest?.timelineItems?.nodes;
+  if (!Array.isArray(readyEvents) || readyEvents.length === 0) return false;
+  const readyTimes = readyEvents.map((event) => Date.parse(String(event?.createdAt ?? '')));
+  if (readyTimes.some((time) => !Number.isFinite(time))) return false;
+  const readyAt = Math.max(...readyTimes);
+  if (!(code.completedAt > readyAt && security.completedAt > readyAt)) return false;
+
+  const history = pullRequest?.headRefHistory;
+  if (history?.complete !== true || !Array.isArray(history.moves) || history.moves.length === 0) return false;
+  const moves = history.moves.map((move) => ({
+    after: String(move?.after ?? '').toLowerCase(),
+    at: Date.parse(String(move?.timestamp ?? '')),
+  }));
+  // #1438 Codex security P1 `3993098954` — A DISPLAY COMMIT NAMES THE HEAD ONLY WHEN NO OTHER BRANCH COMMIT SHARES IT.
+  // Codex reviews only commits the branch pointed at, so a prefix unique across the complete history cannot be another
+  // run's row; a shared one (A's in-flight review completing after colliding B's Ready) holds.
+  const namesOnlyHead = (prefix) => moves.every((move) => move.after === head || !move.after.startsWith(prefix));
+  if (!namesOnlyHead(code.commit) || !namesOnlyHead(security.commit)) return false;
+  // #1438 Codex P1 `3993066903` (PM RETURN `5640173238`) — AT OR AFTER. GitHub's activity and Ready times share a
+  // one-second granularity, so a move in the Ready second cannot be shown to precede Ready: it holds like a later one.
+  if (moves.some((move) => !Number.isFinite(move.at) || move.at >= readyAt)) return false;
+  const lastMoveAt = Math.max(...moves.map((move) => move.at));
+  const headsAtReady = new Set(moves.filter((move) => move.at === lastMoveAt).map((move) => move.after));
+  return headsAtReady.size === 1 && headsAtReady.has(head);
+}
+
+function findTrustedCompletionMetadata({ pullRequest, head }) {
+  const blocks = (pullRequest?.comments?.nodes ?? [])
     .filter((comment) => isCodex(comment?.author?.login))
-    // POSITIVE match first: only the canonical clean result may qualify a head. Error, status, progress
-    // and blocked notices from the same trusted bot are not clean reviews, whatever footer they carry.
-    .filter((comment) => CODEX_CLEAN_RESULT.test(comment?.body ?? ''))
-    .filter((comment) => !RELEASE_FINDING.test(comment?.body ?? ''))
-    // Codex abbreviates the SHA, so the named value must PREFIX the full head — never the reverse,
-    // which would let a 7-character coincidence from another branch qualify.
-    .filter((comment) => commentNamesHead(comment, head))
-    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
-    .at(-1) ?? null;
+    .flatMap((comment) => [...String(comment?.body ?? '').matchAll(SUMMARY_METADATA)]
+      .map((match) => ({ comment, raw: match[1] })));
+  if (blocks.length !== 1) return null;
+  const [{ comment, raw }] = blocks;
+  const body = String(comment?.body ?? '');
+  if (!body.includes(SUMMARY_MARKER)) return null;
+  // A review the summary still shows running has not completed, whatever the metadata block says.
+  if (/\*\*Running\*\*/.test(body)) return null;
+  // #1438 Codex P1s `3992603040` + `3992907765` — both automatic reviews must have completed for THIS head's Ready
+  // trigger, bound through GitHub's lifecycle record. See `automaticReviewsBindHead`.
+  if (!automaticReviewsBindHead({ body, pullRequest, head })) return null;
+  let metadata;
+  try {
+    metadata = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  if (typeof metadata.headSha !== 'string' || !/^[0-9a-f]{40}$/.test(metadata.headSha) || metadata.headSha !== head) {
+    return null;
+  }
+  if (metadata.status !== 'completed') return null;
+  if ('repository' in metadata && metadata.repository !== pullRequest?.baseRepository?.nameWithOwner) return null;
+  if ('pullRequestNumber' in metadata && metadata.pullRequestNumber !== pullRequest?.number) return null;
+  return comment;
+}
+
+/**
+ * #1430 fix-forward, Codex P1 `3991388525` — RESOLVING A SAME-HEAD BLOCKER IS NOT A RE-REVIEW.
+ *
+ * Only `isResolved === false` threads counted, so resolving an exact-head P0/P1 — which the PR author can do
+ * — removed it from the receipt with nobody having reviewed the fix. A same-head release finding blocks
+ * whether its thread is open or resolved.
+ *
+ * It first cleared on a later clean Codex COMMENT. Under PM DECISION `5639300027` no comment text binds a
+ * commit and completion metadata may never clear a finding, so the one remaining clearing surface is an
+ * AUTHORIZED DISMISSAL: the finding's review was DISMISSED and its thread is resolved. A fix normally lands on
+ * a new head, where findings made at earlier heads are historical and are not counted by the caller at all.
+ */
+function releaseFindingStillBlocks({ thread, comment }) {
+  if (thread?.isResolved !== true) return true;
+  return comment?.pullRequestReview?.state !== 'DISMISSED';
 }
 
 export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
@@ -102,24 +185,24 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   if ((pullRequest?.reviewThreads?.nodes ?? []).some((thread) => thread?.comments?.pageInfo?.hasPreviousPage)) {
     reasons.push('review_thread_comments_incomplete');
   }
-  // The clean-result surface is now load-bearing, so an incomplete read of it is incomplete evidence.
-  // Without this a truncated comment page could hide the very comment that would have qualified — or,
-  // worse, hide a later finding-bearing one.
+  // The issue-comment surface is load-bearing: it carries the completion metadata and finding comments, so an
+  // incomplete read of it is incomplete evidence. A truncated page could hide the summary, a duplicate block,
+  // or a later finding-bearing comment.
   if (pullRequest?.comments?.pageInfo?.hasPreviousPage) reasons.push('issue_comments_incomplete');
 
   const reviews = (pullRequest?.reviews?.nodes ?? [])
     .filter((review) => isCodex(review?.author?.login) && review?.state !== 'DISMISSED' && review?.commit?.oid?.toLowerCase?.() === head)
     .sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt)));
   const latest = reviews.at(-1);
-  // Only consulted when no finding-bearing review object exists at this head: a review that reported
-  // findings must never be masked by a later clean summary.
-  const cleanResult = latest ? null : findTrustedCleanResult({ pullRequest, head });
+  // Only consulted when no review object exists at this head: a review that reported findings must never be
+  // masked by summary metadata, which establishes completion and nothing else.
+  const completion = latest ? null : findTrustedCompletionMetadata({ pullRequest, head });
   const threadFindings = (pullRequest?.reviewThreads?.nodes ?? []).filter((thread) =>
-    thread?.isResolved === false
-    && (thread?.comments?.nodes ?? []).some((comment) =>
+    (thread?.comments?.nodes ?? []).some((comment) =>
       isCodex(comment?.author?.login)
       && (comment?.pullRequestReview?.commit?.oid ?? comment?.originalCommit?.oid ?? comment?.commit?.oid)?.toLowerCase?.() === head
-      && RELEASE_FINDING.test(comment?.body ?? '')));
+      && RELEASE_FINDING.test(comment?.body ?? '')
+      && releaseFindingStillBlocks({ thread, comment })));
   const reviewBodyFindings = reviews.filter((review) => RELEASE_FINDING.test(review?.body ?? ''));
   const blockingReviews = reviews.filter((review) => review?.state === 'CHANGES_REQUESTED');
   const issueCommentFindings = (pullRequest?.comments?.nodes ?? []).filter((comment) =>
@@ -146,10 +229,10 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     // A thread reopened after this moment makes this receipt stale, which is how the reopen gap is
     // closed without a webhook.
     generatedAt: new Date().toISOString(),
-    reviewedSha: latest?.commit?.oid ?? (cleanResult ? expectedHeadSha : undefined),
+    reviewedSha: latest?.commit?.oid ?? (completion ? head : undefined),
     reviewStatus: latest && blockingReviews.length === 0 ? 'completed'
       : latest ? 'changes_requested'
-        : cleanResult ? 'completed'
+        : completion ? 'completed'
           : 'missing',
     findingCount,
     changedFiles: (pullRequest?.files?.nodes ?? []).map(({ path }) => path),
@@ -168,9 +251,9 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
      */
     repository: pullRequest?.baseRepository?.nameWithOwner ?? null,
     baseSha: pullRequest?.baseRefOid?.toLowerCase?.() ?? null,
-    reviewSubmittedAt: latest?.submittedAt ?? cleanResult?.createdAt ?? null,
-    /** Which surface established the review: a review object, or Codex's clean-result comment. */
-    reviewEvidence: latest ? 'review_object' : cleanResult ? 'clean_result_comment' : null,
+    reviewSubmittedAt: latest?.submittedAt ?? completion?.createdAt ?? null,
+    /** Which surface established exact-head completion: a review object, or Codex's summary system metadata. */
+    reviewEvidence: latest ? 'review_object' : completion ? 'codex_summary_metadata' : null,
     /** Open P2 findings at this head. Reported for the ledger; deliberately not blocking. */
     advisoryFindingCount: advisoryCount,
   };
@@ -367,7 +450,7 @@ function normaliseRef(ref) {
  * refused every legitimately clean PR at merge. Two copies of an evidence query can disagree about what
  * the evidence is; one exported copy cannot.
  */
-export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName baseRefOid baseRepository{nameWithOwner} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
+export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
 
 /**
  * The conversation surface is load-bearing and long-lived PRs routinely exceed one GraphQL page.
@@ -425,7 +508,34 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
         || commentIdentity(a).localeCompare(commentIdentity(b))),
     pageInfo,
   };
+  // #1438 PM RETURN `5639978861` — the branch moves the Ready-trigger binding is checked against.
+  pullRequest.headRefHistory = await readHeadRefHistory({ pullRequest, token });
   return pullRequest;
+}
+
+/** Activity-log entries read for one branch. A full page may hide more, so it reports the history incomplete. */
+export const HEAD_REF_HISTORY_PAGE_SIZE = 100;
+
+/**
+ * The PR branch's moves — full SHAs and times — from GitHub's repository activity log, which keeps them after the
+ * branch is deleted on merge (the push lane reads exactly that case). A deletion is not a move. Unreadable is
+ * `null`, and a full page is `complete: false`; the Ready-trigger binding holds on either.
+ */
+async function readHeadRefHistory({ pullRequest, token }) {
+  const repository = pullRequest?.headRepository?.nameWithOwner;
+  const branch = pullRequest?.headRefName;
+  if (!repository || !branch) return null;
+  const activity = await optionalGithubRequest(
+    `/repos/${repository}/activity?ref=${encodeURIComponent(`refs/heads/${branch}`)}&per_page=${HEAD_REF_HISTORY_PAGE_SIZE}`,
+    token,
+  );
+  if (activity === UNREADABLE || !Array.isArray(activity)) return null;
+  return {
+    complete: activity.length < HEAD_REF_HISTORY_PAGE_SIZE,
+    moves: activity
+      .filter((entry) => entry?.activity_type !== 'branch_deletion')
+      .map((entry) => ({ after: String(entry?.after ?? '').toLowerCase(), timestamp: entry?.timestamp ?? null })),
+  };
 }
 
 /**

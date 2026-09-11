@@ -1,12 +1,21 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { FULL_LANE_PATTERNS } from './ci-change-scope.mjs';
 
 const FULL_SHA = /^[0-9a-f]{40}$/;
 
 /**
  * A scope-only finding document is not implementation. Keep this predicate deliberately narrow:
  * release-qualification code must change an executable source, workflow, or repository configuration.
+ *
+ * #1430 fix-forward, Codex P1 `3991325303` — EXECUTABLE CONTROL FILES ARE IMPLEMENTATION.
+ *
+ * The whitelist named four root files and `.github/workflows/`, so a PR changing only
+ * `.github/actions/setup-environment/action.yml` or `frontend/vite.config.mjs` could never qualify, even
+ * with a clean exact-head review. Those are the paths the CI lane classifier already treats as full-lane
+ * control changes, so the two predicates now share ONE list rather than disagreeing about what controls
+ * the build. Prose and tests are still excluded first, whatever directory they sit in.
  */
 export function isSubstantiveImplementationFile(file) {
   if (typeof file !== 'string' || file.trim() === '') return false;
@@ -14,11 +23,9 @@ export function isSubstantiveImplementationFile(file) {
   if (path.startsWith('docs/findings/')) return false;
   if (/\.(md|txt)$/i.test(path)) return false;
   if (/(^|\/)(__tests__|tests?)\//.test(path) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(path)) return false;
-  return path.startsWith('.github/workflows/')
-    || path.startsWith('scripts/')
-    || path.startsWith('frontend/src/')
+  return path.startsWith('frontend/src/')
     || path.startsWith('backend/')
-    || ['package.json', 'pnpm-lock.yaml', 'vite.config.mjs', 'vercel.json'].includes(path);
+    || FULL_LANE_PATTERNS.some((pattern) => pattern.test(path));
 }
 
 /**
