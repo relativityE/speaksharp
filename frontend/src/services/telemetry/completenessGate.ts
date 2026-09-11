@@ -182,6 +182,10 @@ export interface QualificationStage {
 export interface DecodedTelemetryRow {
     event: string;
     properties?: Record<string, unknown> | null;
+    /** The row's AMBIENT identity, as the envelope stamped it at push. Absent means unknown, never a wildcard. */
+    journeyId?: string | null;
+    bootId?: string | null;
+    timestamp?: string | number | null;
 }
 
 
@@ -257,6 +261,71 @@ const modelIdentityIsCoherent = (rows: readonly DecodedTelemetryRow[]): string |
     return null;
 };
 
+/**
+ * #1421 P1 `3984043475` — A SAVED TAKE IS MODEL-SPECIFIC EVIDENCE ONLY WITH ONE VERIFIED RECEIPT NAMING IT.
+ *
+ * Client equality of the configured, acquired and running candidates says nothing about what the server
+ * persisted: attestation can fail or stay pending while all three agree. The terminal
+ * `model_attribution_receipt` carries the server verdict and, in `subject_*`, the take it settled.
+ *
+ * Each saved take (the ambient boot, journey and attempt on its `session_saved` row) needs exactly one
+ * receipt whose subject names that take, emitted by the same boot, with verdict `verified`. The match is
+ * on the SUBJECT, never the receipt's ambient attempt, because a Retry Save runs under whatever take is
+ * current. A receipt from another boot never qualifies, which keeps a reload-recovered take out of the
+ * model comparison. Missing, unverified, conflicting, duplicate and unidentifiable all HOLD.
+ */
+const ATTRIBUTION_RECEIPT = 'model_attribution_receipt';
+const nonBlank = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+/**
+ * The attempt ordinal by value. The readback may return a numeric property as a string, so a canonical
+ * decimal string is the same ordinal. Anything else is not an ordinal and cannot name a take.
+ */
+const ordinal = (v: unknown): number | null => {
+    if (typeof v === 'number') return Number.isInteger(v) && v > 0 ? v : null;
+    if (typeof v === 'string' && /^[1-9]\d{0,8}$/.test(v)) return Number(v);
+    return null;
+};
+
+export const savedTakesHaveOneVerifiedReceipt = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const takes: { bootId: string; journeyId: string; attemptId: string; attemptSeq: number }[] = [];
+    for (const row of rows) {
+        if (row?.event !== 'session_saved') continue;
+        const p = row.properties ?? {};
+        const attemptId = p.attempt_id;
+        const attemptSeq = ordinal(p.attempt_seq);
+        if (!nonBlank(row.bootId) || !nonBlank(row.journeyId) || !nonBlank(attemptId) || attemptSeq === null) {
+            return 'a saved take carries no complete boot, journey and attempt identity, so no attribution receipt can be bound to it';
+        }
+        takes.push({ bootId: row.bootId, journeyId: row.journeyId, attemptId, attemptSeq });
+    }
+    const receipts = rows.filter((r) => r?.event === ATTRIBUTION_RECEIPT);
+    for (const take of takes) {
+        const naming = receipts.filter((r) => {
+            const p = r.properties ?? {};
+            return p.subject_boot_id === take.bootId
+                && p.subject_journey_id === take.journeyId
+                && p.subject_attempt_id === take.attemptId
+                && ordinal(p.subject_attempt_seq) === take.attemptSeq;
+        });
+        if (naming.length === 0) {
+            return 'a saved take has no terminal attribution receipt naming it, so the model that produced it is not server-verified';
+        }
+        if (naming.some((r) => r.bootId !== take.bootId)) {
+            return 'an attribution receipt for a saved take was emitted by a different boot, and a reload-recovered take never qualifies as model-specific evidence';
+        }
+        if (naming.some((r) => r.properties?.attribution_status !== 'verified')) {
+            return 'a saved take has an attribution receipt that is not verified';
+        }
+        if (naming.length > 1) return 'a saved take has more than one attribution receipt, so its verdict is not unique';
+    }
+    return null;
+};
+
+const ATTRIBUTION_BINDING = {
+    name: 'saved_take_has_one_verified_attribution_receipt',
+    check: savedTakesHaveOneVerifiedReceipt,
+} as const;
+
 export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze([
     {
         stage: 'share_feedback',
@@ -298,6 +367,7 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
         requiredFamilies: [
             'session_saved', 'transcript_authority', 'filler_measurement',
             'retention_observation', 'practice_loop', 'stage_latency',
+            'model_attribution_receipt',
         ],
         invariants: [{
             // A saved session whose review has no transcript authority is the "saved count with blank
@@ -306,13 +376,14 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
             check: (rows) => (has(rows, 'session_saved') && !has(rows, 'transcript_authority')
                 ? 'a saved session produced no transcript authority for its review'
                 : null),
-        }],
+        }, ATTRIBUTION_BINDING],
     },
     {
         stage: 'session_after_focus_points',
         requiredFamilies: [
             'session_saved', 'transcript_authority', 'coverage_evaluation', 'coverage_point',
             'filler_measurement', 'retention_observation', 'practice_loop', 'stage_latency',
+            'model_attribution_receipt',
         ],
         invariants: [{
             // A coverage verdict with no per-position rows is a headline with nothing behind it.
@@ -320,7 +391,7 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
             check: (rows) => (has(rows, 'coverage_evaluation') && !has(rows, 'coverage_point')
                 ? 'a coverage evaluation published no per-point verdicts'
                 : null),
-        }],
+        }, ATTRIBUTION_BINDING],
     },
 ]);
 

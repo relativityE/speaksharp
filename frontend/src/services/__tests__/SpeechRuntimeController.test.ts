@@ -866,6 +866,14 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             expect(receipts()).toEqual([{ ...SUBJECT, attribution_status: 'unverified', receipt_path: 'first_try' }]);
         });
 
+        it('the receipt is delivered with the save it attributes and never borrows the tab\'s CURRENT model', async () => {
+            attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
+            await driveStopWithService(mkService('private', META), 'sess-subject-envelope', 'private');
+            const call = push.mock.calls.find((c) => c[0] === 'model_attribution_receipt');
+            expect(call?.[2], 'priority').toBe('HIGH');
+            expect(call?.[3], 'modelAttributionVerified: the binding is the subject join, not the envelope').toBe(false);
+        });
+
         it('a TRANSIENT verdict emits nothing and carries the subject into the retry slot', async () => {
             attestInvoke.mockResolvedValueOnce({ data: null, error: { message: 'producer down' } });
             await driveStopWithService(mkService('private', META), 'sess-subject-transient', 'private');

@@ -1616,11 +1616,14 @@ export class SpeechRuntimeController {
         const take = sanitizeRecordingSubject(subject);
         if (!take) return;
         try {
+            // HIGH, like the `session_saved` it attributes. `modelAttributionVerified = false`: a Retry Save can
+            // settle while the tab runs another model, so the envelope must not stamp the CURRENT model onto
+            // this take's verdict. The receipt's model binding is its subject join and nothing else.
             analyticsBuffer.push('model_attribution_receipt', {
                 ...take,
                 attribution_status: attributed ? 'verified' : 'unverified',
                 receipt_path: receiptPath,
-            });
+            }, 'HIGH', false);
         } catch {
             // Telemetry is diagnostic; the verdict above is already durable.
         }

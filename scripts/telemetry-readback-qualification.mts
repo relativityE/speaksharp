@@ -41,6 +41,7 @@ import {
     bootScopedReceiptFamilies,
     buildReadbackQuery,
     resolveBootAuthority,
+    stageEvidenceRows,
 } from '../frontend/src/services/telemetry/bootScopedReceipts';
 
 /**
@@ -270,6 +271,13 @@ async function main(): Promise<void> {
                 candidate_id: cells[8] ?? null,
                 engine: cells[9] ?? null,
                 runtime_version: cells[10] ?? null,
+                attempt_id: cells[11] ?? null,
+                attempt_seq: cells[12] ?? null,
+                subject_boot_id: cells[13] ?? null,
+                subject_journey_id: cells[14] ?? null,
+                subject_attempt_id: cells[15] ?? null,
+                subject_attempt_seq: cells[16] ?? null,
+                attribution_status: cells[17] ?? null,
             },
         };
     });
@@ -309,9 +317,9 @@ async function main(): Promise<void> {
             continue;
         }
         // Stage evidence is scoped to THIS journey plus this boot's receipts — the same rows the
-        // family check uses, never the whole readback.
-        const scoped = readback.filter((r) => r.journeyId === journeyId
-            || (PRE_JOURNEY_EVENT_FAMILIES as readonly string[]).includes(r.event));
+        // family check uses, never the whole readback — plus any attribution receipt whose SUBJECT is this
+        // journey, wherever it was emitted (#1421 P1 `3984043475`).
+        const scoped = stageEvidenceRows(readback, journeyId, PRE_JOURNEY_EVENT_FAMILIES);
         stageReasons.push(...evaluateQualificationStage(stage, scoped));
     }
 

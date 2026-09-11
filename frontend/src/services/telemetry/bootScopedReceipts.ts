@@ -139,6 +139,9 @@ export function buildReadbackQuery(params: {
      * selecting the whole property bag, so the readback cannot carry transcript, feedback prose,
      * audio, a URL, a token or a free-form error even by accident — each field here is a closed-set
      * value or a governed opaque identifier.
+     *
+     * #1421 P1 `3984043475`: the ambient attempt and the attribution receipt's subject and verdict are
+     * appended, never inserted, so every existing column keeps its position in the decoder.
      */
     return `
         SELECT event, timestamp, properties.journey_id AS journey_id, properties.boot_id AS boot_id,
@@ -146,7 +149,11 @@ export function buildReadbackQuery(params: {
                properties.acquired_candidate_id AS acquired_candidate_id,
                properties.expected_candidate_id AS expected_candidate_id,
                properties.candidate_id AS candidate_id,
-               properties.engine AS engine, properties.runtime_version AS runtime_version
+               properties.engine AS engine, properties.runtime_version AS runtime_version,
+               properties.attempt_id AS attempt_id, properties.attempt_seq AS attempt_seq,
+               properties.subject_boot_id AS subject_boot_id, properties.subject_journey_id AS subject_journey_id,
+               properties.subject_attempt_id AS subject_attempt_id, properties.subject_attempt_seq AS subject_attempt_seq,
+               properties.attribution_status AS attribution_status
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}
@@ -154,4 +161,30 @@ export function buildReadbackQuery(params: {
           AND distinct_id = ${quote(qualifyingIdentity)}
           AND event IN (${governedList})
     `;
+}
+
+/** A decoded readback row as the stage evaluation sees it. */
+export interface StageEvidenceRow extends TimestampedEvent {
+    properties?: Record<string, unknown> | null;
+}
+
+/**
+ * #1421 P1 `3984043475` — THE ROWS A STAGE IS JUDGED ON.
+ *
+ * This journey's own rows and the pre-journey receipts, as before, plus any attribution receipt whose
+ * SUBJECT is this journey. A Retry Save emits its receipt under whatever journey is ambient when the
+ * server verdict settles, so a scope of "rows carrying this journey id" never sees it. Locating it by
+ * subject journey only brings it into view: whether it counts is decided by
+ * `savedTakesHaveOneVerifiedReceipt`, which requires an exact subject match and the same boot. A receipt
+ * naming another journey stays out, so it can never qualify the ambient journey it was emitted under.
+ */
+export function stageEvidenceRows<T extends StageEvidenceRow>(
+    events: readonly T[],
+    journeyId: string,
+    preJourneyFamilies: readonly string[],
+): T[] {
+    const preJourney = new Set(preJourneyFamilies);
+    return events.filter((row) => row?.journeyId === journeyId
+        || preJourney.has(row?.event)
+        || (row?.event === 'model_attribution_receipt' && row?.properties?.subject_journey_id === journeyId));
 }

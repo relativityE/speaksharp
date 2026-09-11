@@ -40,6 +40,17 @@ const completeRows = (stage: QualificationStage, model: string = MODELS[0]): Dec
     if (family === 'private_model_acquisition_start') {
         return row(family, { expected_candidate_id: MODEL, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' });
     }
+    // #1421 P1 `3984043475`: a saved take and the one verified receipt that names it, from the same boot.
+    if (family === 'session_saved') {
+        return { ...row(family, { attempt_id: 'attempt-1', attempt_seq: 1, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' }),
+            journeyId: 'journey-1', bootId: 'boot-1' };
+    }
+    if (family === 'model_attribution_receipt') {
+        return { ...row(family, {
+            subject_boot_id: 'boot-1', subject_journey_id: 'journey-1', subject_attempt_id: 'attempt-1',
+            subject_attempt_seq: 1, attribution_status: 'verified',
+        }), journeyId: 'journey-1', bootId: 'boot-1' };
+    }
     return row(family, { candidate_id: MODEL, engine: 'private', runtime_version: 'r1' });
 }));
 
