@@ -179,15 +179,69 @@ function runCli({
 }
 
 describe('#1430 P1 — privileged execution comes only from the authorized base', () => {
-  it('CASUALTY: the documented path pins a clean worktree and never invokes candidate package code', () => {
+  function committedTrustedBase() {
+    const runGit = (args) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+    expect(runGit(['init', '-q']).status).toBe(0);
+    writeFileSync(join(dir, 'tracked'), 'trusted base\n');
+    expect(runGit(['add', 'tracked']).status).toBe(0);
+    expect(runGit([
+      '-c', 'user.name=SpeakSharp Test', '-c', 'user.email=test@example.invalid',
+      'commit', '-q', '-m', 'trusted base',
+    ]).status).toBe(0);
+    const head = runGit(['rev-parse', 'HEAD']);
+    expect(head.status).toBe(0);
+    return head.stdout.trim();
+  }
+
+  function runDocumentedTrustedBaseChecks(authorizedBaseSha) {
+    const workflow = readFileSync(join(REPO, '.agent', 'workflows', 'pr-merge-workflow.md'), 'utf8');
+    const mergeBlock = workflow.match(/AUTHORIZED_BASE_SHA=<exact-base-sha>([\s\S]*?)git worktree remove/);
+    expect(mergeBlock, 'the documented trusted-base block exists').not.toBeNull();
+    const checks = mergeBlock[1].split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('test '));
+    expect(checks, 'both documented identity checks are executable').toHaveLength(2);
+    const sentinel = join(dir, 'privileged-line-reached');
+    const run = spawnSync('bash', ['-c', `${checks.join('\n')}\nprintf reached > "$TRUSTED_CHECK_SENTINEL"`], {
+      env: {
+        ...process.env,
+        AUTHORIZED_BASE_SHA: authorizedBaseSha,
+        TRUSTED_MERGE_ROOT: dir,
+        TRUSTED_CHECK_SENTINEL: sentinel,
+      },
+      encoding: 'utf8',
+    });
+    return { run, privilegedLineReached: existsSync(sentinel) };
+  }
+
+  it.each([
+    ['wrong HEAD', ({ head }) => `${head.slice(0, -1)}${head.endsWith('0') ? '1' : '0'}`, () => {}],
+    ['dirty worktree', ({ head }) => head, () => { writeFileSync(join(dir, 'untracked'), 'dirty\n'); }],
+  ])('CASUALTY: %s stops before the privileged line', (_label, authorizedSha, arrange) => {
+    const head = committedTrustedBase();
+    arrange();
+    const { run, privilegedLineReached } = runDocumentedTrustedBaseChecks(authorizedSha({ head }));
+
+    expect(run.status, 'the documented check must fail closed').not.toBe(0);
+    expect(privilegedLineReached, 'privileged execution was not reached').toBe(false);
+    expect(run.stderr).toContain('HOLD: trusted base');
+  });
+
+  it('CONTROL: the exact clean trusted base reaches the privileged line', () => {
+    const head = committedTrustedBase();
+    const { run, privilegedLineReached } = runDocumentedTrustedBaseChecks(head);
+
+    expect(run.status).toBe(0);
+    expect(privilegedLineReached).toBe(true);
+  });
+
+  it('the documented path never invokes candidate package code', () => {
     const workflow = readFileSync(join(REPO, '.agent', 'workflows', 'pr-merge-workflow.md'), 'utf8');
     const packageJson = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8'));
 
     expect(packageJson.scripts?.['merge:guarded']).toBeUndefined();
     expect(workflow).not.toContain('pnpm merge:guarded');
     expect(workflow).toContain('git worktree add --detach "$TRUSTED_MERGE_ROOT" "$AUTHORIZED_BASE_SHA"');
-    expect(workflow).toContain('test "$(git -C "$TRUSTED_MERGE_ROOT" rev-parse HEAD)" = "$AUTHORIZED_BASE_SHA"');
-    expect(workflow).toContain('test -z "$(git -C "$TRUSTED_MERGE_ROOT" status --porcelain)"');
     expect(workflow).toContain('cd "$TRUSTED_MERGE_ROOT"');
     expect(workflow).toContain('"$NODE_BIN" scripts/pre-merge-gate.mjs');
     expect(workflow.indexOf('cd "$TRUSTED_MERGE_ROOT"'))

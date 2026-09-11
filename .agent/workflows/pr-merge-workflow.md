@@ -50,8 +50,8 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    GH_BIN=$(command -v gh)
    git fetch origin "$AUTHORIZED_BASE_SHA"
    git worktree add --detach "$TRUSTED_MERGE_ROOT" "$AUTHORIZED_BASE_SHA"
-   test "$(git -C "$TRUSTED_MERGE_ROOT" rev-parse HEAD)" = "$AUTHORIZED_BASE_SHA"
-   test -z "$(git -C "$TRUSTED_MERGE_ROOT" status --porcelain)"
+   test "$(git -C "$TRUSTED_MERGE_ROOT" rev-parse HEAD)" = "$AUTHORIZED_BASE_SHA" || { echo "HOLD: trusted base identity not established" >&2; exit 1; }
+   test -z "$(git -C "$TRUSTED_MERGE_ROOT" status --porcelain)" || { echo "HOLD: trusted base worktree is dirty" >&2; exit 1; }
    (
      cd "$TRUSTED_MERGE_ROOT"
      env -u NODE_OPTIONS -u NODE_PATH \
