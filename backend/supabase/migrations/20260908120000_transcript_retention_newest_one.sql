@@ -42,8 +42,10 @@
 --
 --   REQUIRED BEFORE APPLICATION:
 --     1. Run the dry-run below; have the affected-row total reviewed.
---     2. Confirm the preflight reports `activation_status=installed_inert` and a ready verdict.
---     3. Confirm `supabase migration list` records this migration as applied — applying SQL directly writes
+--     2. Resolve every `legacy_classification_pending` row through the service-role-only classification
+--        RPC using an external audit reference. The database deliberately does not infer row provenance.
+--     3. Confirm the preflight reports `activation_status=installed_inert` and a ready verdict.
+--     4. Confirm `supabase migration list` records this migration as applied — applying SQL directly writes
 --        no ledger row.
 --
 --   DRY RUN (read-only):
@@ -82,6 +84,69 @@ ON CONFLICT (singleton) DO NOTHING;
 ALTER TABLE public.transcript_retention_activation ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.transcript_retention_activation FROM PUBLIC, anon, authenticated, service_role;
 
+-- Rows written before `status` existed and active rows written after it can have the same visible
+-- values. Neither `created_at` (client writable) nor the timestamp encoded in a migration filename is
+-- authority for which writer created a row. Keep that ambiguity explicit and require a service-role
+-- decision backed by an external audit reference. Installation and activation both fail closed while
+-- any transcript-bearing ambiguous row has no decision.
+CREATE TABLE IF NOT EXISTS public.transcript_retention_legacy_classifications (
+  session_id         uuid PRIMARY KEY REFERENCES public.sessions(id) ON DELETE CASCADE,
+  classification     text NOT NULL CHECK (classification IN ('completed', 'active')),
+  evidence_reference text NOT NULL CHECK (evidence_reference ~ '[^[:space:]]'),
+  classified_at      timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.transcript_retention_legacy_classifications ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.transcript_retention_legacy_classifications FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.transcript_retention_legacy_classifications TO service_role;
+
+CREATE OR REPLACE FUNCTION public.classify_transcript_retention_legacy_session(
+  p_session_id uuid,
+  p_classification text,
+  p_evidence_reference text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_session public.sessions%ROWTYPE;
+BEGIN
+  IF p_classification IS NULL OR p_classification NOT IN ('completed', 'active') THEN
+    RAISE EXCEPTION 'classify_transcript_retention_legacy_session: invalid classification'
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_evidence_reference IS NULL OR p_evidence_reference !~ '[^[:space:]]' THEN
+    RAISE EXCEPTION 'classify_transcript_retention_legacy_session: evidence reference required'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO v_session FROM public.sessions WHERE id = p_session_id FOR UPDATE;
+  IF NOT FOUND OR v_session.status IS DISTINCT FROM 'active'
+     OR v_session.idempotency_key IS NOT NULL OR v_session.expires_at IS NOT NULL
+     OR COALESCE(v_session.duration, 0) <= 0
+     OR v_session.transcript IS NULL OR v_session.transcript !~ '[^[:space:]]' THEN
+    RAISE EXCEPTION 'classify_transcript_retention_legacy_session: row is not an ambiguous active transcript'
+      USING ERRCODE = '23514';
+  END IF;
+
+  INSERT INTO public.transcript_retention_legacy_classifications
+    (session_id, classification, evidence_reference)
+  VALUES (p_session_id, p_classification, p_evidence_reference);
+
+  IF p_classification = 'completed' THEN
+    UPDATE public.sessions SET status = 'completed' WHERE id = p_session_id;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'session_id', p_session_id,
+    'classification', p_classification,
+    'evidence_reference', p_evidence_reference
+  );
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.transcript_retention_is_active()
 RETURNS boolean
 LANGUAGE sql
@@ -102,7 +167,26 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_activated_at timestamptz;
+  v_unclassified bigint;
 BEGIN
+  SELECT count(*) INTO v_unclassified
+  FROM public.sessions s
+  WHERE s.status = 'active'
+    AND s.idempotency_key IS NULL
+    AND s.expires_at IS NULL
+    AND COALESCE(s.duration, 0) > 0
+    AND s.transcript IS NOT NULL
+    AND s.transcript ~ '[^[:space:]]'
+    AND NOT EXISTS (
+      SELECT 1 FROM public.transcript_retention_legacy_classifications c
+      WHERE c.session_id = s.id
+    );
+
+  IF v_unclassified > 0 THEN
+    RAISE EXCEPTION 'activate_transcript_retention_newest_one: % ambiguous legacy session(s) require explicit classification',
+      v_unclassified USING ERRCODE = '55000';
+  END IF;
+
   UPDATE public.transcript_retention_activation
   SET activated_at = COALESCE(activated_at, now())
   WHERE singleton AND policy_version = public.transcript_retention_policy_version()
@@ -136,26 +220,10 @@ ALTER TABLE public.transcript_retention_tombstones ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.transcript_retention_tombstones FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.transcript_retention_tombstones TO service_role;
 
--- The status column arrived in 20260309000000 with DEFAULT 'active'. PostgreSQL therefore labelled
--- every session saved by the earlier transcript-writing RPC as active, even though those rows are
--- immutable completed saves. The historical writer required only positive duration and non-empty
--- transcript; total_words was accepted as zero or NULL, so it is not completion authority. The two
--- later lifecycle columns are also insufficient by themselves because entitled post-status direct
--- inserts may omit both. Constrain the repair to rows created before the status-column migration's
--- version boundary: a row before that boundary cannot have been created under the post-status active
--- lifecycle, while a later lookalike is deliberately left active. This conservative boundary may
--- leave an ambiguous clock-skewed row unclassified, but it cannot manufacture a completed save.
--- Classify that proven historical shape before completed-only ranking is installed. This changes only
--- metadata; installation remains transcript-inert and activation remains separately authorised.
-UPDATE public.sessions
-SET status = 'completed'
-WHERE status = 'active'
-  AND created_at < TIMESTAMPTZ '2026-03-09 00:00:00+00'
-  AND idempotency_key IS NULL
-  AND expires_at IS NULL
-  AND duration > 0
-  AND transcript IS NOT NULL
-  AND transcript ~ '[^[:space:]]';
+-- The status column arrived with DEFAULT 'active', so earlier completed saves and later active direct
+-- inserts can be byte-for-byte indistinguishable in `sessions`. No automatic UPDATE is safe. The
+-- service-role classification function above records an auditable external decision, updates only
+-- explicitly completed rows, and makes activation refuse every unresolved ambiguous row.
 
 -- 2) The shared predicate: which sessions must have their transcript expired for one user.
 --    Rank 1 (newest by created_at DESC, id DESC) is never returned.
@@ -488,6 +556,7 @@ DECLARE
   v_sim     jsonb;
   v_bytes   jsonb;
   v_blocked boolean := false;
+  v_unclassified bigint := 0;
 BEGIN
   -- Bounded, fail-closed resource guards (also armed by the caller/workflow; harmless to re-assert).
   PERFORM set_config('statement_timeout', '30000', true);
@@ -502,6 +571,8 @@ BEGIN
      OR to_regprocedure('public.expire_transcripts_newest_one(uuid, integer)') IS NULL
      OR to_regprocedure('public.converge_transcript_retention(uuid)') IS NULL
      OR to_regprocedure('public.transcript_retention_invariant_violations(uuid)') IS NULL
+     OR to_regprocedure('public.classify_transcript_retention_legacy_session(uuid,text,text)') IS NULL
+     OR to_regclass('public.transcript_retention_legacy_classifications') IS NULL
      OR NOT EXISTS (SELECT 1 FROM information_schema.columns
                     WHERE table_schema='public' AND table_name='sessions' AND column_name='transcript_state') THEN
     RAISE EXCEPTION 'transcript_retention_preflight: required R1/R2 schema objects missing (schema drift)'
@@ -519,6 +590,23 @@ BEGIN
     CASE WHEN p_scope='single_user' THEN p_user_id ELSE NULL END);
   IF v_viol.expired_with_text > 0 OR v_viol.available_without_text > 0
      OR v_viol.not_captured_with_text > 0 OR v_viol.unknown_state > 0 THEN
+    v_blocked := true;
+  END IF;
+
+  SELECT count(*) INTO v_unclassified
+  FROM public.sessions s
+  WHERE (p_scope='all_users' OR s.user_id = p_user_id)
+    AND s.status = 'active'
+    AND s.idempotency_key IS NULL
+    AND s.expires_at IS NULL
+    AND COALESCE(s.duration, 0) > 0
+    AND s.transcript IS NOT NULL
+    AND s.transcript ~ '[^[:space:]]'
+    AND NOT EXISTS (
+      SELECT 1 FROM public.transcript_retention_legacy_classifications c
+      WHERE c.session_id = s.id
+    );
+  IF v_unclassified > 0 THEN
     v_blocked := true;
   END IF;
 
@@ -568,7 +656,8 @@ BEGIN
       'state_not_captured', state_not_captured, 'transcript_bearing', transcript_bearing,
       'users_total', users_total, 'users_with_candidates', users_with_candidates,
       'rank_gt1_eligible', rank_gt1_eligible, 'pending_evidence_backlog', pending_evidence_backlog,
-      'users_pending_backlog', users_pending_backlog),
+      'users_pending_backlog', users_pending_backlog,
+      'legacy_classification_pending', v_unclassified),
     jsonb_build_object(
       'simulated_expire_count', rank_gt1_eligible,
       'simulated_max_retained_per_user', simulated_max_retained_per_user,
@@ -622,6 +711,8 @@ $$;
 REVOKE ALL ON FUNCTION public.transcript_retention_policy_version()          FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.transcript_retention_is_active()               FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.activate_transcript_retention_newest_one()     FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.classify_transcript_retention_legacy_session(uuid,text,text)
+                                                                            FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.transcript_sessions_to_expire(uuid)            FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.expire_transcripts_newest_one(uuid, integer)   FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.converge_transcript_retention(uuid)            FROM PUBLIC;
@@ -629,6 +720,8 @@ REVOKE ALL ON FUNCTION public.converge_transcript_retention(uuid)            FRO
 GRANT EXECUTE ON FUNCTION public.transcript_retention_policy_version()        TO service_role;
 GRANT EXECUTE ON FUNCTION public.transcript_retention_is_active()             TO service_role;
 GRANT EXECUTE ON FUNCTION public.activate_transcript_retention_newest_one()   TO service_role;
+GRANT EXECUTE ON FUNCTION public.classify_transcript_retention_legacy_session(uuid,text,text)
+                                                                            TO service_role;
 GRANT EXECUTE ON FUNCTION public.transcript_sessions_to_expire(uuid)          TO service_role;
 GRANT EXECUTE ON FUNCTION public.expire_transcripts_newest_one(uuid, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.converge_transcript_retention(uuid)          TO service_role;

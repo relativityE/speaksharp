@@ -269,9 +269,9 @@ describe('newest-ONE transcript retention, executed against the real migrations'
             `INSERT INTO public.sessions
                (user_id, created_at, transcript, total_words, duration, filler_counts)
              VALUES
-               ($1, '2026-02-18T10:00:00Z', 'a pre-status save with a measured count', 90, 60, '{}'::jsonb),
-               ($1, '2026-02-19T10:00:00Z', 'a pre-status save with a zero count', 0, 60, '{}'::jsonb),
-               ($1, '2026-02-20T10:00:00Z', 'a pre-status save with no count', NULL, 60, '{}'::jsonb)
+               ($1, '2026-04-18T10:00:00Z', 'a pre-status save with a measured count', 90, 60, '{}'::jsonb),
+               ($1, '2026-04-19T10:00:00Z', 'a pre-status save with a zero count', 0, 60, '{}'::jsonb),
+               ($1, '2026-04-20T10:00:00Z', 'a pre-status save with no count', NULL, 60, '{}'::jsonb)
              RETURNING id, total_words`,
             [U],
         )).rows;
@@ -302,12 +302,12 @@ describe('newest-ONE transcript retention, executed against the real migrations'
         )).rows[0].id;
 
         // Discriminating control: a post-status direct insert can look exactly like a historical row
-        // (both lifecycle markers omitted). Its creation boundary proves it is not part of the legacy
-        // cohort, so the classifier must leave it active.
+        // (both lifecycle markers omitted), and its caller-writable created_at can be backdated. Only
+        // the explicit service-role classification may distinguish it from the legacy cohort.
         const postStatusLookalike = (await legacyDb.query<{ id: string }>(
             `INSERT INTO public.sessions
                (user_id, created_at, transcript, total_words, duration, filler_counts, status)
-             VALUES ($1, '2026-08-02T11:00:00Z', 'a post-status active lookalike', 30, 20, '{}'::jsonb, 'active')
+             VALUES ($1, '2026-02-02T11:00:00Z', 'a post-status active lookalike', 30, 20, '{}'::jsonb, 'active')
              RETURNING id`,
             [U],
         )).rows[0].id;
@@ -319,17 +319,41 @@ describe('newest-ONE transcript retention, executed against the real migrations'
         await legacyDb.exec(PREFLIGHT);
         await legacyDb.exec(COMPLETE_V2);
 
-        // Apply the real correction after the legacy row exists. Its historical classification must
-        // happen before the completed-only functions are used.
+        // Apply the real correction after both indistinguishable shapes exist. It must not infer
+        // provenance from either created_at value.
         await legacyDb.exec(NEWEST_ONE);
+        await expect(legacyDb.query('SELECT public.activate_transcript_retention_newest_one()'))
+            .rejects.toThrow(/4 ambiguous legacy session\(s\) require explicit classification/);
+
+        for (const legacyId of [legacyMeasured, legacyZero, legacyNull]) {
+            await legacyDb.query(
+                `SELECT public.classify_transcript_retention_legacy_session($1, 'completed', $2)`,
+                [legacyId, `audit://pre-status-writer/${legacyId}`],
+            );
+        }
+        await legacyDb.query(
+            `SELECT public.classify_transcript_retention_legacy_session($1, 'active', $2)`,
+            [postStatusLookalike, `audit://post-status-direct-insert/${postStatusLookalike}`],
+        );
+
         const classified = (await legacyDb.query<{ id: string; status: string }>(
             `SELECT id, status FROM public.sessions
              WHERE id = ANY($1) ORDER BY created_at ASC`,
             [[...legacyRows.map((row) => row.id), active, postStatusLookalike]],
         )).rows;
         expect(classified.map((row) => row.status)).toEqual([
-            'completed', 'completed', 'completed', 'active', 'active',
+            'active', 'completed', 'completed', 'completed', 'active',
         ]);
+
+        const decisions = (await legacyDb.query<{ session_id: string; classification: string }>(
+            `SELECT session_id, classification
+             FROM public.transcript_retention_legacy_classifications
+             ORDER BY session_id`,
+        )).rows;
+        expect(new Map(decisions.map((row) => [row.session_id, row.classification]))).toEqual(new Map([
+            [legacyMeasured, 'completed'], [legacyZero, 'completed'], [legacyNull, 'completed'],
+            [postStatusLookalike, 'active'],
+        ]));
 
         const current = await seedSession(
             legacyDb, U, '2026-08-03T10:00:00Z', 'the current completed save', 120, 'completed',
@@ -346,11 +370,11 @@ describe('newest-ONE transcript retention, executed against the real migrations'
         )).rows;
         expect(rows.map((row) => ({ id: row.id, hasText: row.transcript !== null, state: row.transcript_state })))
             .toEqual([
+                { id: postStatusLookalike, hasText: true, state: 'available' },
                 { id: legacyMeasured, hasText: false, state: 'expired' },
                 { id: legacyZero, hasText: false, state: 'expired' },
                 { id: legacyNull, hasText: false, state: 'expired' },
                 { id: active, hasText: true, state: 'available' },
-                { id: postStatusLookalike, hasText: true, state: 'available' },
                 { id: current, hasText: true, state: 'available' },
             ]);
     });
@@ -359,6 +383,9 @@ describe('newest-ONE transcript retention, executed against the real migrations'
         const privileges = (await db.query<{
             anon_read: boolean; authenticated_read: boolean; service_read: boolean;
             anon_activate: boolean; authenticated_activate: boolean; service_activate: boolean;
+            anon_classify: boolean; authenticated_classify: boolean; service_classify: boolean;
+            anon_classification_read: boolean; authenticated_classification_read: boolean;
+            service_classification_read: boolean;
         }>(`
           SELECT
             has_table_privilege('anon', 'public.transcript_retention_tombstones', 'SELECT') AS anon_read,
@@ -366,7 +393,13 @@ describe('newest-ONE transcript retention, executed against the real migrations'
             has_table_privilege('service_role', 'public.transcript_retention_tombstones', 'SELECT') AS service_read,
             has_function_privilege('anon', 'public.activate_transcript_retention_newest_one()', 'EXECUTE') AS anon_activate,
             has_function_privilege('authenticated', 'public.activate_transcript_retention_newest_one()', 'EXECUTE') AS authenticated_activate,
-            has_function_privilege('service_role', 'public.activate_transcript_retention_newest_one()', 'EXECUTE') AS service_activate
+            has_function_privilege('service_role', 'public.activate_transcript_retention_newest_one()', 'EXECUTE') AS service_activate,
+            has_function_privilege('anon', 'public.classify_transcript_retention_legacy_session(uuid,text,text)', 'EXECUTE') AS anon_classify,
+            has_function_privilege('authenticated', 'public.classify_transcript_retention_legacy_session(uuid,text,text)', 'EXECUTE') AS authenticated_classify,
+            has_function_privilege('service_role', 'public.classify_transcript_retention_legacy_session(uuid,text,text)', 'EXECUTE') AS service_classify,
+            has_table_privilege('anon', 'public.transcript_retention_legacy_classifications', 'SELECT') AS anon_classification_read,
+            has_table_privilege('authenticated', 'public.transcript_retention_legacy_classifications', 'SELECT') AS authenticated_classification_read,
+            has_table_privilege('service_role', 'public.transcript_retention_legacy_classifications', 'SELECT') AS service_classification_read
         `)).rows[0];
 
         expect(privileges).toEqual({
@@ -376,6 +409,12 @@ describe('newest-ONE transcript retention, executed against the real migrations'
             anon_activate: false,
             authenticated_activate: false,
             service_activate: true,
+            anon_classify: false,
+            authenticated_classify: false,
+            service_classify: true,
+            anon_classification_read: false,
+            authenticated_classification_read: false,
+            service_classification_read: true,
         });
     });
 
