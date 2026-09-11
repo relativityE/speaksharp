@@ -349,6 +349,96 @@ describe('#1415 — one click, one recording', () => {
         });
     });
 
+    describe('#1433 P1 `3979053079` — a start refused at the resumed gate releases the engine lock', () => {
+        it('releases the controller AND the published lock when the Progress gate closes during preparation', async () => {
+            // Start intent locks engine selection synchronously and publishes it. A cold start then waits
+            // for readiness; if the Progress gate shuts meanwhile, the resumed start is refused and the
+            // click is rejected. That refusal is the end of this take, so nothing may keep the selector
+            // and navigation locked behind it.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            // Read the PUBLISHED lock at the moment the caller learns of the refusal. A later, unrelated
+            // republish would otherwise hide a refusal that left the UI locked in the meantime.
+            let lockedAtRejection: boolean | null = null;
+            started.then(() => outcome.push('resolved'), (e: Error) => {
+                lockedAtRejection = useSessionStore.getState().engineSelectionLocked;
+                outcome.push(`rejected:${e.message}`);
+            });
+            await settle();
+            const priv = controller as unknown as { engineSelectionIntentLocked: boolean; capturedUserId: string | null };
+            expect(priv.engineSelectionIntentLocked, 'precondition: Start intent took the lock').toBe(true);
+            expect(useSessionStore.getState().engineSelectionLocked, 'precondition: the lock was published').toBe(true);
+
+            // Another tab queues Progress debt for THIS owner while the model is still preparing.
+            useSessionStore.setState({
+                progressGate: { sessionId: 's-prev', ownerId: priv.capturedUserId ?? null, state: 'queued' },
+            } as never);
+
+            engine.downloadEnabled = true;
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            await settle();
+
+            expect(outcome, 'the refusal must be the Progress gate, not some other path').toHaveLength(1);
+            expect(outcome[0]).toMatch(/^rejected:RECORDING_START_GATE_CLOSED:/);
+            expect(pendingRecordingIntent(), 'no take is pending after the refusal').toBeNull();
+            expect(priv.engineSelectionIntentLocked, 'controller lock released').toBe(false);
+            expect(useSessionStore.getState().engineSelectionLocked, 'published lock released').toBe(false);
+            expect(lockedAtRejection, 'published lock already released when the caller is told').toBe(false);
+        });
+
+        it('a refused resumed start publishes its own release, without relying on a later transition', async () => {
+            // Both refusals above happen inside `transition('READY')`, which republishes the lock again after
+            // the resumed start returns. That later publish hides a refusal that released only the controller
+            // flag. Resume exactly as `transition()` does, with no transition around it, and read the
+            // published lock the moment the refused start returns.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* the refusal is asserted through the published lock */ });
+            await settle();
+            expect(useSessionStore.getState().engineSelectionLocked, 'precondition: the lock was published').toBe(true);
+
+            const priv = controller as unknown as { capturedUserId: string | null };
+            useSessionStore.getState().setProgressGate({ sessionId: 's-prev', ownerId: priv.capturedUserId ?? null, state: 'queued' });
+            const resumed = intentApi.claimRecordingIntent();
+            expect(resumed, 'precondition: the click is waiting to resume').not.toBeNull();
+            void controller.startRecording(resumed!.policy ?? undefined, [...resumed!.userWords], true, resumed!.settlement);
+
+            expect(useSessionStore.getState().engineSelectionLocked, 'published in the same turn as the refusal').toBe(false);
+            await settle();
+        });
+
+        it('releases the lock when a live finalization fence refuses the resumed start', async () => {
+            // The same defect at the other refusal a resumed start can meet: the previous take is still
+            // finalizing when readiness arrives. The click is rejected, so its lock must go with it.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            let lockedAtRejection: boolean | null = null;
+            started.then(() => outcome.push('resolved'), (e: Error) => {
+                lockedAtRejection = useSessionStore.getState().engineSelectionLocked;
+                outcome.push(`rejected:${e.constructor.name}`);
+            });
+            await settle();
+            const priv = controller as unknown as { engineSelectionIntentLocked: boolean; finalizingOwner: unknown };
+            expect(useSessionStore.getState().engineSelectionLocked, 'precondition: the lock was published').toBe(true);
+
+            // A finalization that is genuinely in flight: an owner AND the latch.
+            priv.finalizingOwner = { owner: 'previous-take' };
+            useSessionStore.setState({ isTranscriptFinalizing: true } as never);
+
+            engine.downloadEnabled = true;
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            await settle();
+
+            expect(outcome, 'the refusal must be the finalization fence').toEqual(['rejected:StartRefusedFinalizationError']);
+            expect(lockedAtRejection, 'published lock already released when the caller is told').toBe(false);
+            expect(pendingRecordingIntent(), 'no take is pending after the refusal').toBeNull();
+            expect(priv.engineSelectionIntentLocked, 'controller lock released').toBe(false);
+            expect(useSessionStore.getState().engineSelectionLocked, 'published lock released').toBe(false);
+        });
+    });
+
     describe('#1415 P1 — engine and policy stay locked through preparation', () => {
         it('publishes the lock in the same turn as Start intent, before the queue reaches INITIATING', async () => {
             engine.downloadEnabled = false;

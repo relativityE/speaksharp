@@ -3320,6 +3320,19 @@ export class SpeechRuntimeController {
      * would linger and the selector stay locked after a successful retry/discard (and not appear after
      * a reload rehydration).
      */
+    /**
+     * #1433 P1 `3979053079` — A REFUSED RESUMED START RELEASES THE LOCK ITS CLICK TOOK.
+     *
+     * Start intent publishes the engine-selection lock synchronously, and the intent is claimed when
+     * preparation resumes. A resumed start that is then refused ends the take without another
+     * `transition()`, which is otherwise where the lock is recomputed, so the selector and navigation
+     * stayed locked behind a start that will never happen. Every refusal of a resumed start calls this.
+     */
+    private releaseRefusedStartLock(): void {
+        this.engineSelectionIntentLocked = pendingRecordingIntent() !== null;
+        this.publishLockState();
+    }
+
     private publishLockState(): void {
         useSessionStore.getState().setEngineSelectionLock(this.isEngineSelectionLocked(), this.pendingResolutionKind());
     }
@@ -3510,6 +3523,7 @@ export class SpeechRuntimeController {
             const refusal = new StartRefusedFinalizationError();
             if (resumedFromPreparation) {
                 carriedSettlement?.reject(refusal);
+                this.releaseRefusedStartLock();
                 return;
             }
             throw refusal;
@@ -3564,6 +3578,7 @@ export class SpeechRuntimeController {
             // Only a RESUMED start carries someone else's promise; a fresh click's own promise is
             // settled by its normal path below.
             carriedSettlement?.reject(new Error(`RECORDING_START_GATE_CLOSED:${reason}`));
+            this.releaseRefusedStartLock();
             // There is no separate processing guard to release: start attempts are serialised through
             // `enqueue`, which releases on return. I looked for one before writing this, because the
             // directive names releasing it — the guard it refers to is the intent itself, and that is
