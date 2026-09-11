@@ -1069,6 +1069,58 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
     expect(receipt.reviewEvidence, 'and the basis is auditable').toBe('clean_result_comment');
   });
 
+  it('CASUALTY: a trusted bot ERROR or STATUS notice with a valid footer does not qualify', () => {
+    /**
+     * Codex P1 `3984927799`. My recogniser selected a comment by three REJECTIONS — trusted author,
+     * exact head named, no P0/P1 badge — and never asserted what a clean result says. Codex reproduced
+     * `qualified: true` for `Codex could not complete this review` plus a valid footer: a FAILURE notice
+     * read as a pass.
+     *
+     * THESE ARE REAL BODIES FROM THIS PULL REQUEST, not invented ones. "Something went wrong" was posted
+     * on 2026-09-09 and is prefixed `Codex Review:` exactly like a clean result — so matching the prefix
+     * would not have helped. Only the canonical phrase separates them.
+     */
+    const notClean = [
+      'Codex could not complete this review',
+      'Codex Review: Something went wrong. Try again later by commenting “@codex review”.',
+      '## Blocked — Required Commit Objects Are Still Unavailable',
+      'Codex Review: Reviewing this pull request now.',
+    ];
+    for (const text of notClean) {
+      const receipt = buildReviewReceipt({
+        pullRequest: pullWith({
+          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``, createdAt: '2026-09-10T23:51:24Z' }],
+        }),
+        expectedHeadSha: head,
+      });
+      expect(receipt.qualified, `${text.slice(0, 40)} must not qualify a head`).toBe(false);
+      expect(receipt.reviewEvidence, 'and must not be recorded as a clean result').toBeNull();
+    }
+  });
+
+  it('CONTROL: every real sign-off variant of the canonical clean result DOES qualify', () => {
+    // The sign-off varies run to run, so the invariant is the phrase and not the sentence. All four are
+    // verbatim first lines of genuine clean results on this PR; a match that were too strict would
+    // reintroduce the unsatisfiable gate this correction exists to fix.
+    const cleanVariants = [
+      "Codex Review: Didn't find any major issues. Keep it up!",
+      "Codex Review: Didn't find any major issues. Nice work!",
+      "Codex Review: Didn't find any major issues. Breezy!",
+      "Codex Review: Didn't find any major issues. Another round soon, please!",
+      'Codex Review: Didn\u2019t find any major issues. Typographic apostrophe!',
+    ];
+    for (const text of cleanVariants) {
+      const receipt = buildReviewReceipt({
+        pullRequest: pullWith({
+          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``, createdAt: '2026-09-10T23:51:24Z' }],
+        }),
+        expectedHeadSha: head,
+      });
+      expect(receipt.qualified, `${text.slice(0, 45)} must qualify`).toBe(true);
+      expect(receipt.reviewEvidence).toBe('clean_result_comment');
+    }
+  });
+
   it('CASUALTY: a clean comment naming a STALE sha does not qualify', () => {
     // Evidence about an earlier tree is ignored, not tolerated — the same rule the rest of the receipt
     // applies to a reviewed SHA that is not the current head.

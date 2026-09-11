@@ -17,6 +17,30 @@ const CODEX_LOGINS = new Set(['chatgpt-codex-connector', 'chatgpt-codex-connecto
 const RELEASE_FINDING = /P[01]\s+Badge|\bP[01]\b/i;
 const ADVISORY_FINDING = /P2\s+Badge|\bP2\b/i;
 
+/**
+ * #1430 P1 — THE CANONICAL CLEAN RESULT, MATCHED POSITIVELY.
+ *
+ * Codex prefixes several different outcomes with `Codex Review:`, so the prefix proves nothing. Observed
+ * on this pull request alone:
+ *
+ *   Codex Review: Didn't find any major issues. Keep it up!            <- clean
+ *   Codex Review: Didn't find any major issues. Nice work!             <- clean (sign-off varies)
+ *   Codex Review: Something went wrong. Try again later by commenting  <- NOT clean
+ *   ## Blocked — Required Commit Objects Are Still Unavailable         <- NOT clean
+ *
+ * My recogniser previously selected a comment by three REJECTIONS — trusted author, exact head named, no
+ * P0/P1 badge — and never asserted what a clean result actually says. Codex reproduced
+ * `buildReviewReceipt()` qualifying on `Codex could not complete this review` plus a valid footer: a
+ * failure notice read as a pass. The "Something went wrong" comment already on this PR would have done
+ * the same had it carried a footer.
+ *
+ * This is the rule I wrote two rounds earlier and then broke: assert the shape you REQUIRE, never test
+ * for the shape you reject. An absent badge is not evidence of a clean review.
+ *
+ * The sign-off varies and the apostrophe may be typographic, so only the invariant phrase is matched.
+ */
+const CODEX_CLEAN_RESULT = /Didn[\u2019']t\s+find\s+any\s+major\s+issues/i;
+
 function isCodex(login) {
   return CODEX_LOGINS.has(String(login ?? '').toLowerCase());
 }
@@ -49,6 +73,9 @@ function isCodex(login) {
 function findTrustedCleanResult({ pullRequest, head }) {
   return (pullRequest?.comments?.nodes ?? [])
     .filter((comment) => isCodex(comment?.author?.login))
+    // POSITIVE match first: only the canonical clean result may qualify a head. Error, status, progress
+    // and blocked notices from the same trusted bot are not clean reviews, whatever footer they carry.
+    .filter((comment) => CODEX_CLEAN_RESULT.test(comment?.body ?? ''))
     .filter((comment) => !RELEASE_FINDING.test(comment?.body ?? ''))
     .filter((comment) => {
       const named = /Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i.exec(comment?.body ?? '');
