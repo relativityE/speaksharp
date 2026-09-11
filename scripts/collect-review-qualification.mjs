@@ -113,7 +113,9 @@ function automaticReviewsBindHead({ body, pullRequest, head }) {
     after: String(move?.after ?? '').toLowerCase(),
     at: Date.parse(String(move?.timestamp ?? '')),
   }));
-  if (moves.some((move) => !Number.isFinite(move.at) || move.at > readyAt)) return false;
+  // #1438 Codex P1 `3993066903` (PM RETURN `5640173238`) — AT OR AFTER. GitHub's activity and Ready times share a
+  // one-second granularity, so a move in the Ready second cannot be shown to precede Ready: it holds like a later one.
+  if (moves.some((move) => !Number.isFinite(move.at) || move.at >= readyAt)) return false;
   const lastMoveAt = Math.max(...moves.map((move) => move.at));
   const headsAtReady = new Set(moves.filter((move) => move.at === lastMoveAt).map((move) => move.after));
   return headsAtReady.size === 1 && headsAtReady.has(head);

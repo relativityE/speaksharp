@@ -309,6 +309,31 @@ describe('#1438 exact-head completion — a review object, or trusted summary me
     for (const [label, moves] of Object.entries(cases)) holds(label, pullRequest({ moves, comments: [summary()] }));
   });
 
+  it('CASUALTY (`3993066903`): a branch move TIED with the Ready event cannot establish ordering, and holds', () => {
+    // Declared here so the lint rule sees an assertion; the checks run through `holds()`.
+    expect.hasAssertions();
+    // Collider B pushed in the same second as Ready: equality cannot prove the push preceded Ready.
+    holds('collider push tied to Ready', pullRequest({
+      head: COLLIDER,
+      moves: [{ after: HEAD, timestamp: at(10) }, { after: COLLIDER, timestamp: READY_AT }],
+      comments: [summary({ meta: { headSha: COLLIDER } })],
+    }));
+    // The same head re-pushed in the Ready second is still a move that cannot be ordered against Ready.
+    holds('same-head re-push tied to Ready', pullRequest({
+      moves: [{ after: HEAD, timestamp: at(10) }, { after: HEAD, timestamp: READY_AT }],
+      comments: [summary()],
+    }));
+  });
+
+  it('CONTROL (`3993066903`): a push one second before Ready, no later move, both trigger reviews complete, exact metadata, zero P0/P1 — qualifies', () => {
+    const receipt = receiptFor(pullRequest({
+      readyEvents: ['2026-09-11T16:20:01Z'],
+      moves: [{ after: HEAD, timestamp: '2026-09-11T16:20:00Z' }],
+      comments: [summary()],
+    }));
+    expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'codex_summary_metadata', reviewedSha: HEAD, findingCount: 0 });
+  });
+
   it('CASUALTY: completions from a manual request, or rows completed before the Ready event, do not use this fallback', () => {
     // Asserts through `holds()`; declared here so the lint rule and the runner both see it.
     expect.hasAssertions();
