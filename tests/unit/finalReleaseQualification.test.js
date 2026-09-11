@@ -1062,7 +1062,7 @@ describe('#1430 P1 — the trusted clean-result surface', () => {
   // completion comes from a review object or Codex's review-summary system metadata, which `summaryComment` models.
   const summaryComment = (sha) => ({
     id: 'summary', author: bot, createdAt: '2026-09-10T23:51:30Z',
-    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"blockingSeverityThreshold":"P0","headSha":"${sha}","status":"completed"} -->\n## Codex Review Summary`,
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"blockingSeverityThreshold":"P0","headSha":"${sha}","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** | \`${sha.slice(0, 7)}\` | Manual request |`,
   });
 
   it('CASUALTY: a clean head qualifies through Codex summary metadata; the clean comment alone does not', () => {
@@ -1216,7 +1216,7 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
   const clean = {
     id: 'old-clean', author: bot, createdAt: '2026-09-10T10:00:00Z',
     // #1438 PM DECISION `5639300027`: exact-head completion is Codex's summary system metadata, not comment text.
-    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"headSha":"${head}","pullRequestNumber":1430,"repository":"relativityE/speaksharp","status":"completed"} -->\n## Codex Review Summary`,
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"headSha":"${head}","pullRequestNumber":1430,"repository":"relativityE/speaksharp","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** | \`${head.slice(0, 7)}\` | Manual request |`,
   };
   const base = (comments) => ({
     number: 1430,

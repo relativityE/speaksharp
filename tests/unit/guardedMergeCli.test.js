@@ -93,7 +93,7 @@ function fakeGraphql({
       id: 'summary', author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:05:01Z',
       body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 ${JSON.stringify({
         blockingSeverityThreshold: 'P0', headSha: HEAD, pullRequestNumber: 1430, repository: REPOSITORY, status: 'completed',
-      })} -->\n## Codex Review Summary`,
+      })} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** | \`${HEAD.slice(0, 7)}\` | Manual request |`,
     }] : [],
     pageInfo: { hasPreviousPage: false },
   };

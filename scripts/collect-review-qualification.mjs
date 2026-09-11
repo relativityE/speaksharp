@@ -60,6 +60,26 @@ function commentNamesHead(comment, head) {
 const SUMMARY_MARKER = '<!-- codex-pull-request-review-summary -->';
 const SUMMARY_METADATA = /<!--\s*codex-security-review:v1\s+(\{[^]*?\})\s*-->/g;
 
+/**
+ * #1438 Codex P1 `3992603040` (PM DECISION `5639821873`) — THE CODE REVIEW MUST HAVE COMPLETED TOO.
+ *
+ * `codex-security-review:v1` reports the security review. With the code review failed or cancelled, nothing in the
+ * summary says `**Running**`, and completed security metadata qualified a head no completed code review covered.
+ * Exactly one canonical `📝 **Code Review**` table row must exist, and its status cell must be `✅ **Completed**`.
+ * Failed, cancelled, running, missing, duplicated, malformed or unknown rows all hold. The row's abbreviated commit
+ * is display only: identity stays with the metadata head, and this check can only refuse.
+ */
+const CODE_REVIEW_ROW_LABEL = '📝 **Code Review**';
+
+function codeReviewCompleted(body) {
+  const rows = body.split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('|') && line.includes('Code Review'));
+  if (rows.length !== 1) return false;
+  const cells = rows[0].split('|').slice(1, -1).map((cell) => cell.trim());
+  return cells.length >= 2 && cells[0] === CODE_REVIEW_ROW_LABEL && /^✅ \*\*Completed\*\*(\s|$)/.test(cells[1]);
+}
+
 function findTrustedCompletionMetadata({ pullRequest, head }) {
   const blocks = (pullRequest?.comments?.nodes ?? [])
     .filter((comment) => isCodex(comment?.author?.login))
@@ -71,6 +91,9 @@ function findTrustedCompletionMetadata({ pullRequest, head }) {
   if (!body.includes(SUMMARY_MARKER)) return null;
   // A review the summary still shows running has not completed, whatever the metadata block says.
   if (/\*\*Running\*\*/.test(body)) return null;
+  // #1438 Codex P1 `3992603040`, PM DECISION `5639821873` — the metadata is the SECURITY review's. A code review
+  // that failed or was cancelled leaves no `**Running**`, so its completion must be read positively.
+  if (!codeReviewCompleted(body)) return null;
   let metadata;
   try {
     metadata = JSON.parse(raw);

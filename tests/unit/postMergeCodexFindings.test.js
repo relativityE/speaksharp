@@ -33,7 +33,10 @@ const cleanResult = (footer, createdAt = at(25), author = bot) => ({
 });
 
 /** Codex's review-summary comment, carrying the structured system metadata option C binds through. */
-const summaryBody = ({ meta = {}, raw = null, running = false, marker = true, blocks = 1 } = {}) => {
+/** One Code Review row as Codex renders it. `commit` is its abbreviated DISPLAY commit, never identity. */
+const codeRow = (state, commit = HEAD.slice(0, 7)) =>
+  `| 📝 **Code Review** | ${state} <relative-time datetime="2026-09-11T16:26:00Z">2026-09-11T16:26:00Z</relative-time> | \`${commit}\` | Manual request |`;
+const summaryBody = ({ meta = {}, raw = null, running = false, marker = true, blocks = 1, codeRows = null } = {}) => {
   const json = raw ?? JSON.stringify({
     blockingSeverityThreshold: 'P0', headSha: HEAD, mergeGateEnabled: false, pullRequestNumber: PR, repository: REPO,
     status: 'completed', ...meta,
@@ -43,7 +46,9 @@ const summaryBody = ({ meta = {}, raw = null, running = false, marker = true, bl
     marker ? '<!-- codex-pull-request-review-summary -->' : '',
     ...Array.from({ length: blocks }, () => block),
     '## Codex Review Summary',
-    `| 📝 **Code Review** | ${running ? '🔄 **Running**' : '✅ **Completed**'} | \`${HEAD.slice(0, 7)}\` | Manual request |`,
+    '| Review | Status | Commit | Review trigger |',
+    '| --- | --- | --- | --- |',
+    ...(codeRows ?? [codeRow(running ? '🔄 **Running**' : '✅ **Completed**')]),
     '| 🔒 **Security Review** | ✅ **Completed** | `0cb6b1e` | PR opened |',
   ].join('\n');
 };
@@ -218,6 +223,42 @@ describe('#1438 PM DECISION `5639300027` — exact-head completion binds only th
       expect({ label, qualified: receipt.qualified, evidence: receipt.reviewEvidence })
         .toEqual({ label, qualified: false, evidence: null });
     }
+  });
+
+  it('CASUALTY (`3992603040`): exact completed security metadata beside a code review that did not complete holds', () => {
+    /**
+     * The metadata is the SECURITY review's. A code review that failed or was cancelled leaves no `**Running**`
+     * in the summary, so completion was accepted without a completed code review. PM DECISION `5639821873`:
+     * exactly one canonical Code Review row, in `✅ **Completed**`; everything else holds.
+     */
+    const cases = {
+      failed: [codeRow('❌ **Failed**')],
+      cancelled: [codeRow('⛔ **Cancelled**')],
+      running: [codeRow('🔄 **Running**')],
+      'unknown state': [codeRow('❔ **Queued**')],
+      missing: [],
+      duplicated: [codeRow('✅ **Completed**'), codeRow('✅ **Completed**')],
+      'completed and failed rows together': [codeRow('✅ **Completed**'), codeRow('❌ **Failed**')],
+      'malformed label': [`| **Code Review** | ✅ **Completed** | \`${HEAD.slice(0, 7)}\` | Manual request |`],
+      'malformed row (no status cell)': ['| 📝 **Code Review** |'],
+      'Completed only in a later cell': [`| 📝 **Code Review** | ❌ **Failed** | ✅ **Completed** | Manual request |`],
+    };
+    for (const [label, codeRows] of Object.entries(cases)) {
+      const receipt = receiptFor(pullRequest({ comments: [summary({ codeRows })] }));
+      expect({ label, qualified: receipt.qualified, evidence: receipt.reviewEvidence })
+        .toEqual({ label, qualified: false, evidence: null });
+    }
+  });
+
+  it('CONTROL (`3992603040`): exact metadata plus exactly one Completed Code Review row and zero P0/P1 qualifies — the display commit is not identity', () => {
+    // The row shows a different abbreviation on purpose: identity comes from the metadata head alone.
+    const receipt = receiptFor(pullRequest({ comments: [summary({ codeRows: [codeRow('✅ **Completed**', 'deadbee')] })] }));
+    expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'codex_summary_metadata', reviewedSha: HEAD });
+
+    const otherHead = receiptFor(pullRequest({
+      comments: [summary({ meta: { headSha: COLLIDER }, codeRows: [codeRow('✅ **Completed**', HEAD.slice(0, 7))] })],
+    }));
+    expect(otherHead, 'a row naming this head cannot rescue metadata for another head').toMatchObject({ qualified: false });
   });
 
   it('CASUALTY: two summary comments each carrying a block is duplicated metadata, and holds', () => {
