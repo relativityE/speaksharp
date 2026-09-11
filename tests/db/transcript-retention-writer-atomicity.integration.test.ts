@@ -299,23 +299,64 @@ describe('#1436 — newest-one is armed by a post-rollout save, not by deploymen
 });
 
 describe('#1436 — the late-create transcript writer is failure-atomic', () => {
-    it('CASUALTY 1: a second transcript over UNSETTLED prior evidence FAILS and rolls everything back', async () => {
+    it('CONTROL (PM handoff `5641029573`): a designed self-healing outcome PRESERVES the new transcript', async () => {
+        /**
+         * This case used to require a REFUSAL. That was the defect: the coordinator's `pending` and
+         * `non_converged` outcomes are designed self-healing states, not failures, and raising on them
+         * destroyed a transcript the writer had already saved successfully. The save is kept and the
+         * verdict is reported truthfully; only a real exception or an unrecognized status rolls back,
+         * which the casualties below still prove.
+         */
         const db = await freshDb();
         // The user's prior take is saved and its evaluation has NOT settled, so the coordinator cannot
         // expire it. This is the ordinary state moments after a save.
         const prior = await seedPriorTake(db, '2026-09-01T10:00:00Z', 'the first take, in the user\'s words');
         await settleEvidence(db, prior, 'pending');
-        const before = await counts(db);
 
-        await expect(lateCreate(db, 'the recovered second take'), 'the RPC must refuse, not succeed')
-            .rejects.toThrow(/retention did not converge/i);
+        const created = (await lateCreate(db, 'the recovered second take')) as unknown as
+            { rows: { r: Record<string, unknown> }[] };
+        const v = verdict(created.rows[0].r);
+        expect(v?.status, 'the designed outcome is reported, not raised').toMatch(/^(pending|non_converged)$/);
 
-        const after = await counts(db);
-        expect(after, 'no row, no checkpoint, nothing partial').toEqual(before);
-        const priorText = await db.query<{ transcript: string }>(
+        const rows = (await db.query<{ id: string; transcript: string | null }>(
+            'SELECT id, transcript FROM public.sessions WHERE user_id = $1', [U])).rows;
+        expect(rows.some(r => r.transcript === 'the recovered second take'),
+            "the save the user just made is kept").toBe(true);
+        const priorText = await db.query<{ transcript: string | null }>(
             'SELECT transcript FROM public.sessions WHERE id = $1', [prior]);
         expect(priorText.rows[0].transcript, 'the take the user already had is untouched')
             .toBe('the first take, in the user\'s words');
+        await db.close();
+    });
+
+    it('CONTROL (PM handoff `5641029573`): a `non_converged` backlog is also preserved, not rolled back', async () => {
+        /**
+         * The coordinator returns `non_converged` when a historical backlog exceeds one bounded batch
+         * (`has_more`), which is a designed R3 hand-off — not a failure of this save. Seeding past the
+         * 500-row batch is the only way to reach that status through the real migration, so this case
+         * proves the second newly allowed status independently of the `pending` ones above.
+         */
+        const db = await freshDb();
+        await db.query(
+            `INSERT INTO public.sessions (user_id, created_at, transcript, total_words, duration, filler_counts, status)
+             SELECT $1, timestamptz '2026-08-01T00:00:00Z' + (g || ' seconds')::interval,
+                    'an older take ' || g, 100, 600, '{"um": 2}'::jsonb, 'completed'
+             FROM generate_series(1, 502) AS g`, [U]);
+        await db.query(
+            `INSERT INTO public.session_progress_evaluations
+               (session_id, user_id, formula_version, attribution_status, duration_seconds, word_count,
+                clarity_evidence_available, eligible, exclusion_reasons)
+             SELECT id, $1, 'clarity_v1', 'attributed', 600, 100, true, false, ARRAY['unverified_attribution']
+             FROM public.sessions WHERE user_id = $1`, [U]);
+
+        const created = (await lateCreate(db, 'the take that must survive a backlog')) as unknown as
+            { rows: { r: Record<string, unknown> }[] };
+        expect(verdict(created.rows[0].r)?.status, 'the backlog hand-off is reported, not raised')
+            .toBe('non_converged');
+        expect((await db.query<{ n: number }>(
+            `SELECT COUNT(*)::int AS n FROM public.sessions
+             WHERE user_id = $1 AND transcript = 'the take that must survive a backlog'`, [U],
+        )).rows[0].n, 'the save the user just made is kept').toBe(1);
         await db.close();
     });
 
@@ -467,7 +508,7 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
         await db.close();
     });
 
-    it('CASUALTY F: a non-converged completion FAILS atomically and leaves no arming behind', async () => {
+    it('CONTROL (PM handoff `5641029573`): a `pending` completion is kept, not rolled back', async () => {
         /**
          * #1436 P1 — a save arms only if it actually kept text. `complete_session_v2` arms inside the
          * transcript subtransaction, so a RAISED convergence failure reverts the arming with it. The
@@ -484,21 +525,17 @@ describe('#1436 — the late-create transcript writer is failure-atomic', () => 
              VALUES ($1, '2026-09-04T10:00:00Z'::timestamptz, 100, 600, 'active') RETURNING id`,
             [U])).rows[0].id;
 
-        await expect(db.query<{ r: Record<string, unknown> }>(
+        const completed = (await db.query<{ r: Record<string, unknown> }>(
             `SELECT public.complete_session_v2(p_session_id => $1::uuid, p_status => 'completed',
                  p_next_action => '{"kind":"practice_again"}'::jsonb, p_filler_counts => '{}'::jsonb,
-                 p_final_transcript => 'the take that must remain retryable') AS r`, [active]))
-            .rejects.toThrow(/retention did not converge \(status=pending\)/i);
+                 p_final_transcript => 'the take that must remain retryable') AS r`, [active])).rows[0].r;
 
-        expect((await db.query<{ n: number }>(
-            'SELECT COUNT(*)::int AS n FROM public.transcript_retention_arming WHERE user_id = $1', [U],
-        )).rows[0].n, 'and it armed nothing').toBe(0);
+        expect(verdict(completed)?.status, 'the designed outcome is reported, not raised')
+            .toMatch(/^(pending|non_converged)$/);
         expect((await db.query<{ status: string; transcript: string | null }>(
             'SELECT status, transcript FROM public.sessions WHERE id = $1', [active],
-        )).rows[0], 'the attempted completion is wholly rolled back and remains retryable')
-            .toEqual({ status: 'active', transcript: null });
-        expect((await counts(db)).with_text, "the older take is untouched — it was never the user's to lose here")
-            .toBe(1);
+        )).rows[0], 'the completion stands and the words the user just spoke are saved')
+            .toEqual({ status: 'completed', transcript: 'the take that must remain retryable' });
         await db.close();
     });
 

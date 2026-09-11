@@ -964,7 +964,7 @@ BEGIN
         -- Installing the definition is intentionally inert until PO/Ops activates it after the real-world test.
         -- Once active, anything short of convergence is a SAVE FAILURE and rolls back the whole RPC.
         IF v_wrote_transcript
-           AND COALESCE(v_retention_status, 'error') IS DISTINCT FROM 'converged'
+           AND COALESCE(v_retention_status, 'error') NOT IN ('converged', 'pending', 'non_converged')
            AND NOT (
              v_retention_status = 'deferred'
              AND v_retention->>'reason' IN ('retention_not_activated', 'retention_not_armed')
@@ -1295,7 +1295,7 @@ BEGIN
      */
     IF v_writes_transcript
        AND v_initial_at_cap
-       AND COALESCE(v_retention->>'status', 'error') <> 'converged'
+       AND COALESCE(v_retention->>'status', 'error') NOT IN ('converged', 'pending', 'non_converged')
        AND NOT (
          v_retention->>'status' = 'deferred'
          AND v_retention->>'reason' IN ('retention_not_activated', 'retention_not_armed')
