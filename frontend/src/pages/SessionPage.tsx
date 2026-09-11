@@ -19,6 +19,8 @@ import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateSt
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { useNavigate } from 'react-router-dom';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
+import { useSession } from '@/hooks/useSession';
+import { resolveTranscriptView } from '@/lib/storage';
 
 /**
  * ARCHITECTURE:
@@ -141,6 +143,7 @@ export const SessionPage: React.FC = () => {
         // store left the page in its `after` projection and showed a brand-new brief through
         // completed-review semantics. Leaving that state is part of starting a new set.
         setShowAnalyticsPrompt,
+        settleReviewLatency,
         sessionFeedbackMessage,
         micLevel,
         transcriptContent,
@@ -176,6 +179,30 @@ export const SessionPage: React.FC = () => {
     }, [transcriptContent, interimTranscript]);
 
     const navigate = useNavigate();
+
+    // #1416 F-05 — THE REVIEW READER THE PURGE DOCSTRING ALREADY ASSUMED.
+    //
+    // `purgeTranscriptWorkingMemory` empties the live transcript at finalization by contract, and its
+    // own comment says clearing it "never affects the save, a Retry Save, or the review reader".
+    // That reader was never built, so the after-state kept rendering the emptied buffer and the user
+    // watched their words vanish at the moment they were told the session was saved.
+    //
+    // Nothing new is introduced here: `useSession` already fetches the saved row and
+    // `resolveTranscriptView` is documented as "the ONE place that decides whether a session's
+    // transcript may be shown", shared with the PDF so the two cannot drift. This connects them.
+    const reviewSessionId = finalizedAnalysis?.sessionId ?? null;
+    const { data: savedSession, isFetching: reviewFetching, refetch: refetchReview } =
+        useSession(reviewSessionId ?? undefined);
+    // Server state decides. `isFinalizing` only separates "still settling" from "we could not load
+    // it" — two readings of `unavailable` that need different sentences and that a saved-row resolver
+    // cannot tell apart, because finalization is a client lifecycle.
+    const reviewTranscript = resolveTranscriptView(savedSession ?? null);
+    const reviewStillSettling = isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!finalizedAnalysis);
+    useEffect(() => {
+        if (!reviewStillSettling && showAnalyticsPrompt) {
+            settleReviewLatency(reviewTranscript.kind === 'available' ? 'available' : 'unavailable');
+        }
+    }, [reviewStillSettling, reviewTranscript.kind, settleReviewLatency, showAnalyticsPrompt]);
 
     if (!metrics) return <SessionPageSkeleton />;
 
@@ -214,6 +241,8 @@ export const SessionPage: React.FC = () => {
     // reconciliation + formatting reaches complete/failed and the final text is applied. Until
     // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
     const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
+
+
     // Mode-aware reconciliation status copy for the consolidated status bar's left side.
     const reconciliationCopy = finalizedAnalysis
         ? reconciliationStatusCopy(finalizedAnalysis.reconciliation, { mode: finalizedAnalysis.mode })
@@ -435,6 +464,9 @@ export const SessionPage: React.FC = () => {
                     fillerData={metrics.fillerData}
                     wpm={metrics.wpm}
                     aiSuggestions={undefined} /* #1306: coaching prose retired; next action replaces it */
+                    reviewTranscript={reviewTranscript}
+                    reviewStillSettling={reviewStillSettling}
+                    onRetryReviewTranscript={() => { void refetchReview(); }}
                     onSeeAllSessions={() => navigate('/analytics')}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}

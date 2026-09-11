@@ -684,8 +684,22 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
                 expect(settled, `session ${session}: completion must not settle early`).toBe(false);
                 expect(useSessionStore.getState().progressGate).toMatchObject({ sessionId: id, state: 'resolving' });
 
-                await controller.startRecording();
-                expect(useSessionStore.getState().sttStatus.type, `session ${session}: Start must be refused`).toBe('error');
+                /**
+                 * #1431 P1 — REFUSED BY THE OWNER FENCE, WHICH NOW FIRES FIRST.
+                 *
+                 * This asserted the Progress gate's `sttStatus` error. At this point in the test the
+                 * stop has ARMED finalization and has not settled, so finalization is genuinely in
+                 * flight — and a Start during live finalization is now refused at the controller entry
+                 * boundary, before the Progress gate is reached.
+                 *
+                 * The refusal is deliberately silent on the store: the correction requires that a
+                 * refused Start perform NO telemetry, reset, service, lock, session or store mutation,
+                 * because any of those would land on the owning stop's session. So the observable is the
+                 * rejection, not a status write. The claim this test exists for — Start is blocked while
+                 * this session's evidence is in flight — is unchanged and is what is asserted.
+                 */
+                await expect(controller.startRecording(), `session ${session}: Start must be refused`)
+                    .rejects.toThrow(/START_REFUSED_FINALIZATION_IN_PROGRESS/);
 
                 // Terminal evidence arrives -> the gate clears and the NEXT session may begin.
                 releases[session - 1]({ kind: 'recorded' });
@@ -750,7 +764,15 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
                 "session 1's late result must not unlock session 2",
             ).toMatchObject({ sessionId: 'sess-1354-late-2', state: 'resolving' });
 
-            // ...and Start is still refused, with no recording side effect.
+            /**
+             * ...and Start is still refused, with no recording side effect.
+             *
+             * STILL THE PROGRESS GATE HERE, and that is the discriminating detail. By this point
+             * session 1's finalization latch is DOWN, so the #1431 owner fence correctly does not fire
+             * and the refusal comes from the gate as it always did. The fence is scoped to a
+             * finalization that is genuinely in flight; if it fired here it would be over-broad, and
+             * this assertion is what would catch that.
+             */
             await controller.startRecording();
             expect(useSessionStore.getState().sttStatus.type).toBe('error');
         } finally {
@@ -789,10 +811,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             expect(settled, 'completion must NOT settle while Progress is in flight').toBe(false);
             expect(useSessionStore.getState().progressGate?.state).toBe('resolving');
 
-            // ...and Start is refused with no recording side effect.
-            await controller.startRecording();
-            expect(useSessionStore.getState().sttStatus.type).toBe('error');
-            expect(useSessionStore.getState().sttStatus.message).toMatch(/one moment|retry automatically/i);
+            // ...and Start is refused with no recording side effect. The #1431 owner fence refuses
+            // first while finalization is in flight and deliberately writes nothing to the store, so
+            // the user-facing Progress-gate copy is asserted by the gate's own tests rather than here.
+            await expect(controller.startRecording())
+                .rejects.toThrow(/START_REFUSED_FINALIZATION_IN_PROGRESS/);
         } finally {
             // 3. ALWAYS release and settle — a hung deferred would block every test after this one.
             releaseProgress({ kind: 'recorded' });

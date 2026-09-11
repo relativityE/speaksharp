@@ -28,6 +28,11 @@ import type { FocusCoverageRow } from '@/utils/focusCoverage';
 export interface FocusPointsRailProps {
     rows: FocusCoverageRow[];
     sessionState: 'before' | 'during' | 'after';
+    /**
+     * The take is complete, but retained transcript evidence is unavailable. Keep after-state actions
+     * without turning unknown rows into negative coverage claims.
+     */
+    coveragePending?: boolean;
     /** #1046 G6/G7: the topic (the `goal`), shown above the points as an unnumbered header — never a point,
      *  never checked for coverage. null/blank ⇒ no topic line (e.g. a set saved before topic was threaded). */
     topic?: string | null;
@@ -43,13 +48,16 @@ function fmtClock(seconds: number): string {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-const Marker: React.FC<{ kind: 'pending' | 'covered' | 'next' | 'missed'; index: number }> = ({ kind, index }) => {
+const Marker: React.FC<{ kind: 'pending' | 'covered' | 'partial' | 'next' | 'missed'; index: number }> = ({ kind, index }) => {
     const base = 'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[12px] font-extrabold';
     if (kind === 'covered') {
         return <span className={`${base} bg-[#1f9d6b] text-white`} aria-hidden="true">✓</span>;
     }
     if (kind === 'missed') {
         return <span className={`${base} border-2 border-[#d98a1f] text-[#8a5510]`} aria-hidden="true">✕</span>;
+    }
+    if (kind === 'partial') {
+        return <span className={`${base} border-2 border-[#d98a1f] text-[#8a5510]`} aria-hidden="true">≈</span>;
     }
     if (kind === 'next') {
         return <span className={`${base} border-2 border-[#6d28d9] text-[#6d28d9]`} aria-hidden="true">{index + 1}</span>;
@@ -60,6 +68,7 @@ const Marker: React.FC<{ kind: 'pending' | 'covered' | 'next' | 'missed'; index:
 export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     rows,
     sessionState,
+    coveragePending = false,
     topic,
     nextIndex,
     onEdit,
@@ -68,7 +77,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
 }) => {
     const isAfter = sessionState === 'after';
     // §3: the card names the TASK, not ownership. before/during = "Points to cover"; after = "What you covered".
-    const title = isAfter ? 'What we detected' : 'Points to cover';
+    const title = isAfter && !coveragePending ? 'What we detected' : 'Points to cover';
     const topicLabel = (topic ?? '').trim();
 
     return (
@@ -102,28 +111,31 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
 
             <ol className="mt-[14px] space-y-[13px]" data-testid="focus-points-rail-list">
                 {rows.map((row, i) => {
+                    const isPartial = row.status === 'partial';
                     const isNext = sessionState === 'during' && !row.covered && nextIndex === i;
-                    const isMissed = isAfter && !row.covered;
-                    const kind = row.covered ? 'covered' : isNext ? 'next' : isMissed ? 'missed' : 'pending';
-                    const rowTint = isNext
+                    const isMissed = isAfter && !coveragePending && !row.covered;
+                    const kind = isPartial ? 'partial' : row.covered ? 'covered' : isNext ? 'next' : isMissed ? 'missed' : 'pending';
+                    const rowTint = isPartial
+                        ? 'rounded-lg border border-[#f0dcb8] bg-[#fdf3e2] px-3 py-2'
+                        : isNext
                         ? 'rounded-lg border border-[#e6dcfb] bg-[#f5f0ff] px-3 py-2'
                         : isMissed
                             ? 'rounded-lg border border-[#f0dcb8] bg-[#fdf3e2] px-3 py-2'
                             : '';
                     // 'Detected', not 'Covered': the matcher reports what it FOUND. 'Still to cover' stays — that is an
     // instruction about what to do next, not an assertion about what the speaker did.
-    const statusWord = row.covered ? 'Detected' : isMissed ? 'Not detected' : isNext ? 'Still to cover' : 'Pending';
+    const statusWord = isPartial ? 'Partly detected' : row.covered ? 'Detected' : isMissed ? 'Not detected' : isNext ? 'Still to cover' : 'Pending';
                     return (
-                        <li key={i} data-testid={`focus-point-${i}`} data-status={row.covered ? 'covered' : isMissed ? 'missing' : 'pending'} className={`flex items-start gap-[11px] ${rowTint}`}>
+                        <li key={i} data-testid={`focus-point-${i}`} data-status={isPartial ? 'partial' : row.covered ? 'covered' : isMissed ? 'missing' : 'pending'} className={`flex items-start gap-[11px] ${rowTint}`}>
                             <Marker kind={kind} index={i} />
                             <div className="min-w-0 flex-1">
-                                <p className={`text-[15px] leading-snug ${row.covered ? 'text-[#8b95a5] line-through' : isMissed ? 'font-extrabold text-[#2b3446]' : 'text-[#2b3446]'}`}>
+                                <p className={`text-[15px] leading-snug ${row.covered && !isPartial ? 'text-[#8b95a5] line-through' : isPartial || isMissed ? 'font-extrabold text-[#2b3446]' : 'text-[#2b3446]'}`}>
                                     {row.label}
                                 </p>
                                 {row.covered && row.coveredAtSec != null && (
-                                    <p className="mt-0.5 text-[12px] font-semibold text-[#146b4a]" data-testid={`focus-point-${i}-covered-at`}>
+                                    <p className={`mt-0.5 text-[12px] font-semibold ${isPartial ? 'text-[#8a5510]' : 'text-[#146b4a]'}`} data-testid={`focus-point-${i}-covered-at`}>
                                         {isAfter && row.quote ? <span className="italic text-[#4b5563]">&ldquo;…{row.quote.trim()}&rdquo;</span> : null}
-                                        {isAfter && row.quote ? ' · ' : ''}Detected at {fmtClock(row.coveredAtSec)}
+                                        {isAfter && row.quote ? ' · ' : ''}{isPartial ? 'Partly detected' : 'Detected'} at {fmtClock(row.coveredAtSec)}
                                     </p>
                                 )}
                                 {isNext && <p className="mt-0.5 text-[12px] font-bold text-[#6d28d9]">Still to cover</p>}

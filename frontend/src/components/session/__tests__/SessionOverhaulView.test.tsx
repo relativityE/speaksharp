@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import { deriveFocusCoverage } from '@/utils/focusCoverage';
 
 const base: SessionOverhaulViewProps = {
     authUserId: 'user-1',
@@ -37,7 +38,17 @@ describe('SessionOverhaulView (#1222 S11)', () => {
     });
 
     it('stopped runtime → after state, transcript-only (no audio play/time)', () => {
-        render(<SessionOverhaulView {...base} showAnalyticsPrompt transcriptContent="so um hello" />);
+        // #1416 F-05 — the after-state transcript now comes from the RETAINED authority, because
+        // finalization purges working memory by contract. Passing `transcriptContent` alone described
+        // a parent that no longer exists; a real one supplies what the server retained.
+        render(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                transcriptContent="so um hello"
+                reviewTranscript={{ kind: 'available', text: 'so um hello' }}
+            />,
+        );
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('playback-scrubber')).toBeInTheDocument();
         // Transcript-only: no audio playback affordances.
@@ -203,7 +214,10 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
     });
 
     it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
-        render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="I will name the price now." elapsedTime={84} />);
+        // Production shape after #1423: finalization PURGES working memory, and the retained transcript
+        // arrives from the server as the review authority. A fixture that leaves words in the buffer models
+        // a state the app can no longer be in, and would let coverage pass by reading the wrong source.
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="" reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }} elapsedTime={84} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
         // §Duplication acceptance check: the coverage fraction appears EXACTLY ONCE (Slot C). The transcript
@@ -216,6 +230,123 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('scrubber-legend')).toBeNull();
         expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
         expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
+    });
+
+    it('terminal coverage uses the stop-seam authority, not a weaker transcript re-score', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'point-1', label: POINTS[0], status: 'missing' },
+                    { id: 'point-2', label: POINTS[1], status: 'covered' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent=""
+                // The flattened label matcher cannot match "guarantee" here; the stop seam matched the
+                // configured cue against timestamped segments and is the terminal authority.
+                reviewTranscript={{ kind: 'available', text: 'I discussed the warranty terms.' }}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
+        expect(screen.queryByTestId('focus-point-1-not-detected')).toBeNull();
+    });
+
+    it('withholds terminal claims when SessionPage supplies no stop-seam result', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={null}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            />,
+        );
+        expect(screen.getAllByTestId(/focus-point-\d+$/).map((row) => row.getAttribute('data-status')))
+            .toEqual(['pending', 'pending']);
+        expect(screen.queryByTestId('coverage-pace-count')).toBeNull();
+        expect(screen.queryByText(/not detected/i)).toBeNull();
+        expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
+        expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
+    });
+
+    it('keeps partial stop-seam evidence distinct from a full detection in the terminal rail', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'point-1', label: POINTS[0], status: 'partial' },
+                    { id: 'point-2', label: POINTS[1], status: 'covered' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I mentioned price and guarantee.' }}
+            />,
+        );
+
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('2/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+        expect(screen.queryByTestId('coverage-footer')).not.toBeInTheDocument();
+        expect(screen.queryByText(/green marks where each point landed/i)).not.toBeInTheDocument();
+        expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Partly detected');
+        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
+    });
+
+    it('keeps the strongest live status through transcript rewrites without promoting partial', () => {
+        const partialText = ['name price', 'price', 'name the amount']
+            .find((text) => deriveFocusCoverage(POINTS, text, 20).rows[0]?.status === 'partial');
+        expect(partialText, 'fixture must exercise point 1 as partial').toBeDefined();
+
+        const { rerender } = render(
+            <SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent={partialText!} elapsedTime={20} />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="Unrelated rewrite" elapsedTime={21} />);
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="I will name the price now." elapsedTime={22} />);
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent={partialText!} elapsedTime={23} />);
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+    });
+
+    it('a direct after→during retry starts at 0/N instead of inheriting the prior take count', () => {
+        const { rerender } = render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'point-1', label: POINTS[0], status: 'covered' },
+                    { id: 'point-2', label: POINTS[1], status: 'missing' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+
+        // Model the batched retry path: no intermediate before render.
+        rerender(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={null}
+                isListening
+                showAnalyticsPrompt={false}
+                transcriptContent="Unrelated opening words"
+                elapsedTime={2}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('0/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'pending');
     });
 
     it('no brief (Open Mic) → no coverage/pace card / points rail; the prompt offer is present', () => {
@@ -236,7 +367,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 objectivePoints={null}
                 completedObjectivePoints={POINTS}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={84}
             />,
         );
@@ -267,7 +399,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 completedObjectivePoints={POINTS}
                 completedObjectivePaceGuideSecPerPoint={60}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={0}
                 scoringElapsedSeconds={84}
             />,
@@ -286,7 +419,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 completedObjectivePoints={POINTS}
                 completedObjectivePaceGuideSecPerPoint={60}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={0}
             />,
         );
@@ -306,7 +440,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 objectivePoints={null}
                 completedObjectivePoints={POINTS}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={0}
                 scoringElapsedSeconds={84}
             />,
@@ -341,5 +476,99 @@ describe('SessionOverhaulView Practice Focus (#1264)', () => {
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
         expect(screen.queryByTestId('practice-focus-chooser')).toBeNull();
         expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
+    });
+
+    /**
+     * #1429 — RETRY MUST START AT 0/N.
+     *
+     * `coveredLatch` exists so a lit tick never regresses mid-take, and it reset only when the shell
+     * passed through `before`. "Retry these points" goes after-state -> during directly and never
+     * touches `before`, so the previous take's latched indices survived into the new take and the
+     * pace card read the old N/N from its first frame. The user pressed Retry and was told they had
+     * already covered everything.
+     *
+     * The controller-side coverage fence does not reach this: during a take the number is derived
+     * HERE, in the component, from the live transcript and this latch — not from
+     * `objectiveCoverageResult`.
+     */
+    it('CASUALTY: Retry (after -> during) starts a fresh take at 0/N, not the previous take\'s N/N', () => {
+        const points = ['Name the price', 'State the guarantee'];
+        const spoken = 'First I will name the price clearly. Then I state the guarantee we offer.';
+
+        // Take A runs to its after-state with both points covered.
+        const { rerender } = render(
+            <SessionOverhaulView
+                {...base}
+                isListening
+                objectivePoints={points}
+                transcriptContent={spoken}
+                elapsedTime={60}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('2');
+
+        rerender(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                objectivePoints={points}
+                completedObjectivePoints={points}
+                transcriptContent={spoken}
+                elapsedTime={60}
+            />,
+        );
+
+        // RETRY: straight back into a recording take, with the transcript reset as a new take begins.
+        rerender(
+            <SessionOverhaulView
+                {...base}
+                isListening
+                objectivePoints={points}
+                transcriptContent=""
+                elapsedTime={0}
+            />,
+        );
+
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        expect(
+            screen.getByTestId('coverage-pace-covered'),
+            "the retry must not inherit the previous take's coverage",
+        ).toHaveTextContent('0');
+        expect(screen.getByTestId('coverage-pace-total')).toHaveTextContent(`/${points.length}`);
+    });
+
+    it('CASUALTY: within a take, a lit tick still never regresses', () => {
+        // The other half of the latch contract, and the guarantee the retry fix could have broken.
+        // Resetting on every `during` render — rather than on ENTRY to `during` — would satisfy the
+        // retry casualty above while un-ticking a point mid-take the moment the rolling transcript
+        // stopped matching it. The user would watch a covered point go dark while still speaking.
+        const points = ['Name the price', 'State the guarantee'];
+
+        const { rerender } = render(
+            <SessionOverhaulView
+                {...base}
+                isListening
+                objectivePoints={points}
+                transcriptContent="First I will name the price clearly."
+                elapsedTime={20}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('1');
+
+        // The take continues and the rolling transcript no longer contains the covering phrase.
+        rerender(
+            <SessionOverhaulView
+                {...base}
+                isListening
+                objectivePoints={points}
+                transcriptContent="and moving on to something else entirely now"
+                elapsedTime={40}
+            />,
+        );
+
+        expect(
+            screen.getByTestId('coverage-pace-covered'),
+            'a covered point must stay covered for the rest of its take',
+        ).toHaveTextContent('1');
     });
 });

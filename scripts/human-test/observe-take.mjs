@@ -6,9 +6,9 @@
  * browser and no evidence had ever been produced. A rule nobody can execute is a proposal.
  *
  * Deliberately NOT a reusable CDP framework. It attaches to one loopback target, enables the three
- * domains it needs, records four lifecycle phases, and writes one receipt. Every decision is made by the
- * shared authorities in `observer.mjs`, so the command cannot become a second, softer opinion about what
- * counts as egress.
+ * domains it needs, selects the named comparison arm before recording, records four lifecycle phases,
+ * and writes one receipt. Every verdict is made by the shared authorities in `observer.mjs`, so the
+ * command cannot become a second, softer opinion about what counts as egress.
  *
  * Usage:
  *   node scripts/human-test/observe-take.mjs --candidate <id> --release <sha> [--port 9222]
@@ -20,6 +20,7 @@ import { WebSocket } from 'ws';
 import { assertLoopbackOrigin, selectAppTarget, safeTargetForEvidence } from './cdpTarget.mjs';
 import { IDENTITY_PROBE, auditEgress, receiptVerdict } from './observer.mjs';
 import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE } from './payloadTripwire.mjs';
+import { MODEL_COMPARISON_CDP_ARM, modelComparisonSwitchExpression } from './modelComparisonArm.mjs';
 
 const arg = (name, fallback = null) => {
     const i = process.argv.indexOf(`--${name}`);
@@ -92,6 +93,10 @@ const main = async () => {
     // against every fetch the app makes at boot; wrapping after load would miss exactly the early
     // traffic, which is when the model downloads and any startup socket happen.
     await client.send('Page.addScriptToEvaluateOnNewDocument', { source: PAYLOAD_TRIPWIRE });
+    // #1426 — THE PRODUCTION SWITCH IS CLOSED UNTIL CDP ARMS THIS DOCUMENT BEFORE APP BOOT.
+    // This is deliberately not a URL, storage value, build flag, or visible control. Installing after
+    // navigation is too late: main.tsx has already decided whether the switch surface should exist.
+    await client.send('Page.addScriptToEvaluateOnNewDocument', { source: MODEL_COMPARISON_CDP_ARM });
 
     // WORKERS TOO — this is where the audio actually is. Private STT runs its model in a Web Worker, so
     // a main-document-only tripwire would watch the one context least likely to hold PCM and call the
@@ -201,6 +206,39 @@ const main = async () => {
     // receipt: it reads as proof that a take happened.
     notePhase('pre-record');
     await client.send('Page.navigate', { url: APP });
+
+    // The `--candidate` argument used to be only an EXPECTATION in the final receipt: this command
+    // never applied it to the page. A three-row run could therefore record the configured v2 model
+    // three times and merely HOLD two rows afterwards. Switch now, before the operator can begin, and
+    // require the page's independent requested/observed/expected receipt to agree before observation.
+    const surfaceDeadline = Date.now() + 30_000;
+    let surfaceReady = false;
+    while (Date.now() < surfaceDeadline) {
+        const availability = await client.send('Runtime.evaluate', {
+            expression: `typeof globalThis.__SS_SWITCH_CANDIDATE__ === 'function'
+              && typeof globalThis.__SS_ACTIVE_CANDIDATE__ === 'function'`,
+            returnByValue: true,
+        });
+        if (availability?.result?.value === true) { surfaceReady = true; break; }
+        await new Promise((r) => setTimeout(r, 250));
+    }
+    if (!surfaceReady) throw new Error('model-comparison CDP surface did not install before the take');
+
+    const switched = await client.send('Runtime.evaluate', {
+        expression: modelComparisonSwitchExpression(CANDIDATE),
+        returnByValue: true,
+        awaitPromise: true,
+    });
+    if (switched?.exceptionDetails) throw new Error('model-comparison switch threw before the take');
+    const switchReceipt = switched?.result?.value;
+    if (switchReceipt?.outcome?.ok !== true) {
+        throw new Error(`model-comparison switch refused before the take: ${switchReceipt?.outcome?.code ?? 'unknown'}`);
+    }
+    const identity = switchReceipt.active;
+    if (!identity || identity.requested !== CANDIDATE || identity.observed !== CANDIDATE
+        || identity.expected !== CANDIDATE || identity.matches !== true) {
+        throw new Error('model-comparison identity mismatch before the take');
+    }
 
     // DRAINED AS WE GO. A worker that ends before the final read would otherwise take its evidence with
     // it — and a worker ending early is exactly what a short recording looks like. Records are
