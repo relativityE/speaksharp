@@ -1029,3 +1029,117 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
     });
   });
 });
+
+/**
+ * #1430 P1 — CODEX'S CLEAN RESULT ARRIVES AS AN ISSUE COMMENT, NOT A REVIEW OBJECT.
+ *
+ * Found by my own whole-tree review, not by a casualty, because every fixture in this file constructs a
+ * review OBJECT. Codex submits one only when it HAS findings; a clean result is an issue comment plus a
+ * 👍. Reading `reviews` alone therefore made the gate unsatisfiable — findings meant `open_findings`,
+ * no findings meant `review_not_completed:missing`, and both held.
+ *
+ * Recognition is deliberately narrow, and each narrowing has its own case below: a trusted author, the
+ * exact head named in the body, no finding text, and a complete read of the comment page.
+ */
+describe('#1430 P1 — the trusted clean-result surface', () => {
+  const head = 'c'.repeat(40);
+  const bot = { login: 'chatgpt-codex-connector' };
+  const cleanBody = (sha) => `Codex Review: Didn't find any major issues. Nice work!\n\n**Reviewed commit:** \`${sha}\``;
+
+  const pullWith = ({ comments, commentsTruncated = false, reviews = [] }) => ({
+    number: 1430,
+    headRefOid: head,
+    baseRefName: 'main',
+    files: { nodes: [{ path: 'scripts/collect-review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+    reviews: { nodes: reviews, pageInfo: { hasPreviousPage: false } },
+    reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    comments: { nodes: comments, pageInfo: { hasPreviousPage: commentsTruncated } },
+  });
+
+  it('CASUALTY: a trusted clean comment naming the EXACT head qualifies', () => {
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head.slice(0, 10)), createdAt: '2026-09-10T23:51:24Z' }] }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified, 'a clean review must be able to qualify a head at all').toBe(true);
+    expect(receipt.reviewStatus).toBe('completed');
+    expect(receipt.reviewedSha).toBe(head);
+    expect(receipt.findingCount, 'clean means zero findings, never unknown').toBe(0);
+    expect(receipt.reviewEvidence, 'and the basis is auditable').toBe('clean_result_comment');
+  });
+
+  it('CASUALTY: a clean comment naming a STALE sha does not qualify', () => {
+    // Evidence about an earlier tree is ignored, not tolerated — the same rule the rest of the receipt
+    // applies to a reviewed SHA that is not the current head.
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody('9'.repeat(10)), createdAt: '2026-09-10T23:51:24Z' }] }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified).toBe(false);
+    expect(receipt.reasons.join(' ')).toMatch(/review_not_completed|reviewed_sha/);
+  });
+
+  it('CASUALTY: a HUMAN posting the same words does not qualify', () => {
+    /**
+     * The spoof case. The text is a literal copy of Codex's clean result, so only the author separates
+     * them — which is why the login must match the trusted set and `authorAssociation` is never consulted.
+     * A maintainer pasting the summary is not an independent review.
+     */
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({
+        comments: [{ author: { login: 'relativityE' }, authorAssociation: 'OWNER', body: cleanBody(head.slice(0, 10)), createdAt: '2026-09-10T23:51:24Z' }],
+      }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified, 'a human lookalike is not an independent review').toBe(false);
+  });
+
+  it('CASUALTY: an INCOMPLETE comment page does not qualify, even with a clean comment present', () => {
+    // The surface is load-bearing now, so a truncated read is incomplete evidence: an unseen page could
+    // hold a later finding-bearing comment.
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({
+        comments: [{ author: bot, body: cleanBody(head.slice(0, 10)), createdAt: '2026-09-10T23:51:24Z' }],
+        commentsTruncated: true,
+      }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified).toBe(false);
+    expect(receipt.reasons).toContain('issue_comments_incomplete');
+  });
+
+  it('CASUALTY: a clean comment carrying a P1 badge is not a clean result', () => {
+    // "Didn't find any major issues" beside a P1 badge is self-contradictory; the badge wins.
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({
+        comments: [{ author: bot, body: `${cleanBody(head.slice(0, 10))}\n\nP1 Badge — actually a finding`, createdAt: '2026-09-10T23:51:24Z' }],
+      }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified).toBe(false);
+  });
+
+  it('CONTROL: a finding-bearing REVIEW OBJECT is not masked by a later clean comment', () => {
+    /**
+     * Ordering matters. A review that reported findings must keep governing even when a clean summary is
+     * posted afterwards, so the review path is consulted first and the comment surface only when no
+     * review object exists at this head.
+     */
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({
+        reviews: [{ author: bot, state: 'CHANGES_REQUESTED', commit: { oid: head }, body: 'P1 Badge — a real finding', submittedAt: '2026-09-10T22:00:00Z' }],
+        comments: [{ author: bot, body: cleanBody(head.slice(0, 10)), createdAt: '2026-09-10T23:51:24Z' }],
+      }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified, 'a reported finding cannot be cleared by a later summary').toBe(false);
+    expect(receipt.reviewEvidence).toBe('review_object');
+  });
+});
+

@@ -21,6 +21,47 @@ function isCodex(login) {
   return CODEX_LOGINS.has(String(login ?? '').toLowerCase());
 }
 
+/**
+ * #1430 P1 — CODEX'S CLEAN RESULT IS NOT A REVIEW OBJECT.
+ *
+ * Codex submits a review object only when it HAS findings. When it finds nothing it posts an ISSUE
+ * COMMENT plus a 👍 and creates no review. Deriving the verdict from `reviews` alone therefore made this
+ * gate unsatisfiable: findings present meant `open_findings`, findings absent meant
+ * `review_not_completed:missing`. Both branches held, so no candidate could ever qualify — the same
+ * outage shape as holding on unverifiable branch protection.
+ *
+ * I had already recorded this surface in the #1431 post-mortem and then built a collector that ignored
+ * it, which is why the recognition below is deliberately narrow rather than permissive:
+ *
+ *   TRUSTED AUTHOR ONLY. The same `CODEX_LOGINS` set the review path uses. A human — or any other bot —
+ *   posting the same words proves nothing, so `authorAssociation` is not consulted and the login must
+ *   match exactly.
+ *
+ *   THE EXACT HEAD, NAMED IN THE BODY. Codex writes "**Reviewed commit:** `<sha>`". A comment naming an
+ *   earlier SHA is evidence about an earlier tree and is ignored, not tolerated — this is the same
+ *   stale-evidence rule the rest of the receipt applies.
+ *
+ *   NO FINDING TEXT. A comment carrying a P0/P1 badge is not a clean result whatever else it says.
+ *
+ * Returns the matching comment or null. It NEVER reports findings — it can only establish that a review
+ * completed with none, and the thread scan remains the sole authority on live findings.
+ */
+function findTrustedCleanResult({ pullRequest, head }) {
+  return (pullRequest?.comments?.nodes ?? [])
+    .filter((comment) => isCodex(comment?.author?.login))
+    .filter((comment) => !RELEASE_FINDING.test(comment?.body ?? ''))
+    .filter((comment) => {
+      const named = /Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i.exec(comment?.body ?? '');
+      if (!named) return false;
+      // Codex abbreviates the SHA, so the named value must PREFIX the full head — never the reverse,
+      // which would let a 7-character coincidence from another branch qualify.
+      const shortSha = named[1].toLowerCase();
+      return shortSha.length >= 7 && head.startsWith(shortSha);
+    })
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+    .at(-1) ?? null;
+}
+
 export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   const head = pullRequest?.headRefOid?.toLowerCase?.() ?? '';
   const expected = expectedHeadSha?.toLowerCase?.() ?? '';
@@ -32,11 +73,18 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   if ((pullRequest?.reviewThreads?.nodes ?? []).some((thread) => thread?.comments?.pageInfo?.hasPreviousPage)) {
     reasons.push('review_thread_comments_incomplete');
   }
+  // The clean-result surface is now load-bearing, so an incomplete read of it is incomplete evidence.
+  // Without this a truncated comment page could hide the very comment that would have qualified — or,
+  // worse, hide a later finding-bearing one.
+  if (pullRequest?.comments?.pageInfo?.hasPreviousPage) reasons.push('issue_comments_incomplete');
 
   const reviews = (pullRequest?.reviews?.nodes ?? [])
     .filter((review) => isCodex(review?.author?.login) && review?.state !== 'DISMISSED' && review?.commit?.oid?.toLowerCase?.() === head)
     .sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt)));
   const latest = reviews.at(-1);
+  // Only consulted when no finding-bearing review object exists at this head: a review that reported
+  // findings must never be masked by a later clean summary.
+  const cleanResult = latest ? null : findTrustedCleanResult({ pullRequest, head });
   const threadFindings = (pullRequest?.reviewThreads?.nodes ?? []).filter((thread) =>
     thread?.isResolved === false
     && (thread?.comments?.nodes ?? []).some((comment) =>
@@ -60,8 +108,11 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     // A thread reopened after this moment makes this receipt stale, which is how the reopen gap is
     // closed without a webhook.
     generatedAt: new Date().toISOString(),
-    reviewedSha: latest?.commit?.oid,
-    reviewStatus: latest && blockingReviews.length === 0 ? 'completed' : latest ? 'changes_requested' : 'missing',
+    reviewedSha: latest?.commit?.oid ?? (cleanResult ? expectedHeadSha : undefined),
+    reviewStatus: latest && blockingReviews.length === 0 ? 'completed'
+      : latest ? 'changes_requested'
+        : cleanResult ? 'completed'
+          : 'missing',
     findingCount,
     changedFiles: (pullRequest?.files?.nodes ?? []).map(({ path }) => path),
   });
@@ -70,7 +121,9 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     qualified: evaluated.qualified && reasons.length === 0,
     reasons: [...reasons, ...evaluated.reasons],
     pullRequestNumber: pullRequest?.number ?? null,
-    reviewSubmittedAt: latest?.submittedAt ?? null,
+    reviewSubmittedAt: latest?.submittedAt ?? cleanResult?.createdAt ?? null,
+    /** Which surface established the review: a review object, or Codex's clean-result comment. */
+    reviewEvidence: latest ? 'review_object' : cleanResult ? 'clean_result_comment' : null,
     /** Open P2 findings at this head. Reported for the ledger; deliberately not blocking. */
     advisoryFindingCount: advisoryCount,
   };
@@ -261,7 +314,7 @@ function normaliseRef(ref) {
 
 async function readPullRequest({ repository, number, token }) {
   const [owner, name] = repository.split('/');
-  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}}}}}`;
+  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefName files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100){nodes{author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage}}}}}`;
   const payload = await githubRequest('/graphql', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
