@@ -1,7 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import logger from '../lib/logger';
-import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData, updateSession } from '../lib/storage';
+import {
+  saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData, updateSession,
+  type SaveSessionResult,
+} from '../lib/storage';
 import type { PracticeSession } from '../types/session';
 import { useUserProfile } from './useUserProfile';
 
@@ -9,7 +12,7 @@ interface UseSessionManager {
   saveSession: (
     sessionData: Partial<PracticeSession>,
     engineType: 'native' | 'cloud'
-  ) => Promise<{ session: PracticeSession | null; usageExceeded: boolean }>;
+  ) => Promise<SaveSessionResult>;
   deleteSession: (sessionId: string) => Promise<boolean>;
   exportSessions: () => Promise<void>;
 }
@@ -24,7 +27,7 @@ export const useSessionManager = (): UseSessionManager => {
   const saveSession = async (
     sessionData: Partial<PracticeSession>,
     engineType: 'native' | 'cloud' = 'native'
-  ): Promise<{ session: PracticeSession | null; usageExceeded: boolean }> => {
+  ): Promise<SaveSessionResult> => {
     try {
       // Handle anonymous users: save to sessionStorage instead of DB.
       if (!user || user.is_anonymous) {
@@ -38,7 +41,7 @@ export const useSessionManager = (): UseSessionManager => {
         };
         // Use sessionStorage to persist across a single session.
         sessionStorage.setItem('anonymous-session', JSON.stringify(tempSession));
-        return { session: tempSession, usageExceeded: false };
+        return { status: 'saved', session: tempSession };
       }
 
       if (!profile) {
@@ -55,21 +58,21 @@ export const useSessionManager = (): UseSessionManager => {
           // Refresh the single-session detail cache (['session', id]) so the detail view
           // does not keep serving a stale row after an update.
           await queryClient.invalidateQueries({ queryKey: ['session'] });
-          return { session: sessionData as PracticeSession, usageExceeded: false };
+          return { status: 'saved', session: sessionData as PracticeSession };
         }
         logger.error({ error }, '[useSessionManager] ⚠️ Session update failed');
-        return { session: null, usageExceeded: false };
+        return { status: 'failed', reason: 'server_rejected' };
       }
 
       logger.info({ userId: user.id, engineType }, '[useSessionManager] 💾 Saving session');
-      const { session: newSession, usageExceeded } = await saveSessionToDb(
+      const result = await saveSessionToDb(
         { ...sessionData, user_id: user.id },
         profile,
         engineType
       );
 
-      if (newSession) {
-        logger.info({ sessionId: newSession.id }, '[useSessionManager] ✅ Session saved successfully');
+      if (result.status === 'saved') {
+        logger.info({ sessionId: result.session.id }, '[useSessionManager] ✅ Session saved successfully');
 
         // CRITICAL: Invalidate session history cache so analytics page shows new data
         await queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
@@ -77,13 +80,13 @@ export const useSessionManager = (): UseSessionManager => {
         await queryClient.invalidateQueries({ queryKey: ['session'] });
         logger.debug('[useSessionManager] 🔄 Session history cache invalidated');
 
-        return { session: newSession, usageExceeded: usageExceeded || false };
+        return result;
       }
-      logger.warn('[useSessionManager] ⚠️ Session save returned null');
-      return { session: null, usageExceeded: usageExceeded || false };
+      logger.warn({ status: result.status }, '[useSessionManager] ⚠️ Session save did not succeed');
+      return result;
     } catch (err: unknown) {
       logger.error({ err }, "Error in useSessionManager -> saveSession:");
-      return { session: null, usageExceeded: false };
+      return { status: 'failed', reason: 'rpc_error' };
     }
   };
 

@@ -25,6 +25,12 @@ import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcrip
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
+import { beginRecordingAttempt, endRecordingAttempt } from '@/services/telemetry/journeyIdentity';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
+import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
+import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
@@ -82,7 +88,7 @@ export function shouldReloadSttOnForegroundReturn(params: {
 }
 
 export const useSessionLifecycle = () => {
-    const { session } = useAuthProvider();
+    const { session, user } = useAuthProvider();
     const { profile, isVerified } = useProfile();
     const queryClient = useQueryClient();
     const tick = useSessionStore(state => state.tick);
@@ -203,7 +209,25 @@ export const useSessionLifecycle = () => {
         const latestRuntimeState = latestSessionState.runtimeState;
         const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
 
-        if (isProcessingRef.current && !shouldStop) return;
+        // #1259 F01 — the intent is the fact. Every path below returns before recording begins, and
+        // until now every one of them was silent to analytics: a refused click and a click never made
+        // produced identical telemetry (none).
+        const modelReadyAtIntent = latestRuntimeState === 'READY' || latestRuntimeState === 'RECORDING';
+        const reportIntent = (outcome: Parameters<typeof emitRecordingIntent>[0]['outcome']) =>
+            emitRecordingIntent({
+                kind: shouldStop ? 'stop' : 'start',
+                outcome,
+                runtimeState: latestRuntimeState ?? null,
+                modelReady: modelReadyAtIntent,
+            });
+
+        if (isProcessingRef.current && !shouldStop) {
+            // A SECOND CLICK WHILE THE FIRST IS IN FLIGHT. This returned with no log and no event, so
+            // "two clicks required" and "one click, silent wait" were indistinguishable in the data —
+            // which is exactly the distinction F01 asks for.
+            reportIntent('suppressed_in_flight');
+            return;
+        }
         // #1089 STRAY RECORDING: after an automatic stop the runtime FSM returns to READY while the
         // whole-utterance decode is still running, so the record control was briefly live and labelled
         // "Start". A user reaching for Stop then began a SECOND recording (the observed stray 9-second
@@ -211,11 +235,20 @@ export const useSessionLifecycle = () => {
         // completes. This is a guard, not UI polish — never rely on the disabled button alone.
         if (!shouldStop && useSessionStore.getState().isTranscriptFinalizing) {
             logger.warn('[useSessionLifecycle] ⛔ Start ignored: previous recording is still finalizing');
+            reportIntent('suppressed_finalizing');
             return;
         }
         isProcessingRef.current = true;
 
         if (shouldStop) {
+            // #1259 F16 — the chain starts at the USER'S Stop, not the runtime's. Everything
+            // experienced as "waiting after I finished" is measured from here.
+            markCompletionStage('stop_intent');
+            // The accepted STOP, emitted BEFORE the await for the same reason the start path does it:
+            // a stop that hangs must still be visible. Only starts reported `accepted`, so the schema
+            // supported `intent_kind: 'stop'` while Production never produced one — and the user action
+            // that anchors the whole post-Stop latency chain was absent from every decoded receipt.
+            reportIntent('accepted');
             // #1428 F-16 — Stop intent -> terminal review/save decision. The timer begins immediately before
             // the controller authority receives Stop, and settles only after its awaited result tells this
             // caller whether review is ready, the take was discarded, or finalization/save failed.
@@ -272,6 +305,111 @@ export const useSessionLifecycle = () => {
                     streak_count: streakResult.currentStreak,
                     ...getSessionCoachingExperimentProperties(),
                 }, 'HIGH');
+                // #1259 F16 — persistence returned. Time spent reaching here is a DATABASE problem,
+                // and separating it from decode and render is the whole point of the chain.
+                markCompletionStage('session_saved');
+                // #1259 F05 — the count above and the transcript are two DIFFERENT facts, and only the
+                // count was ever recorded. `word_count: 88` beside an empty panel and `word_count: 88`
+                // beside 88 visible words were the same event. This records what the authority holds at
+                // the moment persistence returned, so the review stage has something to disagree with.
+                // #1259 F10 — the counts the client can actually SEE, observed rather than asserted.
+                // The PO found two readable transcripts under copy claiming otherwise; whether that is
+                // a policy not applied, a policy applied with stale copy, or a policy keeping two on
+                // purpose is unanswerable from `session_saved` alone. Reporting the INTENDED policy
+                // would agree with the copy and hide exactly that disagreement.
+                // Read from the store at SAVE time rather than closing over the render-time value:
+                // adding `history` to this callback's dependencies would change when the handler is
+                // recreated, and the count that matters is the one at the moment of the save anyway.
+                // #1259 F-retention — count SAVED SESSIONS, not transcript chunks.
+                //
+                // This read `useSessionStore.getState().history`, which is `HistorySegment[]` — the
+                // transcript segments of the recording just finished, `{ mode, text, timestamp }`. Those
+                // carry no `transcript_state`, so `hasReadableTranscript(undefined)` was false for every
+                // element and `transcript_bearing_before` was **always 0**, for every user, on every
+                // receipt. With `after` hard-coded null, `expired_count` was always null too. The event
+                // could not answer the one question it exists for: did retention remove anything?
+                //
+                // The saved sessions live in the `['sessionHistory']` query cache. Read generically so a
+                // keyed variant (user id, page) still resolves, and report null — never 0 — when the cache
+                // holds nothing, because "we did not observe" must not read as "nothing expired".
+                //
+                // Wrapped, because READING FOR TELEMETRY MUST NOT BE ABLE TO BREAK A STOP. This calls into
+                // the query cache, and a client that does not implement the accessor throws synchronously —
+                // which unwinds the rest of the stop handling, so the user's saved-session copy and the
+                // analytics prompt never appear and their session looks like it failed. An existing
+                // auto-stop test caught precisely that. Unknown is null; it is never an exception.
+                //
+                // SCOPED TO THE ACTIVE ACCOUNT. `usePracticeHistory` keys as
+                // `['sessionHistory', user?.id, paginationOptions]`, and a bare prefix lookup matches EVERY
+                // cached account. After an auth-driven account switch that does not run the explicit
+                // `signOut()` path, the previous account's query stays cached — and taking "the first
+                // array" could hand this account's retention receipt the PREVIOUS user's counts and
+                // transcript states. A receipt attributed to the wrong person is worse than a missing one,
+                // because it looks like data.
+                // The SAME value `usePracticeHistory` builds its key from — `user?.id` out of
+                // `useAuthProvider` — so the comparison cannot drift from the key it is matching.
+                const activeUserId = user?.id ?? null;
+                //
+                // AND TO THE ACTIVE PAGINATION ENTRY, not merely to a same-account one. The key is
+                // `['sessionHistory', id, paginationOptions]`, so one account can hold several entries at
+                // once — a `{limit: ...}` variant left behind by a previous visit to Analytics alongside
+                // the Session page's own. Taking "the first account-matching array" took whichever React
+                // Query happened to have inserted first, and insertion order is visit order, not
+                // relevance. The prefix invalidation above refetches ACTIVE queries, so the stale
+                // Analytics entry keeps its pre-save contents — and the receipt then reports unchanged
+                // counts and a null transcript state for a save that plainly succeeded.
+                //
+                // `type: 'active'` is the discriminator that actually means "the entry this page is
+                // reading": a query is active when a mounted component observes it. Anything else is a
+                // leftover.
+                const readSavedSessions = (): Array<{ transcript_state?: string | null }> | null => {
+                    // No separate signed-out guard: the key comparison below already excludes every entry
+                    // when there is no active account, and a redundant branch no test can reach is a line
+                    // that can rot without anything noticing.
+                    try {
+                        const entries = queryClient.getQueriesData?.<unknown>({
+                            queryKey: ['sessionHistory'],
+                            type: 'active',
+                        });
+                        const mine = (entries ?? []).filter(
+                            // The account id is the second segment of the key. Anything else is a different
+                            // person's cache, or a key shape we do not recognise — both are refusals.
+                            ([key, data]) => Array.isArray(key) && key[1] === activeUserId && Array.isArray(data),
+                        );
+                        // Exactly one, or nothing. Two active entries for one account means we cannot tell
+                        // which one this page is reading, and picking either would be a guess presented as
+                        // an observation — the same failure as reading the stale one, minus the excuse.
+                        if (mine.length !== 1) return null;
+                        return mine[0][1] as Array<{ transcript_state?: string | null }>;
+                    } catch {
+                        return null;
+                    }
+                    return null;
+                };
+                const bearing = (rows: Array<{ transcript_state?: string | null }> | null) =>
+                    rows === null ? null : rows.filter((row) => hasReadableTranscript(row.transcript_state)).length;
+
+                const savedBefore = readSavedSessions();
+                const bearingBefore = bearing(savedBefore);
+
+                emitTranscriptAuthority({
+                    stage: 'save',
+                    authoritative: useSessionStore.getState().transcript.transcript,
+                    persisted: true,
+                    sessionIdPresent: Boolean(useSessionStore.getState().finalizedAnalysis?.sessionId),
+                });
+                // NOT closed here.
+                //
+                // Closing at stop looked right and broke the review: `setShowAnalyticsPrompt(true)` renders
+                // the practice loop AFTER this line, so `currentAttemptId()` was already null when
+                // `practice_loop` emitted. Two successive reviews with identical properties then shared the
+                // signature `[null, props]` and the second receipt was suppressed — the very defect the
+                // attempt-scoped dedupe was introduced to fix.
+                //
+                // The attempt is retired where the NEXT one begins instead. Everything after Stop — save,
+                // retention, the rendered review — genuinely belongs to the take that produced it, and a
+                // take that is never followed by another simply stays the last one. See the accepted-start
+                // path below.
                 // P1: read the controller's current terminal status FIRST. If it left a warning/error (e.g.
                 // filler/metrics persistence failed → guardedStopStatus), preserve it — apply NEITHER the
                 // stopReason NOR the ordinary success/streak copy. This holds for auto-stops (which carry a
@@ -290,7 +428,33 @@ export const useSessionLifecycle = () => {
                 }
 
                 void queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
-                void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+                // Observe retention AFTER the refresh resolves — that is the only moment the post-sweep
+                // state is knowable. Emitting at save time could only ever report the before-count twice.
+                // Promise.resolve + catch, because an OBSERVER MUST NOT BE ABLE TO BREAK THE STOP.
+                // Chaining directly off `invalidateQueries` assumes it returns a thenable; where it does
+                // not, the throw unwinds the remaining stop handling — the saved-status copy, the analytics
+                // prompt — and the user's session appears to fail because a telemetry event wanted a
+                // number. An existing auto-stop test caught exactly that.
+                void Promise.resolve(queryClient.invalidateQueries({ queryKey: ['sessionHistory'] })).then(() => {
+                    const savedAfter = readSavedSessions();
+                    const savedRow = savedAfter?.find(
+                        (row) => (row as { id?: string }).id === useSessionStore.getState().finalizedAnalysis?.sessionId,
+                    );
+                    emitRetentionObservation({
+                        transcriptBearingBefore: bearingBefore,
+                        transcriptBearingAfter: bearing(savedAfter),
+                        // NULL, not 0. Zero asserts "this user has no saved sessions", which is a
+                        // measurement; an unavailable cache means we did not observe, which is not. The
+                        // rest of this event already refuses to guess and this field was contradicting it.
+                        contentFreeHistoryCount: savedAfter === null ? null : savedAfter.length,
+                        // The server's state for the row just written, or null when the refreshed list does
+                        // not contain it. A guess here would be a claim about someone's transcript.
+                        savedTranscriptState: savedRow?.transcript_state ?? null,
+                    });
+                }).catch(() => {
+                    // Observation is best-effort. A refresh that never resolves means we do not know what
+                    // retention did — and saying nothing is the honest outcome, not a guessed receipt.
+                });
                 // Single-session detail cache: useSession(sessionId) keys on ['session', id]
                 // with a 5-min staleTime and is read by the analytics detail view. Without
                 // this invalidation it keeps serving the record-start placeholder transcript
@@ -336,6 +500,7 @@ export const useSessionLifecycle = () => {
                     : rawError;
                 const prefix = errorMsg.startsWith('⚠️') || errorMsg.startsWith('⛔') ? '' : '⛔ ';
                 setSTTStatus({ type: 'error', message: `${prefix}${errorMsg}` });
+                reportIntent('blocked_usage_limit');
                 isProcessingRef.current = false;
                 return;
             }
@@ -349,6 +514,7 @@ export const useSessionLifecycle = () => {
                         type: 'error',
                         message: '⛔ Active session in another tab. Switch to that tab to continue.'
                     });
+                    reportIntent('blocked_lock_held');
                     return;
                 }
 
@@ -386,6 +552,7 @@ export const useSessionLifecycle = () => {
                         attempts: freshness.attempts,
                     });
                     setSTTStatus({ type: 'error', message: blockedMessage(freshness.status) ?? '' });
+                    reportIntent('blocked_stale_client');
                     return;
                 }
 
@@ -398,6 +565,33 @@ export const useSessionLifecycle = () => {
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
                 const latestMode = requestedMode;
                 const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode);
+                /*
+                 * MERGE (#1421 x #1428): both features land on this line and neither supersedes the
+                 * other. #1421 retires the previous take, opens this one and reports the accepted
+                 * intent BEFORE the await, so a hung start is visible and attributable. #1428 wraps
+                 * the same await in a latency timer that settles on refused / started / failed.
+                 *
+                 * Ordered HEAD-first deliberately: the attempt must be opened before the intent is
+                 * reported, or the intent carries the previous take's id — and both must precede the
+                 * await, or a start that never resolves records nothing at all.
+                 */
+                // Emitted BEFORE the await. `session_started` is pushed only after startRecording
+                // RESOLVES — so a start that hangs (the 113s and 126s waits Production already shows)
+                // records nothing at all today. The accepted intent is what makes the hang visible.
+                // RETIRE THE PREVIOUS TAKE, THEN OPEN THIS ONE.
+                //
+                // This is the only point where a new attempt genuinely starts, so it is the honest place to
+                // end the previous one. Doing both here fixes two things at once: the next accepted Start
+                // can no longer inherit the previous recording's id (it is closed first), and a take that
+                // never saved — a stop under the five-second minimum, which returns without any close and
+                // leaves the controller at READY — cannot have its id and ordinal silently reused by the
+                // user's immediate retry.
+                //
+                // Opened BEFORE `reportIntent('accepted')` so the intent carries the id of the take it
+                // starts, and still before the await, so a hung start is both visible and attributable.
+                endRecordingAttempt();
+                beginRecordingAttempt();
+                reportIntent('accepted');
                 // #1428 F-15 — controller Start -> authoritative RECORDING. `startRecording` deliberately
                 // remains pending across cold model preparation, so this captures the delay the user experiences
                 // without guessing from intermediate statuses or encoding a performance target.
@@ -500,6 +694,7 @@ export const useSessionLifecycle = () => {
                     });
                     Sentry.captureException(err);
                 });
+                reportIntent('failed');
                 analyticsBuffer.push('recording_start_failed', {
                     mode: latestMode,
                     requested_mode: requestedMode,
@@ -523,6 +718,11 @@ export const useSessionLifecycle = () => {
             }
         }
     }, [
+        // The active account, because the retention read compares against it. Omitting it would let this
+        // callback close over a STALE id after an account switch and match the previous user's cached
+        // history — reintroducing the cross-account bleed this scoping exists to prevent, by a closure
+        // instead of a key.
+        user?.id,
         isListening,
         elapsedTime,
         setCaptureLimitReached,

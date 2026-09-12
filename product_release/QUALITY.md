@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for quality evidence taxonomy, engineering test protocol, general SLOs, and the RC test inventory)
 **Owner:** Engineering / Quality (relativityE)
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-08
+**Last Verified:** 2026-09-08 — reconciled to the real-world journey traceability requirement and newest-one retention qualification.
 **Applies To:** The SpeakSharp beta platform — how software quality is measured, what evidence closes it, and which tests count for a controlled tester release.
 **Class:** Procedure / SLO.
 **Authority:** The source for the evidence chain, quality evidence sources & targets, general (non-STT) service-level objectives, the RC test inventory and gate map, engineering acceptance criteria, the manual hardware-validation protocol, and interpretation/closure rules.
@@ -166,7 +166,7 @@ Stress/endurance artifacts should include: concurrency tested; success/failure c
 
 ### Production journey observability (#1259)
 
-#1259 is reopened. One governed content-safe boundary must reconstruct each Open Mic and Focus Points journey with a `journey_id`, ordered authority timestamps, release/schema identity, and attempt identity where relevant. Required families cover intent/preparation, recording control, Focus transition, interim stability, transcript authority, coverage, Practice Loop, completion/navigation, Share feedback, current newest-two retention, runtime downselection, acquisition, and observer integrity.
+#1259 is reopened. One governed content-safe boundary must reconstruct each Open Mic and Focus Points journey with a `journey_id`, ordered authority timestamps, release/schema identity, and attempt identity where relevant. Required families cover intent/preparation, recording control, Focus transition, interim stability, transcript authority, coverage, Practice Loop, completion/navigation, Share feedback, newest-one retention, runtime downselection, acquisition, and observer integrity. Retention qualification must reject `newest_two_v1` and prove that only the newest eligible transcript remains available while older session history and metrics survive.
 
 Real PostHog readback is required per family. Positive transport controls prove only transport; negative controls must show each failure reason is distinguishable. Direct PostHog side channels, content-bearing properties, raw identities, and inference from UI text are prohibited. Controlled PO/Dev test traffic must be distinguishable from ordinary customer traffic without a separate build or URL.
 

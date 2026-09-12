@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# ========================================================================================================
+# HISTORICAL — this runner proves the SUPERSEDED newest-two preflight (migration 20260805000000), in
+# isolation. It loads ONLY the historical migrations and must not be read as a statement about current
+# behaviour. The live contract is the forward-only correction
+# 20260908120000_transcript_retention_newest_one.sql.
+# ========================================================================================================
 # #1117 R3 — real-PostgreSQL proof that the preflight is genuinely READ-ONLY, bounded, aggregate-only.
 # Throwaway local PostgreSQL 17 (initdb/pg_ctl); no Docker. Content-free.
 #   - runs inside the caller protocol: REPEATABLE READ, READ ONLY, bounded timeouts;

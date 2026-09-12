@@ -356,7 +356,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
     // default RPC handler and received a bare `{ success: true }` — the v1 envelope. The client's
     // fail-closed parser correctly rejected it, which turned all four e2e shards red.
     //
-    // This returns the FULL v2 contract and models SERVER-OWNED newest-two retention, so the e2e build
+    // This returns the FULL v2 contract and models SERVER-OWNED newest-ONE retention, so the e2e build
     // exercises the same envelope production returns rather than an easier one.
     await registerRoute(page, /\/rest\/v1\/rpc\/complete_session_v2(\?.*)?$/, async (route) => {
         const state = getPageState(page);
@@ -395,11 +395,12 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             };
         }
 
-        // SERVER-OWNED newest-two retention, applied inside the RPC exactly as production does it.
+        // SERVER-OWNED newest-ONE retention, applied inside the RPC exactly as production does it.
+        // `slice(1)`: only the newest transcript-bearing session stays readable; every earlier one expires.
         const retained = state.sessions
             .filter((x: { transcript?: string | null }) => typeof x.transcript === 'string' && x.transcript.length > 0)
             .sort((a: { created_at?: string }, b: { created_at?: string }) => String(b.created_at).localeCompare(String(a.created_at)));
-        retained.slice(2).forEach((old: MockSession) => {
+        retained.slice(1).forEach((old: MockSession) => {
             old.transcript = null;
             old.transcript_state = 'expired';
         });

@@ -24,6 +24,10 @@ import {
 } from '@/services/feedbackDraft';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import {
+  submitBlockers, lengthBand, emitFeedbackFieldState, emitFeedbackDialogOpened, emitFeedbackSubmit,
+  type FeedbackField,
+} from '@/services/telemetry/feedbackTelemetry';
 
 interface IssueReportDialogProps {
   userId?: string | null;
@@ -222,6 +226,44 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   const typeIndex = TYPE_OPTIONS.findIndex((option) => option.value === type);
 
   // What an attempt was made with. An edit is a change to this; a retry is not.
+  // #1259 F09 — record WHY Send is grey, as it changes.
+  //
+  // The gate is `type !== null && body.trim().length > 0 && !isSubmitting`, and the dialog surfaces none
+  // of it: no aria-invalid, no helper text, no validation message. "Grey no matter what I type" is the
+  // expected experience of that expression, and from outside it is unfixable by guesswork, because the
+  // user cannot see which condition is unmet and neither can we.
+  //
+  // `bodyEditedRef` separates a field the USER cleared from one that emptied underneath them: a draft
+  // restore or an owner change can empty it, and in state alone those look identical.
+  const bodyEditedRef = React.useRef(false);
+  const prevFieldsRef = React.useRef<{ type: FeedbackType | null; body: string; severity: FeedbackSeverity | null } | null>(null);
+
+  React.useEffect(() => {
+    if (!open) { prevFieldsRef.current = null; bodyEditedRef.current = false; return; }
+    const prev = prevFieldsRef.current;
+    prevFieldsRef.current = { type, body, severity };
+    if (prev === null) return;   // the open itself is its own event, not a field transition
+
+    const blockers = submitBlockers({ type, bodyLength: body.trim().length, isSubmitting });
+    const submitEnabled = blockers.length === 0;
+    const emit = (field: FeedbackField, transition: 'entered' | 'cleared' | 'unexpected_clear', band: string) =>
+      emitFeedbackFieldState({ field, transition, lengthBand: band, blockers, submitEnabled, feedbackType: type });
+
+    if (prev.type !== type) emit('type', type === null ? 'cleared' : 'entered', lengthBand(0));
+    if (prev.body !== body) {
+      const now = body.trim().length;
+      const wasFilled = prev.body.trim().length > 0;
+      const transition = now > 0 ? 'entered' : (wasFilled && !bodyEditedRef.current ? 'unexpected_clear' : 'cleared');
+      emit('body', transition, lengthBand(now));
+      bodyEditedRef.current = false;
+    }
+    if (prev.severity !== severity) emit('severity', severity === null ? 'cleared' : 'entered', lengthBand(0));
+  }, [open, type, body, severity, isSubmitting]);
+
+  React.useEffect(() => {
+    if (open) emitFeedbackDialogOpened();
+  }, [open]);
+
   const draftSignature = JSON.stringify([type, body, severity]);
   const bodyCopy = type ? BODY_COPY[type] : null;
   const canSubmit = type !== null && body.trim().length > 0 && !isSubmitting;
@@ -333,9 +375,21 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   };
 
   const submit = async () => {
-    if (!canSubmit || type == null) return;
+    if (!canSubmit || type == null) {
+      // Silence is exactly what we had before: `report_issue_submitted` fires only after a successful
+      // insert, so a refused submit produced no event at all and was indistinguishable from never trying.
+      emitFeedbackSubmit({
+        outcome: 'refused_by_gate',
+        blockers: submitBlockers({ type, bodyLength: body.trim().length, isSubmitting }),
+      });
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
+    // The ATTEMPT, recorded before anything can fail. Without it a submit that throws before reaching
+    // storage is indistinguishable from a user who never pressed Send — and "I reported it and nothing
+    // happened" is precisely the report this instrumentation exists to make legible.
+    emitFeedbackSubmit({ outcome: 'attempted' });
     try {
       const feedbackKind: FeedbackKind = type === 'broke' ? 'issue' : 'comment';
       // #1416 — NULL, NOT A GUESS.
@@ -367,9 +421,17 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       setAttempted(null);
       setOpen(false);
       toast.success('Thanks — we’ve got it.');
+      // ACKNOWLEDGEMENT, reported by the only layer that renders one. The service used to send
+      // `acknowledgementVisible: true` from the storage path, which asserted the user had been told
+      // something by code that cannot see the screen. Emitted after the toast call, so the fact follows
+      // the render rather than predicting it.
+      emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: true });
     } catch {
       setAttempted({ key: idempotencyKey, signature: draftSignature });
       setError('That didn’t go through. Try again?');
+      // The user was told it failed, and the draft was kept for the retry. Both are facts about what they
+      // can now see and do, and neither is knowable from the storage layer.
+      emitFeedbackSubmit({ outcome: 'storage_failed', acknowledgementVisible: true });
     } finally {
       setIsSubmitting(false);
     }
@@ -438,7 +500,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
             <textarea
               className="min-h-[118px] w-full resize-y rounded-xl border border-[#e6ebf2] bg-[#f7f9fc] px-4 py-3 text-sm font-normal ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               value={body}
-              onChange={(event) => setBody(event.target.value)}
+              onChange={(event) => { bodyEditedRef.current = true; setBody(event.target.value); }}
               placeholder={bodyCopy?.placeholder}
               maxLength={5000}
               data-testid="issue-report-description"

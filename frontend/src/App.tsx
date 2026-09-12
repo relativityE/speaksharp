@@ -10,6 +10,7 @@ import { AuthAwareRoot } from './components/AuthAwareRoot';
 import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { JourneyRouteTelemetry } from '@/components/JourneyRouteTelemetry';
 import { StaleChunkBootClear } from '@/components/StaleChunkBootClear';
 import SttIdentityBadge from '@/components/SttIdentityBadge';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -25,6 +26,7 @@ import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { areInternalRoutesEnabled } from '@/config/internalRoutes';
 import logger from '@/lib/logger';
 import { useRouteExitIntentRetirement } from '@/hooks/useRouteExitIntentRetirement';
+import { useJourneyBoundary } from '@/hooks/useJourneyBoundary';
 
 const showTestModeBadge =
   !import.meta.env.PROD &&
@@ -295,6 +297,10 @@ const App: React.FC = () => {
   // drive the real hook rather than a copy of it in a test file.
   useRouteExitIntentRetirement(location.pathname);
 
+  // #1259 — a journey begins where the user enters a product. Without this, `beginJourney` had no
+  // production caller and one lazily minted journey covered every visit for the life of the tab.
+  useJourneyBoundary(location.pathname);
+
   const prevPathRef = React.useRef(location.pathname);
   const routeExitVersionRef = React.useRef(0);
   useEffect(() => {
@@ -368,6 +374,9 @@ const App: React.FC = () => {
               {/* Inside Suspense: mounts only once a lazy route chunk resolves → clears the stale-chunk
                   recovery guard on a genuinely successful post-reload boot (not a frame-count heuristic). */}
               <StaleChunkBootClear />
+              {/* #1259 F08: route transitions, emitted beside the routes so no page owns — or misses —
+                  the wandering a dead end produces. */}
+              <JourneyRouteTelemetry />
               {/* #1416 — NO `mode="wait"` HERE.
                   `mode="wait"` holds the outgoing route mounted until its exit animation completes
                   before it will mount the incoming one. Every route below is `React.lazy`, so the
