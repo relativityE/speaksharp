@@ -85,8 +85,25 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
         'Requires PRO_TEST_EMAIL, PRO_TEST_PASSWORD, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY — supplied by rc-gates.yml. Absent locally by design.',
     );
 
-    test('a completed, saved session automatically renders exactly one 1+1 review', async ({ page }) => {
+    test('a completed, saved session automatically renders exactly one 1+1 review', async ({ page }, testInfo) => {
         test.setTimeout(900_000); // a real Private take on Production, including model acquisition
+
+        /*
+         * NO PAGE SNAPSHOT IN THE ARTIFACT, EVER.
+         *
+         * On failure Playwright writes `error-context.md` containing a full DOM snapshot of the page —
+         * and after sign-in that page holds the transcript and the generated coaching. Suppressing
+         * trace, video and screenshot does not stop it: `playwright/lib/index.js:616` writes it unless an
+         * attachment named `error-context` already exists. So one is attached up front, content-free,
+         * and the snapshot is never written. The previous run's artifact carried exactly such a snapshot
+         * (a 404 page, harmless then — the same code path after a real take would not have been).
+         */
+        await testInfo.attach('error-context', {
+            contentType: 'text/markdown',
+            body: '# Page snapshot suppressed\n\nThis journey runs against an authenticated Production session whose DOM '
+                + 'contains transcript and coaching text. A snapshot is deliberately not captured; the failure reason is in '
+                + 'the assertion message, which is content-free by construction.',
+        });
 
         const coachingRequests: number[] = [];   // timestamps, so post-save ordering is provable
         /** One captured analytics event: its name and only the closed-enum/identity fields read. */
@@ -174,10 +191,19 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             // which does not exist, and passed anyway because a 404 shell satisfies origin/release/mock
             // checks. The response status and the not-found shell are both checked now.
             const response = await page.goto('/auth/signin');
+            // Wait for the route's OWN content, so a blank or still-loading shell cannot be read as a
+            // rendered surface. `auth-form` is SignInPage.tsx:167.
+            // `isVisible()` returns immediately and ignores its timeout, so it would read a page that is
+            // still hydrating as unrendered. `waitFor` actually waits.
+            const routeMarkerVisible = await page.getByTestId('auth-form')
+                .waitFor({ state: 'visible', timeout: 30_000 })
+                .then(() => true)
+                .catch(() => false);
             const observed = await page.evaluate(() => {
                 const w = window as unknown as Record<string, unknown> & { __APP_RELEASE__?: string };
                 return {
                     origin: location.origin,
+                    pathname: location.pathname,
                     release: w.__APP_RELEASE__ ?? null,
                     injected: Object.keys(w).some((k) => /__MOCK|__MSW/i.test(k)),
                     notFound: document.body.innerText.includes('Page not found'),
@@ -190,6 +216,8 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                 releaseSha: observed.release,
                 mockSurfacesPresent: observed.injected,
                 notFoundRendered: observed.notFound,
+                observedPathname: observed.pathname,
+                routeMarkerVisible,
             }, APPROVED_ORIGIN);
             expect(failures, 'the pre-credential surface must be the real approved route').toEqual([]);
         });

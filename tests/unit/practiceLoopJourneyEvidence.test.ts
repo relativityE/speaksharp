@@ -62,6 +62,8 @@ describe('#1437 — the pre-credential route surface', () => {
         releaseSha: 'a'.repeat(40),
         mockSurfacesPresent: false,
         notFoundRendered: false,
+        observedPathname: '/auth/signin',
+        routeMarkerVisible: true,
     };
 
     it('CONTROL: the real route on the approved origin passes', () => {
@@ -72,8 +74,19 @@ describe('#1437 — the pre-credential route surface', () => {
         // The exact defect. `/auth/login` is not a route; the app answered 200 with its not-found shell,
         // and a check of origin + release + mock surfaces passed on it. Two Production runs were spent
         // before the journey was ever reached.
-        expect(routeSurfaceFailures({ ...realRoute, path: '/auth/login', notFoundRendered: true }, APPROVED_ORIGIN))
-            .toEqual(['/auth/login rendered the not-found page; the route does not exist']);
+        // Modelled on what the real 404 did: status 200 (SPA shell), the not-found page rendered, and
+        // the sign-in form absent. Both facts are reported, because both are true and each alone is
+        // enough to refuse the surface.
+        expect(routeSurfaceFailures({
+            ...realRoute,
+            path: '/auth/login',
+            observedPathname: '/auth/login',
+            notFoundRendered: true,
+            routeMarkerVisible: false,
+        }, APPROVED_ORIGIN)).toEqual([
+            '/auth/login rendered the not-found page; the route does not exist',
+            '/auth/login did not render its own content; the surface is blank, loading or errored',
+        ]);
     });
 
     it('CASUALTY: a non-success status and a missing response both fail', () => {
@@ -81,6 +94,21 @@ describe('#1437 — the pre-credential route surface', () => {
             .toContain('/auth/signin returned HTTP 500');
         expect(routeSurfaceFailures({ ...realRoute, httpStatus: null }, APPROVED_ORIGIN))
             .toContain('/auth/signin returned no response');
+    });
+
+    it('CASUALTY (Codex 3997198050): a same-origin redirect to another valid route fails', () => {
+        // Every refusal passes here — 200, approved origin, real release, no mocks, not the 404 shell —
+        // because the page IS a real page. It is just not the one we asked for. Only comparing the
+        // observed pathname catches a rewrite or redirect.
+        expect(routeSurfaceFailures({ ...realRoute, observedPathname: '/practice' }, APPROVED_ORIGIN))
+            .toEqual(['expected to be on /auth/signin but the browser is on /practice']);
+    });
+
+    it('CASUALTY (Codex 3997198050): a blank, loading or errored shell fails even on the right path', () => {
+        // React mounted nothing. The URL is right, the status is right, and the user sees nothing —
+        // which every negative check in the previous head accepted.
+        expect(routeSurfaceFailures({ ...realRoute, routeMarkerVisible: false }, APPROVED_ORIGIN))
+            .toEqual(['/auth/signin did not render its own content; the surface is blank, loading or errored']);
     });
 
     it('CASUALTY: a wrong origin, a malformed release and mock surfaces each fail', () => {

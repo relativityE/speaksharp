@@ -213,6 +213,14 @@ export interface RouteSurface {
     readonly mockSurfacesPresent: boolean;
     /** True when the rendered page is the app's not-found shell. */
     readonly notFoundRendered: boolean;
+    /**
+     * POSITIVE PROOF (Codex `3997198050`). The checks above are all refusals, and refusals cannot
+     * distinguish "the right page rendered" from "a redirect, a blank shell, or a loading state that
+     * happens to trip none of them". These two say the route we asked for is the route we are on, and
+     * that its own content actually mounted.
+     */
+    readonly observedPathname: string | null;
+    readonly routeMarkerVisible: boolean;
 }
 
 export function routeSurfaceFailures(surface: RouteSurface, approvedOrigin: string): string[] {
@@ -230,6 +238,17 @@ export function routeSurfaceFailures(surface: RouteSurface, approvedOrigin: stri
         failures.push('the deployed release SHA is missing or malformed');
     }
     if (surface.mockSurfacesPresent) failures.push('mock surfaces are present on Production');
+
+    // The route we landed on must be the route we asked for: a same-origin rewrite or redirect trips
+    // none of the refusals above.
+    if (surface.observedPathname !== surface.path) {
+        failures.push(`expected to be on ${surface.path} but the browser is on ${surface.observedPathname ?? 'an unknown path'}`);
+    }
+    // And it must have actually rendered. A blank, loading or error shell satisfies every negative
+    // check while showing the user nothing.
+    if (!surface.routeMarkerVisible) {
+        failures.push(`${surface.path} did not render its own content; the surface is blank, loading or errored`);
+    }
     return failures;
 }
 
