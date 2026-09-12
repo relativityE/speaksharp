@@ -1,10 +1,61 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
+import coachingContract from './contract.json' with { type: 'json' };
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+// #1416 — `gemini-3-flash-preview` is a PREVIEW endpoint and Google lists `gemini-3.6-flash` as its
+// successor. Preview shutdowns have run 14 days from announcement, so this is an availability risk in
+// production rather than a version-number preference: the endpoint can disappear inside a sprint.
+//
+// The prompt below was tuned against the preview model, so the risk of this change is a SHAPE shift,
+// not a quality one — `parseSuggestions` already rejects any object whose keys are not exactly
+// {version, what_worked, what_to_try_next}, and that rejection is what must reach the user as an
+// error rather than as an empty review.
+export const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${coachingContract.model}:generateContent`;
+// #1424 (Codex finding): the request used to constrain its answer by PROMPT WORDING alone, and
+// `parseSuggestions` then demanded exactly {version, what_worked, what_to_try_next}. That made the contract a
+// request rather than a constraint: a model is free to wrap its answer in a markdown fence or add a key, and
+// every such answer is a 502 for every user. An executed call proving the model complied ONCE is evidence
+// about that call, not a guarantee about the next one.
+//
+// Declaring the MIME type and schema moves the contract into the API, where the provider enforces it. The
+// literal is written as valid JSON on purpose: the G4 proof parses this exact object out of this file and
+// sends it, so the proof cannot drift from what production requests.
+//
+// `version` carries an `enum`, not a bare STRING (Codex finding). Typing it as STRING alone lets the model
+// return any version string the schema considers valid, which `parseSuggestions` then rejects - a 502 we
+// asked for. The values the parser demands and the values the schema permits have to be the same set.
+/**
+ * #1424 A2 - the two-phrase coaching format, as ONE definition.
+ *
+ * The product format is two phrases of at most 6 words each.
+ *
+ * The release-and-iterate policy carried two different budgets - 6 for what worked, 8 for try next - which
+ * gave two numbers to remember, two ways to be wrong, and no reason for the asymmetry. PO ruling: reconcile
+ * both to one number. Six, and measured rather than chosen: 3.6 writes to FILL whatever budget it is given
+ * - 5 and 5 words under a six-word budget, 6 and 7 under a seven-word one - so slack buys no margin, it just
+ * gets spent. A field landing ON the limit is one word from a 502. Six is also the number the policy already
+ * carried for "what worked", so this reconciles to an existing number rather than inventing one. The
+ * shipped prompt never said so - its only length instruction was "concise enough to display in the app" -
+ * so the model returned 22-36 words per field and nothing truncated it in the UI. The user read whatever
+ * arrived.
+ *
+ * The budget is enforced in all three places a violation can enter: asked for in the PROMPT, capped in the
+ * SCHEMA, and refused by the PARSER. Prompt wording alone is a request; only the parser is a guarantee.
+ */
+export const COACHING_WORD_BUDGET = Object.freeze(coachingContract.wordBudget);
+
+/** Words, counted the way a reader would: runs of non-whitespace. */
+export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
+
+export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
+
 const MAX_TRANSCRIPT_CHARS = 8000;
-const AI_SUGGESTION_DAILY_LIMIT = 20;
+// #1424 A1. Lowered from 20 with #1422's P2-4 in view: the review now fires automatically at post-save
+// readiness rather than on a click, so the ceiling is reached by ordinary use rather than by deliberate
+// retries. Note this is a DAILY cap and the binding provider constraint is per-MINUTE (see the operating
+// note in the PR body) - a daily number cannot prevent a burst.
+export const AI_SUGGESTION_DAILY_LIMIT = coachingContract.uncachedGenerationCapPerUtcDay;
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
@@ -34,7 +85,20 @@ interface SessionEvidence {
   ai_suggestions: unknown;
 }
 
-function parseSuggestions(rawText: string): AISuggestions | null {
+/**
+ * `enforceWordBudget` separates two jobs this parser does, which are not the same contract (Codex P1).
+ *
+ * GENERATING: the model's fresh answer must obey the budget, or the user reads an essay where the product
+ * promises a phrase.
+ *
+ * READING WHAT IS ALREADY STORED: every review generated before the budget existed is 22-36 words - that is
+ * precisely what the old prompt produced. Applying the budget to a stored row would make coaching a user
+ * already received suddenly unreadable, and it would not merely hide it: an expired transcript would 409, an
+ * expired account 403, and an active user would silently regenerate and spend quota to replace coaching that
+ * was already fine. A rule introduced today must not retroactively invalidate what the product said
+ * yesterday.
+ */
+export function parseSuggestions(rawText: string, { enforceWordBudget = false } = {}): AISuggestions | null {
   try {
     const parsed = JSON.parse(rawText.trim()) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
@@ -44,6 +108,13 @@ function parseSuggestions(rawText: string): AISuggestions | null {
     if (candidate.version !== 'gemini_coaching_v1') return null;
     if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
     if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
+    // #1424 A2: the word budget is REFUSED, not truncated. Cutting a coaching phrase mid-sentence produces
+    // something the coach never said, and presenting that as advice is worse than an honest failure the user
+    // can retry. Applied to GENERATION only — see the note on `enforceWordBudget`.
+    if (enforceWordBudget) {
+      if (countWords(candidate.what_worked) > COACHING_WORD_BUDGET.what_worked) return null;
+      if (countWords(candidate.what_to_try_next) > COACHING_WORD_BUDGET.what_to_try_next) return null;
+    }
 
     return {
       version: 'gemini_coaching_v1',
@@ -54,6 +125,18 @@ function parseSuggestions(rawText: string): AISuggestions | null {
     console.error('Failed to parse AI suggestions JSON:', error);
     return null;
   }
+}
+
+/**
+ * Build the exact prompt sent to Gemini from the same inert contract used by the trusted proof harness.
+ * Replacements happen before caller content is inserted, so transcript text that happens to contain a
+ * placeholder cannot alter the metrics boundary.
+ */
+export function buildCoachingPrompt(transcriptForPrompt: string, metricsText: string): string {
+  return coachingContract.promptTemplate.replace(
+    /\{\{(TRANSCRIPT|METRICS)\}\}/g,
+    (_marker, name: string) => name === 'TRANSCRIPT' ? transcriptForPrompt : metricsText,
+  );
 }
 
 // Define the handler with dependency injection for testability
@@ -209,29 +292,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       - Filler Words: ${session.filler_words == null ? 'N/A' : JSON.stringify(session.filler_words)}
     `;
 
-    const prompt = `
-      You are an expert public speaking coach. Analyze the following speech transcript and metrics as if the user wants practical coaching they can use in the next practice session.
-      Go beyond delivery metrics. Evaluate the speech content's logical structure, vocabulary variety, sentence variety, transitions, specificity, and audience impact in addition to pacing, clarity, pauses, and filler words.
-
-      Coaching rules:
-      - Be specific and evidence-based. Reference short phrases or patterns from the transcript when useful.
-      - Do not invent facts, audience context, or performance details not present in the transcript or metrics.
-      - Prefer concrete rewrites, next-step drills, or "try saying..." examples over generic encouragement.
-      - If the transcript is too short for a category, say what additional evidence would make that category measurable.
-      - Keep every description concise enough to display in the app.
-
-      Transcript:
-      "${transcriptForPrompt}"
-      ${metricsText}
-
-      Return exactly one JSON object and no surrounding prose or markdown:
-      {
-        "version": "gemini_coaching_v1",
-        "what_worked": "One concise, session-specific interpretation of what worked and why it mattered.",
-        "what_to_try_next": "One concrete, session-specific change for the next attempt."
-      }
-      Do not add keys. Metric recital or reusable generic advice is invalid.
-    `;
+    const prompt = buildCoachingPrompt(transcriptForPrompt, metricsText);
 
     let suggestions: AISuggestions | null = null;
 
@@ -241,6 +302,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: GEMINI_GENERATION_CONFIG,
         }),
       });
 
@@ -251,7 +313,8 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         const responseData = await geminiResponse.json();
         const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
         suggestions = typeof rawText === 'string'
-          ? parseSuggestions(rawText)
+          // The model's FRESH answer — the one place the budget is enforced.
+          ? parseSuggestions(rawText, { enforceWordBudget: true })
           : null;
       }
     } catch (error) {

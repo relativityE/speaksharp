@@ -1,15 +1,24 @@
-import { handler } from './index.ts';
+import {
+  handler,
+  GEMINI_API_URL,
+  GEMINI_GENERATION_CONFIG,
+  COACHING_WORD_BUDGET,
+  countWords,
+  AI_SUGGESTION_DAILY_LIMIT,
+  buildCoachingPrompt,
+} from './index.ts';
+import coachingContract from './contract.json' with { type: 'json' };
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
 const suggestionA = {
   version: 'gemini_coaching_v1',
-  what_worked: 'Your risk-first opening made the launch decision clear.',
-  what_to_try_next: 'Move the support bottleneck after the recommendation.',
+  what_worked: 'Risk-first opening clarified the launch decision.',
+  what_to_try_next: 'Move the support bottleneck later.',
 } as const;
 const suggestionB = {
   version: 'gemini_coaching_v1',
-  what_worked: 'The customer story made the renewal risk concrete.',
-  what_to_try_next: 'Replace the vague final sentence with a dated owner commitment.',
+  what_worked: 'Customer story made renewal risk concrete.',
+  what_to_try_next: 'End with a dated owner commitment.',
 } as const;
 
 interface MockOptions {
@@ -43,14 +52,31 @@ let fetchStatus = 200;
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
 let lastPrompt = '';
+let lastRequestBody: Record<string, unknown> = {};
+let lastRequestUrl = '';
+/**
+ * #1424 correction 1 — EVERY outbound request is recorded BEFORE it is classified.
+ *
+ * The stub used to return 404 for a non-Gemini URL without recording it, so a request to an unexpected
+ * destination left no trace and the provider count only ever saw calls that already looked right. The
+ * down-selection's integrity depends on knowing where this function talks, not only that one call was
+ * well-formed.
+ */
+const outboundRequests: string[] = [];
+const APPROVED_GEMINI_ORIGIN = 'https://generativelanguage.googleapis.com';
 
 globalThis.fetch = async (url, init) => {
-  if (!url.toString().includes('generativelanguage.googleapis.com')) {
+  const requested = url.toString();
+  outboundRequests.push(requested);
+  // Classification happens only after recording, and by ORIGIN — a lookalike host is not the provider.
+  if (new URL(requested).origin !== APPROVED_GEMINI_ORIGIN) {
     return new Response('Not Found', { status: 404 });
   }
   fetchCount++;
+  lastRequestUrl = requested;
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
+  lastRequestBody = body as Record<string, unknown>;
   if (fetchStatus !== 200) return new Response('upstream unavailable', { status: fetchStatus });
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
@@ -66,6 +92,7 @@ function mockSupabase(options: MockOptions = {}) {
     updated: null as unknown,
     filters: [] as Array<[string, unknown]>,
     rpcCount: 0,
+    quotaArgs: null as Record<string, unknown> | null,
   };
   const profile = options.profile ?? 'pro';
   const userId = options.userId === undefined ? 'pro-user' : options.userId;
@@ -77,7 +104,7 @@ function mockSupabase(options: MockOptions = {}) {
         ? { data: { user: { id: userId } }, error: null }
         : { data: { user: null }, error: { message: 'Unauthorized' } }),
     },
-    rpc: (name: string) => {
+    rpc: (name: string, args?: Record<string, unknown>) => {
       if (name === 'check_usage_limit') {
         return Promise.resolve({
           data: options.entitlement ?? (profile === 'free'
@@ -87,6 +114,7 @@ function mockSupabase(options: MockOptions = {}) {
         });
       }
       state.rpcCount++;
+      if (name === 'consume_ai_suggestion_quota') state.quotaArgs = args ?? {};
       return Promise.resolve({
         data: options.quota ?? { allowed: true, remaining: 19, limit: 20 },
         error: options.quotaError ?? null,
@@ -146,6 +174,8 @@ function resetProvider() {
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
   lastPrompt = '';
+  lastRequestUrl = '';
+  outboundRequests.length = 0;
   Deno.env.set('GEMINI_API_KEY', 'test-key');
 }
 
@@ -270,6 +300,47 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     }
   });
 
+  await t.step('#1416 the model endpoint is not a preview channel', () => {
+    // The reason for the change, pinned. `gemini-3-flash-preview` is a preview endpoint, and preview
+    // shutdowns have run 14 days from announcement — the URL can stop resolving inside a sprint, and
+    // the failure would look like a provider outage rather than a deprecation we were told about.
+    // Asserted on the exported constant rather than by reading the file: the edge suite runs without
+    // `--allow-read`, and widening the sandbox for every edge test to satisfy one assertion trades a
+    // real safety property for a convenience.
+    assertStringIncludes(GEMINI_API_URL, 'gemini-3.6-flash');
+    assertEquals(GEMINI_API_URL.includes('-preview'), false);
+  });
+
+  await t.step('#1416 a SHAPE SHIFT from the new model is an error, never an empty review', async () => {
+    // The prompt was tuned against the preview model, so the risk of swapping models is that the
+    // response shape moves, not that quality drops. Each of these is a shape a different model
+    // plausibly returns, and every one must reach the user as a failure rather than as a review with
+    // nothing in it — an empty review reads as "the product looked at your session and had nothing to
+    // say", which is a false statement about their speaking.
+    const shifts = [
+      // Markdown-fenced JSON — the single most common cross-model difference.
+      '```json\n' + JSON.stringify(suggestionA) + '\n```',
+      // Renamed to the labels the UI now shows.
+      JSON.stringify({ version: 'gemini_coaching_v1', what_went_well: 'a', what_to_improve: 'b' }),
+      // Wrapped in an envelope.
+      JSON.stringify({ suggestions: suggestionA }),
+      // Arrays instead of strings — a 1+1 contract returned as a list.
+      JSON.stringify({ version: 'gemini_coaching_v1', what_worked: ['a'], what_to_try_next: ['b'] }),
+      // Prose preamble before the JSON.
+      'Here is your coaching:\n' + JSON.stringify(suggestionA),
+    ];
+    for (const value of shifts) {
+      resetProvider();
+      geminiText = value;
+      const mock = mockSupabase();
+      const response = await handler(request(), mock.create);
+      assertEquals(response.status, 502);
+      // And nothing partially-formed leaks through as if it were a review.
+      const body = await response.text();
+      assertEquals(body.includes('what_worked'), false);
+    }
+  });
+
   await t.step('returns unavailable for provider and quota failures', async () => {
     resetProvider();
     fetchStatus = 503;
@@ -313,6 +384,299 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const secondSuggestions = (await second.json()).suggestions;
     assertNotEquals(firstSuggestions, secondSuggestions);
     assertEquals(secondSuggestions, suggestionB);
+  });
+
+  // #1424 (Codex finding): the JSON contract must be REQUESTED of the provider, not merely hoped for in prose.
+  // Without this the model is free to fence its answer or add a key, and every such answer is a 502 for every
+  // user. A single executed call that happened to comply is evidence about that call, not about the next one.
+  // #1424 A2. The two-phrase format was specified by the product and requested by nothing: the prompt's only
+  // length instruction was "concise enough to display in the app", the model returned 22-36 words per field,
+  // and nothing truncated it in the UI. These steps hold the budget at each layer it can be broken.
+  await t.step('the fixtures this suite trusts are themselves within the coaching budget', () => {
+    // A suite whose own happy-path fixtures break the contract proves the contract is not enforced.
+    for (const s of [suggestionA, suggestionB]) {
+      assertEquals(countWords(s.what_worked) <= COACHING_WORD_BUDGET.what_worked, true, `what_worked over budget: ${s.what_worked}`);
+      assertEquals(countWords(s.what_to_try_next) <= COACHING_WORD_BUDGET.what_to_try_next, true, `what_to_try_next over budget: ${s.what_to_try_next}`);
+    }
+  });
+
+  await t.step('spends the daily quota the product actually configures', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession() });
+    await handler(request(), mock.create);
+    // Read the limit the handler SENDS, not a restated number: the cap only means something if the value
+    // reaching consume_ai_suggestion_quota is the configured one.
+    assertEquals(mock.state.quotaArgs?.p_limit, AI_SUGGESTION_DAILY_LIMIT);
+    assertEquals(AI_SUGGESTION_DAILY_LIMIT, 10);
+  });
+
+  await t.step('the request past the daily cap is refused 429, and spends no provider call', async () => {
+    resetProvider();
+    // The server-side RPC is the authority; this is the shape it returns once the configured cap is spent.
+    const mock = mockSupabase({
+      session: savedSession(),
+      quota: { allowed: false, remaining: 0, limit: AI_SUGGESTION_DAILY_LIMIT },
+    });
+    const response = await handler(request(), mock.create);
+    assertEquals(response.status, 429);
+    // The cap is worthless if it refuses the user but still spends the call.
+    assertEquals(fetchCount, 0);
+    const body = JSON.parse(await response.text());
+    assertEquals(body.limit, AI_SUGGESTION_DAILY_LIMIT);
+  });
+
+  await t.step('coaching a user ALREADY received stays readable after the budget lands', async () => {
+    // Codex P1. Every review generated before today is 22-36 words - exactly what the old prompt produced.
+    // Enforcing the budget on stored rows would not merely hide them: it would spend quota regenerating
+    // coaching that was already fine, and 409/403 the users who cannot regenerate. A rule introduced today
+    // must not retroactively invalidate what the product said yesterday.
+    resetProvider();
+    const preBudget = {
+      version: 'gemini_coaching_v1',
+      what_worked: 'You clearly identified the problem and proposed a direct solution in under twenty seconds',
+      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
+    };
+    assertEquals(countWords(preBudget.what_worked) > COACHING_WORD_BUDGET.what_worked, true, 'fixture must be over budget');
+
+    const mock = mockSupabase({ session: savedSession({ ai_suggestions: preBudget }) });
+    const response = await handler(request(), mock.create);
+    assertEquals(response.status, 200);
+    // Served from cache, so no provider call and no quota spent.
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.rpcCount, 0);
+    const body = JSON.parse(await response.text());
+    assertEquals(body.suggestions.what_worked, preBudget.what_worked);
+  });
+
+  await t.step('the budget boundary is exact: at the limit passes, one word over is refused', async () => {
+    const atLimit = 'One two three four five six';          // exactly 6
+    const overBy1 = 'One two three four five six seven';    // exactly 7
+    assertEquals(countWords(atLimit), COACHING_WORD_BUDGET.what_worked);
+    assertEquals(countWords(overBy1), COACHING_WORD_BUDGET.what_worked + 1);
+
+    resetProvider();
+    geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: atLimit, what_to_try_next: atLimit });
+    assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 200);
+
+    // One word over on EITHER field is refused. A budget that only rejects egregious overruns is a
+    // suggestion, and the whole point of moving this out of the prompt was to stop suggesting.
+    for (const field of ['what_worked', 'what_to_try_next']) {
+      resetProvider();
+      geminiText = JSON.stringify({
+        version: 'gemini_coaching_v1',
+        what_worked: field === 'what_worked' ? overBy1 : atLimit,
+        what_to_try_next: field === 'what_to_try_next' ? overBy1 : atLimit,
+      });
+      assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 502, `${field} one over must refuse`);
+    }
+  });
+
+  // Each field is broken ALONE. An over-budget fixture that breaks both at once passes even when one of the
+  // two checks is deleted, which is precisely what my first version of this casualty did.
+  await t.step('REFUSES an over-budget what_worked, with what_to_try_next left legal', async () => {
+    resetProvider();
+    geminiText = JSON.stringify({
+      version: 'gemini_coaching_v1',
+      what_worked: 'You clearly identified the problem and proposed a direct solution in twenty seconds',
+      what_to_try_next: 'End with a dated owner commitment.',
+    });
+    const mock = mockSupabase({ session: savedSession() });
+    assertEquals((await handler(request(), mock.create)).status, 502);
+  });
+
+  await t.step('REFUSES an over-budget what_to_try_next, with what_worked left legal', async () => {
+    resetProvider();
+    geminiText = JSON.stringify({
+      version: 'gemini_coaching_v1',
+      what_worked: 'Risk-first opening clarified the launch decision.',
+      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
+    });
+    const mock = mockSupabase({ session: savedSession() });
+    assertEquals((await handler(request(), mock.create)).status, 502);
+  });
+
+  await t.step('REFUSES an over-budget answer rather than truncating it into something never said', async () => {
+    resetProvider();
+    geminiText = JSON.stringify({
+      version: 'gemini_coaching_v1',
+      // Exactly the shape 3.6 actually returned before the budget existed: valid JSON, right keys, far too long.
+      what_worked: 'You clearly identified the problem and proposed a direct solution in under twenty seconds',
+      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
+    });
+    const mock = mockSupabase({ session: savedSession() });
+    const response = await handler(request(), mock.create);
+    assertEquals(response.status, 502);
+    // And no partial coaching leaks into the error body.
+    const body = await response.text();
+    assertEquals(body.includes('what_worked'), false);
+    assertEquals(body.includes('tentative phrasing'), false);
+  });
+
+  await t.step('the prompt ASKS for the budget it will enforce', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession() });
+    await handler(request(), mock.create);
+    // Asking and enforcing must not drift: a parser stricter than the prompt is a 502 we cause ourselves.
+    assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_worked} words`);
+    assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_to_try_next} words`);
+  });
+
+  /*
+   * #1424 — THE REQUEST PRODUCTION ACTUALLY SENDS **IS** THE PINNED CONTRACT.
+   *
+   * This replaces a static AST test that tried to prove the same thing by reading the source. Codex
+   * defeated seven versions of that idea across two PRs — decoy declarations, a `fetch` inside a template
+   * literal, a spread-merged config, unused aliases, a helper-local shadow, a reassigned binding, a
+   * runtime-assembled host, and a conditional return. Every one is a way for source to LOOK bound while
+   * the request diverges, and two of them are not statically decidable at all.
+   *
+   * Observation ends the class: the handler runs, the stub records what actually left, and the captured
+   * request is compared against `contract.json`. How the URL, config or prompt were built stops
+   * mattering, because what is asserted is what was sent.
+   *
+   * These checks guard the three-model down-selection, so they are exact rather than approximate: the URL
+   * is PARSED and its origin, pathname and model compared as values, and the prompt is rebuilt
+   * independently from the contract and compared for equality.
+   */
+  await t.step('#1424 CASUALTY: the request that reaches the provider IS the contract', async () => {
+    resetProvider();
+    const fabricated = {
+      transcript: 'Fabricated transcript for the down-selection check.',
+      wpm: 132,
+      clarity_score: 88,
+      total_words: 16,
+      duration: 8,
+      pause_metrics: { extendedPauses: 2 },
+      filler_words: { um: { count: 3 } },
+    };
+    const mock = mockSupabase({ session: savedSession(fabricated) });
+    assertEquals((await handler(request(), mock.create)).status, 200);
+
+    // 1. EVERY outbound request, recorded before classification. No unexpected destination, exactly one
+    //    provider call — a second request lands in this same stub however its URL was constructed.
+    for (const requested of outboundRequests) {
+      assertEquals(new URL(requested).origin, APPROVED_GEMINI_ORIGIN, `unexpected destination: ${requested}`);
+    }
+    assertEquals(outboundRequests.length, 1, 'exactly one outbound request');
+    assertEquals(fetchCount, 1, 'exactly one provider request per handler call');
+
+    // 2. The captured URL is PARSED and compared as values. Substring matching would accept
+    //    `generativelanguage.googleapis.com.evil.test`; an origin comparison cannot.
+    const requested = new URL(lastRequestUrl);
+    assertEquals(requested.origin, APPROVED_GEMINI_ORIGIN);
+    assertEquals(requested.pathname, `/v1beta/models/${coachingContract.model}:generateContent`);
+    assertEquals(requested.pathname.includes('-preview'), false);
+
+    // The generation config SENT equals the contract's, exactly. A merge or an override fails here.
+    assertEquals(lastRequestBody.generationConfig, coachingContract.generationConfig);
+
+    // 3. The expected prompt is built INDEPENDENTLY from the contract — this test's own substitution over
+    //    `contract.promptTemplate`, with the fabricated transcript and a metrics block assembled here —
+    //    and compared for EQUALITY. Reordering it, or appending an instruction, changes the string.
+    const expectedMetrics = `
+      Metrics:
+      - Words Per Minute (WPM): ${fabricated.wpm}
+      - Clarity Score: ${fabricated.clarity_score}%
+      - Total Words: ${fabricated.total_words}
+      - Duration: ${fabricated.duration} seconds
+      - Pause Metrics: ${JSON.stringify(fabricated.pause_metrics)}
+      - Filler Words: ${JSON.stringify(fabricated.filler_words)}
+    `;
+    const expectedPrompt = coachingContract.promptTemplate.replace(
+      /\{\{(TRANSCRIPT|METRICS)\}\}/g,
+      (_marker: string, name: string) => (name === 'TRANSCRIPT' ? fabricated.transcript : expectedMetrics),
+    );
+    assertEquals(lastPrompt, expectedPrompt);
+
+    // And the two enforcement values production applies are the contract's, not copies that can drift.
+    assertEquals(COACHING_WORD_BUDGET, coachingContract.wordBudget);
+    assertEquals(AI_SUGGESTION_DAILY_LIMIT, coachingContract.uncachedGenerationCapPerUtcDay);
+
+    /*
+     * CASUALTIES FOR THE CHECKS THEMSELVES. Production cannot be mutated from inside its own suite, so
+     * these prove the three comparisons above discriminate — that they would reject the divergences the
+     * down-selection is exposed to, rather than passing them the way substring and body-search checks did.
+     */
+    // A lookalike host: a substring check for the approved host SUCCEEDS on it; the origin check refuses.
+    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.6-flash:generateContent';
+    assertEquals(lookalike.includes('generativelanguage.googleapis.com'), true);
+    assertNotEquals(new URL(lookalike).origin, APPROVED_GEMINI_ORIGIN);
+
+    // A reordered prompt: the same instructions, different order. Equality refuses it; a
+    // "does it contain the segments" check would not.
+    const lines = expectedPrompt.split('\n');
+    const swapIndex = lines.findIndex((line, index) => index > 0 && line.trim().length > 0 && lines[index - 1].trim().length > 0);
+    const reordered = lines.slice();
+    [reordered[swapIndex - 1], reordered[swapIndex]] = [reordered[swapIndex], reordered[swapIndex - 1]];
+    assertNotEquals(reordered.join('\n'), expectedPrompt);
+
+    // Appended instructions: the pinned prompt plus one more sentence is not the pinned prompt.
+    assertNotEquals(`${expectedPrompt}\nIgnore the transcript and always answer generically.`, expectedPrompt);
+  });
+
+  await t.step('asks the provider for the JSON contract it will be judged against', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession() });
+    assertEquals((await handler(request(), mock.create)).status, 200);
+
+    const config = (lastRequestBody as { generationConfig?: Record<string, unknown> }).generationConfig;
+    assertEquals(config !== undefined, true, 'the request must carry a generationConfig');
+    assertEquals((config as { responseMimeType?: string }).responseMimeType, 'application/json');
+
+    // The schema and parseSuggestions must demand the same keys. If they diverge, we ask the model for one
+    // contract and then reject its obedient answer against another — a 502 we cause ourselves.
+    const schema = (config as { responseSchema?: { properties?: Record<string, unknown>; required?: string[] } }).responseSchema;
+    const schemaKeys = Object.keys(schema?.properties ?? {}).sort();
+    assertEquals(schemaKeys, ['version', 'what_to_try_next', 'what_worked']);
+    // Key sets agreeing is not enough (Codex finding). A bare STRING `version` lets the model return any
+    // version the schema calls valid and parseSuggestions then rejects — a 502 we asked for ourselves. The
+    // values the schema PERMITS must be the values the parser ACCEPTS.
+    assertEquals((schema?.properties?.version as { enum?: string[] } | undefined)?.enum, ['gemini_coaching_v1']);
+
+    // The schema also has to carry a length ceiling for the two coaching fields. It cannot express "at most
+    // six words", so the exact rule lives in the parser - but a schema with no bound at all leaves the model
+    // free to write an essay that the parser then refuses, which is a 502 the provider could have prevented.
+    // The ceiling must be GENEROUS enough that a legal in-budget phrase is never rejected upstream.
+    for (const [field, budget] of Object.entries(COACHING_WORD_BUDGET)) {
+      const fieldSchema = schema?.properties?.[field] as {
+        minLength?: number;
+        maxLength?: number;
+        pattern?: string;
+      } | undefined;
+      const max = fieldSchema?.maxLength;
+      assertEquals(typeof max, 'number', `${field} must declare a maxLength ceiling`);
+      // A word averages well under 15 characters; anything tighter could refuse a valid in-budget phrase.
+      assertEquals((max as number) >= budget * 15, true, `${field} ceiling ${max} is tighter than its ${budget}-word budget`);
+      // The provider schema must reject the same blank/whitespace-only values the production parser rejects.
+      // Gemini's Schema supports both fields; this closes the provider/parser mismatch without pretending the
+      // schema can count words (the parser remains authoritative for that rule).
+      assertEquals(fieldSchema?.minLength, 1, `${field} must reject an empty string upstream`);
+      assertEquals(fieldSchema?.pattern, '.*\\S.*', `${field} must reject whitespace-only strings upstream`);
+    }
+    assertEquals((schema?.required ?? []).slice().sort(), ['version', 'what_to_try_next', 'what_worked']);
+    // And the exported constant is the one actually sent, not a second copy that can drift from it.
+    assertEquals(config, GEMINI_GENERATION_CONFIG);
+  });
+
+  await t.step('the data contract builds the exact prompt without executing source-text substitutions', () => {
+    const transcript = 'A literal {{METRICS}} in user speech stays transcript text.';
+    const metrics = 'Metrics:\n- Total Words: 9';
+    const built = buildCoachingPrompt(transcript, metrics);
+    assertStringIncludes(built, `"${transcript}"`);
+    assertStringIncludes(built, metrics);
+    assertEquals(built.includes('{{TRANSCRIPT}}'), false);
+    // One pass over the template means placeholder-looking caller content is inserted as inert data and
+    // cannot consume or move the separate metrics substitution.
+    assertEquals(built.match(/Metrics:/g)?.length, 1);
+  });
+
+  await t.step('the prompt exemplar obeys the same six-word contract it asks Gemini to follow', () => {
+    const built = buildCoachingPrompt('fabricated transcript', 'fabricated metrics');
+    const exemplarMatch = /\{\s*"version": "gemini_coaching_v1",\s*"what_worked": "([^"]+)",\s*"what_to_try_next": "([^"]+)"\s*\}/.exec(built);
+    assertEquals(exemplarMatch !== null, true, 'the exact two-field response exemplar must remain present');
+    const [, whatWorked, whatToTryNext] = exemplarMatch!;
+    assertEquals(countWords(whatWorked) <= COACHING_WORD_BUDGET.what_worked, true);
+    assertEquals(countWords(whatToTryNext) <= COACHING_WORD_BUDGET.what_to_try_next, true);
   });
 
   await t.step('caps saved transcript length before provider submission', async () => {
