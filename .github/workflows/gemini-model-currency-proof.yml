@@ -2,8 +2,8 @@ name: Gemini Model Currency Proof
 
 # OFFLINE contract-conformance run. It executes from the trusted default branch, never checks out or runs
 # code from the target PR, and makes NO provider call: no credential is passed to this job at all. The
-# candidate inputs are two inert texts read with `git show` — the JSON contract, and the production
-# function's source, which is pattern-checked to prove it derives its request from that same contract.
+# candidate input is one inert text read with `git show` — the JSON contract. The production binding is NOT
+# claimed here; it is proven in #1424 by a TypeScript-AST test running in ordinary CI.
 on:
   workflow_dispatch:
     inputs:
@@ -61,21 +61,18 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$TARGET_SHA"
           git show "$TARGET_SHA:backend/supabase/functions/get-ai-suggestions/contract.json" > /tmp/gemini-coaching-contract.json
-          # Codex exact-head P1: the candidate's PRODUCTION function, read as inert text so the harness can
-          # prove the contract it validates is the contract Production actually uses. Never imported and
-          # never executed — only pattern-checked by the trusted harness.
-          git show "$TARGET_SHA:backend/supabase/functions/get-ai-suggestions/index.ts" > /tmp/gemini-production-function.ts
           echo "Trusted harness: $(git rev-parse HEAD)"
           echo "Candidate data: $TARGET_SHA"
 
-      # PO directive 5644238136 — OFFLINE ONLY. No credential is passed to this job and no provider call
-      # is made: not here, not in CI, not in Preview. The step verifies the candidate's contract, verifies
-      # that the candidate's production function derives its request from that same contract, and proves
-      # the validator discriminates against checked-in fixtures.
+      # PO directive 5644238136 — OFFLINE ONLY. No credential is passed to this job and no provider call is
+      # made: not here, not in CI, not in Preview. The step verifies the candidate's contract and proves the
+      # shared response validator discriminates against checked-in fixtures. It does NOT claim the
+      # production function uses that contract — after Codex 3995449453 / 3995482306 / 3995482308 /
+      # 3995482310 / 3995491120 that claim was withdrawn from here; #1424 proves it with a real TypeScript
+      # parse in CI, on the tree being merged.
       - name: Verify the candidate contract offline
         env:
           GEMINI_CONTRACT_PATH: /tmp/gemini-coaching-contract.json
-          GEMINI_FUNCTION_SOURCE_PATH: /tmp/gemini-production-function.ts
           TARGET_SHA: ${{ inputs.target_sha }}
           PROOF_OUT: artifacts/gemini-model-currency-proof.json
         run: node scripts/gemini-model-currency-proof.mjs

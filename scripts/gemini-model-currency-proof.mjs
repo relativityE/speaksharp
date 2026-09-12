@@ -4,9 +4,14 @@
  *
  * OFFLINE contract-conformance harness (PO directive 5644238136). It runs from the repository default
  * branch, never checks out or executes candidate code, and makes NO network request of any kind: there
- * is no credential, no fetch, and no provider call anywhere in this module. The workflow supplies two
- * inert texts read from the target commit — the JSON contract and the production function's source —
- * and everything below is validation and static analysis of those.
+ * is no credential, no fetch, and no provider call anywhere in this module. The workflow supplies one
+ * inert text read from the target commit — the JSON contract — and everything below validates it.
+ *
+ * SCOPE, stated here and in the evidence: this proves the candidate's contract IS the locked product
+ * contract and that the shared response validator discriminates correctly. It does NOT prove that the
+ * production function uses that contract (see the note above `buildProofPrompt`), and it does NOT prove
+ * the provider is currently serving the model — that is answered in Production, by suggestions
+ * generating automatically after a completed session.
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -73,171 +78,24 @@ export function validateContract(contract) {
 }
 
 /**
- * Remove comments only. String and template contents are KEPT, because they are exactly what the checks
- * below read — an endpoint path, an import specifier. Comments go because a model name mentioned in a
- * comment is documentation, not a request, and #1424's file carries precisely such a comment.
+ * WHAT THIS HARNESS DOES NOT CLAIM, and why the claim was withdrawn.
+ *
+ * Three successive versions tried to prove statically that the PRODUCTION function derives its request
+ * from this contract, and Codex defeated each one in turn: source-wide regexes passed decoy declarations
+ * (`3995449453`); request-site anchoring passed a `fetch` written inside a template literal
+ * (`3995482306`), a spread-merged generation config (`3995482308`), and declared-but-unused budget and
+ * cap aliases (`3995482310`); and the security review showed the same gap could bless an exfiltrating
+ * candidate (`3995491120`).
+ *
+ * The root cause was the tool, not the individual holes: this job runs `node` with no dependency install,
+ * so only Node built-ins are available and every attempt degraded into substring matching over untrusted
+ * TypeScript. Rather than ship a fourth patch and call it proof, the claim is REMOVED from here. The
+ * production binding is proven in #1424 by a test that parses `get-ai-suggestions/index.ts` with the real
+ * TypeScript compiler, in CI, where the compiler exists — checking the tree being merged, on every PR.
+ *
+ * What remains here is exactly what this runtime can support honestly, and the evidence says so in its
+ * own `scope` field so a reader cannot mistake it for more.
  */
-function withoutComments(source) {
-  let out = '';
-  let i = 0;
-  while (i < source.length) {
-    const two = source.slice(i, i + 2);
-    if (two === '//') { const end = source.indexOf('\n', i); i = end === -1 ? source.length : end; continue; }
-    if (two === '/*') { const end = source.indexOf('*/', i + 2); i = end === -1 ? source.length : end + 2; out += ' '; continue; }
-    const ch = source[i];
-    if (ch === '"' || ch === "'" || ch === '`') {
-      // Copy the literal through verbatim, so a `//` inside a URL is not read as a comment.
-      out += ch;
-      i += 1;
-      while (i < source.length && source[i] !== ch) {
-        if (source[i] === '\\') { out += source.slice(i, i + 2); i += 2; continue; }
-        out += source[i];
-        i += 1;
-      }
-      if (i < source.length) { out += ch; i += 1; }
-      continue;
-    }
-    out += ch;
-    i += 1;
-  }
-  return out;
-}
-
-/**
- * The text of a call's arguments, from `(` to its matching `)`. Parens inside string and template
- * literals are skipped rather than counted, so a `)` in a message cannot end the scan early.
- */
-function callArguments(text, callIndex) {
-  let i = text.indexOf('(', callIndex);
-  if (i === -1) return null;
-  const start = i;
-  let depth = 0;
-  while (i < text.length) {
-    const ch = text[i];
-    if (ch === '"' || ch === "'" || ch === '`') {
-      const quote = ch;
-      i += 1;
-      while (i < text.length && text[i] !== quote) {
-        i += text[i] === '\\' ? 2 : 1;
-      }
-      i += 1;
-      continue;
-    }
-    if (ch === '(') depth += 1;
-    else if (ch === ')') { depth -= 1; if (depth === 0) return text.slice(start + 1, i); }
-    i += 1;
-  }
-  return null;
-}
-
-/** One level of resolution: the initialiser of `const <name> = …`, or null. */
-function declarationOf(structural, name) {
-  if (!/^[A-Za-z_$][\w$]*$/.test(name)) return null;
-  const match = new RegExp(`(?:const|let|var)\\s+${name}\\s*=\\s*([^;]+);`).exec(structural);
-  return match ? match[1] : null;
-}
-
-/**
- * #1434 Codex exact-head P1s `3995381720` and `3995449453` — PROVE THE CONTRACT REACHES THE ACTUAL
- * REQUEST, NOT MERELY THE FILE.
- *
- * The first version validated `contract.json` in isolation: a green result could sit beside a function
- * calling a hardcoded preview endpoint with an inline prompt, which is what `main` does today.
- *
- * The second version checked the source for contract-derived declarations — and Codex broke it with the
- * right counter-example: a file can DECLARE `GEMINI_API_URL`, `GEMINI_GENERATION_CONFIG` and a
- * contract-built prompt, satisfy every source-wide regex, and then call `fetch` with a separately
- * constructed model and an inline generation config. Decoy declarations, real divergent request.
- *
- * So the checks are anchored at the REQUEST SITE. The provider `fetch` is located in structural source
- * (comments and string contents removed, so prose cannot fool the scan), its arguments are read, and
- * each argument is resolved one level back to its declaration, which must come from the contract. A
- * decoy now fails, because the decoy is not what the request uses.
- *
- * Stated limit, because it is a real one: this is one-level resolution, not full data-flow analysis. It
- * defeats the divergence Codex demonstrated and any simple re-spelling of it; it is not a proof against
- * an adversary who reassigns a bound identifier later in the file, which is why the single-call rule
- * below matters — there is exactly one provider request, and it is the one checked.
- */
-export function assertProductionUsesContract(source) {
-  if (typeof source !== 'string' || source.trim() === '') {
-    throw new Error('production function source is unavailable');
-  }
-  const structural = withoutComments(source);
-  const failures = [];
-
-  const contractImport = /import\s+([A-Za-z_$][\w$]*)\s+from\s+['"]\.\/contract\.json['"]/.exec(structural);
-  if (!contractImport) {
-    throw new Error('production function does not use the proven contract: does not import ./contract.json');
-  }
-  const contract = contractImport[1];
-
-  // The provider request: every `fetch(` whose arguments configure a generation.
-  const calls = [];
-  for (const match of structural.matchAll(/\bfetch\s*\(/g)) {
-    const args = callArguments(structural, match.index);
-    if (args && /generationConfig\s*:/.test(args)) calls.push(args);
-  }
-  if (calls.length !== 1) {
-    failures.push(calls.length === 0
-      ? 'no provider request configuring a generation was found'
-      : `${calls.length} provider requests found; exactly one is required so the checked call is the call made`);
-  }
-
-  if (calls.length === 1) {
-    const args = calls[0];
-    const [urlArg] = args.split(',', 1);
-
-    // 1. THE URL the request actually uses must resolve to the contract's model.
-    const urlIdentifiers = urlArg.match(/[A-Za-z_$][\w$]*/g) ?? [];
-    const urlSources = urlIdentifiers
-      .map((name) => declarationOf(structural, name))
-      .filter(Boolean)
-      .concat(urlArg);
-    if (!urlSources.some((text) => new RegExp(`models/\\$\\{\\s*${contract}\\.model\\s*\\}`).test(text))) {
-      failures.push('the request URL does not resolve to the contract model');
-    }
-    if (urlSources.some((text) => /models\/gemini-[A-Za-z0-9.\-]+/.test(text))) {
-      failures.push('the request URL resolves to a hardcoded model name');
-    }
-
-    // 2. THE GENERATION CONFIG the request actually sends must be the contract's.
-    const configExpr = /generationConfig\s*:\s*([A-Za-z_$][\w$.]*)/.exec(args)?.[1] ?? '';
-    const configSource = configExpr === `${contract}.generationConfig`
-      ? configExpr
-      : declarationOf(structural, configExpr) ?? '';
-    if (!new RegExp(`${contract}\\.generationConfig\\b`).test(configSource)) {
-      failures.push('the request generation config is not the contract generation config');
-    }
-
-    // 3. THE PROMPT the request actually sends must be built from the contract template.
-    const textExpr = /text\s*:\s*([A-Za-z_$][\w$.]*)/.exec(args)?.[1] ?? '';
-    const textDecl = declarationOf(structural, textExpr) ?? '';
-    const builder = /^([A-Za-z_$][\w$]*)\s*\(/.exec(textDecl.trim())?.[1];
-    const builderBody = builder
-      // The builder's body, up to the first line-initial `}` at any indentation. Enough to see whether
-      // the prompt it returns comes from the contract template; not a parser, and not claimed to be.
-      ? new RegExp(`function\\s+${builder}\\s*\\([^]*?\\n\\s*\\}`).exec(structural)?.[0] ?? declarationOf(structural, builder) ?? ''
-      : '';
-    if (!new RegExp(`${contract}\\.promptTemplate\\b`).test(`${textDecl}${builderBody}`)) {
-      failures.push('the request prompt is not built from the contract template');
-    }
-  }
-
-  // These are not request arguments, so they stay source-wide: they govern what production accepts and
-  // how often it may generate, both enforced away from the call.
-  if (!new RegExp(`${contract}\\.wordBudget\\b`).test(structural)) {
-    failures.push('word budget is not taken from the contract');
-  }
-  if (!new RegExp(`${contract}\\.uncachedGenerationCapPerUtcDay\\b`).test(structural)) {
-    failures.push('daily generation cap is not taken from the contract');
-  }
-
-  if (failures.length) {
-    throw new Error(`production function does not use the proven contract: ${failures.join('; ')}`);
-  }
-  return true;
-}
 
 export function buildProofPrompt(contract, transcript, metrics) {
   return contract.promptTemplate
@@ -299,21 +157,21 @@ const fixtureEnvelope = (suggestions, modelVersion) => JSON.stringify({
  * fetch, and no network path in this module at all, which a casualty asserts against this file's own
  * source. Nothing here — CI, tests, Preview, or a dispatch — can spend a generation.
  *
- * What it still proves, and this is the part that was missing before:
+ * What it proves:
  *
  *   1. the candidate's contract is exactly the locked product contract (`validateContract`);
- *   2. the candidate's PRODUCTION function derives its model, generation config, prompt, word budget
- *      and daily cap from that same contract (`assertProductionUsesContract`) — read as inert text;
- *   3. the validator those two agree on actually discriminates: it accepts a conforming response and
- *      refuses each fixture that breaks one rule.
+ *   2. the shared response validator actually discriminates: it accepts a conforming response and
+ *      refuses each fixture that breaks one rule, including an answer from a different model.
  *
- * What it deliberately does NOT prove is that Google's endpoint is currently serving the model. That
- * is a live question, and it is answered where it actually matters — by Production generating
- * suggestions after a completed session, which remains automatic and unchanged.
+ * What it does NOT prove, and says so in its own `scope` field:
+ *
+ *   - that the PRODUCTION function uses this contract. That claim was withdrawn after five findings
+ *     against three static-analysis attempts; #1424 proves it with a real TypeScript parse in CI.
+ *   - that Google is currently serving the model. That is a live question, answered in Production by
+ *     suggestions generating automatically after a completed session — unchanged by this PR.
  */
-export function runProof({ contract, productionSource, targetSha, onProgress = () => {} }) {
+export function runProof({ contract, targetSha, onProgress = () => {} }) {
   validateContract(contract);
-  assertProductionUsesContract(productionSource);
   if (!/^[0-9a-f]{40}$/i.test(targetSha)) throw new Error('target SHA must be a full 40-character commit');
 
   const evidence = {
@@ -322,8 +180,7 @@ export function runProof({ contract, productionSource, targetSha, onProgress = (
     offline: true,
     provider_requests: 0,
     contract_sha256: createHash('sha256').update(JSON.stringify(contract)).digest('hex'),
-    production_source_sha256: createHash('sha256').update(productionSource).digest('hex'),
-    production_uses_contract: true,
+    scope: 'contract-and-validator-only: the production binding is proven by the AST test in #1424, not here',
     prompt_sha256: createHash('sha256')
       .update(buildProofPrompt(contract, '{{fixture transcript}}', '{{fixture metrics}}'))
       .digest('hex'),
@@ -363,12 +220,8 @@ async function main() {
   try {
     const contractText = readFileSync(contractPath, 'utf8');
     const contract = validateContract(JSON.parse(contractText));
-    // The candidate's production function, read as INERT TEXT from the target commit. Never imported,
-    // never executed — only pattern-checked, so a hostile candidate cannot run code in this harness.
-    const productionSource = readFileSync(resolve(process.env.GEMINI_FUNCTION_SOURCE_PATH ?? ''), 'utf8');
     evidence = runProof({
       contract,
-      productionSource,
       targetSha: process.env.TARGET_SHA ?? '',
       onProgress: persist,
     });
@@ -382,7 +235,7 @@ async function main() {
     console.error(`Contract conformance failed: ${evidence.error ?? evidence.fixtures?.accepted?.reason ?? refusalGap ?? 'unknown failure'}`);
     process.exitCode = 1;
   } else {
-    console.log(`Contract conformance passed for ${evidence.target_sha}: production binds contract ${evidence.contract_sha256.slice(0, 12)}, ${evidence.provider_requests} provider requests.`);
+    console.log(`Contract conformance passed for ${evidence.target_sha}: contract ${evidence.contract_sha256.slice(0, 12)} validated, validator discriminates, ${evidence.provider_requests} provider requests.`);
   }
 }
 
