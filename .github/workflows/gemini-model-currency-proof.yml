@@ -27,11 +27,21 @@ concurrency:
 
 jobs:
   proof:
-    # `workflow_dispatch --ref` can select a feature-branch copy of this file. Fail closed unless GitHub is
-    # executing the default-branch revision, and require the separately protected environment before the
-    # repository secret is exposed. The environment must require reviewer approval.
+    # `workflow_dispatch --ref` can select a feature-branch copy of this file, whose steps could be rewritten
+    # to consume the API key directly. Fail closed unless GitHub is executing the DEFAULT-BRANCH revision.
+    # Proven, not assumed: dispatched against this branch before publication (run `34676874628`), this job
+    # concluded `skipped` and not one step ran.
+    #
+    # A protected `gemini-model-proof` environment with reviewer approval was declared here and is REMOVED
+    # under PO release policy `5643985190` and PM UNBLOCK `5643977200`. Two reasons, and the second is the
+    # one that matters: the environment does not exist, and a job naming an absent environment has one
+    # auto-created with NO protection rules and NO branch policy — so the line read as a gate and gated
+    # nothing. Declaring it was worse than omitting it, because it invited the belief that approval was
+    # required. The environment, reviewer approval and secret migration are post-MVP debt in #1399.
+    #
+    # The default-branch check above is the boundary this workflow actually enforces. The key is read from
+    # the repository secret, is never echoed, and never reaches a log or an artifact.
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    environment: gemini-model-proof
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
