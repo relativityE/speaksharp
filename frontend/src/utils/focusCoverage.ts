@@ -17,6 +17,11 @@
  */
 import { computeObjectiveCoverage, type TranscriptSegment } from '@/services/objective/objectiveCoverage';
 import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
+import { emitCoverageEvaluation } from '@/services/telemetry/coverageTelemetry';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
+import { COVERED_RATIO, PARTIAL_RATIO, extractKeywords } from '@/services/rehearsal/outcomeScorecard';
+import { countWords } from '@/lib/contentDigest';
+import type { CoverageRailPoint } from '@/components/session/CoverageRail';
 
 export interface FocusCoverageRow {
     label: string;
@@ -36,6 +41,56 @@ export interface FocusCoverage {
     nextIndex: number | null;
     /** Covering phrases, in transcript order, for the coverage highlights in slot B. */
     coveredQuotes: string[];
+}
+
+/**
+ * Apply the stop-seam result to the terminal presentation.
+ *
+ * The retained transcript is useful for quotes/highlights, but it is not the terminal scoring authority:
+ * the stop seam evaluated timestamped segments against the immutable brief (including its configured
+ * cues). Re-running the weaker view matcher over flattened text can disagree and turn a detected point
+ * into a false negative. A missing/misaligned authority returns null so the caller can render an honest
+ * pending state instead of manufacturing a score.
+ */
+export function applyFinalizedCoverageAuthority(
+    derived: FocusCoverage,
+    points: string[],
+    authority: CoverageRailPoint[] | null,
+): FocusCoverage | null {
+    const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
+    if (!authority || authority.length !== cleanPoints.length || derived.rows.length !== cleanPoints.length) {
+        return null;
+    }
+    if (authority.some((row, index) =>
+        row.label !== cleanPoints[index] || !['covered', 'partial', 'missing'].includes(row.status))) return null;
+
+    const rows = derived.rows.map((row, index) => {
+        const status = authority[index].status;
+        // The stop seam sends an evidence offset for both `covered` and `partial`; both are therefore
+        // detected. Preserve the richer status for the amber/green rail while keeping the binary count
+        // aligned with the server verdict.
+        const covered = status === 'covered' || status === 'partial';
+        return {
+            ...row,
+            status,
+            covered,
+            // The persisted stop-seam authority currently carries status only. Even when the weaker
+            // presentation matcher reaches the same status, it may have selected a different span. Do
+            // not attach a quote or timestamp that the terminal result cannot verify.
+            coveredAtSec: null,
+            quote: null,
+        };
+    });
+    const coveredCount = rows.filter((row) => row.covered).length;
+    const nextIndex = rows.findIndex((row) => !row.covered);
+    return {
+        rows,
+        total: rows.length,
+        coveredCount,
+        nextIndex: nextIndex === -1 ? null : nextIndex,
+        // Terminal attribution is withheld until the stop-seam authority carries exact evidence.
+        coveredQuotes: [],
+    };
 }
 
 /**
@@ -98,7 +153,30 @@ export function deriveFocusCoverage(
     points: string[],
     transcript: string,
     elapsedSeconds: number,
-    latched?: Set<number>,
+    /**
+     * RESOLVED IN FAVOUR OF `main`'s Map (#1427's shipped latch), keeping #1421's `settled` flag.
+     *
+     * Both sides changed this signature for unrelated reasons. `main` strengthened the latch from a
+     * Set of indices to a Map of the strongest observed status, so a transcript rewrite cannot erase a
+     * partial match or turn a prior full match amber — strictly stronger, and it wins outright rather
+     * than being blended. `settled` is #1421's and is orthogonal: it gates telemetry emission, and
+     * dropping it would restore the O(updates x points) interim rows that made a readback unable to
+     * tell a live read from the review verdict.
+     */
+    latched?: ReadonlyMap<number, FocusCoverageRow>,
+    /**
+     * Whether this evaluation is the SETTLED one — the review verdict — rather than a live interim read.
+     *
+     * The evaluator runs on every render of a growing transcript. Emitting from all of them produced
+     * O(updates x points) rows that were shape-identical to the final verdict, so readback could not tell
+     * an interim read from the result; and it marked `evaluation_complete` on the FIRST during-state
+     * render, before `stop_intent`, which `markCompletionStage` then deduplicated permanently — leaving
+     * every completion receipt out of order with recording time attributed to evaluation.
+     *
+     * Defaults to false so a caller that has not thought about it emits nothing, rather than emitting a
+     * claim it did not mean to make.
+     */
+    settled = false,
 ): FocusCoverage {
     const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
     const total = cleanPoints.length;
@@ -110,17 +188,44 @@ export function deriveFocusCoverage(
     const briefPoints = cleanPoints.map((label, i) => ({ id: `fp-${i}`, label }));
     const { coverage } = computeObjectiveCoverage(briefPoints, segments, elapsedSeconds);
 
+    const statusRank: Record<CoverageStatus, number> = { missing: 0, partial: 1, covered: 2 };
     const rows: FocusCoverageRow[] = coverage.map((c, i) => {
-        const latchedCovered = latched?.has(i) ?? false;
-        const covered = c.status === 'covered' || latchedCovered;
-        return {
+        // Live STT corrections may temporarily remove or weaken a match. Preserve the strongest status
+        // actually observed in this take without converting partial evidence into a full detection.
+        const current: FocusCoverageRow = {
             label: cleanPoints[i],
-            status: covered ? 'covered' : c.status,
-            covered,
-            coveredAtSec: covered ? (c.evidence?.timestampSec ?? null) : null,
-            quote: covered ? (c.evidence?.quote ?? null) : null,
+            status: c.status,
+            covered: c.status === 'covered' || c.status === 'partial',
+            coveredAtSec: c.status === 'missing' ? null : (c.evidence?.timestampSec ?? null),
+            quote: c.status === 'missing' ? null : (c.evidence?.quote ?? null),
         };
+        const prior = latched?.get(i);
+        return prior && statusRank[prior.status] > statusRank[current.status] ? prior : current;
     });
+
+    // #1259 F06/F14/F18 — emitted HERE, where the ratio, the thresholds and the keyword count are all
+    // in scope. Downstream only the verdict survives, and the verdict is precisely what is disputed.
+    // Only for the SETTLED evaluation: see `settled`.
+    if (settled) emitCoverageEvaluation({
+        pointsSupplied: (points ?? []).length,
+        pointsEvaluated: total,
+        coveredThreshold: COVERED_RATIO,
+        partialThreshold: PARTIAL_RATIO,
+        transcriptWordCount: countWords(transcript),
+        observations: coverage.map((c, i) => ({
+            position: i,
+            matchRatio: typeof c.matchRatio === 'number' ? c.matchRatio : 0,
+            // Zero keywords means this point could never match anything the user said.
+            keywordCount: extractKeywords(briefPoints[i].label).length,
+            verdict: rows[i].status,
+            latched: latched?.has(i) ?? false,
+        })),
+    });
+
+    // #1259 F16 — coverage has a verdict, and the stage is the moment it SETTLES. Relying on
+    // `markCompletionStage` to take the mark once was the defect: the once it took was the first live
+    // render, which lands before the user has even pressed Stop.
+    if (settled) markCompletionStage('evaluation_complete');
 
     const coveredCount = rows.filter((r) => r.covered).length;
     const nextIndex = rows.findIndex((r) => !r.covered);

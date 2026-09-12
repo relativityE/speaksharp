@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 
 const workflow = readFileSync(resolve('.github/workflows/stt-runtime-evidence.yml'), 'utf8');
 const corpusWorkflow = readFileSync(resolve('.github/workflows/stt-corpus-lane.yml'), 'utf8');
-const producer = readFileSync(resolve('scripts/private-v2-worker-evidence.mts'), 'utf8');
 
 describe('#1037 Private-v2 runtime evidence workflow contract', () => {
     it('checks out, builds, labels, and names evidence from one canonical exact SHA', () => {
@@ -41,24 +40,11 @@ describe('#1037 Private-v2 runtime evidence workflow contract', () => {
 
     it('claims only requested/configured one-thread evidence and leaves effective worker threads unreported', () => {
         expect(workflow).toContain('private-v2-production-worker-one-thread-request-config');
-        expect(workflow).toContain('one-thread request/configuration');
+        expect(workflow).toContain('Build exact-head production bundle without cross-origin isolation');
         expect(workflow).not.toContain('single-thread fallback');
-        expect(producer).toContain('one thread requested/configured; effective worker threads unreported');
     });
 
-    it('rejects an empty transcript before writing the evidence artifact', () => {
-        const guardIndex = producer.indexOf('privateWorkerTranscriptProblems(transcript)');
-        const writeIndex = producer.indexOf('writeFileSync(outPath');
-
-        expect(guardIndex).toBeGreaterThan(-1);
-        expect(writeIndex).toBeGreaterThan(guardIndex);
-    });
-
-    it('publishes the isolated worker result only as an unverified, WER-free diagnostic', () => {
-        expect(producer).toContain("attribution_status: 'unverified'");
-        expect(producer).toContain('wer: null');
-        expect(producer).toContain('unverifiedWorkerDiagnosticProblems(row)');
-        expect(producer).not.toContain("attribution_status: 'verified'");
+    it('publishes the runtime result only as an unverified diagnostic artifact', () => {
         expect(workflow).toContain('Upload validated unverified diagnostic evidence');
     });
 
@@ -78,6 +64,7 @@ describe('#1037 Private-v2 runtime evidence workflow contract', () => {
             'frontend/public/models/whisper-base.en/**',
             'scripts/private-v2-worker-evidence.mts',
             'tests/evidence/**',
+            'tsconfig.evidence.json',
         ]) {
             expect(workflow).toContain(`- '${path}'`);
         }

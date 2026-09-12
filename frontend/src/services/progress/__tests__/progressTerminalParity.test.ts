@@ -33,6 +33,10 @@ interface Ctl {
     ensureReady: ReturnType<typeof vi.fn>;
     completeProgressForRecording: (
         ctx: Ctx, sessionId: string, attributionStatus: string | undefined, metricsPersisted: boolean,
+        // #1431 P1 — REQUIRED. The Progress seam writes SHARED state (Start gate, Focus Points briefs,
+        // coverage rail), so every caller states whether it still owns those surfaces. These tests
+        // drive the seam as the current take, so they claim `() => true` explicitly.
+        canPublishShared: () => boolean,
     ) => Promise<{ kind: string; reason?: string }>;
 }
 function makeController(): Ctl {
@@ -61,7 +65,7 @@ describe('CASE 5 — only proven durable terminal exclusion unlocks', () => {
     it('a DEFINITIVE registration refusal is terminal and unlocks', async () => {
         // The server answered: nothing was written, nothing is owed, no evaluation will ever arrive.
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, stage: 'register', reason: 'denied', registered: false });
-        const outcome = await makeController().completeProgressForRecording(focusCtx(), SESSION, 'verified', true);
+        const outcome = await makeController().completeProgressForRecording(focusCtx(), SESSION, 'verified', true, () => true);
         expect(outcome).toMatchObject({ kind: 'not_applicable', reason: 'not_completed' });
         expect(gate(), 'a proven exclusion must not leave the user blocked').toBeNull();
     });
@@ -70,20 +74,20 @@ describe('CASE 5 — only proven durable terminal exclusion unlocks', () => {
         // A throw before registration also reports registered:false, and the type's own contract notes
         // that a throw LOSES the stage. The write may have reached the server, so this is unknown.
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, reason: 'error', registered: false });
-        const outcome = await makeController().completeProgressForRecording(focusCtx(), SESSION, 'verified', true);
+        const outcome = await makeController().completeProgressForRecording(focusCtx(), SESSION, 'verified', true, () => true);
         expect(outcome.kind, 'unknown is not an accepted terminal exclusion').toBe('unresolved');
         expect(gate()).toMatchObject({ sessionId: SESSION, ownerId: OWNER, state: 'unresolved' });
     });
 
     it('an ambiguous THROW during finalization stays blocked', async () => {
         finalizeObjectiveSessionOnSave.mockRejectedValue(new Error('network'));
-        const outcome = await makeController().completeProgressForRecording(focusCtx(), SESSION, 'verified', true);
+        const outcome = await makeController().completeProgressForRecording(focusCtx(), SESSION, 'verified', true, () => true);
         expect(outcome.kind).toBe('unresolved');
         expect(gate()).toMatchObject({ sessionId: SESSION, state: 'unresolved' });
     });
 
     it('a non-terminal attribution stays blocked rather than evaluating', async () => {
-        const outcome = await makeController().completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'pending', true);
+        const outcome = await makeController().completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'pending', true, () => true);
         expect(outcome).toMatchObject({ kind: 'unresolved', reason: 'attribution_not_terminal' });
         expect(gate()).toMatchObject({ sessionId: SESSION, state: 'unresolved' });
     });
@@ -101,7 +105,7 @@ describe('CASE 6 — fail-closed early returns publish the gate, and both entry 
         // THE DEFECT. Both returned BEFORE `beginProgressGate`, so they reported `unresolved` while
         // leaving the recorder startable — the opposite of failing closed.
         const controller = makeController();
-        const outcome = await controller.completeProgressForRecording(ctx, SESSION, 'verified', metricsPersisted);
+        const outcome = await controller.completeProgressForRecording(ctx, SESSION, 'verified', metricsPersisted, () => true);
 
         expect(outcome.kind).toBe('unresolved');
         expect(gate(), 'the fail-closed verdict must be VISIBLE').toMatchObject({
@@ -116,13 +120,13 @@ describe('CASE 6 — fail-closed early returns publish the gate, and both entry 
     it('Open Mic and Focus Points publish the SAME gate shape for the same failure', async () => {
         // Parity is structural, not two copies kept in step by hand.
         const openMic = makeController();
-        await openMic.completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'pending', true);
+        await openMic.completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'pending', true, () => true);
         const openMicGate = gate();
 
         useSessionStore.getState().setProgressGate(null);
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: true, registered: true, coverage: null });
         const focus = makeController();
-        await focus.completeProgressForRecording(focusCtx(), SESSION, 'pending', true);
+        await focus.completeProgressForRecording(focusCtx(), SESSION, 'pending', true, () => true);
 
         expect(gate()).toEqual(openMicGate);
     });
@@ -135,7 +139,7 @@ describe('CASE 6 — fail-closed early returns publish the gate, and both entry 
         // The protected direction is the opposite one — a foreign RESULT must never CLEAR a live gate —
         // and that is proven separately by the acceptance-1 closure test.
         useSessionStore.getState().setProgressGate({ sessionId: 'other-sess', ownerId: 'someone-else', state: 'queued' });
-        const outcome = await makeController().completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'pending', true);
+        const outcome = await makeController().completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'pending', true, () => true);
 
         expect(outcome.kind).toBe('unresolved');
         expect(gate()).toMatchObject({ sessionId: SESSION, ownerId: OWNER, state: 'unresolved' });

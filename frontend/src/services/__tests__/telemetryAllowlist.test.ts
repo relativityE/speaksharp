@@ -36,6 +36,41 @@ describe('#1259 T1 — approved fields survive (events stay analyzable)', () => 
         expect(dropped).toEqual([]);
     });
 
+    it('#1428 keeps latency observations but rejects content and unapproved performance verdicts', () => {
+        const initialization = projectEventProps('session_start_latency_measured', {
+            duration_ms: 4321,
+            mode: 'private',
+            outcome: 'recording_started',
+            model_cache_state: 'cold',
+            transcript: 'private words must not leave',
+            passed: true,
+            threshold_ms: 5000,
+        });
+        expect(initialization.props).toEqual({
+            duration_ms: 4321,
+            mode: 'private',
+            outcome: 'recording_started',
+            model_cache_state: 'cold',
+        });
+        expect(initialization.dropped).toEqual(expect.arrayContaining([
+            'transcript', 'passed', 'threshold_ms',
+        ]));
+
+        const stop = projectEventProps('session_review_latency_measured', {
+            duration_ms: 9876,
+            mode: 'private',
+            outcome: 'available',
+            error_message: 'could contain user content',
+            target_ms: 30000,
+        });
+        expect(stop.props).toEqual({
+            duration_ms: 9876,
+            mode: 'private',
+            outcome: 'available',
+        });
+        expect(stop.dropped).toEqual(expect.arrayContaining(['error_message', 'target_ms']));
+    });
+
     it('keeps the diagnosable fields on recording_start_failed', () => {
         const { props } = projectEventProps('recording_start_failed', {
             // UPPERCASE, as RuntimeState actually is. The lowercase 'ready' this fixture used to pass was
@@ -123,13 +158,34 @@ describe('#1259 T1 — content is rejected', () => {
     });
 
     it('the two error events carry NO free text by schema', () => {
+        // GLOBAL_UNHANDLED_REJECTION's schema used to be literally `[]`, and this test asserted that.
+        // An empty schema does satisfy "no free text" — by shipping nothing at all, which made the
+        // event a counter rather than a diagnostic (#1259 F12). The requirement was never emptiness;
+        // it is that no field can carry prose. So assert THAT, against a schema that now has fields.
         expect(EVENT_ALLOWLIST.COMPONENT_CRASH).not.toContain('message');
-        expect(EVENT_ALLOWLIST.GLOBAL_UNHANDLED_REJECTION).toEqual([]);
+        expect(EVENT_ALLOWLIST.GLOBAL_UNHANDLED_REJECTION).not.toContain('message');
+        expect(EVENT_ALLOWLIST.GLOBAL_UNHANDLED_REJECTION).not.toContain('reason');
+        expect(EVENT_ALLOWLIST.GLOBAL_UNHANDLED_REJECTION).not.toContain('stack');
+
         const crash = projectEventProps('COMPONENT_CRASH', {
             component: 'SessionPage', isolationKey: 'k', message: 'boom: transcript=...',
         });
         expect(crash.props).toEqual({ component: 'SessionPage', isolationKey: 'k' });
+
+        // The raw message is still refused under its old name...
         expect(projectEventProps('GLOBAL_UNHANDLED_REJECTION', { reason: 'anything' }).props).toEqual({});
+        // ...and prose cannot ride in on an approved field either: `error_name` takes a class name,
+        // and the slug rule rejects anything with spaces.
+        const prose = projectEventProps('GLOBAL_UNHANDLED_REJECTION', {
+            reason_kind: 'error',
+            error_name: 'could not find the transcript you asked for',
+            error_fingerprint: '1f2e3d4c',
+            message_length_band: '1-64',
+        });
+        expect(prose.dropped).toContain('error_name');
+        expect(prose.props).toEqual({
+            reason_kind: 'error', error_fingerprint: '1f2e3d4c', message_length_band: '1-64',
+        });
     });
 });
 
@@ -335,6 +391,34 @@ describe('#1259 T1 — real producers, real vocabularies, real posthog.capture p
         expect(call, `no posthog.capture for ${event}`).toBeDefined();
         return call![1] as Record<string, unknown>;
     };
+
+    it('#1428 latency producers reach PostHog with the governed content-free shape', async () => {
+        const { capture, drain } = await boot();
+        const latency = await import('../sessionLatencyTelemetry');
+        const ticks = [10, 260, 300, 700, 800, 1550];
+        const now = () => ticks.shift() ?? 0;
+
+        latency.beginSessionStartLatency('private', 'cold', now).settle('recording_started');
+        latency.beginSessionSaveLatency('private', now).settle('saved');
+        latency.beginSessionReviewLatency('private', now).settle('available');
+        await drain();
+
+        expect(lastFor(capture, latency.SESSION_LATENCY_EVENTS.START)).toMatchObject({
+            duration_ms: 250,
+            mode: 'private',
+            outcome: 'recording_started',
+            model_cache_state: 'cold',
+        });
+        const save = lastFor(capture, latency.SESSION_LATENCY_EVENTS.SAVE);
+        expect(save).toMatchObject({ duration_ms: 400, mode: 'private', outcome: 'saved' });
+        const review = lastFor(capture, latency.SESSION_LATENCY_EVENTS.REVIEW);
+        expect(review).toMatchObject({ duration_ms: 750, mode: 'private', outcome: 'available' });
+        for (const measurement of [save, review]) {
+            expect(measurement).not.toHaveProperty('passed');
+            expect(measurement).not.toHaveProperty('threshold_ms');
+            expect(JSON.stringify(measurement)).not.toMatch(/transcript|audio|error_message/);
+        }
+    });
 
     it('POSITIVE CONTROL: the DYNAMIC Practice producers are discovered and keep their values', async () => {
         // These four emit through practiceTelemetry's `emit(event, …)` wrapper. A regex over literal

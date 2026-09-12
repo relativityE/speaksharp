@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for system structure, boundaries, persistence & retention, and authority ADRs)
 **Owner:** Engineering (relativityE)
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-08
+**Last Verified:** 2026-09-08 — reconciled to the newest-one retention ruling; shipped behavior and approved-not-shipped correction remain explicitly distinguished.
 **Applies To:** The SpeakSharp beta platform — the React/Vite SPA, the Supabase persistence + Edge Function layer, and the CI/release machinery that ships them.
 **Class:** Architecture invariant / ADR.
 **Authority:** The source for system context, component boundaries and ownership, trust/data-flow, persistence & retention boundaries, identity & session lifecycle, the engine identity/provenance contract, requested-mode vs normalized-capability separation, failure/fail-closed boundaries, the release-identity mechanism, and the authoritative-source ADRs (entitlement, retention).
@@ -11,7 +11,7 @@
 
 <!-- pm-currentization:2026-09-04 -->
 > [!IMPORTANT]
-> **Currentized 4 Sep 2026 after the Production human-test biopsy.** Approved architecture now requires: one canonical Production surface; a controlled runtime candidate authority rather than a build-gated Preview; one governed, content-safe telemetry boundary with journey/attempt correlation; the existing newest-two transcript retention behavior with non-numeric customer copy; a saved-review view independent of the purged live STT buffer; and separate feedback-store/product-analytics payloads. These are approved target contracts, not claims that the currently deployed SHA already satisfies them. See #1259, #1263, #1404, and #1258.
+> **Currentized 8 Sep 2026 after the Production human-test biopsy.** Approved architecture now requires: one canonical Production surface; a controlled runtime candidate authority rather than a build-gated Preview; one governed, content-safe telemetry boundary with journey/attempt correlation; newest-one transcript retention; a saved-review view independent of the purged live STT buffer; and separate feedback-store/product-analytics payloads. The existing newest-two implementation is noncompliant and must be corrected before release. These are approved target contracts, not claims that the currently deployed SHA already satisfies them. See #1259, #1263, #1404, and #1258.
 
 <!-- /pm-currentization:2026-09-04 -->
 
@@ -69,7 +69,7 @@ Each capability has exactly one owning component, so behavior cannot silently di
 ## 5. Transcript & audio storage & retention boundaries
 
 - **Private STT audio never leaves the browser.** Private transcription runs on-device (Transformers.js, same-origin worker/model assets); raw audio is not uploaded.
-- **Final transcript text is persisted for the two newest transcript-bearing saved sessions per user.** `complete_session_v2` writes the final transcript and applies the current `newest_two_v1` retention policy. Older transcript text expires; derived metrics and the structured next action remain. The server-owned `transcript_state` (`available | expired | not_captured`) is the only authority for the distinction — clients never infer expiry from an empty string. Customer-facing copy describes availability and expiry without promising the implementation count.
+- **Final transcript text is persisted only for the newest transcript-bearing saved session per user.** Saving a newer eligible transcript expires every older transcript while preserving session history, derived metrics, and the structured next action. The approved policy identity is `newest_one_v1`; any `newest_two_v1` result is a release-blocking mismatch. The server-owned `transcript_state` (`available | expired | not_captured`) is the only authority for the distinction — clients never infer expiry from an empty string. Customer disclosure must say SpeakSharp keeps only the most recent saved transcript and that saving a newer eligible session replaces it.
 - **Retention boundary (ADR-2):** persisted session snapshots and issue reports are stored in Supabase under RLS; on-device Private audio is transient and never persisted server-side; CI UX screenshots are ephemeral (`retention-days: 1`). Transcript-derived `ai_suggestions` age out with transcript expiry and are absent from the current `PracticeSession` read model. The current retention policy does not replace account deletion: user/account deletion and the zero-residue contract still apply independently. Any change to what is persisted is an architectural decision recorded here.
 
 ## 6. Identity & session lifecycle
@@ -140,7 +140,7 @@ There is **no `version.json` endpoint** and no `__BUILD_ID__` JS define (removed
   - Final transcript / session data MAY persist in `sessions` under RLS (see §5).
   - Raw Private audio remains on-device and is **never uploaded or persisted server-side**.
   - CI UX screenshots remain ephemeral (1-day retention).
-  - This ADR does **not** approve indefinite transcript retention: the active policy is `newest_two_v1`. Account deletion and zero-residue obligations remain separate and binding; retention convergence is not a substitute for deletion.
+  - This ADR does **not** approve indefinite or two-session transcript retention: the approved policy is `newest_one_v1`. Account deletion and zero-residue obligations remain separate and binding; retention convergence is not a substitute for deletion.
 - **ADR-3 — Persistence vs observability.** Supabase is the sole persistence truth; PostHog/Sentry are never a durable-write guarantee (§3).
 - **ADR-4 — Private-only producer.** Private is the only customer STT producer. There is no customer engine selector or silent fallback; the internal Native hook remains isolated to deterministic E2E, and producer provenance is truthful (§8).
 
@@ -157,7 +157,7 @@ Requirements and triggers are owned by `PRODUCT_REQUIREMENTS.md` §10a; this rec
 ## 15. Current limitations & open ADRs
 
 - **Commercial integration in progress** — the canonical trial, paid, expiry, checkout, webhook, and activation seam is implemented and qualified through #1282 after its required database prerequisite. This document does not duplicate that implementation; `ENTITLEMENTS_AND_BILLING.md` owns the durable contract.
-- **Retention and deletion — partially resolved.** Saved transcript text follows the deployed `newest_two_v1` policy; no single-transcript change is approved. Customer-facing copy must avoid a numeric retention promise. User-facing deletion behavior, account-erasure SLA/ownership, cleanup of unfinished delivery rows, and retention of non-transcript records remain unresolved. The current schema also leaves a deletion-order dependency (`session_delivery_measurements.user_id` does not cascade). Those implementation gaps are tracked in `ROADMAP.md`; correcting production migrations still requires separate Product Owner authorization.
+- **Retention and deletion — correction required.** The approved policy retains only the newest transcript. The deployed `newest_two_v1` behavior is noncompliant and must be replaced by `newest_one_v1`; every older transcript expires while session history, metrics, and the structured next action remain. User-facing deletion behavior, account-erasure SLA/ownership, cleanup of unfinished delivery rows, and retention of non-transcript records remain unresolved. The current schema also leaves a deletion-order dependency (`session_delivery_measurements.user_id` does not cascade). Dev may author and qualify the corrective migration; Production application still requires separate Product Owner authorization.
 - **Durable telemetry/alert outbox + provenance registry** — DRAFT design only (#1006), **NOT shipped / NOT activated**. The persistence-vs-observability invariants above stand unchanged; do not cite the outbox as current behavior.
 - **Private STT device verification** — every supported browser/device requires Private setup, record, finalize, save, and reopen proof before it is marketed as supported (→ `STT.md`).
 
@@ -174,7 +174,7 @@ boundary:
 | Data | Leaves the device? | Stored server-side? | Third party? |
 |---|---|---|---|
 | Raw audio | No | No | No |
-| Transcript text | **Yes**, on save (`p_final_transcript` → `complete_session_v2`) | **Yes**, bounded to the two newest transcript-bearing saved sessions | **Yes**, on explicit user request — `get-ai-suggestions` → Google Gemini |
+| Transcript text | **Yes**, on save (`p_final_transcript` → `complete_session_v2`) | **Yes**, bounded to the newest transcript-bearing saved session only | **Yes**, when the saved-session review runs — `get-ai-suggestions` → Google Gemini |
 | Derived metrics | Yes | Yes | Only within a coaching request |
 
 "Private STT audio never leaves the browser" is correct. It does **not** imply the transcript stays local.

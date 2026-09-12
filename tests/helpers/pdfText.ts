@@ -29,3 +29,25 @@ export async function extractPdfText(path: string): Promise<string> {
 export function normalizeForMatch(text: string): string {
     return text.replace(/\s+/g, ' ').trim();
 }
+
+/**
+ * #1436 P2 — CANONICALISATION STRONG ENOUGH FOR A LEAK TEST.
+ *
+ * `normalizeForMatch` only collapses whitespace. Using it to prove a transcript is ABSENT from a PDF
+ * makes the proof pass on every representation the leak could actually take: different case, composed
+ * vs decomposed Unicode, ligatures, and — the one that matters most for PDFs — text runs that split a
+ * word across extraction boundaries, so `rehearsal` arrives as `rehe arsal`.
+ *
+ * An absence test is only as strong as its weakest normalisation: anything it cannot canonicalise is a
+ * form the leaked text can hide in. This folds case, applies NFKD and strips combining marks, reduces
+ * to letters and digits only, and REMOVES separators entirely so intra-word splits cannot hide a
+ * match. It is deliberately lossier than a display normaliser — it exists to make hiding hard, not to
+ * render text.
+ */
+export function canonicalizeForLeakCheck(text: string): string {
+    return text
+        .normalize('NFKD')
+        .replace(/\p{M}+/gu, '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, '');
+}

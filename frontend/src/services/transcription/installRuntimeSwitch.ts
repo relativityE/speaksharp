@@ -1,16 +1,18 @@
 /**
- * #1263 — INSTALL the in-page model switch, on internal builds only.
+ * #1426 — INSTALL the hidden in-page model-comparison switch.
  *
  * Separated from `runtimeCandidateSwitch` so that module stays free of the transcription stack and can
  * be driven in a test. This is the only place the switch is bound to the real engine, and the only
- * place it reaches `window` — a production build calls this and it returns immediately, so no runtime
- * selector exists there at all.
+ * place it reaches `window`.
  *
- * The window surface exists so the qualification wrapper can drive a switch over CDP: the operator
- * stays logged in on one page and never touches a URL or a command line.
+ * The window surface exists on canonical Production so the qualification wrapper can drive a switch
+ * over CDP: the operator stays logged in on one page and never touches a URL, storage value, feature
+ * flag, or visible app control. The properties are non-enumerable so ordinary global inspection does
+ * not advertise the mechanism; possession of a URL alone changes nothing.
  */
 import {
-    registerSwitchExecutor, switchCandidate, runtimeCandidateOverride,
+    registerSwitchExecutor, switchCandidate, runtimeCandidateOverride, runtimeCandidateExpectation,
+    runtimeCandidateAccessAllowed,
     type SwitchOutcome,
 } from './runtimeCandidateSwitch';
 import { effectiveCandidate } from './candidateSelection';
@@ -22,6 +24,7 @@ interface SwitchWindow {
     __SS_ACTIVE_CANDIDATE__?: () => {
         requested: string;
         observed: string | null;
+        expected: string;
         matches: boolean;
         source: 'config' | 'runtime_switch' | 'remote_safety_kill';
     };
@@ -30,9 +33,7 @@ interface SwitchWindow {
 export function installRuntimeCandidateSwitch(
     env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
 ): boolean {
-    // FAIL CLOSED BY OMISSION. A build that forgets the variable gets no switch; installing one
-    // requires setting it. The dangerous direction is unreachable by forgetting.
-    if (env?.VITE_INTERNAL_BUILD !== 'true' || typeof window === 'undefined') return false;
+    if (typeof window === 'undefined' || !runtimeCandidateAccessAllowed(env, window)) return false;
 
     registerSwitchExecutor({
         // The lifecycle state the whole app already publishes, rather than a second opinion that could
@@ -68,8 +69,11 @@ export function installRuntimeCandidateSwitch(
     });
 
     const w = window as unknown as SwitchWindow;
-    w.__SS_SWITCH_CANDIDATE__ = (id: string) => switchCandidate(id, env);
-    w.__SS_ACTIVE_CANDIDATE__ = () => {
+    const installHidden = <K extends keyof SwitchWindow>(key: K, value: NonNullable<SwitchWindow[K]>): void => {
+        Object.defineProperty(w, key, { value, enumerable: false, configurable: true, writable: false });
+    };
+    installHidden('__SS_SWITCH_CANDIDATE__', (id: string) => switchCandidate(id, env));
+    installHidden('__SS_ACTIVE_CANDIDATE__', () => {
         // REQUESTED vs OBSERVED, reported separately and never conflated.
         //
         // This used to return only the selection — an INTENTION. A wrapper reading it would have
@@ -78,13 +82,15 @@ export function installRuntimeCandidateSwitch(
         // `observed` is what the ENGINE published when it resolved; null means nothing has resolved yet.
         const sel = effectiveCandidate();
         const observed = resolvedEngine()?.candidateId ?? null;
+        const expected = runtimeCandidateExpectation() ?? sel.candidate.id;
         return {
             requested: sel.candidate.id,
             observed,
+            expected,
             // The qualification wrapper must gate on THIS, not on `requested`.
-            matches: observed !== null && observed === sel.candidate.id,
+            matches: observed !== null && observed === sel.candidate.id && observed === expected,
             source: sel.fallbackCause ? 'remote_safety_kill' : (runtimeCandidateOverride() ? 'runtime_switch' : 'config'),
         };
-    };
+    });
     return true;
 }

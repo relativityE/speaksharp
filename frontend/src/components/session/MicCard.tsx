@@ -1,4 +1,5 @@
 import React from 'react';
+import { emitJourneyStep } from '@/services/telemetry/journeyStep';
 
 /**
  * #1222 slot A (before) — the mic card. Sizes to content (~150px). STT is **Private only** (#1184/#1229):
@@ -114,7 +115,31 @@ export const MicCard: React.FC<MicCardProps> = ({
     // engine automatically would loop behind a spinner the user cannot escape.
     const isRetryAction = modelError;
     const isColdStart = downloadRequired && !modelError;
-    const primaryHandler = isRetryAction ? (onDownloadModel ?? onStart) : onStart;
+    const rawPrimaryHandler = isRetryAction ? (onDownloadModel ?? onStart) : onStart;
+    /**
+     * #1259 F03 — the OTHER "start speaking".
+     *
+     * This control and the Focus Points setup CTA read almost identically to a user and do entirely
+     * different things: that one navigates, this one starts a recording (or, on the retry branch,
+     * re-runs model setup). Recording the control's identity next to the action it actually performs
+     * is what turns the collision into a measurement.
+     *
+     * The identity is a checked-in slug, not the visible label, because the label is exactly what is
+     * expected to change once the naming is fixed — and the two controls must stay comparable across
+     * that change.
+     *
+     * #1416 renamed the branch from `isSetupAction` to `isRetryAction`: a cold start now RECORDS
+     * rather than only downloading, so it reports `start_recording` like any other start. Only the
+     * failed-setup retry is a setup action, and the slugs say so.
+     */
+    const primaryHandler = () => {
+        emitJourneyStep({
+            step: 'cta_click',
+            ctaId: isRetryAction ? 'mic_card_setup' : 'mic_card_primary',
+            ctaAction: isRetryAction ? 'submit' : 'start_recording',
+        });
+        rawPrimaryHandler?.();
+    };
     // #1415 — A COLD RECORDING REQUEST IS STILL A RECORDING REQUEST.
     //
     // Making every cold action unconditionally enabled bypassed the durable start gate that

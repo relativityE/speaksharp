@@ -61,6 +61,8 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only), read by `
 | `VITE_PAYMENTS_ENABLED` | optional | B (Vercel only) | Explicit frontend payments kill-switch (P0.1). Default OFF. `arePaymentsEnabled()` is true only when this === `"true"` AND the publishable key is live. Mirrors backend `PAYMENTS_ENABLED`; both must be deliberately enabled to sell Pro. |
 | `VITE_SENTRY_DSN` | optional | A | Absent → error monitoring disabled. |
 | `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | optional | A | Analytics; absent → disabled. |
+| *(no variable)* — canary classification | n/a | n/a | `traffic_type: canary` is decided by a SERVER-ISSUED Supabase `app_metadata.canary` claim on the account, exactly like the internal-tester claim below. **`VITE_CANARY_ACCOUNT_IDS` no longer exists and configuring it does nothing** — `buildTrafficSignals()` does not read it, so an account relying on that variable falls through to `traffic_type: 'user'` and its automated runs contaminate the customer funnels this classification exists to protect. **Assigning:** service-role `auth.admin.updateUserById(id, { app_metadata: { canary: true } })`. **Removing:** set it `false` or delete the key. **Refreshing:** the claim rides the JWT, so it takes effect on the account's next token refresh or sign-in, not immediately in an open session. |
+| *(no variable)* — internal-tester classification | n/a | n/a | `traffic_type: internal_test` is decided by a SERVER-ISSUED Supabase `app_metadata.internal_tester` claim on the account, never by a build-time list. A `VITE_*` list was rejected because every `VITE_*` value is compiled into the public browser bundle, which would publish the tester account ids to every visitor. Set the claim with the service role (admin API); it travels in the signed JWT and a visitor cannot set it through the normal client authentication APIs. That is a narrowing, not a guarantee — this is client-emitted telemetry, so no field in it is unforgeable by someone who controls the browser. `user_metadata` must never be used — it is user-writable, so reading it would let any visitor classify their own traffic as internal. **Assigning:** service-role `auth.admin.updateUserById(id, { app_metadata: { internal_tester: true } })`. **Removing:** set it `false` or delete the key. **Refreshing:** the claim rides the JWT, so it takes effect on the account's next token refresh or sign-in, not immediately in an open session. |
 | `VITE_LOG_LEVEL` | optional | A | Client log level. |
 | `VITE_ENABLE_SENTRY_TRACING` / `_REPLAY` / `_CONSOLE_CAPTURE` | optional | A/B | Sentry feature flags. |
 | `VITE_AUTH_MODE` / `VITE_AUTH_TIMEOUT` | optional | A/B | Authentication configuration. |
@@ -109,6 +111,24 @@ The real production values for the §2.1 `VITE_*` live here (Production scope) p
 | `SITE_URL` | C — Ops-managed | `stripe-checkout` / `stripe-billing-portal` | Base URL for Stripe redirect URLs. No `VITE_SITE_URL` variant exists. |
 
 **Add a NEW env variable:** (1) classify client-public (`VITE_*`, shipped in bundle) or server secret (a secret must never be `VITE_*` and never committed); (2) pick the home (A–E) and add a row above; (3) client-public → root `.env*` for local + Vercel Home B for prod (`env.required` if startup must fail without it, else `env.optional`; do not create `frontend/.env.production`); (4) server secret → Supabase Home C, plus GitHub Home D + the deploy sync step only if CI must inject it; (5) add a live-value check to §4; if rotatable, add it to §3; (6) update this catalog (names only, no values). **Draft #1006 is NOT deployed** — any variables it proposes (e.g. `POSTHOG_DISTINCT_ID_HMAC_KEY`, `TELEMETRY_WORKER_ENABLED`) are not current, not consumed by shipping code, and must not be added above as live/required until #1006 merges and deploys.
+
+---
+
+### 2.6 Newest-one transcript-retention activation
+
+The `newest_one_v1` migration uses a two-stage rollout: install the reviewed schema/functions with
+`activation_status=installed_inert`, then activate only through the service-role-only
+`activate_transcript_retention_newest_one()` boundary after the real-world test and a green aggregate
+preflight. Installation therefore cannot retire text. Expiry copies the exact transcript into the
+client-inaccessible `transcript_retention_tombstones` table before clearing it from the user-readable session;
+session and account deletion cascade through that recovery copy.
+
+This two-stage path is primary because the standalone read-only preflight can describe the current cohort but
+cannot prevent a migration runner from applying definitions immediately afterward, cannot make a bad policy
+reversible, and cannot guarantee that the inspected cohort is unchanged at activation. Keeping activation in
+the schema creates an enforceable boundary: the preflight proves readiness while inert, PO/Ops explicitly
+activates the exact installed policy afterward, and any scheduled reaper remains a separately authorized
+post-test action. Neither installation nor the preflight authorizes activation, convergence, or a backfill.
 
 ---
 

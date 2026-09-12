@@ -46,7 +46,7 @@ describe('the envelope carries what a launch cannot be measured without', () => 
         // uninterpretable — the exact failure that wasted the last release.
         const e = buildEnvelope({
             engineMetadata: engineRan('v2:base.en'),
-            trafficSignals: { accountId: CANARY, canaryAccountIds: [CANARY] },
+            trafficSignals: { accountId: CANARY, canaryClaim: true },
         });
         expect(e.traffic_type).toBe('canary');
         expect(e.traffic_type).not.toBe('user');
@@ -84,7 +84,7 @@ describe('a producer cannot forge or override the envelope', () => {
         const producer = { traffic_type: 'user', candidate_id: 'v2:base.en', mode: 'freeform' };
         const envelope = buildEnvelope({
             engineMetadata: engineRan('v4:base:int8'),
-            trafficSignals: { accountId: CANARY, canaryAccountIds: [CANARY] },
+            trafficSignals: { accountId: CANARY, canaryClaim: true },
         });
         const final: Record<string, unknown> = { ...stripEnvelopeKeys(producer), ...envelope };
         expect(final.candidate_id).toBe('v4:base:int8');   // what ran, not what was claimed
@@ -97,6 +97,16 @@ describe('a producer cannot forge or override the envelope', () => {
     });
 });
 
+/**
+ * Source with comments removed, so a guard that scans for code cannot match prose.
+ *
+ * Block comments first, then line comments. Strings that contain `//` are not a concern here: this is
+ * used only to locate call sites, and a false NEGATIVE from an over-eager strip would show up
+ * immediately as the capture count dropping to zero, which the assertion below checks.
+ */
+const withoutComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
 describe('the envelope EXTENDS the T1 path rather than duplicating it', () => {
     it('CASUALTY: EVERY posthog.capture carries an envelope — no path escapes it', () => {
         // There are two captures: the buffered seam, and `account_identified`, which deliberately
@@ -108,7 +118,11 @@ describe('the envelope EXTENDS the T1 path rather than duplicating it', () => {
         // envelope at push() and spreads the snapshot at send(), so calls and captures legitimately
         // differ. Each capture is inspected for an envelope spread instead — the property the count was
         // standing in for.
-        const src = bufferSrc();
+        // COMMENTS ARE STRIPPED FIRST. This scans source text for call sites, and prose that MENTIONS
+        // `posthog.capture(` — a note explaining that it is fire-and-forget, for instance — is not one.
+        // Without this the guard reports a call site inside a paragraph and fails on documentation,
+        // which trains the next person to reword the comment rather than trust the guard.
+        const src = withoutComments(bufferSrc());
         const captures = [...src.matchAll(/posthog\.capture\(/g)];
         expect(captures.length).toBeGreaterThan(0);
         for (const match of captures) {

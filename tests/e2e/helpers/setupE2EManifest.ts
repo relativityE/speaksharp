@@ -303,6 +303,19 @@ export async function setupE2EManifest(
       // FIRST load (no persisted DB yet); a fresh page (new test) starts with empty sessionStorage.
       sessions: es ? defaultSessions : (loadPersistedSessions() ?? seededSessions ?? defaultSessions),
     };
+    // Production-shaped Focus Points authority for the real setup → record → stop journey. Before this
+    // double modeled only the generic Supabase happy path (`{ success: true }` / empty tables), so the
+    // trusted register succeeded in appearance but returned no `registered` verdict and finalization
+    // could never publish the stop-seam coverage result. Terminal E2E then passed only because the view
+    // re-scored flattened text — the weaker authority #1427 removed.
+    let objectiveSequence = 0;
+    const objectiveBriefPoints = new Map<string, Array<{
+      id: string;
+      brief_id: string;
+      label: string;
+      cue: string | null;
+      sort_order: number;
+    }>>();
     let userGoals = {
       user_id: e2eProfile.id,
       weekly_goal: 5,
@@ -337,6 +350,11 @@ export async function setupE2EManifest(
         const rows = userFillerWords.filter((row) =>
           matchesFilters(row as Record<string, unknown>, filters)
         );
+        return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
+      }
+      if (table === 'objective_brief_point') {
+        const briefId = filters.find((filter) => filter.column === 'brief_id')?.value;
+        const rows = typeof briefId === 'string' ? (objectiveBriefPoints.get(briefId) ?? []) : [];
         return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
       }
       const progressRows = table === 'session_progress_evaluations' ? progress?.evaluations
@@ -597,10 +615,44 @@ export async function setupE2EManifest(
             };
             return { data, error: null };
           }
+          if (name === 'objective-register-source') {
+            return { data: { registered: true }, error: null };
+          }
           return { data: { success: true }, error: null };
         },
       },
       rpc: async (fn: string, args?: Record<string, unknown>) => {
+        if (fn === 'issue_objective_project_v1') {
+          objectiveSequence += 1;
+          return { data: `e2e-objective-project-${objectiveSequence}`, error: null };
+        }
+        if (fn === 'issue_objective_brief_v1') {
+          objectiveSequence += 1;
+          const briefId = `e2e-objective-brief-${objectiveSequence}`;
+          const supplied = Array.isArray(args?.p_points) ? args.p_points : [];
+          objectiveBriefPoints.set(briefId, supplied.map((raw, index) => {
+            const point = raw as { label?: unknown; cue?: unknown };
+            return {
+              id: `${briefId}-point-${index + 1}`,
+              brief_id: briefId,
+              label: String(point.label ?? ''),
+              cue: typeof point.cue === 'string' ? point.cue : null,
+              sort_order: index,
+            };
+          }));
+          return { data: briefId, error: null };
+        }
+        if (fn === 'objective_start_session_v1') {
+          objectiveSequence += 1;
+          return { data: `e2e-objective-session-${objectiveSequence}`, error: null };
+        }
+        if (fn === 'objective_finalize_evidence_v1') {
+          const signals = Array.isArray(args?.p_signals) ? args.p_signals : null;
+          return signals ? { data: signals.length, error: null } : {
+            data: null,
+            error: { code: '22023', message: 'p_signals must be an array' },
+          };
+        }
         if (fn === 'create_session_and_update_usage') {
           const sessionData = (args?.p_session_data || {}) as Record<string, unknown>;
           // #1306 firewall: a create RPC whose session payload smuggles a forbidden content field is REJECTED.
@@ -621,7 +673,7 @@ export async function setupE2EManifest(
         // #1306 Step 3 — the PRODUCTION completion path. This double is what `getSupabaseClient()`
         // returns in E2E (window.supabase), so it — not the Playwright network routes — is what the
         // client actually talks to. It must model the REAL v2 contract: metrics, the single next action
-        // and the eligible transcript all committed together, then server-owned newest-two retention,
+        // and the eligible transcript all committed together, then server-owned newest-ONE retention,
         // and a typed envelope. A double that returned a bare `{ success: true }` would be the v1
         // envelope, which the client's fail-closed parser correctly rejects.
         if (fn === 'complete_session_v2') {
@@ -646,12 +698,15 @@ export async function setupE2EManifest(
               ...(supplied ? { transcript: args?.p_final_transcript, transcript_state: 'available' } : {}),
             });
 
-            // SERVER-OWNED newest-two retention, applied inside the RPC exactly as production does it.
+            // SERVER-OWNED newest-ONE retention, applied inside the RPC exactly as production does it.
             // Expiring transcripts in test code instead would prove our simulation, not the contract.
+            // `slice(1)`: only the newest transcript-bearing session stays readable; every earlier one
+            // expires. A double still expiring from `slice(2)` would keep the second-newest readable and
+            // hide exactly the behaviour the newest-one correction exists to produce.
             const retained = sessionState.sessions
               .filter((x: E2ESessionRow) => typeof x.transcript === 'string' && String(x.transcript).length > 0)
               .sort((a: E2ESessionRow, b: E2ESessionRow) => String(b.created_at).localeCompare(String(a.created_at)));
-            retained.slice(2).forEach((old: E2ESessionRow) => {
+            retained.slice(1).forEach((old: E2ESessionRow) => {
               old.transcript = null;
               old.transcript_state = 'expired';
             });

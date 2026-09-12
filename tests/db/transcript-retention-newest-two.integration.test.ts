@@ -1,5 +1,18 @@
 // @vitest-environment node
 //
+// ========================================================================================================
+// HISTORICAL — this file proves the SUPERSEDED newest-two contract, in isolation.
+//
+// The product requirement is newest-ONE, and the live contract is the forward-only correction
+// 20260908120000_transcript_retention_newest_one.sql, proven in
+// tests/db/transcript-retention-newest-one.integration.test.ts.
+//
+// This suite applies ONLY the historical migrations and therefore still passes: everything it asserts was
+// true of the rule as shipped. It is retained deliberately — an applied migration is immutable history and
+// the evidence that it behaved as designed should not be deleted — but it must not be read as a statement
+// about current behaviour. Nothing here is loaded alongside the correction.
+// ========================================================================================================
+//
 // #1117 R1 — EXECUTED proof for the newest-two transcript-retention SQL contract
 // (migration 20260803000000_transcript_retention_newest_two.sql, built on #1131's 20260801000000).
 //
@@ -102,7 +115,7 @@ async function funcPriv(db: PGlite, role: string, sig: string) {
 
 // ---------------------------------------------------------------------------------------------------------
 
-describe('#1117 R1 — versioned predicate + policy', () => {
+describe('#1117 R1 (HISTORICAL, superseded by newest-one) — versioned predicate + policy', () => {
     it('policy version marker is the shared newest_two_v1 string', async () => {
         const db = await freshDb();
         const r = await db.query<{ v: string }>(`SELECT public.transcript_retention_policy_version() AS v`);
