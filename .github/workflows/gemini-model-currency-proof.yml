@@ -9,14 +9,8 @@ on:
         description: Full candidate commit SHA whose contract is being proven
         required: true
         type: string
-      sample_count:
-        description: One merge-gate call or ten distribution samples
-        required: true
-        default: '1'
-        type: choice
-        options:
-          - '1'
-          - '10'
+      # PM RETURN 5644180930, item 2: there is deliberately NO sample-count input. One dispatch is one
+      # provider call. A distribution question is a different vehicle, not a setting on this one.
 
 permissions:
   contents: read
@@ -66,6 +60,10 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$TARGET_SHA"
           git show "$TARGET_SHA:backend/supabase/functions/get-ai-suggestions/contract.json" > /tmp/gemini-coaching-contract.json
+          # PM RETURN 5644180930, item 1: the candidate's PRODUCTION function, read as inert text so the
+          # harness can prove the request it is about to make is the request production makes. It is
+          # never imported and never executed — only pattern-checked by the trusted harness.
+          git show "$TARGET_SHA:backend/supabase/functions/get-ai-suggestions/index.ts" > /tmp/gemini-production-function.ts
           echo "Trusted harness: $(git rev-parse HEAD)"
           echo "Candidate data: $TARGET_SHA"
 
@@ -73,8 +71,8 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_CONTRACT_PATH: /tmp/gemini-coaching-contract.json
+          GEMINI_FUNCTION_SOURCE_PATH: /tmp/gemini-production-function.ts
           TARGET_SHA: ${{ inputs.target_sha }}
-          SAMPLE_N: ${{ inputs.sample_count }}
           PROOF_OUT: artifacts/gemini-model-currency-proof.json
         run: node scripts/gemini-model-currency-proof.mjs
 

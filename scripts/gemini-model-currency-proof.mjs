@@ -18,8 +18,16 @@ const EXPECTED_VERSION = 'gemini_coaching_v1';
 const EXPECTED_REQUEST_CAP = 10;
 const EXPECTED_WORD_BUDGET = 6;
 const EXPECTED_SCHEMA_MAX_LENGTH = 90;
-const MAX_PROVIDER_REQUESTS = 10;
-const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+/**
+ * PM RETURN `5644180930`, item 2 — ONE DISPATCH IS AT MOST ONE PAID CALL.
+ *
+ * This was 10, with a four-attempt retry ladder underneath it, so a single dispatch could spend ten
+ * generations. The ceiling is now structural rather than a default someone can raise: there is no
+ * sample input, no retry, and no backoff. A refusal, a timeout and a malformed answer are all simply
+ * the proof failing — which is the correct outcome for a proof, and the only one that cannot cost more
+ * than it says on the tin.
+ */
+const MAX_PROVIDER_REQUESTS = 1;
 
 const exactKeys = (value, expected) => JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
 const words = (value) => value.trim().split(/\s+/).filter(Boolean).length;
@@ -72,6 +80,54 @@ export function validateContract(contract) {
   return contract;
 }
 
+/**
+ * PM RETURN `5644180930`, item 1 — PROVE THE REQUEST PRODUCTION ACTUALLY MAKES.
+ *
+ * Codex's P1: validating `contract.json` in isolation proves the contract FILE is well-formed and
+ * callable. It says nothing about whether the deployed function sends that model, that generation
+ * config, or that prompt — so a green proof could sit beside an edge function still calling a
+ * different endpoint with an inline prompt, which is precisely the state `main` is in today.
+ *
+ * The binding is static and inert: the candidate's `index.ts` is read with `git show`, never executed,
+ * and each check below asserts that the production request is DERIVED from the same contract this
+ * harness is about to call with. A divergence fails the proof instead of passing it.
+ *
+ * These are positive bindings, not a literal ban: a comment naming an old model must not fail the
+ * proof, while a URL that hardcodes one must. That is why the endpoint check requires interpolation
+ * AND rejects a hardcoded `models/<name>` path, rather than grepping the file for model names.
+ */
+export function assertProductionUsesContract(source) {
+  if (typeof source !== 'string' || source.trim() === '') {
+    throw new Error('production function source is unavailable');
+  }
+  const failures = [];
+  if (!/from\s+['"]\.\/contract\.json['"]/.test(source)) {
+    failures.push('does not import ./contract.json');
+  }
+  if (!/models\/\$\{\s*[A-Za-z_$][\w$]*\.model\s*\}/.test(source)) {
+    failures.push('endpoint does not interpolate the contract model');
+  }
+  if (/models\/gemini-[A-Za-z0-9.\-]+/.test(source)) {
+    failures.push('endpoint hardcodes a model name');
+  }
+  if (!/=\s*[A-Za-z_$][\w$]*\.generationConfig\b/.test(source)) {
+    failures.push('generation config is not taken from the contract');
+  }
+  if (!/[A-Za-z_$][\w$]*\.promptTemplate\b/.test(source)) {
+    failures.push('prompt is not built from the contract template');
+  }
+  if (!/[A-Za-z_$][\w$]*\.wordBudget\b/.test(source)) {
+    failures.push('word budget is not taken from the contract');
+  }
+  if (!/[A-Za-z_$][\w$]*\.uncachedGenerationCapPerUtcDay\b/.test(source)) {
+    failures.push('daily generation cap is not taken from the contract');
+  }
+  if (failures.length) {
+    throw new Error(`production function does not use the proven contract: ${failures.join('; ')}`);
+  }
+  return true;
+}
+
 export function buildProofPrompt(contract, transcript, metrics) {
   return contract.promptTemplate
     .replace('{{TRANSCRIPT}}', transcript)
@@ -105,19 +161,19 @@ export function validateProviderBody(bodyText, contract) {
 
 export async function runProof({
   contract,
+  productionSource,
   targetSha,
-  sampleCount,
   apiKey,
   fetchImpl = fetch,
-  sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)),
-  spacingMs = 8000,
   requestTimeoutMs = 30_000,
   onProgress = () => {},
 }) {
   validateContract(contract);
+  // The binding runs BEFORE the call: a proof of a contract production does not use is not worth
+  // paying for, so it must not reach the provider at all.
+  assertProductionUsesContract(productionSource);
   if (!/^[0-9a-f]{40}$/i.test(targetSha)) throw new Error('target SHA must be a full 40-character commit');
-  if (![1, 10].includes(sampleCount)) throw new Error('sample count must be 1 or 10');
-  if (!apiKey) throw new Error('GEMINI_API_KEY is unavailable');
+  if (!apiKey) throw new Error('the provider credential is unavailable');
 
   const fabricatedTranscript = 'Good morning. Our Friday review attendance is low, so I propose moving the meeting to Tuesday.';
   const fabricatedMetrics = 'Metrics:\n- Words Per Minute (WPM): 132\n- Clarity Score: 88%\n- Total Words: 16\n- Duration: 8 seconds';
@@ -127,63 +183,61 @@ export async function runProof({
     target_sha: targetSha,
     model: contract.model,
     contract_sha256: createHash('sha256').update(JSON.stringify(contract)).digest('hex'),
+    production_source_sha256: createHash('sha256').update(productionSource).digest('hex'),
+    production_uses_contract: true,
     fabricated_transcript: fabricatedTranscript,
-    requested_samples: sampleCount,
     max_provider_requests: MAX_PROVIDER_REQUESTS,
     provider_requests: 0,
-    samples: [],
+    call: { valid: false, reason: null },
+    success: false,
   };
   onProgress(evidence);
 
-  const attemptsPerSample = sampleCount === 1 ? 4 : 1;
-  for (let sample = 1; sample <= sampleCount; sample += 1) {
-    if (sample > 1) await sleep(spacingMs);
-    const row = { sample, attempts: [], valid: false, reason: null };
-    for (let attempt = 1; attempt <= attemptsPerSample; attempt += 1) {
-      if (evidence.provider_requests >= MAX_PROVIDER_REQUESTS) {
-        row.reason = 'provider-request budget exhausted';
-        break;
-      }
-      evidence.provider_requests += 1;
-      const started = Date.now();
-      let response;
-      let bodyText = '';
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(new Error(`provider request exceeded ${requestTimeoutMs}ms`)), requestTimeoutMs);
-      try {
-        response = await fetchImpl(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: contract.generationConfig }),
-          signal: controller.signal,
-        });
-        bodyText = await response.text();
-      } catch (error) {
-        row.attempts.push({ attempt, http_status: null, elapsed_ms: Date.now() - started, error: String(error) });
-        row.reason = controller.signal.aborted ? 'provider request timed out' : 'provider request threw';
-        onProgress(evidence);
-        break;
-      } finally {
-        clearTimeout(timeout);
-      }
-      row.attempts.push({ attempt, http_status: response.status, elapsed_ms: Date.now() - started, raw_response: bodyText });
-      onProgress(evidence);
-      if (!response.ok) {
-        row.reason = `provider HTTP ${response.status}`;
-        if (attempt < attemptsPerSample && RETRYABLE.has(response.status)) {
-          await sleep(5000 * 2 ** (attempt - 1));
-          continue;
-        }
-        break;
-      }
-      const validation = validateProviderBody(bodyText, contract);
-      Object.assign(row, validation);
-      break;
-    }
-    evidence.samples.push(row);
+  // ONE request. Not a loop that happens to run once — there is no loop to raise.
+  evidence.provider_requests += 1;
+  const started = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error(`provider request exceeded ${requestTimeoutMs}ms`)), requestTimeoutMs);
+  let response;
+  let bodyText = '';
+  try {
+    response = await fetchImpl(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: contract.generationConfig }),
+      signal: controller.signal,
+    });
+    bodyText = await response.text();
+  } catch (error) {
+    evidence.call = {
+      http_status: null,
+      elapsed_ms: Date.now() - started,
+      error: String(error),
+      valid: false,
+      reason: controller.signal.aborted ? 'provider request timed out' : 'provider request threw',
+    };
     onProgress(evidence);
+    return evidence;
+  } finally {
+    clearTimeout(timeout);
   }
-  evidence.success = evidence.samples.length === sampleCount && evidence.samples.every((sample) => sample.valid === true);
+
+  evidence.call = {
+    http_status: response.status,
+    elapsed_ms: Date.now() - started,
+    raw_response: bodyText,
+    valid: false,
+    reason: null,
+  };
+  if (!response.ok) {
+    // A retryable status is still a failed proof. Retrying would buy a second answer with a second
+    // generation, which is exactly the spend PM's item 2 removes.
+    evidence.call.reason = `provider HTTP ${response.status}`;
+    onProgress(evidence);
+    return evidence;
+  }
+  Object.assign(evidence.call, validateProviderBody(bodyText, contract));
+  evidence.success = evidence.call.valid === true;
   onProgress(evidence);
   return evidence;
 }
@@ -200,10 +254,13 @@ async function main() {
   try {
     const contractText = readFileSync(contractPath, 'utf8');
     const contract = validateContract(JSON.parse(contractText));
+    // The candidate's production function, read as INERT TEXT from the target commit. Never imported,
+    // never executed — only pattern-checked, so a hostile candidate cannot run code in this harness.
+    const productionSource = readFileSync(resolve(process.env.GEMINI_FUNCTION_SOURCE_PATH ?? ''), 'utf8');
     evidence = await runProof({
       contract,
+      productionSource,
       targetSha: process.env.TARGET_SHA ?? '',
-      sampleCount: Number(process.env.SAMPLE_N ?? '1'),
       apiKey: process.env.GEMINI_API_KEY,
       onProgress: persist,
     });
@@ -213,10 +270,10 @@ async function main() {
     persist(evidence);
   }
   if (!evidence.success) {
-    console.error(`Gemini proof failed: ${evidence.error ?? evidence.samples?.filter((sample) => !sample.valid).map((sample) => sample.reason).join('; ') ?? 'unknown failure'}`);
+    console.error(`Gemini proof failed: ${evidence.error ?? evidence.call?.reason ?? 'unknown failure'}`);
     process.exitCode = 1;
   } else {
-    console.log(`Gemini proof passed for ${evidence.target_sha}: ${evidence.provider_requests} provider request(s), ${evidence.samples.length} valid sample(s).`);
+    console.log(`Gemini proof passed for ${evidence.target_sha}: ${evidence.provider_requests} provider request, production request bound to contract ${evidence.contract_sha256.slice(0, 12)}.`);
   }
 }
 
