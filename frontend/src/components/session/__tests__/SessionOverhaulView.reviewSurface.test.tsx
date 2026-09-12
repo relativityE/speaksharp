@@ -16,6 +16,7 @@ import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOv
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { __resetPracticeLoopTelemetryForTests } from '@/services/telemetry/practiceLoopTelemetry';
 import { __resetJourneyIdentityForTests, beginJourney } from '@/services/telemetry/journeyIdentity';
+import { reachedStages, __resetCompletionStagesForTests } from '@/services/telemetry/completionStages';
 import type { SttStatus } from '@/types/transcription';
 
 const POINTS = ['Name the price', 'Close with the next step'];
@@ -37,6 +38,7 @@ let pushSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
     __resetPracticeLoopTelemetryForTests();
     __resetJourneyIdentityForTests();
+    __resetCompletionStagesForTests();
     beginJourney();
     pushSpy = vi.spyOn(analyticsBuffer, 'push').mockImplementation(() => undefined);
 });
@@ -103,7 +105,25 @@ describe('#1421 P1 — Focus Points review receipts', () => {
             .toEqual({ chosen: 'retry_points', delegated: 1 });
     });
 
-    it('CONTROL: the Raw Takes review still reports the coaching verdict', () => {
+    it('CONTROL: the rail review still publishes both completion links', () => {
+        // PM disposition on #1422: Focus Points rail telemetry is unchanged by the ownership move. The
+        // rail IS this view's own review, so this view still marks the two links where it renders it.
+        renderFocusPointsReview();
+
+        expect({
+            ready: reachedStages().includes('practice_loop_ready'),
+            rendered: reachedStages().includes('review_rendered'),
+        }).toEqual({ ready: true, rendered: true });
+    });
+
+    it('CASUALTY (#1422 P1, Codex 3994409733): the Raw Takes review is reported by the card that renders it, not by this view', () => {
+        // This view cannot see whether the generated review exists. It emitted a `coaching_verdict`
+        // receipt claiming one strength and one improvement were on screen the moment the review
+        // SETTLED — while `AISuggestions` was still requesting, had failed, or had been handed a
+        // malformed answer — and marked `practice_loop_ready`/`review_rendered` on the same evidence.
+        // `AISuggestions` owns that receipt and those two stages now (its own suite proves the
+        // truthful/pending/failed/superseded cases), so on the Raw Takes surface this view emits
+        // nothing and pre-marks nothing.
         render(
             <SessionOverhaulView
                 {...base}
@@ -112,18 +132,46 @@ describe('#1421 P1 — Focus Points review receipts', () => {
                 transcriptContent=""
                 reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={84}
-                aiSuggestions={{ what_worked: 'Clear opening.', what_to_try_next: 'Lead with the ask.' }}
             />,
         );
 
-        const receipt = last(rows('practice_loop'));
         expect({
-            surface: receipt?.review_surface,
-            wentWell: receipt?.what_went_well_count,
-            source: receipt?.what_went_well_source,
-        }).toEqual({ surface: 'coaching_verdict', wentWell: 1, source: 'generated' });
+            receipts: rows('practice_loop').length,
+            ready: reachedStages().includes('practice_loop_ready'),
+            rendered: reachedStages().includes('review_rendered'),
+        }).toEqual({ receipts: 0, ready: false, rendered: false });
 
+        // The options menu is this view's own observation and is unaffected by the move.
         const options = last(rows('journey_step').filter((r) => r.step === 'post_session_options'));
         expect({ offered: options?.options_shown }).toEqual({ offered: ['practice_next'] });
+    });
+
+    it('CONTROL: both Raw Takes option selections still emit before delegating', () => {
+        // The integration rewired slot D. If either verdict action had been reconnected to the raw
+        // handler, the pick would be delegated and never recorded, which is the #1259 gap reopening.
+        const onStartStop = vi.fn();
+        const onSeeAllSessions = vi.fn();
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+                elapsedTime={84}
+                onStartStop={onStartStop}
+                onSeeAllSessions={onSeeAllSessions}
+            />,
+        );
+
+        fireEvent.click(screen.getByTestId('verdict-practice-again'));
+        const practiceAgain = last(rows('journey_step').filter((r) => r.step === 'option_selected'));
+        expect({ chosen: practiceAgain?.option_selected, delegated: onStartStop.mock.calls.length })
+            .toEqual({ chosen: 'practice_next', delegated: 1 });
+
+        fireEvent.click(screen.getByTestId('verdict-see-all'));
+        const seeAll = last(rows('journey_step').filter((r) => r.step === 'option_selected'));
+        expect({ chosen: seeAll?.option_selected, delegated: onSeeAllSessions.mock.calls.length })
+            .toEqual({ chosen: 'view_analytics', delegated: 1 });
     });
 });

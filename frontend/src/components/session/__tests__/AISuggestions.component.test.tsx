@@ -13,6 +13,10 @@ vi.mock('@/services/practiceLoopTelemetry', async (orig) => {
     return { ...actual, trackPracticeLoopReviewFailed: vi.fn() };
 });
 import { trackPracticeLoopReviewFailed } from '@/services/practiceLoopTelemetry';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { __resetPracticeLoopTelemetryForTests } from '@/services/telemetry/practiceLoopTelemetry';
+import { __resetJourneyIdentityForTests, beginJourney } from '@/services/telemetry/journeyIdentity';
+import { reachedStages, __resetCompletionStagesForTests } from '@/services/telemetry/completionStages';
 
 
 const mockSupabaseClient = {
@@ -663,5 +667,140 @@ describe('#1422 — superseded review requests are silent', () => {
 
         await waitFor(() => expect(vi.mocked(trackPracticeLoopReviewFailed).mock.calls.length).toBe(1));
         expect(vi.mocked(trackPracticeLoopReviewFailed).mock.calls[0][0]).toBe('invalid_response');
+    });
+});
+
+
+/**
+ * #1422 P1 (Codex 3994409733) — THE REVIEW RECEIPT IS EMITTED WHERE THE REVIEW EXISTS.
+ *
+ * `SessionOverhaulView` emitted the `coaching_verdict` receipt — one strength, one improvement, both
+ * `generated`, `rendered: true` — the moment the Raw Takes review SETTLED, which is a fact about the
+ * transcript, not about the generated review. It also marked `practice_loop_ready` and
+ * `review_rendered` there. That view never sees the review: while it published that receipt this card
+ * could still be requesting, could have been refused by the server, or could have been handed a
+ * malformed answer it discards. Decoded, every completed Open Mic session claimed a review the user
+ * may never have been shown, and the two completion links said the loop closed when it had not.
+ *
+ * The receipt and the two stages therefore live here, behind the same condition that puts the review
+ * on screen.
+ */
+describe('#1422 P1 — the Open Mic review receipt belongs to the rendered review', () => {
+    let pushSpy: ReturnType<typeof vi.spyOn>;
+
+    const VALID = {
+        version: 'gemini_coaching_v1' as const,
+        what_worked: 'Clear opening.',
+        what_to_try_next: 'Lead with the ask.',
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.mocked(getSupabaseClient).mockReturnValue(mockSupabaseClient as unknown as ReturnType<typeof getSupabaseClient>);
+        __resetPracticeLoopTelemetryForTests();
+        __resetJourneyIdentityForTests();
+        __resetCompletionStagesForTests();
+        beginJourney();
+        pushSpy = vi.spyOn(analyticsBuffer, 'push').mockImplementation(() => undefined);
+    });
+
+    afterEach(cleanup);
+
+    const receipts = () => pushSpy.mock.calls
+        .filter((c) => c[0] === 'practice_loop')
+        .map((c) => c[1] as Record<string, unknown>);
+
+    const stages = () => ({
+        ready: reachedStages().includes('practice_loop_ready'),
+        rendered: reachedStages().includes('review_rendered'),
+    });
+
+    it('a rendered 1+1 review emits exactly one truthful receipt and marks both stages once', async () => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: VALID }, error: null });
+
+        const view = render(<AISuggestions transcript="hello" sessionId="session-ok" />);
+        await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
+
+        // A re-render of the same session is not a second review.
+        view.rerender(<AISuggestions transcript="hello" sessionId="session-ok" />);
+
+        const emitted = receipts();
+        expect({ count: emitted.length, ...stages() }).toEqual({ count: 1, ready: true, rendered: true });
+        expect({
+            phase: emitted[0]?.phase,
+            surface: emitted[0]?.review_surface,
+            wentWell: emitted[0]?.what_went_well_count,
+            toImprove: emitted[0]?.what_to_improve_count,
+            wentWellSource: emitted[0]?.what_went_well_source,
+            toImproveSource: emitted[0]?.what_to_improve_source,
+            rendered: emitted[0]?.rendered,
+            suppression: emitted[0]?.suppression_reason,
+        }).toEqual({
+            phase: 'rendered',
+            surface: 'coaching_verdict',
+            wentWell: 1,
+            toImprove: 1,
+            wentWellSource: 'generated',
+            toImproveSource: 'generated',
+            rendered: true,
+            suppression: 'none',
+        });
+    });
+
+    it('CASUALTY: a review still in flight emits no receipt and marks neither stage', async () => {
+        mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* never settles */ }));
+
+        render(<AISuggestions transcript="hello" sessionId="session-pending" />);
+        await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalled());
+
+        // The old emitter fired on the settled transcript, so this state reported a rendered review.
+        expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
+    });
+
+    it('CASUALTY: a refused review emits no receipt and marks neither stage', async () => {
+        const err = new Error('server said something') as Error & { name: string; context: { status: number } };
+        err.name = 'FunctionsHttpError';
+        err.context = { status: 500 };
+        mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: err });
+
+        render(<AISuggestions transcript="hello" sessionId="session-failed" />);
+        await screen.findByText(/unavailable right now/i);
+
+        expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
+    });
+
+    it('CASUALTY: a malformed answer the card refuses to render emits no receipt and marks neither stage', async () => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: { nonsense: true } }, error: null });
+
+        render(<AISuggestions transcript="hello" sessionId="session-invalid" />);
+        await waitFor(() => expect(vi.mocked(trackPracticeLoopReviewFailed).mock.calls.length).toBe(1));
+
+        expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
+    });
+
+    it('CASUALTY: a superseded session cannot emit a receipt for the session on screen', async () => {
+        // A is still in flight when the user moves to B. B renders its own stored review; A's late
+        // answer is discarded by the UI and must not add a receipt — the receipt would be counted
+        // against B's journey for a review B never showed.
+        let settleA!: (v: unknown) => void;
+        mockSupabaseClient.functions.invoke.mockImplementationOnce(
+            () => new Promise((resolve) => { settleA = resolve; }),
+        );
+
+        const view = render(<AISuggestions transcript="hello" sessionId="session-A" />);
+        await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalled());
+        expect(receipts().length).toBe(0);
+
+        view.rerender(<AISuggestions transcript="hello" sessionId="session-B" initialSuggestions={VALID} />);
+        await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
+        expect(receipts().length).toBe(1);
+
+        settleA({ data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'A strength.', what_to_try_next: 'A next step.' } }, error: null });
+        await new Promise((resolve) => setTimeout(resolve, 40));
+
+        // Still exactly one, and it is still B's review that is on screen.
+        expect({ count: receipts().length, aOnScreen: screen.queryByText('A strength.') !== null })
+            .toEqual({ count: 1, aOnScreen: false });
+        expect(screen.getByText('Clear opening.')).toBeInTheDocument();
     });
 });

@@ -5,6 +5,8 @@ import { Alert } from '@/components/ui/alert';
 import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../../lib/logger';
+import { emitPracticeLoop } from '@/services/telemetry/practiceLoopTelemetry';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
 import {
   trackPracticeLoopReviewCompleted,
   trackPracticeLoopReviewFailed,
@@ -145,10 +147,55 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
     });
   }, [sessionId, initialSuggestions]);
 
+  /**
+   * #1422 Codex P1 `3994409733` (PM RETURN `5642224586`, option (b)) — THE RECEIPT IS EMITTED WHERE THE
+   * REVIEW IS OWNED.
+   *
+   * `SessionOverhaulView` used to emit the Open Mic generated-review receipt and mark
+   * `practice_loop_ready` / `review_rendered` as soon as the after-state settled, reading a prop
+   * (`aiSuggestions`) that production leaves undefined — `SessionPage` passes `undefined` and the real
+   * result lives here. So every completion published a zero-takeaway `no_suggestions` receipt and marked
+   * both completion stages BEFORE generation finished, and even when it failed: release evidence claiming
+   * a state the user never reached.
+   *
+   * This component owns the validated result, so it owns the claim. The guard below is the whole contract:
+   *
+   *   - `suggestions` is non-null only for a result that passed `parseAISuggestions` — exactly one
+   *     `what_worked` and one `what_to_try_next`, both non-blank. Loading, empty, invalid and failed
+   *     requests leave it null, so none of them reaches this line.
+   *   - `suggestions` is read from `currentView`, which is discarded when `sessionId` changes, so a
+   *     superseded session cannot publish for the current one.
+   *   - `renderedReceiptRef` keys on the session, so a valid review publishes exactly once per session
+   *     however often the screen re-renders.
+   *
+   * Content-free, as before: two counts, booleans and closed enums. No session id, no prose, no provider
+   * error text.
+   */
   useEffect(() => {
     if (!sessionId || !suggestions || renderedReceiptRef.current === sessionId) return;
     renderedReceiptRef.current = sessionId;
     trackPracticeLoopReviewRendered();
+    emitPracticeLoop({
+      // The user is looking at the generated review. This is the only phase that can claim that.
+      phase: 'rendered',
+      reviewSurface: 'coaching_verdict',
+      // The contract is exactly one of each, and `parseAISuggestions` has already refused anything else.
+      whatWentWellCount: 1,
+      whatToImproveCount: 1,
+      suggestionsPresent: true,
+      whatWentWellSource: 'generated',
+      whatToImproveSource: 'generated',
+      rendered: true,
+      // Unchanged from the previous emitter's observed value: it computed `Boolean(onRetryPoints || onNewSet)`
+      // and `SessionPage` passes both unconditionally (`:735`, `:744`), so this was always true. The Open Mic
+      // next action is the verdict card's own always-rendered `Practice this again` control.
+      nextActionPersisted: true,
+      suppressionReason: 'none',
+    });
+    // #1259 F16 — the last two links, published where the review actually exists. `practice_loop_ready` is
+    // when the review HAS its content; `review_rendered` is when the user can act on it.
+    markCompletionStage('practice_loop_ready');
+    markCompletionStage('review_rendered');
   }, [sessionId, suggestions]);
 
   // #1416 P2-4 — THE FIRST REQUEST FIRES ITSELF.

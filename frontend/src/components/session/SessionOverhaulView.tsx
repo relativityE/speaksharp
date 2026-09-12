@@ -170,12 +170,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     fillerData,
     wpm,
     /*
-     * INTEGRATION with #1421: this branch renamed the prop `_aiSuggestions` once the coaching card
-     * stopped RENDERING it (#1306/#1422). The merged review-receipt effect reads it again — not to
-     * display anything, but to report `suggestionsPresent` and `suppressionReason` truthfully.
-     * Production never passes it, so those report `false` / `no_suggestions`.
+     * #1422 P1 `3994409733`: unused here again. The generated-review receipt moved to `AISuggestions`,
+     * which owns the validated result, so this view no longer reads the prop production never passes.
      */
-    aiSuggestions,
+    aiSuggestions: _aiSuggestions,
     practiceLoopReview,
     onSeeAllSessions,
     interimTranscript,
@@ -299,56 +297,53 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         onSeeAllSessions?.();
     }, [onSeeAllSessions]);
 
+    /**
+     * #1422 Codex P1 `3994409733` (PM RETURN `5642224586`, option (b)) — THE OPEN MIC RECEIPT LEFT THIS FILE.
+     *
+     * This effect used to emit the generated-review receipt for BOTH surfaces and mark
+     * `practice_loop_ready` / `review_rendered` unconditionally, from the `aiSuggestions` prop. Production
+     * leaves that prop undefined — `SessionPage` passes `undefined` and the real result is owned by
+     * `AISuggestions` — so every Open Mic completion claimed a zero-takeaway `no_suggestions` review and
+     * marked both stages before the review existed, or even when generation failed.
+     *
+     * The Open Mic receipt and those two stage publications now live in `AISuggestions`, which owns the
+     * validated result. What stays here is what this component genuinely observes:
+     *
+     *   - the FOCUS POINTS receipt and its completion stages, because the rail that renders is this
+     *     component's own — the readback requires the chain for that product too;
+     *   - the mic-observability summary, which is drawn from the envelope this view already keeps.
+     */
     React.useEffect(() => {
         if (!reviewSettled) {
             return;
         }
-        const wentWell = Boolean(aiSuggestions?.what_worked?.trim());
-        const toImprove = Boolean(aiSuggestions?.what_to_try_next?.trim());
-        // #1259 P1 — DESCRIBE THE SURFACE THAT RENDERED, not the one this effect was written for.
-        //
-        // On Focus Points the coaching verdict is replaced by the rail and no suggestions are ever
-        // passed, so the previous receipt reported `what_went_well_source: 'fallback'` and a count of 0
-        // for coaching copy that was not merely absent but not part of the screen. Decoded, an entire
-        // product looked like a review whose generation had failed.
-        emitPracticeLoop(isObjectiveSurface ? {
-            phase: 'rendered',
-            reviewSurface: 'focus_points_rail',
-            // Not applicable, not zero. Zero would say the rail tried to show a phrase and had none.
-            whatWentWellCount: COUNT_NOT_APPLICABLE,
-            whatToImproveCount: COUNT_NOT_APPLICABLE,
-            suggestionsPresent: false,
-            whatWentWellSource: 'not_applicable',
-            whatToImproveSource: 'not_applicable',
-            rendered: true,
-            // The rail's own two handlers are this screen's next action.
-            nextActionPersisted: Boolean(onRetryPoints || onNewSet),
-            suppressionReason: 'objective_rail',
-        } : {
-            // The user is looking at it. This is the only phase that can claim that.
-            phase: 'rendered',
-            reviewSurface: 'coaching_verdict',
-            // The contract is exactly one of each. A count proves the shape without carrying a word of
-            // coaching text — and 2 or 0 here is the defect, reported as a number rather than as prose.
-            whatWentWellCount: wentWell ? 1 : 0,
-            whatToImproveCount: toImprove ? 1 : 0,
-            suggestionsPresent: Boolean(aiSuggestions),
-            whatWentWellSource: wentWell ? 'generated' : 'fallback',
-            whatToImproveSource: toImprove ? 'generated' : 'fallback',
-            rendered: true,
-            nextActionPersisted: Boolean(onRetryPoints || onNewSet),
-            suppressionReason: aiSuggestions ? 'none' : 'no_suggestions',
-        });
-        // #1259 F16 — the last two links. `practice_loop_ready` is when the review HAS its content;
-        // `review_rendered` is when the user can actually act on it. Time between them is a front-end
-        // problem, and time before them is not — which is exactly what one total could never say.
-        markCompletionStage('practice_loop_ready');
-        markCompletionStage('review_rendered');
+        if (isObjectiveSurface) {
+            // #1259 P1 — DESCRIBE THE SURFACE THAT RENDERED. On Focus Points the coaching verdict is
+            // replaced by the rail and no suggestions are ever passed, so a count of 0 would say the rail
+            // tried to show a phrase and had none.
+            emitPracticeLoop({
+                phase: 'rendered',
+                reviewSurface: 'focus_points_rail',
+                // Not applicable, not zero.
+                whatWentWellCount: COUNT_NOT_APPLICABLE,
+                whatToImproveCount: COUNT_NOT_APPLICABLE,
+                suggestionsPresent: false,
+                whatWentWellSource: 'not_applicable',
+                whatToImproveSource: 'not_applicable',
+                rendered: true,
+                // The rail's own two handlers are this screen's next action.
+                nextActionPersisted: Boolean(onRetryPoints || onNewSet),
+                suppressionReason: 'objective_rail',
+            });
+            // #1259 F16 — the rail IS the Focus Points review, so its completion chain is published here.
+            markCompletionStage('practice_loop_ready');
+            markCompletionStage('review_rendered');
+        }
         // #1259 F02 — summarised HERE, from the envelope this view already keeps to draw the
         // after-state waveform. No per-frame hook is needed and none is added: streaming levels is
         // both forbidden and would drown every other signal.
         emitMicObservability(levelsRef.current, stopControlRenderedRef.current);
-    }, [reviewSettled, aiSuggestions, onRetryPoints, onNewSet, isObjectiveSurface]);
+    }, [reviewSettled, onRetryPoints, onNewSet, isObjectiveSurface]);
     const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
     const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
     const effObjectivePaceGuideSecPerPoint = objectivePaceGuideSecPerPoint ?? (inAfter ? completedObjectivePaceGuideSecPerPoint ?? null : null);
