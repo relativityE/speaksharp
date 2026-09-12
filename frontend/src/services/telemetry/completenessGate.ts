@@ -1,0 +1,513 @@
+import { GOVERNED_EVENTS, type GovernedEvent } from '../telemetryAllowlist';
+import { attemptedEventFamilies } from '../AnalyticsBuffer';
+
+/**
+ * #1259 — a readback that finds nothing must say HOLD, not pass.
+ *
+ * Every other guard in this program asks "is what arrived acceptable?". None asked "did anything arrive
+ * at all?" — and absence is the failure mode this instrumentation exists to rule out. A Production
+ * readback missing `recording_intent` entirely looks exactly like a readback of a session nobody started,
+ * and a run that qualifies on an empty set is worse than no run: it reports confidence it did not earn.
+ *
+ * So this fails CLOSED. A missing family, an unrecognised name, a non-array input, no input at all — every
+ * one of them is a HOLD. Qualification requires an explicit sighting of every required family.
+ */
+
+/**
+ * The families a real-world qualification run MUST contain.
+ *
+ * Deliberately not "all governed events": most are conditional on a path the run may not take, and
+ * requiring those would make the gate fire on runs that were fine. These are the ones a session that
+ * actually happened cannot fail to produce.
+ */
+export const REQUIRED_EVENT_FAMILIES: readonly GovernedEvent[] = Object.freeze([
+    // The tab spoke to PostHog at all. Without this, every other absence is unexplained.
+    'telemetry_positive_control',
+    // The account the run belongs to. An unattributed run cannot be compared to anything.
+    'account_identified',
+    // Someone pressed the control, and the runtime answered. F-01's whole subject.
+    'recording_intent',
+    'recording_state',
+    'session_started',
+    // The session reached the database.
+    'session_saved',
+    // The transcript survived to the review, or provably did not.
+    'transcript_authority',
+    // The user was offered, and shown, a practice loop.
+    'practice_loop',
+    // The journey the above hang from.
+    'journey_step',
+    /**
+     * A saved session necessarily reaches several completion marks — the user's Stop, runtime
+     * termination, the save — and each emits `stage_latency`. Leaving it out meant a readback that lost
+     * every latency row could still be marked QUALIFIED, while the post-Stop breakdown this
+     * instrumentation exists to produce was wholly missing. A gate that cannot notice the absence of the
+     * thing being measured is not a gate.
+     */
+    'stage_latency',
+]);
+
+/**
+ * The required families that are NOT part of a product journey, by construction.
+ *
+ * A controlled user signs in and only then enters `/practice`. `account_identified` and the
+ * identity-settled positive control are therefore emitted under the PRE-PRODUCT journey, and
+ * `ensureJourneyBoundary()` mints a new `journey_id` on the transition into the product — correctly, and
+ * before any recording begins. A single journey-scoped readback can consequently contain the identity
+ * receipts or the session receipts, never both, so requiring both inside one journey made an ordinary
+ * complete run impossible to qualify.
+ *
+ * Splitting them is the honest fix rather than moving the boundary: these two receipts genuinely belong
+ * to the sign-in, not to the pass through the product. They are still REQUIRED, and still scoped to the
+ * release and traffic class — just not to the journey, because they were never in it.
+ */
+export const PRE_JOURNEY_EVENT_FAMILIES: readonly GovernedEvent[] = Object.freeze([
+    'telemetry_positive_control',
+    'account_identified',
+]);
+
+/** The required families that a single pass through the product must itself produce. */
+export const IN_JOURNEY_EVENT_FAMILIES: readonly GovernedEvent[] = Object.freeze(
+    REQUIRED_EVENT_FAMILIES.filter((f) => !PRE_JOURNEY_EVENT_FAMILIES.includes(f)),
+);
+
+export type CompletenessVerdict = 'QUALIFIED' | 'HOLD';
+
+export interface CompletenessResult {
+    verdict: CompletenessVerdict;
+    missing: string[];
+    unrecognised: string[];
+    reasons: string[];
+}
+
+/**
+ * Decide whether an observed set of event names qualifies a run.
+ *
+ * PURE, so every rejection path is falsifiable without spending a readback. The caller collects names;
+ * this decides. `observed` is whatever the readback saw — duplicates, unknown names and junk included,
+ * because a decoder that silently tidies its input cannot report that the input was wrong.
+ */
+/**
+ * A DEBUGGING view for this tab. NOT a release gate.
+ *
+ * It reports whether this tab ATTEMPTED to send each required family — useful while diagnosing a
+ * session, and no more than that. `posthog.capture()` is fire-and-forget, so an attempt establishes
+ * nothing about ingestion: a tab whose every request failed in the network would still look complete
+ * here. Release completeness is decided only by reading the events back from the server, in
+ * `scripts/telemetry-readback-qualification.mts`.
+ *
+ * The name says `currentRun`, not `qualified`, for that reason. A QUALIFIED verdict from this function
+ * means "this tab tried"; it must never be quoted as evidence that a release is instrumented.
+ */
+export function currentRunCompleteness(
+    attempted: readonly string[] = attemptedEventFamilies(),
+): CompletenessResult {
+    return evaluateTelemetryCompleteness([...attempted]);
+}
+
+export function evaluateTelemetryCompleteness(
+    observed: unknown,
+    required: readonly string[] = REQUIRED_EVENT_FAMILIES,
+): CompletenessResult {
+    const reasons: string[] = [];
+
+    // A non-array must not coerce into "nothing to check, therefore fine".
+    if (!Array.isArray(observed)) {
+        return {
+            verdict: 'HOLD',
+            missing: [...required],
+            unrecognised: [],
+            reasons: ['observed event set is not an array — nothing was read back, so nothing is proven'],
+        };
+    }
+
+    const names = observed.filter((n): n is string => typeof n === 'string' && n.length > 0);
+    // Junk in the observed set means the decoder is not producing what we believe it produces, which makes
+    // every OTHER conclusion from this readback suspect — including the families that appeared to be there.
+    // Noting it in a reason while still qualifying would be the lax reading of a fail-closed gate.
+    const malformed = observed.length - names.length;
+    if (malformed > 0) {
+        reasons.push(`observed set contained ${malformed} non-string entr${malformed === 1 ? 'y' : 'ies'}; the readback is not trustworthy`);
+    }
+
+    const seen = new Set(names);
+    const missing = required.filter((family) => !seen.has(family));
+    // A name outside the governed vocabulary means the decoder and the allowlist disagree, which makes
+    // every OTHER conclusion from this readback suspect — including the ones that looked fine.
+    const unrecognised = [...seen].filter((name) => !GOVERNED_EVENTS.includes(name)).sort();
+
+    if (missing.length > 0) {
+        reasons.push(`required event families never observed: ${missing.join(', ')}`);
+    }
+    if (unrecognised.length > 0) {
+        reasons.push(`event names outside the governed allowlist: ${unrecognised.join(', ')}`);
+    }
+
+    return {
+        verdict: missing.length === 0 && unrecognised.length === 0 && malformed === 0 ? 'QUALIFIED' : 'HOLD',
+        missing: [...missing],
+        unrecognised,
+        reasons,
+    };
+}
+
+/**
+ * #1421 P1 — SCENARIO PROFILES: WHICH FAMILIES EACH UI STAGE MUST PRODUCE.
+ *
+ * `REQUIRED_EVENT_FAMILIES` is the generic session spine, and a journey could return QUALIFIED with
+ * every Share Feedback, During and After family absent — the readback said "the session happened"
+ * and nothing about whether the surfaces under test were observable. A test that cannot diagnose the
+ * failures it was run to find is not evidence.
+ *
+ * A TABLE, NOT A FRAMEWORK. Each stage owns its required families and, where a family alone is not
+ * enough, a predicate over the decoded rows. Adding a stage is a row here; it needs no new machinery,
+ * and the qualifier keeps its single verdict path. Missing stage data is a HOLD, like every other
+ * absence in this gate.
+ *
+ * Predicates read decoded READBACK rows only — never producer objects, DOM state, an HTTP status or a
+ * send buffer — and they may only ask closed-set, count, boolean or hash questions. They never see
+ * transcript, feedback prose, audio, URLs or tokens, because those never leave the process.
+ */
+export interface QualificationStage {
+    readonly stage: string;
+    readonly requiredFamilies: readonly GovernedEvent[];
+    /** Extra conditions over the decoded rows for this journey. Each returns a HOLD reason, or null. */
+    readonly invariants: readonly {
+        readonly name: string;
+        readonly check: (rows: readonly DecodedTelemetryRow[]) => string | null;
+    }[];
+}
+
+/** One decoded readback row. Governed properties only — the query selects nothing else. */
+export interface DecodedTelemetryRow {
+    event: string;
+    properties?: Record<string, unknown> | null;
+    /** The row's AMBIENT identity, as the envelope stamped it at push. Absent means unknown, never a wildcard. */
+    journeyId?: string | null;
+    bootId?: string | null;
+    timestamp?: string | number | null;
+}
+
+
+const has = (rows: readonly DecodedTelemetryRow[], event: string) => rows.some(r => r?.event === event);
+const propsOf = (rows: readonly DecodedTelemetryRow[], event: string) =>
+    rows.filter(r => r?.event === event).map(r => r?.properties ?? {});
+
+/**
+ * THE THREE-MODEL BINDING.
+ *
+ * A down-selection is only defensible if the row proves the candidate that was CONFIGURED is the one
+ * that was ACQUIRED and the one that RAN. `private_model_acquisition_success` is the only governed
+ * family carrying `acquired_candidate_id`, which is why registering it was a prerequisite for this.
+ *
+ * A mismatch, a missing identity, or more than one identity in a single controlled row all HOLD: two
+ * identities in one journey means the row describes two takes, and averaging them is exactly the
+ * contamination this exists to refuse.
+ */
+const idsOf = (rows: readonly DecodedTelemetryRow[], event: string, field: string) =>
+    new Set(propsOf(rows, event).map(p => p?.[field]).filter(v => typeof v === 'string' && v.length > 0) as string[]);
+
+const modelIdentityIsCoherent = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const acquired = idsOf(rows, 'private_model_acquisition_success', 'acquired_candidate_id');
+    if (acquired.size === 0) return 'no acquired candidate identity was recorded for this journey';
+    if (acquired.size > 1) return 'more than one acquired candidate identity in one journey';
+
+    /**
+     * #1421 P1 — EQUALITY, NOT MERE PRESENCE.
+     *
+     * This required one non-blank `acquired_candidate_id` and stopped. A run configured for one model
+     * that acquired or ran another therefore satisfied the claimed three-model binding, and the
+     * down-selection evidence it produced would attribute one model's results to another. Requiring a
+     * value is not requiring the right value.
+     *
+     * Three identities, all governed and all now fetched by the readback:
+     *   expected_candidate_id — what the run was CONFIGURED for, from the candidate expectation;
+     *   acquired_candidate_id — what the loader actually ACQUIRED;
+     *   candidate_id          — what the envelope verified as RUNNING, on every governed row.
+     *
+     * All three must agree. Any missing term HOLDs rather than being skipped: an absent identity is
+     * exactly the state in which a mismatch cannot be ruled out.
+     */
+    const expected = idsOf(rows, 'private_model_acquisition_start', 'expected_candidate_id');
+    if (expected.size === 0) return 'no configured (expected) candidate identity was recorded';
+    if (expected.size > 1) return 'more than one configured candidate identity in one journey';
+
+    const running = new Set(rows.map(r => r?.properties?.candidate_id)
+        .filter(v => typeof v === 'string' && v.length > 0) as string[]);
+    if (running.size === 0) return 'no running candidate identity was recorded for this journey';
+    if (running.size > 1) return 'more than one running candidate identity in one journey';
+
+    /**
+     * AN UNIDENTIFIABLE RUNTIME HOLDS. `candidate_id` alone names the model; `engine` and
+     * `runtime_version` are what make the running identity attributable to a build. The envelope
+     * publishes all three together and sets them to null as a set when attribution is unverified, so a
+     * row naming a candidate with no engine or runtime version is exactly the "we cannot say what ran"
+     * state — which must not qualify a down-selection row.
+     */
+    const engines = new Set(rows.map(r => r?.properties?.engine)
+        .filter(v => typeof v === 'string' && v.length > 0) as string[]);
+    const runtimes = new Set(rows.map(r => r?.properties?.runtime_version)
+        .filter(v => typeof v === 'string' && v.length > 0) as string[]);
+    if (engines.size === 0 || runtimes.size === 0) {
+        return 'the running candidate carries no verified engine or runtime version';
+    }
+    if (engines.size > 1 || runtimes.size > 1) {
+        return 'more than one running engine or runtime version in one journey';
+    }
+
+    const [a] = [...acquired]; const [e] = [...expected]; const [r] = [...running];
+    if (e !== a) return 'the configured candidate is not the one that was acquired';
+    if (a !== r) return 'the acquired candidate is not the one that ran';
+    return null;
+};
+
+/**
+ * #1421 P1 `3984043475` — A SAVED TAKE IS MODEL-SPECIFIC EVIDENCE ONLY WITH ONE VERIFIED RECEIPT NAMING IT.
+ *
+ * Client equality of the configured, acquired and running candidates says nothing about what the server
+ * persisted: attestation can fail or stay pending while all three agree. The terminal
+ * `model_attribution_receipt` carries the server verdict and, in `subject_*`, the take it settled.
+ *
+ * Each saved take (the ambient boot, journey and attempt on its `session_saved` row) needs exactly one
+ * receipt whose subject names that take, emitted by the same boot, with verdict `verified`. The match is
+ * on the SUBJECT, never the receipt's ambient attempt, because a Retry Save runs under whatever take is
+ * current. A receipt from another boot never qualifies, which keeps a reload-recovered take out of the
+ * model comparison. Missing, unverified, conflicting, duplicate and unidentifiable all HOLD.
+ */
+const ATTRIBUTION_RECEIPT = 'model_attribution_receipt';
+const nonBlank = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+/**
+ * The attempt ordinal by value. The readback may return a numeric property as a string, so a canonical
+ * decimal string is the same ordinal. Anything else is not an ordinal and cannot name a take.
+ */
+const ordinal = (v: unknown): number | null => {
+    if (typeof v === 'number') return Number.isInteger(v) && v > 0 ? v : null;
+    if (typeof v === 'string' && /^[1-9]\d{0,8}$/.test(v)) return Number(v);
+    return null;
+};
+
+export const savedTakesHaveOneVerifiedReceipt = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const takes: { bootId: string; journeyId: string; attemptId: string; attemptSeq: number }[] = [];
+    for (const row of rows) {
+        if (row?.event !== 'session_saved') continue;
+        const p = row.properties ?? {};
+        const attemptId = p.attempt_id;
+        const attemptSeq = ordinal(p.attempt_seq);
+        if (!nonBlank(row.bootId) || !nonBlank(row.journeyId) || !nonBlank(attemptId) || attemptSeq === null) {
+            return 'a saved take carries no complete boot, journey and attempt identity, so no attribution receipt can be bound to it';
+        }
+        takes.push({ bootId: row.bootId, journeyId: row.journeyId, attemptId, attemptSeq });
+    }
+    const receipts = rows.filter((r) => r?.event === ATTRIBUTION_RECEIPT);
+    for (const take of takes) {
+        const naming = receipts.filter((r) => {
+            const p = r.properties ?? {};
+            return p.subject_boot_id === take.bootId
+                && p.subject_journey_id === take.journeyId
+                && p.subject_attempt_id === take.attemptId
+                && ordinal(p.subject_attempt_seq) === take.attemptSeq;
+        });
+        if (naming.length === 0) {
+            return 'a saved take has no terminal attribution receipt naming it, so the model that produced it is not server-verified';
+        }
+        if (naming.some((r) => r.bootId !== take.bootId)) {
+            return 'an attribution receipt for a saved take was emitted by a different boot, and a reload-recovered take never qualifies as model-specific evidence';
+        }
+        if (naming.some((r) => r.properties?.attribution_status !== 'verified')) {
+            return 'a saved take has an attribution receipt that is not verified';
+        }
+        if (naming.length > 1) return 'a saved take has more than one attribution receipt, so its verdict is not unique';
+    }
+    return null;
+};
+
+const ATTRIBUTION_BINDING = {
+    name: 'saved_take_has_one_verified_attribution_receipt',
+    check: savedTakesHaveOneVerifiedReceipt,
+} as const;
+
+/** The readback may return a boolean property as the string `'true'`; nothing else is true. */
+const isTrue = (v: unknown): boolean => v === true || v === 'true';
+
+/**
+ * #1421 P1 `3984043479` — THE REVIEW THE USER SAW MUST HAVE SHOWN THE SAVED TRANSCRIPT.
+ *
+ * Family presence accepted `transcript_authority` from any stage, so `finalize`, `save` or `teardown` rows —
+ * or a `review_rendered` row reporting a blank or different transcript — qualified an After run that
+ * reproduced exactly the transcript-loss failure the family exists to catch. The After stages now require a
+ * `review_rendered` receipt, and every one recorded must say the transcript was visibly present AND matched
+ * the authority. A review that was ever wrong on screen is not qualifying evidence.
+ */
+export const reviewTranscriptReceiptSucceeded = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const review = propsOf(rows, 'transcript_authority').filter((p) => p?.stage === 'review_rendered');
+    if (review.length === 0) {
+        return 'no review_rendered transcript receipt was recorded, so the transcript on the review screen is unverified';
+    }
+    return review.every((p) => isTrue(p?.transcript_visibly_present) && isTrue(p?.digests_match))
+        ? null
+        : 'a review_rendered transcript receipt did not show the saved transcript (not visibly present, or not matching)';
+};
+
+const REVIEW_TRANSCRIPT_RECEIPT = {
+    name: 'review_rendered_transcript_receipt_succeeded',
+    check: reviewTranscriptReceiptSucceeded,
+} as const;
+
+/**
+ * #1421 P1 `3984043486` — THE POST-STOP CHAIN, IN ORDER, FOR THE PRODUCT THAT RAN.
+ *
+ * Any single `stage_latency` row satisfied the family check — a pre-Stop `model_acquisition` included — so
+ * an After run that lost every completion stage still qualified, and the readback could not say where the
+ * lifecycle stopped. Each After profile now requires its applicable chain (PM decision `5638627982`): Focus
+ * Points includes `evaluation_complete`; Open Mic does not, because that stage is Focus Points only. Every
+ * stage must be present, and the first occurrence of each must not precede the stage before it. A stage row
+ * with no readable timestamp HOLDs rather than being ordered by guesswork.
+ */
+export const OPEN_MIC_POST_STOP_CHAIN = Object.freeze([
+    'recording_terminated', 'final_transcript', 'session_saved', 'practice_loop_ready', 'review_rendered',
+] as const);
+export const FOCUS_POINTS_POST_STOP_CHAIN = Object.freeze([
+    'recording_terminated', 'final_transcript', 'evaluation_complete', 'session_saved', 'practice_loop_ready', 'review_rendered',
+] as const);
+
+const rowTime = (v: unknown): number => (typeof v === 'number' ? v : Date.parse(String(v ?? '')));
+
+/**
+ * #1421 Codex P1 `3993611256` (PM DECISION `5641061977`, option (a)) — ONE TAKE'S CHAIN, NEVER A SPLICE.
+ *
+ * The chain took the earliest row per stage and compared only times, so a journey with two recording attempts
+ * could assemble an apparently ordered chain out of BOTH: `recording_terminated` and `final_transcript` from
+ * take A beside `session_saved` and the review stages from take B. The readback then reported QUALIFIED although
+ * no single take ever completed the chain — evidence integrity, not a latency detail.
+ *
+ * The saved take names the attempt: `session_saved` carries the governed `attempt_id` that the envelope attaches
+ * to every event, so each chain row is required to carry that SAME attempt. Missing, blank, conflicting (two
+ * saved takes disagreeing) or cross-attempt evidence HOLDs rather than being ordered by guesswork. Pre-change
+ * rows carry no attempt and therefore do not qualify — PM's item 6: no transition, no backfill.
+ */
+const attemptOf = (row: DecodedTelemetryRow | undefined): string | null => {
+    const value = row?.properties?.attempt_id;
+    return typeof value === 'string' && nonBlank(value) ? value : null;
+};
+
+const savedTakeAttempt = (rows: readonly DecodedTelemetryRow[]): { attemptId: string } | { hold: string } => {
+    const saved = rows.filter((r) => r?.event === 'session_saved');
+    if (saved.length === 0) return { hold: 'the post-Stop chain has no session_saved row to name the saved take' };
+    const attempts = new Set(saved.map((r) => attemptOf(r)));
+    if (attempts.size !== 1) return { hold: 'the saved takes disagree about which attempt the post-Stop chain belongs to' };
+    const [attemptId] = [...attempts];
+    if (attemptId === null) return { hold: 'the saved take carries no attempt identity, so its post-Stop chain cannot be bound to it' };
+    return { attemptId };
+};
+
+export const postStopChainInOrder = (chain: readonly string[]) => (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const attempt = savedTakeAttempt(rows);
+    if ('hold' in attempt) return attempt.hold;
+    let previous = Number.NEGATIVE_INFINITY;
+    for (const stage of chain) {
+        const staged = rows.filter((r) => r?.event === 'stage_latency' && r?.properties?.stage === stage);
+        if (staged.length === 0) return `the post-Stop chain has no ${stage} stage`;
+        // A stage row belonging to another take, or carrying no attempt at all, is not this take's evidence.
+        const own = staged.filter((r) => attemptOf(r) === attempt.attemptId);
+        if (own.length === 0) return `the post-Stop chain has no ${stage} stage for the saved take's attempt`;
+        const times = own.map((r) => rowTime(r?.timestamp));
+        if (times.some((t) => !Number.isFinite(t))) return `a ${stage} stage row has no readable timestamp`;
+        const first = Math.min(...times);
+        if (first < previous) return `the post-Stop chain is out of order at ${stage}`;
+        previous = first;
+    }
+    return null;
+};
+
+const POST_STOP_CHAIN_OPEN_MIC = {
+    name: 'open_mic_post_stop_chain_in_order',
+    check: postStopChainInOrder(OPEN_MIC_POST_STOP_CHAIN),
+} as const;
+
+const POST_STOP_CHAIN_FOCUS_POINTS = {
+    name: 'focus_points_post_stop_chain_in_order',
+    check: postStopChainInOrder(FOCUS_POINTS_POST_STOP_CHAIN),
+} as const;
+
+export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze([
+    {
+        stage: 'share_feedback',
+        // Open -> field state -> submit attempted. The storage RESULT is carried on `feedback_submit`
+        // itself, so a submit with no outcome cannot read as a successful one.
+        requiredFamilies: ['feedback_dialog_opened', 'feedback_field', 'feedback_submit'],
+        invariants: [{
+            name: 'submit_has_storage_outcome',
+            check: (rows) => (propsOf(rows, 'feedback_submit').some(p => p?.outcome === undefined || p?.outcome === null)
+                ? 'a feedback submit was recorded with no storage outcome'
+                : null),
+        }],
+    },
+    {
+        stage: 'session_during',
+        requiredFamilies: [
+            'recording_intent', 'recording_state', 'session_started',
+            'private_model_acquisition_start', 'private_model_acquisition_success',
+            'transcript_stability', 'mic_observability',
+        ],
+        invariants: [
+            { name: 'model_identity_coherent', check: modelIdentityIsCoherent },
+            {
+                // An accepted intent that never reaches RECORDING is the F-01 defect: the click was
+                // taken and nothing ran. A journey missing that transition has not proven a take began.
+                name: 'accepted_intent_reached_recording',
+                // `to_state` is what `emitRecordingState()` publishes and what the governed schema
+                // declares. Reading `state` decoded null on every real row, so this invariant could
+                // never find RECORDING and every honest During readback would have HELD.
+                check: (rows) => (has(rows, 'recording_intent')
+                    && !propsOf(rows, 'recording_state').some(p => p?.to_state === 'RECORDING')
+                    ? 'an accepted recording intent never reached RECORDING'
+                    : null),
+            },
+        ],
+    },
+    {
+        stage: 'session_after_open_mic',
+        requiredFamilies: [
+            'session_saved', 'transcript_authority', 'filler_measurement',
+            'retention_observation', 'practice_loop', 'stage_latency',
+            'model_attribution_receipt',
+        ],
+        invariants: [{
+            // A saved session whose review has no transcript authority is the "saved count with blank
+            // review" case: the count says it worked and the user sees nothing.
+            name: 'saved_session_has_transcript_authority',
+            check: (rows) => (has(rows, 'session_saved') && !has(rows, 'transcript_authority')
+                ? 'a saved session produced no transcript authority for its review'
+                : null),
+        }, ATTRIBUTION_BINDING, REVIEW_TRANSCRIPT_RECEIPT, POST_STOP_CHAIN_OPEN_MIC],
+    },
+    {
+        stage: 'session_after_focus_points',
+        requiredFamilies: [
+            'session_saved', 'transcript_authority', 'coverage_evaluation', 'coverage_point',
+            'filler_measurement', 'retention_observation', 'practice_loop', 'stage_latency',
+            'model_attribution_receipt',
+        ],
+        invariants: [{
+            // A coverage verdict with no per-position rows is a headline with nothing behind it.
+            name: 'coverage_evaluation_has_points',
+            check: (rows) => (has(rows, 'coverage_evaluation') && !has(rows, 'coverage_point')
+                ? 'a coverage evaluation published no per-point verdicts'
+                : null),
+        }, ATTRIBUTION_BINDING, REVIEW_TRANSCRIPT_RECEIPT, POST_STOP_CHAIN_FOCUS_POINTS],
+    },
+]);
+
+/** HOLD reasons for one stage, or an empty list when the stage is fully evidenced. */
+export function evaluateQualificationStage(
+    stage: QualificationStage,
+    rows: readonly DecodedTelemetryRow[],
+): string[] {
+    const missing = stage.requiredFamilies.filter((family) => !has(rows, family));
+    const reasons = missing.map((family) => `${stage.stage}: missing required family ${family}`);
+    for (const invariant of stage.invariants) {
+        const failure = invariant.check(rows);
+        if (failure !== null) reasons.push(`${stage.stage}: ${failure}`);
+    }
+    return reasons;
+}

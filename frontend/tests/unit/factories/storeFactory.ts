@@ -26,6 +26,7 @@ const initialState: SessionState = {
     isTranscriptFinalizing: false,
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
+    completedSessionId: null,
     activeObjectiveBrief: null,
     practiceFocus: null,
     completedObjectiveBrief: null,
@@ -218,6 +219,7 @@ export function createTestSessionStore(
 
         setCaptureLimitReached: vi.fn((captureLimitReached) => set({ captureLimitReached })),
         setCompletedSessionDuration: vi.fn((completedSessionDurationSeconds) => set({ completedSessionDurationSeconds })),
+        setCompletedSessionId: vi.fn((completedSessionId) => set({ completedSessionId })),
         setActiveObjectiveBrief: vi.fn((activeObjectiveBrief) => set({ activeObjectiveBrief })),
         setPracticeFocus: vi.fn((practiceFocus) => set({ practiceFocus })),
         setCompletedObjectiveBrief: vi.fn((completedObjectiveBrief) => set({ completedObjectiveBrief })),
