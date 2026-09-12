@@ -41,10 +41,10 @@ const validSuggestions = {
 };
 
 /**
- * `boundSource` is the shape #1424 actually ships: model, generation config, prompt, word budget and
- * daily cap all derived from the contract. `unboundSource` is the shape `main` ships today — a
- * hardcoded preview endpoint with an inline prompt — which is precisely the state a contract-only
- * proof would have blessed.
+ * `boundSource` mirrors what #1424 actually ships: the request is built from the contract at the call
+ * site. `unboundSource` is what `main` ships today — a hardcoded preview endpoint with an inline prompt.
+ * `decoySource` is Codex's counter-example from `3995449453`: every contract-derived declaration is
+ * present, and the request uses none of them.
  */
 const boundSource = `
   import coachingContract from './contract.json' with { type: 'json' };
@@ -52,12 +52,49 @@ const boundSource = `
   export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
   export const COACHING_WORD_BUDGET = Object.freeze(coachingContract.wordBudget);
   export const AI_SUGGESTION_DAILY_LIMIT = coachingContract.uncachedGenerationCapPerUtcDay;
-  const prompt = coachingContract.promptTemplate.replace('{{TRANSCRIPT}}', transcript);
+  export function buildCoachingPrompt(transcript) {
+    return coachingContract.promptTemplate.replace('{{TRANSCRIPT}}', transcript);
+  }
+  const prompt = buildCoachingPrompt(transcriptForPrompt);
+  const geminiResponse = await fetch(\`\${GEMINI_API_URL}?key=\${apiKey}\`, {
+    method: 'POST',
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: GEMINI_GENERATION_CONFIG,
+    }),
+  });
 `;
 const unboundSource = `
   const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
   const AI_SUGGESTION_DAILY_LIMIT = 20;
   const prompt = \`You are an expert public speaking coach. \${transcript}\`;
+  const geminiResponse = await fetch(GEMINI_API_URL, {
+    method: 'POST',
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json' },
+    }),
+  });
+`;
+const decoySource = `
+  import coachingContract from './contract.json' with { type: 'json' };
+  export const GEMINI_API_URL = \`https://generativelanguage.googleapis.com/v1beta/models/\${coachingContract.model}:generateContent\`;
+  export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
+  export const COACHING_WORD_BUDGET = coachingContract.wordBudget;
+  export const AI_SUGGESTION_DAILY_LIMIT = coachingContract.uncachedGenerationCapPerUtcDay;
+  export function buildCoachingPrompt(transcript) {
+    return coachingContract.promptTemplate.replace('{{TRANSCRIPT}}', transcript);
+  }
+  const realUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+  const inlineConfig = { responseMimeType: 'application/json' };
+  const inlinePrompt = 'coach me';
+  const geminiResponse = await fetch(realUrl, {
+    method: 'POST',
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: inlinePrompt }] }],
+      generationConfig: inlineConfig,
+    }),
+  });
 `;
 
 describe('trusted Gemini model proof', () => {
@@ -72,17 +109,53 @@ describe('trusted Gemini model proof', () => {
     })).toThrow(/does not use the proven contract/);
   });
 
-  it('CASUALTY: each binding is checked on its own, so a partial adoption still fails', () => {
+  it('CASUALTY (Codex 3995449453): contract-derived DECLARATIONS do not pass — the REQUEST must use them', () => {
+    // Codex's counter-example, reproduced verbatim in shape: every contract-derived declaration is
+    // present and satisfies a source-wide grep, while the actual `fetch` uses a separately constructed
+    // model, an inline generation config and an inline prompt. The previous check passed this file and
+    // would have published successful conformance evidence for a divergent Production request.
+    expect(() => assertProductionUsesContract(decoySource)).toThrow(/does not use the proven contract/);
+    let message = '';
+    try { assertProductionUsesContract(decoySource); } catch (error) { message = (error as Error).message; }
+    expect({
+      url: message.includes('the request URL does not resolve to the contract model'),
+      hardcoded: message.includes('the request URL resolves to a hardcoded model name'),
+      config: message.includes('the request generation config is not the contract generation config'),
+      prompt: message.includes('the request prompt is not built from the contract template'),
+    }).toEqual({ url: true, hardcoded: true, config: true, prompt: true });
+  });
+
+  it('CASUALTY: each element of the request is checked on its own', () => {
     expect(() => assertProductionUsesContract(boundSource)).not.toThrow();
-    // Imports the contract, then hardcodes the endpoint anyway — the most plausible half-migration.
-    expect(() => assertProductionUsesContract(`${boundSource}
-      const legacy = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
-    `)).toThrow(/hardcodes a model name/);
-    expect(() => assertProductionUsesContract(boundSource.replace('coachingContract.promptTemplate', '`inline prompt`')))
+    // An inline generation config at the call site, everything else bound.
+    expect(() => assertProductionUsesContract(
+      boundSource.replace('generationConfig: GEMINI_GENERATION_CONFIG', "generationConfig: { responseMimeType: 'application/json' }"),
+    )).toThrow(/generation config is not the contract generation config/);
+    // An inline prompt at the call site.
+    expect(() => assertProductionUsesContract(boundSource.replace('text: prompt', "text: 'coach me'")))
       .toThrow(/prompt is not built from the contract template/);
+    // The builder stops using the contract template.
+    expect(() => assertProductionUsesContract(boundSource.replace('coachingContract.promptTemplate', "'inline template'")))
+      .toThrow(/prompt is not built from the contract template/);
+    // The cap stops coming from the contract, away from the call site.
     expect(() => assertProductionUsesContract(boundSource.replace('coachingContract.uncachedGenerationCapPerUtcDay', '20')))
       .toThrow(/daily generation cap is not taken from the contract/);
     expect(() => assertProductionUsesContract('')).toThrow(/production function source is unavailable/);
+  });
+
+  it('CASUALTY: a second provider request means the checked call is not the only call', () => {
+    // With two generation requests, verifying one proves nothing about the other.
+    expect(() => assertProductionUsesContract(`${boundSource}
+      const shadow = await fetch(realUrl, { body: JSON.stringify({ generationConfig: inlineConfig }) });
+    `)).toThrow(/exactly one is required/);
+  });
+
+  it('CONTROL: an unused legacy constant is not the request, and does not fail the run', () => {
+    // The anchored check must not punish dead code the request never touches — that was the
+    // over-reach of the source-wide version, in the opposite direction.
+    expect(() => assertProductionUsesContract(`${boundSource}
+      const legacyUnused = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+    `)).not.toThrow();
   });
 
   it('CONTROL: a comment naming the retired model does not fail a properly bound function', () => {
