@@ -1,22 +1,21 @@
 /**
  * #1424 — THE PRODUCTION REQUEST IS BUILT FROM THE PINNED CONTRACT, PROVEN AGAINST THE AST.
  *
- * `contract.json` pins the model, the generation config, the prompt, the six-word budget and the ten-per
- * -UTC-day cap. A contract nobody reads is decoration, so this suite proves the deployed function
+ * `contract.json` pins the model, the generation config, the prompt, the six-word budget and the
+ * ten-per-UTC-day cap. A contract nobody reads is decoration, so this suite proves the deployed function
  * actually derives its request from it.
  *
- * WHY THIS TEST EXISTS HERE RATHER THAN IN #1434's HARNESS. #1434 tried to prove the same thing by
- * scanning the source with regexes, from a workflow job that installs no dependencies. Codex defeated
- * three successive versions of that: decoy declarations satisfied source-wide greps (`3995449453`); a
- * `fetch` written inside a template literal was read as the live call (`3995482306`); a spread-merged
- * generation config satisfied a substring check (`3995482308`); declared-but-unused budget and cap
- * aliases passed (`3995482310`); and the security review showed the same gap could bless a candidate
- * that exfiltrates the credential (`3995491120`). The claim was withdrawn from there and moved here,
- * where the real TypeScript compiler is available and runs on every pull request.
+ * WHY IT LIVES HERE. #1434 tried to prove the same thing by scanning source with regexes from a workflow
+ * job that installs no dependencies, and Codex defeated three successive versions of it (`3995449453`,
+ * `3995482306`, `3995482308`, `3995482310`, and security `3995491120`). The claim was withdrawn from
+ * there and moved here, where the real TypeScript compiler exists and runs on every pull request,
+ * against the tree being merged.
  *
- * A parser removes the whole class of defect: a `fetch` inside a string literal is a string, not a call;
- * a spread is a SpreadAssignment and not a property access; and an alias that is never referenced is
- * visibly never referenced.
+ * WHY IT IS BUILT AROUND `bindingFailures(source)`. Codex then found three false-PASS defects in the
+ * first version of this very test (`3996197157`, `3996197160`, `3996197163`) — I had brought a parser
+ * and kept reaching for regex inside it. The checks are a pure function of source text so the suite can
+ * run them against the REAL function and against each defeating construction, which makes the
+ * discrimination permanent evidence instead of something I verified by hand once.
  *
  * WHAT THIS STILL DOES NOT PROVE: that Google serves the model. That is answered in Production, where
  * suggestions generate automatically after every successful completed session.
@@ -27,166 +26,247 @@ import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 
 const FUNCTION_PATH = 'backend/supabase/functions/get-ai-suggestions/index.ts';
+const GEMINI_HOST = 'generativelanguage.googleapis.com';
 
-const source = ts.createSourceFile(
-    FUNCTION_PATH,
-    readFileSync(resolve(process.cwd(), FUNCTION_PATH), 'utf8'),
-    ts.ScriptTarget.Latest,
-    true,
-);
+/**
+ * Every way the production request can stop deriving from the contract, as a list of failures. Empty
+ * means the request is bound. Each check is named for what it refuses.
+ */
+export function bindingFailures(sourceText: string): string[] {
+    const source = ts.createSourceFile(FUNCTION_PATH, sourceText, ts.ScriptTarget.Latest, true);
+    const text = (node: ts.Node) => node.getText(source);
 
-const collect = <T extends ts.Node>(match: (node: ts.Node) => node is T): T[] => {
-    const found: T[] = [];
-    const visit = (node: ts.Node) => {
-        if (match(node)) found.push(node);
-        ts.forEachChild(node, visit);
+    const collect = <T extends ts.Node>(match: (node: ts.Node) => node is T): T[] => {
+        const found: T[] = [];
+        const visit = (node: ts.Node) => {
+            if (match(node)) found.push(node);
+            ts.forEachChild(node, visit);
+        };
+        ts.forEachChild(source, visit);
+        return found;
     };
-    ts.forEachChild(source, visit);
-    return found;
-};
+    const within = (node: ts.Node, outer: ts.Node) => node.getStart() >= outer.getStart() && node.getEnd() <= outer.getEnd();
 
-/** The local name the module binds `./contract.json` to. Absent = nothing below can pass. */
-const contractBinding = (): string => {
-    const declaration = collect(ts.isImportDeclaration)
+    const contractImport = collect(ts.isImportDeclaration)
         .find((node) => ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text === './contract.json');
-    const name = declaration?.importClause?.name;
-    return name ? name.text : '';
-};
+    const contract = contractImport?.importClause?.name?.text;
+    if (!contract) return ['does not import ./contract.json'];
 
-/** Every module-level `const NAME = …` initialiser, by name. One level of resolution, done on the AST. */
-const initialisers = (): Map<string, ts.Expression> => {
-    const map = new Map<string, ts.Expression>();
-    for (const declaration of collect(ts.isVariableDeclaration)) {
-        if (ts.isIdentifier(declaration.name) && declaration.initializer) {
-            map.set(declaration.name.text, declaration.initializer);
+    /*
+     * MODULE-LEVEL declarations only (Codex `3996197157`). Walking every scope and keying by name let a
+     * helper-local `const GEMINI_GENERATION_CONFIG = contract.generationConfig` answer for a module
+     * binding that had diverged, so the test validated a symbol production never sends.
+     */
+    const moduleInitialisers = new Map<string, ts.Expression>();
+    for (const statement of source.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        for (const declaration of statement.declarationList.declarations) {
+            if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+                moduleInitialisers.set(declaration.name.text, declaration.initializer);
+            }
         }
     }
-    return map;
-};
 
-const text = (node: ts.Node) => node.getText(source);
+    /** The expression's own text plus the module-level initialisers of the identifiers it reads. */
+    const resolved = (expression: ts.Expression): string => [
+        text(expression),
+        ...collect(ts.isIdentifier)
+            .filter((node) => within(node, expression))
+            .map((node) => moduleInitialisers.get(node.text))
+            .filter((value): value is ts.Expression => Boolean(value))
+            .map(text),
+    ].join('\n');
 
-/** Does this expression read `<contract>.<property>`, directly or through one `const` hop? */
-const readsContract = (expression: ts.Expression | undefined, property: string): boolean => {
-    if (!expression) return false;
-    const wanted = `${contractBinding()}.${property}`;
-    if (text(expression) === wanted) return true;
-    if (ts.isIdentifier(expression)) {
-        const resolved = initialisers().get(expression.text);
-        // Deliberately one hop, and deliberately EXACT: a spread or a merge is not the contract's value,
-        // which is the defect Codex demonstrated with `{ ...contract.generationConfig, candidateCount: 99 }`.
-        return resolved ? text(resolved) === wanted : false;
+    const failures: string[] = [];
+
+    /*
+     * Provider calls are identified BY DESTINATION (Codex `3996197160`). Selecting them by "the arguments
+     * mention generationConfig" filtered a second Gemini call out before the count, so production could
+     * hold an unvalidated request while the suite reported exactly one. A `fetch(` inside a string is not
+     * a CallExpression, so a literal cannot inflate or satisfy this either.
+     */
+    const providerCalls = collect(ts.isCallExpression)
+        .filter((call) => text(call.expression) === 'fetch')
+        .filter((call) => call.arguments.length > 0 && resolved(call.arguments[0]).includes(GEMINI_HOST));
+
+    if (providerCalls.length !== 1) {
+        failures.push(providerCalls.length === 0
+            ? 'no request to the provider was found'
+            : `${providerCalls.length} provider requests found; exactly one is required so the checked call is the call made`);
+        return failures;
     }
-    return false;
-};
 
-/** All real `fetch(...)` calls. A `fetch(` written inside a string is not a CallExpression at all. */
-const fetchCalls = collect(ts.isCallExpression).filter((call) => text(call.expression) === 'fetch');
+    const [call] = providerCalls;
+    const propertyOf = (name: string): ts.Expression | undefined => collect(ts.isPropertyAssignment)
+        .filter((assignment) => within(assignment, call))
+        .find((assignment) => (ts.isIdentifier(assignment.name) || ts.isStringLiteral(assignment.name))
+            && assignment.name.text === name)?.initializer;
 
-/** The provider call: the `fetch` whose JSON body carries a `generationConfig`. */
-const providerCalls = fetchCalls.filter((call) => call.arguments.some((argument) => /generationConfig/.test(text(argument))));
-
-const propertyOf = (node: ts.Node, name: string): ts.Expression | undefined => {
-    for (const assignment of collect(ts.isPropertyAssignment)) {
-        if (assignment.getStart() < node.getStart() || assignment.getEnd() > node.getEnd()) continue;
-        if (ts.isIdentifier(assignment.name) && assignment.name.text === name) return assignment.initializer;
-        if (ts.isStringLiteral(assignment.name) && assignment.name.text === name) return assignment.initializer;
+    // 1. THE URL the request actually uses.
+    const endpoint = resolved(call.arguments[0]);
+    if (!new RegExp(`models/\\$\\{\\s*${contract}\\.model\\s*\\}`).test(endpoint)) {
+        failures.push('the request URL does not resolve to the contract model');
     }
-    return undefined;
+    /*
+     * Hardcoded model names are looked for in STRING AND TEMPLATE LITERALS via the AST, not by stripping
+     * comments from the text.
+     *
+     * The first attempt stripped comments with `/\/\/.*$/m` so a comment naming the retired model would
+     * not fail a bound function — and `https://` contains `//`, so it deleted the rest of every URL line,
+     * including the hardcoded model it existed to catch. My own casualty caught it, which is the same
+     * failure mode Codex kept finding: reaching for text processing inside a parser. Comments are not
+     * literals, so scanning literal nodes needs no stripping and cannot make that mistake.
+     */
+    const hardcodedModel = [...collect(ts.isStringLiteral), ...collect(ts.isTemplateLiteral)]
+        .some((literal) => /models\/gemini-[A-Za-z0-9.-]+/.test(text(literal)));
+    if (hardcodedModel) {
+        failures.push('an endpoint path hardcodes a model name');
+    }
+
+    // 2. THE GENERATION CONFIG it sends — the contract value EXACTLY. A spread or merge is not it.
+    const configExpression = propertyOf('generationConfig');
+    const wantedConfig = `${contract}.generationConfig`;
+    const configText = configExpression && ts.isIdentifier(configExpression)
+        ? text(moduleInitialisers.get(configExpression.text) ?? configExpression)
+        : configExpression && text(configExpression);
+    if (configText !== wantedConfig) {
+        failures.push('the request generation config is not the contract generation config');
+    }
+
+    /*
+     * 3. THE PROMPT it sends, traced through the builder's RETURN (Codex `3996197163`). Searching the
+     * builder's body text passed a builder that logged the contract template and returned a hardcoded
+     * one. Every return must derive from the contract: a builder that sometimes returns something else
+     * is a builder that can.
+     */
+    const readsTemplate = (node: ts.Node) => collect(ts.isPropertyAccessExpression)
+        .some((access) => within(access, node) && text(access) === `${contract}.promptTemplate`);
+
+    const promptExpression = propertyOf('text');
+    const promptName = promptExpression && ts.isIdentifier(promptExpression) ? promptExpression.text : '';
+    const promptDeclaration = collect(ts.isVariableDeclaration)
+        .find((node) => ts.isIdentifier(node.name) && node.name.text === promptName && node.initializer);
+    const bound = promptDeclaration?.initializer;
+
+    if (!bound) {
+        failures.push('the request prompt has no visible declaration');
+    } else if (!readsTemplate(bound)) {
+        const builderName = ts.isCallExpression(bound) ? text(bound.expression) : '';
+        const builder = collect(ts.isFunctionDeclaration).find((node) => node.name?.text === builderName);
+        const returns = builder ? collect(ts.isReturnStatement).filter((node) => within(node, builder)) : [];
+        const derives = returns.length > 0 && returns.every((node) => node.expression && readsTemplate(node.expression));
+        if (!derives) failures.push('the request prompt is not built from the contract template');
+    }
+
+    /*
+     * 4. THE BUDGET AND THE CAP — from the contract AND referenced beyond their own declaration. A
+     * declared-but-unused alias is production enforcing something else (Codex `3995482310`).
+     */
+    for (const [property, label] of [['wordBudget', 'word budget'], ['uncachedGenerationCapPerUtcDay', 'daily generation cap']] as const) {
+        const name = [...moduleInitialisers.entries()]
+            .find(([, initialiser]) => new RegExp(`${contract}\\.${property}\\b`).test(text(initialiser)))?.[0];
+        if (!name) {
+            failures.push(`the ${label} is not taken from the contract`);
+            continue;
+        }
+        const references = collect(ts.isIdentifier).filter((node) => node.text === name).length;
+        const declarations = collect(ts.isVariableDeclaration)
+            .filter((node) => ts.isIdentifier(node.name) && node.name.text === name).length;
+        if (references - declarations <= 0) failures.push(`the ${label} is declared but never used`);
+    }
+
+    return failures;
+}
+
+const productionSource = readFileSync(resolve(process.cwd(), FUNCTION_PATH), 'utf8');
+
+/** The real function, mutated at one point. Each mutation is a construction that defeated an earlier version. */
+const mutate = (from: string, to: string): string => {
+    expect(productionSource, `mutation anchor must exist: ${from.slice(0, 48)}`).toContain(from);
+    return productionSource.replace(from, to);
 };
 
 describe('#1424 — the production request is built from contract.json (AST)', () => {
-    it('the module imports the contract', () => {
-        expect(contractBinding()).not.toBe('');
+    it('CONTROL: the real production function is bound to the contract', () => {
+        expect(bindingFailures(productionSource)).toEqual([]);
     });
 
-    it('CASUALTY: there is exactly ONE provider request, so the checked call is the call made', () => {
-        // With two generation requests, verifying one proves nothing about the other. A `fetch` written
-        // inside a template literal cannot inflate or satisfy this count — it is not a call node.
-        expect({ providerCalls: providerCalls.length }).toEqual({ providerCalls: 1 });
+    it('CASUALTY: a function that does not import the contract fails', () => {
+        expect(bindingFailures('const x = 1;\n')).toEqual(['does not import ./contract.json']);
     });
 
-    it('CASUALTY: the request URL resolves to the contract model, with no hardcoded model anywhere', () => {
-        const [call] = providerCalls;
-        const url = call.arguments[0];
-        // Collect the identifiers the URL expression reads, then resolve them on the AST.
-        const referenced = collect(ts.isIdentifier)
-            .filter((node) => node.getStart() >= url.getStart() && node.getEnd() <= url.getEnd())
-            .map((node) => node.text);
-        const resolved = referenced
-            .map((name) => initialisers().get(name))
-            .filter((value): value is ts.Expression => Boolean(value))
-            .map(text)
-            .concat(text(url));
-
-        const endpoint = resolved.find((value) => value.includes('generativelanguage.googleapis.com'));
-        expect(endpoint, 'the request URL must resolve to a Gemini endpoint').toBeDefined();
-        expect(endpoint).toMatch(new RegExp(`models/\\$\\{${contractBinding()}\\.model\\}`));
-
-        // And nothing in the whole module hardcodes a model into an endpoint path.
-        const wholeFile = source.getText();
-        expect(wholeFile.replace(/\/\/.*$|\/\*[^]*?\*\//gm, '')).not.toMatch(/models\/gemini-[A-Za-z0-9.-]+/);
+    it('CASUALTY (Codex 3996197157): a helper-local shadow cannot answer for the module binding', () => {
+        // The module binding diverges; an inner scope re-declares the same NAME from the contract. Keying
+        // resolution by name across all scopes accepted this and validated a symbol production never sends.
+        const shadowed = mutate(
+            'export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;',
+            `export const GEMINI_GENERATION_CONFIG = { responseMimeType: 'application/json' };
+function decoyScope() {
+  const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
+  return GEMINI_GENERATION_CONFIG;
+}
+void decoyScope;`,
+        );
+        expect(bindingFailures(shadowed)).toContain('the request generation config is not the contract generation config');
     });
 
-    it('CASUALTY: the generation config sent is the contract value exactly, not a merge of it', () => {
-        // `{ ...contract.generationConfig, candidateCount: 99 }` must FAIL. Codex's 3995482308.
-        const [call] = providerCalls;
-        const config = propertyOf(call, 'generationConfig');
-        expect(config, 'the request must send a generationConfig').toBeDefined();
-        expect(readsContract(config, 'generationConfig')).toBe(true);
+    it('CASUALTY (Codex 3996197160): a SECOND Gemini call is counted even when its body is built in a variable', () => {
+        // Selecting provider calls by request shape filtered this one out before the count, so the suite
+        // reported one request while production made two, and validated only the well-formed one.
+        const twoCalls = mutate(
+            '      const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {',
+            `      const shadowOptions = { method: 'POST', body: JSON.stringify({ contents: [{ parts: [{ text: 'coach me' }] }] }) };
+      await fetch(\`\${GEMINI_API_URL}?key=\${apiKey}\`, shadowOptions);
+      const geminiResponse = await fetch(\`\${GEMINI_API_URL}?key=\${apiKey}\`, {`,
+        );
+        expect(bindingFailures(twoCalls)).toEqual(['2 provider requests found; exactly one is required so the checked call is the call made']);
     });
 
-    it('CASUALTY: the prompt sent is built from the contract template', () => {
-        const [call] = providerCalls;
-        const promptExpression = propertyOf(call, 'text');
-        expect(promptExpression, 'the request must send prompt text').toBeDefined();
-
-        // One hop: `text: prompt` → `const prompt = buildCoachingPrompt(…)` → that function's body must
-        // read the contract's template.
-        const promptName = promptExpression && ts.isIdentifier(promptExpression) ? promptExpression.text : '';
-        const bound = initialisers().get(promptName);
-        const builder = bound && ts.isCallExpression(bound) ? text(bound.expression) : '';
-        const builderBody = collect(ts.isFunctionDeclaration)
-            .find((node) => node.name?.text === builder);
-
-        const reads = new RegExp(`${contractBinding()}\\.promptTemplate\\b`);
-        const directly = bound ? reads.test(text(bound)) : false;
-        const viaBuilder = builderBody ? reads.test(text(builderBody)) : false;
-        expect(directly || viaBuilder, 'the prompt must come from the contract template').toBe(true);
+    it('CASUALTY (Codex 3996197163): a builder that LOGS the template but RETURNS a hardcoded one fails', () => {
+        // Searching the builder's body text passed this. The check follows the returned expression now.
+        const hardcodedReturn = mutate(
+            '  return coachingContract.promptTemplate.replace(',
+            `  console.log('using template', coachingContract.promptTemplate.length);
+  return \`Coach this transcript: \${transcriptForPrompt} \${metricsText}\`;
+  return coachingContract.promptTemplate.replace(`,
+        );
+        expect(bindingFailures(hardcodedReturn)).toContain('the request prompt is not built from the contract template');
     });
 
-    it('CASUALTY: the word budget is taken from the contract AND actually used', () => {
-        // Codex 3995482310: a declared-but-unused alias must not pass. On the AST, "used" means an
-        // identifier reference that is not its own declaration name.
-        const budgetName = [...initialisers().entries()]
-            .find(([, initialiser]) => new RegExp(`${contractBinding()}\\.wordBudget\\b`).test(text(initialiser)))?.[0];
-        expect(budgetName, 'a binding must derive from contract.wordBudget').toBeDefined();
-
-        const references = collect(ts.isIdentifier).filter((node) => node.text === budgetName);
-        const declarations = collect(ts.isVariableDeclaration)
-            .filter((node) => ts.isIdentifier(node.name) && node.name.text === budgetName).length;
-        expect(references.length - declarations, 'the binding must be referenced, not merely declared').toBeGreaterThan(0);
-
-        // And it is used in a comparison that can refuse an over-budget field.
-        const comparisons = collect(ts.isBinaryExpression).filter((node) =>
-            node.operatorToken.kind === ts.SyntaxKind.GreaterThanToken && text(node).includes(String(budgetName)));
-        expect(comparisons.length).toBeGreaterThan(0);
+    it('CASUALTY: a spread-merged generation config is not the contract value', () => {
+        const merged = mutate(
+            'export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;',
+            'export const GEMINI_GENERATION_CONFIG = { ...coachingContract.generationConfig, candidateCount: 99 };',
+        );
+        expect(bindingFailures(merged)).toContain('the request generation config is not the contract generation config');
     });
 
-    it('CASUALTY: the daily cap is taken from the contract AND actually used', () => {
-        const capName = [...initialisers().entries()]
-            .find(([, initialiser]) => new RegExp(`${contractBinding()}\\.uncachedGenerationCapPerUtcDay\\b`).test(text(initialiser)))?.[0];
-        expect(capName, 'a binding must derive from contract.uncachedGenerationCapPerUtcDay').toBeDefined();
+    it('CASUALTY: a hardcoded endpoint model fails even when the contract is imported', () => {
+        const hardcoded = mutate(
+            'export const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${coachingContract.model}:generateContent`;',
+            "export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';",
+        );
+        expect(bindingFailures(hardcoded)).toEqual(expect.arrayContaining([
+            'the request URL does not resolve to the contract model',
+            'an endpoint path hardcodes a model name',
+        ]));
+    });
 
-        const references = collect(ts.isIdentifier).filter((node) => node.text === capName);
-        const declarations = collect(ts.isVariableDeclaration)
-            .filter((node) => ts.isIdentifier(node.name) && node.name.text === capName).length;
-        expect(references.length - declarations).toBeGreaterThan(0);
+    it('CASUALTY: a word budget taken from the contract but never used fails', () => {
+        const unused = mutate(
+            'if (countWords(candidate.what_worked) > COACHING_WORD_BUDGET.what_worked) return null;',
+            'if (countWords(candidate.what_worked) > 22) return null;',
+        ).replace(
+            'if (countWords(candidate.what_to_try_next) > COACHING_WORD_BUDGET.what_to_try_next) return null;',
+            'if (countWords(candidate.what_to_try_next) > 22) return null;',
+        );
+        expect(bindingFailures(unused)).toContain('the word budget is declared but never used');
     });
 
     it('CONTROL: a comment naming the retired preview model does not fail the binding', () => {
-        // The function carries a comment explaining why it left `gemini-3-flash-preview`. That comment is
-        // documentation, not a request, and the AST checks above never see it.
-        expect(source.getText()).toContain('gemini-3-flash-preview');
+        // The function carries a comment explaining why it left `gemini-3-flash-preview`. Documentation is
+        // not a request, and the hardcoded-model check reads code with comments stripped.
+        expect(productionSource).toContain('gemini-3-flash-preview');
+        expect(bindingFailures(productionSource)).toEqual([]);
     });
 });
