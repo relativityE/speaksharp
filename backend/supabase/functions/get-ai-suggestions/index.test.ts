@@ -7,6 +7,7 @@ import {
   AI_SUGGESTION_DAILY_LIMIT,
   buildCoachingPrompt,
 } from './index.ts';
+import coachingContract from './contract.json' with { type: 'json' };
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
 const suggestionA = {
@@ -52,12 +53,14 @@ let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
 let lastPrompt = '';
 let lastRequestBody: Record<string, unknown> = {};
+let lastRequestUrl = '';
 
 globalThis.fetch = async (url, init) => {
   if (!url.toString().includes('generativelanguage.googleapis.com')) {
     return new Response('Not Found', { status: 404 });
   }
   fetchCount++;
+  lastRequestUrl = url.toString();
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
@@ -501,6 +504,49 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // Asking and enforcing must not drift: a parser stricter than the prompt is a 502 we cause ourselves.
     assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_worked} words`);
     assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_to_try_next} words`);
+  });
+
+  /*
+   * #1424 — THE REQUEST PRODUCTION ACTUALLY SENDS **IS** THE PINNED CONTRACT.
+   *
+   * This replaces a static AST test that tried to prove the same thing by reading the source. Codex
+   * defeated seven versions of that idea across two PRs — decoy declarations, a `fetch` inside a
+   * template literal, a spread-merged config, unused aliases, a helper-local shadow, a reassigned
+   * binding, a dynamically built host, and a conditional return. Every one of those is a way for source
+   * to LOOK bound while the request diverges.
+   *
+   * Observation ends the whole class. The handler runs, the fetch stub captures what actually went to
+   * the provider, and the captured request is compared against `contract.json` itself. It does not
+   * matter how the URL, the config or the prompt were constructed — shadowed, reassigned, assembled at
+   * runtime, or chosen in a branch — because what is asserted is what was sent.
+   */
+  await t.step('#1424 CASUALTY: the request that reaches the provider IS the contract', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession() });
+    assertEquals((await handler(request(), mock.create)).status, 200);
+
+    // Exactly one provider call per completed request. A second call — however its URL is built — lands
+    // in this same stub and breaks this count, which the source-reading version could not guarantee.
+    assertEquals(fetchCount, 1, 'exactly one provider request per handler call');
+
+    // The destination carries the contract's model, taken from the URL that was actually requested.
+    assertStringIncludes(lastRequestUrl, `models/${coachingContract.model}:generateContent`);
+    assertEquals(lastRequestUrl.includes('-preview'), false, 'no preview endpoint may be requested');
+
+    // The generation config SENT equals the contract's, exactly. A merge or an override fails here.
+    assertEquals(lastRequestBody.generationConfig, coachingContract.generationConfig);
+
+    // The prompt SENT was produced from the contract's template: every literal segment of the template,
+    // in order, appears in what was sent. A hardcoded or branch-selected prompt cannot satisfy this.
+    for (const segment of coachingContract.promptTemplate.split(/\{\{(?:TRANSCRIPT|METRICS)\}\}/)) {
+      const literal = segment.trim();
+      if (literal.length > 0) assertStringIncludes(lastPrompt, literal);
+    }
+
+    // And the two enforcement values production applies are the contract's, not copies that can drift.
+    assertEquals(COACHING_WORD_BUDGET, coachingContract.wordBudget);
+    assertEquals(AI_SUGGESTION_DAILY_LIMIT, coachingContract.uncachedGenerationCapPerUtcDay);
+    assertStringIncludes(GEMINI_API_URL, coachingContract.model);
   });
 
   await t.step('asks the provider for the JSON contract it will be judged against', async () => {
