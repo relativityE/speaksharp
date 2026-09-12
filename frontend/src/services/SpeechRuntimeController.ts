@@ -1282,6 +1282,16 @@ export class SpeechRuntimeController {
                             sessionId: targetSessionId,
                             mode: fullSave.progressContext?.mode ?? null,
                         });
+                        /**
+                         * #1422 — A RECOVERED SAVE ENTERS THE SAME REVIEW STATE AS A FIRST-PASS SAVE.
+                         *
+                         * Publishing only the persistence marker made the recovered take *saved* without making it *readable*:
+                         * `completedSessionId` stayed null, so the review query was disabled, the after-state had no session to
+                         * read, and the automatic review never ran. Published inside the compare-and-clear for the same reason
+                         * the marker is: if the slot moved to another session while the completion was in flight, this identity
+                         * is stale and must not overwrite that newer take's.
+                         */
+                        useSessionStore.getState().setCompletedSessionId(targetSessionId);
                         });
                     }
                 }
@@ -3817,11 +3827,22 @@ export class SpeechRuntimeController {
         // still-in-flight formatter/metrics callback from the previous session cannot publish or mutate
         // this one, and clear the prior finalized signal so its settled UI (toast/cue/copy) does not linger.
         this.finalizeSequence++;
-        useSessionStore.getState().setFinalizedAnalysis(null);
-        // #1046 slice 5a: a new recording also clears any prior Focus Points coverage rail, so the
-        // settled UI from an earlier objective session never lingers onto this one (mirrors the
-        // finalizedAnalysis clear above; the brief itself is consumed separately at the stop seam).
-        useSessionStore.getState().setObjectiveCoverageResult(null);
+        /**
+         * #1422 — THE PRIOR AFTER-STATE IS NOT CLEARED HERE. NOT ANY OF IT.
+         *
+         * The finalize token is still bumped, because that only fences a still-in-flight formatter or metrics
+         * callback from publishing into this take — it destroys nothing the user can read.
+         *
+         * But `finalizedAnalysis`, `objectiveCoverageResult` and `completedSessionId` are the previous take's
+         * REVIEW: its settled 1+1 coaching, its N/N Focus Points result, and the identity that makes its
+         * transcript addressable. Clearing them at the start BOUNDARY assumed the start would succeed. Every
+         * remaining refusal — the distributed lock, auth, microphone permission, model acquisition, the engine's
+         * own start — happens after this point, so a denied microphone left the user with no take at all.
+         *
+         * Clearing only some of them was worse: keeping the identity while dropping the analysis and coverage
+         * leaves half an after-state on screen. All three now retire TOGETHER, once, at confirmed RECORDING
+         * admission, and only while this start still owns the accepted attempt. See the retirement below.
+         */
         const recordingId = crypto.randomUUID();
         this.currentRecordingId = recordingId;
         // #1415 — THE USER ASKED TO RECORD. Minted here, before any model work, because preparation
@@ -4188,6 +4209,34 @@ export class SpeechRuntimeController {
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
                     await this.transition('READY', undefined, _token);
                     return;
+                }
+
+                /**
+                 * #1422 — THE PREVIOUS TAKE'S AFTER-STATE RETIRES HERE, ATOMICALLY, AND NOT BEFORE.
+                 *
+                 * Two earlier placements were wrong: the START BOUNDARY assumes the start succeeds (lock, auth,
+                 * microphone, acquisition and engine start can all still refuse, which stranded the previous review at
+                 * a permanent "Loading…"), and immediately after the producer latch is before this ownership check, so
+                 * a superseded start returning RECORDING late could clear the SUCCESSOR's identity on its way out.
+                 *
+                 * Here the service has confirmed RECORDING and this start has just proven it still owns the lifecycle
+                 * and the token. `acceptedAttempt` is re-read rather than assumed, so a successor accepted in between
+                 * owns it and this take retires nothing. All three retire TOGETHER: retiring only the identity left A's
+                 * settled analysis and N/N coverage on screen beside a transcript that was no longer addressable.
+                 */
+                const acceptedHere = this.acceptedAttempt;
+                if (acceptedHere
+                    && acceptedHere.intentToken === intent.token
+                    && acceptedHere.recordingId === recordingId
+                    && acceptedHere.serviceGeneration === this.serviceGeneration) {
+                    const store = useSessionStore.getState();
+                    store.setCompletedSessionId(null);
+                    store.setFinalizedAnalysis(null);
+                    store.setObjectiveCoverageResult(null);
+                } else {
+                    pushNativeRuntimeTrace('controller_prior_after_state_retirement_refused', {
+                        hasAccepted: Boolean(acceptedHere),
+                    });
                 }
 
                 if (service && service.fsm?.is('DOWNLOAD_REQUIRED')) {
@@ -5240,6 +5289,11 @@ export class SpeechRuntimeController {
                             this.publishIfStopOwner(stopAuthority, token, 'saved_marker', () => {
                                 this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                                 useSessionStore.getState().setSessionSaved(true);
+                                // #1431 fence + #1422 publish: the row EXISTS, so its id is published here, where persistence is the
+                                // fact being reported — but only while this stop still owns the shared surfaces. Everything below is
+                                // optional analysis whose failure is non-fatal, and the review reader used to depend on it: a
+                                // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
+                                useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
                             });
 
                             // Track 1 finalized reconciliation (disclosure-only). Computed against the
