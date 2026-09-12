@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     practiceLoopJourneyFailures,
+    routeSurfaceFailures,
     contentLeaks,
     type PracticeLoopJourneyEvidence,
 } from '../live/helpers/practiceLoopJourney';
@@ -50,6 +51,47 @@ const provenJourney: PracticeLoopJourneyEvidence = {
 
 const without = (patch: Partial<PracticeLoopJourneyEvidence>): PracticeLoopJourneyEvidence =>
     ({ ...provenJourney, ...patch });
+
+const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
+
+describe('#1437 — the pre-credential route surface', () => {
+    const realRoute = {
+        path: '/auth/signin',
+        httpStatus: 200,
+        origin: APPROVED_ORIGIN,
+        releaseSha: 'a'.repeat(40),
+        mockSurfacesPresent: false,
+        notFoundRendered: false,
+    };
+
+    it('CONTROL: the real route on the approved origin passes', () => {
+        expect(routeSurfaceFailures(realRoute, APPROVED_ORIGIN)).toEqual([]);
+    });
+
+    it('CASUALTY: a nonexistent route fails immediately, even though the SPA serves its shell with 200', () => {
+        // The exact defect. `/auth/login` is not a route; the app answered 200 with its not-found shell,
+        // and a check of origin + release + mock surfaces passed on it. Two Production runs were spent
+        // before the journey was ever reached.
+        expect(routeSurfaceFailures({ ...realRoute, path: '/auth/login', notFoundRendered: true }, APPROVED_ORIGIN))
+            .toEqual(['/auth/login rendered the not-found page; the route does not exist']);
+    });
+
+    it('CASUALTY: a non-success status and a missing response both fail', () => {
+        expect(routeSurfaceFailures({ ...realRoute, httpStatus: 500 }, APPROVED_ORIGIN))
+            .toContain('/auth/signin returned HTTP 500');
+        expect(routeSurfaceFailures({ ...realRoute, httpStatus: null }, APPROVED_ORIGIN))
+            .toContain('/auth/signin returned no response');
+    });
+
+    it('CASUALTY: a wrong origin, a malformed release and mock surfaces each fail', () => {
+        expect(routeSurfaceFailures({ ...realRoute, origin: 'https://preview.example.test' }, APPROVED_ORIGIN))
+            .toContain('origin https://preview.example.test is not the approved origin');
+        expect(routeSurfaceFailures({ ...realRoute, releaseSha: 'not-a-sha' }, APPROVED_ORIGIN))
+            .toContain('the deployed release SHA is missing or malformed');
+        expect(routeSurfaceFailures({ ...realRoute, mockSurfacesPresent: true }, APPROVED_ORIGIN))
+            .toContain('mock surfaces are present on Production');
+    });
+});
 
 describe('#1437 — the Practice Loop journey verdict', () => {
     it('CONTROL: a journey that satisfies the procedure has no failures', () => {

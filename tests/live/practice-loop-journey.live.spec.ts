@@ -40,6 +40,7 @@ import {
 } from './helpers/benchmark-utils';
 import {
     practiceLoopJourneyFailures,
+    routeSurfaceFailures,
     contentLeaks,
     type PracticeLoopJourneyEvidence,
     type ReviewTerminalOutcome,
@@ -168,19 +169,29 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             }
         });
 
-        await test.step('canonical Production, no test surfaces, before any credential', async () => {
-            await page.goto('/auth/login');
-            const surface = await page.evaluate(() => {
+        await test.step('canonical Production on a REAL route, before any credential', async () => {
+            // `/auth/signin` is the route App.tsx:439 defines. The previous head used `/auth/login`,
+            // which does not exist, and passed anyway because a 404 shell satisfies origin/release/mock
+            // checks. The response status and the not-found shell are both checked now.
+            const response = await page.goto('/auth/signin');
+            const observed = await page.evaluate(() => {
                 const w = window as unknown as Record<string, unknown> & { __APP_RELEASE__?: string };
                 return {
                     origin: location.origin,
                     release: w.__APP_RELEASE__ ?? null,
                     injected: Object.keys(w).some((k) => /__MOCK|__MSW/i.test(k)),
+                    notFound: document.body.innerText.includes('Page not found'),
                 };
             });
-            expect(surface.origin, 'exact approved origin').toBe(APPROVED_ORIGIN);
-            expect(surface.release, 'the deployed release must be identifiable').toMatch(/^[0-9a-f]{40}$/);
-            expect(surface.injected, 'no mock surfaces on Production').toBe(false);
+            const failures = routeSurfaceFailures({
+                path: '/auth/signin',
+                httpStatus: response?.status() ?? null,
+                origin: observed.origin,
+                releaseSha: observed.release,
+                mockSurfacesPresent: observed.injected,
+                notFoundRendered: observed.notFound,
+            }, APPROVED_ORIGIN);
+            expect(failures, 'the pre-credential surface must be the real approved route').toEqual([]);
         });
 
         await test.step('authenticate Node-side and inject the session — no credential touches the page', async () => {

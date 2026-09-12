@@ -196,6 +196,44 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
 }
 
 /**
+ * #1437 — A ROUTE THAT DOES NOT EXIST MUST FAIL IMMEDIATELY.
+ *
+ * The previous head navigated to `/auth/login`, which is not a route (`App.tsx:439` defines
+ * `/auth/signin`). The pre-credential step checked origin, release SHA and mock injection — all of
+ * which hold on the app's 404 shell — so it PASSED, execution continued, and the run died later for an
+ * unrelated reason. A surface check that a 404 satisfies is not a surface check.
+ *
+ * Pure, so the 404 case is a casualty in ordinary CI rather than something only Production can reveal.
+ */
+export interface RouteSurface {
+    readonly path: string;
+    readonly httpStatus: number | null;
+    readonly origin: string;
+    readonly releaseSha: string | null;
+    readonly mockSurfacesPresent: boolean;
+    /** True when the rendered page is the app's not-found shell. */
+    readonly notFoundRendered: boolean;
+}
+
+export function routeSurfaceFailures(surface: RouteSurface, approvedOrigin: string): string[] {
+    const failures: string[] = [];
+    if (surface.httpStatus === null) {
+        failures.push(`${surface.path} returned no response`);
+    } else if (surface.httpStatus < 200 || surface.httpStatus >= 400) {
+        failures.push(`${surface.path} returned HTTP ${surface.httpStatus}`);
+    }
+    // The decisive one: a SPA serves its shell with 200 and renders not-found in the client, so status
+    // alone cannot tell a real route from a typo.
+    if (surface.notFoundRendered) failures.push(`${surface.path} rendered the not-found page; the route does not exist`);
+    if (surface.origin !== approvedOrigin) failures.push(`origin ${surface.origin} is not the approved origin`);
+    if (!surface.releaseSha || !/^[0-9a-f]{40}$/.test(surface.releaseSha)) {
+        failures.push('the deployed release SHA is missing or malformed');
+    }
+    if (surface.mockSurfacesPresent) failures.push('mock surfaces are present on Production');
+    return failures;
+}
+
+/**
  * Guard against a proof that quietly carries content. Applied to anything the spec is about to write to
  * an artifact — a journey proof must be reconstructable without ever holding a transcript or a phrase.
  */
