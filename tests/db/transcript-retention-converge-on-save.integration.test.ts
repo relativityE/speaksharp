@@ -1,5 +1,13 @@
 // @vitest-environment node
 //
+// ========================================================================================================
+// HISTORICAL — this file proves the SUPERSEDED newest-two coordinator (migration 20260804000000), in
+// isolation. It applies ONLY the historical migrations and must not be read as a statement about current
+// behaviour. The live contract is the forward-only correction
+// 20260908120000_transcript_retention_newest_one.sql, proven in
+// tests/db/transcript-retention-newest-one.integration.test.ts.
+// ========================================================================================================
+//
 // #1117 R2 — EXECUTED proof for the evidence-gated retention COORDINATOR
 // (migration 20260804000000, Option A) on a real PostgreSQL (PGlite). Applies #1131 + merged R1 + R2
 // verbatim, then exercises converge_transcript_retention and the auto-convergence trigger.

@@ -1,5 +1,18 @@
 // @vitest-environment node
 //
+// ========================================================================================================
+// HISTORICAL — this file proves the SUPERSEDED newest-two contract, in isolation.
+//
+// The product requirement is newest-ONE, and the live contract is the forward-only correction
+// 20260908120000_transcript_retention_newest_one.sql, proven in
+// tests/db/transcript-retention-newest-one.integration.test.ts.
+//
+// This suite applies ONLY the historical migrations and therefore still passes: everything it asserts was
+// true of the rule as shipped. It is retained deliberately — an applied migration is immutable history and
+// the evidence that it behaved as designed should not be deleted — but it must not be read as a statement
+// about current behaviour. Nothing here is loaded alongside the correction.
+// ========================================================================================================
+//
 // #1352 / WS-5 "B" — the FIRST execution of the shipped newest-two retention contract, anywhere.
 //
 // WHY THIS FILE EXISTS. `atomic-completion-retention.integration.test.ts` hand-writes both the schema
@@ -109,7 +122,7 @@ const readAll = async (db: PGlite, userId: string) => (await db.query<Row>(
      FROM public.sessions WHERE user_id = $1 ORDER BY created_at ASC`, [userId],
 )).rows;
 
-describe('#1352 the SHIPPED newest-two retention contract, executed', () => {
+describe('#1352 the newest-two retention contract as SHIPPED AT THE TIME, executed (HISTORICAL)', () => {
     let db: PGlite;
     let oldest: string; let middle: string; let newest: string;
 

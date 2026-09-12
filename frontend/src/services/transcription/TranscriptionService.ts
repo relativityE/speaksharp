@@ -520,7 +520,9 @@ export default class TranscriptionService {
           idempotencyKey,
           metadata as unknown as never
         );
-        return result.session?.id || null;
+        if (result.status === 'usage_exceeded') throw new Error('Usage limit exceeded');
+        if (result.status === 'failed') throw new Error('Failed to create session');
+        return result.session.id;
       },
       heartbeatSession: async (sessionId) => {
         await heartbeatSession(sessionId);

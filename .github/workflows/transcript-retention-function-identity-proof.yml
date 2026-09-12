@@ -8,6 +8,7 @@ on:
       - 'backend/supabase/migrations/20260803000000_transcript_retention_newest_two.sql'
       - 'backend/supabase/migrations/20260804000000_transcript_retention_converge_on_save.sql'
       - 'backend/supabase/migrations/20260805000000_transcript_retention_preflight.sql'
+      - 'backend/supabase/migrations/20260908120000_transcript_retention_newest_one.sql'
       - 'tests/db/transcript-retention-converge-bootstrap.sql'
   workflow_dispatch:
 
@@ -36,7 +37,13 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
       PGDATABASE: retention_identity
-      EXPECTED_PREFLIGHT_FUNCTION_MD5: 029a72bf14bfd2ab18260c6477c56493
+      # The identity proven here is the CURRENT executable definition, which the forward-only
+      # newest-one correction redefines. Leaving the historical newest-two digest would have proven
+      # a definition the product no longer runs. Derived by applying the exact sequence below and
+      # hashing the result; `tests/db/transcript-retention-newest-one.integration.test.ts` recomputes
+      # it and fails if it drifts. The superseded newest-two digest was
+      # 029a72bf14bfd2ab18260c6477c56493 and is pinned in the historical preflight suite.
+      EXPECTED_PREFLIGHT_FUNCTION_MD5: 2e9c6b8a8a24a4d2937614c77064f47c
     steps:
       - uses: actions/checkout@v4
 
@@ -48,7 +55,8 @@ jobs:
             20260801000000_sessions_transcript_state \
             20260803000000_transcript_retention_newest_two \
             20260804000000_transcript_retention_converge_on_save \
-            20260805000000_transcript_retention_preflight
+            20260805000000_transcript_retention_preflight \
+            20260908120000_transcript_retention_newest_one
           do
             psql -X -v ON_ERROR_STOP=1 \
               -f "backend/supabase/migrations/${migration}.sql" >/dev/null
@@ -76,6 +84,14 @@ jobs:
           }
 
           require_reviewed_definition
+
+          # The digest proves WHICH definition is installed; this proves WHAT POLICY it implements.
+          # A future migration could change the marker without changing this function, so the two are
+          # independent claims and both belong in the identity gate.
+          policy="$(psql -X -q -t -A -v ON_ERROR_STOP=1 -c 'SELECT public.transcript_retention_policy_version();')"
+          [ "$policy" = "newest_one_v1" ] || {
+            echo "::error::policy_gate=rejected expected=newest_one_v1 actual=${policy}"; exit 1; }
+          echo "policy_gate=accepted policy=${policy}"
 
           psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
           CREATE OR REPLACE FUNCTION public.transcript_retention_preflight(

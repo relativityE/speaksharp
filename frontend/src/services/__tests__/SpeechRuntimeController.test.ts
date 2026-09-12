@@ -21,7 +21,7 @@ vi.mock('../../lib/logger', () => ({
 }));
 
 vi.mock('../../lib/storage', () => ({
-    saveSession: vi.fn().mockResolvedValue({ session: { id: 'test-sess' }, usageExceeded: false }),
+    saveSession: vi.fn().mockResolvedValue({ status: 'saved', session: { id: 'test-sess' } }),
     heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
     completeSession: vi.fn().mockResolvedValue({ success: true }),
     updateSession: vi.fn().mockResolvedValue({ success: true }),
@@ -1604,7 +1604,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.saveSession).mockClear();
         vi.mocked(storage.completeSession).mockClear();
         vi.mocked(storage.updateSession).mockClear();
-        vi.mocked(storage.saveSession).mockResolvedValue({ session: { id: 'new-row-1' } } as never);
+        vi.mocked(storage.saveSession).mockResolvedValue({ status: 'saved', session: { id: 'new-row-1' } } as never);
         vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
         vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
         attestInvoke.mockClear();
@@ -1634,7 +1634,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
     it('#1033 (1): a FAILED initial_save stays retryable and locked (no duplicate, nothing lost)', async () => {
         const storage = await import('../../lib/storage');
-        vi.mocked(storage.saveSession).mockResolvedValueOnce({ session: null } as never);
+        vi.mocked(storage.saveSession).mockResolvedValueOnce({ status: 'failed', reason: 'rpc_error' } as never);
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
             sessionId: null,
             initialSave: { userId: 'u', recordingId: 'rec-fail', mode: 'private' },
@@ -1647,7 +1647,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(controller.isEngineSelectionLocked()).toBe(true);
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         setUnresolved(false);
-        vi.mocked(storage.saveSession).mockResolvedValue({ session: { id: 'x' } } as never);
+        vi.mocked(storage.saveSession).mockResolvedValue({ status: 'saved', session: { id: 'x' } } as never);
     });
 
     it('#1033 (1): a confirmed DISCARD in the pre-session window unlocks without a phantom row', async () => {
@@ -1766,7 +1766,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (1-final): owner + initial-save context exist BEFORE startTranscription can emit a transcript', async () => {
         clearDraft(); resetLifecycle();
         const storage = await import('../../lib/storage');
-        vi.mocked(storage.saveSession).mockResolvedValue({ session: null } as never); // no row yet
+        vi.mocked(storage.saveSession).mockResolvedValue({ status: 'failed', reason: 'rpc_error' } as never); // no row yet
         let ownerAtFirstTranscript: string | null | undefined;
         let ctxAtFirstTranscript: unknown;
         const svc = {
@@ -2426,6 +2426,9 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('persists the SPOKEN recording duration on the fallback/late-create save path (saveSession) — excludes finalize', async () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.saveSession).mockClear();
+        vi.mocked(storage.saveSession).mockResolvedValue(
+            { status: 'saved', session: { id: 'late-created-session' } } as never,
+        );
 
         const T0 = 1_700_000_000_000;
         vi.setSystemTime(T0 + 300_000); // Stop at start + 5:00

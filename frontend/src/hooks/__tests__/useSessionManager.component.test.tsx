@@ -51,13 +51,13 @@ describe('useSessionManager', () => {
     const { result } = renderHook(() => useSessionManager(), { wrapper: createWrapper() });
 
     const sessionData = { duration: 60 };
-    const { session, usageExceeded } = await result.current.saveSession(sessionData, 'native');
+    const saved = await result.current.saveSession(sessionData, 'native');
 
-    expect(session).not.toBeNull();
-    expect(session?.id).toContain('anonymous-session');
+    expect(saved.status).toBe('saved');
+    if (saved.status !== 'saved') throw new Error('expected anonymous save');
+    expect(saved.session.id).toContain('anonymous-session');
     expect(sessionStorage.getItem('anonymous-session')).toBeTruthy();
     expect(saveSession).not.toHaveBeenCalled();
-    expect(usageExceeded).toBe(false);
   });
 
   it('should save to DB for authenticated user', async () => {
@@ -67,13 +67,13 @@ describe('useSessionManager', () => {
 
     (useAuthProvider as unknown as Mock).mockReturnValue({ user: mockUser });
     (useUserProfile as unknown as Mock).mockReturnValue({ data: mockProfile });
-    (saveSession as unknown as Mock).mockResolvedValue({ session: mockSession, usageExceeded: false });
+    (saveSession as unknown as Mock).mockResolvedValue({ status: 'saved', session: mockSession });
 
     const { result } = renderHook(() => useSessionManager(), { wrapper: createWrapper() });
 
-    const { session } = await result.current.saveSession({}, 'native');
+    const saved = await result.current.saveSession({}, 'native');
 
-    expect(session).toEqual(mockSession);
+    expect(saved).toEqual({ status: 'saved', session: mockSession });
     expect(saveSession).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'test-user' }), mockProfile, 'native');
   });
 
@@ -84,7 +84,7 @@ describe('useSessionManager', () => {
 
     (useAuthProvider as unknown as Mock).mockReturnValue({ user: mockUser });
     (useUserProfile as unknown as Mock).mockReturnValue({ data: mockProfile });
-    (saveSession as unknown as Mock).mockResolvedValue({ session: mockSession, usageExceeded: false });
+    (saveSession as unknown as Mock).mockResolvedValue({ status: 'saved', session: mockSession });
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');

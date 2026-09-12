@@ -1200,8 +1200,8 @@ export class SpeechRuntimeController {
                         // recreated with a blank engine identity.
                         { engineVersion: ctx.engineVersion, modelName: ctx.modelName, deviceType: ctx.deviceType },
                     );
-                    const createdId = created?.session?.id;
-                    if (!createdId) return false; // still retryable; nothing destroyed
+                    if (created.status !== 'saved') return false; // still retryable; nothing destroyed
+                    const createdId = created.session.id;
                     targetSessionId = createdId;
                     // Adopt the row so a subsequent retry resumes as a normal full-save.
                     if (this.pendingFullSaveRetry === fullSave) {
@@ -4242,10 +4242,12 @@ export class SpeechRuntimeController {
                     const saveResult = await saveSession(
                         { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode },
                         { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
-                    pushNativeRuntimeTrace('controller_placeholder_save_done', {
-                        hasDbSession: Boolean(saveResult?.session), usageExceeded: Boolean(saveResult?.usageExceeded),
-                    });
-                    const dbSession = saveResult?.session;
+                    pushNativeRuntimeTrace('controller_placeholder_save_done', { status: saveResult.status });
+                    if (saveResult.status === 'usage_exceeded') {
+                        throw new Error(`Usage limit exceeded${saveResult.error ? `: ${saveResult.error}` : ''}`);
+                    }
+                    if (saveResult.status === 'failed') throw new Error('Session save failed');
+                    const dbSession = saveResult.session;
 
                     // `saveSession` is the second real suspension point, and the mutations below are the
                     // damaging ones: writing our database id into `this.sessionId`, marking the store
@@ -4296,10 +4298,6 @@ export class SpeechRuntimeController {
                             await this.transition('READY', undefined, _token);
                         }
                         return;
-                    }
-
-                    if (saveResult?.usageExceeded) {
-                        throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
                     }
 
                     const currentState = this.getState();
@@ -4754,20 +4752,18 @@ export class SpeechRuntimeController {
                                 metadata
                             );
 
-                            if (saveResult?.session?.id) {
-                                sessionId = saveResult.session.id;
-                                // A's late session-create must not become B's controller session.
-                                this.publishIfStopOwner(stopAuthority, token, 'late_session_id', () => {
-                                    this.sessionId = sessionId;
-                                    this.applyPrivateTelemetryContext();
-                                });
-                                service.setSessionId?.(sessionId);
-                                logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
+                            if (saveResult.status === 'usage_exceeded') {
+                                throw new Error(`Usage limit exceeded${saveResult.error ? `: ${saveResult.error}` : ''}`);
                             }
-
-                            if (saveResult?.usageExceeded) {
-                                throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
-                            }
+                            if (saveResult.status === 'failed') throw new Error('Session save failed');
+                            sessionId = saveResult.session.id;
+                            // A's late session-create must not become B's controller session.
+                            this.publishIfStopOwner(stopAuthority, token, 'late_session_id', () => {
+                                this.sessionId = sessionId;
+                                this.applyPrivateTelemetryContext();
+                            });
+                            service.setSessionId?.(sessionId);
+                            logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
                         }
                     }
 

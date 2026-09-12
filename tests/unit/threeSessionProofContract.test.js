@@ -25,19 +25,21 @@ describe('three-session production proof — assertion contract', () => {
     expect(WORKFLOW.length).toBeGreaterThan(2000);
   });
 
-  it('BOTH retained sessions assert their OWN transcript reaches their OWN PDF', () => {
-    // All three recordings share one audio fixture, but decode output is not guaranteed byte-identical,
-    // so the newest transcript cannot stand in for the middle one.
+  it('the ONE retained session asserts its OWN transcript reaches its OWN PDF', () => {
+    // Under newest-ONE there is a single exportable session, so the two-artifact comparison this
+    // contract used to require is no longer expressible — but the positive control still is: the
+    // artifact must carry the transcript actually persisted for that session, read separately rather
+    // than assumed.
     expect(SPEC).toMatch(/newestPdf\.includes\(newestText\)/);
-    expect(SPEC).toMatch(/middlePdf\.includes\(middleText\)/);
-    // ...read separately, not aliased to one another.
-    expect(SPEC).toMatch(/const middleText\s*=\s*normalizeForMatch/);
     expect(SPEC).toMatch(/const newestText\s*=\s*normalizeForMatch/);
+    expect(SPEC).toMatch(/newestPdf\.includes\(ids\[2\]\)/);
   });
 
-  it('the expired session marker is proven absent from every produced artifact', () => {
+  it('BOTH expired session markers are proven absent from the one produced artifact', () => {
+    // Newest-two only had to exclude the oldest. Newest-one must exclude the middle session too, and
+    // asserting only the oldest would pass while the middle session's marker leaked.
     expect(SPEC).toMatch(/newestPdf\.includes\(ids\[0\]\)/);
-    expect(SPEC).toMatch(/middlePdf\.includes\(ids\[0\]\)/);
+    expect(SPEC).toMatch(/newestPdf\.includes\(ids\[1\]\)/);
   });
 
   it('ALL THREE rows structurally validate their next action, not just the expired one', () => {
@@ -230,7 +232,7 @@ describe('three-session production proof — assertion contract', () => {
     // failed on a downstream row read without ever examining the most authoritative evidence.
     expect(SPEC).toMatch(/assertV2Envelope/);
     const perRecording = SPEC.lastIndexOf('await assertV2Envelope(ordinal, label);');
-    const retentionStep = SPEC.indexOf('newest two retained, OLDEST evicted');
+    const retentionStep = SPEC.indexOf('ONLY the newest retained, both earlier evicted');
     expect(perRecording, 'the envelope must be asserted inside recordOneSession').toBeGreaterThan(-1);
     expect(perRecording, 'and BEFORE the retention step').toBeLessThan(retentionStep);
     // The three fields that make the contract atomic — asserted on the MAPPED values, which is why
@@ -441,5 +443,67 @@ describe('three-session production proof — assertion contract', () => {
     expect(WORKFLOW).toMatch(/must be dispatched from the default branch/);
     expect(WORKFLOW).toMatch(/exact production-data authorization phrase/);
     expect(WORKFLOW).toMatch(/\^\[0-9a-f\]\{40\}\$/);
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // #1436 newest-ONE. The live proof is the only place the three-session retention journey exists,
+  // so a silent revert to newest-two there would not be caught by any other suite. These assert the
+  // journey's SHAPE, not merely that the words changed.
+  // ---------------------------------------------------------------------------------------------
+
+  it('the journey evicts at SESSION TWO, which is what separates newest-one from newest-two', () => {
+    // Newest-two kept both readable at session 2 and only evicted at session 3. If the spec still
+    // asserts "both retained" at session 2, the policy under test is newest-two whatever it is called.
+    expect(SPEC, 'session 2 must assert session 1 is ALREADY evicted')
+      .toMatch(/session 1 expires as soon as a newer transcript exists/);
+    expect(SPEC, 'the retired newest-two claim must be gone from session 2')
+      .not.toMatch(/both sessions retained \(nothing evicted below three\)/);
+    expect(SPEC, 'session 2 must assert the earlier transcript CONTENT is gone, not merely relabelled')
+      .toMatch(/session 1 transcript CONTENT is gone/);
+  });
+
+  it('exactly ONE transcript survives the third completion, and it is the newest', () => {
+    expect(SPEC).toMatch(/exactly ONE transcript remains readable/);
+    expect(SPEC).toMatch(/the retained row is the newest session/);
+    // Counting survivors is what makes this non-vacuous: asserting only that the newest is available
+    // would pass while the middle one was also still readable.
+    expect(SPEC).toMatch(/retainedRows\.length/);
+  });
+
+  it('BOTH evicted sessions keep their metrics, and both are proven to have had a transcript', () => {
+    // The "expiry removes text and nothing else" claim must be made about the middle session too,
+    // against a snapshot taken before ITS eviction — reusing the oldest snapshot would compare a row
+    // to the wrong baseline and could pass while the middle metrics were destroyed.
+    expect(SPEC).toMatch(/middleMetricsBeforeExpiry = metricSnapshot\(second\)/);
+    expect(SPEC).toMatch(/expiry must not alter the middle session metrics or next action/);
+    expect(SPEC).toMatch(/middle had a NON-EMPTY transcript before eviction/);
+  });
+
+  it('the customer UI expires every session except the last, not merely the first', () => {
+    // `i === 0` was the newest-two shape and would now pass while the middle session still rendered
+    // transcript text.
+    expect(SPEC).toMatch(/const isExpired = i < ids\.length - 1;/);
+    expect(SPEC, 'the retired oldest-only branch must be gone').not.toMatch(/const isOldest = i === 0;/);
+  });
+
+  it('an EXPIRED session still exports, and its artifact is proven transcript-free', () => {
+    // Expiry removes the transcript, never the measurements, so the export control legitimately
+    // survives. The claim that matters is therefore the CONTENT of the artifact, not the presence of
+    // the button — asserting the button was absent inherited a newest-two accident, where an expired
+    // session was always off the two-row dashboard and unreachable for reasons unrelated to policy.
+    expect(SPEC).toMatch(/the expired session produces a parseable metrics artifact/);
+    expect(SPEC).toMatch(/the expired artifact must not carry the retained transcript/);
+    expect(SPEC).toMatch(/the expired artifact must not carry another session marker/);
+    // The oldest is genuinely off the dashboard slice, so its control really is absent.
+    expect(SPEC).toMatch(/oldest expired session exposes no export control/);
+    // ...and the retired "both controls absent" loop must be gone.
+    expect(SPEC, 'the retired both-absent loop must be gone')
+      .not.toMatch(/\$\{ordinal\} expired session exposes no export control/);
+  });
+
+  it('the published evidence line reports the newest-one policy and a retained count of one', () => {
+    expect(SPEC).toMatch(/retentionPolicy: 'newest_one_v1'/);
+    expect(SPEC).toMatch(/retainedTranscriptCount: 1/);
+    expect(SPEC, 'the retired newest-two evidence key must be gone').not.toMatch(/newestTwoRetained/);
   });
 });

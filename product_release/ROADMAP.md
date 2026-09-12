@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for unfinished and deferred product/release work)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-05
-**Last Verified:** 2026-09-05 — financial-planning hypotheses registered; other roadmap state remains verified through its cited evidence.
+**Last Reviewed:** 2026-09-08
+**Last Verified:** 2026-09-08 — reconciled to the 19-finding burn-down, newest-one retention correction, and repeated real-world journey qualification posture.
 **Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -47,7 +47,7 @@ One active implementation PR at a time unless the PO changes concurrency. A broa
 | 2 | Make one-click recording and during/after session truthful | #1415 | Explicit cold intent auto-starts once; real mic waveform; red Stop; bounded provisional churn; completed transcript remains readable after teardown/reopen. |
 | 3 | Make Focus Points and Practice Loop truthful | #1407 + #1386 | Setup promise matches action; all input preserved; honest coverage; exactly one What went well + one What to improve output; linked retry evidence. |
 | 4 | Remove cross-page friction and replace Share feedback | #1404 | Products menu reaches Open Mic/Focus Points directly; exact accepted feedback spec; failure preserves draft; storage and acknowledgement proven. |
-| 5 | Reconcile retention copy without changing retention behavior | #1416 + #1259 | Current newest-two behavior remains unchanged; customer-facing copy states availability/expiry without a numeric count; expired Open/PDF actions remain unavailable; telemetry reports the active policy truthfully. |
+| 5 | Enforce newest-one transcript retention everywhere | Retention correction + #1259 | Only the newest eligible transcript remains available; every older transcript expires; history, metrics, and Practice Loop history remain; expired Open/PDF actions are unavailable; disclosure says only the most recent saved transcript is kept; telemetry reports `newest_one_v1`. |
 | 6 | Expose all registered candidates for controlled Production comparison | #1263 + #1304 + #1390 | v2/v4/Moonshine switch between settled takes on canonical Production; full teardown; requested==observed; PO selects and then lock/retest. |
 | 7 | Final deployed qualification | #1258 | Dev passes both complete products first; PO repeats; every step reconstructible; explicit GO/HOLD. |
 
@@ -84,7 +84,7 @@ Documentation-only currentization under #1318 may proceed independently because 
 - Real microphone data only; no generated waveform fallback.
 - Session labels are **What went well** and **What to improve**.
 - Share feedback exact Design-agent specification is #1404.
-- Current newest-two transcript retention remains unchanged; customer-facing copy is non-numeric.
+- Newest-one transcript retention is mandatory; `newest_two_v1` behavior, tests, telemetry, and active requirements must be replaced before release.
 - Telemetry covers every finding but never replaces the product fix.
 - Out-of-scope work requires PO approval.
 
@@ -99,7 +99,7 @@ Documentation-only currentization under #1318 may proceed independently because 
 | **Unsupported decode options** | Debug allow-list has accepted runtime-inert options. | One versioned capability authority; unsupported options fail before measurement with no row; supported options proven unchanged through the worker. |
 | **Guided/Pro interest entry** | Edge Function and migration exist; frontend caller does not. | Reachable, truthful CTA while payments are closed, content-free analytics, no `checkout_started`, explicit replacement behavior when payments activate. |
 | **Account-deletion FK integrity** | `session_delivery_measurements.session_id` cascades on session deletion, while its independent `user_id` reference has no `ON DELETE` action. Correct account erasure therefore depends on application ordering that the schema does not enforce; unfinished rows also have no defined reaper. | Choose and encode one deletion authority; exercise the real migrations in tests; prove account deletion cannot be blocked and cannot leave orphaned `in_progress` rows; define bounded cleanup ownership. Do not apply a production migration without separate authorization. |
-| **Retention-policy single authority** | Migration `20260803000000_transcript_retention_newest_two.sql` calls `transcript_sessions_to_expire` “THE shared” predicate, but the mutation and `has_more` check duplicate its rank/text predicate instead of calling it. The three copies can drift while tests still exercise only one. | Replace copied policy logic with one callable authority, or explicitly prove why one implementation cannot serve all scopes; test the shipped migration so changing the authority changes selection, mutation and remaining-work behavior together. |
+| **Retention-policy single authority** | The historical newest-two migration, coordinator, preflight, mutation, and policy marker encode the superseded policy in multiple authorities. A partial newest-one correction can silently no-op or fail closed. | Add one forward-only `newest_one_v1` correction that repoints every live caller and proof surface together; prove selection, mutation, coordinator, preflight, writer enforcement, idempotency, concurrency, and per-user isolation. Historical applied migrations remain immutable provenance, never current authority. |
 
 ## Later / held
 
