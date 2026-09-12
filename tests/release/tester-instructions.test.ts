@@ -40,6 +40,23 @@ describe('canonical tester and customer instructions', () => {
     expect(authority).toMatch(/No source document authorizes a live charge/i);
   });
 
+  // The guide told testers coaching happens "only when you request coaching — never in the background",
+  // and that the two newest sessions keep their transcript. #1422 made coaching automatic on review-ready,
+  // and retention moved to newest-one. Neither stale claim was detected by any existing check.
+  it('states automatic review-ready coaching and newest-one transcript retention', () => {
+    expect(userGuide).toMatch(/automatically sends your saved transcript text \(up to a length limit\)/i);
+    expect(userGuide).toMatch(/No separate generation action is required/i);
+    expect(userGuide).toMatch(/newest transcript-bearing saved session/i);
+    expect(userGuide).not.toMatch(/only when you request coaching|never in the background/i);
+    expect(userGuide).not.toMatch(/two (?:newest|most recent).*transcript/i);
+  });
+
+  // Retention is installed but inert on Production (activated_at IS NULL), so nothing expires yet. The
+  // guide must not promise deletion it is not performing.
+  it('does not promise transcript expiry that is not switched on yet', () => {
+    expect(userGuide).toMatch(/once expiry is switched on for your account/i);
+  });
+
   it('keeps tester feedback plain-language and actionable', () => {
     // #1404: the control is named "Share Feedback". This lock previously pinned the OLD name, so the
     // guide stayed green while instructing testers four times to click a button that no longer exists.
