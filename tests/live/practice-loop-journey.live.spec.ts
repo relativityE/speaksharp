@@ -29,6 +29,7 @@
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/deployedLiveTest';
+import { waitForAppVisibleReady } from '../e2e/helpers';
 import { expect } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -191,7 +192,15 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             // which does not exist, and passed anyway because a 404 shell satisfies origin/release/mock
             // checks. The response status and the not-found shell are both checked now.
             const response = await page.goto('/auth/signin');
-            // Wait for the route's OWN content, so a blank or still-loading shell cannot be read as a
+            // The repository's centralized readiness authority comes FIRST: `data-app-ready`, then
+            // `data-app-visible-ready`, then a shell with non-empty text. AGENTS.md is explicit that a
+            // selector is not readiness proof, and a form can be visible while the app has not declared
+            // the route committed. Recorded as a fact rather than thrown, so the pure verdict decides and
+            // the failure message stays content-free.
+            const appVisibleReady = await waitForAppVisibleReady(page, 45_000)
+                .then(() => true)
+                .catch(() => false);
+            // Then the route's OWN content, so a blank or still-loading shell cannot be read as a
             // rendered surface. `auth-form` is SignInPage.tsx:167.
             // `isVisible()` returns immediately and ignores its timeout, so it would read a page that is
             // still hydrating as unrendered. `waitFor` actually waits.
@@ -218,6 +227,7 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                 notFoundRendered: observed.notFound,
                 observedPathname: observed.pathname,
                 routeMarkerVisible,
+                appVisibleReady,
             }, APPROVED_ORIGIN);
             expect(failures, 'the pre-credential surface must be the real approved route').toEqual([]);
         });

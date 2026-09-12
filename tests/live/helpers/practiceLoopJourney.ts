@@ -221,6 +221,16 @@ export interface RouteSurface {
      */
     readonly observedPathname: string | null;
     readonly routeMarkerVisible: boolean;
+    /**
+     * THE CENTRALIZED AUTHORITY, NOT A SELECTOR (Codex `3997198050`, second pass; PM RETURN).
+     *
+     * `routeMarkerVisible` is a route-specific selector, and AGENTS.md is explicit that a selector is
+     * not readiness proof: user-visible browser tests must consume `waitForAppVisibleReady`, which
+     * requires `data-app-ready`, then `data-app-visible-ready`, then a shell with non-empty text. A form
+     * can be in the DOM and visible while the app has not declared itself visible-ready, so the selector
+     * alone can accept a surface the repository's own authority would refuse.
+     */
+    readonly appVisibleReady: boolean;
 }
 
 export function routeSurfaceFailures(surface: RouteSurface, approvedOrigin: string): string[] {
@@ -248,6 +258,11 @@ export function routeSurfaceFailures(surface: RouteSurface, approvedOrigin: stri
     // check while showing the user nothing.
     if (!surface.routeMarkerVisible) {
         failures.push(`${surface.path} did not render its own content; the surface is blank, loading or errored`);
+    }
+    // And the app's own centralized readiness authority must agree. A visible form is this route's
+    // evidence; `data-app-visible-ready` is the repository's.
+    if (!surface.appVisibleReady) {
+        failures.push(`${surface.path} never reported app-visible-ready; the app has not declared the route committed`);
     }
     return failures;
 }

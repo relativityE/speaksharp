@@ -64,6 +64,7 @@ describe('#1437 — the pre-credential route surface', () => {
         notFoundRendered: false,
         observedPathname: '/auth/signin',
         routeMarkerVisible: true,
+        appVisibleReady: true,
     };
 
     it('CONTROL: the real route on the approved origin passes', () => {
@@ -83,6 +84,8 @@ describe('#1437 — the pre-credential route surface', () => {
             observedPathname: '/auth/login',
             notFoundRendered: true,
             routeMarkerVisible: false,
+            // The 404 shell IS committed and visible — that is exactly why it fooled the previous head.
+            appVisibleReady: true,
         }, APPROVED_ORIGIN)).toEqual([
             '/auth/login rendered the not-found page; the route does not exist',
             '/auth/login did not render its own content; the surface is blank, loading or errored',
@@ -102,6 +105,14 @@ describe('#1437 — the pre-credential route surface', () => {
         // observed pathname catches a rewrite or redirect.
         expect(routeSurfaceFailures({ ...realRoute, observedPathname: '/practice' }, APPROVED_ORIGIN))
             .toEqual(['expected to be on /auth/signin but the browser is on /practice']);
+    });
+
+    it('CASUALTY (Codex 3997198050, 2nd pass): the right route with a visible form still fails without app-visible-ready', () => {
+        // THE DISCRIMINATING CASE PM ASKED FOR. Correct pathname, correct origin, correct release, no
+        // mocks, not the 404 shell, and the sign-in form is visible — every other check passes. Only the
+        // repository's centralized authority refuses it. A route-specific selector cannot see this.
+        expect(routeSurfaceFailures({ ...realRoute, appVisibleReady: false }, APPROVED_ORIGIN))
+            .toEqual(['/auth/signin never reported app-visible-ready; the app has not declared the route committed']);
     });
 
     it('CASUALTY (Codex 3997198050): a blank, loading or errored shell fails even on the right path', () => {
