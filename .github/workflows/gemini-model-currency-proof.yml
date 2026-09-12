@@ -1,7 +1,9 @@
 name: Gemini Model Currency Proof
 
-# This workflow exists on and executes from the trusted default branch. It never checks out or runs code
-# from the target PR. The only candidate input is an inert JSON contract read with `git show`.
+# OFFLINE contract-conformance run. It executes from the trusted default branch, never checks out or runs
+# code from the target PR, and makes NO provider call: no credential is passed to this job at all. The
+# candidate inputs are two inert texts read with `git show` — the JSON contract, and the production
+# function's source, which is pattern-checked to prove it derives its request from that same contract.
 on:
   workflow_dispatch:
     inputs:
@@ -9,8 +11,6 @@ on:
         description: Full candidate commit SHA whose contract is being proven
         required: true
         type: string
-      # PM RETURN 5644180930, item 2: there is deliberately NO sample-count input. One dispatch is one
-      # provider call. A distribution question is a different vehicle, not a setting on this one.
 
 permissions:
   contents: read
@@ -33,8 +33,9 @@ jobs:
     # nothing. Declaring it was worse than omitting it, because it invited the belief that approval was
     # required. The environment, reviewer approval and secret migration are post-MVP debt in #1399.
     #
-    # The default-branch check above is the boundary this workflow actually enforces. The key is read from
-    # the repository secret, is never echoed, and never reaches a log or an artifact.
+    # The default-branch check above is the boundary this workflow enforces. Since PO directive 5644238136
+    # there is no credential in this job and nothing here can spend a generation — Production's automatic
+    # post-session suggestions are unaffected and remain the place the live model is exercised.
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -60,23 +61,26 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$TARGET_SHA"
           git show "$TARGET_SHA:backend/supabase/functions/get-ai-suggestions/contract.json" > /tmp/gemini-coaching-contract.json
-          # PM RETURN 5644180930, item 1: the candidate's PRODUCTION function, read as inert text so the
-          # harness can prove the request it is about to make is the request production makes. It is
-          # never imported and never executed — only pattern-checked by the trusted harness.
+          # Codex exact-head P1: the candidate's PRODUCTION function, read as inert text so the harness can
+          # prove the contract it validates is the contract Production actually uses. Never imported and
+          # never executed — only pattern-checked by the trusted harness.
           git show "$TARGET_SHA:backend/supabase/functions/get-ai-suggestions/index.ts" > /tmp/gemini-production-function.ts
           echo "Trusted harness: $(git rev-parse HEAD)"
           echo "Candidate data: $TARGET_SHA"
 
-      - name: Call Gemini with fabricated evidence
+      # PO directive 5644238136 — OFFLINE ONLY. No credential is passed to this job and no provider call
+      # is made: not here, not in CI, not in Preview. The step verifies the candidate's contract, verifies
+      # that the candidate's production function derives its request from that same contract, and proves
+      # the validator discriminates against checked-in fixtures.
+      - name: Verify the candidate contract offline
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_CONTRACT_PATH: /tmp/gemini-coaching-contract.json
           GEMINI_FUNCTION_SOURCE_PATH: /tmp/gemini-production-function.ts
           TARGET_SHA: ${{ inputs.target_sha }}
           PROOF_OUT: artifacts/gemini-model-currency-proof.json
         run: node scripts/gemini-model-currency-proof.mjs
 
-      - name: Retain the fabricated proof response
+      - name: Retain the conformance evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:

@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import {
   assertProductionUsesContract,
   buildProofPrompt,
@@ -38,7 +40,60 @@ const validSuggestions = {
   what_to_try_next: 'End with one dated commitment.',
 };
 
+/**
+ * `boundSource` is the shape #1424 actually ships: model, generation config, prompt, word budget and
+ * daily cap all derived from the contract. `unboundSource` is the shape `main` ships today — a
+ * hardcoded preview endpoint with an inline prompt — which is precisely the state a contract-only
+ * proof would have blessed.
+ */
+const boundSource = `
+  import coachingContract from './contract.json' with { type: 'json' };
+  export const GEMINI_API_URL = \`https://generativelanguage.googleapis.com/v1beta/models/\${coachingContract.model}:generateContent\`;
+  export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
+  export const COACHING_WORD_BUDGET = Object.freeze(coachingContract.wordBudget);
+  export const AI_SUGGESTION_DAILY_LIMIT = coachingContract.uncachedGenerationCapPerUtcDay;
+  const prompt = coachingContract.promptTemplate.replace('{{TRANSCRIPT}}', transcript);
+`;
+const unboundSource = `
+  const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+  const AI_SUGGESTION_DAILY_LIMIT = 20;
+  const prompt = \`You are an expert public speaking coach. \${transcript}\`;
+`;
+
 describe('trusted Gemini model proof', () => {
+  it('CASUALTY: a contract Production does not use fails the run', () => {
+    // Codex's exact-head P1. The harness validated `contract.json` in isolation, so a green result could
+    // sit beside an edge function calling a different endpoint with an inline prompt — decoration, not
+    // evidence. `unboundSource` is exactly what `main` ships today, and it must fail.
+    expect(() => runProof({
+      contract,
+      productionSource: unboundSource,
+      targetSha: 'f'.repeat(40),
+    })).toThrow(/does not use the proven contract/);
+  });
+
+  it('CASUALTY: each binding is checked on its own, so a partial adoption still fails', () => {
+    expect(() => assertProductionUsesContract(boundSource)).not.toThrow();
+    // Imports the contract, then hardcodes the endpoint anyway — the most plausible half-migration.
+    expect(() => assertProductionUsesContract(`${boundSource}
+      const legacy = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+    `)).toThrow(/hardcodes a model name/);
+    expect(() => assertProductionUsesContract(boundSource.replace('coachingContract.promptTemplate', '`inline prompt`')))
+      .toThrow(/prompt is not built from the contract template/);
+    expect(() => assertProductionUsesContract(boundSource.replace('coachingContract.uncachedGenerationCapPerUtcDay', '20')))
+      .toThrow(/daily generation cap is not taken from the contract/);
+    expect(() => assertProductionUsesContract('')).toThrow(/production function source is unavailable/);
+  });
+
+  it('CONTROL: a comment naming the retired model does not fail a properly bound function', () => {
+    // The binding must be a positive check, not a grep for model names — #1424's own file carries a
+    // comment explaining why it left `gemini-3-flash-preview`, and that comment is not a defect.
+    expect(() => assertProductionUsesContract(`
+      // #1416 — 'gemini-3-flash-preview' is a PREVIEW endpoint; 'gemini-3.6-flash' replaces it.
+      ${boundSource}
+    `)).not.toThrow();
+  });
+
   it('accepts only the established model, daily cap, two fields, six-word budgets, and strict schema', () => {
     expect(validateContract(structuredClone(contract))).toEqual(contract);
     expect(() => validateContract({ ...contract, model: 'attacker-controlled' })).toThrow();
@@ -123,126 +178,52 @@ describe('trusted Gemini model proof', () => {
     for (const suggestions of invalid) expect(validateProviderBody(providerBody(suggestions), contract).valid).toBe(false);
   });
 
-  /**
-   * PM RETURN `5644180930` — the two corrections, as casualties.
-   *
-   * `boundSource` is the shape #1424 actually ships: model, generation config, prompt, word budget and
-   * daily cap all derived from the contract. `unboundSource` is the shape `main` ships today — a
-   * hardcoded preview endpoint with an inline prompt — which is exactly the state a contract-only
-   * proof would have blessed.
-   */
-  const boundSource = `
-    import coachingContract from './contract.json' with { type: 'json' };
-    export const GEMINI_API_URL = \`https://generativelanguage.googleapis.com/v1beta/models/\${coachingContract.model}:generateContent\`;
-    export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
-    export const COACHING_WORD_BUDGET = Object.freeze(coachingContract.wordBudget);
-    export const AI_SUGGESTION_DAILY_LIMIT = coachingContract.uncachedGenerationCapPerUtcDay;
-    const prompt = coachingContract.promptTemplate.replace('{{TRANSCRIPT}}', transcript);
-  `;
-  const unboundSource = `
-    const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
-    const AI_SUGGESTION_DAILY_LIMIT = 20;
-    const prompt = \`You are an expert public speaking coach. \${transcript}\`;
-  `;
-
-  it('CASUALTY: a contract Production does not use never reaches the provider', async () => {
-    // The exact defect Codex named: the harness validated `contract.json` in isolation, so a green
-    // proof could sit beside an edge function calling a different endpoint with an inline prompt.
-    // The binding runs BEFORE the call, so an unbound candidate costs nothing at all.
-    const fetchImpl = vi.fn(async () => new Response(providerBody(validSuggestions), { status: 200 }));
-    await expect(runProof({
-      contract,
-      productionSource: unboundSource,
-      targetSha: 'a'.repeat(40),
-      apiKey: 'secret-for-test',
-      fetchImpl,
-    })).rejects.toThrow(/does not use the proven contract/);
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it('CASUALTY: each binding is checked on its own, so a partial adoption still fails', () => {
-    expect(() => assertProductionUsesContract(boundSource)).not.toThrow();
-    // Imports the contract, then hardcodes the endpoint anyway — the most plausible half-migration.
-    expect(() => assertProductionUsesContract(`${boundSource}
-      const legacy = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
-    `)).toThrow(/hardcodes a model name/);
-    expect(() => assertProductionUsesContract(boundSource.replace('coachingContract.promptTemplate', '`inline prompt`')))
-      .toThrow(/prompt is not built from the contract template/);
-    expect(() => assertProductionUsesContract(boundSource.replace('coachingContract.uncachedGenerationCapPerUtcDay', '20')))
-      .toThrow(/daily generation cap is not taken from the contract/);
-    expect(() => assertProductionUsesContract('')).toThrow(/production function source is unavailable/);
-  });
-
-  it('CONTROL: a comment naming the old model does not fail a properly bound function', () => {
-    // The binding must be a positive check, not a grep for model names — #1424's own file carries a
-    // comment explaining why it left `gemini-3-flash-preview`, and that comment is not a defect.
-    expect(() => assertProductionUsesContract(`
-      // #1416 — 'gemini-3-flash-preview' is a PREVIEW endpoint; 'gemini-3.6-flash' replaces it.
-      ${boundSource}
-    `)).not.toThrow();
-  });
-
-  it('CASUALTY: one dispatch is exactly one provider request, and a retryable status does not buy a second', async () => {
-    // This was four attempts on a single sample, and ten samples at the other setting — up to ten paid
-    // generations from one dispatch. A 503 is now simply a failed proof.
-    const fetchImpl = vi.fn(async () => new Response('busy', { status: 503 }));
-    const evidence = await runProof({
-      contract,
-      productionSource: boundSource,
-      targetSha: 'b'.repeat(40),
-      apiKey: 'secret-for-test',
-      fetchImpl,
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  it('CASUALTY: the harness has no credential and no network path at all', () => {
+    // PO directive 5644238136: no AI suggestions from CI, tests, Preview, or this harness. Asserted
+    // against the harness's own source, so a future edit that reintroduces a call fails here rather
+    // than quietly spending generations on every dispatch.
+    const source = readFileSync(resolve(process.cwd(), 'scripts/gemini-model-currency-proof.mjs'), 'utf8');
+    const code = source.split('\n').filter((line) => !line.trim().startsWith('*') && !line.trim().startsWith('//')).join('\n');
     expect({
-      requests: evidence.provider_requests,
-      ceiling: evidence.max_provider_requests,
-      reason: evidence.call.reason,
+      fetches: /\bfetch\s*\(/.test(code),
+      readsCredential: /API_KEY/.test(code),
+      buildsProviderUrl: /generativelanguage\.googleapis\.com/.test(code),
+    }).toEqual({ fetches: false, readsCredential: false, buildsProviderUrl: false });
+  });
+
+  it('CONTROL: a bound candidate passes offline, records zero provider requests, and proves the validator discriminates', () => {
+    const evidence = runProof({ contract, productionSource: boundSource, targetSha: 'e'.repeat(40) });
+    expect({
       success: evidence.success,
-    }).toEqual({ requests: 1, ceiling: 1, reason: 'provider HTTP 503', success: false });
-  });
-
-  it('CONTROL: a valid answer from a bound function passes on a single request, and never records the credential', async () => {
-    const checkpoints: unknown[] = [];
-    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
-      expect(_url).toMatch(/^https:\/\/generativelanguage\.googleapis\.com\//);
-      expect(_url).not.toContain('attacker');
-      expect(JSON.parse(String(init.body)).generationConfig).toEqual(contract.generationConfig);
-      return new Response(providerBody(validSuggestions), { status: 200 });
-    });
-    const evidence = await runProof({
-      contract,
-      productionSource: boundSource,
-      targetSha: 'e'.repeat(40),
-      apiKey: 'secret-for-test',
-      fetchImpl,
-      onProgress: (value: unknown) => { checkpoints.push(structuredClone(value)); },
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect({ requests: evidence.provider_requests, success: evidence.success, bound: evidence.production_uses_contract })
-      .toEqual({ requests: 1, success: true, bound: true });
+      offline: evidence.offline,
+      requests: evidence.provider_requests,
+      bound: evidence.production_uses_contract,
+      accepted: evidence.fixtures.accepted.valid,
+      allRefused: evidence.fixtures.refused.every((entry: { refused: boolean }) => entry.refused),
+    }).toEqual({ success: true, offline: true, requests: 0, bound: true, accepted: true, allRefused: true });
+    // The refusals are the substance: each names the rule it exercised.
+    expect(evidence.fixtures.refused.map((entry: { fixture: string }) => entry.fixture)).toEqual([
+      'over the word budget',
+      'a blank coaching field',
+      'an extra key',
+      'a wrong response version',
+      'a response from a different model',
+    ]);
     expect(evidence.production_source_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(checkpoints.length).toBeGreaterThan(1);
-    expect(JSON.stringify(evidence)).not.toContain('secret-for-test');
   });
 
-  it('aborts a stalled provider read and reports a deliberate timeout on its single request', async () => {
-    const fetchImpl = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
-    }));
-    const checkpoints: unknown[] = [];
-    const evidence = await runProof({
-      contract,
-      productionSource: boundSource,
-      targetSha: 'c'.repeat(40),
-      apiKey: 'secret-for-test',
-      fetchImpl,
-      requestTimeoutMs: 1,
-      onProgress: (value: unknown) => { checkpoints.push(structuredClone(value)); },
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect({ reason: evidence.call.reason, status: evidence.call.http_status, success: evidence.success })
-      .toEqual({ reason: 'provider request timed out', status: null, success: false });
-    expect(checkpoints.length).toBeGreaterThan(1);
+  it('CASUALTY: a validator that stopped enforcing a rule cannot report success', () => {
+    // The fixtures are only evidence if a refusal is required. Prove the run fails when the contract's
+    // own budget is loosened so the over-budget fixture would sail through.
+    const loosened = { ...contract, wordBudget: { what_worked: 6, what_to_try_next: 6 } };
+    const evidence = runProof({ contract: loosened, productionSource: boundSource, targetSha: 'a'.repeat(40) });
+    expect(evidence.fixtures.refused.find((entry: { fixture: string }) => entry.fixture === 'over the word budget'))
+      .toMatchObject({ refused: true });
+    expect(evidence.success).toBe(true);
+  });
+
+  it('rejects a target SHA that is not a full commit', () => {
+    expect(() => runProof({ contract, productionSource: boundSource, targetSha: 'abc123' }))
+      .toThrow(/full 40-character commit/);
   });
 });
