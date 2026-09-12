@@ -18,7 +18,12 @@ export const REQUIRED_APPLIED_MIGRATIONS = Object.freeze([
     ...EXACT_MIGRATION_ALLOWLIST.filter((m) => m.classification === 'staged').map((m) => m.version),
 ]);
 
-/** Commercial activation stays HELD — it must NOT be applied for the canary product lanes. */
+/**
+ * The commercial-activation migration. The name is kept because it is exported and referenced, but the
+ * rule it once carried is gone: since 2026-09-12 this migration is RECORDED applied and was never
+ * executed (#1282), so "held" no longer describes the expected state. See `activationRecorded` below —
+ * the readiness result reports whether it is recorded, and draws no conclusion about whether it ran.
+ */
 export const HELD_ACTIVATION_MIGRATION =
     EXACT_MIGRATION_ALLOWLIST.find((m) => m.classification === 'commercial-activation').version;
 
