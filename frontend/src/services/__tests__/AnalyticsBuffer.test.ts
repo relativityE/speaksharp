@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { analyticsBuffer } from '../AnalyticsBuffer';
+import { ENVELOPE_KEYS } from '../telemetry/envelope';
 import posthog from 'posthog-js';
 import * as Sentry from '@sentry/react';
 
@@ -172,13 +173,43 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     // Only the buffer's own metadata and the GOVERNED EVENT ENVELOPE remain. The envelope is ambient
     // context added at the seam ($-prefixed keys are PostHog's own); it carries no producer data, which
     // is why an ungoverned event still ships it while shipping none of the producer's properties.
-    const allowedNonProducer = new Set([
-      'release_sha', 'traffic_type', 'candidate_id', 'engine', 'runtime_version', 'asset_digest',
-    ]);
+    // Read from ENVELOPE_KEYS rather than a copy: a hand-maintained duplicate went stale the moment
+    // the envelope gained the correlation identity, and a stale copy here fails the test for the one
+    // reason that is not a defect.
+    const allowedNonProducer = new Set(ENVELOPE_KEYS);
     expect(Object.keys(payload).every(k => k.startsWith('$') || allowedNonProducer.has(k))).toBe(true);
     // and the envelope itself must never carry producer content.
     expect(payload).toHaveProperty('traffic_type');
     expect(JSON.stringify(payload)).not.toContain('sensitive');
+  });
+
+  // #1259 — THE V4 PROJECTION NOW RUNS AT THE BOUNDARY, because the side channel that used to apply it
+  // is gone. `private_stt_v4_*` shares the `private_*` namespace with the Private engineering events but
+  // uses a DIFFERENT allowlist, so the namespace alone cannot select the projection: applying the
+  // Private allowlist to a v4 event would drop every v4 field and ship three convincingly empty events.
+  it('projects a private_stt_v4_* event through the V4 allowlist, not the Private one', () => {
+    analyticsBuffer.ready = true;
+
+    analyticsBuffer.push('private_stt_v4_ready', {
+      variant: 'base_q4',
+      loadMs: 900,
+      resolvedDevice: 'webgpu',
+      email: 'leak@example.com',
+      transcript: 'um this must not leave',
+    }, 'CRITICAL');
+
+    const call = ((posthog.capture as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(-1)[0]);
+    expect(call[0]).toBe('private_stt_v4_ready');
+    const payload = call[1] as Record<string, unknown>;
+    // V4 fields survive — under the Private allowlist every one of these would have been dropped.
+    expect(payload).toMatchObject({ variant: 'base_q4', loadMs: 900, resolvedDevice: 'webgpu' });
+    // Content never does.
+    expect(payload).not.toHaveProperty('email');
+    expect(payload).not.toHaveProperty('transcript');
+    expect(JSON.stringify(payload)).not.toContain('must not leave');
+    // And it carries the envelope, which the direct-capture path could not attach.
+    expect(payload).toHaveProperty('traffic_type');
+    expect(payload).toHaveProperty('journey_id');
   });
 
   // #1259 P2 — a SECOND redaction boundary for Private events: even if a `private_*` event's props bypass

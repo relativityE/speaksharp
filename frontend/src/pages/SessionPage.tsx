@@ -18,7 +18,11 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { useNavigate } from 'react-router-dom';
+import AISuggestions from '@/components/session/AISuggestions';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
+import { useSession } from '@/hooks/useSession';
+import { useQueryClient } from '@tanstack/react-query';
+import { resolveTranscriptView } from '@/lib/storage';
 
 /**
  * ARCHITECTURE:
@@ -58,6 +62,7 @@ export const SessionPage: React.FC = () => {
     // (the snapshot is only published at stop); after a stop the live timer is 0 but this is not.
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
+    const completedSessionId = useSessionStore(state => state.completedSessionId);
     // #1306 Option A: the terminal review's word count + filler breakdown come from the FINAL snapshot (captured
     // before the transcript/chunks were purged), never from the now-empty live transcript or the live fillerData
     // (which the useFillerWords sync zeroes once the chunks are purged).
@@ -141,6 +146,7 @@ export const SessionPage: React.FC = () => {
         // store left the page in its `after` projection and showed a brand-new brief through
         // completed-review semantics. Leaving that state is part of starting a new set.
         setShowAnalyticsPrompt,
+        settleReviewLatency,
         sessionFeedbackMessage,
         micLevel,
         transcriptContent,
@@ -176,6 +182,199 @@ export const SessionPage: React.FC = () => {
     }, [transcriptContent, interimTranscript]);
 
     const navigate = useNavigate();
+
+    // #1416 F-05 — THE REVIEW READER THE PURGE DOCSTRING ALREADY ASSUMED.
+    //
+    // `purgeTranscriptWorkingMemory` empties the live transcript at finalization by contract, and its
+    // own comment says clearing it "never affects the save, a Retry Save, or the review reader".
+    // That reader was never built, so the after-state kept rendering the emptied buffer and the user
+    // watched their words vanish at the moment they were told the session was saved.
+    //
+    // Nothing new is introduced here: `useSession` already fetches the saved row and
+    // `resolveTranscriptView` is documented as "the ONE place that decides whether a session's
+    // transcript may be shown", shared with the PDF so the two cannot drift. This connects them.
+    // #1422 — the ID COMES FROM PERSISTENCE, not from the optional analysis that usually accompanies it.
+    //
+    // `finalizedAnalysis` is published only when the finalized reconciliation ALSO succeeded, and that
+    // reconciliation's failure is explicitly caught as non-fatal. A session could therefore save
+    // perfectly, show the after-state, and leave this reader with no id at all — the query never
+    // enabled, the settling expression never false, and the saved transcript replaced indefinitely by
+    // "Loading your transcript…" for a session that had finished saving. Preferring the analysis id
+    // keeps existing behaviour wherever it exists; falling back to the persisted id is what makes an
+    // optional extra unable to take the user's transcript away.
+    const reviewSessionId = finalizedAnalysis?.sessionId ?? completedSessionId ?? null;
+    const queryClient = useQueryClient();
+    const {
+        data: savedSession, isFetching: reviewFetching,
+        // How many times the query layer has failed and retried THIS read. It is progress, not noise:
+        // see the bound below.
+        failureCount: reviewFailureCount,
+    } = useSession(reviewSessionId ?? undefined);
+    // Server state decides. `isFinalizing` only separates "still settling" from "we could not load
+    // it" — two readings of `unavailable` that need different sentences and that a saved-row resolver
+    // cannot tell apart, because finalization is a client lifecycle.
+    const reviewTranscript = resolveTranscriptView(savedSession ?? null);
+
+    /**
+     * #1422 — A STALLED READ MUST SETTLE, NOT SPIN FOREVER — AND MUST BE ABANDONED, NOT JUST IGNORED.
+     *
+     * `reviewStillSettling` reported "still loading" for as long as `reviewFetching` was true, and a
+     * request that never answers keeps that true indefinitely. The notice then renders "Loading your
+     * transcript…" permanently, with no Retry — because Retry belongs to the FAILED reading, not the
+     * pending one. The user is left on a spinner for a session that saved perfectly well, with nothing
+     * to press.
+     *
+     * Bounding the wait converts "we are still asking" into "we could not load it", which is the honest
+     * statement once we have stopped expecting an answer — and it is the reading that offers recovery.
+     *
+     * The bound also CANCELS the read. Deciding to stop believing a request while letting it run is not
+     * a bound, it is a leak: the abandoned request can still resolve and publish its row into the query
+     * cache under `['session', id]` after this reader is gone or has moved to another session, so the
+     * next reader inherits an answer nobody asked for. `cancelQueries` makes React Query DISCARD that
+     * answer instead of adopting it. The request itself is left to finish and be thrown away — see
+     * `useSession` for why aborting it at the wire is not an option here.
+     *
+     * Because cancelling settles the query, `reviewFetching` goes false as a CONSEQUENCE of the timeout.
+     * The verdict therefore cannot be reset on that transition — doing so would erase the very state the
+     * cancellation just established, and the UI would fall back to "still settling" forever. It is reset
+     * where a genuinely new read begins: a change of session, or an explicit Retry.
+     *
+     * Fail-closed is preserved: a timed-out read leaves `reviewTranscript.kind` un-`available`, so the
+     * automatic Gemini request still cannot fire. A stall must never become a doomed request.
+     */
+    /**
+     * STALLED MEANS "NO PROGRESS", NOT "TAKING A WHILE".
+     *
+     * Measuring the bound against wall-clock alone was wrong, and CI proved it three times. React Query
+     * retries a failed read on its own with exponential backoff, and that ladder plus the requests
+     * themselves can run most of fifteen seconds — so a read that was recovering normally looked
+     * identical to one that had died. While the bound only changed what the UI said, that mistake was
+     * invisible. Once the bound also CANCELS, it started killing recoveries that used to succeed, and
+     * saved sessions stopped rendering their transcript.
+     *
+     * The timer is therefore restarted on every retry (`reviewFailureCount` is in the effect's
+     * dependencies), so the bound means fifteen seconds during which the query layer made no attempt at
+     * all. That is what being stuck actually looks like.
+     */
+    const REVIEW_READ_TIMEOUT_MS = 15_000;
+    /**
+     * ABANDONING A READ MUST NOT MEAN GIVING UP ON IT.
+     *
+     * Cancelling on the first bound and stopping there was a REGRESSION, and CI caught it: the Focus
+     * Points after-state derives its coverage card from this transcript, so a first read that merely ran
+     * long lost the user their coverage permanently, with no request left in flight to recover it. The
+     * previous behaviour hid that by letting the abandoned request publish late — which is the leak, not
+     * a feature, but it was doing real work.
+     *
+     * So the bound cancels the obsolete request AND starts one fresh read. The obsolete answer can no
+     * longer land in the cache, and the user still gets their transcript without pressing anything. The
+     * second bound is the end of it: two stalled reads is a stall, and that is when the honest
+     * `unavailable` reading with a Retry belongs on screen. Bounded, so this can never become a
+     * self-renewing request loop against a server that is already struggling.
+     */
+    const REVIEW_READ_MAX_ATTEMPTS = 2;
+    /**
+     * ONE piece of state, because the budget and the verdict are the same fact.
+     *
+     * A separate boolean derived from `reviewFetching` could not express this. Cancelling settles the
+     * query, so `reviewFetching` goes FALSE for the moment between abandoning one read and starting the
+     * next — and during that moment a `reviewFetching`-derived verdict said "we could not load it" and
+     * offered Retry, while a fresh request was already on its way. A recovery that flashes failure at
+     * the user first is not a recovery.
+     */
+    const [reviewReadAttempt, setReviewReadAttempt] = React.useState(0);
+    const reviewReadTimedOut = reviewReadAttempt >= REVIEW_READ_MAX_ATTEMPTS;
+    // NOTE: an extra "recovering between attempts" flag was added here and then REMOVED as redundant.
+    // Mutating it away left the casualty that asserts the surface still reads `pending` after the first
+    // bound still passing, because `resetQueries` marks the query fetching in the same update that spends
+    // the attempt — so `reviewFetching` already covers the window. The requirement is pinned by that
+    // casualty rather than by a second flag no test can distinguish.
+
+    // A verdict belongs to the session it was reached for. A new session starts unjudged, and its
+    // budget starts over — a previous session's exhausted attempts must not condemn this one's first read.
+    React.useEffect(() => {
+        setReviewReadAttempt(0);
+    }, [reviewSessionId]);
+
+    React.useEffect(() => {
+        if (!reviewFetching || reviewReadTimedOut) return;
+        const timer = setTimeout(() => {
+            // Cancel the QUERY, not the request. React Query discards a cancelled query's result rather
+            // than publishing it under its key, which is the leak this finding is about. Aborting the
+            // request itself was tried twice and killed reads that were going to succeed.
+            void queryClient.cancelQueries({ queryKey: ['session', reviewSessionId] }).then(() => {
+                setReviewReadAttempt((spent) => {
+                    if (spent + 1 < REVIEW_READ_MAX_ATTEMPTS) {
+                        // `resetQueries` on an ACTIVE query already starts its replacement read, so
+                        // chaining `refetchReview()` after it does not "make sure" a read happens — it
+                        // adds a second one. Measured: with the chain, the two-attempt budget issued
+                        // THREE reads, the extra one landing at the second bound, after the surface had
+                        // settled and stopped accounting for it.
+                        void queryClient.resetQueries({ queryKey: ['session', reviewSessionId] });
+                    }
+                    return spent + 1;
+                });
+            });
+        }, REVIEW_READ_TIMEOUT_MS);
+        return () => clearTimeout(timer);
+        // `reviewReadAttempt` is a dependency, not an incidental one: spending an attempt is what must
+        // restart the timer for the NEXT one. Without it, nothing in this list changes when the first
+        // bound fires, so the effect never re-runs, no second timer is ever armed, and a read that
+        // stalls again after its automatic retry spins forever — the original defect, restored one
+        // layer down. It went unnoticed because the real query's state churns across the cancel and
+        // happened to re-run the effect for unrelated reasons.
+    }, [reviewFetching, reviewFailureCount, reviewReadAttempt, reviewReadTimedOut, reviewSessionId,
+        queryClient]);
+
+    /**
+     * #1422 P2 — CANCEL THE EXACT KEY AS THE OBSERVER RETIRES.
+     *
+     * I previously argued this was unfalsifiable, and I was wrong about the observable rather than
+     * about the mechanism. My casualty asked whether a retired read could change the CURRENT surface —
+     * it cannot, because the retired read lands under its own key. The reachable harm is a LATER
+     * observer: `useSession` sets `staleTime` to five minutes, so A's late answer sits fresh under
+     * `['session', A]`, and a user who navigates back to A within that window is served a transcript
+     * that B's save has since expired. The wire request is deliberately never aborted here, so that
+     * late answer really does arrive.
+     *
+     * Cancelling the exact captured key on retirement discards it instead. Scoped with `exact` so a
+     * sibling key is untouched, and captured in the closure so the cancel names the RETIRING id rather
+     * than whatever is current by the time the cleanup runs.
+     */
+    React.useEffect(() => {
+        if (!reviewSessionId) return;
+        const retiringId = reviewSessionId;
+        return () => {
+            void queryClient.cancelQueries({ queryKey: ['session', retiringId], exact: true });
+        };
+    }, [reviewSessionId, queryClient]);
+
+    // WHAT THE EARLIER "PROVED REDUNDANT" NOTE GOT WRONG, kept because the reasoning error is the
+    // useful part: it asked whether a retired read could change the CURRENT surface, which it cannot,
+    // and concluded no cancel was needed. The question the finding was actually about is what a LATER
+    // observer of the same key is served. Two casualties now pin both halves — `a read RETIRED by a
+    // session change cannot publish under its old identity`, and the stale-cache one above it.
+
+    const reviewStillSettling = !reviewReadTimedOut
+        // `finalizedAnalysis` is deliberately NOT part of this. It is optional, so waiting on it meant a
+        // reconciliation failure left the surface claiming to be loading for the rest of the session.
+        // What we are actually waiting for is a saved session to read and a read to settle.
+        && (isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!reviewSessionId));
+
+    /**
+     * #1428's review-latency measurement, re-applied on top of #1422's settling predicate.
+     *
+     * Both changes landed on this line: #1428 added the measurement, #1422 rewrote what
+     * `reviewStillSettling` MEANS — it no longer waits on the optional `finalizedAnalysis`, and it
+     * goes false when a stalled read is abandoned. The effect reads only the flag, so it needs no
+     * change, and the new predicate makes the measurement strictly better: a read that times out now
+     * settles as `unavailable` instead of never being measured at all.
+     */
+    useEffect(() => {
+        if (!reviewStillSettling && showAnalyticsPrompt) {
+            settleReviewLatency(reviewTranscript.kind === 'available' ? 'available' : 'unavailable');
+        }
+    }, [reviewStillSettling, reviewTranscript.kind, settleReviewLatency, showAnalyticsPrompt]);
 
     if (!metrics) return <SessionPageSkeleton />;
 
@@ -214,6 +413,21 @@ export const SessionPage: React.FC = () => {
     // reconciliation + formatting reaches complete/failed and the final text is applied. Until
     // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
     const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
+
+    /**
+     * #1422 — REVIEW readiness is not COPY readiness.
+     *
+     * `postSaveReady` gates the settled copy and the reconciliation sentence, which genuinely describe
+     * the finalized analysis and should wait for it. The REVIEW does not: it needs a saved session and a
+     * readable transcript, both of which exist when the optional reconciliation fails.
+     *
+     * Reusing `postSaveReady` for the review was the third gate on that same optional value — after the
+     * reader's id and `AISuggestions`' own prop — so moving only the first two left the suppression
+     * exactly where it was. The review now depends on what the review actually needs.
+     */
+    const reviewReadyForRequest = showAnalyticsPrompt && !!reviewSessionId;
+
+
     // Mode-aware reconciliation status copy for the consolidated status bar's left side.
     const reconciliationCopy = finalizedAnalysis
         ? reconciliationStatusCopy(finalizedAnalysis.reconciliation, { mode: finalizedAnalysis.mode })
@@ -434,7 +648,74 @@ export const SessionPage: React.FC = () => {
                     isButtonDisabled={isButtonDisabled}
                     fillerData={metrics.fillerData}
                     wpm={metrics.wpm}
+                    practiceLoopReview={(
+                        <AISuggestions
+                            /**
+                             * #1422 — THE SAME ID THE READER USES.
+                             *
+                             * This took `finalizedAnalysis?.sessionId` while the reader above had already
+                             * been moved onto the persisted id, so the two disagreed in exactly the state
+                             * the persistence fallback exists for: when the optional reconciliation fails,
+                             * the saved transcript loads and this stayed undefined — no automatic review,
+                             * and a Retry control that could not fire either. Half a fix is its own defect.
+                             */
+                            sessionId={reviewSessionId ?? undefined}
+                            /**
+                             * #1422 P2/P5 — READINESS IS THE SERVER'S TRANSCRIPT STATE, not a word count.
+                             *
+                             * This required `finalizedWordCount > 0`, which is computed LOCALLY at the
+                             * recording boundary. `complete_session_v2` can save the session and still
+                             * report `transcript_outcome: 'retention_failed'`, and the controller
+                             * publishes `finalizedAnalysis` regardless — so the local count stayed
+                             * positive while the row held no readable transcript. The review then looked
+                             * ready, and with P2-4 firing automatically it sent a request that
+                             * `get-ai-suggestions` MUST reject: that function requires
+                             * `transcript_state === 'available'` and answers 409.
+                             *
+                             * A doomed request is not a neutral cost. It spends one of the user's ten
+                             * daily generations, and it lands the user on an error for a session that
+                             * saved perfectly well.
+                             *
+                             * `reviewTranscript` is the authority #1423 put on main — the server's state,
+                             * resolved by the one place allowed to decide whether a transcript may be
+                             * shown. Gating on `available` makes the automatic request (P5) fire on
+                             * exactly the same evidence the review renders from (P2), so the two can
+                             * never disagree. When it is not available the review stays unavailable WITH
+                             * recovery: the notice states which case it is, and
+                             * `onRetryReviewTranscript` re-reads rather than re-generating.
+                             */
+                            canReview={Boolean(
+                                // Readiness follows the COMPLETED SAVE and the server's transcript state,
+                                // not the optional analysis — see `reviewReadyForRequest`.
+                                reviewReadyForRequest
+                                && reviewTranscript?.kind === 'available'
+                            )}
+                        />
+                    )}
                     aiSuggestions={undefined} /* #1306: coaching prose retired; next action replaces it */
+                    reviewTranscript={reviewTranscript}
+                    reviewStillSettling={reviewStillSettling}
+                    /**
+                     * RESET, then re-read.
+                     *
+                     * `refetch()` alone is inert here, and the casualty proved it: react-query will not
+                     * start a second fetch while the first is still in flight, and the stalled read that
+                     * caused this notice IS still in flight. So the Retry the timeout makes reachable
+                     * would have been a button that does nothing — worse than the spinner, because it
+                     * looks like recovery.
+                     *
+                     * `resetQueries` discards the stuck query's state so the next read genuinely starts.
+                     */
+                    onRetryReviewTranscript={() => {
+                        // Clearing the verdict is what makes this a NEW read rather than a repaint of the
+                        // failed one; without it the surface stays "unavailable" while a fresh request runs.
+                        // The budget resets too: the user asking again is a new decision, not a
+                        // continuation of the automatic attempts that preceded it.
+                        setReviewReadAttempt(0);
+                        // Same reason as the automatic bound: resetting an active query begins the
+                        // replacement read by itself, and the chained refetch was a second request.
+                        void queryClient.resetQueries({ queryKey: ['session', reviewSessionId] });
+                    }}
                     onSeeAllSessions={() => navigate('/analytics')}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}

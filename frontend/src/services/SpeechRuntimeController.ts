@@ -1,9 +1,24 @@
+import { analyticsBuffer } from './AnalyticsBuffer';
+import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
+import {
+    emitRecordingState, emitStageLatency, markRuntimeReady, clearRuntimeReady, msSinceIntent, msSinceReady,
+} from '@/services/telemetry/journeyEvents';
 import {
     mintRecordingIntent, claimRecordingIntent, retireRecordingIntent, isCurrentIntent,
     pendingRecordingIntent, type IntentSettlement,
 } from '@/services/recordingIntent';
+import {
+    ensureRecordingAttempt, endRecordingAttempt,
+} from '@/services/telemetry/journeyIdentity';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
+import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
+import { noteEngineReady, noteEngineTeardown } from '@/services/telemetry/reinitObservation';
+import { resetTranscriptStability } from '@/services/telemetry/transcriptStability';
+import { markCompletionStage, resetCompletionChain } from '@/services/telemetry/completionStages';
+import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
+import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
@@ -64,6 +79,7 @@ import {
 import { evaluateStartGate, startGateMessage } from '@/services/progress/progressStartGate';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
+import { evaluateRuntimeCandidateTakeGate } from '@/services/transcription/runtimeCandidateTakeGate';
 
 declare global {
     interface Window {
@@ -291,6 +307,17 @@ interface TranscriptLifecycleState {
     selectedTranscriptSource: TranscriptLifecycleSource | null;
 }
 
+/** #1431 P1 — see `captureStopAuthority`. Identities only; never transcript text. */
+interface StopAuthority {
+    tokenVersion: number;
+    lifecycleVersion: number;
+    serviceGeneration: number;
+    service: TranscriptionService | null;
+    sessionId: string | null;
+    recordingId: string | null;
+    intentToken: string | null;
+}
+
 const createEmptyTranscriptLifecycleState = (): TranscriptLifecycleState => ({
     committedFinal: '',
     currentPartial: '',
@@ -314,6 +341,26 @@ const createEmptyTranscriptLifecycleState = (): TranscriptLifecycleState => ({
  * copy differs. Routed through the normal stop-error path so it reuses the existing FAILED +
  * recovery-draft architecture rather than inventing a second one.
  */
+/**
+ * #1431 P1 — A CONTROLLED REFUSAL IS NOT AN ACQUISITION FAILURE.
+ *
+ * The owner fence rejects, because a Start that never began must not resolve as success. But
+ * `useSessionLifecycle`'s start catch treats EVERY rejection as an engine-acquisition failure: it
+ * emits failure telemetry, overwrites the status, and calls `reset('start_failed')` — which hard-
+ * resets and DETACHES the service whose stop is still finalizing. The fence meant to preserve that
+ * work would have destroyed it, by a longer route.
+ *
+ * A distinct type is what lets the hook tell the two apart. The refusal still reaches the caller —
+ * the promise rejects and a resumed settlement is rejected — while the hook returns without touching
+ * the owner.
+ */
+export class StartRefusedFinalizationError extends Error {
+    constructor() {
+        super('START_REFUSED_FINALIZATION_IN_PROGRESS');
+        this.name = 'StartRefusedFinalizationError';
+    }
+}
+
 export class FinalizationTimeoutError extends Error {
     readonly timeoutMs: number;
     constructor(timeoutMs: number) {
@@ -347,6 +394,190 @@ export class SpeechRuntimeController {
     // at the TERMINAL of a stop (persist → reconcile → native formatter complete/failed → final display).
     // A newer stop bumps this so a stale async formatter result can never publish over a newer session.
     private finalizeSequence: number = 0;
+    /**
+     * #1431 — WHICH TAKE OWNS THE `isTranscriptFinalizing` LATCH.
+     *
+     * The latch is a single global boolean with no owner, and it is the authoritative start guard in
+     * `useSessionLifecycle`: while it is true the record control is disabled. So "clear it" is not the
+     * harmless withdrawal of one take's claim that it looks like — a superseded take A clearing it while
+     * successor B is still saving would admit take C into a session B has not finished writing.
+     *
+     * Recording the lifecycle version that set the latch gives it the owner the boolean lacks. A stale
+     * continuation may withdraw only its OWN claim; if the latch has since been re-armed by a newer
+     * take, it belongs to that take and A must leave it alone.
+     */
+    private finalizingOwnerVersion: number | null = null;
+    /**
+     * #1431 P1 — WHO armed the finalizing latch, in full.
+     *
+     * The lifecycle version alone does not identify a take: a service can be replaced WITHIN the same
+     * lifecycle, and a stale take then matched the successor's latch and switched off its
+     * "Finalizing…" and discarded its frozen transcript. These are the same three terms
+     * `stopStillOwnsSharedState` already uses, for the same reason.
+     */
+    private finalizingOwner: { lifecycleVersion: number; serviceGeneration: number; service: TranscriptionService | null } | null = null;
+
+    /**
+     * #1431 P1 — the authority a STOPPING take carries through its own suspensions.
+     *
+     * `stopTranscription()`, `saveSession`, `completeSession`, the attestation and the Progress write
+     * are all real suspension points. A successor can be accepted during ANY of them. Before this,
+     * the post-stop path noticed drift and only LOGGED it, then continued through shared controller
+     * state, store publications and resolution — so a stale take could overwrite the successor's
+     * session id, saved marker, finalized analysis and runtime state, or resolve it.
+     *
+     * A stale take may still finish its OWN persistence using the identities captured here — that
+     * work belongs to it and its row must not be abandoned half-written. What it must never do is
+     * touch anything shared.
+     */
+    /**
+     * #1431 P1 — releases the finalizing latch and the frozen transcript ONLY when this take still
+     * owns them.
+     *
+     * The stop's early-exit paths cleared both unconditionally. On the superseded path that is a
+     * stale take switching off the successor's "Finalizing…" and discarding the successor's frozen
+     * transcript — which is the same class of defect as the post-stop publications, reached earlier
+     * and by a shorter route. `finalizingOwnerVersion` already recorded who armed the latch; nothing
+     * was reading it here.
+     */
+    private releaseFinalizingIfOwner(
+        reason: string,
+        capturedOwnerVersion: number | null = null,
+        capturedOwner: StopAuthority | null = null,
+    ): boolean {
+        /**
+         * THE COMPARISON IS AGAINST THE CAPTURED OWNER, NOT THE LIVE LIFECYCLE.
+         *
+         * My first version compared `finalizingOwnerVersion` to `this.lifecycleVersion`, which is a
+         * regression on the NORMAL path: the terminal advances the lifecycle itself (fencing its own
+         * destroyed service) BEFORE releasing, so the rightful owner no longer matched its own latch
+         * and refused to release it. "Finalizing…" would have stuck forever with the record control
+         * disabled — the exact unrecoverable lockout #1089 exists to prevent, reintroduced by a guard
+         * meant to protect the successor.
+         *
+         * Callers that hold a stop authority pass the version captured at stop ENTRY, which is the
+         * same value that armed the latch. A superseded take still fails the comparison, because its
+         * captured version is not the one that armed the latch B is now using.
+         */
+        /**
+         * #1431 P1 — THE LIFECYCLE VERSION ALONE DOES NOT IDENTIFY A TAKE.
+         *
+         * A service can be replaced WITHIN the same lifecycle version. A stale take then matched the
+         * successor's latch on version alone and switched off B's "Finalizing…" and discarded B's
+         * frozen transcript — the successor's own stop then had no latch to release and the user saw
+         * the control re-enable mid-save. The generation and service identity are the terms that
+         * separate those takes, and they are exactly what `stopStillOwnsSharedState` already compares.
+         */
+        const armedByFull = this.finalizingOwner;
+        /**
+         * #1431 P1 — STRICT IDENTITY IS NOT OPTIONAL.
+         *
+         * This was `if (armedByFull && capturedOwner)`, so a call arriving WITHOUT a captured
+         * authority skipped the full-identity comparison entirely and fell through to the
+         * version-only check below, which defaults `owner` to the LIVE lifecycle version. That is
+         * exactly the comparison this correction exists to replace: a take that supplies nothing gets
+         * a weaker test than one that supplies its authority. Every stop path already passes its
+         * captured `StopAuthority`, so requiring it costs nothing and removes the soft path.
+         */
+        if (armedByFull && !capturedOwner) {
+            pushNativeRuntimeTrace('controller_finalizing_release_refused', {
+                reason,
+                cause: 'no_captured_authority',
+                armedByLifecycle: armedByFull.lifecycleVersion,
+                live: this.lifecycleVersion,
+            });
+            return false;
+        }
+        if (armedByFull && capturedOwner) {
+            const sameTake = armedByFull.lifecycleVersion === capturedOwner.lifecycleVersion
+                && armedByFull.serviceGeneration === capturedOwner.serviceGeneration
+                // STRICT identity. Treating `null` as a wildcard on either side made the term
+                // vacuous exactly when it was needed: a detached take carries a null service, which is
+                // the state a superseded take is most often in.
+                && armedByFull.service === capturedOwner.service;
+            if (!sameTake) {
+                pushNativeRuntimeTrace('controller_finalizing_release_refused', {
+                    reason,
+                    armedByLifecycle: armedByFull.lifecycleVersion,
+                    ownerLifecycle: capturedOwner.lifecycleVersion,
+                    armedByGeneration: armedByFull.serviceGeneration,
+                    ownerGeneration: capturedOwner.serviceGeneration,
+                    live: this.lifecycleVersion,
+                });
+                return false;
+            }
+        }
+
+        const armedBy = this.finalizingOwnerVersion;
+        const owner = capturedOwnerVersion ?? this.lifecycleVersion;
+        if (armedBy !== null && armedBy !== owner) {
+            pushNativeRuntimeTrace('controller_finalizing_release_refused', {
+                reason,
+                armedBy,
+                owner,
+                live: this.lifecycleVersion,
+            });
+            return false;
+        }
+        useSessionStore.getState().setTranscriptFinalizing(false);
+        this.finalizingOwnerVersion = null;
+        this.finalizingOwner = null;
+        useSessionStore.getState().freezeTranscriptAtStop(null);
+        return true;
+    }
+
+    private captureStopAuthority(tokenVersion: number, service: TranscriptionService | null, sessionId: string | null): StopAuthority {
+        return {
+            tokenVersion,
+            lifecycleVersion: this.lifecycleVersion,
+            serviceGeneration: this.serviceGeneration,
+            service,
+            sessionId,
+            recordingId: this.acceptedAttempt?.recordingId ?? null,
+            intentToken: this.acceptedAttempt?.intentToken ?? null,
+        };
+    }
+
+    /**
+     * True only while this stop still owns the SHARED surfaces: controller fields, the session store,
+     * and resolution. Every term is load-bearing — the lifecycle version alone was what the old
+     * warn-and-continue checked, and it does not catch a successor that reused the same version with
+     * a new service generation.
+     */
+    private stopStillOwnsSharedState(authority: StopAuthority, token: { cancelled: boolean; version: number }): boolean {
+        if (token.cancelled) return false;
+        if (token.version !== this.lifecycleVersion) return false;
+        if (authority.lifecycleVersion !== this.lifecycleVersion) return false;
+        if (authority.serviceGeneration !== this.serviceGeneration) return false;
+        if (this.service !== null && authority.service !== null && this.service !== authority.service) return false;
+        return true;
+    }
+
+    /**
+     * Applies a SHARED publication only while this stop still owns it, and records the refusal
+     * content-free when it does not. Returning a boolean rather than throwing keeps the stale take on
+     * its own path: it stops publishing, it does not fail.
+     */
+    private publishIfStopOwner(
+        authority: StopAuthority,
+        token: { cancelled: boolean; version: number },
+        label: string,
+        apply: () => void,
+    ): boolean {
+        if (!this.stopStillOwnsSharedState(authority, token)) {
+            pushNativeRuntimeTrace('controller_stop_publication_refused', {
+                label,
+                capturedLifecycle: authority.lifecycleVersion,
+                liveLifecycle: this.lifecycleVersion,
+                capturedGeneration: authority.serviceGeneration,
+                liveGeneration: this.serviceGeneration,
+                tokenCancelled: token.cancelled,
+            });
+            return false;
+        }
+        apply();
+        return true;
+    }
     private state: RuntimeState = 'IDLE';
     private initialized: boolean = false;
     public service: TranscriptionService | null = null;
@@ -368,6 +599,29 @@ export class SpeechRuntimeController {
 
     // Cancellation tracking for startRecording
     private currentRecordingId: string | null = null;
+    /** #1421 Option A: the attempt this take belongs to, snapshotted when the take enters RECORDING. */
+    private currentRecordingSubject: RecordingSubject | null = null;
+    /**
+     * #1431 — THE ACCEPTED ATTEMPT: who is allowed to publish RECORDING after the intent is claimed.
+     *
+     * `isCurrentIntent` is the right authority BEFORE the claim — nothing else yet distinguishes this
+     * attempt from a successor click. It is the wrong authority after, because claiming is what makes an
+     * intent stop being pending. The runtime trace showed the consequence: on a warm retry the service
+     * FSM reached RECORDING while the controller silently refused its own transition, so the engine was
+     * capturing audio while the product still showed INITIATING — no truthful recording state and no
+     * Stop control.
+     *
+     * Removing the intent check would restore the stale-attempt race this branch exists to prevent. So
+     * the handoff is made explicit instead: at the moment an attempt is accepted, the tuple that
+     * identifies it is recorded, and only that exact tuple may publish RECORDING afterwards.
+     */
+    private acceptedAttempt: {
+        intentToken: string;
+        lifecycleVersion: number;
+        recordingId: string;
+        serviceGeneration: number;
+        service: TranscriptionService;
+    } | null = null;
     private capturedUserId: string | null = null;
 
     // Session Lock (Tab Mutex)
@@ -405,7 +659,20 @@ export class SpeechRuntimeController {
     private emissionQueue: TranscriptUpdate[] = [];
     private historyQueue: HistorySegment[][] = [];
     private subscriberCallbacks: Partial<TranscriptionServiceOptions> = {};
-    private readonly serviceCallbacks: Partial<TranscriptionServiceOptions>;
+    private serviceCallbacks: Partial<TranscriptionServiceOptions>;
+    /**
+     * The UNWRAPPED callbacks, kept so each generation wraps these rather than the previous
+     * generation's wrappers. Wrapping a wrapper compounds the guards: generation 2's callbacks would
+     * sit inside generation 1's check, which is false the moment 2 exists, and every callback for
+     * every service after the first would be silently dropped. Found while writing the casualty.
+     */
+    private readonly baseServiceCallbacks: Partial<TranscriptionServiceOptions>;
+    /**
+     * Identifies the service instance whose callbacks may mutate controller/store state.
+     * A destroyed or replaced service can still deliver a queued error; its captured
+     * generation must not be allowed to fail the replacement lifecycle.
+     */
+    private serviceGeneration = 0;
     private policy: TranscriptionPolicy | null = null;
     private userWords: string[] = [];
 
@@ -436,8 +703,9 @@ export class SpeechRuntimeController {
             onHistoryUpdate: this.handleHistoryUpdate.bind(this),
             onModeChange: this.handleModeChange.bind(this),
             onAudioData: this.handleAudioData.bind(this),
-            onError: this.handleError.bind(this),
+            onError: (error) => this.handleError(error, 0),
         };
+        this.baseServiceCallbacks = { ...this.serviceCallbacks };
 
         // E2E HOOK: Sanctioned Mocks
         if (typeof window !== 'undefined') {
@@ -485,6 +753,85 @@ export class SpeechRuntimeController {
                 };
             }
         }
+    }
+
+    /**
+     * Bind callbacks to one newly-created/adopted service generation.
+     *
+     * #1431 — EVERY CALLBACK THAT MUTATES SHARED STATE IS BOUND, NOT ONLY `onError`.
+     *
+     * The spread previously carried the transcript, history, readiness, status, mode, audio and
+     * capture-limit callbacks through UNGUARDED, so only errors were generation-checked. A queued
+     * callback from replaced service A could therefore still append A's transcript to B's session, and
+     * an A `ready` could move B out of DOWNLOAD_REQUIRED, claim B's intent and resume it before B was
+     * actually ready. Guarding one of eight paths is not guarding the state; it is guarding the path
+     * that happened to be noticed.
+     *
+     * A stale callback is DROPPED, not deferred: it describes a service that no longer exists, so
+     * there is nothing for it to be correct about later.
+     */
+    private callbacksForNewService(
+        callbacks?: Partial<TranscriptionServiceOptions>,
+    ): Partial<TranscriptionServiceOptions> {
+        const generation = ++this.serviceGeneration;
+        /** True only while `generation` is still the live service. */
+        const owns = () => this.serviceGeneration === generation;
+        /**
+         * Wrap one callback so a superseded generation cannot deliver into shared state.
+         * Typed through the callback's own signature, so a wrapped callback stays exactly as
+         * callable as the one it replaces.
+         */
+        const bound = <A extends unknown[]>(
+            fn: ((...args: A) => void) | undefined,
+            name: string,
+        ) => (...args: A): void => {
+            if (!owns()) {
+                logger.debug({ callback: name, generation, live: this.serviceGeneration },
+                    '[controller] dropped a callback from a superseded service generation');
+                return;
+            }
+            fn?.(...args);
+        };
+        // From the UNWRAPPED originals, never from the previous generation's wrappers — see
+        // `baseServiceCallbacks`.
+        const base = this.baseServiceCallbacks;
+        this.serviceCallbacks = {
+            ...this.serviceCallbacks,
+            onTranscriptUpdate: bound(base.onTranscriptUpdate, 'onTranscriptUpdate'),
+            onStatusChange: bound(base.onStatusChange, 'onStatusChange'),
+            onCaptureLimitReached: bound(base.onCaptureLimitReached, 'onCaptureLimitReached'),
+            onModelLoadProgress: bound(base.onModelLoadProgress, 'onModelLoadProgress'),
+            onReady: bound(base.onReady, 'onReady'),
+            onHistoryUpdate: bound(base.onHistoryUpdate, 'onHistoryUpdate'),
+            onModeChange: bound(base.onModeChange, 'onModeChange'),
+            onAudioData: bound(base.onAudioData, 'onAudioData'),
+            // `handleError` already takes the generation and decides for itself; it must still run for
+            // a superseded generation so a late failure can be recorded without failing the successor.
+            onError: (error) => this.handleError(error, generation),
+        };
+        return callbacks
+            ? createControllerOwnedServiceCallbacks(
+                callbacks,
+                this.serviceCallbacks as Required<typeof this.serviceCallbacks>,
+            )
+            : this.serviceCallbacks;
+    }
+
+    /**
+     * Detach only the expected service and invalidate its callbacks synchronously.
+     * The identity check prevents a late cleanup from detaching a newer service.
+     */
+    private detachService(expected?: TranscriptionService | null): TranscriptionService | null {
+        const current = this.service;
+        if (expected && current !== expected) return null;
+        this.service = null;
+        this.serviceGeneration += 1;
+        // The accepted attempt named this service. With it detached the tuple can no longer be
+        // satisfied, and leaving it in place would keep a dead attempt nominally able to publish.
+        if (this.acceptedAttempt && (!expected || this.acceptedAttempt.service === expected)) {
+            this.acceptedAttempt = null;
+        }
+        return current;
     }
 
     /**
@@ -596,6 +943,8 @@ export class SpeechRuntimeController {
         evidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
         progressMetrics: ProgressMetricsState;
+        /** #1421 Option A: the take this verdict belongs to, never the attempt current when it settles. */
+        subject?: RecordingSubject | null;
     } | null = null;
     /** #1033 (item 2/3): last recording whose durable FULL SAVE (completeSession) failed — a strictly worse
      *  failure than an attribution-only miss (the transcript row itself is not persisted). Stashed so Retry
@@ -612,6 +961,8 @@ export class SpeechRuntimeController {
         attributionEvidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
         progressMetrics: ProgressMetricsState;
+        /** #1421 Option A: the take this verdict belongs to, never the attempt current when it settles. */
+        subject?: RecordingSubject | null;
     } | null = null;
 
     /** #1265: immutable practice-mode snapshot captured when this recording enters RECORDING. Retry paths
@@ -652,6 +1003,25 @@ export class SpeechRuntimeController {
      *  so the lock cannot lose a race to a rapid engine change right after Start. Released by transition()
      *  once a real state (INITIATING/…/terminal) is reached, where the lifecycle/pending predicates take over. */
     private engineSelectionIntentLocked = false;
+    /**
+     * #1433 RETURN `5636795476` — ONE SETTLEMENT PER UNRESOLVED TAKE.
+     *
+     * Retry Save now keeps its slot until Progress settles, so a second click during that await would find the
+     * slot still set and complete, attest and evaluate the same recording again. A retry requested while a
+     * settlement is in flight for the same lifecycle joins it; after a reset or service replacement (a new
+     * lifecycle or generation) a retry starts its own.
+     */
+    private retrySettlement: { owner: string; attempt: Promise<boolean> } | null = null;
+
+    private joinRetrySettlement(run: () => Promise<boolean>): Promise<boolean> {
+        const owner = `${this.lifecycleVersion}:${this.serviceGeneration}`;
+        if (this.retrySettlement && this.retrySettlement.owner === owner) return this.retrySettlement.attempt;
+        const attempt: Promise<boolean> = run().finally(() => {
+            if (this.retrySettlement?.attempt === attempt) this.retrySettlement = null;
+        });
+        this.retrySettlement = { owner, attempt };
+        return attempt;
+    }
     /** #1033: TRUE once a recording has actually BEGUN (transition to RECORDING) and has NOT yet reached a
      *  terminal resolution — durable save + attribution success, an approved discard, or successful Retry Save.
      *  This keeps the lock through POST-START failures (heartbeat/STT/runtime/stop/finalization/attribution),
@@ -702,18 +1072,64 @@ export class SpeechRuntimeController {
      * moves pending→verified/unverified; on failure it stays pending and remains retryable. Idempotent
      * (returns true when nothing is pending).
      */
-    public async retryPendingAttribution(): Promise<boolean> {
+    public retryPendingAttribution(): Promise<boolean> {
+        return this.joinRetrySettlement(() => this.settlePendingAttribution());
+    }
+
+    private async settlePendingAttribution(): Promise<boolean> {
         const pending = this.pendingAttributionRetry;
         if (!pending) return true;
         const targetSessionId = pending.sessionId;
+        /**
+         * #1431 P1 — RETRY IS NOT EXEMPT FROM OWNERSHIP, AND SAYING SO DID NOT MAKE IT TRUE.
+         *
+         * `attestSessionEngine()` below is a real suspension point. This path used to assert
+         * `canPublishShared: () => true` with the reasoning that Retry Save is user-initiated and is
+         * therefore "the current take by definition". Being user-initiated says who STARTED it, not who
+         * owns the lifecycle when it RESUMES: nothing freezes the app while the attestation is in
+         * flight, so the user can begin take B in that window. A then unlocked B's recording latch,
+         * published A's persistence identity into B's DOM state, and wrote A's Progress, brief and
+         * coverage over B's — with an explicit authority argument vouching for it.
+         *
+         * The compare-and-clear below does not cover this. It asks whether the RETRY SLOT still holds
+         * the session just promoted, which is a different question from whether the lifecycle still
+         * belongs to this work.
+         *
+         * Captured BEFORE the await and revalidated after it, using the same predicate the stop path
+         * uses, so there is one definition of "still ours" rather than a second, softer one here.
+         */
+        const retryAuthority = this.captureStopAuthority(this.lifecycleVersion, this.service, targetSessionId);
+        const retryToken = { cancelled: false, version: retryAuthority.lifecycleVersion };
+        const retryStillOwnsSharedState = () => this.stopStillOwnsSharedState(retryAuthority, retryToken);
         try {
             // #1161: re-post evidence to the trusted server producer. null = transient failure → stay retryable.
             const res = await this.attestSessionEngine(pending.sessionId, pending.evidence);
             if (res === null) return false;
+            // #1421 P1 `3984043475` — the terminal verdict names the take it settled, as soon as it exists.
+            this.emitAttributionReceipt(pending.subject, res.attributed, 'retry_attribution');
+            const progressContext = pending.progressContext ?? { mode: 'unknown' as const };
+            await this.completeProgressForRecording(
+                progressContext,
+                targetSessionId,
+                res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
+                pending.progressMetrics?.persisted ?? false,
+                // #1431 P1 — the real authority, re-evaluated at each shared write inside. This was
+                // `() => true`; see the note at the top of this method for why being user-initiated is
+                // not ownership.
+                retryStillOwnsSharedState,
+            );
+            this.retireObjectiveBriefAfterSettlement(progressContext, retryStillOwnsSharedState);
+            // #1433 RETURN `5636795476` — SETTLE FIRST, THEN RESOLVE. The slot and the lock stay authoritative through
+            // the awaited Progress evaluation and the owner-fenced brief retirement above; only then is the slot
+            // cleared, the saved marker published and the recording unlocked. Unlocking first let Navigation apply
+            // a deferred Open Mic while the objective evaluation was still suspended.
             // compare-and-clear: clear ONLY if the slot still holds the session we just promoted — if it
             // changed to another session while the update was in flight, leave that one intact (#1033).
             if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
+                // The slot is A's own bookkeeping and is cleared either way; only the SHARED
+                // publications below are fenced, so a superseded retry still finishes its own work.
                 this.pendingAttributionRetry = null;
+                this.publishIfStopOwner(retryAuthority, retryToken, 'retry_attribution_settlement', () => {
                 this.markRecordingResolved(); // Retry Save succeeded → recording fully resolved → unlock
                 // #1403 RETURN: REPUBLISH THE RECEIPT. Clearing the retry slot changed what the save marker
                 // is entitled to claim, and nothing was saying so. The DOM kept reporting
@@ -728,13 +1144,8 @@ export class SpeechRuntimeController {
                     sessionId: targetSessionId,
                     mode: pending.progressContext?.mode ?? null,
                 });
+                });
             }
-            await this.completeProgressForRecording(
-                pending.progressContext ?? { mode: 'unknown' },
-                targetSessionId,
-                res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
-                pending.progressMetrics?.persisted ?? false,
-            );
             return true;
         } catch {
             return false;
@@ -749,10 +1160,24 @@ export class SpeechRuntimeController {
      * Same session id throughout (never a duplicate). Idempotent: returns true when nothing is pending.
      * Session-safe compare-and-clear: only clears the slot it actually resolved.
      */
-    public async retryRecordingSave(): Promise<boolean> {
+    public retryRecordingSave(): Promise<boolean> {
+        return this.joinRetrySettlement(() => this.settleRecordingSave());
+    }
+
+    private async settleRecordingSave(): Promise<boolean> {
         const fullSave = this.pendingFullSaveRetry;
         if (fullSave) {
             let targetSessionId = fullSave.sessionId;
+            /**
+             * #1431 P1 — same correction as `retryPendingAttribution`, and for the same reason.
+             *
+             * This path awaits a row creation, `completeSession()` and `attestSessionEngine()` before it
+             * publishes anything shared. Each is a window in which the user can start take B. Captured
+             * before the first await; every shared write below is fenced against it.
+             */
+            const retryAuthority = this.captureStopAuthority(this.lifecycleVersion, this.service, targetSessionId);
+            const retryToken = { cancelled: false, version: retryAuthority.lifecycleVersion };
+            const retryStillOwnsSharedState = () => this.stopStillOwnsSharedState(retryAuthority, retryToken);
             try {
                 // #1033 (1): INITIAL SAVE — the row never existed (failure landed between RECORDING and the
                 // placeholder save). Create it with THIS recording's idempotency key so a retry can never
@@ -775,21 +1200,44 @@ export class SpeechRuntimeController {
                         // recreated with a blank engine identity.
                         { engineVersion: ctx.engineVersion, modelName: ctx.modelName, deviceType: ctx.deviceType },
                     );
-                    const createdId = created?.session?.id;
-                    if (!createdId) return false; // still retryable; nothing destroyed
+                    if (created.status !== 'saved') return false; // still retryable; nothing destroyed
+                    const createdId = created.session.id;
                     targetSessionId = createdId;
                     // Adopt the row so a subsequent retry resumes as a normal full-save.
                     if (this.pendingFullSaveRetry === fullSave) {
                         this.pendingFullSaveRetry = { ...fullSave, sessionId: createdId };
                     }
-                    if (!this.sessionId) this.sessionId = createdId;
-                    this.applyPrivateTelemetryContext();
+                    /**
+                     * #1431 P1 — A'S CREATED ROW IS A'S, AND MUST NOT BE INSTALLED INTO B.
+                     *
+                     * `saveSession()` above is a real suspension point. A hard reset can start
+                     * successor B while it is unresolved, and B begins with NO session row — so
+                     * `!this.sessionId` is true and A resumed by assigning its own created id, plus its
+                     * telemetry context, to B. B then persisted into A's row: two takes, one row, and
+                     * the user's second recording written over the first's identity.
+                     *
+                     * The retry-local bookkeeping above stays unfenced — the slot and `targetSessionId`
+                     * are A's own, and A must still finish its work. Only the SHARED installs are
+                     * gated, on the same authority captured before the first await.
+                     */
+                    if (retryStillOwnsSharedState()) {
+                        if (!this.sessionId) this.sessionId = createdId;
+                        this.applyPrivateTelemetryContext();
+                    } else {
+                        pushNativeRuntimeTrace('controller_retry_created_id_adoption_refused', {
+                            capturedLifecycle: retryAuthority.lifecycleVersion,
+                            liveLifecycle: this.lifecycleVersion,
+                            capturedGeneration: retryAuthority.serviceGeneration,
+                            liveGeneration: this.serviceGeneration,
+                        });
+                    }
                 }
                 const completion = await completeSession(targetSessionId, fullSave.completeArgs);
                 if (!completion?.success) return false;
                 // #1161: attribution via the trusted server producer. null = transient → stay retryable.
                 const attrRes = await this.attestSessionEngine(targetSessionId, fullSave.attributionEvidence);
                 if (attrRes === null) return false;
+                this.emitAttributionReceipt(fullSave.subject, attrRes.attributed, 'retry_full_save');
                 // #1306 Step 3: the retry's separate metrics PATCH is REMOVED for the same reason as the
                 // normal path — v2 wrote every retained metric in the SAME transaction as the transcript and
                 // retention, so its acceptance above already proves they landed. #1265's concern (a completed
@@ -802,25 +1250,50 @@ export class SpeechRuntimeController {
                 // have been re-pointed to another session mid-flight, though the single-unresolved invariant
                 // makes that near-impossible); never clear a different session's unresolved work.
                 if (this.pendingFullSaveRetry?.sessionId === targetSessionId) {
-                    this.pendingFullSaveRetry = null;
-                    if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
-                    this.markRecordingResolved();
-                    // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
-                    // the original failure never published one — correctly, since nothing was durable then.
-                    // After recovery the row exists, the transcript is persisted and attribution is terminal,
-                    // so the marker is published here and only here: both the completion and the attestation
-                    // above have already succeeded, and both retry slots are cleared, so the status derives
-                    // as `saved`. Without this the observer never records `stop-save` for a recovered take.
-                    this.updateSessionPersisted(true, {
-                        sessionId: targetSessionId,
-                        mode: fullSave.progressContext?.mode ?? null,
-                    });
+                    const progressContext = fullSave.progressContext ?? { mode: 'unknown' as const };
                     await this.completeProgressForRecording(
-                        fullSave.progressContext ?? { mode: 'unknown' },
+                        progressContext,
                         targetSessionId,
                         attrRes.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
                         metricsPersisted,
+                        // #1431 P1 — was `() => true` on the same "current by definition" reasoning.
+                        retryStillOwnsSharedState,
                     );
+                    this.retireObjectiveBriefAfterSettlement(progressContext, retryStillOwnsSharedState);
+                    // #1433 RETURN `5636795476` — SETTLE FIRST, THEN RESOLVE. The slot and the lock stay authoritative through
+                    // the awaited Progress evaluation and the owner-fenced brief retirement above; only then is the slot
+                    // cleared, the saved marker published and the recording unlocked. Unlocking first let Navigation apply
+                    // a deferred Open Mic while the objective evaluation was still suspended.
+                    // Re-checked after the await: a confirmed Discard during settlement already resolved this take.
+                    if (this.pendingFullSaveRetry?.sessionId === targetSessionId) {
+                        // Slots are this retry's own bookkeeping and clear either way; only the SHARED
+                        // publications are fenced, so a superseded retry still finishes its own work.
+                        this.pendingFullSaveRetry = null;
+                        if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
+                        this.publishIfStopOwner(retryAuthority, retryToken, 'retry_full_save_settlement', () => {
+                        this.markRecordingResolved();
+                        // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
+                        // the original failure never published one — correctly, since nothing was durable then.
+                        // After recovery the row exists, the transcript is persisted and attribution is terminal,
+                        // so the marker is published here and only here: both the completion and the attestation
+                        // above have already succeeded, and both retry slots are cleared, so the status derives
+                        // as `saved`. Without this the observer never records `stop-save` for a recovered take.
+                        this.updateSessionPersisted(true, {
+                            sessionId: targetSessionId,
+                            mode: fullSave.progressContext?.mode ?? null,
+                        });
+                        /**
+                         * #1422 — A RECOVERED SAVE ENTERS THE SAME REVIEW STATE AS A FIRST-PASS SAVE.
+                         *
+                         * Publishing only the persistence marker made the recovered take *saved* without making it *readable*:
+                         * `completedSessionId` stayed null, so the review query was disabled, the after-state had no session to
+                         * read, and the automatic review never ran. Published inside the compare-and-clear for the same reason
+                         * the marker is: if the slot moved to another session while the completion was in flight, this identity
+                         * is stale and must not overwrite that newer take's.
+                         */
+                        useSessionStore.getState().setCompletedSessionId(targetSessionId);
+                        });
+                    }
                 }
                 return true;
             } catch {
@@ -828,7 +1301,7 @@ export class SpeechRuntimeController {
             }
         }
         // No full-save failure outstanding → fall back to the attribution-only retry.
-        return this.retryPendingAttribution();
+        return this.settlePendingAttribution();
     }
 
     /**
@@ -984,6 +1457,7 @@ export class SpeechRuntimeController {
                     },
                 },
                 attributionEvidence: null,  // #1161: mid-recording failure has no trusted identity → no authority
+                subject: draftForThisSession.subject ?? null,
                 progressContext: this.buildProgressCompletionContext(dur),
                 progressMetrics: { payload: null, persisted: false },
             };
@@ -1011,6 +1485,12 @@ export class SpeechRuntimeController {
      */
     public async discardUnresolvedRecording(): Promise<{ outcome: 'discarded' | 'retryable'; sessionId: string | null }> {
         const sessionId = this.pendingFullSaveRetry?.sessionId ?? this.pendingAttributionRetry?.sessionId ?? this.sessionId ?? null;
+        // #1433 RETURN `5636795476` item 1 — a confirmed discard is the terminal settlement of the take whose Focus
+        // Points brief was kept through recovery. The context and authority are captured before the await and the
+        // retirement is fenced after it, like every other shared write.
+        const recoveryContext = this.pendingFullSaveRetry?.progressContext ?? this.pendingAttributionRetry?.progressContext ?? null;
+        const discardAuthority = this.captureStopAuthority(this.lifecycleVersion, this.service, sessionId);
+        const discardToken = { cancelled: false, version: discardAuthority.lifecycleVersion };
 
         if (sessionId) {
             let marked = false;
@@ -1038,6 +1518,7 @@ export class SpeechRuntimeController {
 
         this.pendingFullSaveRetry = null;
         this.pendingAttributionRetry = null;
+        this.retireObjectiveBriefAfterSettlement(recoveryContext, () => this.stopStillOwnsSharedState(discardAuthority, discardToken));
         this.markRecordingResolved();
         logger.info({ sessionId, state: this.state }, '[controller] unresolved recording discarded → unlocked (#1033 B)');
         return { outcome: 'discarded', sessionId };
@@ -1071,6 +1552,7 @@ export class SpeechRuntimeController {
                 },
             },
             attributionEvidence: null,  // #1161: rehydrated recording has no trusted identity → no authority
+            subject: draft.subject ?? null,
             // The recovery draft carries no objective brief linkage. Missing mode context fails closed instead
             // of being guessed as Open Mic after reload.
             progressContext: { mode: 'unknown' },
@@ -1178,6 +1660,35 @@ export class SpeechRuntimeController {
      *  - present evidence, 4xx (server rejected the evidence) → { attributed: false } (terminal; not retryable).
      *  - either op, 5xx / network error → null (TRANSIENT; caller stashes for Retry Save).
      */
+    /**
+     * #1421 Option A — one receipt per TERMINAL attribution verdict, naming the take it settled.
+     *
+     * Called only after a non-null attestation result, so a transient failure emits nothing and its
+     * retry emits instead. A take with no valid subject (restored from a draft written before subjects
+     * existed, or one that fails validation) emits nothing rather than borrowing
+     * whichever attempt happens to be current. Telemetry must never affect attribution.
+     */
+    private emitAttributionReceipt(
+        subject: RecordingSubject | null | undefined,
+        attributed: boolean,
+        receiptPath: 'first_try' | 'retry_attribution' | 'retry_full_save',
+    ): void {
+        const take = sanitizeRecordingSubject(subject);
+        if (!take) return;
+        try {
+            // HIGH, like the `session_saved` it attributes. `modelAttributionVerified = false`: a Retry Save can
+            // settle while the tab runs another model, so the envelope must not stamp the CURRENT model onto
+            // this take's verdict. The receipt's model binding is its subject join and nothing else.
+            analyticsBuffer.push('model_attribution_receipt', {
+                ...take,
+                attribution_status: attributed ? 'verified' : 'unverified',
+                receipt_path: receiptPath,
+            }, 'HIGH', false);
+        } catch {
+            // Telemetry is diagnostic; the verdict above is already durable.
+        }
+    }
+
     private async attestSessionEngine(
         sessionId: string, evidence: RuntimeEvidence | null,
     ): Promise<{ attributed: boolean } | null> {
@@ -1405,7 +1916,7 @@ export class SpeechRuntimeController {
                     // pattern) forces the next readiness path back through initInternal to rebuild a fresh one.
                     this.readyPromise = null;
                     this.resetEphemeralState('service_destroyed_in_sync');
-                    this.service = null;
+                    this.detachService(this.service);
                     return;
                 }
 
@@ -1435,7 +1946,7 @@ export class SpeechRuntimeController {
             logger.info('[SpeechRuntimeController] \u{1F3C1} Infrastructure initialization started');
 
             if (!this.service) {
-                this.service = sessionManager.getOrCreateService(this.serviceCallbacks, this.lock);
+                this.service = sessionManager.getOrCreateService(this.callbacksForNewService(), this.lock);
             }
 
             readiness.setAppState('SERVICE_READY');
@@ -1771,6 +2282,87 @@ export class SpeechRuntimeController {
      * keep the unscoped behaviour, because there a pending intent SHOULD be retired whoever owns it.
      */
     private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken, intentToken?: string): Promise<void> {
+        // #1431 — a lifecycle token is an ownership proof, not merely queue metadata. A hard reset
+        // invalidates it synchronously; anything arriving afterwards must return before touching the
+        // controller, lock, shared store, intent settlement, or recovery state.
+        if (token && (token.cancelled || token.version !== this.lifecycleVersion)) {
+            /**
+             * EXCEPT: A SUPERSEDED CONTINUATION MAY STILL WITHDRAW ITS OWN CLAIM.
+             *
+             * `isTranscriptFinalizing` is cleared in exactly one place — the resting-state branch below —
+             * so returning here for a stale token would leave the banner latched for the rest of the
+             * session.
+             *
+             * RECORD CORRECTION: this was originally written up as the cause of the Focus Points Retry
+             * failure. The runtime trace disproved that. Finalization COMPLETES normally — the logs show
+             * `transition READY starting` / `STOPPING -> READY` / `transition READY done` — and the retry
+             * defect was successor ADMISSION: the service FSM reached RECORDING while the controller
+             * refused its own transition. That is fixed by the accepted-attempt tuple, not by this
+             * branch. The withdrawal below is kept because it is correct on its own terms, not as an
+             * explanation of that failure.
+             *
+             * Ownership is the right rule for state a stale continuation would CORRUPT. It is the wrong
+             * rule for RELEASING a user-visible claim: "we are finalizing" was asserted by this take, and
+             * withdrawing it asserts nothing about anyone else's. Refusing that leaves the product wedged
+             * on a promise nobody is keeping.
+             *
+             * Narrow deliberately: only for a terminal target, and only to clear — never to set. It
+             * cannot resurrect a superseded take, publish state, settle an intent, or touch the lock.
+             */
+            const isRestingTarget = newState === 'READY' || newState === 'IDLE'
+                || newState === 'TERMINATED' || newState === 'FAILED' || newState === 'FAILED_VISIBLE';
+            // ...AND ONLY ITS OWN. The latch is one global boolean and it is the start guard in
+            // `useSessionLifecycle`: while it is true the record control is disabled. If a newer take has
+            // since armed it, clearing it here would admit a third take into a session the successor has
+            // not finished saving — a far worse defect than the stale banner this branch exists to
+            // prevent. `token.version` identifies the take that is speaking; it may withdraw the claim
+            // only while that claim is still its own.
+            /**
+             * #1431 P1 — THIS BRANCH NO LONGER RELEASES THE LATCH AT ALL.
+             *
+             * It cleared on `finalizingOwnerVersion === token.version`. A service can be replaced WITHIN
+             * one lifecycle version, so when A was cancelled while successor B armed the latch, A's
+             * stale terminal transition matched on version and switched off B's "Finalizing…" and
+             * discarded B's frozen transcript — bypassing `releaseFinalizingIfOwner()` entirely and
+             * reproducing the exact failure the full-owner correction was meant to close.
+             *
+             * It cannot be repaired in place. Full validation needs the authority captured by the take
+             * that is speaking, and this branch has only a lifecycle token; when A and B share a
+             * lifecycle version, nothing here distinguishes "the latch I armed" from "the latch B
+             * armed". A guard that cannot tell those apart is not a guard.
+             *
+             * Release is therefore left to `releaseFinalizingIfOwner()`, which every stop path calls
+             * with its captured `StopAuthority` — lifecycle version, service generation and service
+             * identity. The withdrawal this branch used to perform is redundant for those paths and
+             * unsafe for every other.
+             */
+            /**
+             * #1431 P1 — THIS BRANCH NO LONGER RELEASES THE LATCH OR THE FROZEN TRANSCRIPT.
+             *
+             * It cleared on `finalizingOwnerVersion === token.version`. A service can be replaced WITHIN
+             * one lifecycle version, so when A was cancelled while successor B armed the latch, A's
+             * stale terminal transition matched on version and switched off B's "Finalizing…" and
+             * discarded B's frozen transcript — bypassing `releaseFinalizingIfOwner()` entirely.
+             *
+             * It cannot be repaired in place. A stale transition does not carry sufficient ownership
+             * authority: it has a lifecycle token and nothing else, and when A and B share a lifecycle
+             * version nothing here distinguishes "the latch I armed" from "the latch B armed". A guard
+             * that cannot tell those apart is not a guard.
+             *
+             * Release therefore belongs solely to `releaseFinalizingIfOwner()`, which every stop path
+             * calls with its captured `StopAuthority` — lifecycle version, service generation and
+             * service identity, all strict. A stale direct transition has no finalization-release side
+             * effect at all.
+             */
+            if (isRestingTarget) {
+                pushNativeRuntimeTrace('controller_stale_terminal_latch_release_skipped', {
+                    tokenVersion: token.version,
+                    armedByVersion: this.finalizingOwnerVersion,
+                });
+            }
+            return;
+        }
+
         // #1033: release the Start-intent BRIDGE once a real state is reached — the lifecycle-state set,
         // the pending-retry, and recordingStartedUnresolved now govern isEngineSelectionLocked(). Once a
         // recording has actually begun, mark it unresolved so a POST-start failure (which lands in a
@@ -1785,7 +2377,10 @@ export class SpeechRuntimeController {
         // the user never agreed to download. The lock now follows the attempt: it is held while an
         // intent is pending and released when that intent settles.
         if (newState === 'RECORDING') {
-            if (!this.canTransitionToRecording()) {
+            // #1431 — readiness is necessary but not sufficient. The transition must name the
+            // CURRENT pending intent before any RECORDING-owned state is mutated. A stale attempt's
+            // late success therefore cannot start audio under, or resolve, its successor's click.
+            if (!this.mayPublishRecording(intentToken)) {
                 return;
             }
             // Recording confirmed to begin → keep engine selection locked until durable save/retry/discard,
@@ -1795,6 +2390,102 @@ export class SpeechRuntimeController {
 
         const previousState = this.state;
         this.state = newState;
+
+        // INTEGRATION NOTE (#1259 onto #1419): both blocks below run on the same transition and do
+        // not overlap. The first OBSERVES the state change; the second decides which ATTEMPT the
+        // change belongs to. Neither can be dropped for the other — telemetry without the scoping
+        // would report attempts that the runtime no longer honours, and the scoping without
+        // telemetry is the blind state this work exists to end.
+        // #1259 F01/F16 — THE TRANSITION IS THE EVENT. Emitted here, at the one place the state
+        // actually changes, so no caller can report a state the machine did not reach. A transition to
+        // the SAME state is not reported: repeated identical state is the polling noise this replaces.
+        if (previousState !== newState) {
+            try {
+                if (newState === 'READY') {
+                    // How long acquisition took, as its OWN stage. `private_setup_succeeded` already
+                    // carries a setup duration, but only for the Private path; this covers the state
+                    // machine's own view and survives an engine that reports nothing.
+                    if (previousState === 'ENGINE_INITIALIZING' || previousState === 'DOWNLOAD_REQUIRED') {
+                        const acquisition = msSinceIntent();
+                        if (acquisition !== null) emitStageLatency('model_acquisition', acquisition);
+                    }
+                    // Dates the user's wait. Production shows 113s and 126s between this moment and the
+                    // start event; without the mark, that wait cannot be attached to the click.
+                    markRuntimeReady();
+                    // #1259 F15 — and dates the NEXT acquisition, so a re-init one second after
+                    // readiness is distinguishable from an idle reclamation minutes later.
+                    noteEngineReady();
+                } else if (newState === 'TERMINATED' || newState === 'IDLE') {
+                    // A torn-down engine's readiness must not date the NEXT intent as though the user
+                    // had been waiting since before the teardown.
+                    clearRuntimeReady();
+                    endRecordingAttempt();
+                    // The reason the engine went away, carried into whatever initialises next.
+                    noteEngineTeardown(error?.name ?? newState);
+                    // #1259 F05 — the PO watched a finalized transcript vanish. Whatever the authority
+                    // holds AFTER teardown is the fact that distinguishes "purged" from "still there but
+                    // not rendered", and the two have completely different fixes.
+                    const store = useSessionStore.getState();
+                    emitTranscriptAuthority({
+                        stage: 'teardown',
+                        authoritative: store.transcript.transcript,
+                        persisted: store.sessionSaved,
+                        sessionIdPresent: Boolean(store.finalizedAnalysis?.sessionId),
+                        teardownState: newState,
+                    });
+                } else if (newState === 'RECORDING') {
+                    // ENSURE, not begin. The accepted Start intent already opened this attempt so that it
+                    // could carry the id it initiated; minting a second one here would give the recording a
+                    // different id from the intent that caused it, which is the join this exists to make.
+                    ensureRecordingAttempt();
+                    // #1421 Option A — BIND THIS TAKE TO ITS ATTEMPT. Only a take that records can be stopped,
+                    // and an attempt is guaranteed open here, so every stoppable take has a subject. Every
+                    // later verdict for it, including a Retry Save that settles while another take is
+                    // current, names this snapshot rather than whatever attempt is current then.
+                    this.currentRecordingSubject = captureRecordingSubject();
+                    // #1259 F04 — churn is measured PER TAKE. Resetting here rather than inside the
+                    // identity module keeps the dependency one-way: the store's transcript setter
+                    // already reaches the telemetry layer, and importing it back would close a cycle
+                    // through the envelope.
+                    resetTranscriptStability();
+                    // A new take starts a new chain; without this the second take would measure from
+                    // the first take's Stop.
+                    resetCompletionChain();
+                    // The two halves of the wait, kept apart. `ready_to_intent` is how long the user sat
+                    // looking at a ready control; `intent_to_recording` is how long the click took to
+                    // become a recording. One total cannot tell those apart, and they have different fixes.
+                    const readyWait = msSinceReady();
+                    if (readyWait !== null) emitStageLatency('ready_to_intent', readyWait);
+                    const startWait = msSinceIntent();
+                    if (startWait !== null) emitStageLatency('intent_to_recording', startWait);
+                } else if (newState === 'STOPPING' && previousState === 'RECORDING') {
+                    const stopWait = msSinceIntent();
+                    /*
+                     * INTENT TIMING STAYS HERE. The user's Stop is what anchors the post-Stop chain, and
+                     * `RECORDING -> STOPPING` is exactly when the runtime accepted it. This measurement is
+                     * about the intent, not about teardown, so it is unaffected by the correction below.
+                     */
+                    if (stopWait !== null) emitStageLatency('recording_to_stop_intent', stopWait);
+                    /*
+                     * #1421 P1 — `recording_terminated` IS NOT MARKED HERE ANY MORE.
+                     *
+                     * This branch is the PRELIMINARY state transition: the controller enters `STOPPING`
+                     * and only afterwards calls and awaits `service.stopTranscription()`. Marking
+                     * termination here claimed "recording has actually stopped" at the moment the stop
+                     * was merely accepted, so every Stop-to-termination interval was short by the entire
+                     * real teardown — which is the part that feels unresponsive and the whole reason F16
+                     * measures it.
+                     *
+                     * The mark now happens where teardown truth is known: after the awaited
+                     * `stopTranscription()` resolves. A finalization timeout throws instead, and that is
+                     * the correct outcome — recording did not cleanly terminate, so nothing is claimed.
+                     */
+                }
+                emitRecordingState(previousState, newState, error?.name ?? null);
+            } catch {
+                /* telemetry must never affect the state machine */
+            }
+        }
 
         // #1415 — READY AFTER PREPARATION RESUMES THE CLICK.
         //
@@ -1872,6 +2563,10 @@ export class SpeechRuntimeController {
         // lock lifts on its own. No separate unlock path can now drift from the lock path, because
         // there is only one expression.
         this.engineSelectionIntentLocked = pendingRecordingIntent() !== null;
+        // `syncProvider` runs before the post-transition attempt ownership above is reconciled. Republish
+        // the settled predicate so a pre-recording failure cannot leave the UI locked merely because the
+        // synchronous Start bridge was still true during the earlier projection.
+        this.publishLockState();
 
         logger.info({ from: previousState, to: newState }, '[SpeechRuntimeController] ⚡ Transition');
         const store = useSessionStore.getState();
@@ -1906,10 +2601,31 @@ export class SpeechRuntimeController {
 
         this.lock.updateState(newState);
 
-        // #1314 C6: clear the "Finalizing…" banner through this ONE transition reducer whenever the
-        // controller reaches a resting/terminal state, so no stop path can leave `isTranscriptFinalizing`
-        // latched true after the controller is READY (the stale-banner "stuck session" defect). The
-        // 4-minute finalization safety timeout is unchanged.
+        /**
+         * #1314 C6's legacy clear, NOW OWNER-SCOPED. #1431 P1.
+         *
+         * C6 exists because no stop path may leave `isTranscriptFinalizing` latched true after the
+         * controller rests — the stale-banner "stuck session" defect. It achieved that by clearing
+         * UNCONDITIONALLY here, with no owner check at all, and that unconditional clear is itself a
+         * defect once a latch has an owner.
+         *
+         * `isTranscriptFinalizing` is the authoritative start guard in `useSessionLifecycle`: while it
+         * is true the record control is disabled. Any unscoped terminal transition reaching this line
+         * while an owning stop is still persisting switched off that guard and admitted the next
+         * recording, which then discarded the owner's frozen transcript. Two separate producers of an
+         * unscoped `transition('FAILED')` have now been found — a late heartbeat failure and a
+         * producer-integrity teardown — and each was closed at its own call site while this line went on
+         * accepting the next one. It is the single point they all pass through, so the rule belongs here.
+         *
+         * WHAT IS PRESERVED: with NO finalizing owner, behaviour is exactly C6's — the latch is cleared
+         * and ordinary no-owner failure recovery is untouched. That is the case C6 was written for.
+         *
+         * WHAT CHANGES: while an owner EXISTS, release belongs solely to `releaseFinalizingIfOwner()`,
+         * which every stop path already calls with its captured `StopAuthority` — lifecycle version,
+         * service generation and service identity, all strict. A transition arriving here carries no
+         * such authority and cannot prove it is the owner, so it does not get to release one. The
+         * 4-minute finalization safety timeout remains the backstop, unchanged.
+         */
         if (
             newState === 'READY' ||
             newState === 'IDLE' ||
@@ -1917,7 +2633,17 @@ export class SpeechRuntimeController {
             newState === 'FAILED' ||
             newState === 'FAILED_VISIBLE'
         ) {
-            if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
+            if (this.finalizingOwner === null) {
+                if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
+                this.finalizingOwnerVersion = null;
+            } else {
+                // The owner is still persisting. Leaving the latch armed keeps the record control
+                // disabled, which is what stops a successor from clearing the owner's frozen transcript.
+                pushNativeRuntimeTrace('controller_terminal_latch_release_deferred_to_owner', {
+                    newState,
+                    armedByVersion: this.finalizingOwnerVersion,
+                });
+            }
         }
 
         if (isExitTransition) {
@@ -2025,6 +2751,60 @@ export class SpeechRuntimeController {
         return this.isEngineReady && this.isEmissionsSafe;
     }
 
+    /**
+     * #1431 — may THIS caller publish the controller's RECORDING state?
+     *
+     * Two legitimate authorities, one for each side of the intent handoff, and nothing else:
+     *
+     *   BEFORE the claim — the token is the current pending intent. No attempt has been accepted yet, so
+     *   the pending intent is the only thing that separates this click from a successor's.
+     *
+     *   AFTER the claim — the token is the accepted owner of the CURRENT attempt, and every other term
+     *   of that attempt still holds: same lifecycle, same recording, same service generation, and the
+     *   service itself confirming RECORDING. A superseded attempt fails at least one of these, so it
+     *   cannot transition, resolve, or start anything belonging to its successor.
+     *
+     * The service-state term is what makes a false success impossible: a `startTranscription` that
+     * returns without the service entering RECORDING cannot publish a recording that is not happening.
+     */
+    private mayPublishRecording(intentToken?: string): boolean {
+        if (!intentToken) return false;
+        if (!this.canTransitionToRecording()) return false;
+
+        /**
+         * THE SERVICE MUST CONFIRM, ON EVERY ROUTE INTO THIS DECISION.
+         *
+         * `checkRecordingInvariant` is reachable from `handleReady()` as well as from the start path, and
+         * on a warm take `isEngineReady` and `isEmissionsSafe` are still true from the previous
+         * recording. Gating only the start-path call therefore established nothing: a callback could
+         * still publish RECORDING, resolve the Start intent and open the store session while the
+         * controller was merely INITIATING, and a later start failure cannot retract a success already
+         * reported. Publishing RECORDING is a claim about the SERVICE, so the service is asked here —
+         * once, for both authorities below.
+         */
+        const confirmsRecording = (candidate: TranscriptionService | null): boolean => {
+            if (!candidate) return false;
+            const state = typeof candidate.getState === 'function'
+                ? candidate.getState()
+                : (candidate.fsm?.is('RECORDING') ? 'RECORDING' : 'UNKNOWN');
+            return state === 'RECORDING';
+        };
+
+        // Before the claim: the pending intent is the only thing separating this click from a
+        // successor's — but it still may not speak for a service that is not recording.
+        if (isCurrentIntent(intentToken)) return confirmsRecording(this.service);
+
+        // After the claim: the accepted attempt tuple, in full.
+        const accepted = this.acceptedAttempt;
+        if (!accepted) return false;
+        if (accepted.intentToken !== intentToken) return false;
+        if (accepted.lifecycleVersion !== this.lifecycleVersion) return false;
+        if (accepted.recordingId !== this.currentRecordingId) return false;
+        if (accepted.serviceGeneration !== this.serviceGeneration) return false;
+        if (accepted.service !== this.service) return false;
+        return confirmsRecording(accepted.service);
+    }
+
     public confirmSubscriberHandshake(): void {
         const readiness = useReadinessStore.getState();
         this.isSubscriberReady = true;
@@ -2047,9 +2827,12 @@ export class SpeechRuntimeController {
         void this.checkRecordingInvariant();
     }
 
-    private async checkRecordingInvariant() {
+    private async checkRecordingInvariant(
+        token?: LifecycleToken,
+        intentToken: string | undefined = pendingRecordingIntent()?.token,
+    ) {
         if (this.canTransitionToRecording() && (this.state === 'INITIATING' || this.state === 'ENGINE_INITIALIZING')) {
-            await this.transition('RECORDING');
+            await this.transition('RECORDING', undefined, token, intentToken);
         }
     }
 
@@ -2083,7 +2866,11 @@ export class SpeechRuntimeController {
         }
     }
 
-    private handleError(error: Error): void {
+    private handleError(error: Error, sourceGeneration: number = this.serviceGeneration): void {
+        // #1431 — callbacks outlive services. Ignore a queued error from a destroyed/replaced service
+        // before it can overwrite the replacement generation's status or lifecycle state.
+        if (sourceGeneration !== this.serviceGeneration) return;
+
         const store = useSessionStore.getState();
         const rawMessage = error.message || '';
         const isMicPermissionError = /permission|not-allowed|service-not-allowed|microphone|mic/i.test(rawMessage);
@@ -2104,15 +2891,46 @@ export class SpeechRuntimeController {
         });
     }
 
-    private handleReady() {
+    /**
+     * #1431 P2 — a LATE `onReady` must not arm a watchdog for a take that is finishing or gone.
+     *
+     * The stop captures the watchdog version it owns at stop entry and clears exactly that one. That
+     * is correct only while the captured version stays the newest thing A can produce — and it did
+     * not: A's engine can emit `onReady` during STOPPING, arming a NEW watchdog with a NEW version
+     * after the capture. The scoped clear then misses it, so A's watchdog outlives A and can fire
+     * recovery against whatever take is current.
+     *
+     * Readiness is therefore bound to the accepted take: no arming while STOPPING, and none from a
+     * service or generation that is no longer current. `setEngineReady` still runs, because engine
+     * readiness is a fact about the engine and the successor's start path reads it.
+     *
+     * WHICH CHECK DOES THE WORK: the STOPPING one. A stale GENERATION is already refused upstream by
+     * the generation-bound callback wrapper, so `onReady` from a detached service never arrives here
+     * at all — but during A's OWN stop A's generation is still current (it bumps at detach, in the
+     * terminal), so the wrapper passes it through and only the state check stops the rearm. The
+     * generation/service terms are kept for the direct callers, and because a wrapper that stops
+     * refusing should not silently re-open this.
+     */
+    private handleReady(sourceGeneration: number = this.serviceGeneration, sourceService: TranscriptionService | null = this.service) {
         this.setEngineReady(true);
-        if (this.service) {
+        const stale = sourceGeneration !== this.serviceGeneration
+            || (sourceService !== null && this.service !== null && sourceService !== this.service);
+        const finishing = this.state === 'STOPPING' || this.state === 'TERMINATED';
+        if (this.service && !stale && !finishing) {
             this.startWatchdog(this.service);
+        } else if (stale || finishing) {
+            pushNativeRuntimeTrace('controller_ready_watchdog_refused', {
+                sourceGeneration,
+                liveGeneration: this.serviceGeneration,
+                state: this.state,
+            });
         }
         void this.checkRecordingInvariant();
     }
 
     private pendingModelProgress: number | null = null;
+    /** Which service generation last wrote `pendingModelProgress`. The slot is shared; the value is not. */
+    private pendingModelProgressGeneration: number | null = null;
     private modelProgressFlushScheduled = false;
 
     // Coalesce model-load PROGRESS events. A large base.en download — amplified by multiple
@@ -2123,11 +2941,53 @@ export class SpeechRuntimeController {
     // (SELFHOST-MODELS-MAXDEPTH — fixes the progress-flood render storm.)
     private handleModelLoadProgress(progress: number | null) {
         this.pendingModelProgress = progress;
+        this.pendingModelProgressGeneration = this.serviceGeneration;
         if (this.modelProgressFlushScheduled) return;
         this.modelProgressFlushScheduled = true;
 
+        /**
+         * #1431 P2 — the generation wrapper ends when the callback returns, and this flush runs a
+         * frame LATER. A's queued progress could therefore land after B was accepted, writing A's
+         * download percentage into B's store and calling B's subscriber with it — the user watching a
+         * fresh take see a stale bar move.
+         *
+         * Captured at SCHEDULE time and rechecked inside the flush, because that is the only pair of
+         * points where the difference is observable.
+         */
+        const scheduledGeneration = this.serviceGeneration;
+        const scheduledService = this.service;
+
         const flush = () => {
             this.modelProgressFlushScheduled = false;
+            if (scheduledGeneration !== this.serviceGeneration
+                || (scheduledService !== null && this.service !== null && scheduledService !== this.service)) {
+                pushNativeRuntimeTrace('controller_model_progress_flush_refused', {
+                    scheduledGeneration,
+                    liveGeneration: this.serviceGeneration,
+                });
+                /**
+                 * REFUSING IS NOT ENOUGH, AND NEITHER IS BLINDLY RE-SCHEDULING.
+                 *
+                 * `pendingModelProgress` and the scheduled flag are shared; the VALUE in the slot is
+                 * not. Two different things can be true when a stale flush arrives:
+                 *
+                 *   - the slot still holds A's percentage. Re-scheduling would publish A's number
+                 *     into B's store a frame later — the same leak, one hop removed. Discard it.
+                 *   - B has since written its own percentage into the slot, and was refused a flush of
+                 *     its own because one was already scheduled. Returning here would clear the flag
+                 *     and throw away the only flush B was going to get, so B's download bar stops
+                 *     moving. Re-schedule that one.
+                 *
+                 * The generation that wrote the slot is what tells them apart.
+                 */
+                if (this.pendingModelProgressGeneration === this.serviceGeneration) {
+                    this.scheduleModelProgressFlush();
+                } else {
+                    this.pendingModelProgress = null;
+                    this.pendingModelProgressGeneration = null;
+                }
+                return;
+            }
             const value = this.pendingModelProgress;
             useSessionStore.getState().setModelLoadingProgress(value);
             this.subscriberCallbacks.onModelLoadProgress?.(value);
@@ -2138,6 +2998,13 @@ export class SpeechRuntimeController {
         } else {
             setTimeout(flush, 0);
         }
+    }
+
+    /** Re-arms a coalesced flush for the CURRENT owner's own pending value after a stale one was refused. */
+    private scheduleModelProgressFlush(): void {
+        const pending = this.pendingModelProgress;
+        this.modelProgressFlushScheduled = false;
+        this.handleModelLoadProgress(pending);
     }
 
     private isModeAllowedByCurrentPolicy(mode: TranscriptionMode | null): boolean {
@@ -2157,7 +3024,24 @@ export class SpeechRuntimeController {
      *     with `attribution_status = 'unverified'`;
      *  4. surface an actionable error — never keep claiming the latched engine is still producing.
      */
+    /**
+     * #1431 — THE TEARDOWN IS ASYNCHRONOUS, SO ITS OWNERSHIP MUST BE RECHECKED.
+     *
+     * The callback that reaches here is generation-bound at entry, which only establishes that A was
+     * current when it was CALLED. `stopTranscription()` below is a real suspension point, and a reset can
+     * replace A while it is pending — after which the remaining lines mark `recordingStartedUnresolved`,
+     * arm recovery, and perform an UNSCOPED transition to FAILED. All three would land on successor B:
+     * B's take marked unresolved and failed because A's engine changed identity.
+     *
+     * The generation and lifecycle are captured at entry and asked again after the await. Everything
+     * before the await is A's own bookkeeping and its own status message, which is correct to run
+     * regardless — it is the shared mutations afterwards that must belong to us.
+     */
     private async failProducerIntegrity(reportedMode: TranscriptionMode | null): Promise<void> {
+        const generation = this.serviceGeneration;
+        const lifecycle = this.lifecycleVersion;
+        const stillOurs = () => this.serviceGeneration === generation && this.lifecycleVersion === lifecycle;
+
         this.producerIntegrityCompromised = true;
         pushNativeRuntimeTrace('controller_producer_integrity_failure', {
             latched: this.recordingEngineMode,
@@ -2174,6 +3058,13 @@ export class SpeechRuntimeController {
             await this.service?.stopTranscription?.();
         } catch (e) {
             logger.warn({ e }, '[controller] producer-integrity stop failed (continuing to arm recovery) (#1033 2)');
+        }
+        // A successor took over while the stop was pending: the recording this teardown belongs to is no
+        // longer the one on screen. Marking unresolved, arming recovery or transitioning FAILED now would
+        // apply A's failure to B's take.
+        if (!stillOurs()) {
+            pushNativeRuntimeTrace('controller_producer_integrity_superseded', { reported: reportedMode ?? null });
+            return;
         }
         // The recording BEGAN, so it stays unresolved/locked; arm the actionable recovery for its transcript.
         this.recordingStartedUnresolved = true;
@@ -2293,8 +3184,39 @@ export class SpeechRuntimeController {
         this.producerIntegrityTeardown = null;
         this.resetTranscriptLifecycle();
         store.updateTranscript('', '');
-        store.freezeTranscriptAtStop(null);
-        store.setTranscriptFinalizing(false);
+        /**
+         * #1431 P1 — THE THIRD WRITER. A NEW RECORDING MAY NOT REAP A LIVE OWNER'S STATE.
+         *
+         * `isTranscriptFinalizing` has three writers of `false`: `releaseFinalizingIfOwner()`, the
+         * terminal reducer branch, and this one. Owner-scoping the first two left this one clearing
+         * BOTH the latch and the frozen transcript unconditionally, with no owner check — so the claim
+         * in those two comments, that release belongs solely to `releaseFinalizingIfOwner()`, was still
+         * untrue. This is the third time on this lane that I closed the door that was named and left
+         * another open.
+         *
+         * The reachable path is not hypothetical and does not need a race with an outside caller:
+         * `transition()` fires `void this.startRecording(...)` on the `resumingFromPreparation` branch
+         * about fifty lines after the reducer above deferred the latch release to its owner, and
+         * `startRecording()` calls this reset before any fence. Only command-queue ordering separated
+         * the deferral from the reap.
+         *
+         * It also left the two halves inconsistent: clearing the latch without clearing
+         * `this.finalizingOwner` leaves an owner recorded for a latch that is already down, and every
+         * later terminal transition then defers to an owner that will never release — the stuck banner,
+         * reintroduced from the other side.
+         *
+         * So while an owner exists, this reset touches neither. The owning stop still holds both, and
+         * `releaseFinalizingIfOwner()` remains the only path that hands them back.
+         */
+        if (this.finalizingOwner === null) {
+            store.freezeTranscriptAtStop(null);
+            store.setTranscriptFinalizing(false);
+        } else {
+            pushNativeRuntimeTrace('controller_new_recording_reset_preserved_owned_finalization', {
+                armedByVersion: this.finalizingOwnerVersion,
+                live: this.lifecycleVersion,
+            });
+        }
         store.updateFillerData({});
         // #1306 Option A: drop the prior take's terminal metric snapshot so it never lingers onto a new session.
         store.setFinalizedWordCount(null);
@@ -2381,6 +3303,13 @@ export class SpeechRuntimeController {
         const store = useSessionStore.getState();
         store.freezeTranscriptAtStop(frozen || null);
         store.setTranscriptFinalizing(true);
+        // The take arming the latch owns it until it is cleared. See `finalizingOwnerVersion`.
+        this.finalizingOwnerVersion = this.lifecycleVersion;
+        this.finalizingOwner = {
+            lifecycleVersion: this.lifecycleVersion,
+            serviceGeneration: this.serviceGeneration,
+            service: this.service,
+        };
         return frozen;
     }
 
@@ -2597,6 +3526,19 @@ export class SpeechRuntimeController {
      * would linger and the selector stay locked after a successful retry/discard (and not appear after
      * a reload rehydration).
      */
+    /**
+     * #1433 P1 `3979053079` — A REFUSED RESUMED START RELEASES THE LOCK ITS CLICK TOOK.
+     *
+     * Start intent publishes the engine-selection lock synchronously, and the intent is claimed when
+     * preparation resumes. A resumed start that is then refused ends the take without another
+     * `transition()`, which is otherwise where the lock is recomputed, so the selector and navigation
+     * stayed locked behind a start that will never happen. Every refusal of a resumed start calls this.
+     */
+    private releaseRefusedStartLock(): void {
+        this.engineSelectionIntentLocked = pendingRecordingIntent() !== null;
+        this.publishLockState();
+    }
+
     private publishLockState(): void {
         useSessionStore.getState().setEngineSelectionLock(this.isEngineSelectionLocked(), this.pendingResolutionKind());
     }
@@ -2732,6 +3674,96 @@ export class SpeechRuntimeController {
          */
         carriedSettlement?: IntentSettlement,
     ): Promise<void> {
+        /**
+         * #1431 P1 — THE CONTROLLER ENTRY FENCE. NO START OVER A LIVE FINALIZATION OWNER.
+         *
+         * `isTranscriptFinalizing` is the start guard in `useSessionLifecycle`, but only ONE of the
+         * five non-test callers of this method goes through that hook. The one that matters is inside
+         * `transition()` itself: the `resumingFromPreparation` branch fires `void this.startRecording(…)`
+         * about fifty lines after the terminal reducer deferred the latch release to its owner. Only
+         * command-queue ordering separated the deferral from the new take.
+         *
+         * Fencing `resetAnalysisStateForNewRecording()` alone was not enough and is not what this
+         * replaces. That would preserve the owner's TEXT while still admitting an overlapping take —
+         * two recordings live against one session, which is the condition the latch exists to prevent.
+         * The refusal has to be here, at the first controller entry boundary.
+         *
+         * BEFORE ANY SHARED MUTATION, deliberately: ahead of the candidate-identity gate below, which
+         * emits governed telemetry and writes `sttStatus`. A refused start must leave no trace on the
+         * owner's session — no telemetry, no reset, no service, no lock, no store write.
+         *
+         * A resumed attempt REJECTS its carried settlement rather than resolving: the original click
+         * did not get a recording, and resolving would report success for a take that never began. A
+         * fresh direct caller throws for the same reason. Neither is the no-op that a double-click on
+         * an already-running recording legitimately is.
+         */
+        /**
+         * KEYED ON THE LIVE LATCH, NOT THE RECORDED OWNER ALONE.
+         *
+         * `finalizingOwner` is cleared in exactly one place — `releaseFinalizingIfOwner()`. A stop that
+         * ends without reaching it therefore leaves the record set forever, and a fence reading only
+         * that record would refuse EVERY subsequent Start for the life of the tab: the record control
+         * disabled with no way back, which is the unrecoverable lockout #1089 exists to prevent. My
+         * first version of this fence did exactly that, and the Progress suites caught it.
+         *
+         * What must be protected is a finalization that is actually in flight, and that is the LATCH.
+         * An owner recorded while the latch is already down is bookkeeping residue, not a live stop —
+         * it is cleared here so the inconsistency cannot accumulate, and the Start proceeds.
+         */
+        const finalizationInFlight = this.finalizingOwner !== null
+            && useSessionStore.getState().isTranscriptFinalizing === true;
+        if (this.finalizingOwner !== null && !finalizationInFlight) {
+            pushNativeRuntimeTrace('controller_start_cleared_stale_finalizing_owner', {
+                armedByVersion: this.finalizingOwnerVersion,
+                live: this.lifecycleVersion,
+            });
+            this.finalizingOwner = null;
+            this.finalizingOwnerVersion = null;
+        }
+        if (finalizationInFlight) {
+            pushNativeRuntimeTrace('controller_start_refused_finalization_owner_live', {
+                resumedFromPreparation,
+                armedByVersion: this.finalizingOwnerVersion,
+                live: this.lifecycleVersion,
+            });
+            const refusal = new StartRefusedFinalizationError();
+            if (resumedFromPreparation) {
+                carriedSettlement?.reject(refusal);
+                this.releaseRefusedStartLock();
+                return;
+            }
+            throw refusal;
+        }
+
+        // #1426 — THE SWITCH'S SUCCESS IS NOT THE TAKE'S AUTHORITY.
+        //
+        // A scored model-comparison take is admitted only after recomputing requested === observed ===
+        // expected here, at the recording authority. This runs before service creation, locks, auth,
+        // attestation, microphone acquisition, or transcription. A mismatch therefore produces an
+        // explicit refusal and a content-free governed signal, never a wrongly labelled recording.
+        if ((policy?.preferredMode ?? 'private') === 'private') {
+            const candidateGate = evaluateRuntimeCandidateTakeGate();
+            if (candidateGate.enabled && !candidateGate.allowed) {
+                emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.ERROR, {
+                    error_code: 'RuntimeCandidateIdentityMismatch',
+                    fallback_reason: candidateGate.refusal,
+                    model_attribution_verified: false,
+                });
+                const message = 'Model comparison identity could not be verified. Switch the model again before recording.';
+                useSessionStore.getState().setSTTStatus({ type: 'error', message });
+                const refusal = new Error(`RUNTIME_CANDIDATE_IDENTITY_MISMATCH:${candidateGate.refusal}`);
+                // #1433 Codex P1 `3990876675` — a RESUMED start is fired unawaited by `transition()`, so a throw here
+                // reaches nobody. Settle the click that is still waiting and release the lock its Start intent
+                // published, exactly as the finalization fence above does.
+                if (resumedFromPreparation) {
+                    carriedSettlement?.reject(refusal);
+                    this.releaseRefusedStartLock();
+                    return;
+                }
+                throw refusal;
+            }
+        }
+
         // #1033: do not start a new recording while a prior recording is unresolved — a pending attribution
         // retry, OR a recording that began and failed post-start without a durable save. Its identity must be
         // resolved (Retry Save) or explicitly discarded first. This bounds the system to AT MOST ONE
@@ -2761,6 +3793,7 @@ export class SpeechRuntimeController {
             // Only a RESUMED start carries someone else's promise; a fresh click's own promise is
             // settled by its normal path below.
             carriedSettlement?.reject(new Error(`RECORDING_START_GATE_CLOSED:${reason}`));
+            this.releaseRefusedStartLock();
             // There is no separate processing guard to release: start attempts are serialised through
             // `enqueue`, which releases on return. I looked for one before writing this, because the
             // directive names releasing it — the guard it refers to is the intent itself, and that is
@@ -2781,6 +3814,10 @@ export class SpeechRuntimeController {
         // #1033: lock engine selection SYNCHRONOUSLY at Start intent — before any async enqueue reaches
         // INITIATING — so a rapid engine change right after Start cannot win the race. Released in transition().
         this.engineSelectionIntentLocked = true;
+        // Publish in the same synchronous turn as the click. Navigation and the engine selector consume
+        // this projection; waiting for the queued INITIATING transition leaves a same-turn window in which
+        // the controller is locked but the UI still believes the take is settled.
+        this.publishLockState();
         // This take has no persisted row yet. Clear the previous take synchronously so a report opened
         // during setup/start cannot inherit stale session correlation.
         clearPrivateRecordingIdentity();
@@ -2790,11 +3827,22 @@ export class SpeechRuntimeController {
         // still-in-flight formatter/metrics callback from the previous session cannot publish or mutate
         // this one, and clear the prior finalized signal so its settled UI (toast/cue/copy) does not linger.
         this.finalizeSequence++;
-        useSessionStore.getState().setFinalizedAnalysis(null);
-        // #1046 slice 5a: a new recording also clears any prior Focus Points coverage rail, so the
-        // settled UI from an earlier objective session never lingers onto this one (mirrors the
-        // finalizedAnalysis clear above; the brief itself is consumed separately at the stop seam).
-        useSessionStore.getState().setObjectiveCoverageResult(null);
+        /**
+         * #1422 — THE PRIOR AFTER-STATE IS NOT CLEARED HERE. NOT ANY OF IT.
+         *
+         * The finalize token is still bumped, because that only fences a still-in-flight formatter or metrics
+         * callback from publishing into this take — it destroys nothing the user can read.
+         *
+         * But `finalizedAnalysis`, `objectiveCoverageResult` and `completedSessionId` are the previous take's
+         * REVIEW: its settled 1+1 coaching, its N/N Focus Points result, and the identity that makes its
+         * transcript addressable. Clearing them at the start BOUNDARY assumed the start would succeed. Every
+         * remaining refusal — the distributed lock, auth, microphone permission, model acquisition, the engine's
+         * own start — happens after this point, so a denied microphone left the user with no take at all.
+         *
+         * Clearing only some of them was worse: keeping the identity while dropping the analysis and coverage
+         * leaves half an after-state on screen. All three now retire TOGETHER, once, at confirmed RECORDING
+         * admission, and only while this start still owns the accepted attempt. See the retirement below.
+         */
         const recordingId = crypto.randomUUID();
         this.currentRecordingId = recordingId;
         // #1415 — THE USER ASKED TO RECORD. Minted here, before any model work, because preparation
@@ -2871,6 +3919,7 @@ export class SpeechRuntimeController {
                 // lock yet). Release the synchronous Start-intent lock so it can't leak. If another recording is
                 // genuinely active it stays locked via RECORDING_LIFECYCLE_STATES; a stale/double Start does not.
                 this.engineSelectionIntentLocked = false;
+                this.publishLockState();
                 return;
             }
 
@@ -2887,18 +3936,19 @@ export class SpeechRuntimeController {
                 retireRecordingIntent('superseded', intent.token);
                 // #1033 item 4: aborting before the INITIATING transition — release the Start-intent lock.
                 this.engineSelectionIntentLocked = false;
+                this.publishLockState();
                 return;
             }
 
             if (this.service?.isServiceDestroyed()) {
                 pushNativeRuntimeTrace('controller_start_service_destroyed_reset');
-                this.service = null;
+                this.detachService(this.service);
             }
 
             if (!this.service) {
                 pushNativeRuntimeTrace('controller_start_create_service');
                 this.service = getTranscriptionService(
-                    createControllerOwnedServiceCallbacks(this.subscriberCallbacks, this.serviceCallbacks as Required<typeof this.serviceCallbacks>),
+                    this.callbacksForNewService(this.subscriberCallbacks),
                     this.lock
                 );
             }
@@ -3039,7 +4089,72 @@ export class SpeechRuntimeController {
                     }
                 }
 
+                /**
+                 * #1431 — THE OWNERSHIP QUESTION, ASKED IDENTICALLY AT EVERY SUSPENSION POINT.
+                 *
+                 * Four conditions, all of which must still hold for this continuation to be allowed to
+                 * touch shared state: our lifecycle token is live, the lifecycle has not been bumped, the
+                 * current recording is still ours, and our intent is still the current one. Written once
+                 * so the later checks cannot drift into asking a weaker question than the first — the
+                 * check after `saveSession` tested only two of the four, which is how A's database id
+                 * could be written into `this.sessionId` while B was recording.
+                 */
+                /**
+                 * AFTER the take is established, ownership is the RECORDING, not the intent.
+                 *
+                 * The intent is consumed the moment it becomes a recording, so `isCurrentIntent` is false
+                 * for every legitimate continuation past that point — including the save. Asking it there
+                 * rejected the take's own `saveSession` result and left `sessionId` null, which the STT
+                 * safeguards suite caught immediately. What still identifies us is the recording id and
+                 * the lifecycle: those are what a hard reset changes.
+                 */
+                const stillOurs = () => !_token.cancelled
+                    && _token.version === this.lifecycleVersion
+                    && this.currentRecordingId === recordingId;
+
+                /**
+                 * BEFORE the take is established, the intent is exactly the right question: nothing else
+                 * yet distinguishes this attempt from a successor click.
+                 */
+                const stillOursBeforeRecording = () => stillOurs() && isCurrentIntent(intent.token);
+
                 await service.startTranscription(policy, userWords);
+                // #1431 — `startTranscription` is a real suspension point. A hard reset can advance
+                // the lifecycle, detach/destroy this service, and establish a successor recording
+                // while this await is unresolved. Reject the obsolete continuation before it binds
+                // shadow state, latches a producer, enables emissions, saves a row, or transitions
+                // the successor. The detached service is owned by the reset that invalidated us.
+                //
+                // AND IT IS NOT THE ONLY SUSPENSION POINT. `stillOurs()` is defined once, above, and
+                // asked again after every later await, because a guard that covers the first await
+                // only moves the race later rather than removing it.
+                if (!stillOursBeforeRecording()) return;
+
+                // #1431 — DRIVE THE INVARIANT WITH THE INTENT THIS START OWNS.
+                //
+                // `transition('RECORDING')` refuses silently when it is handed no intent token, and
+                // `checkRecordingInvariant()` defaults that token to whatever is still PENDING. Those two
+                // defaults meet badly on the second take of a session: the start path has already claimed
+                // its intent, so nothing is pending, and a `ready` arriving after the claim — which is the
+                // ordinary case once the model is warm, i.e. every retry — produces `intentToken:
+                // undefined` and a refusal. The runtime then sits in INITIATING with the user looking at a
+                // button they already pressed.
+                //
+                // The first take hides it: preparation is still running when readiness arrives, so the
+                // intent is genuinely pending and the default happens to be right.
+                //
+                // Passing `intent.token` asks the question this start can actually answer — "is MY intent
+                // still the current one?" — rather than depending on it not yet having been claimed.
+                //
+                // CALLED BELOW, AFTER THE SERVICE HAS CONFIRMED IT IS RECORDING — not here. Placing it
+                // here published RECORDING, resolved the caller's intent and started the session before
+                // the service-state check a few lines down could discover that `startTranscription`
+                // returned through one of its non-recording early exits. On a warm retry `isEngineReady`
+                // and `isEmissionsSafe` are still true from the previous take, so nothing else would have
+                // caught it, and the failure that follows cannot un-resolve an already-resolved caller:
+                // telemetry and UI would report a successful start for a take that never captured audio.
+                // A claim that the recording began must come after the evidence that it did.
+
                 // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
                 // engine filters by the REAL mode (not the requested one), keeping the early events it
                 // captured while provisional. rebindShadowSession re-confirms it at the DB-id step below.
@@ -3072,10 +4187,56 @@ export class SpeechRuntimeController {
                 this.recordingEngineMode = (service.getMode?.() as TranscriptionMode | null | undefined) ?? mode;
                 pushNativeRuntimeTrace('controller_producer_latched', { latchedMode: this.recordingEngineMode });
 
+                // #1431 — THE ATTEMPT IS ACCEPTED HERE, and only here: the service has confirmed RECORDING,
+                // the producer is latched, and this start still owns the lifecycle and the recording. From
+                // this moment the intent is no longer pending but is still the rightful owner, so the
+                // tuple below is what authorises the RECORDING publish. Recorded BEFORE the invariant
+                // runs, because the invariant is what consults it.
+                this.acceptedAttempt = {
+                    intentToken: intent.token,
+                    lifecycleVersion: this.lifecycleVersion,
+                    recordingId,
+                    serviceGeneration: this.serviceGeneration,
+                    service,
+                };
+
+                // NOW the invariant may run: the service has confirmed RECORDING, so publishing the state
+                // is a report of something that happened rather than a prediction. See the note above the
+                // shadow bind for why it cannot run before this point.
+                await this.checkRecordingInvariant(_token, intent.token);
+
                 this.isEmissionsSafe = true;
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
                     await this.transition('READY', undefined, _token);
                     return;
+                }
+
+                /**
+                 * #1422 — THE PREVIOUS TAKE'S AFTER-STATE RETIRES HERE, ATOMICALLY, AND NOT BEFORE.
+                 *
+                 * Two earlier placements were wrong: the START BOUNDARY assumes the start succeeds (lock, auth,
+                 * microphone, acquisition and engine start can all still refuse, which stranded the previous review at
+                 * a permanent "Loading…"), and immediately after the producer latch is before this ownership check, so
+                 * a superseded start returning RECORDING late could clear the SUCCESSOR's identity on its way out.
+                 *
+                 * Here the service has confirmed RECORDING and this start has just proven it still owns the lifecycle
+                 * and the token. `acceptedAttempt` is re-read rather than assumed, so a successor accepted in between
+                 * owns it and this take retires nothing. All three retire TOGETHER: retiring only the identity left A's
+                 * settled analysis and N/N coverage on screen beside a transcript that was no longer addressable.
+                 */
+                const acceptedHere = this.acceptedAttempt;
+                if (acceptedHere
+                    && acceptedHere.intentToken === intent.token
+                    && acceptedHere.recordingId === recordingId
+                    && acceptedHere.serviceGeneration === this.serviceGeneration) {
+                    const store = useSessionStore.getState();
+                    store.setCompletedSessionId(null);
+                    store.setFinalizedAnalysis(null);
+                    store.setObjectiveCoverageResult(null);
+                } else {
+                    pushNativeRuntimeTrace('controller_prior_after_state_retirement_refused', {
+                        hasAccepted: Boolean(acceptedHere),
+                    });
                 }
 
                 if (service && service.fsm?.is('DOWNLOAD_REQUIRED')) {
@@ -3084,7 +4245,7 @@ export class SpeechRuntimeController {
                     // would resume the intent against a model that is still absent; going through
                     // DOWNLOAD_REQUIRED drives the download first, exactly as a click should.
                     this.setEngineReady(false);
-                    this.service = null;
+                    this.detachService(service);
                     if (isCurrentIntent(intent.token) && !intent.resumed) {
                         await this.transition('DOWNLOAD_REQUIRED', undefined, _token);
                         void Promise.resolve()
@@ -3104,7 +4265,7 @@ export class SpeechRuntimeController {
                 this.isEmissionsSafe = true;
                 // (Owner + initial-save recovery context were established BEFORE startTranscription — #1033 (1).)
                 pushNativeRuntimeTrace('controller_recording_invariant_start');
-                await this.checkRecordingInvariant();
+                await this.checkRecordingInvariant(_token, intent.token);
                 pushNativeRuntimeTrace('controller_recording_invariant_done');
 
                 if (userId) {
@@ -3130,10 +4291,24 @@ export class SpeechRuntimeController {
                     const saveResult = await saveSession(
                         { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode },
                         { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
-                    pushNativeRuntimeTrace('controller_placeholder_save_done', {
-                        hasDbSession: Boolean(saveResult?.session), usageExceeded: Boolean(saveResult?.usageExceeded),
-                    });
-                    const dbSession = saveResult?.session;
+                    pushNativeRuntimeTrace('controller_placeholder_save_done', { status: saveResult.status });
+                    if (saveResult.status === 'usage_exceeded') {
+                        throw new Error(`Usage limit exceeded${saveResult.error ? `: ${saveResult.error}` : ''}`);
+                    }
+                    if (saveResult.status === 'failed') throw new Error('Session save failed');
+                    const dbSession = saveResult.session;
+
+                    // `saveSession` is the second real suspension point, and the mutations below are the
+                    // damaging ones: writing our database id into `this.sessionId`, marking the store
+                    // persisted, and rebinding shadow state. A hard reset during this await can start B,
+                    // and A resolving afterwards would attribute A's row to B's recording — a saved
+                    // session belonging to the wrong take, which is exactly the corruption this branch
+                    // exists to prevent. The row itself is already written and is not lost; it is simply
+                    // no longer ours to bind.
+                    if (!stillOurs()) {
+                        pushNativeRuntimeTrace('controller_save_superseded', { recordingId });
+                        return;
+                    }
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
@@ -3152,6 +4327,12 @@ export class SpeechRuntimeController {
                                 logger.warn({ e, sessionId: dbSession.id }, '[controller] attribution intent bind threw — session will be unattributed');
                             }
                         }
+                        // The bind above is awaited too, so ownership is asked once more before the
+                        // shadow rebind — the last shared mutation on this path.
+                        if (!stillOurs()) {
+                            pushNativeRuntimeTrace('controller_bind_superseded', { recordingId });
+                            return;
+                        }
                         // #1033 (1): the row now EXISTS — the pre-session initial-save window is closed.
                         this.pendingInitialSaveContext = null;
                         // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-running
@@ -3159,13 +4340,13 @@ export class SpeechRuntimeController {
                         this.rebindShadowSession(this.sessionId, negMode);
                     }
 
-                    if (_token.cancelled || _token.version !== this.lifecycleVersion) {
-                        await this.transition('READY', undefined, _token);
+                    if (!stillOurs()) {
+                        // Only transition when the LIFECYCLE is still ours; if a successor owns it,
+                        // moving it to READY would settle B's recording from A's continuation.
+                        if (!_token.cancelled && _token.version === this.lifecycleVersion) {
+                            await this.transition('READY', undefined, _token);
+                        }
                         return;
-                    }
-
-                    if (saveResult?.usageExceeded) {
-                        throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
                     }
 
                     const currentState = this.getState();
@@ -3200,7 +4381,7 @@ export class SpeechRuntimeController {
                     // user is back in FAILED_VISIBLE having gained nothing. This mirrors what the
                     // existing DOWNLOAD_REQUIRED branch on the success path already does.
                     this.setEngineReady(false);
-                    this.service = null;
+                    this.detachService(service);
                     await this.transition('DOWNLOAD_REQUIRED', undefined, _token);
                     // Drive the preparation the user's click implicitly asked for. Failure to even
                     // begin it retires the intent, so a click can never wait forever on nothing.
@@ -3307,8 +4488,7 @@ export class SpeechRuntimeController {
 
         // 4. Detach the service. DESTRUCTION IS THE CALLER'S CHOICE: `reset()` keeps the historical
         //    fire-and-forget behaviour, `hardResetAwaited()` waits for it.
-        const svc = this.service;
-        this.service = null;
+        const svc = this.detachService();
         if (svc) {
             this.stopWatchdog();
             this.stopHeartbeat();
@@ -3418,19 +4598,40 @@ export class SpeechRuntimeController {
                 preview: frozenAtStop.slice(0, 80),
             });
             const wasRecording = this.state === 'RECORDING';
+            /**
+             * #1431 — CAPTURED HERE, AT THE START OF THE STOP, and not at the terminal.
+             *
+             * This records the watchdog THIS take armed. Capturing it at terminal entry instead was wrong
+             * and its own casualty caught it: by then a successor may already have armed its own, so the
+             * "scoped" stop would have disarmed exactly the watchdog it was meant to protect. The value
+             * has to be taken before any suspension the successor could arrive during.
+             */
+            const ownedWatchdogVersion = this.watchdogVersion;
+            /**
+             * #1431 P1 — captured at the SAME point, and for the same reason: everything below this
+             * line contains suspensions a successor can arrive during. `stopAuthority` is what makes
+             * "may this stop still publish?" answerable after each one, instead of a warn-and-continue.
+             */
+            const stopAuthority = this.captureStopAuthority(token.version, this.service, this.sessionId);
+            /**
+             * #1431 P1 — set ONLY when the rightful owner performs its own terminal lifecycle advance.
+             *
+             * From that point `stopAuthority`/`token` are stale by design and would classify the owner
+             * as superseded. Null until then, so the pre-advance paths keep using the authority that is
+             * still correct for them.
+             */
+            let terminalTuple: { lifecycleVersion: number; serviceGeneration: number; service: TranscriptionService } | null = null;
             // #1089: this sits OUTSIDE the try below, and setTranscriptFinalizing(true) has already run.
             // A throw here would leave finalization latched true forever — and finalization now disables
             // the record control, so that is an unrecoverable lockout rather than a cosmetic flag leak.
             try {
                 await this.transition('STOPPING', undefined, token);
             } catch (transitionError) {
-                useSessionStore.getState().setTranscriptFinalizing(false);
-                useSessionStore.getState().freezeTranscriptAtStop(null);
+                this.releaseFinalizingIfOwner('stopping_transition_failed', stopAuthority.lifecycleVersion, stopAuthority);
                 throw transitionError;
             }
             if (token.cancelled || token.version !== this.lifecycleVersion) {
-                useSessionStore.getState().setTranscriptFinalizing(false);
-                useSessionStore.getState().freezeTranscriptAtStop(null);
+                this.releaseFinalizingIfOwner('superseded_before_stop', stopAuthority.lifecycleVersion, stopAuthority);
                 return null;
             }
             try {
@@ -3440,8 +4641,7 @@ export class SpeechRuntimeController {
                 let sessionCompleted = false;
                 if (!service) {
                     await this.transition('READY', undefined, token);
-                    useSessionStore.getState().setTranscriptFinalizing(false);
-                    useSessionStore.getState().freezeTranscriptAtStop(null);
+                    this.releaseFinalizingIfOwner('no_service', stopAuthority.lifecycleVersion, stopAuthority);
                     return null;
                 }
 
@@ -3451,6 +4651,10 @@ export class SpeechRuntimeController {
                 // successful completion so the post-READY persistence write can carry
                 // the exact session id + mode for proofs (data-session-persisted-id).
                 let persistedSessionMarker: { sessionId: string; mode: string | null } | null = null;
+                // A completed Focus Points brief is retired only after the controller publishes the
+                // clean READY settlement. Keeping this local to the stop prevents a later attempt or
+                // retry from consuming another recording's brief.
+                let completedProgressContext: ProgressCompletionContext | null = null;
                 logger.info({ wasRecording, state: this.state, sessionId: this.sessionId }, '[DEBUG-STOP] state-check');
                 if (wasRecording) {
                     let sessionId = this.sessionId;
@@ -3480,6 +4684,9 @@ export class SpeechRuntimeController {
                     // #1161: derive the server attestation evidence NOW (before stopTranscription destroys engine
                     // metadata). null ⇒ no trusted local identity (unverified/Cloud) ⇒ no authority is produced.
                     const attestationEvidence = SpeechRuntimeController.evidenceFromIdentity(finalizingIdentity);
+                    // #1421 Option A: fixed alongside the evidence, so every path this take's verdict can
+                    // settle on (first try, either retry, reload) names the same take.
+                    const takeSubject = this.currentRecordingSubject;
                     // #1089 BOUNDED FINALIZATION. stopTranscription() runs the whole-utterance decode and
                     // has no internal ceiling; the watchdog was stopped just above. Because Finalizing…
                     // now disables the record control, a hang here means the user cannot start, stop or
@@ -3500,6 +4707,16 @@ export class SpeechRuntimeController {
                     } finally {
                         if (finalizeTimer !== undefined) clearTimeout(finalizeTimer);
                     }
+                    /*
+                     * #1421 P1 — TEARDOWN TRUTH IS KNOWN HERE, AND ONLY HERE.
+                     *
+                     * Reached only when the race resolved: the service stopped and returned its final
+                     * result. A `FinalizationTimeoutError` throws out of the try above into the existing
+                     * catch, so a hung teardown records no termination rather than a false one — an
+                     * absent mark is a readable gap, a premature mark is a wrong number nothing
+                     * downstream can detect.
+                     */
+                    markCompletionStage('recording_terminated');
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
                         sessionId,
@@ -3521,25 +4738,34 @@ export class SpeechRuntimeController {
                     this.logShadowParity();
                     this.disposeShadowMetricsEngine();
 
-                    if (token.cancelled) {
+                    /**
+                     * #1431 P1 — THE FENCE. `stopTranscription()` is the longest suspension in the
+                     * whole path, so this is where a successor most often arrives.
+                     *
+                     * This used to warn and continue, which read as deliberate but meant a stale take
+                     * went on to write the successor's session id, saved marker, finalized analysis and
+                     * runtime state. Continuing its OWN persistence is right — the row it started must
+                     * not be left half-written — but every SHARED publication below is now fenced by
+                     * `publishIfStopOwner`, re-evaluated after each further suspension rather than
+                     * decided once here.
+                     */
+                    if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
                         logger.warn({
                             mode: service.getMode?.() ?? stopEntryMode,
                             sessionId,
-                        resultSuccess: result?.success ?? null,
-                        resultTranscriptLength: result?.transcript?.length ?? 0,
-                        storeTranscriptLength: this.getStoreTranscriptLength(),
-                    }, '[DEBUG-STOP] Stop token was cancelled after stop result; continuing finalization for captured session');
-                    }
-                    if (token.version !== this.lifecycleVersion) {
-                        logger.warn({
-                            mode: service.getMode?.() ?? stopEntryMode,
-                            sessionId,
+                            tokenCancelled: token.cancelled,
                             tokenVersion: token.version,
                             lifecycleVersion: this.lifecycleVersion,
+                            capturedGeneration: stopAuthority.serviceGeneration,
+                            liveGeneration: this.serviceGeneration,
                             resultSuccess: result?.success ?? null,
                             resultTranscriptLength: result?.transcript?.length ?? 0,
                             storeTranscriptLength: this.getStoreTranscriptLength(),
-                        }, '[DEBUG-STOP] Lifecycle version changed after stop result; continuing session finalization for captured session');
+                        }, '[DEBUG-STOP] SUPERSEDED after stop result — finishing own persistence only, publishing nothing shared');
+                        pushNativeRuntimeTrace('controller_stop_superseded_after_result', {
+                            capturedLifecycle: stopAuthority.lifecycleVersion,
+                            liveLifecycle: this.lifecycleVersion,
+                        });
                     }
 
                     if (result && !sessionId) {
@@ -3575,17 +4801,18 @@ export class SpeechRuntimeController {
                                 metadata
                             );
 
-                            if (saveResult?.session?.id) {
-                                sessionId = saveResult.session.id;
+                            if (saveResult.status === 'usage_exceeded') {
+                                throw new Error(`Usage limit exceeded${saveResult.error ? `: ${saveResult.error}` : ''}`);
+                            }
+                            if (saveResult.status === 'failed') throw new Error('Session save failed');
+                            sessionId = saveResult.session.id;
+                            // A's late session-create must not become B's controller session.
+                            this.publishIfStopOwner(stopAuthority, token, 'late_session_id', () => {
                                 this.sessionId = sessionId;
                                 this.applyPrivateTelemetryContext();
-                                service.setSessionId?.(sessionId);
-                                logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
-                            }
-
-                            if (saveResult?.usageExceeded) {
-                                throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
-                            }
+                            });
+                            service.setSessionId?.(sessionId);
+                            logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
                         }
                     }
 
@@ -3637,6 +4864,40 @@ export class SpeechRuntimeController {
                         // (snapshotted at stop-entry) vs the RECOUNT over the SAVE-SELECTED finalTranscript —
                         // the exact transcript + duration the save/scoring path uses — and CACHE it so the
                         // report survives shadow-engine disposal. Numbers only; no transcript text; no cutover.
+                        // #1259 F13 — emitted OUTSIDE the shadow-metrics flag on purpose. The
+                        // divergence block below is gated behind `isShadowMetricsEngineEnabled()`, so in
+                        // Production it may not run at all — and a measurement that exists only when a
+                        // diagnostic flag is on is unavailable exactly when it is needed. This carries
+                        // the detector's INPUT, which is the half Production has never had: it already
+                        // reports `filler_count: 0`, and cannot say whether the transcript could have
+                        // evidenced a filler at all.
+                        try {
+                            const recount = countFillerWords(finalTranscript, this.userWords);
+                            const recountTotal = Object.values(recount ?? {})
+                                .reduce((n, v) => n + (typeof v?.count === 'number' ? v.count : 0), 0);
+                            emitFillerMeasurement({
+                                candidateId: resolvedEngine()?.candidateId ?? null,
+                                /*
+                                 * #1421 P1 — `pending`, ALWAYS, FROM HERE.
+                                 *
+                                 * This runs inside `stopRecording()` before the first
+                                 * `completeSession()` and well before `attestSessionEngine()`, so the
+                                 * candidate above is the one the engine resolved, not one persistence
+                                 * has confirmed. A take whose completion or attribution later fails has
+                                 * already published this row; `pending` is what stops that row being
+                                 * read as confirmed attribution.
+                                 */
+                                attributionState: 'pending',
+                                detectorInputWords: countWords(finalTranscript),
+                                detectorInputFillers: recountTotal,
+                                reportedFillers: getFillerTotal(this.liveFillerDataAtStop) ?? null,
+                                clarityScore: null,
+                                durationSeconds: Math.round(duration),
+                            });
+                        } catch {
+                            /* telemetry must never affect the save path */
+                        }
+
                         if (isShadowMetricsEngineEnabled()) {
                             try {
                                 const fillerReport = measureFillerDivergence({
@@ -3770,8 +5031,10 @@ export class SpeechRuntimeController {
                                 detail: 'Try recording again and speak for at least a few seconds.'
                             };
                             store.setSTTStatus(guardedStopStatus);
-                            this.updateSessionPersisted(false);
-                            store.setSessionSaved(false);
+                            this.publishIfStopOwner(stopAuthority, token, 'discard_markers', () => {
+                                this.updateSessionPersisted(false);
+                                store.setSessionSaved(false);
+                            });
                             // #1033 (item 3): a no-speech / low-quality recording is RESOLVED by discard (nothing
                             // to Retry Save). The post-start lock is released uniformly at the normal stop terminal
                             // (transition READY below) for every non-error terminal, so no per-branch clear here.
@@ -3874,9 +5137,11 @@ export class SpeechRuntimeController {
                             // useFillerWords→store sync overwrites to `{}` once the chunks are purged). `fillerWords`
                             // (== sessionMetrics.fillerData) is the canonical nested per-key shape the review
                             // consumes; `sessionMetrics.fillerCount` is the true-filler headline.
-                            useSessionStore.getState().setFinalizedWordCount(wordCount);
-                            useSessionStore.getState().setFinalizedFillerData(fillerWords);
-                            useSessionStore.getState().setFinalizedFillerCount(sessionMetrics.fillerCount);
+                            this.publishIfStopOwner(stopAuthority, token, 'finalized_metrics', () => {
+                                useSessionStore.getState().setFinalizedWordCount(wordCount);
+                                useSessionStore.getState().setFinalizedFillerData(fillerWords);
+                                useSessionStore.getState().setFinalizedFillerCount(sessionMetrics.fillerCount);
+                            });
                             const PAUSE_KEYS = ['totalPauses', 'averagePauseDuration', 'longestPause', 'pausesPerMinute', 'silencePercentage', 'transitionPauses', 'extendedPauses'] as const;
                             const finalPauseMetrics = store.pauseMetrics
                                 ? PAUSE_KEYS.reduce<Record<string, number>>((acc, k) => {
@@ -3909,6 +5174,7 @@ export class SpeechRuntimeController {
                                 mode: modeForFinalization ?? 'unknown',
                                 metrics: finalMetrics,
                                 nextActionSignal: finalNextAction,
+                                subject: takeSubject,
                             });
 
                             // #1306 Step 3: the EXACT finalized transcript selected at the recording boundary is
@@ -3953,6 +5219,7 @@ export class SpeechRuntimeController {
                                         sessionId,
                                         completeArgs,
                                         attributionEvidence: attestationEvidence,
+                                        subject: takeSubject,
                                         progressContext,
                                         progressMetrics: { payload: richMetricsPayload, persisted: false },
                                     };
@@ -3979,6 +5246,7 @@ export class SpeechRuntimeController {
                                 // into the catch to stash for Retry Save (transcript already persisted, row pending).
                                 const attestResult = await this.attestSessionEngine(sessionId, attestationEvidence);
                                 if (attestResult === null) throw new Error('attestation failed (transient — retryable)');
+                                this.emitAttributionReceipt(takeSubject, attestResult.attributed, 'first_try');
                                 attributionTerminalStatus = attestResult.attributed
                                     ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED;
                                 // Clear the pending-retry ONLY if it belongs to THIS recording — a later
@@ -4002,6 +5270,7 @@ export class SpeechRuntimeController {
                                     this.pendingAttributionRetry = {
                                         sessionId,
                                         evidence: attestationEvidence,
+                                        subject: takeSubject,
                                         progressContext,
                                         // The result is filled after the ordinary rich-metrics write below.
                                         // Until then a concurrent retry fails closed rather than guessing.
@@ -4017,8 +5286,15 @@ export class SpeechRuntimeController {
                             persistedSessionMarker = sessionId
                                 ? { sessionId, mode: modeForFinalization ?? stopEntryMode }
                                 : null;
-                            this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
-                            useSessionStore.getState().setSessionSaved(true);
+                            this.publishIfStopOwner(stopAuthority, token, 'saved_marker', () => {
+                                this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
+                                useSessionStore.getState().setSessionSaved(true);
+                                // #1431 fence + #1422 publish: the row EXISTS, so its id is published here, where persistence is the
+                                // fact being reported — but only while this stop still owns the shared surfaces. Everything below is
+                                // optional analysis whose failure is non-fatal, and the review reader used to depend on it: a
+                                // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
+                                useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
+                            });
 
                             // Track 1 finalized reconciliation (disclosure-only). Computed against the
                             // PERSISTED filler counts (`fillerWords` — exactly what was written to the DB,
@@ -4048,6 +5324,12 @@ export class SpeechRuntimeController {
                             const maybePublishFinalized = () => {
                                 if (!sessionId || !finalizedReconciliation) return;
                                 if (!shouldPublishFinalized({ formatterDone, metricsDone, metricsOk, tokenValid: isFinalizeTokenValid() })) return;
+                                // The finalized signal is what drives the after-state review. A stale
+                                // take publishing it here is precisely how B's review became A's.
+                                if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
+                                    pushNativeRuntimeTrace('controller_stop_publication_refused', { label: 'finalized_analysis' });
+                                    return;
+                                }
                                 useSessionStore.getState().setFinalizedAnalysis({
                                     sessionId,
                                     mode: finalizedMode,
@@ -4108,7 +5390,9 @@ export class SpeechRuntimeController {
                                 sessionId,
                                 attributionTerminalStatus,
                                 metricsOk,
+                                () => this.stopStillOwnsSharedState(stopAuthority, token),
                             );
+                            completedProgressContext = progressContext;
 
                             clearSessionRecoveryDraft(sessionId);
 
@@ -4127,8 +5411,10 @@ export class SpeechRuntimeController {
                             }
 
                             logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
-                            this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
-                            useSessionStore.getState().setSessionSaved(true);
+                            this.publishIfStopOwner(stopAuthority, token, 'saved_marker_native', () => {
+                                this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
+                                useSessionStore.getState().setSessionSaved(true);
+                            });
                             // The finalized signal (finalizedAnalysis) is published by publishFinalized() at
                             // the formatter terminal above — NOT here — so the settled UI waits for the final
                             // text. Non-native published synchronously in the else-branch above.
@@ -4136,20 +5422,203 @@ export class SpeechRuntimeController {
                     }
                 }
 
+                /**
+                 * #1431 — OWNERSHIP IS REVALIDATED BEFORE THE TERMINAL TEARDOWN, NOT ONLY INSIDE
+                 * `transition()`.
+                 *
+                 * Everything below this point mutates state that belongs to whichever take is CURRENT,
+                 * and none of it was guarded: a stale stop A continuing across a hard reset would bump
+                 * the lifecycle again — invalidating successor B's — then clear B's finalizing latch,
+                 * purge B's transcript from working memory, and transition B to READY through a
+                 * `transition()` call that passes no token and so cannot be refused.
+                 *
+                 * `detachService(service)` already returns null and detaches nothing when the current
+                 * service is B's, but that result was ignored, so it protected only the service handle
+                 * and nothing else. Guarding the latch inside `transition()` was likewise insufficient,
+                 * because this path does not go through the tokened route at all.
+                 *
+                 * A superseded stop still performs its OWN cleanup — its watchdog, its service — because
+                 * that is A's to finish and leaving A's engine running would be worse. It then stops.
+                 * Captured BEFORE the bump, so the owning stop's ordering is unchanged.
+                 */
+                const entersTerminalAsOwner = !token.cancelled && token.version === this.lifecycleVersion;
+                if (!entersTerminalAsOwner) {
+                    // Superseded before the teardown even began. Finish destroying our OWN service —
+                    // leaving A's engine running would be worse — and touch nothing shared. The watchdog
+                    // stop is version-scoped: the global one would disarm the successor's heartbeat.
+                    this.stopWatchdogIfCurrent(ownedWatchdogVersion);
+                    /**
+                     * #1431 P1 — A'S TEARDOWN FAILURE IS A'S, AND MUST NOT REACH B.
+                     *
+                     * `service.destroy()` is A's engine and can reject — a worker that never
+                     * acknowledges, an already-torn-down port. Unhandled, it escaped to the common
+                     * catch below, which belongs to whichever take is CURRENT: it would transition B to
+                     * FAILED, clear B's finalizing latch and frozen transcript, and purge B's working
+                     * state. A recording that is going perfectly well would die because a stale take
+                     * failed to clean up after itself.
+                     *
+                     * Contained here instead: the failure is recorded as A-owned, only A's service is
+                     * detached (and `detachService` already refuses when the current service is B's),
+                     * and the path returns without entering the common catch.
+                     */
+                    try {
+                        await service.destroy();
+                    } catch (destroyError: unknown) {
+                        logger.warn({
+                            capturedLifecycle: stopAuthority.lifecycleVersion,
+                            liveLifecycle: this.lifecycleVersion,
+                            code: destroyError instanceof Error ? destroyError.name : 'unknown',
+                        }, '[DEBUG-STOP] superseded stale service destroy FAILED — contained, successor untouched');
+                        pushNativeRuntimeTrace('controller_stale_destroy_failed', {
+                            capturedLifecycle: stopAuthority.lifecycleVersion,
+                            liveLifecycle: this.lifecycleVersion,
+                        });
+                    }
+                    this.detachService(service);
+                    pushNativeRuntimeTrace('controller_stop_terminal_superseded', { at: 'entry' });
+                    return;
+                }
+
+                /**
+                 * A'S OWN ADVANCE IS NOT A LOSS OF OWNERSHIP, AND CAPTURING BEFORE THE AWAIT IS NOT A
+                 * CHECK.
+                 *
+                 * The stop fences its destroyed service by bumping the lifecycle itself, so after that
+                 * bump `token.version` no longer equals `this.lifecycleVersion` for the rightful owner —
+                 * a naive comparison after the await would reject every normal stop. Equally, evaluating
+                 * ownership BEFORE `service.destroy()` and trusting the result afterwards is not a
+                 * revalidation at all: that is what my first attempt did, and its own casualty caught it
+                 * clobbering the successor.
+                 *
+                 * So A records the version its own advance produced. Anything that changes it after that
+                 * is somebody else, and the difference between "A moved the lifecycle on" and "B took
+                 * over" is exactly what this value expresses.
+                 */
                 this.lifecycleVersion++;
-                this.stopWatchdog();
-                await service.destroy();
-                this.service = null;
-                useSessionStore.getState().setTranscriptFinalizing(false);
-                useSessionStore.getState().freezeTranscriptAtStop(null);
+                const terminalOwnerVersion = this.lifecycleVersion;
+                /**
+                 * #1431 P1 — PUBLISHED TO THE CATCH, because after this line `stopAuthority` is stale
+                 * BY DESIGN. The rightful owner advanced the lifecycle itself to fence its own
+                 * destroyed service, so `stopStillOwnsSharedState(stopAuthority, token)` compares a
+                 * PRE-increment token against a POST-increment lifecycle and necessarily fails for the
+                 * owner. A destroy rejection therefore reached the catch, was classified stale, skipped
+                 * FAILED/recovery publication entirely, and left the controller sitting in STOPPING —
+                 * no error, no recovery draft, no way back for the user.
+                 */
+                terminalTuple = {
+                    lifecycleVersion: terminalOwnerVersion,
+                    serviceGeneration: this.serviceGeneration,
+                    service,
+                };
+                // Scoped here too, for one expression of the rule rather than two. On this path it is
+                // equivalent to the unconditional stop — ownership was just established and there is no
+                // await between — so a mutant swapping it survives. Noted rather than presented as
+                // covered: the scoping is load-bearing only on the superseded path above.
+                this.stopWatchdogIfCurrent(ownedWatchdogVersion);
+                /**
+                 * CONTAINED ON THIS PATH TOO, but only once a successor has actually taken over.
+                 *
+                 * A's teardown failing while A is still the owner IS A's failure and belongs in the
+                 * common catch — that is how the user gets FAILED, the recovery draft and an honest
+                 * message. But if B took over DURING `destroy()`, the same rejection would reach a
+                 * catch that now belongs to B and would fail a recording that is going fine. The
+                 * decision therefore has to be made after the suspension, not before it.
+                 */
+                const terminalOwnerGeneration = this.serviceGeneration;
+                let ownerDestroyError: unknown = null;
+                try {
+                    await service.destroy();
+                } catch (destroyError: unknown) {
+                    ownerDestroyError = destroyError;
+                }
+                /**
+                 * THE TERMINAL TUPLE, NOT THE LIFECYCLE ALONE.
+                 *
+                 * Comparing only `lifecycleVersion` assumes every takeover bumps it. A successor that
+                 * replaces the service and its generation WITHOUT moving the lifecycle — a swap inside
+                 * the same lifecycle, which is exactly what the candidate switch does — would leave
+                 * this check satisfied, and A's teardown rejection would then be rethrown into a catch
+                 * that belongs to B: B transitioned to FAILED, B's latch cleared, B's working state
+                 * purged, for a recording that is going fine.
+                 *
+                 * Ownership at this point is lifecycle AND generation AND service identity. A rethrows
+                 * only while it still holds all three; if any term moved, the rejection is A's to
+                 * absorb and B is left alone.
+                 */
+                const stillOwnsTerminal = this.lifecycleVersion === terminalOwnerVersion
+                    && this.serviceGeneration === terminalOwnerGeneration
+                    && (this.service === null || this.service === service);
+                if (ownerDestroyError !== null && !stillOwnsTerminal) {
+                    logger.warn({
+                        terminalOwnerVersion,
+                        lifecycleVersion: this.lifecycleVersion,
+                        terminalOwnerGeneration,
+                        liveGeneration: this.serviceGeneration,
+                        serviceReplaced: this.service !== null && this.service !== service,
+                        code: ownerDestroyError instanceof Error ? ownerDestroyError.name : 'unknown',
+                    }, '[DEBUG-STOP] destroy FAILED after successor takeover — contained, successor untouched');
+                    pushNativeRuntimeTrace('controller_stale_destroy_failed', { at: 'owner_path' });
+                    this.detachService(service);
+                    return;
+                }
+                if (ownerDestroyError !== null) throw ownerDestroyError;
+
+                // REVALIDATED AFTER THE SUSPENSION. A hard reset or a successor take during
+                // `destroy()` moves the lifecycle past A's own advance.
+                if (this.lifecycleVersion !== terminalOwnerVersion) {
+                    this.detachService(service);   // refuses if the current service is no longer ours
+                    pushNativeRuntimeTrace('controller_stop_terminal_superseded', {
+                        terminalOwnerVersion,
+                        lifecycleVersion: this.lifecycleVersion,
+                    });
+                    logger.warn({
+                        terminalOwnerVersion,
+                        lifecycleVersion: this.lifecycleVersion,
+                    }, '[DEBUG-STOP] terminal teardown SUPERSEDED after destroy — successor left untouched');
+                    return;
+                }
+
+                /**
+                 * `detachService(expected)` returning null IS an ownership failure, not a no-op. It means
+                 * the live service is somebody else's, so every shared mutation below would land on that
+                 * successor. Ignoring this result is what let a stale stop clear another take's latch.
+                 */
+                if (this.detachService(service) === null) {
+                    pushNativeRuntimeTrace('controller_stop_terminal_superseded', { at: 'detach' });
+                    logger.warn({ terminalOwnerVersion }, '[DEBUG-STOP] terminal teardown SUPERSEDED at detach — successor left untouched');
+                    return;
+                }
+
+                this.releaseFinalizingIfOwner('normal_terminal', stopAuthority.lifecycleVersion, stopAuthority);
                 // #1306 P1: metrics are derived and the session is finalized here — purge the ephemeral live
                 // transcript from working memory (store + lifecycle) so no spoken text survives finalization. A
                 // still-pending Native background formatter can't re-populate it: its writeback is guarded on the
                 // store still holding this session's raw final, which is now cleared.
                 this.purgeTranscriptWorkingMemory();
 
+                /**
+                 * #1433 Codex P1 `3990521393` — THE AUTHORITY FOR RETIRING THE BRIEF, CAPTURED HERE.
+                 *
+                 * Not `terminalTuple`: the owner's own `detachService(service)` above bumped the service
+                 * generation after that tuple was recorded, so it would refuse the rightful owner. Every
+                 * ownership check above has just passed and there is no suspension since, so this is the
+                 * owner's state exactly. `transition('READY')` is the suspension a successor can be accepted
+                 * during, and this tuple is what tells the retirement whether one was.
+                 */
+                const settledTuple = {
+                    lifecycleVersion: this.lifecycleVersion,
+                    serviceGeneration: this.serviceGeneration,
+                    service: this.service,
+                };
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
+                // #1433 RETURN `5636795476` item 1 — NOT WHILE RECOVERY IS PENDING. An attestation or save that failed on
+                // this otherwise clean stop leaves a retry slot holding the take and the lock held for Retry Save /
+                // Discard. The brief belongs to that unresolved take until recovery is terminal; the slot already
+                // carries this recording-boundary context for exactly that retirement.
+                if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry) {
+                    this.retireObjectiveBriefAfterSettlement(completedProgressContext, () => this.ownsAfterTerminalAdvance(settledTuple));
+                }
                 // #1033 (item 3): the stop path reached its NORMAL terminal — the recording was saved, discarded
                 // as no-speech/low-quality, or had nothing to persist. Unless a durable retry was stashed (a
                 // full-save or attribution failure, which keeps the lock for Retry Save), the recording is fully
@@ -4170,6 +5639,69 @@ export class SpeechRuntimeController {
                 return result;
             } catch (err: unknown) {
                 logger.error({ err }, '[DEBUG-STOP] ERROR caught');
+
+                /**
+                 * #1431 P1 — A STALE STOP'S FAILURE IS A'S, AND MUST NOT FAIL THE SUCCESSOR.
+                 *
+                 * Every line below this point reads or writes whatever take is CURRENT, and none of it
+                 * was guarded. When stale stop A's persistence work rejected after a reset had handed
+                 * the lifecycle to B, this catch:
+                 *
+                 *   - read `this.sessionId` LIVE and called `completeSession(status: 'failed')` on it,
+                 *     marking B'S DATABASE ROW failed because A could not finish;
+                 *   - measured the recovery-draft signal from B's store;
+                 *   - transitioned to FAILED and wrote an error status over B's UI;
+                 *   - called `purgeTranscriptWorkingMemory()`, destroying B's live transcript.
+                 *
+                 * The user's visible outcome was a recording they were still making being torn down and
+                 * reported as failed, because a take they had already abandoned lost a race.
+                 *
+                 * A superseded stop still settles its OWN record — its session is genuinely failed and
+                 * saying so is A's to do — addressed by the id CAPTURED at stop entry, never the live
+                 * one. It then rethrows, so its caller still sees the failure, and touches nothing else.
+                 */
+                /**
+                 * #1431 P1 — CLASSIFY WITH THE TUPLE THAT IS ACTUALLY CURRENT.
+                 *
+                 * Before the rightful owner's own terminal lifecycle advance, `stopAuthority` + `token`
+                 * is the right authority. After it, that pair is stale BY CONSTRUCTION — the owner
+                 * incremented the lifecycle itself to fence its destroyed service — so
+                 * `stopStillOwnsSharedState` compares a PRE-increment token against a POST-increment
+                 * lifecycle and necessarily fails for the owner. A `destroy()` rejection therefore
+                 * reached here, was classified stale, skipped FAILED/recovery publication entirely, and
+                 * left the controller sitting in STOPPING: no error, no recovery draft, no way back.
+                 *
+                 * `terminalTuple` is set only by that advance, so its presence is exactly the signal
+                 * for which comparison applies. Every term stays load-bearing — lifecycle version,
+                 * service generation and strict service identity. A successor that swaps the service
+                 * WITHIN one lifecycle, which is what the candidate switch does, changes the
+                 * generation, so A still contains its own failure and leaves B untouched.
+                 */
+                const ownsAfterTerminalAdvance = this.ownsAfterTerminalAdvance(terminalTuple);
+                const stillOwnsForPublication = terminalTuple !== null
+                    ? ownsAfterTerminalAdvance
+                    : this.stopStillOwnsSharedState(stopAuthority, token);
+                if (!stillOwnsForPublication) {
+                    pushNativeRuntimeTrace('controller_stop_error_publication_refused', {
+                        capturedLifecycle: stopAuthority.lifecycleVersion,
+                        liveLifecycle: this.lifecycleVersion,
+                        capturedGeneration: stopAuthority.serviceGeneration,
+                        liveGeneration: this.serviceGeneration,
+                        tokenCancelled: token.cancelled,
+                    });
+                    if (stopAuthority.sessionId) {
+                        completeSession(stopAuthority.sessionId, {
+                            status: 'failed',
+                            reason: `Stop recording failed: ${(err as Error).message}`,
+                        }).catch((completeError) => {
+                            logger.warn({ completeError }, '[SpeechRuntimeController] superseded stop could not mark its own session failed');
+                        });
+                    }
+                    // Owner-scoped already: releases only if A still holds the latch it took.
+                    this.releaseFinalizingIfOwner('stop_failed_superseded', stopAuthority.lifecycleVersion, stopAuthority);
+                    throw err;
+                }
+
                 const hasRecoveryDraftSignal = this.getStoreTranscriptLength() > 0;
                 if (this.sessionId) {
                     completeSession(this.sessionId, {
@@ -4183,9 +5715,15 @@ export class SpeechRuntimeController {
                         }, '[SpeechRuntimeController] Failed to mark session failed after stopRecording error');
                     });
                 }
-                await this.transition('FAILED', err as Error, token);
-                useSessionStore.getState().setTranscriptFinalizing(false);
-                useSessionStore.getState().freezeTranscriptAtStop(null);
+                /**
+                 * #1431 P1 — NOT THE STALE TOKEN. `token.version` is pre-increment, so passing it here
+                 * after the owner's own advance sends the transition down the stale-token branch, which
+                 * returns before publishing anything. The owner would have been refused its own FAILED
+                 * state. After a terminal advance the tuple check above IS the revalidation, so the
+                 * transition runs unscoped; before one, the token is still current and is still used.
+                 */
+                await this.transition('FAILED', err as Error, terminalTuple !== null ? undefined : token);
+                this.releaseFinalizingIfOwner('stop_failed', stopAuthority.lifecycleVersion, stopAuthority);
                 if (err instanceof FinalizationTimeoutError) {
                     // #1089: name the real failure instead of hanging on Finalizing… forever. The control
                     // is usable again (FAILED clears the finalizing latch), and the transcript captured up
@@ -4221,12 +5759,39 @@ export class SpeechRuntimeController {
      * only after its original brief is explicitly registered; registration failure or ambiguity writes no
      * evaluation. Later objective-stage failure after confirmed registration still evaluates.
      */
+    /**
+     * @param canPublishShared #1431 P1 — whether the CALLER still owns the SHARED surfaces.
+     *
+     * REQUIRED, not defaulted. It began as an optional parameter defaulting to `() => true` so the
+     * retry-save callers would be unaffected, which is a fail-OPEN default on a guard: any future
+     * caller that forgot it would silently get permission to publish into whatever take is current.
+     * Every caller now states its authority. The retry-save paths passed `() => true` on the reasoning
+     * that user-initiated recovery is "the current take by definition"; that was wrong and is fixed —
+     * being user-initiated says who STARTED the work, not who owns the lifecycle when it RESUMES after
+     * its attestation/completion awaits. They now pass a real revalidating predicate.
+     *
+     * This fences MORE than the coverage rail. `beginProgressGate`, `applyProgressGate` and the
+     * completed/active Focus Points briefs are all shared UI and controller state, and a stale take
+     * reaching them blocks the successor's Start, replaces the successor's brief, or publishes a
+     * verdict about a take the user has already moved on from. Only the durable evaluation itself is
+     * A's to finish.
+     */
     private async completeProgressForRecording(
         context: ProgressCompletionContext,
         sessionId: string,
         attributionStatus: string | undefined,
         metricsPersisted: boolean,
+        canPublishShared: () => boolean,
     ): Promise<ProgressEvaluationOutcome> {
+        /** Applies a SHARED write only while the caller still owns it. */
+        const publishIfCurrent = (apply: () => void): boolean => {
+            if (!canPublishShared()) {
+                pushNativeRuntimeTrace('controller_progress_publication_refused', { sessionId });
+                return false;
+            }
+            apply();
+            return true;
+        };
         // #1354 CASE 6: these fail-closed returns must PUBLISH THE GATE, not just report an outcome.
         // They previously returned before `beginProgressGate`, so the most fail-closed paths in the whole
         // seam were the only ones that left Start open — an `unresolved` result the user never saw and
@@ -4235,12 +5800,14 @@ export class SpeechRuntimeController {
         //
         // Unknown/legacy retry context fails closed — it cannot prove evidence is terminal.
         if (context.mode === 'unknown') {
-            return this.applyProgressGate(sessionId, { kind: 'unresolved', reason: 'metrics_not_persisted' });
+            const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
+            return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
         // Both practice modes require actual durable delivery metrics. This guard sits before Open Mic's
         // immediate path and Focus Points registration so neither can create an immutable partial evaluation.
         if (!metricsPersisted) {
-            return this.applyProgressGate(sessionId, { kind: 'unresolved', reason: 'metrics_not_persisted' });
+            const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
+            return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
 
         // #1354: AWAITED and its result returned. This was `void wireProgressEvaluationOnSave(...)` —
@@ -4267,25 +5834,90 @@ export class SpeechRuntimeController {
         // #1354: block Start for the WHOLE window, not just after the outcome is known. The state table
         // requires "evaluation currently resolving -> disabled"; publishing the gate only after the await
         // would leave the in-flight window open, which is the very window that caused attempt 9.
-        this.beginProgressGate(sessionId);
+        // Blocking Start belongs to the take being evaluated. A stale take opening this gate disables
+        // the successor's recorder for a verdict about a session the user has already left behind.
+        publishIfCurrent(() => { this.beginProgressGate(sessionId); });
 
         if (context.mode === 'open_mic') {
-            return this.applyProgressGate(sessionId, await runProgressEval());
+            const outcome = await runProgressEval();
+            publishIfCurrent(() => { this.applyProgressGate(sessionId, outcome); });
+            return outcome;
         }
 
+        // The completed/active briefs are what the Focus Points surfaces render. A stale take writing
+        // them replaces the successor's set with its own — the same defect as the coverage rail, one
+        // field earlier.
         const store = useSessionStore.getState();
-        store.setCompletedObjectiveBrief(context.brief);
-        const liveBrief = store.activeObjectiveBrief;
-        if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
-            store.setActiveObjectiveBrief(null);
-        }
-        return this.applyProgressGate(sessionId, await this.finalizeObjectiveAndGateProgress(
+        /*
+         * #1431 + #1433 INTEGRATION. The owner fence is #1431's and it stays: a stale take must not
+         * replace the successor's completed brief.
+         *
+         * The ACTIVE brief is deliberately NOT retired here. `main` retired it inline at this point,
+         * which fires while the objective evaluation is still running — and #1433's contract is that
+         * Focus Points stay active until evaluation settles and READY publishes. Retiring early blanks
+         * the rail mid-evaluation, which is the defect #1433 exists to fix.
+         *
+         * `retireObjectiveBriefAfterSettlement()` already does it at the right moment, immediately after
+         * `transition('READY')` on the clean-stop path and after the awaited completion seam on the retry
+         * paths. It applies the same owner comparison, so nothing is lost by removing the inline copy —
+         * only the timing changes, which is the whole point.
+         */
+        publishIfCurrent(() => { store.setCompletedObjectiveBrief(context.brief); });
+        const objectiveOutcome = await this.finalizeObjectiveAndGateProgress(
             { projectId: context.brief.projectId, briefId: context.brief.briefId },
             sessionId,
             context.segments,
             context.durationSeconds,
             runProgressEval,
-        ));
+            canPublishShared,
+        );
+        publishIfCurrent(() => { this.applyProgressGate(sessionId, objectiveOutcome); });
+        return objectiveOutcome;
+    }
+
+    /**
+     * #1431 P1 — whether the take that performed its OWN terminal lifecycle advance still owns shared state.
+     *
+     * After that advance `stopAuthority` + `token` are stale by construction, so the tuple the advance
+     * recorded is the authority: lifecycle version, service generation and strict service identity. A
+     * successor that swaps the service within one lifecycle changes the generation, so it is caught too.
+     */
+    private ownsAfterTerminalAdvance(
+        tuple: { lifecycleVersion: number; serviceGeneration: number; service: TranscriptionService | null } | null,
+    ): boolean {
+        return tuple !== null
+            && this.lifecycleVersion === tuple.lifecycleVersion
+            && this.serviceGeneration === tuple.serviceGeneration
+            && (this.service === null || this.service === tuple.service);
+    }
+
+    /**
+     * Retire only the brief that owned the completed take, and only after its asynchronous Progress work
+     * has settled. The normal stop path calls this after READY; retry paths call it after their awaited
+     * completion seam. A later brief selected for another take is never cleared by stale completion work.
+     *
+     * #1433 Codex P1 `3990521393` — AND ONLY WHILE THE CALLER STILL OWNS SHARED STATE. The id comparison
+     * cannot tell two takes apart when B started with the same brief A used, so a stale A resuming after a
+     * hard reset or candidate switch relabelled B as Open Mic. Clearing the live brief is a shared write, so
+     * it takes the same revalidated authority as every other shared publication, and no-ops without it.
+     */
+    private retireObjectiveBriefAfterSettlement(
+        context: ProgressCompletionContext | null,
+        ownsSharedState: () => boolean,
+    ): void {
+        if (!context || context.mode !== 'focus_points') return;
+        if (!ownsSharedState()) {
+            pushNativeRuntimeTrace('controller_brief_retirement_refused', {
+                lifecycleVersion: this.lifecycleVersion,
+                serviceGeneration: this.serviceGeneration,
+            });
+            return;
+        }
+        const store = useSessionStore.getState();
+        const liveBrief = store.activeObjectiveBrief;
+        if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
+            store.setActiveObjectiveBrief(null);
+        }
     }
 
     /**
@@ -4338,6 +5970,8 @@ export class SpeechRuntimeController {
         segments: { text: string; startSec: number }[],
         durationSeconds: number,
         runProgressEval: () => Promise<ProgressEvaluationOutcome>,
+        /** #1431 P1 — REQUIRED. See `completeProgressForRecording`; the coverage rail is shared state. */
+        canPublishShared: () => boolean,
     ): Promise<ProgressEvaluationOutcome> {
         try {
             const { finalizeObjectiveSessionOnSave } = await import('@/services/objective/finalizeObjectiveSessionOnSave');
@@ -4352,9 +5986,17 @@ export class SpeechRuntimeController {
             // Publish per-point coverage ONLY on a fully-successful finalize carrying coverage; any failed
             // stage leaves objectiveCoverageResult null, so a broken session shows no rail (never fabricated).
             if (objResult.ok && objResult.coverage) {
-                useSessionStore.getState().setObjectiveCoverageResult(
-                    objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
-                );
+                // #1431 P1 — the coverage RAIL is shared state. A new recording clears it at the
+                // accepted-start boundary; a stale take finishing afterwards would put its own N/N
+                // straight back, and the user pressing Retry would see the previous take's coverage
+                // instead of a fresh 0/N.
+                if (canPublishShared()) {
+                    useSessionStore.getState().setObjectiveCoverageResult(
+                        objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
+                    );
+                } else {
+                    pushNativeRuntimeTrace('controller_stop_publication_refused', { label: 'objective_coverage' });
+                }
             }
             // #1354 CASE 5 — `registered: false` has TWO origins and only ONE of them is terminal.
             //
@@ -4384,17 +6026,17 @@ export class SpeechRuntimeController {
         const version = this.lifecycleVersion;
 
         if (this.service?.isServiceDestroyed()) {
-            this.service = null;
+            this.detachService(this.service);
         }
 
         if (!this.service) {
             this.service = getTranscriptionService(
-                createControllerOwnedServiceCallbacks({
+                this.callbacksForNewService({
                     navigate: this.navigate,
                     session: this.session,
                     getAssemblyAIToken: this.getAssemblyAIToken,
                     userWords: this.userWords
-                }, this.serviceCallbacks as Required<typeof this.serviceCallbacks>),
+                }),
                 this.lock
             );
         }
@@ -4461,7 +6103,22 @@ export class SpeechRuntimeController {
         scheduleNext(true);
     }
 
+    /**
+     * #1431 P1 — STOPPING THE HEARTBEAT INVALIDATES ITS IN-FLIGHT REQUEST TOO.
+     *
+     * This cleared the timer but left `heartbeatVersion` untouched, so a request already in flight
+     * still matched at every `version !== this.heartbeatVersion` guard. When Stop armed finalization
+     * while such a request was outstanding, its late failure could reach the threshold and perform an
+     * UNSCOPED `transition('FAILED')` — which clears `isTranscriptFinalizing` in the reducer with no
+     * owner check at all, re-enabling Record while the stop was still persisting, and the next start
+     * then discarded the frozen transcript.
+     *
+     * That bypass is why "release belongs solely to `releaseFinalizingIfOwner()`" was not yet true.
+     * Advancing the generation here makes it true: a continuation from the stopped heartbeat is stale
+     * at its next guard and returns before it can transition anything.
+     */
     private stopHeartbeat(): void {
+        this.heartbeatVersion += 1;
         if (this.heartbeatInterval) {
             clearTimeout(this.heartbeatInterval);
             this.heartbeatInterval = null;
@@ -4506,6 +6163,22 @@ export class SpeechRuntimeController {
             clearInterval(this.watchdogInterval);
             this.watchdogInterval = null;
         }
+    }
+
+    /**
+     * #1431 — STOP ONLY THE WATCHDOG THIS TAKE STARTED.
+     *
+     * `stopWatchdog()` is controller-wide: it clears the single `watchdogInterval` whoever owns it. A
+     * superseded stop calling it would silently disarm the SUCCESSOR's heartbeat monitoring, so a take
+     * that later stalled would never be noticed — a failure mode with no symptom until a user is sitting
+     * in front of a dead recording.
+     *
+     * `startWatchdog` already mints a version per take. Comparing it is the difference between "stop my
+     * watchdog" and "stop the watchdog", and only the first is ever a superseded take's business.
+     */
+    private stopWatchdogIfCurrent(version: number): void {
+        if (this.watchdogVersion !== version) return;
+        this.stopWatchdog();
     }
 
     // --- Idle Reclamation ---
@@ -4577,11 +6250,12 @@ export class SpeechRuntimeController {
                 });
             }
             await this.transition('FAILED', error, token);
-            if (this.service) {
+            const failedService = this.service;
+            if (failedService) {
                 this.lifecycleVersion++;
-                this.service.handleHeartbeatFailure(error);
-                await this.service.destroy();
-                this.service = null;
+                failedService.handleHeartbeatFailure(error);
+                await failedService.destroy();
+                this.detachService(failedService);
             }
         });
     }

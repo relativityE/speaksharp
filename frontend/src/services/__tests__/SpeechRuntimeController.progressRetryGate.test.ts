@@ -346,4 +346,88 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
         expect(finalizeObjectiveSessionOnSave).not.toHaveBeenCalled();
         expect(wireProgressEvaluationOnSave).not.toHaveBeenCalled();
     });
+
+    describe('#1433 RETURN `5636795476` item 2 — Retry Save keeps the take locked until Progress settles', () => {
+        // Both retry paths cleared their slot and unlocked BEFORE awaiting the Progress evaluation. Navigation
+        // then saw a settled controller and applied a deferred Open Mic while objective evaluation was still
+        // suspended. The slot and the lock now stay authoritative through settlement and owner-fenced brief
+        // retirement; only then is the slot cleared, the saved marker published and the lock released.
+        const lockPublished = () => useSessionStore.getState().engineSelectionLocked;
+        const lockSeam = () => controller as unknown as { publishLockState: () => void; isEngineSelectionLocked: () => boolean };
+        const flushUntil = async (predicate: () => boolean) => {
+            for (let i = 0; i < 200 && !predicate(); i += 1) await Promise.resolve();
+            return predicate();
+        };
+        const suspendObjectiveEvaluation = () => {
+            let release: () => void = () => {};
+            finalizeObjectiveSessionOnSave.mockImplementationOnce(() => new Promise((resolve) => {
+                release = () => resolve({ ok: true, registered: true, objectiveSessionId: 'objective-suspended', evidenceCount: 1, coverage: [] });
+            }));
+            return () => release();
+        };
+        /** Records every change to the live brief, so "switches exactly once" is observed, not assumed. */
+        const watchLiveBrief = () => {
+            const changes: Array<string | null> = [];
+            const unsubscribe = useSessionStore.subscribe((state, previous) => {
+                if (state.activeObjectiveBrief !== previous.activeObjectiveBrief) {
+                    changes.push(state.activeObjectiveBrief?.briefId ?? null);
+                }
+            });
+            return { changes, unsubscribe };
+        };
+        const armRecovery = (path: 'full_save' | 'attribution') => {
+            useSessionStore.getState().setActiveObjectiveBrief(ORIGINAL_BRIEF);
+            if (path === 'full_save') {
+                retry.pendingFullSaveRetry = {
+                    sessionId: 'session-1433-r2-full',
+                    completeArgs: completedArgs('price timeline'),
+                    attributionEvidence: EVIDENCE,
+                    progressContext: FOCUS_CONTEXT,
+                    progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
+                };
+            } else {
+                retry.pendingAttributionRetry = {
+                    sessionId: 'session-1433-r2-attribution', evidence: EVIDENCE, progressContext: FOCUS_CONTEXT,
+                    progressMetrics: { payload: METRICS_PAYLOAD, persisted: true },
+                };
+            }
+            lockSeam().publishLockState();
+        };
+
+        for (const path of ['full_save', 'attribution'] as const) {
+            it(`CASUALTY (${path} retry): while evaluation is suspended the take stays locked and Focus Points bound; then it switches once`, async () => {
+                armRecovery(path);
+                expect(lockPublished(), 'precondition: recovery holds the lock').toBe(true);
+                const release = suspendObjectiveEvaluation();
+                const watch = watchLiveBrief();
+                const running = path === 'full_save' ? retry.retryRecordingSave() : retry.retryPendingAttribution();
+                expect(await flushUntil(() => finalizeObjectiveSessionOnSave.mock.calls.length > 0), 'evaluation is in flight').toBe(true);
+
+                expect(lockPublished(), 'no published unlock while Progress is still settling').toBe(true);
+                expect(lockSeam().isEngineSelectionLocked(), 'and no controller unlock either').toBe(true);
+                expect(useSessionStore.getState().activeObjectiveBrief?.briefId, 'the brief is not retired mid-evaluation')
+                    .toBe(ORIGINAL_BRIEF.briefId);
+
+                release();
+                await expect(running).resolves.toBe(true);
+                watch.unsubscribe();
+                expect(lockPublished(), 'settled: unlocked').toBe(false);
+                expect(useSessionStore.getState().activeObjectiveBrief, 'settled: the brief is retired').toBeNull();
+                expect(watch.changes, 'the live brief changes exactly once, to none').toEqual([null]);
+            });
+        }
+
+        it('a second Retry Save while the first is settling joins it instead of saving the recording again', async () => {
+            armRecovery('full_save');
+            const release = suspendObjectiveEvaluation();
+            const first = retry.retryRecordingSave();
+            expect(await flushUntil(() => finalizeObjectiveSessionOnSave.mock.calls.length > 0)).toBe(true);
+            const second = retry.retryRecordingSave();
+            release();
+            await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+            expect(completeSession, 'the recording is completed once').toHaveBeenCalledTimes(1);
+            expect(finalizeObjectiveSessionOnSave, 'and evaluated once').toHaveBeenCalledTimes(1);
+            expect(wireProgressEvaluationOnSave).toHaveBeenCalledTimes(1);
+        });
+    });
 });

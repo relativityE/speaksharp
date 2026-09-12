@@ -65,4 +65,80 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         expect(screen.getByTestId('focus-points-retry')).toHaveTextContent('Retry this set');
         expect(screen.getByTestId('focus-points-retry')).not.toHaveTextContent('2 points');
     });
+
+    it('renders a terminal partial match as partly detected while keeping it in the detected count', () => {
+        const partial: FocusCoverageRow[] = [
+            { label: 'State the guarantee', status: 'partial', covered: true, coveredAtSec: null, quote: null },
+        ];
+        render(<FocusPointsRail rows={partial} sessionState="after" />);
+
+        const row = screen.getByTestId('focus-point-0');
+        expect(row).toHaveAttribute('data-status', 'partial');
+        expect(row).toHaveTextContent('Partly detected');
+        expect(row.querySelector('p')).not.toHaveClass('line-through');
+        expect(screen.queryByTestId('focus-point-0-not-detected')).toBeNull();
+    });
+
+    it('renders timestamped partial evidence as partial rather than a green full detection', () => {
+        render(<FocusPointsRail rows={[
+            { label: 'State the guarantee', status: 'partial', covered: true, coveredAtSec: 12, quote: 'guarantee' },
+        ]} sessionState="during" />);
+
+        const evidence = screen.getByTestId('focus-point-0-covered-at');
+        expect(evidence).toHaveTextContent('Partly detected at 0:12');
+        expect(evidence).toHaveClass('text-[#8a5510]');
+        expect(evidence).not.toHaveTextContent(/^Detected at/);
+    });
+});
+
+/**
+ * #1429 E — the rail is what the user reads back. Every point they entered must be there, in the
+ * order they entered it, with its own coverage. Rendering a subset, or reordering covered points
+ * ahead of undetected ones, tells the user a different story than the one they set up.
+ */
+describe('FocusPointsRail — every configured point renders in the configured order', () => {
+    const SEVEN: FocusCoverageRow[] = [
+        'Name the price',
+        'State the guarantee',
+        'Cover the timeline',
+        'Explain the onboarding',
+        'Mention the support team',
+        'Describe the migration plan',
+        'Confirm the renewal terms',
+    ].map((label, index) => ({
+        label,
+        status: index % 2 === 0 ? 'covered' : 'missing',
+        covered: index % 2 === 0,
+        coveredAtSec: index % 2 === 0 ? index * 10 : null,
+        quote: index % 2 === 0 ? `quote for ${label}` : null,
+    }));
+
+    const renderedLabels = (): string[] =>
+        screen.getAllByTestId(/^focus-point-\d+$/).map((row) => row.textContent ?? '');
+
+    it.each(['before', 'during', 'after'] as const)('renders all seven, in order, in the %s state', (sessionState) => {
+        render(<FocusPointsRail rows={SEVEN} topic="Sales or product pitch" sessionState={sessionState} />);
+
+        expect(screen.getAllByTestId(/^focus-point-\d+$/)).toHaveLength(7);
+        SEVEN.forEach((row, index) => {
+            expect(renderedLabels()[index]).toContain(row.label);
+        });
+    });
+
+    it('CASUALTY: a covered point is not promoted above an undetected one', () => {
+        render(<FocusPointsRail rows={SEVEN} topic={null} sessionState="after" />);
+
+        const statuses = screen.getAllByTestId(/^focus-point-\d+$/).map((row) => row.getAttribute('data-status'));
+        expect(statuses).toEqual(['covered', 'missing', 'covered', 'missing', 'covered', 'missing', 'covered']);
+    });
+
+    it('the completed snapshot keeps each point WITH its own coverage, not a shared verdict', () => {
+        render(<FocusPointsRail rows={SEVEN} topic={null} sessionState="after" />);
+
+        // Detected rows carry their own timestamp; undetected rows carry none and claim none.
+        expect(screen.getByTestId('focus-point-0-covered-at')).toBeInTheDocument();
+        expect(screen.queryByTestId('focus-point-1-covered-at')).toBeNull();
+        expect(screen.getByTestId('focus-point-1-not-detected')).toBeInTheDocument();
+        expect(screen.queryByTestId('focus-point-0-not-detected')).toBeNull();
+    });
 });

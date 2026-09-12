@@ -213,13 +213,18 @@ export const createMockSupabase = () => {
                     session.transcript_state = 'available';
                 }
 
-                // SERVER-OWNED newest-two retention. Modelled HERE, in the RPC, exactly as production does
+                // SERVER-OWNED newest-ONE retention. Modelled HERE, in the RPC, exactly as production does
                 // it — inside the completion. Expiring transcripts in client code and calling that a proof
                 // would test our own simulation rather than the server contract.
+                //
+                // The count moved from two to one with the forward-only correction
+                // (20260908120000_transcript_retention_newest_one). This mock must move with it: it is the
+                // server's behaviour as far as every client test is concerned, and a mock that keeps two
+                // would let those tests pass against a rule the database no longer applies.
                 const retained = savedSessions
                     .filter(x => typeof x.transcript === 'string' && x.transcript.length > 0)
                     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-                retained.slice(2).forEach(old => {
+                retained.slice(1).forEach(old => {
                     old.transcript = null;
                     old.transcript_state = 'expired';
                 });
