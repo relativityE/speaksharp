@@ -25,10 +25,22 @@ export interface JourneyTelemetry {
     readonly events: readonly string[];
     /** Completion stages the run reported as reached. */
     readonly stagesReached: readonly string[];
-    /** The session id the telemetry was bound to, as observed. */
-    readonly boundSessionId: string | null;
-    /** The model identity the telemetry was bound to, as observed. */
-    readonly boundModel: string | null;
+    /*
+     * IDENTITY IS READ OUT OF THE OBSERVED ENVELOPES, never assigned from what the test expected
+     * (Codex `3996845167`). Assigning the saved row's values made the comparisons tautologies.
+     *
+     * There is deliberately NO `boundSessionId`. No Practice Loop event carries a session id — the
+     * allowlist keeps these events content-free, and a session id is user data. An earlier version of
+     * this verdict demanded one, which could only ever be satisfied by copying the value in, which is
+     * the tautology itself. The correlation spine the product actually publishes is
+     * journey_id + attempt_id + candidate_id, so that is what is checked.
+     */
+    /** `candidate_id` from the envelope: the v2/v4/Moonshine identity, not the `private` facade. */
+    readonly boundCandidateId: string | null;
+    /** Distinct `attempt_id` values seen on this journey's review events. */
+    readonly attemptIds: readonly string[];
+    /** Distinct `journey_id` values seen on this journey's review events. */
+    readonly journeyIds: readonly string[];
 }
 
 export interface PracticeLoopJourneyEvidence {
@@ -36,22 +48,42 @@ export interface PracticeLoopJourneyEvidence {
     readonly savedSessionId: string | null;
     /** Whether the save reached a completed, persisted state. */
     readonly sessionSaved: boolean;
-    /** Requests to the coaching endpoint, counted — not their bodies. */
+    /**
+     * Coaching requests made STRICTLY AFTER persistence (Codex `3996845181`). A request that fired
+     * before the save is not the automatic post-save behaviour, even when a review later renders, so it
+     * is counted separately and refused rather than folded into the total.
+     */
     readonly suggestionRequests: number;
+    /** Coaching requests observed at or before persistence. Any is a defect. */
+    readonly suggestionRequestsBeforeSave: number;
     /** True only if a human-equivalent action (button, retry, refresh) triggered generation. */
     readonly manualGenerationTriggered: boolean;
     /** The review surface's terminal state, as rendered. */
     readonly renderedPhraseCounts: { readonly whatWentWell: number; readonly whatToImprove: number };
     /** Terminal outcomes observed for this session's review. */
     readonly terminalOutcomes: readonly ReviewTerminalOutcome[];
-    /** Model identity at the three boundaries the down-selection depends on. */
+    /**
+     * CANDIDATE identity at the three boundaries the down-selection depends on (Codex `3996845174`).
+     * `private` is a product facade shared by every candidate — v2, v4 and Moonshine all report it, and
+     * so does `sessions.engine`. Comparing facades lets three different models agree, which is the one
+     * thing #1432's attribution cannot survive. These must be candidate ids.
+     */
     readonly modelIdentity: { readonly requested: string | null; readonly observed: string | null; readonly persisted: string | null };
     readonly telemetry: JourneyTelemetry;
 }
 
-/** Events the journey must show, in this order, for a rendered success. */
+/**
+ * The documented journey, in order, for a rendered success (Codex `3996845178`).
+ *
+ * The first version required only requested → rendered, so a run that lost `session_saved`,
+ * `_completed` or `_persisted` still passed while claiming the journey was reconstructable. It was not:
+ * a funnel missing its middle cannot tell a delivered review from a lucky render.
+ */
 const REQUIRED_SUCCESS_SEQUENCE = [
+    'session_saved',
     'practice_loop_review_requested',
+    'practice_loop_review_completed',
+    'practice_loop_review_persisted',
     'practice_loop_review_rendered',
 ] as const;
 
@@ -74,6 +106,9 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
     if (evidence.manualGenerationTriggered) {
         failures.push('generation was triggered manually; the contract is automatic on save');
     }
+    if (evidence.suggestionRequestsBeforeSave > 0) {
+        failures.push(`${evidence.suggestionRequestsBeforeSave} coaching request(s) fired at or before persistence; the contract is automatic AFTER a successful save`);
+    }
     if (evidence.suggestionRequests === 0) {
         failures.push('no automatic suggestion request was made after the save');
     } else if (evidence.suggestionRequests > 1) {
@@ -94,8 +129,8 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
     }
     const [outcome] = evidence.terminalOutcomes;
 
-    // 5. Telemetry correlates the journey, in order, and is bound to THIS session and model.
-    const { events, stagesReached, boundSessionId, boundModel } = evidence.telemetry;
+    // 5. Telemetry correlates the journey, in order, and is bound to THIS session, attempt and candidate.
+    const { events, stagesReached, boundCandidateId, attemptIds, journeyIds } = evidence.telemetry;
     if (outcome === 'rendered_success') {
         let cursor = -1;
         for (const required of REQUIRED_SUCCESS_SEQUENCE) {
@@ -106,11 +141,29 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
             }
             cursor = at;
         }
+        // A rendered review MUST claim both links. Requiring them only in the negative let a success
+        // pass with neither, which is the other half of #1422's rule.
+        for (const stage of STAGES_THAT_REQUIRE_A_RENDERED_REVIEW) {
+            if (!stagesReached.includes(stage)) {
+                failures.push(`${stage} was not marked despite a rendered review`);
+            }
+        }
     }
-    if (evidence.savedSessionId && boundSessionId && boundSessionId !== evidence.savedSessionId) {
-        failures.push('telemetry is bound to a different session than the one saved');
+
+    /*
+     * ONE attempt and ONE journey, read from the envelopes. Cross-take contamination is the failure
+     * #1432's attribution cannot survive: two attempts inside one settled take means a row cannot be
+     * ascribed to a candidate, however green the rest looks.
+     */
+    if (attemptIds.length > 1) {
+        failures.push(`${attemptIds.length} distinct attempt ids appear on this journey's review events; a settled take has exactly one`);
     }
-    if (!boundSessionId) failures.push('telemetry is not bound to any session');
+    if (journeyIds.length > 1) {
+        failures.push(`${journeyIds.length} distinct journey ids appear on this journey's review events; a settled take has exactly one`);
+    }
+    if (outcome && attemptIds.length === 0) {
+        failures.push('no attempt id is present on the review events, so the take cannot be attributed');
+    }
 
     // 6. A review that did NOT render must not claim the completion stages.
     if (outcome !== 'rendered_success') {
@@ -128,8 +181,15 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
     } else if (!(requested === observed && observed === persisted)) {
         failures.push(`model identity diverges: requested=${requested} observed=${observed} persisted=${persisted}`);
     }
-    if (boundModel && persisted && boundModel !== persisted) {
-        failures.push('telemetry is bound to a different model than the one persisted');
+    if (boundCandidateId && persisted && boundCandidateId !== persisted) {
+        failures.push('telemetry is bound to a different candidate than the one persisted');
+    }
+    // The facade is not an identity. `private` agreeing with `private` proves nothing about which of
+    // v2, v4 or Moonshine ran, and a down-selection built on that is unattributable.
+    for (const [label, value] of [['requested', requested], ['observed', observed], ['persisted', persisted]] as const) {
+        if (value && /^(private|browser|cloud|native)$/i.test(value)) {
+            failures.push(`${label} model identity is the product facade "${value}", not a candidate id`);
+        }
     }
 
     return failures;

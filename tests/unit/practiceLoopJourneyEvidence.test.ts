@@ -17,17 +17,22 @@ import {
 } from '../live/helpers/practiceLoopJourney';
 
 const SESSION = 'sess-4f2a9c1b';
-const MODEL = 'gemini-3.6-flash';
+const ATTEMPT = 'att-7c1d90e2';
+const JOURNEY = 'jrn-1b8e44af';
+/** A down-selection candidate id — the thing `private` cannot distinguish. */
+const CANDIDATE = 'whisper-base-q4-webgpu';
 
 /** A journey that satisfies PO's procedure end to end. Every casualty is this, minus one thing. */
 const provenJourney: PracticeLoopJourneyEvidence = {
     savedSessionId: SESSION,
     sessionSaved: true,
     suggestionRequests: 1,
+    suggestionRequestsBeforeSave: 0,
     manualGenerationTriggered: false,
     renderedPhraseCounts: { whatWentWell: 1, whatToImprove: 1 },
     terminalOutcomes: ['rendered_success'],
-    modelIdentity: { requested: MODEL, observed: MODEL, persisted: MODEL },
+    // CANDIDATE ids, not the `private` facade: v2/v4/Moonshine is what the down-selection attributes.
+    modelIdentity: { requested: CANDIDATE, observed: CANDIDATE, persisted: CANDIDATE },
     telemetry: {
         events: [
             'session_saved',
@@ -37,8 +42,9 @@ const provenJourney: PracticeLoopJourneyEvidence = {
             'practice_loop_review_rendered',
         ],
         stagesReached: ['practice_loop_ready', 'review_rendered'],
-        boundSessionId: SESSION,
-        boundModel: MODEL,
+        boundCandidateId: CANDIDATE,
+        attemptIds: [ATTEMPT],
+        journeyIds: [JOURNEY],
     },
 };
 
@@ -98,30 +104,75 @@ describe('#1437 — the Practice Loop journey verdict', () => {
             .toContain('2 suggestion requests were made; exactly one is allowed per uncached session');
     });
 
-    it('CASUALTY: telemetry bound to the wrong session', () => {
-        expect(practiceLoopJourneyFailures(without({
-            telemetry: { ...provenJourney.telemetry, boundSessionId: 'sess-someone-else' },
-        }))).toContain('telemetry is bound to a different session than the one saved');
-    });
-
-    it('CASUALTY: telemetry bound to the wrong model', () => {
+    it('CASUALTY: telemetry bound to a different candidate than the one persisted', () => {
         // Down-selection integrity: a row attributed to the wrong candidate is worse than a missing row.
         expect(practiceLoopJourneyFailures(without({
-            telemetry: { ...provenJourney.telemetry, boundModel: 'gemini-3-flash-preview' },
-        }))).toContain('telemetry is bound to a different model than the one persisted');
+            telemetry: { ...provenJourney.telemetry, boundCandidateId: 'whisper-tiny-en' },
+        }))).toContain('telemetry is bound to a different candidate than the one persisted');
+    });
+
+    it('CASUALTY: two attempts inside one settled take — cross-take contamination', () => {
+        expect(practiceLoopJourneyFailures(without({
+            telemetry: { ...provenJourney.telemetry, attemptIds: [ATTEMPT, 'att-second'] },
+        }))).toContain("2 distinct attempt ids appear on this journey's review events; a settled take has exactly one");
+    });
+
+    it('CASUALTY: review events carry no attempt id, so the take cannot be attributed', () => {
+        expect(practiceLoopJourneyFailures(without({
+            telemetry: { ...provenJourney.telemetry, attemptIds: [] },
+        }))).toContain('no attempt id is present on the review events, so the take cannot be attributed');
+    });
+
+    it('CASUALTY: the product FACADE is not a candidate identity', () => {
+        // `private` agreeing with `private` agreeing with `private` proves nothing about which model ran.
+        // This is the shape that would have let all three arms of the down-selection look identical.
+        const failures = practiceLoopJourneyFailures(without({
+            modelIdentity: { requested: 'private', observed: 'private', persisted: 'private' },
+            telemetry: { ...provenJourney.telemetry, boundCandidateId: 'private' },
+        }));
+        expect(failures).toEqual(expect.arrayContaining([
+            'requested model identity is the product facade "private", not a candidate id',
+            'observed model identity is the product facade "private", not a candidate id',
+            'persisted model identity is the product facade "private", not a candidate id',
+        ]));
+    });
+
+    it('CASUALTY: the coaching request fired at or before persistence', () => {
+        // A request that beats the save is not the automatic post-save behaviour, even if a review
+        // later renders — and the render is exactly what made this shape look fine.
+        expect(practiceLoopJourneyFailures(without({ suggestionRequestsBeforeSave: 1 })))
+            .toContain('1 coaching request(s) fired at or before persistence; the contract is automatic AFTER a successful save');
+    });
+
+    it('CASUALTY: a rendered review that claims neither completion stage', () => {
+        // The mirror of the stage casualty below: requiring the stages only in the negative let a
+        // success pass having marked nothing.
+        const failures = practiceLoopJourneyFailures(without({
+            telemetry: { ...provenJourney.telemetry, stagesReached: [] },
+        }));
+        expect(failures).toEqual(expect.arrayContaining([
+            'practice_loop_ready was not marked despite a rendered review',
+            'review_rendered was not marked despite a rendered review',
+        ]));
     });
 
     it('CASUALTY: requested, observed and persisted model identity diverge', () => {
         expect(practiceLoopJourneyFailures(without({
-            modelIdentity: { requested: MODEL, observed: MODEL, persisted: 'gemini-3-flash-preview' },
-        }))).toContain(`model identity diverges: requested=${MODEL} observed=${MODEL} persisted=gemini-3-flash-preview`);
+            modelIdentity: { requested: CANDIDATE, observed: CANDIDATE, persisted: 'whisper-tiny-en' },
+        }))).toContain(`model identity diverges: requested=${CANDIDATE} observed=${CANDIDATE} persisted=whisper-tiny-en`);
     });
 
     it('CASUALTY: the correlated sequence is broken, so the journey cannot be reconstructed', () => {
-        // Order matters: a rendered event with no preceding request is not a journey, it is two facts.
+        // Order matters: a save followed by a render, with the request/completed/persisted middle
+        // missing, is not a journey — it is two facts that happen to sit next to each other.
+        expect(practiceLoopJourneyFailures(without({
+            telemetry: { ...provenJourney.telemetry, events: ['session_saved', 'practice_loop_review_rendered'] },
+        }))).toContain('telemetry is missing practice_loop_review_requested after the preceding step, so the journey cannot be reconstructed');
+
+        // And a render with no save at all fails at the first step rather than passing silently.
         expect(practiceLoopJourneyFailures(without({
             telemetry: { ...provenJourney.telemetry, events: ['practice_loop_review_rendered'] },
-        }))).toContain('telemetry is missing practice_loop_review_requested after the preceding step, so the journey cannot be reconstructed');
+        }))).toContain('telemetry is missing session_saved after the preceding step, so the journey cannot be reconstructed');
     });
 
     it('CASUALTY: the session never saved', () => {
