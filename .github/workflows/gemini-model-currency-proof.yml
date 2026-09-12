@@ -1,0 +1,87 @@
+name: Gemini Model Currency Proof
+
+# OFFLINE contract-conformance run. It executes from the trusted default branch, never checks out or runs
+# code from the target PR, and makes NO provider call: no credential is passed to this job at all. The
+# candidate input is one inert text read with `git show` — the JSON contract. The production binding is NOT
+# claimed here; it is proven in #1424 by a TypeScript-AST test running in ordinary CI.
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Full candidate commit SHA whose contract is being proven
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gemini-model-currency-proof-${{ inputs.target_sha }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    # `workflow_dispatch --ref` can select a feature-branch copy of this file, whose steps could be rewritten
+    # to consume the API key directly. Fail closed unless GitHub is executing the DEFAULT-BRANCH revision.
+    # Proven, not assumed: dispatched against this branch before publication (run `34676874628`), this job
+    # concluded `skipped` and not one step ran.
+    #
+    # A protected `gemini-model-proof` environment with reviewer approval was declared here and is REMOVED
+    # under PO release policy `5643985190` and PM UNBLOCK `5643977200`. Two reasons, and the second is the
+    # one that matters: the environment does not exist, and a job naming an absent environment has one
+    # auto-created with NO protection rules and NO branch policy — so the line read as a gate and gated
+    # nothing. Declaring it was worse than omitting it, because it invited the belief that approval was
+    # required. The environment, reviewer approval and secret migration are post-MVP debt in #1399.
+    #
+    # The default-branch check above is the boundary this workflow enforces. Since PO directive 5644238136
+    # there is no credential in this job and nothing here can spend a generation — Production's automatic
+    # post-session suggestions are unaffected and remain the place the live model is exercised.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out the trusted harness only
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read candidate contract as inert data
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          mkdir -p artifacts
+          node -e 'const fs=require("fs"); fs.writeFileSync("artifacts/gemini-model-currency-proof.json", JSON.stringify({target_sha:process.env.TARGET_SHA,success:false,phase:"candidate-extraction"},null,2)+"\n")'
+          if ! [[ "$TARGET_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "target_sha must be a full 40-character commit"
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "$TARGET_SHA"
+          git show "$TARGET_SHA:backend/supabase/functions/get-ai-suggestions/contract.json" > /tmp/gemini-coaching-contract.json
+          echo "Trusted harness: $(git rev-parse HEAD)"
+          echo "Candidate data: $TARGET_SHA"
+
+      # PO directive 5644238136 — OFFLINE ONLY. No credential is passed to this job and no provider call is
+      # made: not here, not in CI, not in Preview. The step verifies the candidate's contract and proves the
+      # shared response validator discriminates against checked-in fixtures. It does NOT claim the
+      # production function uses that contract — after Codex 3995449453 / 3995482306 / 3995482308 /
+      # 3995482310 / 3995491120 that claim was withdrawn from here; #1424 proves it with a real TypeScript
+      # parse in CI, on the tree being merged.
+      - name: Verify the candidate contract offline
+        env:
+          GEMINI_CONTRACT_PATH: /tmp/gemini-coaching-contract.json
+          TARGET_SHA: ${{ inputs.target_sha }}
+          PROOF_OUT: artifacts/gemini-model-currency-proof.json
+        run: node scripts/gemini-model-currency-proof.mjs
+
+      - name: Retain the conformance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-model-currency-proof-${{ inputs.target_sha }}
+          path: artifacts/gemini-model-currency-proof.json
+          if-no-files-found: error
+          retention-days: 14
