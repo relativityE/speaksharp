@@ -23,6 +23,10 @@ const mocks = vi.hoisted(() => ({
   init: vi.fn(),
   checkAvailability: vi.fn(),
   transcribe: vi.fn(),
+  // The engine's own session lifecycle. PrivateWhisper now opens and closes it, so a double without
+  // these is an incomplete engine rather than a passing test.
+  engineStart: vi.fn(),
+  engineStop: vi.fn(),
   isMeaningfullySilent: vi.fn().mockReturnValue(false),
   processAudioFrame: vi.fn(),
 }));
@@ -40,6 +44,8 @@ vi.mock('../../engines/PrivateSTT', () => {
     init: mocks.init,
     checkAvailability: mocks.checkAvailability,
     transcribe: mocks.transcribe,
+    start: mocks.engineStart,
+    stop: mocks.engineStop,
     getEngineType: vi.fn().mockReturnValue('transformers-js'),
   }));
   return { PrivateSTT: MockPrivateSTT, createPrivateSTT: vi.fn(() => new MockPrivateSTT()) };
@@ -54,6 +60,19 @@ function constFrame(samples: number, value: number): Float32Array {
 
 /** Concatenate all Float32Array args across transcribe() calls; the whole-utterance commit passes
  *  the full buffer. Returns the LARGEST single Float32Array argument (the final-decode input). */
+/**
+ * The FINAL decode call — the whole-utterance commit — identified by the finality it declared.
+ *
+ * #1405: `onStop()` runs `commitWholeUtteranceTranscript()` first and the `force` fallback only when
+ * that returns empty, so marking finality on the fallback alone meant the normal path never requested
+ * it: a streaming engine answered with its interim, PrivateWhisper stored it, and the authoritative
+ * forced pass never ran. This test already drives a real recording to a real commit, so it is where
+ * that can be observed rather than asserted about the source.
+ */
+function finalTranscribeCalls(): unknown[][] {
+  return mocks.transcribe.mock.calls.filter((c) => (c[1] as { final?: boolean } | undefined)?.final === true);
+}
+
 function largestTranscribeAudio(): Float32Array | null {
   let best: Float32Array | null = null;
   for (const call of mocks.transcribe.mock.calls) {
@@ -109,6 +128,13 @@ describe('#891 PrivateWhisper opening-clause capture', () => {
     await pw.stop();
 
     const finalAudio = largestTranscribeAudio();
+
+    // #1405 — the commit that produced this audio must have DECLARED itself terminal. Asserted here
+    // because this test drives a real recording through a real commit, so finality is observable rather
+    // than inferred from source. Exactly one, and it is the call carrying the full utterance.
+    const finals = finalTranscribeCalls();
+    expect(finals.length, 'the terminal commit must request finalization exactly once').toBe(1);
+    expect(finals[0][0], 'the final call is the one carrying the whole utterance').toBe(finalAudio);
     expect(finalAudio, 'whole-utterance commit must have decoded some audio').toBeTruthy();
 
     const openingRetained = containsMark(finalAudio!, OPENING_MARK);

@@ -1,0 +1,48 @@
+{
+  "verdict": "HOLD",
+  "problems": [
+    "no engine has published an identity yet",
+    "the page published no requested candidate",
+    "observed null != expected moonshine:streaming-medium",
+    "model status is idle",
+    "3 suspect request(s)"
+  ],
+  "egress": [
+    {
+      "origin": "https://o4509834735190016.ingest.us.sentry.io",
+      "route": "other",
+      "routeHash": "b9d5c4c72d86",
+      "method": "POST",
+      "category": "off_origin_body"
+    },
+    {
+      "origin": "https://us-assets.i.posthog.com",
+      "route": "other",
+      "routeHash": "1f0b773729fb",
+      "method": "GET",
+      "category": "off_origin_unrecognised"
+    },
+    {
+      "origin": "https://us.i.posthog.com",
+      "route": "other",
+      "routeHash": "4e41e31333a8",
+      "method": "POST",
+      "category": "off_origin_body"
+    }
+  ],
+  "sockets": [],
+  "capturedAt": "2026-09-02T00:54:08.007Z",
+  "expectedCandidate": "moonshine:streaming-medium",
+  "requestedCandidate": null,
+  "observedCandidate": null,
+  "release": "46e57012c89592870e284503692a527ff38029f5",
+  "target": {
+    "id": "EFCEC511B4C95234E828F32A2D5188F8",
+    "type": "page",
+    "origin": "https://speaksharp-public.vercel.app",
+    "route": "app-shell",
+    "routeHash": "8a5edab28263"
+  },
+  "dryRun": true,
+  "requestCount": 16
+}

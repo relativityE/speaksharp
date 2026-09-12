@@ -19,6 +19,8 @@ describe('#1046 ObjectiveSetupForm (capture UI)', () => {
         expect(screen.queryByTestId('objective-goal-input')).toBeNull(); // free text only under "Other"
         expect(screen.getAllByRole('listitem')).toHaveLength(3);
         expect(screen.getByTestId('objective-setup-submit')).toBeDisabled();
+        expect(screen.getByTestId('objective-setup-submit')).toHaveTextContent('Proceed to session');
+        expect(screen.queryByText(/Name what you.re rehearsing/i)).not.toBeInTheDocument();
     });
 
     it('picking a preset topic sets the goal; submit enables once a point is labelled', () => {
@@ -94,5 +96,107 @@ describe('#1046 ObjectiveSetupForm (capture UI)', () => {
         expect(screen.getByTestId('objective-setup-error')).toHaveTextContent(/isn.t available on your account/i);
         expect(onReady).not.toHaveBeenCalled();
         expect(screen.getByTestId('objective-setup-submit')).toBeEnabled();
+    });
+});
+
+/**
+ * #1429 E1/E2 — the user chooses how many Focus Points they enter, and every one of them survives.
+ *
+ * THE REQUIREMENT: every point the user enters is captured. There is no criteria count, and no case
+ * in which an entered point may go missing. Three rows is the INITIAL UI count, not a specification.
+ * The counts sampled below show the behaviour does not depend on how many points were entered.
+ *
+ * The defect this guards against is silent truncation: the user enters seven, the brief stores fewer,
+ * and coverage then reports against a set the user never agreed to.
+ *
+ * THE MVP RANGE IS 1-7, ruled and recorded. `OBJECTIVE_MAX_POINTS = 7`
+ * (`objectiveBriefService.ts`) is therefore correct, and the add control disappearing at seven is the
+ * intended behaviour rather than a limitation to work around. Zero, and anything above seven, are
+ * future-release design considerations only: they block no PR, no test, no deployment and no
+ * acceptance, and no redesign happens in the current release. The counts sampled below stay samples
+ * across that range — they are not a specification that those particular numbers are special.
+ */
+describe('#1429 — every entered Focus Point reaches the brief, in order', () => {
+    const SEVEN = [
+        'Name the price',
+        'State the guarantee',
+        'Cover the timeline',
+        'Explain the onboarding',
+        'Mention the support team',
+        'Describe the migration plan',
+        'Confirm the renewal terms',
+    ];
+
+    const enter = (labels: string[]) => {
+        for (let i = 3; i < labels.length; i++) {
+            fireEvent.click(screen.getByTestId('objective-add-point'));
+        }
+        for (let i = labels.length; i < 3; i++) {
+            fireEvent.click(screen.getByTestId(`objective-point-remove-${labels.length}`));
+        }
+        labels.forEach((label, index) => {
+            fireEvent.change(screen.getByTestId(`objective-point-label-${index}`), { target: { value: label } });
+        });
+    };
+
+    it.each([1, 3, 4, 7])('stores all %i entered points in the order they were typed', async (count) => {
+        startObjectiveBrief.mockResolvedValue({ ok: true, briefId: 'b1', projectId: 'p1' });
+        const onReady = vi.fn();
+        render(<ObjectiveSetupForm onReady={onReady} />);
+        const labels = SEVEN.slice(0, count);
+
+        fireEvent.change(screen.getByTestId('objective-goal-select'), { target: { value: 'Sales or product pitch' } });
+        enter(labels);
+        fireEvent.click(screen.getByTestId('objective-setup-submit'));
+
+        await waitFor(() => expect(onReady).toHaveBeenCalled());
+        expect(onReady.mock.calls[0][0].points).toEqual(labels);
+        expect(startObjectiveBrief.mock.calls[0][0].points).toEqual(labels.map((label) => ({ label })));
+    });
+
+    it('CASUALTY: seven entered points are not silently truncated to the three initial rows', async () => {
+        startObjectiveBrief.mockResolvedValue({ ok: true, briefId: 'b1', projectId: 'p1' });
+        const onReady = vi.fn();
+        render(<ObjectiveSetupForm onReady={onReady} />);
+
+        fireEvent.change(screen.getByTestId('objective-goal-select'), { target: { value: 'Sales or product pitch' } });
+        enter(SEVEN);
+        fireEvent.click(screen.getByTestId('objective-setup-submit'));
+
+        await waitFor(() => expect(onReady).toHaveBeenCalled());
+        const stored = onReady.mock.calls[0][0].points as string[];
+        expect(stored).toHaveLength(7);
+        // Named, so a truncation reports WHICH points were dropped rather than only a count.
+        expect(SEVEN.filter((label) => !stored.includes(label))).toEqual([]);
+    });
+
+    it('CASUALTY: reordering matters — the stored order is the typed order, not a sorted one', async () => {
+        startObjectiveBrief.mockResolvedValue({ ok: true, briefId: 'b1', projectId: 'p1' });
+        const onReady = vi.fn();
+        render(<ObjectiveSetupForm onReady={onReady} />);
+        const reversed = [...SEVEN.slice(0, 4)].reverse();
+
+        fireEvent.change(screen.getByTestId('objective-goal-select'), { target: { value: 'Sales or product pitch' } });
+        enter(reversed);
+        fireEvent.click(screen.getByTestId('objective-setup-submit'));
+
+        await waitFor(() => expect(onReady).toHaveBeenCalled());
+        expect(onReady.mock.calls[0][0].points).toEqual(reversed);
+        expect(onReady.mock.calls[0][0].points).not.toEqual([...reversed].sort());
+    });
+
+    it('a blank row is dropped without disturbing the order of the points that were entered', async () => {
+        startObjectiveBrief.mockResolvedValue({ ok: true, briefId: 'b1', projectId: 'p1' });
+        const onReady = vi.fn();
+        render(<ObjectiveSetupForm onReady={onReady} />);
+
+        fireEvent.change(screen.getByTestId('objective-goal-select'), { target: { value: 'Sales or product pitch' } });
+        fireEvent.change(screen.getByTestId('objective-point-label-0'), { target: { value: SEVEN[0] } });
+        // row 1 deliberately left blank
+        fireEvent.change(screen.getByTestId('objective-point-label-2'), { target: { value: SEVEN[2] } });
+        fireEvent.click(screen.getByTestId('objective-setup-submit'));
+
+        await waitFor(() => expect(onReady).toHaveBeenCalled());
+        expect(onReady.mock.calls[0][0].points).toEqual([SEVEN[0], SEVEN[2]]);
     });
 });

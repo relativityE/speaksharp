@@ -84,9 +84,12 @@ describe('buildSttIdentity', () => {
         expect(id.userHidden).toBe(true);
     });
 
-    it('engine override flag flips engineSelection to override', () => {
-        const id = buildSttIdentity({ mode: 'private', privateModelKey: DEFAULT_MODEL, engineOverride: 'transformers-js-v4' });
-        expect(id.engineSelection).toBe('override');
+    it('CASUALTY: engineSelection is always default — there is no override to report', () => {
+        // This asserted that an override flag flipped the reported selection. The flag came from
+        // `?privateEngine=` / localStorage, which is retired, so the identity can no longer describe a
+        // per-visitor override: reporting one would name a channel that cannot exist.
+        const id = buildSttIdentity({ mode: 'private', privateModelKey: DEFAULT_MODEL });
+        expect(id.engineSelection).toBe('default');
     });
 
     it('cloud mode -> assemblyai, remote, not user-hidden', () => {

@@ -16,7 +16,7 @@ import { Result } from '../../modes/types';
 import type { PrivateSTT as PrivateSTTType } from '../PrivateSTT';
 import { ENV } from '../../../../config/TestFlags';
 import { STTEngine } from '../../../../contracts/STTEngine';
-import { PRIV_STT_V4 } from '../../sttConstants';
+import { PRIV_STT_V4_VARIANTS } from '../../sttConstants';
 
 // Mock underlying libraries to avoid resolution errors
 vi.mock('@xenova/transformers', () => ({}));
@@ -352,17 +352,22 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(mockV4Init).not.toHaveBeenCalled();
     });
 
-    it('dev/test: ?privateEngine / localStorage override STILL forces v4 (override remains a dev/test affordance)', async () => {
-        // Unit context: __TEST__ = true (beforeEach) => ENV.isTest true => override allowed.
+    it('CASUALTY: ?privateEngine / localStorage can no longer force v4, even in dev/test', async () => {
+        // This used to assert the override was HONORED here, gated to dev/test. The gate was real, but
+        // the sibling `?privateModel=` channel had no gate at all and worked on the production site,
+        // and these parameter names disclose internal engine builds to anyone reading a URL. The whole
+        // channel is retired, so the assertion inverts: the URL and storage are now inert everywhere.
         if (window.__SS_E2E__) { window.__SS_E2E__.isActive = true; window.__SS_E2E__.engineType = 'real'; }
         window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
+        window.history.replaceState({}, '', '?privateEngine=transformers-js-v4');
 
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
 
-        expect(pstt.getEngineType()).toBe('transformers-js-v4'); // honored in dev/test
-        expect(mockV4Init).toHaveBeenCalled();
+        expect(pstt.getEngineType()).toBe('transformers-js');
+        expect(mockV4Init).not.toHaveBeenCalled();
+        window.history.replaceState({}, '', '/');
     });
 
     it('contract: availability is a pure cache probe and does not instantiate registry engines', async () => {
@@ -380,17 +385,34 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(factory).not.toHaveBeenCalled();
     });
 
-    it('contract: v4 availability reports cache miss and q4 split size before explicit setup', async () => {
+    it('contract: v4 availability reports cache miss and the SELECTED variant size', async () => {
         globalThis.__TEST__ = false;
-        window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
+        // Availability follows the CONFIG SELECTION, not the provider default: a build configured for
+        // a v4 variant must probe that variant and quote ITS download size. Reporting base_q4's number
+        // for a different variant is a consent prompt about the wrong model.
+        vi.resetModules();
+        vi.doMock('../../candidateSelection', async (importOriginal) => {
+            const actual = await importOriginal<typeof import('../../candidateSelection')>();
+            const { CANDIDATES } = await import('../../candidateRegistry');
+            return {
+                ...actual,
+                effectiveCandidate: () => ({ candidate: CANDIDATES['v4:base:q4'], fallbackCause: null }),
+            };
+        });
+        try {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const availability = await pstt.checkAvailability();
 
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        const availability = await pstt.checkAvailability();
-
-        expect(availability.isAvailable).toBe(false);
-        expect(availability.reason).toBe('CACHE_MISS');
-        expect(availability.sizeMB).toBe(PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB);
+            expect(availability.isAvailable).toBe(false);
+            expect(availability.reason).toBe('CACHE_MISS');
+            expect(availability.sizeMB).toBe(PRIV_STT_V4_VARIANTS.base_q4.EXPECTED_SPLIT_DOWNLOAD_MB);
+        } finally {
+            // UNCONDITIONAL. A throwing assertion previously left this module mocked, and the NEXT
+            // test then resolved v4 and failed for a reason that had nothing to do with it.
+            vi.doUnmock('../../candidateSelection');
+            vi.resetModules();
+        }
     });
 
     it('contract: does not fall back to a non-configured registry provider when configured provider is absent', async () => {

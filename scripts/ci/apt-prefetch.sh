@@ -80,9 +80,11 @@ PKG_ENTRIES="$(grep -c '^Package:' "$BUNDLE/debs/Packages" || echo 0)"
 # load + resolution + virtual/preinstalled + closure; we do not re-derive index shape as a blocker here.
 echo "[prefetch] index: ${PKG_ENTRIES} Packages stanzas for ${DEB_COUNT} .deb files (diagnostic)"
 
-# ── 8. Freeze the compatibility manifest. The GATE is distribution-level (family + codename + arch + locked
-#       Playwright version) — NOT the exact runner ImageVersion, which is a build-patch proxy that blocks
-#       same-distribution shards during a rollout. ImageOS/ImageVersion are recorded for PROVENANCE only.
+# ── 8. Freeze the compatibility manifest. Two gates act on this file. apt-install-offline.sh gates on the
+#       DISTRIBUTION (family + codename + arch + locked Playwright version). apt-install.sh gates on exact
+#       ImageVersion equality BEFORE any install, and routes a mismatch to a bounded compatibility path
+#       rather than failing — the exact build is too strict to fail on during a rollout, but too significant
+#       to ignore, because the -dev packages here pin exact-equal runtime deps.
 . /etc/os-release 2>/dev/null || true
 PW_LOCKED="$(grep -m1 -oE 'playwright-core@[0-9]+\.[0-9]+\.[0-9]+' pnpm-lock.yaml 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
 {
@@ -91,7 +93,7 @@ PW_LOCKED="$(grep -m1 -oE 'playwright-core@[0-9]+\.[0-9]+\.[0-9]+' pnpm-lock.yam
   echo "ARCH=$(dpkg --print-architecture)"         # GATE: dpkg architecture
   echo "PLAYWRIGHT_VERSION=${PW_LOCKED:-unknown}"  # GATE: locked Playwright version (from the lockfile)
   echo "ImageOS=${ImageOS:-unknown}"               # provenance only (NOT gated)
-  echo "ImageVersion=${ImageVersion:-unknown}"     # provenance + cache separation (NOT gated)
+  echo "ImageVersion=${ImageVersion:-unknown}"     # GATE (apt-install.sh, exact equality) + cache separation
 } > "$BUNDLE/image.manifest"
 
 echo "[prefetch] bundle complete: ${DEB_COUNT} .deb files, $(wc -l < "$BUNDLE/sha256sums.txt") checksums, ${PKG_ENTRIES} Packages entries"

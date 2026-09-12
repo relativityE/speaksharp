@@ -46,7 +46,7 @@ describe('the envelope carries what a launch cannot be measured without', () => 
         // uninterpretable — the exact failure that wasted the last release.
         const e = buildEnvelope({
             engineMetadata: engineRan('v2:base.en'),
-            trafficSignals: { accountId: CANARY, canaryAccountIds: [CANARY] },
+            trafficSignals: { accountId: CANARY, canaryClaim: true },
         });
         expect(e.traffic_type).toBe('canary');
         expect(e.traffic_type).not.toBe('user');
@@ -84,7 +84,7 @@ describe('a producer cannot forge or override the envelope', () => {
         const producer = { traffic_type: 'user', candidate_id: 'v2:base.en', mode: 'freeform' };
         const envelope = buildEnvelope({
             engineMetadata: engineRan('v4:base:int8'),
-            trafficSignals: { accountId: CANARY, canaryAccountIds: [CANARY] },
+            trafficSignals: { accountId: CANARY, canaryClaim: true },
         });
         const final: Record<string, unknown> = { ...stripEnvelopeKeys(producer), ...envelope };
         expect(final.candidate_id).toBe('v4:base:int8');   // what ran, not what was claimed
@@ -97,27 +97,63 @@ describe('a producer cannot forge or override the envelope', () => {
     });
 });
 
+/**
+ * Source with comments removed, so a guard that scans for code cannot match prose.
+ *
+ * Block comments first, then line comments. Strings that contain `//` are not a concern here: this is
+ * used only to locate call sites, and a false NEGATIVE from an over-eager strip would show up
+ * immediately as the capture count dropping to zero, which the assertion below checks.
+ */
+const withoutComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
 describe('the envelope EXTENDS the T1 path rather than duplicating it', () => {
-    it('CASUALTY: EVERY posthog.capture carries the envelope — no path escapes it', () => {
+    it('CASUALTY: EVERY posthog.capture carries an envelope — no path escapes it', () => {
         // There are two captures: the buffered seam, and `account_identified`, which deliberately
         // bypasses the buffer because the batch flush is too slow before post-login navigation. That
         // second path had no envelope, so a CANARY LOGIN was indistinguishable from a user login —
-        // the exact signal the anti-silence gate exists to provide. Asserting "exactly one capture"
-        // would have hidden it; asserting every capture is enveloped is the rule that matters.
-        const src = bufferSrc();
-        const captures = src.match(/posthog\.capture\(/g)?.length ?? 0;
-        expect(captures).toBeGreaterThan(0);
-        expect(src.match(/buildEnvelope\(/g)?.length ?? 0).toBe(captures);
+        // the exact signal the anti-silence gate exists to provide.
+        //
+        // COUNTING `buildEnvelope(` CALLS NO LONGER EXPRESSES THIS. The buffered event now snapshots its
+        // envelope at push() and spreads the snapshot at send(), so calls and captures legitimately
+        // differ. Each capture is inspected for an envelope spread instead — the property the count was
+        // standing in for.
+        // COMMENTS ARE STRIPPED FIRST. This scans source text for call sites, and prose that MENTIONS
+        // `posthog.capture(` — a note explaining that it is fire-and-forget, for instance — is not one.
+        // Without this the guard reports a call site inside a paragraph and fails on documentation,
+        // which trains the next person to reword the comment rather than trust the guard.
+        const src = withoutComments(bufferSrc());
+        const captures = [...src.matchAll(/posthog\.capture\(/g)];
+        expect(captures.length).toBeGreaterThan(0);
+        for (const match of captures) {
+            const call = src.slice(match.index, match.index + 600);
+            expect(call, 'a capture with no envelope spread').toMatch(/\.\.\.(envelope|buildEnvelope\()/);
+        }
     });
 
-    it('CASUALTY: the envelope is applied at that seam, after producer projection', () => {
+    it('CASUALTY: the envelope is SNAPSHOTTED at the producer boundary, not rebuilt at send', () => {
+        // Building it at send let a queued event acquire whichever engine was resolved when the queue
+        // drained: a take recorded on Moonshine and flushed after a switch to v2 was filed under v2.
         const src = bufferSrc();
-        const capture = src.indexOf('posthog.capture(');
-        const projection = src.indexOf('projectEventProps(');
-        const envelope = src.indexOf('buildEnvelope(');
+        const push = src.slice(src.indexOf('public push('), src.indexOf('public flush('));
+        expect(push, 'push must capture the envelope while the producing state is still current')
+            .toMatch(/envelope:\s*buildEnvelope\(/);
+
+        const send = src.slice(src.indexOf('private send('));
+        expect(send, 'send must prefer the snapshot over a fresh build')
+            .toMatch(/event\.envelope\s*\?\?/);
+    });
+
+    it('CASUALTY: the envelope is applied after producer projection and before the capture', () => {
+        // Ambient context must land after the allowlist runs, or the projection would strip it.
+        const src = bufferSrc();
+        const send = src.slice(src.indexOf('private send('));
+        const projection = send.indexOf('projectEventProps(');
+        const envelope = send.indexOf('const envelope =');
+        const capture = send.indexOf('posthog.capture(');
         expect(projection).toBeGreaterThan(-1);
-        expect(envelope).toBeGreaterThan(projection);   // ambient context after the allowlist runs
-        expect(envelope).toBeLessThan(capture);         // and before the single capture
+        expect(envelope).toBeGreaterThan(projection);
+        expect(envelope).toBeLessThan(capture);
         expect(src).toMatch(/stripEnvelopeKeys\(sanitized\)/);
     });
 });

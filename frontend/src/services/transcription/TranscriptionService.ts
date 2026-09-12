@@ -208,6 +208,19 @@ export default class TranscriptionService {
   private telemetrySeq = 0;
   private activeStrategyId: string | null = null;
   private strategyVersion: number = 0;
+
+  /**
+   * The user's setup decision, held for THIS facade only.
+   *
+   * It exists because a decision we could not write down is still a decision the user made. When the
+   * receipt fails to persist (blocked site data, quota, a read-back that comes back empty) the session
+   * continues on this flag instead of refusing, and the user is told plainly that it was not saved.
+   *
+   * Deliberately per-instance and never persisted: a new facade has no record to read, so it asks
+   * again — which is the truth. A successful `recordConsent` writes the real receipt, and that is what
+   * suppresses the prompt for the next facade; this flag never does that job.
+   */
+  private consentGrantedThisSession = false;
   private isModeLocked: boolean = false;
   private lastError: TranscriptionError | null = null;
   private idempotencyKey: string | null = null;
@@ -507,7 +520,9 @@ export default class TranscriptionService {
           idempotencyKey,
           metadata as unknown as never
         );
-        return result.session?.id || null;
+        if (result.status === 'usage_exceeded') throw new Error('Usage limit exceeded');
+        if (result.status === 'failed') throw new Error('Failed to create session');
+        return result.session.id;
       },
       heartbeatSession: async (sessionId) => {
         await heartbeatSession(sessionId);
@@ -648,16 +663,35 @@ export default class TranscriptionService {
     }
 
     // 🛡️ 2. Availability Probe (Heartbeat Guard)
-    const availability = typeof this.strategy.checkAvailability === 'function'
+    let availability = typeof this.strategy.checkAvailability === 'function'
       ? await this.strategy.checkAvailability()
       : { isAvailable: true };
 
+    // #1259: captured at METHOD scope so the acquisition trigger below reads the same value the
+    // availability gates used. Recomputing it later would ask a state machine that has since moved on.
+    let isExplicitInit = forceExplicit;
+
     // Skip availability gating for 'mock' mode
     if (mode !== 'mock') {
-      const isExplicitInit = this.fsm.is('ENGINE_INITIALIZING') || forceExplicit;
+      isExplicitInit = this.fsm.is('ENGINE_INITIALIZING') || forceExplicit;
 
-      // Gate 1: CACHE_MISS specific
-      if (!availability.isAvailable && availability.reason === 'CACHE_MISS') {
+      // Gate 1: the user has to be ASKED, and must be able to answer.
+      //
+      // CONSENT_REQUIRED used to fall through to Gate 2 and become a hard engine failure, so a Moonshine
+      // selection was permanently unstartable: the consent machinery could refuse but nothing could ever
+      // grant. An unanswerable question is worse than no question — it reads to the user as the product
+      // being broken.
+      //
+      // It joins the download-consent path because that path already IS the consent interaction: the
+      // user is shown what will be downloaded and clicks to proceed. The click arrives here as an
+      // explicit init, which is where the receipt is recorded.
+      // A consent already granted in THIS session is not asked again, saved or not. Without this, a
+      // second init after an unsaved grant re-enters the download prompt mid-session.
+      if (!availability.isAvailable && availability.reason === 'CONSENT_REQUIRED' && this.consentGrantedThisSession) {
+        availability = { isAvailable: true };
+      }
+      const needsUserDecision = availability.reason === 'CACHE_MISS' || availability.reason === 'CONSENT_REQUIRED';
+      if (!availability.isAvailable && needsUserDecision) {
         if (!this.fsm.is('DOWNLOAD_REQUIRED') && !isExplicitInit
           && !this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
           this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
@@ -666,16 +700,92 @@ export default class TranscriptionService {
         this.options.onStatusChange?.({
           type: 'download-required',
           message: 'Private model needs a one-time download.',
-          detail: 'Download once to use offline transcription in this browser.',
+          // The consent copy is the STRATEGY'S, not a generic line: it names the real maximum for the
+          // selected model and says the download may need to happen again if storage is cleared. The
+          // generic sentence claimed the download happens "once", which for a runtime whose cache we
+          // cannot inspect is a promise we are not in a position to make.
+          detail: availability.reason === 'CONSENT_REQUIRED' && availability.message
+            ? availability.message
+            : 'Download once to use offline transcription in this browser.',
           progress: 0
         });
 
         if (!isExplicitInit) return; // background pulse — stop here
+
+        // THE AFFIRMATIVE ACT. Reaching here on an explicit init means the user saw the size and chose
+        // to continue, so the receipt is recorded before initialisation rather than after: a load that
+        // fails partway still consumed their bandwidth with their agreement, and re-asking on the next
+        // attempt would punish them for our failure.
+        const strategy = this.strategy as { grantModelConsent?: () => void };
+        if (availability.reason === 'CONSENT_REQUIRED') {
+          // REQUIRED, NOT OPTIONAL. `strategy.grantModelConsent?.()` no-ops when the method is absent,
+          // so a strategy without a consent recorder proceeded to initialise the model as though the
+          // decision had been saved: the download ran, nothing was persisted, and the next session asked
+          // again. Every step reported success while the user was stuck in a loop.
+          //
+          // A build that cannot record a decision the user just made must stop, visibly and by name.
+          if (typeof strategy.grantModelConsent !== 'function') {
+            const error = TranscriptionError.engineFailure(
+              mode,
+              'STT_CONSENT_AUTHORITY_MISSING: consent cannot be recorded, so initialization must not proceed',
+            );
+            logger.error({ mode }, '[TranscriptionService] Strategy cannot record model consent; refusing to initialize');
+            this.fsm.transition({ type: 'ERROR_OCCURRED', error });
+            this.options.onStatusChange?.({ type: 'error', message: 'Private model consent could not be saved.' });
+            throw error;
+          }
+          try {
+            // Persisted. The RECEIPT is what stops the next facade asking — deliberately not the
+            // in-memory flag, which is per-instance and could never reach another facade. Setting it
+            // here was dead code: a successful write makes `checkAvailability` report available, so the
+            // flag was never read on this path. No mutant could kill it, which is how it was found.
+            strategy.grantModelConsent();
+          } catch (cause) {
+            // STORAGE FAILURE MUST NOT MAKE PRIVATE STT UNUSABLE. Refusing here was worse than the bug
+            // it replaced: a user with blocked site data clicked "Set up Private" and could never
+            // transcribe at all, when the honest outcome is that their setup works NOW and may be asked
+            // for again later. The user's decision is real — only our record of it failed.
+            //
+            // So: warn, do not claim it was saved, and let this session proceed. The grant is held in
+            // memory for THIS facade only, which is exactly the truth — nothing was written, so a new
+            // facade legitimately asks again.
+            logger.warn({ mode, cause }, '[TranscriptionService] Consent could not be persisted; continuing this session unsaved');
+            this.consentGrantedThisSession = true;
+            this.options.onStatusChange?.({
+              type: 'warning',
+              message: 'Setup couldn\u2019t be saved. You may be asked to set up Private again next time.',
+            });
+          }
+          // RE-ASK, DO NOT REUSE. The result above was computed BEFORE the grant, and the gate below
+          // still reads it: recording consent and then failing on the stale pre-consent answer left a
+          // first-time user unable to start at all — they clicked the button, we saved their decision,
+          // and then told them it had failed. The receipt exists now, so the honest thing is to ask the
+          // strategy again rather than reason about what the old answer would have become.
+          availability = typeof this.strategy.checkAvailability === 'function'
+            ? await this.strategy.checkAvailability()
+            : { isAvailable: true };
+          // When the receipt could not be written, the strategy still answers CONSENT_REQUIRED — it has
+          // no record to read. Asking again inside the same live session would show the setup prompt a
+          // second time for a decision the user already made, so the in-memory grant stands in for the
+          // receipt HERE ONLY, and never across facades.
+          if (!availability.isAvailable && availability.reason === 'CONSENT_REQUIRED' && this.consentGrantedThisSession) {
+            availability = { isAvailable: true };
+          }
+          if (availability.isAvailable) {
+            this.options.onStatusChange?.({ type: 'download-required', message: 'Preparing the private model…', progress: 0 });
+          }
+        }
         // explicit init — fall through to strategy.init()
       }
 
-      // Gate 2: General availability failure
-      if (!availability.isAvailable && availability.reason !== 'CACHE_MISS') {
+      // Gate 2: General availability failure.
+      //
+      // Recomputed from the CURRENT availability, not the one Gate 1 saw. Hard-coding `!== 'CACHE_MISS'`
+      // here is what let CONSENT_REQUIRED fall through to a hard failure even after the user had granted
+      // it: a second reason meaning "ask the user" existed, and only one of the two gates knew.
+      const stillNeedsUserDecision =
+        availability.reason === 'CACHE_MISS' || availability.reason === 'CONSENT_REQUIRED';
+      if (!availability.isAvailable && !stillNeedsUserDecision) {
         const error = TranscriptionError.engineFailure(mode, availability.message || 'Strategy unavailable');
         logger.error({ mode, reason: availability.reason }, '[TranscriptionService] Strategy NOT AVAILABLE. Gating execution.');
         this.fsm.transition({ type: 'ERROR_OCCURRED', error });
@@ -696,6 +806,13 @@ export default class TranscriptionService {
       if (!strategy) return;
 
       logger.debug('[TRACE] ENGINE_INIT_START');
+      // #1259: NAME WHY THIS LOAD IS HAPPENING, from the authority that knows. `isExplicitInit` is
+      // already the distinction between a user act and a background pulse; without passing it the
+      // acquisition telemetry reported every load as `explicit-setup`, including warm-ups that found
+      // the model cached and initialised it — the cheapest loads there are, averaged into the
+      // population that measures what a user actually waits for.
+      const acquiring = this.strategy as { setAcquisitionTrigger?: (t: 'warmup' | 'explicit-setup') => void };
+      acquiring.setAcquisitionTrigger?.(isExplicitInit ? 'explicit-setup' : 'warmup');
       const initResult = await this.strategy.init(STT_CONFIG.STRATEGY_INIT_TIMEOUT_MS, isMock);
 
       if (version !== this.strategyVersion) {

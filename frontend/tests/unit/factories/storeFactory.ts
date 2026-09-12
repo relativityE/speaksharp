@@ -26,6 +26,7 @@ const initialState: SessionState = {
     isTranscriptFinalizing: false,
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
+    completedSessionId: null,
     activeObjectiveBrief: null,
     practiceFocus: null,
     completedObjectiveBrief: null,
@@ -192,6 +193,10 @@ export function createTestSessionStore(
         resetSession: vi.fn(() =>
             set(initialState)),
 
+        // #1407: scoped new-take reset. The double mirrors the real action so a caller under test can be
+        // observed choosing the SCOPED reset over the whole-store one.
+        resetForNewObjectiveSet: vi.fn(),
+
         addChunk: vi.fn((chunk) =>
             set((state: any) => ({
                 chunks: [...state.chunks, chunk],
@@ -214,6 +219,7 @@ export function createTestSessionStore(
 
         setCaptureLimitReached: vi.fn((captureLimitReached) => set({ captureLimitReached })),
         setCompletedSessionDuration: vi.fn((completedSessionDurationSeconds) => set({ completedSessionDurationSeconds })),
+        setCompletedSessionId: vi.fn((completedSessionId) => set({ completedSessionId })),
         setActiveObjectiveBrief: vi.fn((activeObjectiveBrief) => set({ activeObjectiveBrief })),
         setPracticeFocus: vi.fn((practiceFocus) => set({ practiceFocus })),
         setCompletedObjectiveBrief: vi.fn((completedObjectiveBrief) => set({ completedObjectiveBrief })),

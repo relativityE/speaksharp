@@ -68,9 +68,23 @@ function setGpu(usable: boolean): void {
         configurable: true, writable: true,
     });
 }
-const PII_KEYS = ['email', 'transcript', 'audio', 'stack', 'errorstack', 'sk_live', 'pk_live', 'whsec', 'token', 'jwt', 'password', 'secret', 'apikey', 'referencetext', 'distinctid', 'userid', 'sessiontoken'];
 
-describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
+/**
+ * SELECTION CANNOT BE BYPASSED — headless operational proof (non-GPU).
+ *
+ * The positive question ("what does this build run?") is answered by config and proven in
+ * candidateSelection.test.ts. This file answers the NEGATIVE question, which is the one an attacker or
+ * a stale bookmark asks: can anything OTHER than the config change which model a visitor gets?
+ *
+ * Deliberately UNMOCKED selection. Stubbing `effectiveCandidate` here would make every assertion below
+ * pass for the wrong reason — a fixed mock is trivially immune to a URL parameter — so these drive the
+ * real selection path and attempt the bypasses against it.
+ *
+ * The flag/forceAuto SELECTION cases that used to live here were removed with the mechanism they
+ * described: flags and the forceAuto shim can no longer choose a model, so a test asserting which model
+ * they choose would assert a behaviour that no longer exists.
+ */
+describe('Private STT selection cannot be bypassed (non-GPU)', () => {
     let pstt: PrivateSTTType | null = null;
     beforeEach(async () => {
         (globalThis as { __TEST__?: boolean }).__TEST__ = true;
@@ -115,6 +129,22 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
     });
 
     // Case B — PRODUCTION cannot be bypassed by ?v4ForceAuto / ?privateEngine / ?engine.
+    it('NON-VACUITY: the engine that ran is the one CONFIG names, not a constant', async () => {
+        // Without this the bypass cases below could pass for the wrong reason: if v4 were unreachable
+        // by ANY route they would still see 'transformers-js'. This ties the expected outcome to the
+        // checked-in selection, so changing the config changes what this suite demands.
+        const { effectiveCandidate } = await import('../../candidateSelection');
+        const { candidate, fallbackCause } = effectiveCandidate();
+        expect(fallbackCause, 'no safety kill in this harness').toBeNull();
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        const expected = candidate.engine === 'transformers-js-v4' ? 'transformers-js-v4' : 'transformers-js';
+        expect(pstt.getEngineType(), `config names ${candidate.id}`).toBe(expected);
+    });
+
     it('B: PRODUCTION ignores ?v4ForceAuto=1 (+ ?engine=v4 / ?privateEngine) -> v2-base, no v4 construct', async () => {
         vi.stubEnv('DEV', false);
         (globalThis as { __TEST__?: boolean }).__TEST__ = false;
@@ -147,91 +177,6 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
 
         expect(pstt.getEngineType()).toBe('transformers-js');
         expect(v4Construct).not.toHaveBeenCalled();
-    });
-
-    // Case D — the ACTUAL posthog.capture payloads carry NO PII and record selectionSource.
-    it('D: PostHog capture payloads contain NO PII/secrets and record selectionSource', async () => {
-        flagState.v4Enabled = true; setGpu(true);
-        v4Init.mockResolvedValue({ isOk: false, error: new Error('forced v4 init failure for telemetry') }); // -> fallback -> telemetry
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        await pstt.init();
-
-        expect(posthogCapture, 'PrivateSTT must emit a flagged v4 telemetry event').toHaveBeenCalled();
-        let attemptPayload: Record<string, unknown> | undefined;
-        // PII safety applies to EVERY captured event; selectionSource lives on the canonical attempt event.
-        for (const [event, payload] of posthogCapture.mock.calls as Array<[string, Record<string, unknown>]>) {
-            expect(String(event)).toMatch(/^private_stt_v4_/);
-            const blob = JSON.stringify(payload ?? {}).toLowerCase();
-            for (const bad of PII_KEYS) {
-                expect(blob, `posthog "${event}" payload must not contain "${bad}"`).not.toContain(bad);
-            }
-            expect(blob, 'no @-style email values').not.toMatch(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
-            if (event === 'private_stt_v4_attempt') attemptPayload = payload;
-        }
-        // flag-driven (not forceAuto) -> the canonical attempt event records the REAL flag source.
-        expect(attemptPayload, 'canonical private_stt_v4_attempt event with real-flag selectionSource')
-            .toMatchObject({ selectionSource: 'posthog_flag' });
-    });
-
-    // Case F1 — DEV/TEST harness: the real localStorage forceAuto key (`speaksharp.v4.forceAuto`) +
-    // usable WebGPU selects v4, and the artifact labels it selectionSource:'dev_harness' — NOT
-    // posthog_flag — even though `reason` reads `webgpu_available_v4_flag` on real WebGPU (identical
-    // for flag AND forceAuto there). Locks the dev_harness (forceAuto) vs posthog_flag (real flag)
-    // selectionSource distinction.
-    it('F1: DEV/TEST forceAuto (real localStorage key) + WebGPU -> v4 selected, selectionSource=dev_harness (NOT posthog_flag)', async () => {
-        flagState.v4Enabled = false; setGpu(true);
-        window.localStorage.setItem('speaksharp.v4.forceAuto', '1'); // dev/test-gated forceAuto shim (dev_harness selection)
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        await pstt.init();
-        expect(pstt.getEngineType()).toBe('transformers-js-v4'); // forceAuto selects v4 in dev/test
-        const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { selectionSource?: string; reason?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
-        expect(dbg?.selectionSource, 'forceAuto value run must be labelled dev_harness, never posthog_flag').toBe('dev_harness');
-        expect(dbg?.reason, 'reason is the conflated signal; proves selectionSource is the honest one').toBe('webgpu_available_v4_flag');
-    });
-
-    it('F1b: DEV/TEST forceAuto + v4Variant=distil_q4 selects the distil candidate via the dev/test forceAuto path', async () => {
-        flagState.v4Enabled = false; setGpu(true);
-        window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
-        window.localStorage.setItem('speaksharp.v4.variant', 'distil_q4');
-
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        await pstt.init();
-
-        expect(pstt.getEngineType()).toBe('transformers-js-v4');
-        expect(v4Construct).toHaveBeenCalledWith(expect.objectContaining({ v4Variant: 'distil_q4' }));
-        const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { selectionSource?: string; v4Variant?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
-        expect(dbg?.selectionSource).toBe('dev_harness');
-        expect(dbg?.v4Variant).toBe('distil_q4');
-    });
-
-    it('F1c: DEV/TEST forceAuto + v4Variant=base_q4 selects the base candidate via the dev/test forceAuto path (dev_harness)', async () => {
-        flagState.v4Enabled = false; setGpu(true);
-        window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
-        window.localStorage.setItem('speaksharp.v4.variant', 'base_q4');
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        await pstt.init();
-        expect(pstt.getEngineType()).toBe('transformers-js-v4');
-        const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { selectionSource?: string; v4Variant?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
-        expect(dbg?.selectionSource).toBe('dev_harness');
-        expect(dbg?.v4Variant).toBe('base_q4');
-    });
-
-    // Allowlist FAIL-CLOSED: an unknown v4Variant must never load an arbitrary model — it falls back to
-    // the base_q4 floor. Guards the security invariant that the bakeoff knob is a 2-value allowlist only.
-    it('F1d: DEV/TEST forceAuto + UNKNOWN v4Variant fails closed to base_q4 (no arbitrary model)', async () => {
-        flagState.v4Enabled = false; setGpu(true);
-        window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
-        window.localStorage.setItem('speaksharp.v4.variant', 'evil-org/secret-model'); // not allowlisted
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        await pstt.init();
-        expect(pstt.getEngineType()).toBe('transformers-js-v4'); // forceAuto still selects v4 (base floor)
-        const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { v4Variant?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
-        expect(dbg?.v4Variant, 'unknown variant must fall closed to base_q4, never a custom model').toBe('base_q4');
     });
 
     // Case F2 — PRODUCTION/BETA: the SAME real forceAuto key is INERT. Even with WebGPU usable, a

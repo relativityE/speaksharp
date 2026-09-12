@@ -69,16 +69,30 @@ describe('#1259 — launch telemetry is content-free (falsification)', () => {
       ...PROHIBITED_INPUT,
       // valid, content-free failure context that MUST survive
       error_code: 'SetupError',
+      report_linked_to_session: true,
+      // #1392: the RAW session id is no longer allowlisted — see the casualty below.
       session_id: 'sess-123',
     });
 
     // Allowlisted, content-free fields are kept.
-    expect(out).toMatchObject({ error_code: 'SetupError', session_id: 'sess-123' });
+    expect(out).toMatchObject({ error_code: 'SetupError', report_linked_to_session: true });
     // Not one prohibited key survives.
     for (const key of Object.keys(PROHIBITED_INPUT)) {
       expect(Object.prototype.hasOwnProperty.call(out, key)).toBe(false);
     }
     assertNoLeak(out);
+  });
+
+  it('CASUALTY: a RAW session id is a prohibited field, not an allowlisted one', () => {
+    // It used to be allowlisted, so every Private event and every Report Issue carried a stable
+    // per-session identifier to an analytics vendor. The DATABASE holds the relationship; the wire only
+    // needs to answer whether one exists, and a boolean cannot re-identify a session.
+    const out = sanitizePrivateTelemetryProps({ session_id: 'sess-123', error_code: 'SetupError' });
+    expect(out).not.toHaveProperty('session_id');
+    expect(JSON.stringify(out)).not.toContain('sess-123');
+    // and the replacement is expressible, so this is a substitution rather than a silent loss
+    expect(sanitizePrivateTelemetryProps({ report_linked_to_session: false }))
+      .toEqual({ report_linked_to_session: false });
   });
 
   it('objects/arrays/functions (potential PII containers) never survive the Private allowlist', () => {

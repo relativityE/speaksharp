@@ -1,13 +1,19 @@
 **Status:** Authoritative product contract
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-13
-**Last Verified:** 2026-08-13 — reconciled to the locked 30-day / $10 Private-only launch contract; implementation and activation remain separately gated.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** Private Practice Loop commercial launch
 **Class:** Entitlement and billing policy
 **Authority:** Product terms, commercial access, expiry permissions, Private-only customer entitlement, and activation boundaries.
 **Not Authoritative For:** Current implementation, deployment, migration, activation, qualification, or GO/HOLD status (→ `RELEASE_STATUS.md`).
 **Supersedes:** The former Free/Pro feature-tier, external-transcription, one-shot, and accumulated-minute policy in this file.
 **Evidence Sources:** Product Owner contract for #1266/#1282/#1290; executable proof remains required before release acceptance.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!IMPORTANT]
+> **Currentized 4 Sep 2026.** The Production biopsy does not change the 30-day/$10 entitlement contract. Model comparison controls are operator-only runtime configuration on the canonical Production app and never a customer tier, entitlement, paid feature, alternate build, or URL. Product recovery work may not introduce a new commercial gate.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Entitlements and Billing
 

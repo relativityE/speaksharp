@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>#1263 Moonshine engine — REAL runtime</title>
+<!--
+  A page for the PRODUCT ENGINE, not for a benchmark arm.
+
+  harness.html is frozen evidence infrastructure for the 600-utterance matrix; this page is separate so
+  driving the engine can never perturb that. What it adds is the one import the engine's DEFAULT loader
+  needs: `@moonshine-ai/moonshine-wasm` is a BARE specifier, and the loader reaches it through
+  `await import(...)`, so without a map entry the browser rejects it before any of our code runs.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "@moonshine-ai/moonshine-wasm": "/lib/@moonshine-ai/moonshine-wasm/dist/index.js"
+  }
+}
+</script>
+<script>
+/**
+ * PCM read by hand, deliberately.
+ *
+ * `AudioContext.decodeAudioData` resamples to the context's own rate — 48 kHz on this host — so audio
+ * that is 16 kHz on disk would arrive at the engine at 48 kHz. The engine would then correctly REFUSE
+ * it, and the refusal would look like an engine defect rather than a harness one. Parsing the RIFF
+ * header keeps the fixture's true rate all the way to transcribe().
+ */
+window.__readPcm16 = async (url) => {
+    const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    const view = new DataView(buf.buffer);
+    let offset = 12, fmt = null, data = null;
+    while (offset + 8 <= buf.length) {
+        const id = String.fromCharCode(buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]);
+        const size = view.getUint32(offset + 4, true);
+        if (id === 'fmt ') fmt = offset + 8;
+        if (id === 'data') { data = { start: offset + 8, size }; break; }
+        offset += 8 + size + (size % 2);
+    }
+    if (fmt === null || !data) throw new Error(`not a RIFF/WAVE file: ${url}`);
+    const channels = view.getUint16(fmt + 2, true);
+    const sampleRate = view.getUint32(fmt + 4, true);
+    const bits = view.getUint16(fmt + 14, true);
+    if (channels !== 1 || bits !== 16) throw new Error(`expected 16-bit mono, got ${bits}-bit x${channels}`);
+    const count = Math.floor(data.size / 2);
+    const samples = new Float32Array(count);
+    for (let i = 0; i < count; i++) samples[i] = view.getInt16(data.start + i * 2, true) / 32768;
+    return { samples, sampleRate, seconds: count / sampleRate };
+};
+
+/**
+ * A MicStream over a fixture. The engine cannot tell it from the real one: same interface, same frame
+ * type, same rate, delivered over time rather than in one call — which is the only way the three-second
+ * live window is exercised at all.
+ */
+window.__fixtureMic = (samples, sampleRate) => {
+    const listeners = new Set();
+    return {
+        stream: {
+            state: 'running',
+            sampleRate,
+            onFrame(cb) { listeners.add(cb); return () => listeners.delete(cb); },
+            offFrame(cb) { listeners.delete(cb); },
+            stop() {}, close() {}, _mediaStream: null,
+        },
+        /** Emit one frame of `seconds` from `at`, exactly as a live microphone would. */
+        emit(at, seconds) {
+            const from = Math.round(at * sampleRate);
+            const to = Math.min(samples.length, from + Math.round(seconds * sampleRate));
+            if (to <= from) return 0;
+            const frame = samples.slice(from, to);
+            for (const cb of listeners) cb(frame);
+            return (to - from) / sampleRate;
+        },
+    };
+};
+window.__ready = true;
+</script>
+<body>#1263 engine runtime page</body>

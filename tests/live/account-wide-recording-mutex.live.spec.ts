@@ -2,6 +2,10 @@ import { writeFileSync } from 'node:fs';
 import { type Browser, type Page } from '@playwright/test';
 import { test, expect } from './helpers/deployedLiveTest';
 import { AUDIO_ARGS, assertManualReleaseProofEnvironment, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
+// THE CONTROL MAP, not a literal. This spec drove `session-start-stop-button`, the combined toggle the
+// session overhaul retired, which renders on no viewport — so it could not have started a recording at
+// all. Resolving from the shared map keeps the harness and the product on one definition.
+import { MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP } from '../helpers/micControls';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -171,32 +175,34 @@ async function prepareSession(page: Page) {
   // start button disabled and timed out the DAST run. Native is also the free-tier default — the most
   // realistic credential-sharing surface.
   await selectBenchmarkMode(page, 'native');
-  await expect(page.getByTestId('session-start-stop-button')).toBeEnabled({ timeout: 60_000 });
+  await expect(page.getByTestId(MIC_CONTROL_BY_STATUS.ready)).toBeEnabled({ timeout: 60_000 });
 }
 
 async function startRecording(page: Page, label: string) {
-  const button = page.getByTestId('session-start-stop-button');
-  await expect(button, `${label} start/stop button`).toBeEnabled({ timeout: 60_000 });
+  const button = page.getByTestId(MIC_CONTROL_BY_STATUS.ready);
+  await expect(button, `${label} start control`).toBeEnabled({ timeout: 60_000 });
   await button.click();
   // FIX: the prior fixed 2s wait raced Private warmup, so A often wasn't RECORDING yet and the
   // proof failed before B's block could be asserted. Poll until the engine is actually RECORDING
   // (data-recording=true), so the cross-device concurrency window is real.
-  await page.waitForFunction(() => {
-    const b = document.querySelector('[data-testid="session-start-stop-button"]');
-    return b?.getAttribute('data-recording') === 'true';
-  }, { timeout: 120_000 }).catch(() => undefined);
+  // `data-recording` lived on the retired toggle. RecorderBar REPLACES MicCard while recording, so
+  // its presence — plus the published runtime state — is what "actually recording" means now.
+  await page.waitForFunction((bar) => (
+    document.querySelector(`[data-testid="${bar}"]`) !== null
+    || document.documentElement.getAttribute('data-runtime-state') === 'RECORDING'
+  ), RECORDER_BAR, { timeout: 120_000 }).catch(() => undefined);
   return readRecordingState(page);
 }
 
 async function tryStartSecondMachine(page: Page) {
-  const button = page.getByTestId('session-start-stop-button');
+  const button = page.getByTestId(MIC_CONTROL_BY_STATUS.ready);
   await expect(button).toBeVisible({ timeout: 60_000 });
   await expect(button).toBeEnabled({ timeout: 60_000 });
   await button.click();
   // Wait for a DECISION (blocked or started), not a fixed delay: B is blocked when it shows the
   // account-lease/active-session message or an error STT status, or (failure) it reaches recording.
   await page.waitForFunction(() => {
-    const b = document.querySelector('[data-testid="session-start-stop-button"]');
+    const b = document.querySelector('[data-testid="recorder-bar"]');
     const html = document.documentElement;
     const status = document.querySelector('[data-testid="status-message-text"]')?.textContent ?? '';
     return (
@@ -235,7 +241,7 @@ async function forceTakeOver(page: Page) {
     if (await loc.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await loc.click().catch(() => undefined);
       await page.waitForFunction(() => (
-        document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'true'
+        document.querySelector('[data-testid="recorder-bar"]') !== null
       ), { timeout: 60_000 }).catch(() => undefined);
       return { attempted: true, control: sel, ...(await readRecordingState(page)) };
     }
@@ -246,18 +252,21 @@ async function forceTakeOver(page: Page) {
 /** After a take-over, the displaced machine's lease heartbeat reports revoked and it stops. */
 async function waitForRevoked(page: Page) {
   await page.waitForFunction(() => (
-    document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') !== 'true'
+    document.querySelector('[data-testid="recorder-bar"]') === null
   ), { timeout: 30_000 }).catch(() => undefined);
   return readRecordingState(page);
 }
 
 async function readRecordingState(page: Page) {
   return page.evaluate(() => {
-    const button = document.querySelector('[data-testid="session-start-stop-button"]');
+    // RECORDING is the RecorderBar's presence plus the published runtime state. The retired toggle's
+    // `data-recording` attribute belonged to an element that no longer exists, so reading it reported
+    // "not recording" unconditionally — a mutex proof built on that could never have failed.
+    const bar = document.querySelector('[data-testid="recorder-bar"]');
     const html = document.documentElement;
     return {
-      recording: button?.getAttribute('data-recording') === 'true',
-      buttonRecording: button?.getAttribute('data-recording') ?? null,
+      recording: bar !== null || html.getAttribute('data-runtime-state') === 'RECORDING',
+      buttonRecording: html.getAttribute('data-runtime-state'),
       runtimeState: html.getAttribute('data-runtime-state'),
       sttStatus: html.getAttribute('data-stt-status'),
       lockHeldByOther: html.getAttribute('data-lock-held-by-other'),
@@ -276,6 +285,6 @@ async function readLockText(page: Page) {
 async function stopIfRecording(page: Page) {
   const state = await readRecordingState(page).catch(() => null);
   if (!state?.recording) return;
-  await page.getByTestId('session-start-stop-button').click().catch(() => undefined);
+  await page.getByTestId(RECORDER_STOP).click().catch(() => undefined);
   await page.waitForTimeout(1_000).catch(() => undefined);
 }

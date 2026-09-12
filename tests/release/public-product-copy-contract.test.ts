@@ -58,8 +58,12 @@ describe('Private-only public product copy contract (#1254)', () => {
     expect(surfaces.analytics).toContain('is free for 30 days, then $10/month to continue');
     expect(surfaces.upgradePrompt).toContain('Continue for $10/month to keep going after it ends');
     expect(surfaces.legal).toContain('Every customer recording uses Private on-device transcription');
-    expect(surfaces.legal).toContain('Retention duration and deletion timing are still being finalized; use Report Issue for a data-retention request.');
-    expect(surfaces.legal).toContain('use Report Issue for account, privacy, retention, or data questions');
+    // #1404: the control these sentences send users to is now named "Share Feedback". The copy is
+    // locked to the CONTROL'S REAL NAME — telling a user to use a button that no longer exists is the
+    // failure this contract exists to prevent, so the lock moves with the rename rather than pinning
+    // a stale name.
+    expect(surfaces.legal).toContain('Retention duration and deletion timing are still being finalized; use Share Feedback for a data-retention request.');
+    expect(surfaces.legal).toContain('use Share Feedback for account, privacy, retention, or data questions');
     expect(surfaces.legal).toContain('continued access is $10/month');
     expect(surfaces.legal).toContain('Paid continuation is $10/month, but checkout is not yet enabled');
     expect(surfaces.testerGuide).toContain('Every customer practice session uses Private transcription on your device');

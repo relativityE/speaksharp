@@ -193,6 +193,38 @@ describe('every candidate carries the fields a session needs', () => {
     });
 });
 
+describe('a PROVIDER-ONLY identity check cannot separate the v4 candidates', () => {
+    // The live cache proof identifies the running model by reconstructing a full candidate id from
+    // what the engine published. An implementation that compared only `provider` would pass while a
+    // DIFFERENT model decoded the take, because all three v4 candidates share one provider — and the
+    // human comparison would then attribute a base_q4 recording to distil.
+    const V4 = 'transformers-js-v4';
+
+    it('CASUALTY: changing ONLY the variant changes the candidate id', () => {
+        const base = candidateForRuntime({ engineType: V4, variant: 'base_q4' });
+        const distil = candidateForRuntime({ engineType: V4, variant: 'distil_q4' });
+        expect(base).toBe('v4:base:q4');
+        expect(distil).toBe('v4:distil:q4');
+        expect(base).not.toBe(distil);
+    });
+
+    it('CASUALTY: the provider ALONE is identical across those candidates', () => {
+        // Stated explicitly so the reason the variant is required cannot be optimised away later.
+        expect(CANDIDATES['v4:base:q4'].engine).toBe(V4);
+        expect(CANDIDATES['v4:distil:q4'].engine).toBe(V4);
+        expect(CANDIDATES['v4:base:int8'].engine).toBe(V4);
+    });
+
+    it('CASUALTY: two base variants differing only in DECODER PRECISION are separated', () => {
+        expect(candidateForRuntime({ engineType: V4, variant: 'base_q4', decoderDtype: 'q4' })).toBe('v4:base:q4');
+        expect(candidateForRuntime({ engineType: V4, variant: 'base_int8', decoderDtype: 'int8' })).toBe('v4:base:int8');
+    });
+
+    it('an unrecognised pair is REFUSED, never defaulted to a provider-level guess', () => {
+        expect(() => candidateForRuntime({ engineType: V4, variant: 'base_q9' })).toThrow(UnknownCandidateError);
+    });
+});
+
 describe('RESOLVED runtime state maps to a candidate — the original defect', () => {
     it('CASUALTY: a v4 session running base_q4 is NOT attributed from a default constant', () => {
         // The defect: getMetadata() read PRIV_STT_V4_DEFAULT_VARIANT, so whatever ran was recorded as
@@ -223,5 +255,30 @@ describe('RESOLVED runtime state maps to a candidate — the original defect', (
         ]) {
             expect(CANDIDATE_IDS).toContain(candidateForRuntime(st));
         }
+    });
+});
+
+describe('a Moonshine session is attributed by ARCH, not by provider', () => {
+    it('CASUALTY: the medium arch resolves to the medium candidate', () => {
+        expect(candidateForRuntime({
+            engineType: 'moonshine-streaming', variant: 'MOONSHINE_STREAMING_MEDIUM',
+        })).toBe('moonshine:streaming-medium');
+    });
+
+    it('CASUALTY: an arch no candidate describes is REFUSED, not mapped to the only one registered', () => {
+        // `moonshine:streaming-medium` is currently the sole registered Moonshine candidate, so mapping
+        // the provider straight to it would pass every test written today and silently record every
+        // SmallStreaming session as medium the day someone runs one. That is the arm the human test is
+        // comparing, so a wrong label there invalidates the comparison rather than merely mislabelling
+        // a row.
+        for (const variant of ['MOONSHINE_STREAMING_SMALL', 'MOONSHINE_STREAMING_TINY', null]) {
+            expect(() => candidateForRuntime({ engineType: 'moonshine-streaming', variant }))
+                .toThrow(UnknownCandidateError);
+        }
+    });
+
+    it('CASUALTY: the provider alone never yields an identity', () => {
+        expect(() => candidateForRuntime({ engineType: 'moonshine-streaming', variant: undefined as never }))
+            .toThrow(/refusing to attribute/);
     });
 });

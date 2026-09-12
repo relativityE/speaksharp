@@ -98,6 +98,11 @@ class FakeWorker {
 }
 
 describe('TransformersJSV4Engine worker message contract', () => {
+    // Guaranteed restore: one test removes Worker support to reach the main-thread branch, and an
+    // assertion throwing before an inline restore would leave every later worker test on the wrong path.
+    const RealWorker = globalThis.Worker;
+    afterEach(() => { (globalThis as { Worker?: unknown }).Worker = RealWorker; });
+
     beforeEach(() => {
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
@@ -209,7 +214,11 @@ describe('TransformersJSV4Engine worker message contract', () => {
             .mockResolvedValueOnce({ text: '' })
             .mockResolvedValueOnce({ text: 'v4 main-thread transcript' });
         mockPipeline.mockResolvedValueOnce(mainThreadTranscriber);
-        window.localStorage.setItem('speaksharp.v4.noWorker', '1');
+        // REACH THE MAIN-THREAD PATH WITHOUT A SELECTOR. This used `speaksharp.v4.noWorker`, a
+        // retired localStorage channel. `shouldUseWorker()` also requires Worker support, so removing
+        // it exercises the same branch through a REAL condition (a browser without workers) rather
+        // than through an override that no longer exists.
+        (globalThis as { Worker?: unknown }).Worker = undefined;
         (window as typeof window & { __PRIVATE_STT_DECODE_OPTIONS__?: unknown }).__PRIVATE_STT_DECODE_OPTIONS__ = {
             condition_on_previous_text: false,
             no_repeat_ngram_size: 3,

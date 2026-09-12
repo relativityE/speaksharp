@@ -274,16 +274,32 @@ export function syncEngineReady(ready: boolean): void {
 }
 
 /**
+ * What the save boundary can honestly say about a completed save.
+ *
+ * `saved` means the row was written AND its engine attribution was recorded terminally.
+ * `saved-attribution-pending` means the row exists but its attribution write did not land, so the
+ * session is real while the identity it was recorded under is not yet established.
+ */
+export type SessionPersistStatus = 'saved' | 'saved-attribution-pending';
+
+/**
  * Invariant I4: Session Persistence Contract
  * Signals when a session has been successfully saved to the database.
  *
  * `details.sessionId` makes the marker identity-bearing: a manual/live proof can
  * read the exact persisted session id, navigate to /analytics/:id, and cross-check
  * the saved detail transcript — instead of guessing which row was just written.
+ *
+ * #1403 — `details.status` makes the marker TRUTHFUL as well as identity-bearing. The boolean says a
+ * flag was set; it cannot distinguish a row saved with its engine attribution recorded from one whose
+ * attribution write failed and left the row pending. Those are different facts about what the database
+ * holds, and a proof that cannot tell them apart will credit a take to an identity nothing recorded.
+ * The status is published from the save boundary itself, next to the id it describes, so a reader is
+ * never left inferring one from the other.
  */
 export function syncSessionPersisted(
   persisted: boolean,
-  details?: { sessionId?: string | null; mode?: string | null },
+  details?: { sessionId?: string | null; mode?: string | null; status?: SessionPersistStatus | null },
 ): void {
   if (typeof document === 'undefined') return;
   const sessionId = details?.sessionId ?? null;
@@ -291,6 +307,13 @@ export function syncSessionPersisted(
   const root = document.documentElement;
   if (persisted) {
     root.setAttribute('data-session-persisted', 'true');
+    if (details?.status) {
+      root.setAttribute('data-session-persist-status', details.status);
+    } else {
+      // Never leave a stale status beside a fresh save: an unqualified marker must read as unqualified,
+      // not as whatever the previous take reported.
+      root.removeAttribute('data-session-persist-status');
+    }
     if (sessionId) {
       root.setAttribute('data-session-persisted-id', sessionId);
       (window as Window & { __SS_LAST_PERSISTED_SESSION__?: Record<string, unknown> }).__SS_LAST_PERSISTED_SESSION__ = {
@@ -304,6 +327,7 @@ export function syncSessionPersisted(
     // session in flight. The window hook keeps the last-known value by design.
     root.removeAttribute('data-session-persisted');
     root.removeAttribute('data-session-persisted-id');
+    root.removeAttribute('data-session-persist-status');
   }
 }
 

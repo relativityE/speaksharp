@@ -17,15 +17,22 @@ import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
 import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
-import { deriveFocusCoverage, markCoveredTokens, type FocusCoverage } from '@/utils/focusCoverage';
+import { applyFinalizedCoverageAuthority, deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusCoverageRow } from '@/utils/focusCoverage';
 import type { PracticeFocus } from '@/constants/practiceFocus';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
-import { liveTipFromMetrics, verdictFromSuggestions, type TwoTakeaways } from '@/utils/liveCoaching';
+import { liveTipFromMetrics, type TwoTakeaways } from '@/utils/liveCoaching';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { selectReviewFillerSnapshot } from '@/utils/sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
+import { emitJourneyStep } from '@/services/telemetry/journeyStep';
+import { emitPracticeLoop, COUNT_NOT_APPLICABLE } from '@/services/telemetry/practiceLoopTelemetry';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
+import { emitMicObservability } from '@/services/telemetry/micObservation';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
+import type { TranscriptView } from '@/lib/storage';
+import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
 
 /**
  * #1222 S11 — the session-overhaul VIEW: maps the live session runtime onto the fixed shell + the three
@@ -56,6 +63,23 @@ export interface SessionOverhaulViewProps {
     scoringElapsedSeconds?: number;
     micLevel: number;
     transcriptContent: string;
+    /**
+     * #1416 F-05 — the AFTER-state transcript, resolved from the retained authority.
+     *
+     * `transcriptContent` is working memory, and `purgeTranscriptWorkingMemory` empties it at
+     * finalization by contract. Rendering the review from it shows the user an empty transcript at
+     * the moment they are told the session was saved. #1306's own purge docstring says clearing the
+     * raw text "never affects the save, a Retry Save, or the review reader" — this is that reader.
+     */
+    reviewTranscript?: TranscriptView;
+    /**
+     * True while the retained read has not settled — finalization still running, or the fetch in
+     * flight. Distinct from `isFinalizing`, which describes the TRANSCRIPT lifecycle: a settled
+     * session whose row is still loading is not finalizing, and must not be told its transcript
+     * failed to load.
+     */
+    reviewStillSettling?: boolean;
+    onRetryReviewTranscript?: (() => void) | null;
     /** #1306 Option A: FINAL metric snapshot for the terminal review (the transcript/chunks are purged there,
      *  and the live fillerData is zeroed by the useFillerWords sync — so the review reads these instead). */
     finalizedWordCount?: number | null;
@@ -74,7 +98,14 @@ export interface SessionOverhaulViewProps {
     fillerData?: FillerCounts | null;
     wpm?: number | null;
     /** The saved session's two takeaways (after-state verdict); null → honest deterministic fallback. */
+    /**
+     * #1422 — RETIRED AND UNREAD. The coaching prose this carried is retired (#1306) and the after-state
+     * no longer manufactures a verdict from it. The prop stays in the type so existing callers keep
+     * compiling, but nothing consumes it; feeding it would not put coaching back on screen.
+     */
     aiSuggestions?: TwoTakeaways | null;
+    /** Completed-session Practice Loop review. SessionPage owns its persistence-ready/session-id gate. */
+    practiceLoopReview?: React.ReactNode;
     onSeeAllSessions?: () => void;
     /** #1231 R1 — live-updating tail (rendered muted/settling) + post-Stop finalizing banner. */
     interimTranscript?: string;
@@ -124,6 +155,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     scoringElapsedSeconds,
     micLevel,
     transcriptContent,
+    reviewTranscript,
+    reviewStillSettling = false,
+    onRetryReviewTranscript = null,
     finalizedWordCount,
     finalizedFillerData,
     showAnalyticsPrompt,
@@ -135,7 +169,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     isButtonDisabled,
     fillerData,
     wpm,
-    aiSuggestions,
+    /*
+     * #1422 P1 `3994409733`: unused here again. The generated-review receipt moved to `AISuggestions`,
+     * which owns the validated result, so this view no longer reads the prop production never passes.
+     */
+    aiSuggestions: _aiSuggestions,
+    practiceLoopReview,
     onSeeAllSessions,
     interimTranscript,
     isFinalizing,
@@ -146,6 +185,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     completedObjectivePoints,
     completedObjectiveTopic,
     completedObjectivePaceGuideSecPerPoint,
+    objectiveCoverage,
     onEditPoints,
     onRetryPoints,
     onNewSet,
@@ -168,16 +208,174 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // and during use ONLY the live brief, so a stale snapshot can never make a fresh Open Mic session look
     // like Focus Points (the isolation invariant that motivated clearing the live brief in the first place).
     const inAfter = sessionState === 'after';
+
+    // #1259 P1 — WHICH REVIEW THIS IS, derived before anything describes it.
+    //
+    // The receipts below were written as if there were one review. There are two: Raw Takes shows the
+    // coaching verdict, Focus Points replaces it with the points rail (`objectiveAfterSlotD`) and is
+    // never passed `aiSuggestions` in production at all. Both facts have to be known before the effects
+    // run, so the same derivation the render uses is hoisted here rather than recomputed differently.
+    const objectivePointsForSurface = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
+    const isObjectiveSurface = Array.isArray(objectivePointsForSurface) && objectivePointsForSurface.length > 0;
+
+    /**
+     * #1259 F08 — WHAT THE FINISHED SESSION ACTUALLY OFFERED.
+     *
+     * The finding is that a user who finishes has nowhere obvious to go. That is a claim about
+     * ABSENCE, and absence cannot be evidenced by an event that does not fire — so this emits the
+     * offering with its real contents, including an EMPTY list when nothing is on offer. An empty
+     * list is a measurement; silence is indistinguishable from telemetry that was never wired.
+     *
+     * The options are derived from the handlers that genuinely exist on this screen, not from a list
+     * of what we intend to build: `onPracticeAgain` and `onSeeAllSessions` are wired into the verdict
+     * card below, and nothing else is. If a future change adds a destination without adding it here,
+     * the recorded offering understates what the user saw — which fails in the safe direction for a
+     * finding about there being too few.
+     */
+    React.useEffect(() => {
+        if (!inAfter) return;
+        // The Focus Points rail offers "Retry this set" and "Start a new set" — not Practice again and
+        // See all sessions. Reporting the coaching review's menu for it described a screen that was
+        // never rendered, which is the one thing an "options offered" receipt must not do.
+        const offered: string[] = isObjectiveSurface
+            ? ['retry_points', ...(onNewSet ? ['new_set'] : [])]
+            : ['practice_next', ...(onSeeAllSessions ? ['view_analytics'] : [])];
+        emitJourneyStep({ step: 'post_session_options', optionsShown: offered });
+    }, [inAfter, onSeeAllSessions, isObjectiveSurface, onNewSet]);
+
+    /**
+     * #1259 F07 — WHAT THE REVIEW ACTUALLY SHOWED, and where it came from.
+     *
+     * `verdictFromSuggestions` never returns nothing: with no AI suggestions it substitutes
+     * "Session saved — nice work." and a generic fix. The screen therefore looks the same whether a
+     * practice loop was generated or not, which is why "I did not see the improvement cycle" and "the
+     * loop was bland" are indistinguishable in every artifact we have. The SOURCE of each half is the
+     * fact that separates them, and it is only knowable here, where the suggestions are still in hand.
+     */
+    /**
+     * SETTLED, not merely `after`.
+     *
+     * `resolveSessionState` returns `after` as soon as Stop flips the view to `isFinalizing && !isListening`,
+     * which is BEFORE the transcript, the evaluation and the save complete. Marking the review stages then
+     * dated them to the start of finalization — and `markCompletionStage` deduplicates permanently, so the
+     * real review could never correct them. Every decoded receipt carried finalization time attributed to
+     * stages the user had not reached, and `practice_loop` reported a review that was still being made.
+     */
+    const reviewSettled = inAfter && !isFinalizing;
+
+    /**
+     * #1259 — WHICH option the user chose, not only which were offered.
+     *
+     * `post_session_options` recorded the menu and nothing recorded the pick: `option_selected` existed in
+     * the schema and the helper and was emitted by no production caller at all. Practice again need not
+     * change route, so in decoded receipts choosing it and abandoning the review were the same thing —
+     * a review that no one acted on and a review someone acted on immediately looked identical.
+     *
+     * Emitted BEFORE delegating, so a handler that navigates or throws cannot swallow the fact.
+     */
+    const choosePracticeAgain = React.useCallback(() => {
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'practice_next' });
+        onStartStop();
+    }, [onStartStop]);
+
+    // The rail's two actions were passed through unwrapped, so the Focus Points review recorded which
+    // options were offered and never which one was taken — the same gap `option_selected` was added to
+    // close for the coaching review. Emitted before delegating, so a handler that navigates or throws
+    // cannot swallow the fact.
+    const chooseRetryPoints = React.useCallback(() => {
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'retry_points' });
+        (onRetryPoints ?? onStartStop)();
+    }, [onRetryPoints, onStartStop]);
+
+    const chooseNewSet = React.useCallback(() => {
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'new_set' });
+        onNewSet?.();
+    }, [onNewSet]);
+
+    const chooseSeeAllSessions = React.useCallback(() => {
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'view_analytics' });
+        onSeeAllSessions?.();
+    }, [onSeeAllSessions]);
+
+    /**
+     * #1422 Codex P1 `3994409733` (PM RETURN `5642224586`, option (b)) — THE OPEN MIC RECEIPT LEFT THIS FILE.
+     *
+     * This effect used to emit the generated-review receipt for BOTH surfaces and mark
+     * `practice_loop_ready` / `review_rendered` unconditionally, from the `aiSuggestions` prop. Production
+     * leaves that prop undefined — `SessionPage` passes `undefined` and the real result is owned by
+     * `AISuggestions` — so every Open Mic completion claimed a zero-takeaway `no_suggestions` review and
+     * marked both stages before the review existed, or even when generation failed.
+     *
+     * The Open Mic receipt and those two stage publications now live in `AISuggestions`, which owns the
+     * validated result. What stays here is what this component genuinely observes:
+     *
+     *   - the FOCUS POINTS receipt and its completion stages, because the rail that renders is this
+     *     component's own — the readback requires the chain for that product too;
+     *   - the mic-observability summary, which is drawn from the envelope this view already keeps.
+     */
+    React.useEffect(() => {
+        if (!reviewSettled) {
+            return;
+        }
+        if (isObjectiveSurface) {
+            // #1259 P1 — DESCRIBE THE SURFACE THAT RENDERED. On Focus Points the coaching verdict is
+            // replaced by the rail and no suggestions are ever passed, so a count of 0 would say the rail
+            // tried to show a phrase and had none.
+            emitPracticeLoop({
+                phase: 'rendered',
+                reviewSurface: 'focus_points_rail',
+                // Not applicable, not zero.
+                whatWentWellCount: COUNT_NOT_APPLICABLE,
+                whatToImproveCount: COUNT_NOT_APPLICABLE,
+                suggestionsPresent: false,
+                whatWentWellSource: 'not_applicable',
+                whatToImproveSource: 'not_applicable',
+                rendered: true,
+                // The rail's own two handlers are this screen's next action.
+                nextActionPersisted: Boolean(onRetryPoints || onNewSet),
+                suppressionReason: 'objective_rail',
+            });
+            // #1259 F16 — the rail IS the Focus Points review, so its completion chain is published here.
+            markCompletionStage('practice_loop_ready');
+            markCompletionStage('review_rendered');
+        }
+        // #1259 F02 — summarised HERE, from the envelope this view already keeps to draw the
+        // after-state waveform. No per-frame hook is needed and none is added: streaming levels is
+        // both forbidden and would drown every other signal.
+        emitMicObservability(levelsRef.current, stopControlRenderedRef.current);
+    }, [reviewSettled, onRetryPoints, onNewSet, isObjectiveSurface]);
     const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
     const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
     const effObjectivePaceGuideSecPerPoint = objectivePaceGuideSecPerPoint ?? (inAfter ? completedObjectivePaceGuideSecPerPoint ?? null : null);
     // #1256 P1 — the after-state scores the FINISHED take, whose duration lives in `scoringElapsedSeconds`
     // (live `elapsedTime` has already normalized to 0). Before/during keep the live timer.
     const effElapsed = inAfter ? (scoringElapsedSeconds ?? elapsedTime) : elapsedTime;
+    // In the AFTER state the retained authority decides what is readable; working memory has been
+    // purged and is not a fallback. Falling back to it would reintroduce exactly the empty review
+    // this fixes, only intermittently — which is worse, because it would look like flakiness.
+    // An absent authority is PENDING, not permission to read working memory. Without this, a parent
+    // that has not been migrated silently keeps the old behaviour — and since finalization empties
+    // the buffer, "the old behaviour" is the blank review this fixes. Defaulting to pending makes an
+    // unwired parent visible instead of quietly wrong.
+    const effectiveReview: TranscriptView = inAfter
+        ? (reviewTranscript ?? { kind: 'unavailable' })
+        : { kind: 'unavailable' };
+    const reviewText = inAfter && effectiveReview.kind === 'available' ? effectiveReview.text : null;
+    /**
+     * ONE source of transcript truth for the whole state, and every derivation reads it.
+     *
+     * The after state must never consult `transcriptContent`: finalization purges that buffer, so anything
+     * computed from it after terminal is computed from an empty string. Routing only the RENDERED tokens
+     * through the retained authority — and leaving coverage on the purged buffer — produced a review that
+     * showed the user's saved words while reporting every focus point as missed, with no highlights. That is
+     * the same defect as F-05 one layer down: a confident, wrong answer about what someone said.
+     */
+    const transcriptSource = inAfter ? (reviewText ?? '') : transcriptContent;
+
     // #1306 Option A: in the terminal review the transcript/chunks have been purged (and the live fillerData
     // zeroed by the useFillerWords sync), so the review's word count + filler breakdown + headline come from the
     // FINAL snapshot captured at the terminal transition; before/during still read the live values.
-    const reviewWordCount = inAfter && typeof finalizedWordCount === 'number' ? finalizedWordCount : wordCount(transcriptContent);
+    const reviewWordCount = inAfter && typeof finalizedWordCount === 'number' ? finalizedWordCount : wordCount(transcriptSource);
     // #1314 C3: ONE validated snapshot feeds every filler element. The displayed total is derived from the
     // SAME chip map the breakdown renders, so the sentence total and the chips can never disagree. An
     // unavailable snapshot (SQL NULL) makes no numeric claim; `{}` is a measured zero (0, no chips).
@@ -246,6 +444,26 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // finalizing wrongly resolved to `before`, this branch wiped the envelope mid-finalize and the
     // after-state waveform rendered flat. Keep finalizing OUT of `before` or the bars go blank again.
     const levelsRef = React.useRef<number[]>([]);
+    // #1259 F02 — whether a stop affordance was ever on screen during this take. Recorded as it
+    // happens: by the time the review renders the control is gone, so asking afterwards always
+    // answers "no" and would report every session as missing its Stop button.
+    const stopControlRenderedRef = React.useRef(false);
+    /**
+     * #1421 P1 `3979074340` — EACH ATTEMPT OBSERVES ITS OWN MICROPHONE.
+     *
+     * The level buffer reset only on a fresh `before`, and the Stop-affordance latch never reset at all. A direct
+     * Retry goes `after` → `during` without passing `before`, so the retry's F02 receipt summarised the FIRST
+     * take's samples and Stop state: a silent or disconnected retry could report signal because the take before
+     * it had one. Entering `during` from any other state is a new attempt — a first take from `before`, or a
+     * Retry from `after` — so both observations start empty there, before this render samples or latches.
+     */
+    const previousMicObservationState = React.useRef(sessionState);
+    if (sessionState === 'during' && previousMicObservationState.current !== 'during') {
+        levelsRef.current = [];
+        stopControlRenderedRef.current = false;
+    }
+    previousMicObservationState.current = sessionState;
+    if (isListening) stopControlRenderedRef.current = true;
     if (isListening) {
         // Keep the FULL recording envelope (capped generously) so the after-state waveform can peak-
         // downsample the WHOLE take to 72 bars — not just the last 72 samples (which showed only the tail).
@@ -255,7 +473,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     }
     const { amplitudes, recordedCount } = waveformFromLevels(levelsRef.current);
 
-    const tokens = tokensFromTranscript(transcriptContent);
+    const tokens = tokensFromTranscript(transcriptSource);
     // during: append the live-updating tail as muted "interim" tokens so re-writes read as intentional.
     const duringTokens = interimTranscript && interimTranscript.trim()
         ? [...tokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
@@ -283,14 +501,80 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const isObjective = Array.isArray(effObjectivePoints) && effObjectivePoints.length > 0;
 
     // Live coverage, derived from the growing transcript via the local keyword matcher (nothing leaves the
-    // device). `coveredLatch` guarantees a lit tick never regresses (spec §6); it resets on a fresh session.
-    const coveredLatch = React.useRef<Set<number>>(new Set());
-    if (isObjective && sessionState === 'before') coveredLatch.current = new Set();
-    let coverage: FocusCoverage | null = null;
-    if (isObjective) {
-        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptContent, effElapsed, coveredLatch.current);
-        coverage.rows.forEach((r, i) => { if (r.covered) coveredLatch.current.add(i); });
+    /**
+     * RESOLVED IN FAVOUR OF `main` (#1427's shipped latch). #1431 merge.
+     *
+     * Both sides fix the same defect — a retry goes after-state -> during without passing through
+     * `before`, so the previous take's latched indices survived and the pace card read the old N/N
+     * from the retry's first frame. This branch latched a Set of indices; `main` latches a Map of
+     * the strongest observed status (missing < partial < covered), which additionally stops a
+     * transcript rewrite erasing a partial match or turning a prior full match amber.
+     *
+     * `main`'s is the shipped behaviour and strictly the stronger of the two, so it wins outright
+     * rather than being blended: keeping this branch's Set alongside it would reintroduce the
+     * weaker guarantee under a second name.
+     */
+    // device). The latch retains the strongest observed status (missing < partial < covered), so transcript
+    // rewrites cannot erase a partial match or turn a prior full match amber. It resets on a fresh session.
+    const coveredLatch = React.useRef<Map<number, FocusCoverageRow>>(new Map());
+    const previousCoverageState = React.useRef(sessionState);
+    // A retry can transition straight from after→during when React batches the rebind and Start updates;
+    // there is no guaranteed `before` render. Reset on every entry into `during` as well as `before`, or
+    // the prior take's detected indices stay latched and the retry starts with a fabricated count.
+    if (isObjective && (sessionState === 'before'
+        || (sessionState === 'during' && previousCoverageState.current !== 'during'))) {
+        coveredLatch.current = new Map();
     }
+    previousCoverageState.current = sessionState;
+    // The terminal result exists only when the retained transcript exists. Treating a pending/failed read
+    // as an empty transcript turns "we cannot read it" into the confident false result 0/N + every point
+    // "Not detected". Before/during still derive from working memory; after derives only from the retained
+    // authority and withholds the entire transcript-derived result until that authority is available.
+    // SessionPage always supplies `objectiveCoverage` (array after a successful stop seam, null while the
+    // verdict is unavailable). `undefined` is retained only for older pure-view callers/tests. In the real
+    // terminal journey, a retained transcript alone cannot license a verdict: it lacks the timestamped
+    // segments and configured cues evaluated by finalization.
+    const terminalAuthorityExpected = inAfter && objectiveCoverage !== undefined;
+    const canDeriveCoverage = isObjective
+        && (!inAfter || effectiveReview.kind === 'available')
+        && (!terminalAuthorityExpected || objectiveCoverage !== null);
+    let coverage: FocusCoverage | null = null;
+    if (canDeriveCoverage) {
+        /**
+         * MERGE (#1421 x #1427/#1423): BOTH the settled-emission gate and the finalized authority.
+         *
+         * #1421's correction is the `reviewSettled` argument. `resolveSessionState` returns `after` the
+         * moment Stop flips the view to `isFinalizing && !isListening` — before the transcript, the
+         * evaluation and the save finish — so on the broader `inAfter` condition this emitted the
+         * coverage verdict and marked `evaluation_complete` early. That mark deduplicates permanently,
+         * so the real evaluation could never correct it, and the rows could describe a pre-final
+         * transcript. `canDeriveCoverage` decides whether a verdict may be computed at all;
+         * `reviewSettled` decides whether it is the FINAL one worth reporting.
+         *
+         * `main` brings the terminal authority — a finalized verdict supersedes the local derivation —
+         * and the Map latch that retains the strongest observed status. Both are kept: the authority
+         * decides WHAT the verdict is, `reviewSettled` decides WHETHER it is reported, and the two are
+         * orthogonal. Dropping either would restore a separate defect.
+         */
+        const derived = deriveFocusCoverage(
+            effObjectivePoints ?? [], transcriptSource, effElapsed, coveredLatch.current, reviewSettled,
+        );
+        coverage = terminalAuthorityExpected
+            ? applyFinalizedCoverageAuthority(derived, effObjectivePoints ?? [], objectiveCoverage ?? null)
+            : derived;
+        if (!inAfter) {
+            coverage?.rows.forEach((row, index) => {
+                if (row.status !== 'missing') coveredLatch.current.set(index, row);
+            });
+        }
+    }
+    const pendingObjectiveRows: FocusCoverageRow[] = (effObjectivePoints ?? []).map((label) => ({
+        label,
+        status: 'missing',
+        covered: false,
+        coveredAtSec: null,
+        quote: null,
+    }));
 
     // For Focus Points the transcript highlights mean COVERAGE (purple during / green after), never
     // fillers — mark the covering spans on the base tokens (fillers cleared) and re-append the live tail.
@@ -300,6 +584,32 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             ? [...fpTokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
             : fpTokens)
         : duringTokens;
+
+    /**
+     * #1421 P1 `3984043479` — THE REVIEW RECEIPT, FROM THE REVIEW THE USER ACTUALLY SEES (PM decision `5638627982`).
+     *
+     * `transcript_authority { stage: 'review_rendered' }` had exactly one emitter, in `LiveTranscriptPanel`,
+     * which no production surface mounts. The After stages therefore had no receipt at all for the screen that
+     * renders the review, and requiring one would have held every honest run.
+     *
+     * Same gate as the settled-review effect above (`reviewSettled = inAfter && !isFinalizing`), declared here
+     * only because the rendered tokens do not exist until this point. The render below reads the SAME
+     * `renderedReviewTokens`, so the receipt describes what is on screen rather than a parallel derivation.
+     * Both sides go through the renderer's own tokenizer: it separates fillers from adjacent punctuation and
+     * the card joins tokens with single spaces, so comparing raw text would call honest reviews "different".
+     * A mismatch here means different WORDS on screen. An unsettled or unmounted review emits nothing, and
+     * `emitTranscriptAuthority` drops repeats, so re-renders send nothing new. Counts and verdicts only.
+     */
+    const renderedReviewTokens = isObjective && fpTokens ? fpTokens : tokens;
+    const renderedReviewText = renderedReviewTokens.map((t) => t.text).join(' ');
+    React.useEffect(() => {
+        if (!reviewSettled) return;
+        emitTranscriptAuthority({
+            stage: 'review_rendered',
+            authoritative: reviewText === null ? null : tokensFromTranscript(reviewText).map((t) => t.text).join(' '),
+            rendered: renderedReviewText,
+        });
+    }, [reviewSettled, reviewText, renderedReviewText]);
 
     // §2 nudge — the live coaching for Focus Points, computed here (hook called unconditionally) and rendered
     // INSIDE the Coverage & pace card. Silent unless the pace ratio breaks (or the no-guide coverage fallback).
@@ -321,9 +631,47 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const objectiveDuringSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
         : undefined;
+    const coverageMayBecomeAvailable = effectiveReview.kind === 'unavailable';
+    /**
+     * #1427 P1, shipped and corrected here — EVERY terminal state routes to the honest slot.
+     *
+     * This required `kind === 'available'`, and `coverageMayBecomeAvailable` above requires
+     * `kind === 'unavailable'`. `TranscriptView.kind` is `available | expired | not_captured |
+     * unavailable`, so for a Focus Points take whose transcript is terminally `expired` or
+     * `not_captured` with no coverage, BOTH predicates were false. `objectiveAfterSlotC` fell through
+     * to `undefined` and `SessionAfterState` rendered the generic Open Mic `ProgressVsBaseline` card —
+     * a different product's summary presented as this take's result, with the `coverage-unavailable`
+     * notice sitting three lines below, unreachable for exactly the two states that need it.
+     *
+     * Listed explicitly rather than written as `!== 'unavailable'`: a kind added to the union later
+     * must not be silently swept into "terminal" by a negation. `unavailable` is the only kind that
+     * may still resolve, and it keeps the pending copy.
+     */
+    /**
+     * A TERMINAL TRANSCRIPT IS UNAVAILABLE WHETHER OR NOT A STALE COVERAGE ARRAY SURVIVED.
+     *
+     * This also required `objectiveCoverage === null`. A Focus Points save can compute and publish
+     * `objectiveCoverageResult` and THEN fail transcript retention, leaving the row `expired` or
+     * `not_captured` while the coverage array is still non-null. `canDeriveCoverage` correctly leaves
+     * `coverage` null in that state — but this predicate then went false, `objectiveAfterSlotC` became
+     * undefined, and `SessionAfterState` fell back to the generic Open Mic card showing a fabricated
+     * "+0% fewer fillers" for a take whose transcript is gone.
+     *
+     * The transcript's terminal state is the authority here. A coverage array that outlived the
+     * transcript it described is stale by definition and cannot make the result available.
+     */
+    const reviewIsTerminal = effectiveReview.kind === 'expired' || effectiveReview.kind === 'not_captured';
+    const coverageTerminallyUnavailable = isObjective
+        && terminalAuthorityExpected
+        && (reviewIsTerminal || objectiveCoverage === null)
+        && (effectiveReview.kind === 'available' || reviewIsTerminal);
     const objectiveAfterSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
-        : undefined;
+        : isObjective && coverageMayBecomeAvailable
+            ? <section data-testid="coverage-awaiting-transcript" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-[#4b5563]">Coverage will appear when your transcript is available.</section>
+            : coverageTerminallyUnavailable
+                ? <section data-testid="coverage-unavailable" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-[#4b5563]">Focus Points detection is unavailable for this take.</section>
+            : undefined;
     const objectivePlanSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />
         : undefined;
@@ -331,8 +679,17 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="during" nextIndex={coverage.nextIndex} />
         : undefined;
     const objectiveAfterSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
-        : undefined;
+        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={chooseRetryPoints} onNewSet={onNewSet ? chooseNewSet : undefined} />
+        : isObjective
+            ? <FocusPointsRail
+                rows={pendingObjectiveRows}
+                topic={effObjectiveTopic ?? null}
+                sessionState="after"
+                coveragePending
+                onRetry={chooseRetryPoints}
+                onNewSet={onNewSet ? chooseNewSet : undefined}
+            />
+            : undefined;
 
     // #1354 CASE 4/6 — the rendered gate. Open Mic and Focus Points render through THIS component and
     // this single `mic.disabled`, so both entry points inherit the identical gate by construction rather
@@ -447,35 +804,84 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     audioAvailable: false,
                 }}
                 transcript={{
-                    tokens: isObjective && fpTokens ? fpTokens : tokens,
+                    tokens: renderedReviewTokens,
                     // Honest copy: the app retains no audio (transcript-only review), so highlights mark
                     // where each point landed rather than being audio-seek targets.
                     // §Duplication: the coverage FRACTION appears exactly once, in Slot C — never repeated
                     // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
-                        ? `${reviewWordCount} words · green marks where each point landed`
+                        ? (coverage && coverage.coveredQuotes.length > 0
+                            ? `${reviewWordCount} words · green marks where each point landed`
+                            : `${reviewWordCount} words`)
                         : `${reviewWordCount} words · orange marks fillers`,
                     stats: fillerStatsLine,
-                    coverageMode: isObjective ? 'after' : undefined,
+                    coverageMode: isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
                 }}
                 progress={progress}
-                slotCContent={objectiveAfterSlotC ?? <ComparableProgressNotice sessionState="after" />}
+                slotCContent={isObjective ? objectiveAfterSlotC : <ComparableProgressNotice sessionState="after" />}
                 finalizing={isFinalizing}
                 finalizeEstimateSeconds={finalizeEstimateSeconds}
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
                 // the filler breakdown is deferred to the delivery strip below (spec §4/§5).
+                slotBNotice={inAfter && effectiveReview.kind !== 'available'
+                    ? <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
+                    : undefined}
                 fillerFooter={isObjective
-                    ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
+                    ? (coverage && coverage.coveredQuotes.length > 0
+                        ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
+                        : null)
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
-                verdict={{ ...verdictFromSuggestions(aiSuggestions, reviewFillerData, elapsedTime), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
-                slotDContent={objectiveAfterSlotD}
+                /**
+                 * #1422 — NO FABRICATED VERDICT. `aiSuggestions` is always `undefined` here because the
+                 * coaching prose this card carried is retired (#1306), and `verdictFromSuggestions` then
+                 * manufactured "Session review not requested." plus a filler-derived fix — rendered
+                 * directly ABOVE the real generated 1+1 review. The screen told the user no review had
+                 * been requested while showing them the review.
+                 *
+                 * The card keeps its ACTIONS, which are not coaching: `Practice this again` is the only
+                 * desktop control wired to start the next take.
+                 */
+                /*
+                 * INTEGRATION with #1421 (`main`): the handlers are `main`'s telemetry-wrapped
+                 * `choosePracticeAgain` / `chooseSeeAllSessions`, which emit `option_selected` BEFORE
+                 * delegating. Passing the raw `onStartStop` / `onSeeAllSessions`, as this branch did before
+                 * the integration, would silently drop the receipt recording WHICH option the user took.
+                 * #1422's change is the absent verdict, not the wiring.
+                 */
+                verdict={{ verdictLine: null, fix: null, onPracticeAgain: choosePracticeAgain, onSeeAllSessions: chooseSeeAllSessions }}
+                /**
+                 * #1422 P1 — AUGMENT slot D, never replace it.
+                 *
+                 * For Open Mic this passed `practiceLoopReview`, which is always an element once a session
+                 * completes — so it replaced the default `CoachingCard`/`SessionVerdict` rather than adding
+                 * to it, and took `Practice this again` with it. That button is the ONLY desktop control
+                 * wired to `onStartStop`; `MobileActionBar` is hidden at the `md` breakpoint, so a desktop
+                 * user finishing a session had no way to start another take from the completed screen at
+                 * all. Focus Points already did the right thing — its review renders BELOW the shell and
+                 * leaves slot D to the rail — so Open Mic now follows the same shape.
+                 */
+                slotDContent={isObjective ? objectiveAfterSlotD : undefined}
             />
-            {isObjective && (
+            {/*
+                The delivery strip is gated on `coverage` (from #1423): with no retained authority there is
+                no verdict to summarise, and a strip built from an absent evaluation would state a filler
+                story about a session we cannot read.
+            */}
+            {isObjective && coverage && (
                 <FocusDeliveryStrip
                     fillerCount={reviewFillerCount ?? 0}
                     fillerData={reviewFillerData}
                     hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
                 />
+            )}
+            {/* The review sits below the shell in BOTH products, so slot D keeps its verdict either way. */}
+            {practiceLoopReview && (
+                <div
+                    className="mt-[14px]"
+                    data-testid={isObjective ? 'focus-practice-loop-review' : 'open-mic-practice-loop-review'}
+                >
+                    {practiceLoopReview}
+                </div>
             )}
         </>
     );

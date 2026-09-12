@@ -94,21 +94,20 @@ fi
 # if the app path were uniformly wrong it would hit v2-base too. Compare each to the Dev
 # clean-ceiling anchor (see /private/tmp/DEV_CLEAN_CEILINGS.md): v2-base 100%, v4-base 98.85%,
 # v4-distil 98.85% (Node one-shot, model-only).
-echo ""; echo "════ GATE 3: v2-base (TransformersJS CPU/WASM) app-path reference ════"
-BASE_URL="$BASE_URL" \
-  pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts \
-    --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --headed \
-  || echo "⚠ v2-base (cpu) benchmark returned non-zero (inspect output above)"
-
-run_bench () {  # $1=variant $2=device $3=extraFlags
-  echo ""; echo "════ GATE 3: V4_VARIANT=$1 V4_DEVICE=$2 ════"
-  V4_VARIANT="$1" V4_DEVICE="$2" BASE_URL="$BASE_URL" \
-    pnpm exec playwright test tests/live/benchmark-v4.live.spec.ts \
-      --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list $3 \
-    || echo "⚠ benchmark $1|$2 returned non-zero (inspect output above)"
-}
-run_bench base_q4   webgpu --headed
-run_bench distil_q4 webgpu --headed
+# GATE 3 IS RETIRED (#1263).
+#
+# It ran benchmark-cpu and benchmark-v4, both of which click `session-start-stop-button` — the combined
+# recording control the session overhaul deleted, which renders on no viewport. It also passed
+# V4_VARIANT/V4_DEVICE, which reached the app through URL/localStorage channels that are inert since
+# selection moved to the checked-in config: BOTH arms would have decoded with the CONFIGURED candidate
+# while the gate labelled one base_q4 and the other distil_q4, so the comparison would have been one
+# model against itself.
+#
+# Every lane also ended in `|| echo "warning"`, which swallowed the exit code. A gate that cannot fail
+# is not a gate, and that is why this produced green output for years while measuring nothing.
+echo ""; echo "════ GATE 3: RETIRED ════"
+echo "::error::GATE 3 is retired: benchmark-cpu/benchmark-v4 drive a deleted recording control and select models through retired URL/localStorage channels. Re-point them at the config plane and the shared control map."
+exit 1
 
 echo ""; echo "════ DEV↔TEST SANITY CHECK — browser app-path vs Dev clean ceilings ════"
 node -e '
@@ -132,11 +131,12 @@ console.log("  Large negative delta for BOTH ⇒ general app-path bug. ~0 for bo
 echo ""; echo "════ GATE 2: v4 app-path proof (real WebGPU, headed) ════"
 G2_OUT="$EVIDENCE_DIR/v4-gate2-real-gpu-$TS.json"
 STT_AUTH=existing STT_MODES=private STT_FIXTURES=h1_6 \
-STT_PRIVATE_ENGINE=transformers-js-v4 STT_V4_VARIANT=base_q4 STT_V4_DEVICE=webgpu \
-STT_USE_FAKE_AUDIO_CAPTURE=true STT_FAKE_AUDIO_FILE="$REPO/tests/fixtures/stt-isomorphic/audio/h1_6.wav" \
-STT_POST_PLAYBACK_WAIT_MS=15000 STT_FIRST_TEXT_TIMEOUT_MS=45000 \
-HEADLESS=false STT_CORPUS_OUT="$G2_OUT" BASE_URL="$BASE_URL" \
-  node scripts/manual-stt-corpus-proof.mjs || echo "⚠ Gate 2 proof returned non-zero (inspect above)"
+# GATE 2 IS RETIRED (#1263). It passed STT_PRIVATE_ENGINE / STT_V4_VARIANT / STT_V4_DEVICE to the
+# corpus harness, which reached the app through retired channels — the arm would have decoded with the
+# configured candidate while the corpus report named another model. The harness itself now refuses
+# these variables before opening a browser.
+echo "::error::GATE 2 corpus proof is retired: it selects models through retired channels. Run one build per candidate through the config plane instead."
+exit 1
 
 echo ""; echo "════ GATE 2 verdict ════"
 node -e "const j=require('$G2_OUT'); const r=(j.results||[])[0]||{}; console.log(JSON.stringify({pass:j.pass, blockers:j.blockers, privateProvider:r.privateProvider, privateRuntimePath:r.privateRuntimePath, journeyPass:r.journeyPass, sessionPersisted:r.sessionPersisted, detailVisible:r.detailVisible},null,2));" 2>/dev/null || echo "  (no evidence file at $G2_OUT)"

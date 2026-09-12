@@ -90,10 +90,14 @@ runs:
       with:
         name: ${{ inputs.apt-bundle-artifact }}
         path: apt-bundle
-    - name: Install apt deps from bundle (offline, no mirror)
+    # The dispatcher compares the bundle's ImageVersion with THIS shard's before anything is installed and
+    # runs exactly one path: the offline bundle install on an exact match, or a bounded compatibility
+    # install of the same frozen manifest when the runner image has rolled forward under us. The step is no
+    # longer unconditionally "offline, no mirror", so it no longer says that.
+    - name: 'Install apt deps (image-gated: offline bundle, else bounded compatibility)'
       if: runner.os == 'Linux' && inputs.apt-bundle == 'true'
       shell: bash
-      run: bash scripts/ci/apt-install-offline.sh apt-bundle "${{ inputs.apt-bundle-manifest }}"
+      run: bash scripts/ci/apt-install.sh apt-bundle "${{ inputs.apt-bundle-manifest }}"
 
     # #1311 Option A (bounded diagnostic head) — NETWORK apt fallback, used only when apt-bundle != 'true'.
     # BOTH observed apt hang paths — Canvas/Sharp native deps and Playwright `install-deps` — get a bounded,

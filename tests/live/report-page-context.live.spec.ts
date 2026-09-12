@@ -114,20 +114,27 @@ test.describe('Live page-aware Issue Report context (#1018, free account)', () =
 
   // Open Report Issue on the current page and submit a marked, content-free report. Also verifies the
   // VISIBLE page label and the page-specific issue-area options (not merely that the banner exists).
-  async function submitReport(page: Page, title: string, expected: { label: string; areas: readonly string[] }) {
+  // #1416 — REWRITTEN FOR THE REDESIGNED FORM.
+  //
+  // The redesigned Share Feedback has no Title field and no issue-area dropdown, so this spec was
+  // clicking controls that no longer render. The page-context assertion survives because that IS the
+  // page-awareness this spec exists to prove; the area assertion does not, because the product no
+  // longer asks the user to classify where they are — it derives it.
+  //
+  // The run marker moves into the first sentence of the body, because `deriveTitle` builds the title
+  // from that first sentence, capped at 80 characters. That keeps `afterAll` cleanup, which matches on
+  // `title`, working exactly as before.
+  async function submitReport(page: Page, marker: string, expected: { label: string }) {
     await page.getByTestId('nav-report-issue-button').click();
-    const titleInput = page.getByTestId('issue-report-title');
-    await expect(titleInput).toBeVisible({ timeout: 10000 });
-    // The page-aware "Reporting from" banner shows the EXPECTED visible label for this page.
+    const body = page.getByTestId('issue-report-description');
+    await expect(body).toBeVisible({ timeout: 10000 });
+    // The page-aware provenance line shows the EXPECTED visible label for this page.
     await expect(page.getByTestId('issue-report-page-context')).toContainText(expected.label);
-    // The issue-area dropdown offers exactly this page's allowlisted areas (values + order).
-    const areaValues = await page.getByTestId('issue-report-area').locator('option')
-      .evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value));
-    expect(areaValues).toEqual([...expected.areas]);
-    await titleInput.fill(title);
-    await page.getByTestId('issue-report-description').fill(`${title} — content-free page-context smoke`);
+    // A feedback type is required before Send enables.
+    await page.getByTestId('feedback-type-broke').click();
+    await body.fill(`${marker} content-free page-context smoke.`);
     await page.getByTestId('issue-report-submit').click();
-    await expect(titleInput).toBeHidden({ timeout: 15000 });
+    await expect(body).toBeHidden({ timeout: 15000 });
   }
 
   test('stores correct canonical page-context per page; owned UUID only in session_id; unknown fails closed', async ({ page }) => {
@@ -233,15 +240,17 @@ test.describe('Live page-aware Issue Report context (#1018, free account)', () =
     // Attribution PERSISTS after the notice auto-hides (until Quick is selected or the user leaves /practice).
     await expect(page.getByTestId('guided-unavailable-notice')).toBeHidden({ timeout: 15000 });
     await page.getByTestId('nav-report-issue-button').click();
-    await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
+    const gBody = page.getByTestId('issue-report-description');
+    await expect(gBody).toBeVisible({ timeout: 10000 });
+    // The attribution this block exists to prove is UNCHANGED: the provenance line still names the
+    // surface, and still does not leak the unavailable state into it.
     await expect(page.getByTestId('issue-report-page-context')).toContainText('Guided Rehearsal');
     await expect(page.getByTestId('issue-report-page-context')).not.toContainText(/unavailable/i);
-    const gAreas = await page.getByTestId('issue-report-area').locator('option').evaluateAll((o) => o.map((x) => (x as HTMLOptionElement).value));
-    expect(gAreas).toEqual([...PRACTICE_EXPECTED.guided_rehearsal_unavailable.areas]);
-    await page.getByTestId('issue-report-title').fill(`${MARK} j-guided`);
-    await page.getByTestId('issue-report-description').fill(`${MARK} j-guided — content-free`);
+    await page.getByTestId('feedback-type-broke').click();
+    // Marker first, so the derived title still carries it for the server-side assertions below.
+    await gBody.fill(`${MARK} j-guided content-free.`);
     await page.getByTestId('issue-report-submit').click();
-    await expect(page.getByTestId('issue-report-title')).toBeHidden({ timeout: 15000 });
+    await expect(gBody).toBeHidden({ timeout: 15000 });
 
     // ── D. REPORT PERSISTENCE — verify stored context server-side for all four journey surfaces ──
     await expect.poll(async () => {

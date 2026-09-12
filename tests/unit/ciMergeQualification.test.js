@@ -6,7 +6,12 @@
 // anything hand-written.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { evaluateMergeQualification, formatQualification, REQUIRED_JOBS } from '../../scripts/ci-merge-qualification.mjs';
+import {
+  evaluateMergeQualification,
+  formatPostMergeVerification,
+  formatQualification,
+  REQUIRED_JOBS,
+} from '../../scripts/ci-merge-qualification.mjs';
 
 /** A full lane where everything ran — real shape of main push run 32744959454 at e1b07886. */
 const ALL_SUCCESS = {
@@ -130,6 +135,22 @@ describe('CI-GATE merge qualification', () => {
     expect(text).toContain('NOT MERGE-QUALIFIED');
   });
 
+  it('a successful post-merge push reports verification without minting merge authority', () => {
+    const text = formatPostMergeVerification(
+      evaluateMergeQualification({ fullRequired: 'true', results: ALL_SUCCESS }),
+    );
+    expect(text).toContain('POST-MERGE VERIFIED');
+    expect(text).not.toContain('MERGE-QUALIFIED');
+  });
+
+  it('a failed post-merge push remains visibly failed', () => {
+    const text = formatPostMergeVerification(
+      evaluateMergeQualification({ fullRequired: 'true', results: withRequired({ e2e: 'failure' }) }),
+    );
+    expect(text).toContain('POST-MERGE VERIFICATION FAILED');
+    expect(text).toContain('e2e:failure');
+  });
+
   // ---- The workflow must actually consume the decision ----
 
   it('ci.yml wires a merge-qualification job that feeds every required job into the evaluator', () => {
@@ -144,4 +165,23 @@ describe('CI-GATE merge qualification', () => {
     // It must run even when an upstream job failed, or a red lane would simply skip the gate.
     expect(ci).toMatch(/merge-qualification:[\s\S]{0,400}if:\s*always\(\)/);
   });
+
+  // #1313 — the image-skew failure presented as shards dying in Setup Environment before any test ran.
+  // The compatibility routing must never become a way for a shard to go missing quietly: whether a shard
+  // family fails outright, is skipped, or is dropped from `needs:` entirely, the run stays unqualified.
+  describe.each(['unit-shard', 'e2e'])('shard family "%s" must carry the run, never bypass it', (shard) => {
+    it.each(['failure', 'skipped', 'cancelled'])('%s does not qualify', (result) => {
+      const d = evaluateMergeQualification({ fullRequired: 'true', results: withRequired({ [shard]: result }) });
+      expect(d.qualified).toBe(false);
+      expect(d.reasons).toContain(`${shard}:${result}`);
+    });
+    it('a shard family missing from the results map entirely does not qualify', () => {
+      const results = { ...ALL_SUCCESS };
+      delete results[shard];
+      const d = evaluateMergeQualification({ fullRequired: 'true', results });
+      expect(d.qualified).toBe(false);
+      expect(d.reasons).toContain(`${shard}:missing`);
+    });
+  });
+
 });

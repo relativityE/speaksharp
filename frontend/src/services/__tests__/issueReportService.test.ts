@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildIssueReportMetadata, issueReportService } from '@/services/issueReportService';
 import { resolvePageContext } from '@/services/pageContext';
@@ -6,6 +8,21 @@ import type { AppRuntimeConfig } from '@/config/appRuntimeConfig';
 import { clearPrivateRecordingIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
 
 const UUID_META = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+
+describe('Share feedback idempotency migration', () => {
+  it('backs the PostgREST onConflict target with an unconditional unique index', () => {
+    const sql = readFileSync(resolve(
+      process.cwd(),
+      'backend/supabase/migrations/20260904150000_share_feedback_redesign.sql',
+    ), 'utf8');
+    const definition = sql.match(
+      /CREATE UNIQUE INDEX IF NOT EXISTS user_issue_reports_idempotency_key_unique[\s\S]*?;/i,
+    )?.[0] ?? '';
+
+    expect(definition).toContain('ON public.user_issue_reports (idempotency_key)');
+    expect(definition).not.toMatch(/\bWHERE\b/i);
+  });
+});
 
 // Build a full runtime config whose raw `url` embeds whatever sensitive segment a test wants to prove
 // never survives into persisted metadata.
@@ -18,7 +35,93 @@ const setRuntimeConfig = (url: string) => {
   (window as unknown as { __APP_RUNTIME_CONFIG__?: AppRuntimeConfig }).__APP_RUNTIME_CONFIG__ = runtimeConfigWithUrl(url);
 };
 
+describe('#1416 the browser version must belong to the classified browser', () => {
+  const withUserAgent = (ua: string) => {
+    Object.defineProperty(window.navigator, 'userAgent', { value: ua, configurable: true });
+  };
+  const original = navigator.userAgent;
+  afterEach(() => { withUserAgent(original); });
+
+  it('reads Edge from Edg/, not the Chrome token that precedes it', () => {
+    // A real Edge user agent carries BOTH, Chrome first, with DIFFERENT versions. Taking the first
+    // match labelled the row Edge and stamped it 120 — a plausible browser and a plausible version,
+    // so nothing looks wrong and a support query for Edge 121 quietly finds nothing.
+    withUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+      + 'Chrome/120.0.0.0 Safari/537.36 Edg/121.0.2277.83');
+
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Edge');
+    expect(meta.browserVersion).toBe('121');
+    expect(meta.browserVersion).not.toBe('120');
+  });
+
+  it('classifies Android Edge from EdgA/ and takes ITS version, not Chrome/', () => {
+    // Mobile Edge announces itself last and only after the engine it is compatible with. Recognising
+    // only `Edg/` reported Android Edge as Chrome, with Chrome's version — so the two platforms where
+    // a browser-specific defect is most likely to differ were the two the data could not tell apart.
+    withUserAgent('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) '
+      + 'Chrome/120.0.0.0 Mobile Safari/537.36 EdgA/121.0.2277.83');
+
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Edge');
+    expect(meta.browserVersion).toBe('121');
+    expect(meta.browserVersion).not.toBe('120');
+  });
+
+  it('classifies iOS Edge from EdgiOS/ ahead of the CriOS and Version tokens beside it', () => {
+    withUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 '
+      + '(KHTML, like Gecko) CriOS/120.0.6099.119 Version/17.0 EdgiOS/121.0.2277.83 Mobile/15E148 Safari/605.1.15');
+
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Edge');
+    // Three different versions are present on purpose: Edge's must win over both compatibility tokens.
+    expect(meta.browserVersion).toBe('121');
+    expect(meta.browserVersion).not.toBe('120');
+    expect(meta.browserVersion).not.toBe('17');
+  });
+
+  it('reads Chrome from Chrome/ when no Edge token is present', () => {
+    withUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+      + 'Chrome/120.0.0.0 Safari/537.36');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Chrome');
+    expect(meta.browserVersion).toBe('120');
+  });
+
+  it('reads Safari from Version/, not the WebKit build in Safari/', () => {
+    withUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
+      + '(KHTML, like Gecko) Version/17.4 Safari/605.1.15');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Safari');
+    expect(meta.browserVersion).toBe('17');
+  });
+
+  it('reads Chrome on iOS from CriOS, not the Version token Safari also emits', () => {
+    withUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 '
+      + '(KHTML, like Gecko) CriOS/122.0.6261.89 Version/17.0 Mobile/15E148 Safari/604.1');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Chrome');
+    expect(meta.browserVersion).toBe('122');
+  });
+
+  it('reports no version at all for an unclassified browser', () => {
+    // Better an absent field than a number lifted from whichever token happened to appear first.
+    withUserAgent('SomeCrawler/9.9 (compatible)');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Other');
+    expect(meta.browserVersion).toBeUndefined();
+  });
+});
+
 describe('buildIssueReportMetadata — page context + sanitization', () => {
+  it('stores coarse client information without persisting the raw user agent', () => {
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBeTruthy();
+    expect(meta.os).toBeTruthy();
+    expect(meta).not.toHaveProperty('userAgent');
+    expect(JSON.stringify(meta)).not.toContain(navigator.userAgent);
+  });
+
   it('stores the sanitized canonical route TEMPLATE, never a concrete id/query/hash', () => {
     const context = resolvePageContext(`/analytics/${UUID_META}`);
     const meta = buildIssueReportMetadata({ context, issueArea: 'evidence', plan: 'pro', sttMode: 'private', runtimeState: 'idle' });
@@ -138,6 +241,7 @@ vi.mock('@/lib/logger', () => ({
 
 describe('issueReportService', () => {
   const insert = vi.fn();
+  const upsert = vi.fn();
   const select = vi.fn();
   const single = vi.fn();
 
@@ -146,11 +250,33 @@ describe('issueReportService', () => {
     single.mockResolvedValue({ data: { id: 'report-1' }, error: null });
     select.mockReturnValue({ single });
     insert.mockReturnValue({ select });
+    upsert.mockResolvedValue({ error: null });
     vi.mocked(getSupabaseClient).mockReturnValue({
-      from: vi.fn(() => ({ insert })),
+      from: vi.fn(() => ({ insert, upsert })),
     } as unknown as ReturnType<typeof getSupabaseClient>);
     (window as unknown as { __SS_PRIVATE_EVENTS__?: unknown[] }).__SS_PRIVATE_EVENTS__ = [];
     clearPrivateRecordingIdentity();
+  });
+
+  it('deduplicates a retried feedback draft at the database boundary', async () => {
+    const idempotencyKey = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    await issueReportService.submit({
+      userId: 'user-1',
+      category: 'something_else',
+      severity: 'not_applicable',
+      title: 'Idea',
+      description: 'Add a clearer next step.',
+      pageUrl: '/practice',
+      metadata: { route: '/practice', feedback_kind: 'comment', feedback_type: 'idea' },
+      includeAudio: false,
+      idempotencyKey,
+    });
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotency_key: idempotencyKey }),
+      { onConflict: 'idempotency_key', ignoreDuplicates: true },
+    );
   });
 
   it('#1306: the persisted payload NEVER carries a transcript field, and the audio note is excluded unless opted in', async () => {
@@ -253,11 +379,19 @@ describe('issueReportService', () => {
 
     const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
     const latestEvent = events[events.length - 1];
-    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', session_id: null });
+    // No live take to correlate to, so the link is FALSE — and the previous take's id must not be
+    // resurrected as a stand-in.
+    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', report_linked_to_session: false });
     expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
   });
 
-  it('uses the newly persisted recording identity instead of an older fallback', async () => {
+  it('reports NO link when the row has no session, even with a live take in the tab', async () => {
+    // THE REGRESSION. This asserted `true` here, because the boolean was derived from
+    // `input.sessionId ?? <live take id>`. The DB insert has no such fallback — it stores
+    // `input.sessionId` alone — so a report filed mid-take before the session is persisted produced a
+    // row with NO session link while telemetry claimed there was one. Every such report inflated the
+    // funnel's linkage rate, and the disagreement was invisible because the two values were computed
+    // from different inputs.
     setPrivateTelemetryContext({ session_id: 'previous-session' });
     clearPrivateRecordingIdentity();
     setPrivateTelemetryContext({ session_id: 'current-session' });
@@ -275,8 +409,41 @@ describe('issueReportService', () => {
 
     const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
     const latestEvent = events[events.length - 1];
-    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', session_id: 'current-session' });
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: null }));
+    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', report_linked_to_session: false });
+    // The engine identity still rides along — it is content-free and is what makes a report
+    // diagnosable — but neither session identifier reaches the wire.
     expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
+    expect(JSON.stringify(latestEvent), 'no raw session id on the wire').not.toContain('current-session');
+  });
+
+  it('keeps the boolean in agreement with the persisted row for every input', async () => {
+    // The invariant, stated once over both branches: the boolean is a description of the ROW. Deriving
+    // it from any other source is what allowed the two to drift apart, so this asserts them together
+    // rather than asserting each in isolation.
+    const LINKED = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    for (const sessionId of [LINKED, null]) {
+      insert.mockClear();
+      setPrivateTelemetryContext({ session_id: 'a-live-take', engine_variant: 'private_v2' });
+      await issueReportService.submit({
+        userId: 'user-1',
+        sessionId,
+        category: 'recording_transcription',
+        severity: 'medium',
+        title: 'Agreement check',
+        description: 'The boolean must describe the row that was written.',
+        pageUrl: 'http://localhost:5174/session',
+        metadata: { route: '/session' },
+        includeAudio: false,
+      });
+
+      const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+      const emitted = events[events.length - 1].report_linked_to_session;
+      const written = (insert.mock.calls[0][0] as { session_id: string | null }).session_id;
+      expect(emitted, `row session_id=${written} must agree with the emitted boolean`)
+        .toBe(written !== null);
+      expect(JSON.stringify(events[events.length - 1])).not.toContain('a-live-take');
+    }
   });
 
   it('surfaces a persistence failure rather than masking it (persistence is authoritative)', async () => {
@@ -297,4 +464,65 @@ describe('issueReportService', () => {
       }),
     ).rejects.toBeTruthy();
   });
+});
+
+describe('a report is attributed to the session it is linked to, never to the tab', () => {
+    it('CASUALTY: an UNLINKED report carries no arm, rather than borrowing the current one', async () => {
+        // `getLastPrivateIdentity()` is process-global: it holds whatever engine most recently resolved
+        // in this tab, which need not be the engine that produced anything this report is about. Naming
+        // it would read downstream exactly like a measurement.
+        setPrivateTelemetryContext({ session_id: 'some-other-session', engine_variant: 'private_v2', release_sha: 'abc123' });
+        await issueReportService.submit({
+            userId: 'user-1', sessionId: null,
+            category: 'recording_transcription', severity: 'medium',
+            title: 'Something went wrong', description: 'It did not work.',
+            pageUrl: 'http://localhost:5174/session', metadata: { route: '/session' }, includeAudio: false,
+        });
+
+        const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+        const latest = events[events.length - 1];
+        expect(latest.report_linked_to_session).toBe(false);
+        expect(latest.model_attribution_verified).toBe(false);
+        expect(latest.engine_variant, 'an unlinked report must not borrow an arm').toBeNull();
+        expect(latest.release_sha).toBeNull();
+    });
+
+    it('CASUALTY: a report linked to session A is NOT attributed to a later session B', async () => {
+        const A = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+        // The tab has since moved on to another session on a different arm.
+        setPrivateTelemetryContext({ session_id: 'session-B', engine_variant: 'private_moonshine', release_sha: 'def456' });
+        await issueReportService.submit({
+            userId: 'user-1', sessionId: A,
+            category: 'recording_transcription', severity: 'medium',
+            title: 'About session A', description: 'The transcript was wrong.',
+            pageUrl: 'http://localhost:5174/session', metadata: { route: '/session' }, includeAudio: false,
+        });
+
+        const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+        const latest = events[events.length - 1];
+        expect(latest.report_linked_to_session).toBe(true);
+        // Linked, but the identity we hold is session B's — so the arm is not verified and is withheld.
+        // A complaint about one model being filed against another is the defect this prevents.
+        expect(latest.model_attribution_verified).toBe(false);
+        expect(latest.engine_variant).toBeNull();
+        expect(JSON.stringify(latest)).not.toContain('session-B');
+    });
+
+    it('POSITIVE CONTROL: when the identity belongs to the linked session, the arm rides along', async () => {
+        const A = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+        setPrivateTelemetryContext({ session_id: A, engine_variant: 'private_moonshine', release_sha: 'abc123' });
+        await issueReportService.submit({
+            userId: 'user-1', sessionId: A,
+            category: 'recording_transcription', severity: 'medium',
+            title: 'About session A', description: 'The transcript was wrong.',
+            pageUrl: 'http://localhost:5174/session', metadata: { route: '/session' }, includeAudio: false,
+        });
+
+        const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+        const latest = events[events.length - 1];
+        expect(latest.model_attribution_verified).toBe(true);
+        expect(latest.engine_variant).toBe('private_moonshine');
+        // Still no raw identifier on the wire.
+        expect(JSON.stringify(latest)).not.toContain(A);
+    });
 });

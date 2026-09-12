@@ -56,6 +56,17 @@ vi.mock('@/stores/useSessionStore', () => ({
     useSessionStore: vi.fn(),
 }));
 vi.mock('@/services/SpeechRuntimeController', () => ({
+    /**
+     * #1431 P1 — the hook now distinguishes a controlled owner-fence refusal from a failed start, so
+     * the mocked module must export the type. Without it the import is undefined and every
+     * `instanceof` in the start catch throws before the behaviour under test is reached.
+     */
+    StartRefusedFinalizationError: class StartRefusedFinalizationError extends Error {
+        constructor() {
+            super('START_REFUSED_FINALIZATION_IN_PROGRESS');
+            this.name = 'StartRefusedFinalizationError';
+        }
+    },
     speechRuntimeController: {
         startRecording: vi.fn(),
         stopRecording: vi.fn(async () => ({ 
@@ -282,6 +293,42 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
      * recording (a late frame during teardown) would fall into its START branch and create exactly the
      * stray recording this issue exists to eliminate. A stale event must be cleared, never toggled.
      */
+    /**
+     * #1431 — THE START GUARD ITSELF, not the boolean behind it.
+     *
+     * `isTranscriptFinalizing` exists to hold this guard closed: while a take is finalizing,
+     * `handleStartStop` must refuse a start outright, so a second take cannot be admitted into a
+     * session the first has not finished writing.
+     *
+     * My first casualty for this asserted the LATCH and claimed to assert the refusal. Codex was right
+     * that it did not: a regression removing the check here would have left it green while take C was
+     * admitted. This drives the real hook and asserts what the user's click actually does.
+     */
+    it('#1431: a start is REFUSED while a previous take is still finalizing', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,               // nothing is recording...
+            runtimeState: 'READY',            // ...and the runtime looks ready...
+            elapsedTime: 0,
+            startTime: null,
+            isTranscriptFinalizing: true,     // ...but the previous take is still finalizing.
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        await act(async () => { await result.current.handleStartStop(); });
+
+        // The click is refused at the guard — no recording is started for a session still being written.
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        // And the control is not interactive, so the refusal is visible rather than silent.
+        expect(result.current.isButtonDisabled).toBe(true);
+    });
+
     it('#1089: a stale capture-backstop event while Ready is cleared and NEVER starts a recording', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
@@ -772,6 +819,58 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
+    it('CASUALTY: an owner-fence REFUSAL is not a failed start — no reset, no failure event, no status', async () => {
+        /**
+         * #1431 P1 — THE DEFECT WAS HERE, IN THIS CATCH.
+         *
+         * The controller's owner fence rejects a Start while a stop is still finalizing. This catch
+         * treated EVERY rejection as an engine-acquisition failure: it emitted `recording_start_failed`,
+         * overwrote `sttStatus`, and called `reset('start_failed')` — which detaches the current
+         * service. That service belongs to the finalizing take, so the fence added to preserve its
+         * transcript would have destroyed it here instead, by a longer route.
+         *
+         * The sibling test above is the CONTROL: an ordinary `NotAllowedError` must still reset and
+         * still publish an error. The pair is what makes the distinction real rather than asserted.
+         */
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(
+            Object.assign(new Error('START_REFUSED_FINALIZATION_IN_PROGRESS'), {
+                name: 'StartRefusedFinalizationError',
+            }),
+        );
+
+        const mockStore = createTestSessionStore({
+            isListening: false,
+            runtimeState: 'READY',
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useProfile).mockReturnValue({
+            profile: { id: 'test-user', subscription_status: 'pro', email: 'test@example.com' } as UserProfile,
+            isVerified: true,
+        });
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: { can_start: true, subscription_status: 'pro', is_pro: true, streak_count: 0 },
+            isLoading: false, isError: false, error: null, status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (<TranscriptionProvider>{children}</TranscriptionProvider>),
+        });
+
+        await act(async () => { await result.current.handleStartStop(); });
+
+        expect(speechRuntimeController.reset,
+            "the finalizing take's service must not be detached").not.toHaveBeenCalledWith('start_failed');
+        expect(pushSpy.mock.calls.map((c) => c[0]),
+            'a refusal is not a start failure').not.toContain('recording_start_failed');
+        expect(mockStore.getState().sttStatus.type,
+            "the owner's session keeps its own status").not.toBe('error');
+    });
+
     it('surfaces the sanitized engine-start leaf name on the recording_start_failed event (Decision 1C)', async () => {
         // Production shape: the controller throws the generic wrapper with the root leaf attached as
         // `cause`. The failure event must carry the leaf NAME (co-located with the failure) so it is
@@ -1132,6 +1231,120 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         await waitFor(() => {
             expect(mockStore.getState().sttMode).toBe('private');
         });
+    });
+
+    it('#1428 F-15 settles initialization latency only when the controller reaches recording authority', async () => {
+        // `idle` after a completed take is cached and immediately startable. Treating every status
+        // other than `ready` as cold corrupts the returning-user distribution.
+        document.documentElement.setAttribute('data-model-status', 'idle');
+        let resolveStart!: () => void;
+        const startPending = new Promise<void>((resolve) => { resolveStart = resolve; });
+        vi.mocked(speechRuntimeController.startRecording).mockReturnValueOnce(startPending);
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        const mockStore = createTestSessionStore({
+            isListening: false,
+            runtimeState: 'READY',
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useUsageLimit).mockReturnValue({
+            ...mockUsageLimitQuery,
+            data: { ...baseUsageLimit, can_start: true },
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        let startAction!: Promise<void>;
+        act(() => { startAction = result.current.handleStartStop(); });
+
+        await waitFor(() => expect(speechRuntimeController.startRecording).toHaveBeenCalledTimes(1));
+        expect(pushSpy.mock.calls.some(([event]) => event === 'session_start_latency_measured')).toBe(false);
+
+        await act(async () => {
+            vi.mocked(speechRuntimeController.getState).mockReturnValueOnce('RECORDING');
+            resolveStart();
+            await startAction;
+        });
+        const latency = pushSpy.mock.calls.find(([event]) => event === 'session_start_latency_measured');
+        expect(latency?.[1]).toMatchObject({
+            mode: 'private',
+            outcome: 'recording_started',
+            duration_ms: expect.any(Number),
+            model_cache_state: 'cached',
+        });
+        expect(Number.isInteger((latency?.[1] as Record<string, unknown>)?.duration_ms)).toBe(true);
+        pushSpy.mockRestore();
+    });
+
+    it('#1428 CASUALTY: a non-throwing start refusal never reports a recording start', async () => {
+        vi.mocked(speechRuntimeController.startRecording).mockResolvedValueOnce(undefined);
+        vi.mocked(speechRuntimeController.getState).mockReturnValueOnce('READY');
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        const mockStore = createTestSessionStore({
+            isListening: false,
+            runtimeState: 'READY',
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useUsageLimit).mockReturnValue({
+            ...mockUsageLimitQuery,
+            data: { ...baseUsageLimit, can_start: true },
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        await act(async () => { await result.current.handleStartStop(); });
+
+        expect(pushSpy.mock.calls.find(([event]) => event === 'session_start_latency_measured')?.[1])
+            .toMatchObject({ outcome: 'refused' });
+        expect(pushSpy.mock.calls.some(([event]) => event === 'session_started')).toBe(false);
+        pushSpy.mockRestore();
+    });
+
+    it('#1428 F-16 settles Stop latency only after the saved review decision is ready', async () => {
+        let resolveStop!: (value: TranscriptStats) => void;
+        const stopPending = new Promise<TranscriptStats>((resolve) => { resolveStop = resolve; });
+        vi.mocked(speechRuntimeController.stopRecording).mockReturnValueOnce(stopPending);
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        const mockStore = createTestSessionStore({
+            isListening: true,
+            runtimeState: 'RECORDING',
+            elapsedTime: 30,
+            startTime: Date.now() - 30_000,
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        let stopAction!: Promise<void>;
+        act(() => { stopAction = result.current.handleStartStop(); });
+
+        await waitFor(() => expect(speechRuntimeController.stopRecording).toHaveBeenCalledTimes(1));
+        expect(pushSpy.mock.calls.some(([event]) => event === 'session_save_latency_measured')).toBe(false);
+        expect(result.current.showAnalyticsPrompt).toBe(false);
+
+        await act(async () => {
+            resolveStop({ transcript: '', total_words: 0, accuracy: 100, duration: 30 });
+            await stopAction;
+        });
+        expect(result.current.showAnalyticsPrompt).toBe(true);
+        const latency = pushSpy.mock.calls.find(([event]) => event === 'session_save_latency_measured');
+        expect(latency?.[1]).toMatchObject({
+            mode: 'private',
+            outcome: 'saved',
+            duration_ms: expect.any(Number),
+        });
+        pushSpy.mockRestore();
     });
 
 

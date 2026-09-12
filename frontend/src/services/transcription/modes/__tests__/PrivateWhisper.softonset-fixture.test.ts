@@ -26,6 +26,7 @@ vi.mock('@xenova/transformers', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   init: vi.fn(), checkAvailability: vi.fn(), transcribe: vi.fn(),
+  engineStart: vi.fn(), engineStop: vi.fn(),
   isMeaningfullySilent: vi.fn().mockReturnValue(false), processAudioFrame: vi.fn(),
 }));
 vi.mock('../../audio/pauseDetector', () => ({
@@ -38,6 +39,7 @@ vi.mock('../../audio/pauseDetector', () => ({
 vi.mock('../../engines/PrivateSTT', () => {
   const MockPrivateSTT = vi.fn().mockImplementation(() => ({
     init: mocks.init, checkAvailability: mocks.checkAvailability, transcribe: mocks.transcribe,
+    start: mocks.engineStart, stop: mocks.engineStop,
     getEngineType: vi.fn().mockReturnValue('transformers-js'),
   }));
   return { PrivateSTT: MockPrivateSTT, createPrivateSTT: vi.fn(() => new MockPrivateSTT()) };

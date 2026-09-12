@@ -10,6 +10,7 @@ import {
     type ObjectiveBriefResult,
     type ObjectiveBriefFailureReason,
 } from '@/services/objective/objectiveBriefService';
+import { emitJourneyStep } from '@/services/telemetry/journeyStep';
 
 /**
  * #1046 G2 slice 2 — Focus Points capture form.
@@ -50,22 +51,51 @@ const TOPIC_OPTIONS = [
     'Team update / standup',
 ] as const;
 
+/**
+ * #1407 — seed values for EDITING an existing brief. Absent means a blank form, which is what "Start a
+ * new set" requires: no topic, points or pace may survive from the take just reviewed.
+ */
+export interface ObjectiveSetupInitial {
+    topic?: string | null;
+    points?: string[] | null;
+    paceGuideSecPerPoint?: number | null;
+}
+
 export function ObjectiveSetupForm({
     onReady,
+    initial,
     className = '',
 }: {
     /** Called with the persisted ids + the declared point labels once the brief is saved — the caller binds
      *  them to the store and routes into the session (the labels drive the before/during Focus Points list). */
     onReady?: (result: { briefId: string; projectId: string; points: string[]; topic: string; paceGuideSecPerPoint: number | null }) => void;
+    /** #1407 Edit: prefill from the brief being edited. Omit for a blank form (Start a new set). */
+    initial?: ObjectiveSetupInitial;
     className?: string;
 }) {
-    const [goal, setGoal] = React.useState('');
+    // Seeded ONCE per mount. The dialog unmounts its content when closed, so each open re-seeds from the
+    // `initial` passed for THAT open — which is how Edit shows the current brief and New Set shows nothing.
+    const [goal, setGoal] = React.useState(() => initial?.topic ?? '');
     // Dropdown selection: '' (unchosen), a TOPIC_OPTIONS value, or 'other' (reveals the free-text field).
-    const [topic, setTopic] = React.useState('');
-    const [points, setPoints] = React.useState<PointDraft[]>(() => [makePoint(), makePoint(), makePoint()]);
+    // An edited brief's topic is free text we cannot assume matches a quick-pick, so 'other' is chosen
+    // whenever a topic exists but is not one of the options — the value is preserved either way.
+    const [topic, setTopic] = React.useState(() => {
+        const seeded = initial?.topic ?? '';
+        if (!seeded) return '';
+        return (TOPIC_OPTIONS as readonly string[]).includes(seeded) ? seeded : 'other';
+    });
+    const [points, setPoints] = React.useState<PointDraft[]>(() => {
+        const seeded = (initial?.points ?? []).filter((p) => p.trim() !== '');
+        if (seeded.length === 0) return [makePoint(), makePoint(), makePoint()];
+        return seeded.map((label) => ({ id: nextPointId++, label }));
+    });
     // #1046 G6/G7 §0/§2: the pace GUIDE — minutes per point, default 1, half-min steps 0.5–3. null = skipped
     // (everything pace-related then vanishes and pace nudges never fire). It NEVER blocks Start speaking.
-    const [paceGuideMin, setPaceGuideMin] = React.useState<number | null>(1);
+    const [paceGuideMin, setPaceGuideMin] = React.useState<number | null>(() => {
+        if (initial === undefined) return 1;
+        // An edited brief that SKIPPED pace must stay skipped; only an absent seed falls back to the default.
+        return initial.paceGuideSecPerPoint == null ? null : Math.round((initial.paceGuideSecPerPoint / 60) * 2) / 2;
+    });
     const [submitting, setSubmitting] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
 
@@ -111,6 +141,21 @@ export function ObjectiveSetupForm({
             result = { ok: false, reason: 'error' };
         }
         if (result.ok && result.briefId && result.projectId) {
+            // #1259 F03 — THE CONTROL SAYS "Start speaking" AND NAVIGATES. `MicCard` uses almost the
+            // same words for the control that actually starts recording, so a user reading this as a
+            // promise arrives at a page that waits for a second click. `cta_id` is a checked-in
+            // identifier rather than the visible label: copy will change, and the identity of the
+            // control is what has to stay comparable across that change.
+            emitJourneyStep({
+                step: 'setup_submitted',
+                ctaId: 'objective_setup_primary',
+                ctaAction: 'navigate',
+                productMode: 'objective',
+                // F18 — the count the user ENTERED, recorded where entry happens. The persisted and
+                // evaluated counts come from their own authorities; the three are comparable by
+                // journey, which is what makes displacement answerable rather than suspected.
+                pointsEntered: labelledPoints.length,
+            });
             onReady?.({
                 briefId: result.briefId,
                 projectId: result.projectId,
@@ -136,12 +181,8 @@ export function ObjectiveSetupForm({
             <h2 className="text-2xl font-extrabold tracking-[-0.025em] text-foreground">
                 Set your {PRODUCT_NAMES.objective}
             </h2>
-            <p className="mt-1 text-[15px] leading-snug text-foreground/70">
-                Name what you’re rehearsing, then list the points you want to cover. After you record,
-                each one is marked covered or not detected.
-            </p>
 
-            <div className="mt-6">
+            <div className="mt-5">
                 <Label htmlFor="objective-goal" className="text-[13px] font-bold text-foreground">
                     What are you rehearsing?
                 </Label>
@@ -273,7 +314,7 @@ export function ObjectiveSetupForm({
             >
                 {submitting
                     ? <><Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden="true" /> Saving…</>
-                    : <>Start speaking <ArrowRight className="h-[18px] w-[18px]" aria-hidden="true" /></>}
+                    : <>Proceed to session <ArrowRight className="h-[18px] w-[18px]" aria-hidden="true" /></>}
             </Button>
         </form>
     );

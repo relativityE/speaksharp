@@ -28,11 +28,34 @@ const REPO_ROOT = (() => {
 const src = (p: string): string => readFileSync(join(REPO_ROOT, p), 'utf8');
 const PRIVATE_STT = 'frontend/src/services/transcription/engines/PrivateSTT.ts';
 
-/** The text of the getMetadata method only — file-wide assertions let a reverted body survive. */
+/**
+ * The text of the getMetadata method only — file-wide assertions let a reverted body survive.
+ *
+ * BOUNDED BY BRACES, NOT BY A CHARACTER COUNT. This sliced a fixed 1800 characters, so adding a comment
+ * inside the method silently pushed real code out of the window and failed the assertion as though the
+ * call had been removed. A harness whose verdict depends on how much prose the method contains reports
+ * edits it should ignore, and would equally MISS a reverted line that happened to sit past the cutoff.
+ */
 const getMetadataBodyOf = (file: string): string => {
     const at = file.indexOf('public getMetadata(');
     expect(at, 'getMetadata not found').toBeGreaterThan(-1);
-    return file.slice(at, at + 1800);
+    // The signature carries an inline return TYPE, which is itself a balanced `{...}` group. Taking the
+    // first group would capture the annotation and none of the code, which is the same false verdict
+    // the character count gave. Balanced groups are walked until one is the body.
+    const balancedFrom = (start: number): [number, number] => {
+        const open = file.indexOf('{', start);
+        expect(open, 'no block found after getMetadata signature').toBeGreaterThan(-1);
+        let depth = 0;
+        for (let i = open; i < file.length; i++) {
+            if (file[i] === '{') depth++;
+            else if (file[i] === '}' && --depth === 0) return [open, i];
+        }
+        throw new Error('getMetadata body is unbalanced');
+    };
+    let [, close] = balancedFrom(file.indexOf(')', at));
+    // A `{` immediately following the closing brace means the group just walked was the annotation.
+    if (file.slice(close + 1).trimStart().startsWith('{')) [, close] = balancedFrom(close + 1);
+    return file.slice(at, close + 1);
 };
 const WHISPER = 'frontend/src/services/transcription/modes/PrivateWhisper.ts';
 const SERVICE = 'frontend/src/services/transcription/TranscriptionService.ts';

@@ -137,7 +137,9 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     },
     'v4:base:q4': {
         id: 'v4:base:q4',
-        activationReady: true,
+        activationReady: false,
+        notReadyReason:
+            'benchmark control only. It is a measured arm and a valid ATTRIBUTION target, but it is not one of the three candidates under product comparison, so a build may not ship it as the default',
         engine: 'transformers-js-v4',
         runtime: { package: '@huggingface/transformers', version: '4.2.0' },
         model: {
@@ -158,7 +160,9 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     },
     'v4:base:int8': {
         id: 'v4:base:int8',
-        activationReady: true,
+        activationReady: false,
+        notReadyReason:
+            'benchmark control only, and PRIV_STT_V4_VARIANTS registers no int8 runtime variant, so the engine cannot load it at all. Selecting it could only ever run a different model under this id',
         engine: 'transformers-js-v4',
         runtime: { package: '@huggingface/transformers', version: '4.2.0' },
         model: {
@@ -190,7 +194,11 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
      */
     'v4:distil:q4': {
         id: 'v4:distil:q4',
-        activationReady: true,
+        activationReady: false,
+        notReadyReason:
+            'no qualification evidence exists for this candidate on the product path. It is selectable '
+            + 'for internal comparison via acknowledgeNotProductionReady, and becomes eligible as a '
+            + 'public default only once a human comparison has actually been run against it',
         engine: 'transformers-js-v4',
         runtime: { package: '@huggingface/transformers', version: '4.2.0' },
         model: {
@@ -227,8 +235,14 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
         assets: {
             pinDigest: '898305d7768356a7f56002a4b2c4e55dd0534a6fd1ae11b0aadc0d11d2a27891',
             provenance: 'upstream_pins',
-            pinSource: 'tests/fixtures/moonshine-asset-pins.json',
+            pinSource: 'frontend/src/services/transcription/moonshineAssetPins.json',
             componentCount: 7,
+            // The HONEST MAXIMUM this candidate may pull over the network, summed from the seven pinned
+            // components. It is not an estimate and not a typical case: consent copy quotes it as an
+            // upper bound, so understating it would make the consent meaningless. Bound to the pin table
+            // by test, so re-pinning to larger assets fails CI instead of silently enlarging a download
+            // the user already consented to.
+            totalBytes: 304_690_919,
             pinNote: null,
         },
         browser: { ok: true },
@@ -287,6 +301,18 @@ export function candidateForRuntime(state: ResolvedRuntimeState): CandidateId {
         throw new UnknownCandidateError(
             `v4 engine resolved an unrecognised variant ${JSON.stringify(variant)}; `
             + 'refusing to attribute the session to a default',
+        );
+    }
+    if (engineType === 'moonshine-streaming') {
+        // KEYED ON THE ARCH, NOT THE PROVIDER. Only the medium arch is registered today, so mapping the
+        // provider straight to `moonshine:streaming-medium` would look correct and stay correct until
+        // the moment someone runs SmallStreaming — at which point every small session would be recorded,
+        // and compared, as medium. The provider says which machinery ran; only the arch says which model
+        // did, and it is the model the human test is choosing between.
+        if (variant === 'MOONSHINE_STREAMING_MEDIUM') return 'moonshine:streaming-medium';
+        throw new UnknownCandidateError(
+            `moonshine engine resolved arch ${JSON.stringify(variant)}, which no registered candidate `
+            + 'describes; refusing to attribute the session to the one arch that happens to be registered',
         );
     }
     throw new UnknownCandidateError(

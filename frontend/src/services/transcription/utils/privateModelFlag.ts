@@ -4,7 +4,7 @@
  * OFF by default — resolves to `PRIV_STT_MODELS.DEFAULT` (Private release default whisper-base.en),
  * so the default Private path is byte-identical. The test agent overrides the model for an
  * A/B run via either:
- *   - `window.__PRIVATE_MODEL__ = 'whisper-small.en'`
+ *   (RETIRED: the window flag and `?privateModel=` selection were removed — see below.)
  *   - URL `?privateModel=whisper-small.en`
  * Selection is validated against `PRIV_STT_MODELS.CANDIDATES`. A session that explicitly requests
  * an UNKNOWN model is rejected at start (`assertValidPrivateModelSelection`) rather than silently
@@ -21,7 +21,6 @@ export type PrivateModelKey = keyof typeof PRIV_STT_MODELS.CANDIDATES;
 
 declare global {
   interface Window {
-    __PRIVATE_MODEL__?: string;
     /** Published per Private session for the model-eval A/B harness (test-only). */
     __PRIVATE_MODEL_TELEMETRY__?: PrivateModelTelemetry;
   }
@@ -48,75 +47,17 @@ export interface PrivateModelTelemetry {
   cloudFallbackAttempted: false;
 }
 
-function isCandidate(value: string): value is PrivateModelKey {
-  return Object.prototype.hasOwnProperty.call(PRIV_STT_MODELS.CANDIDATES, value);
-}
-
-/** Resolve the selected Private model key (default when unset/invalid). */
-export function resolvePrivateModel(): PrivateModelKey {
-  const def = PRIV_STT_MODELS.DEFAULT as PrivateModelKey;
-  if (typeof window === 'undefined') return def;
-
-  const fromWindow = window.__PRIVATE_MODEL__;
-  if (typeof fromWindow === 'string' && isCandidate(fromWindow)) return fromWindow;
-
-  try {
-    const fromQuery = new URLSearchParams(window.location.search).get('privateModel');
-    if (fromQuery && isCandidate(fromQuery)) return fromQuery;
-  } catch {
-    /* ignore */
-  }
-  return def;
-}
-
-/** True when a non-default model is explicitly selected. */
-export function isPrivateModelOverridden(): boolean {
-  return resolvePrivateModel() !== (PRIV_STT_MODELS.DEFAULT as PrivateModelKey);
-}
-
-/** The raw requested model flag (window then URL), or null when none was provided. */
-export function getRequestedPrivateModel(): string | null {
-  if (typeof window === 'undefined') return null;
-  if (typeof window.__PRIVATE_MODEL__ === 'string' && window.__PRIVATE_MODEL__.length > 0) {
-    return window.__PRIVATE_MODEL__;
-  }
-  try {
-    const fromQuery = new URLSearchParams(window.location.search).get('privateModel');
-    if (fromQuery && fromQuery.length > 0) return fromQuery;
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
 /**
- * Reject an explicitly-requested-but-unsupported Private model instead of silently falling back to
- * the default (tiny). No flag, or a valid candidate → no-op; an unknown flag value → throw a
- * descriptive MODEL_LOAD_FAILED. Call once at Private session start. (STT-P6-HUMAN: a silent tiny
- * fallback made `?privateModel=…` look honored when it was not, so base-vs-tiny proofs were invalid.)
+ * The Private model key. ALWAYS the configured default — there is no per-visitor selection.
+ *
+ * This previously honoured `window.__PRIVATE_MODEL__` and `?privateModel=`, with NO dev/test gate, so
+ * the parameter worked on the production site. That is two separate problems: a visitor could change
+ * which model decoded their session, and the parameter names internal engine builds to anyone who
+ * looks at a URL. Model selection is now one reviewable config value (see `candidateSelection`), so
+ * both reads are gone rather than gated.
  */
-export function assertValidPrivateModelSelection(): void {
-  const requested = getRequestedPrivateModel();
-  if (requested !== null && !isCandidate(requested)) {
-    const supported = Object.keys(PRIV_STT_MODELS.CANDIDATES).join(', ');
-    throw new Error(
-      `MODEL_LOAD_FAILED: requested Private model "${requested}" is not supported ` +
-        `(supported: ${supported}). Not falling back to ${PRIV_STT_MODELS.DEFAULT}.`,
-    );
-  }
-}
-
-/** Where the model selection came from this session: window flag, URL param, or the default. */
-export function resolvePrivateModelSource(): PrivateModelSelectionSource {
-  if (typeof window === 'undefined') return 'default';
-  if (typeof window.__PRIVATE_MODEL__ === 'string' && isCandidate(window.__PRIVATE_MODEL__)) return 'window';
-  try {
-    const fromQuery = new URLSearchParams(window.location.search).get('privateModel');
-    if (fromQuery && isCandidate(fromQuery)) return 'url';
-  } catch {
-    /* ignore */
-  }
-  return 'default';
+export function resolvePrivateModel(): PrivateModelKey {
+  return PRIV_STT_MODELS.DEFAULT as PrivateModelKey;
 }
 
 /** Publish the model-eval telemetry snapshot (test-only; no behavior impact). */

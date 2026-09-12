@@ -20,7 +20,8 @@ export type NativeSttProvider =
 
 export type PrivateSttProvider =
   | 'transformers-js'
-  | 'transformers-js-v4';
+  | 'transformers-js-v4'
+  | 'moonshine-streaming';
 
 export type SttProvider = NativeSttProvider | PrivateSttProvider;
 

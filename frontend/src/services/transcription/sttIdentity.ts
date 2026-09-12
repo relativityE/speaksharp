@@ -2,8 +2,8 @@
  * STT-IDENTITY-DIAG — consolidated, dev/test-only STT run identity.
  *
  * A human (or proof harness) watching a live session cannot otherwise tell WHICH engine/model is
- * running (v2 tiny vs v2 base vs experimental v4), how it was selected (default vs `?privateModel=` /
- * `?privateEngine=` override), its size, where it loaded from, device/backend, or release status.
+ * running (v2 base vs v4), how it was selected (config — the URL/localStorage overrides are
+ * retired), its size, where it loaded from, device/backend, or release status.
  * This module assembles those already-published signals into ONE object so the dev/test badge and the
  * proof artifacts speak the same vocabulary (the reviewer's required field set).
  *
@@ -13,11 +13,9 @@
  * `userHidden` is true for Private.
  */
 import { NOT_AVAILABLE, type Maybe } from './sttEvidence';
-import { PRIV_STT_MODELS, PRIVATE_ENGINE_OVERRIDE_KEY } from './sttConstants';
+import { PRIV_STT_MODELS } from './sttConstants';
 import {
     resolvePrivateModel,
-    resolvePrivateModelSource,
-    isPrivateModelOverridden,
     type PrivateModelSelectionSource,
 } from './utils/privateModelFlag';
 
@@ -58,8 +56,6 @@ export interface SttIdentityInput {
     modelOverridden?: boolean | null;
     /** Approx download size (MB) for the resolved model. */
     approxMB?: number | null;
-    /** Raw `?privateEngine=` / localStorage engine override value, if any. */
-    engineOverride?: string | null;
     /** v4 runtime identity, present only when a v4 run published `__PRIVATE_V4_RUNTIME__`. */
     v4?: SttIdentityV4Input | null;
 }
@@ -99,7 +95,6 @@ function val<T>(v: T | null | undefined): Maybe<T> {
 export function buildSttIdentity(input: SttIdentityInput): SttIdentity {
     const mode = input.mode ?? null;
     const isV4 = Boolean(input.v4);
-    const engineOverridden = Boolean(input.engineOverride && input.engineOverride.trim().length > 0);
 
     let provider: string | null = null;
     let engine: string | null = null;
@@ -165,7 +160,8 @@ export function buildSttIdentity(input: SttIdentityInput): SttIdentity {
         mode: val(mode),
         provider: val(provider),
         engine: val(engine),
-        engineSelection: engineOverridden ? 'override' : 'default',
+        // Always 'default': the override channel this reported is retired.
+        engineSelection: 'default',
         modelId: val(modelId),
         selectionSource: val(input.modelSelectionSource),
         modelOverridden: val(input.modelOverridden),
@@ -193,22 +189,6 @@ interface V4RuntimeGlobal {
     onnxRuntimeVersion?: string;
 }
 
-/** Read the raw `?privateEngine=` / localStorage engine override. Uses the SAME shared
- *  `PRIVATE_ENGINE_OVERRIDE_KEY` as PrivateSTT so this debug mirror cannot drift from the
- *  real override key. (Diagnostic display only — the badge is debug-gated; gating of the
- *  override BEHAVIOR lives in PrivateSTT.) */
-function readEngineOverride(win: Window): string | null {
-    try {
-        const fromQuery = new URLSearchParams(win.location.search).get('privateEngine');
-        if (fromQuery && fromQuery.length > 0) return fromQuery;
-        const stored = win.localStorage?.getItem(PRIVATE_ENGINE_OVERRIDE_KEY);
-        if (stored && stored.length > 0) return stored;
-    } catch {
-        /* ignore */
-    }
-    return null;
-}
-
 /** Assemble identity from the live window globals + selection flags. Safe when window is absent. */
 export function collectSttIdentityFromWindow(
     win: Window | undefined = typeof window !== 'undefined' ? window : undefined,
@@ -233,10 +213,10 @@ export function collectSttIdentityFromWindow(
     return buildSttIdentity({
         mode,
         privateModelKey,
-        modelSelectionSource: resolvePrivateModelSource(),
-        modelOverridden: isPrivateModelOverridden(),
+        // Selection is the config file; there is no per-visitor source or override to report.
+        modelSelectionSource: 'default',
+        modelOverridden: false,
         approxMB,
-        engineOverride: readEngineOverride(win),
         v4,
     });
 }

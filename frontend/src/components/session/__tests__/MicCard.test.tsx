@@ -7,7 +7,8 @@ describe('MicCard (#1222 slot A)', () => {
     it('renders the start control with the prompt copy and fires onStart', () => {
         const onStart = vi.fn();
         render(<MicCard onStart={onStart} />);
-        expect(screen.getByText('Press to start speaking')).toBeInTheDocument();
+        // #1415 — the warm control says exactly what it does: it records.
+        expect(screen.getByText('Start recording')).toBeInTheDocument();
         expect(screen.getByText(/Space bar works too/)).toBeInTheDocument();
         fireEvent.click(screen.getByTestId('mic-start'));
         expect(onStart).toHaveBeenCalledOnce();
@@ -61,13 +62,36 @@ describe('MicCard (#1222 slot A)', () => {
     });
 
     // #1222 S12a — Private model lifecycle so a first-time user can download + start.
-    it('download-required: the primary control downloads the model instead of starting', () => {
+    it('#1415 download-required: ONE truthful activation that downloads AND records', () => {
+        // This test previously asserted the two-click failure: the control downloaded and did not
+        // record, so a user who wanted to speak had to press again after the download. It now asserts
+        // the corrected contract, and both halves matter — the label must not hide the download, and
+        // the press must not stop at it.
         const onStart = vi.fn();
         const onDownloadModel = vi.fn();
         render(<MicCard onStart={onStart} privateModelStatus="download-required" onDownloadModel={onDownloadModel} />);
+
         expect(screen.getByTestId('mic-card')).toHaveAttribute('data-model-status', 'download-required');
-        expect(screen.getByText(/Download to start speaking/i)).toBeInTheDocument();
+        // Truthful about BOTH things the press will do — no undisclosed download.
+        expect(screen.getByText('Download & start recording')).toBeInTheDocument();
+        expect(screen.getByText(/One-time model download to this device, then recording starts automatically/i))
+            .toBeInTheDocument();
+        expect(screen.getByTestId('mic-download')).toHaveAccessibleName('Download & start recording');
+
         fireEvent.click(screen.getByTestId('mic-download'));
+        // The single activation goes to the recording intent, which consents, prepares and starts.
+        expect(onStart).toHaveBeenCalledOnce();
+        expect(onDownloadModel).not.toHaveBeenCalled();
+    });
+
+    it('#1415 a FAILED setup keeps its own retry action — it is not a cold start', () => {
+        // Auto-retrying a broken engine would loop behind a spinner the user cannot escape, so this
+        // path deliberately does NOT become one-click recording.
+        const onStart = vi.fn();
+        const onDownloadModel = vi.fn();
+        render(<MicCard onStart={onStart} privateModelStatus="init-failed" onDownloadModel={onDownloadModel} />);
+        expect(screen.getByText('Retry Private setup')).toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('mic-retry'));
         expect(onDownloadModel).toHaveBeenCalledOnce();
         expect(onStart).not.toHaveBeenCalled();
     });

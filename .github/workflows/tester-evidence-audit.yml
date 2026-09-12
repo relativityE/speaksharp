@@ -7,7 +7,14 @@ name: Tester Evidence Audit (READ-ONLY)
 #
 # The audit consumes ONLY:
 #   secrets:   SUPABASE_SERVICE_ROLE_KEY, AUDIT_EXCLUDED_EMAILS_JSON
-#   variables: SUPABASE_URL, AUDIT_EXCLUSION_LIST_VERSION, AUDIT_EXCLUSION_LIST_REVIEWED_AT
+#   variables: SUPABASE_URL, AUDIT_EXCLUSION_LIST_VERSION, AUDIT_EXCLUSION_LIST_REVIEWED_AT,
+#              SHARE_FEEDBACK_DEPLOYED_AT, SHARE_FEEDBACK_DEPLOYED_SHA
+#
+# SHARE_FEEDBACK_DEPLOYED_AT / SHARE_FEEDBACK_DEPLOYED_SHA are a PAIR and are required together whenever
+# any report lacks an explicit feedback_kind: the timestamp says where legacy Issues end, and the SHA is
+# what makes that instant checkable against a real build. The timestamp must be the exact UTC deployment
+# time of the first CUSTOMER build containing Share Feedback — never a commit, merge or run time. A
+# missing or malformed value FAILS the audit rather than classifying rows on an unverifiable boundary.
 #   inputs:    practice_deploy_at, final_deploy_at, confirm_exclusion_manifest_complete
 # It references no individual per-account email secret, no password, no anon key, and no hardcoded
 # operational account address. The audit's OWN first listUsers call is the credential/reachability
@@ -71,6 +78,23 @@ jobs:
           AUDIT_EXCLUDED_EMAILS_JSON: ${{ secrets.AUDIT_EXCLUDED_EMAILS_JSON }}
           # VARIABLES — printed for traceability; part of the completion gate.
           AUDIT_EXCLUSION_LIST_VERSION: ${{ vars.AUDIT_EXCLUSION_LIST_VERSION }}
+          # VARIABLE — the Share Feedback deployment moment, as an ISO-8601 timestamp.
+          #
+          # Rows created BEFORE it carry no `feedback_kind` because the product exposed an Issue-only
+          # journey, so they are legacy Issues and belong in issue and severity totals. Rows after it
+          # with no kind are an instrumentation defect.
+          #
+          # Supplied explicitly and never defaulted: an invented boundary would silently reclassify real
+          # rows. If this is unset the audit reports those rows as UNCLASSIFIABLE rather than guessing —
+          # implementing the boundary without configuring it would leave every legacy row unclassified,
+          # which is why it is wired here and not only in the script.
+          # MUST be the exact UTC deployment time of the first CUSTOMER build containing Share Feedback
+          # — never the commit time, the merge time, or "now". Those would each move the boundary to an
+          # instant no user experienced, silently reclassifying real rows.
+          SHARE_FEEDBACK_DEPLOYED_AT: ${{ vars.SHARE_FEEDBACK_DEPLOYED_AT }}
+          # The deployment that timestamp refers to, printed alongside it so the boundary is traceable
+          # to a real build instead of taken on trust.
+          SHARE_FEEDBACK_DEPLOYED_SHA: ${{ vars.SHARE_FEEDBACK_DEPLOYED_SHA }}
           AUDIT_EXCLUSION_LIST_REVIEWED_AT: ${{ vars.AUDIT_EXCLUSION_LIST_REVIEWED_AT }}
           # INPUTS:
           CONFIRM_EXCLUSION_MANIFEST_COMPLETE: ${{ github.event.inputs.confirm_exclusion_manifest_complete }}

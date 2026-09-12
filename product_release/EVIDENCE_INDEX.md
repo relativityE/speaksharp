@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for the index of dated proof artifacts — an index, not the proofs themselves)
 **Owner:** Product-Ops / Quality (relativityE)
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — artifact locations enumerated after consolidation; retained root-level ledgers/audits moved under `evidence/retained/`. This file indexes historical evidence; it carries no current release posture.
+**Last Reviewed:** 2026-09-08
+**Last Verified:** 2026-09-08 — historical newest-two evidence is explicitly separated from the current newest-one authority.
 **Applies To:** All dated release-proof artifacts for the SpeakSharp beta — where each lives, when it was captured, and what it proved at that moment.
 **Class:** Evidence index.
 **Authority:** The source for **where** dated proof artifacts live and **what date/point-in-time** they represent. It is a map to evidence, not a verdict.
@@ -9,13 +9,19 @@
 **Supersedes:** the ad-hoc "current truth source" framing of `evidence/README.md`; dated closeout, public-launch and entitlement records are retained below as evidence, not current posture.
 **Evidence Sources:** the `product_release/evidence/` tree itself; `evidence/retained/attribution-sanitation-crosswalk.md` for pre-2026-07-15 SHA provenance.
 
+<!-- pm-currentization:2026-09-04 -->
+> [!IMPORTANT]
+> **Currentized 4 Sep 2026.** The 4 Sep Production human test is current decision evidence in #1390/#1258 and the reopened #1259, not yet a frozen retained artifact. It established two failed v2 journeys and exposed missing observability; it did not qualify any model or release. Existing dated files below remain immutable evidence of what was known when captured and must not override these newer authorities.
+
+<!-- /pm-currentization:2026-09-04 -->
+
 # SpeakSharp Evidence Index
 
 ## Strategy and documentation reconciliation
 
 | Evidence | What it establishes | Current authority |
 |---|---|---|
-| [`evidence/CODEBASE_VS_STRATEGY_2026-08-29.md`](./evidence/CODEBASE_VS_STRATEGY_2026-08-29.md) | Code-verified reconciliation of the two SpeakSharp strategy drafts: privacy boundary, newest-two transcript retention, Progress/attempt/outcome implementation, score-retirement residue, Focus Points, waitlist reachability, competitive advantage and moat evidence. | `PRODUCT_REQUIREMENTS.md`, `PROGRESS_AND_NEXT_ACTION.md`, `ARCHITECTURE.md`, `STT.md` |
+| [`evidence/CODEBASE_VS_STRATEGY_2026-08-29.md`](./evidence/CODEBASE_VS_STRATEGY_2026-08-29.md) | Historical reconciliation describing the then-current newest-two implementation. It does not authorize that superseded policy. | `PRODUCT_REQUIREMENTS.md` and `ARCHITECTURE.md` now require newest-one retention. |
 
 Canonical **index** of the dated proof artifacts SpeakSharp has captured: quality digests, STT/UX reproof runs, beta-50 packets, launch-gate proofs, hardware logs, and entitlement audits. It records **where** each artifact lives and **when** it was captured, so a reviewer can find the original rather than trust a summary.
 
@@ -138,6 +144,7 @@ These dated proofs are retained under `evidence/retained/`. The current interpre
 |---|---|---|
 | `evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md` | Complete pre-consolidation classification of the then-97-file non-archive Markdown surface plus the claim-by-claim code audit. Paths are historical after canonical closeout. | `README.md` (current 14-document authority) + owning canonical document for each product claim |
 | `evidence/retained/PUBLIC_LAUNCH_LEDGER.md` | Dated broad-launch gate proofs PL-001…PL-011: public signup, first Free session, test-mode Stripe checkout→entitlement journey, webhook/billing-lifecycle local proofs, trial lifecycle and historical provider-path evidence. | `ROADMAP.md` (open gates) + `RELEASE_STATUS.md` (current) |
+| `evidence/retained/2026-08-30-stt-selection-inventory.md` | Point-in-time mechanical inventory of the nine fragmented Private-STT model-selection mechanisms present on `main@024b574f` (URL parameters, localStorage keys, PostHog flags, build veto, default constants), plus the `getMetadata` default-variant defect. Carries an appended 2026-09-01 CORRECTION: several line numbers were attributed to the wrong file and the source/test split was wrong. All listed mechanisms are retired as of #1263. | `ROADMAP.md` (open gates) + the config plane in `services/transcription/candidateSelection.ts` |
 | `evidence/retained/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | Dated entitlement audit: former Pro cap reconciliation, AI-quota verification and fail-closed guard checks. | `ENTITLEMENTS_AND_BILLING.md` (requirement) + `ROADMAP.md` (open ops) |
 | `product_release/SCA_EXCEPTIONS.md` — pinned-audit execution result (2026-07-15) | Dated SCA pinned-audit result + the single ignored advisory rationale. | `OPERATIONS_AND_SECURITY.md` |
 | `evidence/retained/RELEASE_CLOSEOUT_LEDGER.md` — dated proof rows (§B doc-gap closures, §E DB-hygiene closeout) | Dated documentation-gap and DB-hygiene closeout records. | `ROADMAP.md` (open) + this index (dated) |

@@ -20,6 +20,9 @@ import { getDevEnvironmentStatus } from './lib/devEnvironmentGuard';
 import { publishAppRuntimeConfig } from './config/appRuntimeConfig';
 import { installStaleChunkRecovery } from './lib/staleChunkRecovery';
 import { analyticsBuffer } from './services/AnalyticsBuffer';
+import { emitPositiveControl } from './services/telemetry/telemetryHealth';
+import { whenIdentitySettled } from '@/services/transcription/modelAcquisitionTelemetry';
+import { PRODUCTION_RUM_OPTIONS } from './services/productionRum';
 
 declare global {
   interface Window {
@@ -190,17 +193,16 @@ const renderApp = async (initialSession: Session | null = null) => {
         // 0 web $identify events and 0 events under the user.id. Running init() synchronously here
         // guarantees the SDK is ready before any identify() call. The empirical gate remains runtime
         // Phase-1 server-ingestion sanity (a web $identify + queryable person at the user.id).
+        let transportInitialized = false;
         if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST) {
           try {
             posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
               api_host: import.meta.env.VITE_POSTHOG_HOST,
-              autocapture: false,
-              capture_pageview: false,
+              ...PRODUCTION_RUM_OPTIONS,
               capture_exceptions: enableSentryConsoleCapture,
-              capture_performance: false,
-              disable_session_recording: true,
               debug: import.meta.env.MODE === 'development',
             });
+            transportInitialized = true;
             logger.debug('[PostHog] Initialized successfully');
           } catch (error) {
             logger.warn({ error }, "PostHog failed to initialize:");
@@ -210,7 +212,23 @@ const renderApp = async (initialSession: Session | null = null) => {
         // Flip the analytics buffer to "ready" so queued + future events stream in the background
         // (yielding to paint). Without this, push()ed events only ever drain on `pagehide`.
         // Non-test path only — analytics is disabled entirely in E2E/test mode.
+        analyticsBuffer.wireHealthEmitter();
         analyticsBuffer.flush();
+        // #1259 F12 — ONE controlled event per boot, carrying a nonce minted in this tab. It is emitted
+        // AFTER flush so it is not merely queued, and it is the payload a Production readback decodes at
+        // the wire: finding this nonce proves the transport works end to end for an event whose expected
+        // contents were known in advance. `transportInitialized` records whether posthog.init actually
+        // ran — a false value with no nonce on the wire distinguishes "never sent" from "sent and lost".
+        // DEFERRED UNTIL IDENTITY SETTLES. Emitted here directly, this CRITICAL event went out before
+        // `root.render()` mounted AuthProvider — so the buffer still held a null account and false claims,
+        // the envelope was classified as `user`, and PostHog received the control under the anonymous
+        // identity. A controlled run's transport proof was therefore unjoinable to the controlled account,
+        // and known test traffic was added to the customer population.
+        //
+        // A signed-out visitor settles too, as `null`, so this waits for the answer rather than for a
+        // sign-in. If identity never settles the control never fires — losing a proof is the acceptable
+        // failure here; publishing a misattributed one is not.
+        whenIdentitySettled(() => emitPositiveControl(transportInitialized));
       } else {
         logger.warn('[E2E MODE] Analytics disabled entirely.');
       }
@@ -280,6 +298,13 @@ const startInitializing = async () => {
 
   // Defer heavy WASM initialization to avoid competing with React hydration
   const initSTT = () => {
+    // Install the hidden CDP qualification switch. It has no UI/URL/storage input and accepts only the
+    // PO-approved three-model slate; canonical Production needs it for the authenticated human test.
+    void import('./services/transcription/installRuntimeSwitch')
+      .then(({ installRuntimeCandidateSwitch }) => {
+        if (installRuntimeCandidateSwitch()) logger.debug('[main.tsx] CDP model-comparison switch installed');
+      })
+      .catch((err) => logger.warn({ err }, '[main.tsx] runtime model switch unavailable'));
     // Lazy import of SpeechRuntimeController
     void import('./services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
       speechRuntimeController.initializeInfrastructure()

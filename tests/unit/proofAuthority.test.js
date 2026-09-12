@@ -213,4 +213,32 @@ describe('#1151 proof-authority decisions (falsification)', () => {
             expect(contentSafeSnapshotsEqual(a, contentSafeSessionSnapshot({ ...row, engine_version: 'private_v4:base_q4' })).ok).toBe(false);
         });
     });
+
+    describe('on-device engines beyond the Transformers.js family', () => {
+        const base = { serviceMode: 'private', modelId: 'moonshine-base', fallbackOccurred: false };
+
+        it('CASUALTY: a Moonshine session is ACCEPTED, not reported as a privacy failure', () => {
+            // The check matched only the Transformers.js family, so the moment Moonshine ran through
+            // the product path a correct session would have been rejected. A validator that names
+            // IMPLEMENTATIONS instead of the property it tests goes stale silently as implementations
+            // are added — and it fails in the direction that looks like a privacy incident.
+            expect(isPrivateRuntimeIdentity({ ...base, runtimeProvider: 'moonshine-streaming' }).ok).toBe(true);
+        });
+
+        it('POSITIVE CONTROL: the Transformers.js family still passes', () => {
+            for (const p of ['transformers-js', 'transformers-js-v4']) {
+                expect(isPrivateRuntimeIdentity({
+                    ...base, modelId: 'whisper-base.en', runtimeProvider: p,
+                }).ok).toBe(true);
+            }
+        });
+
+        it('CASUALTY: off-device, unknown and PARTIAL labels are still rejected', () => {
+            const candidates = ['assemblyai', 'deepgram', 'web-speech', 'native', '', 'moonshine'];
+            const rejected = candidates.filter((p) => !isPrivateRuntimeIdentity({ ...base, runtimeProvider: p }).ok);
+            // `moonshine` without the provider suffix must NOT pass: the match stays exact, so a
+            // partial or invented label can never be read as the real engine.
+            expect(rejected).toEqual(candidates);
+        });
+    });
 });

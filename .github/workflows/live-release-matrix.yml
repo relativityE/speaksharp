@@ -11,7 +11,6 @@ on:
         options:
           - all
           - custom-words
-          - private-cache
           - stripe-webhook-readiness
           - stripe-checkout-readiness
           - stripe-billing-portal-readiness
@@ -26,6 +25,13 @@ on:
 permissions:
   contents: read
 
+# `private-cache` was REMOVED from this matrix (#1263).
+#
+# The proof forces Transformers.js, disables WebGPU and requires a Transformers cache, so it can only
+# ever describe a v2 cold/warm start. Under a config selecting distil or Moonshine it would either fail
+# or, worse, report a cache verdict for a model the session never ran. Verifying the SELECTED
+# candidate's cold/warm behaviour needs the real switch and the observed-identity surface, which is
+# #1390's job — so the cold/warm proof moves there rather than being approximated here.
 jobs:
   live-custom-words:
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'custom-words' }}
@@ -61,39 +67,6 @@ jobs:
             test-results/live/
           retention-days: 14
 
-  live-private-cache:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'private-cache' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run Private Cache First/Second Start Proof
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
-          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-          BASE_URL: https://speaksharp-public.vercel.app/
-          ZERO_HF_AUDIT_REQUIRED: ${{ github.event.inputs.zero_hf_audit || 'false' }}
-        run: pnpm exec playwright test tests/live/private-cache.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
-
-      - name: Upload Private Cache Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-private-cache-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
-          retention-days: 14
 
   live-stripe-webhook-readiness:
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-webhook-readiness' }}

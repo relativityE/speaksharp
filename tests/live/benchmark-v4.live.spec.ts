@@ -76,10 +76,15 @@ test('measure Transformers.js v4 worker', async ({ page }, testInfo) => {
         // Select v4 + the specific rollout variant/device via the dev/test experiment overrides
         // (honored only in DEV/test — inert in production). forceAuto + variant is how PrivateSTT
         // picks base_q4 vs distil_q4 under identical conditions; device pins the runtime backend.
-        window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
-        window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
-        window.localStorage.setItem('speaksharp.v4.variant', cfg.variant);
-        window.localStorage.setItem('speaksharp.v4.device', cfg.device);
+        // THESE KEYS NO LONGER SELECT ANYTHING. Model selection moved to the checked-in config, so
+        // setting them is inert: every arm below would run the CONFIGURED candidate while the report
+        // labelled it `cfg.variant` on `cfg.device`. Producing evidence that names a model which did
+        // not run is worse than producing none, so this refuses rather than writing them.
+        throw new Error(
+            'benchmark-v4 selects models through retired localStorage keys, which are inert since '
+            + 'selection moved to config. Every arm would run the configured candidate and be labelled '
+            + `as ${cfg.variant}/${cfg.device}. Re-point this harness at the config plane before running it.`,
+        );
     }, { variant: V4_VARIANT, device: V4_DEVICE });
 
     await page.goto('/auth/signin');

@@ -7,6 +7,8 @@ import logger from '../lib/logger';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { markIdentitySettled, resetIdentitySettlement } from '@/services/transcription/modelAcquisitionTelemetry';
+import { clearFeedbackDraft } from '@/services/feedbackDraft';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -45,6 +47,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   const queryClient = useQueryClient();
   const initialCheckRef = useRef(false);
   const identifiedAnalyticsUserRef = useRef<string | null>(null);
+  /** The claims last handed to the buffer, so a same-account refresh can tell changed from unchanged. */
+  const appliedClaimSignatureRef = useRef<string | null>(null);
 
   const getInjectedSession = useCallback(() => {
     if (initialSession) return initialSession;
@@ -76,6 +80,17 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   // In E2E mock mode with no real session, skip the loading state entirely.
   const isE2EMockMode = ENV.isE2E;
   const [loading, setLoading] = useState(!getInjectedSession() && !isE2EMockMode);
+  /**
+   * #1421 P1 `3945213770` — TELEMETRY IDENTITY STAYS QUARANTINED UNTIL AUTHENTICATION ACTUALLY ANSWERS.
+   *
+   * The safety timeout forces `loading` false and `sessionState` null so the UI can boot, while `getSession()`
+   * may still be pending. The identity effect read that forced null as a definitively signed-out visitor: it
+   * released a controlled account's queued telemetry as anonymous customer traffic, and the late session then
+   * settled an account whose early events were already gone. Identity now settles only once authentication
+   * answers — `getSession()` returning a session or none, a terminal error, an auth event, an explicit
+   * sign-out or set session. The timeout keeps the UI moving and settles nothing.
+   */
+  const [identityAnswered, setIdentityAnswered] = useState(() => Boolean(getInjectedSession()) || isE2EMockMode);
 
   useEffect(() => {
     sessionStateRef.current = sessionState;
@@ -86,9 +101,38 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   // telemetry sanitizer that drops email). This gives PostHog an account-linked person so feature
   // flags can be targeted via an operator cohort on user.id; on sign-out we reset to a fresh
   // anonymous id so a shared device never inherits the prior account's identity/flags.
+  // #1259 — the SERVER'S internal-tester claim, derived here so the effect below depends on a stable
+  // BOOLEAN. Depending on `sessionState?.user` would re-run the identity effect whenever that object's
+  // identity changed, which is a behaviour change to the identity path this fix has no business making.
+  //
+  // `app_metadata` is assigned SERVER-SIDE with the service role and travels inside the signed JWT, so
+  // a visitor cannot set it through the normal client authentication APIs. That is a narrowing, NOT a
+  // guarantee — this is client-emitted telemetry, and nothing in it is unforgeable by someone who
+  // controls the browser. What it buys is that ordinary sign-up and profile editing cannot produce the
+  // classification. `user_metadata` would be the wrong field and a real hazard:
+  // it IS user-writable, so reading it would let anyone label their own traffic internal and vanish
+  // from the customer funnel. This replaces a `VITE_*` account allowlist, which would have compiled
+  // the tester account ids into the public browser bundle.
+  const internalTesterClaim = (sessionState?.user as { app_metadata?: Record<string, unknown> } | undefined)
+    ?.app_metadata?.internal_tester === true;
+  const canaryClaim = (sessionState?.user as { app_metadata?: Record<string, unknown> } | undefined)
+    ?.app_metadata?.canary === true;
+
   useEffect(() => {
+    // NOT SETTLED WHILE AUTHENTICATION IS STILL LOADING.
+    //
+    // On an ordinary boot `sessionState` is undefined and `loading` is true, and the old code read that
+    // as "signed out": it released every queued acquisition event anonymously, and `getSession()` then
+    // resolved an authenticated user seconds later. The events the queue exists to protect were the
+    // exact ones it lost. "We do not know yet" and "there is definitively nobody" are different states,
+    // and only the second one settles anything.
+    if (loading) return;
+
     const userId = sessionState?.user?.id ?? null;
     if (!userId) {
+      // #1421 P1 `3945213770` — a null forced by the safety timeout is not an answer. Settle nothing, release
+      // nothing and reset nothing until authentication answers; the effect re-runs when it does.
+      if (!identityAnswered) return;
       // No active session. Clear a persisted PostHog identity if EITHER this mount identified someone
       // OR PostHog still carries a prior user's account-linked identity from an EARLIER visit. The
       // ref starts null on every fresh mount, but PostHog persists distinct_id across page loads — so
@@ -96,15 +140,63 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       // keep events/flags attached to the previous user. We gate on isIdentified() so a genuinely
       // fresh anonymous visitor is left untouched (no needless anonymous-id churn).
       if (identifiedAnalyticsUserRef.current || analyticsBuffer.isIdentified()) {
+        // An account is LEAVING. Anything still queued was produced under it, so it must not be
+        // released under the anonymous identity that replaces it.
+        resetIdentitySettlement();
+        // The claim belongs to the account that is leaving. Carrying it into the anonymous session
+        // would classify a real visitor on a shared device as internal.
+        analyticsBuffer.setInternalTesterClaim(false);
+        analyticsBuffer.setCanaryClaim(false);
         analyticsBuffer.resetIdentity();
       }
       identifiedAnalyticsUserRef.current = null;
+      // #1259s — a DEFINITIVELY signed-out visitor is a settled identity too. Model setup begins during
+      // page initialisation, so acquisition events wait for this moment; without releasing them here a
+      // signed-out visitor's events would queue forever and never be measured.
+      markIdentitySettled(null);
       return;
     }
-    if (identifiedAnalyticsUserRef.current === userId) return;
+    // SAME ACCOUNT, NEW CLAIMS. `TOKEN_REFRESHED` and `USER_UPDATED` deliver fresh `app_metadata` for
+    // the user already identified, and the effect reruns because the claims are dependencies — but this
+    // return used to exit before either setter, so a tester or canary classification assigned or REMOVED
+    // server-side stayed stale until a remount. The operations contract says a claim takes effect on the
+    // next token refresh, and controlled runs were being counted as customer traffic in the meantime.
+    const claimSignature = JSON.stringify([internalTesterClaim, canaryClaim]);
+    if (identifiedAnalyticsUserRef.current === userId) {
+      if (appliedClaimSignatureRef.current !== claimSignature) {
+        analyticsBuffer.setInternalTesterClaim(internalTesterClaim);
+        analyticsBuffer.setCanaryClaim(canaryClaim);
+        appliedClaimSignatureRef.current = claimSignature;
+      }
+      return;
+    }
+    // ACCOUNT TRANSITION ONLY. Retiring the settlement discards the queue, which is right when account
+    // A's events would otherwise land on account B — and wrong on a FIRST authentication, where the
+    // queue holds this user's own boot-time load and is precisely what we are waiting to attribute.
+    if (identifiedAnalyticsUserRef.current && identifiedAnalyticsUserRef.current !== userId) {
+      resetIdentitySettlement();
+    }
+    // #1259 — the SERVER'S internal-tester claim, recorded before identify so the very first event
+    // under this account is already classified.
+    //
+    // `app_metadata` is assigned SERVER-SIDE with the service role. A visitor cannot set it through
+    // the normal client authentication APIs — a narrowing, not a guarantee, since this is
+    // client-emitted telemetry. `user_metadata` would be the wrong field and a real
+    // hazard: it IS user-writable, so reading it would let anyone label their own traffic internal and
+    // vanish from the customer funnel. This replaces a `VITE_*` account allowlist, which would have
+    // compiled the tester account ids into the public browser bundle.
+    analyticsBuffer.setInternalTesterClaim(internalTesterClaim);
+    analyticsBuffer.setCanaryClaim(canaryClaim);
+    appliedClaimSignatureRef.current = claimSignature;
     analyticsBuffer.identify(userId); // user.id only — no email/PII to PostHog
     identifiedAnalyticsUserRef.current = userId;
-  }, [sessionState?.user?.id]);
+    // IDENTIFY FIRST, THEN RELEASE. Flushing before identify would attribute a returning user's cold
+    // load to anonymous traffic while their warm load landed under their own identity, so the two could
+    // never be compared — the exact question this telemetry exists to answer. The account is named, so
+    // the queue's own epoch check can retire events that were waiting for a DIFFERENT one — a check a
+    // remount cannot forget, unlike the ref above.
+    markIdentitySettled(userId);
+  }, [sessionState?.user?.id, loading, identityAnswered, internalTesterClaim, canaryClaim]);
 
   useEffect(() => {
     const injectedSession = getInjectedSession();
@@ -112,6 +204,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     if (!supabase) {
       logger.error('[AuthProvider] Supabase client is not available.');
       setLoading(false);
+      // No client means no authentication can ever arrive: that is a definitive answer.
+      setIdentityAnswered(true);
       return;
     }
 
@@ -124,6 +218,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         // If we already have a session (from initialSession or sync), skip fetch
         if (initialSession || injectedSession) {
           setLoading(false);
+          setIdentityAnswered(true);
           return;
         }
 
@@ -141,6 +236,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         logger.error({ err }, '[AuthProvider] AUTH FATAL: Could not resolve session');
       } finally {
         setLoading(false);
+        // `getSession()` has answered: a session, none, or a terminal error. Only now may a null settle.
+        setIdentityAnswered(true);
       }
     };
 
@@ -167,8 +264,28 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       (event, newSession) => {
         const timestamp = new Date().toISOString();
         const assignSession = (nextSession: Session | null) => {
+          // #1416 — ERASE THE FEEDBACK DRAFT WHERE THE DIALOG CANNOT.
+          //
+          // `Navigation` renders Share Feedback only while a session exists, so SIGNED_OUT — an
+          // explicit sign-out, a revoked session, or a failed refresh — unmounts the dialog in the
+          // same render that clears the session. No effect inside it can ever observe that
+          // transition, which left one account's free-form text in this tab's sessionStorage for up
+          // to 24 hours. Refusing to restore a mismatched owner stops the next account from READING
+          // it; only this stops it from being KEPT.
+          //
+          // This runs on any change of signed-in identity, not just sign-out, because switching
+          // accounts in one tab is the same exposure with a shorter gap.
+          //
+          // A KNOWN prior identity is required. Hydrating a session on page load goes null -> A,
+          // which is not an identity change and must not discard the draft A left before reloading;
+          // that is the whole reason the draft outlives the page.
+          const priorUserId = sessionStateRef.current?.user?.id ?? null;
+          const nextUserId = nextSession?.user?.id ?? null;
+          if (priorUserId !== null && priorUserId !== nextUserId) clearFeedbackDraft();
           sessionStateRef.current = nextSession;
           setSessionState(nextSession);
+          // An auth event is an answer from authentication itself.
+          setIdentityAnswered(true);
         };
 
         if (event === 'INITIAL_SESSION' && !newSession && (initialSession || sessionStateRef.current)) {
@@ -258,6 +375,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
     sessionStateRef.current = null;
     setSessionState(null);
+    setIdentityAnswered(true);
   }, [supabase, queryClient]);
 
   const value = useMemo((): AuthContextType => ({
@@ -266,8 +384,12 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     loading,
     signOut,
     setSession: (s: Session | null) => {
+      // Same rule as the auth-event path: a changed known identity retires the feedback draft.
+      const priorUserId = sessionStateRef.current?.user?.id ?? null;
+      if (priorUserId !== null && priorUserId !== (s?.user?.id ?? null)) clearFeedbackDraft();
       sessionStateRef.current = s;
       setSessionState(s);
+      setIdentityAnswered(true);
     },
   }), [sessionState, loading, signOut]);
 

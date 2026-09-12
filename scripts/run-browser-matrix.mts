@@ -99,7 +99,7 @@ const mode = arg('mode', 'pinned') as 'pinned' | 'bootstrap';
 const pinsOnly = args.includes('--pins-only');
 
 const PIN_FILE = 'tests/fixtures/hf-asset-pins.json';
-const MOONSHINE_PIN_FILE = 'tests/fixtures/moonshine-asset-pins.json';
+const MOONSHINE_PIN_FILE = 'frontend/src/services/transcription/moonshineAssetPins.json';
 /** Pins for assets the official Moonshine runtime fetches from its own catalog. */
 const moonshinePins: Record<string, { sha256: string; bytes: number }> = existsSync(MOONSHINE_PIN_FILE)
     ? (JSON.parse(readFileSync(MOONSHINE_PIN_FILE, 'utf8')) as {

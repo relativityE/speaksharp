@@ -48,10 +48,16 @@ test.describe('Private mode trust-state + save/detail', () => {
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
-    // #1306 Option A: after terminal finalization the ephemeral transcript is PURGED. The metrics-only session
-    // review shows NO transcript text and no live indicator (it was visible + cumulative WHILE recording, above).
-    await expect(page.getByText(/private on device transcript/i)).toHaveCount(0);
+    // After terminal finalization the LIVE surface — ephemeral working memory — is purged, and the live
+    // indicator goes with it (it was visible + cumulative WHILE recording, above).
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toHaveCount(0);
     await expect(page.getByTestId('transcript-live-indicator')).toHaveCount(0);
+
+    // The review then renders the transcript the SERVER retained (#1258/#1314). This is not a weakening of the
+    // Private promise: that promise is that AUDIO never leaves the device, and it does not. The transcript is
+    // persisted under the stated retention contract, and a user who just spoke is entitled to read it back.
+    // Scoping matters — an unscoped absence assertion here would forbid the review the product promises.
+    await expect(page.getByTestId('review-transcript')).toContainText(/private on device transcript/i);
 
     // save -> history -> detail.
     await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();

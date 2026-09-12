@@ -30,6 +30,13 @@ const privateProviders = [
     displayName: 'Transformers.js v4',
     intent: 'Next Private STT provider candidate after journey/finalization proof.',
   },
+  {
+    id: 'moonshine-streaming',
+    status: 'available',
+    registryKey: 'moonshine-streaming',
+    displayName: 'Moonshine streaming',
+    intent: 'Streaming Private STT candidate under human comparison; not a production default.',
+  },
 ] as const satisfies readonly SttProviderEntry<PrivateSttProvider>[];
 
 export const STT_MODE_PROVIDER_CONFIG = {

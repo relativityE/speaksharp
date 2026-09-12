@@ -253,3 +253,195 @@ describe('workflow — allowlisted inputs, no individual-account secrets, no pre
     expect(workflow).toMatch(/retention-days:\s*7/);
   });
 });
+
+/**
+ * #1408s — operational triage must distinguish Issues from Comments.
+ *
+ * Share Feedback asks the user which kind of message they are sending and stores the answer as
+ * `metadata.feedback_kind`. The audit ignored it and counted every row as a defect report, so the routing
+ * the product promises was false: praise, questions and suggestions were reported beside real defects,
+ * inflating the apparent defect count and burying the actual ones.
+ */
+describe('#1408s feedback routing — Issues, Comments and legacy rows are separated', () => {
+  const CAND = [{ id: 'u1', email: 'cand@person.io', created_at: '2026-07-24T01:00:00Z' }];
+  const report = (over: Record<string, unknown>) => ({
+    id: 'r1', user_id: 'u1', title: 'a message', session_id: null,
+    severity: 'medium', created_at: '2026-07-25T01:00:00Z',
+    metadata: { canonicalRoute: '/session', releaseId: 'rel' }, ...over,
+  });
+  const withKind = (id: string, kind: string | undefined, severity = 'medium') => report({
+    id, severity,
+    metadata: {
+      canonicalRoute: '/session', releaseId: 'rel',
+      ...(kind === undefined ? {} : { feedback_kind: kind }),
+    },
+  });
+
+  // The Share Feedback deployment moment. Rows before it came from an Issue-only journey.
+  const BOUNDARY = '2026-07-25T00:00:00Z';
+  const BOUNDARY_SHA = 'a'.repeat(40);
+  // Traceability is REQUIRED, not decorative: both halves must be present and well-formed.
+  const ENV_WITH_BOUNDARY = {
+    ...BASE_ENV,
+    SHARE_FEEDBACK_DEPLOYED_AT: BOUNDARY,
+    SHARE_FEEDBACK_DEPLOYED_SHA: BOUNDARY_SHA,
+  };
+  const runWith = async (reports: Record<string, unknown>[], env = ENV_WITH_BOUNDARY) => {
+    const { report: out } = await runAudit({
+      createClient: mockCreateClient({ pages: [CAND], reports }), env, now: NOW,
+    });
+    return out ?? '';
+  };
+
+  it('CASUALTY: a Comment is not counted as an issue', async () => {
+    const out = await runWith([withKind('r1', 'comment')]);
+    expect(out).toMatch(/report\.issues\s*:\s*0/);
+    expect(out).toMatch(/report\.comments\s*:\s*1/);
+  });
+
+  it('CASUALTY: an Issue is counted as an issue', async () => {
+    const out = await runWith([withKind('r1', 'issue')]);
+    expect(out).toMatch(/report\.issues\s*:\s*1/);
+    expect(out).toMatch(/report\.comments\s*:\s*0/);
+  });
+
+  it('CASUALTY: a PRE-boundary missing kind is a legacy Issue, with its severity retained', async () => {
+    // The old journey accepted Issues only, so these rows ARE issues. Calling them unknown removed
+    // genuine historical defects from issue totals and severity triage.
+    const row = report({ id: 'r1', severity: 'critical', created_at: '2026-07-24T01:00:00Z',
+      metadata: { canonicalRoute: '/session', releaseId: 'rel' } });
+    const out = await runWith([row]);
+    expect(out).toMatch(/report\.issues\s*:\s*1/);
+    expect(out).toMatch(/report\.issues_legacy\s*:\s*1/);
+    expect(out).toMatch(/report\.unknown_kind\s*:\s*0/);
+    const sev = JSON.parse((out.match(/report\.issue_severity\s*:\s*(\{.*\})/) ?? [])[1] ?? '{}');
+    expect(sev.critical, 'a legacy Issue keeps its severity').toBe(1);
+  });
+
+  it('CASUALTY: a POST-boundary missing kind is unknown, never an Issue', async () => {
+    const row = report({ id: 'r1', created_at: '2026-07-26T01:00:00Z',
+      metadata: { canonicalRoute: '/session', releaseId: 'rel' } });
+    const out = await runWith([row]);
+    expect(out).toMatch(/report\.unknown_kind\s*:\s*1/);
+    expect(out).toMatch(/report\.issues\s*:\s*0/);
+  });
+
+  it('CASUALTY: an explicit kind overrides date-based legacy handling', async () => {
+    // A pre-boundary row that SAYS it is a Comment is a Comment. The date never reclassifies an
+    // explicit answer.
+    const row = report({ id: 'r1', created_at: '2026-07-24T01:00:00Z',
+      metadata: { canonicalRoute: '/session', releaseId: 'rel', feedback_kind: 'comment' } });
+    const out = await runWith([row]);
+    expect(out).toMatch(/report\.comments\s*:\s*1/);
+    expect(out).toMatch(/report\.issues\s*:\s*0/);
+  });
+
+  const runExpectingFailure = async (reports: Record<string, unknown>[], env: Record<string, string>) => {
+    const errs: string[] = [];
+    const { code } = await runAudit({
+      createClient: mockCreateClient({ pages: [CAND], reports }), env, now: NOW,
+      errlog: (m: string) => errs.push(m),
+    });
+    return { code, errs: errs.join('\n') };
+  };
+  const legacyRow = () => report({ id: 'r1', created_at: '2026-07-24T01:00:00Z',
+    metadata: { canonicalRoute: '/session', releaseId: 'rel' } });
+
+  it('CASUALTY: a missing-kind row with NO boundary FAILS rather than classifying', async () => {
+    const { code, errs } = await runExpectingFailure([legacyRow()], BASE_ENV);
+    expect(code, 'classifying without a boundary would guess').toBe(1);
+    expect(errs).toMatch(/SHARE_FEEDBACK_DEPLOYED_AT is absent/);
+  });
+
+  it('CASUALTY: a timestamp WITHOUT a release SHA fails — traceability is not optional', async () => {
+    // This is the returned defect: the SHA was printed but never required, so the timestamp could not
+    // be checked against any real build and the audit still exited successfully.
+    const { code, errs } = await runExpectingFailure([legacyRow()],
+      { ...BASE_ENV, SHARE_FEEDBACK_DEPLOYED_AT: BOUNDARY });
+    expect(code).toBe(1);
+    expect(errs).toMatch(/SHARE_FEEDBACK_DEPLOYED_SHA is absent/);
+  });
+
+  it('CASUALTY: a release SHA WITHOUT a timestamp fails', async () => {
+    const { code, errs } = await runExpectingFailure([legacyRow()],
+      { ...BASE_ENV, SHARE_FEEDBACK_DEPLOYED_SHA: BOUNDARY_SHA });
+    expect(code).toBe(1);
+    expect(errs).toMatch(/SHARE_FEEDBACK_DEPLOYED_AT is absent/);
+  });
+
+  it.each(['deadbeef', 'A'.repeat(40), 'z'.repeat(40), `${'a'.repeat(39)}`])(
+    'CASUALTY: a malformed release SHA (%s) fails', async (sha) => {
+      const { code, errs } = await runExpectingFailure([legacyRow()],
+        { ...BASE_ENV, SHARE_FEEDBACK_DEPLOYED_AT: BOUNDARY, SHARE_FEEDBACK_DEPLOYED_SHA: sha });
+      expect(code).toBe(1);
+      expect(errs).toMatch(/not a full 40-character hex SHA/);
+    });
+
+  it.each(['2026-07-25 00:00:00', 'not-a-date', '2026-07-25T00:00:00'])(
+    'CASUALTY: a malformed or non-UTC timestamp (%s) fails', async (ts) => {
+      // A bare local-looking instant would place the boundary at an hour that depends on where the
+      // audit runs, silently moving which rows count as legacy.
+      const { code, errs } = await runExpectingFailure([legacyRow()],
+        { ...BASE_ENV, SHARE_FEEDBACK_DEPLOYED_AT: ts, SHARE_FEEDBACK_DEPLOYED_SHA: BOUNDARY_SHA });
+      expect(code).toBe(1);
+      expect(errs).toMatch(/not a valid explicit UTC instant|is absent/);
+    });
+
+  it('POSITIVE CONTROL: a VALID pair classifies and prints both values', async () => {
+    const out = await runWith([legacyRow()]);
+    expect(out).toMatch(/report\.issues\s*:\s*1/);
+    expect(out).toMatch(/report\.share_feedback_boundary_utc\s*:\s*2026-07-25T00:00:00\.000Z/);
+    expect(out).toMatch(new RegExp(`report\\.share_feedback_boundary_release\\s*:\\s*${BOUNDARY_SHA}`));
+  });
+
+  it('a supplied boundary must be valid even when every row has an explicit kind', async () => {
+    const { code } = await runExpectingFailure([withKind('r1', 'issue')],
+      { ...BASE_ENV, SHARE_FEEDBACK_DEPLOYED_AT: BOUNDARY });
+    expect(code, 'a half-configured boundary is a configuration error either way').toBe(1);
+  });
+
+  it('CASUALTY: an unrecognised kind is unknown, not accepted', async () => {
+    const row = report({ id: 'r1', created_at: '2026-07-26T01:00:00Z',
+      metadata: { canonicalRoute: '/session', releaseId: 'rel', feedback_kind: 'praise' } });
+    expect(await runWith([row])).toMatch(/report\.unknown_kind\s*:\s*1/);
+  });
+
+  it('CASUALTY: Comments never enter issue severity totals', async () => {
+    const out = await runWith([
+      report({ id: 'r1', severity: 'critical', created_at: '2026-07-26T01:00:00Z',
+        metadata: { canonicalRoute: '/session', releaseId: 'rel', feedback_kind: 'comment' } }),
+    ]);
+    const sev = JSON.parse((out.match(/report\.issue_severity\s*:\s*(\{.*\})/) ?? [])[1] ?? '{}');
+    expect(Object.keys(sev), 'a Comment must contribute nothing to severity').toHaveLength(0);
+  });
+
+  it('CASUALTY: severity ranking covers ISSUES ONLY — a Comment is never severity-ranked', async () => {
+    // Ranking a compliment by "impact" is how a Comment came to be presented as a defect.
+    const out = await runWith([
+      withKind('r1', 'issue', 'critical'),
+      withKind('r2', 'comment', 'critical'),
+    ]);
+    const line = (out.match(/report\.issue_severity\s*:\s*(\{.*\})/) ?? [])[1] ?? '{}';
+    const tallied = JSON.parse(line);
+    expect(tallied.critical, 'only the Issue may be ranked').toBe(1);
+  });
+
+  it('a mixed batch is reported with each kind separated and the total preserved', async () => {
+    const out = await runWith([
+      withKind('r1', 'issue'), withKind('r2', 'issue'),
+      withKind('r3', 'comment'),
+      report({ id: 'r4', created_at: '2026-07-26T01:00:00Z',
+        metadata: { canonicalRoute: '/session', releaseId: 'rel' } }),
+    ]);
+    // Totals must reconcile exactly to everything submitted: nothing double-counted, nothing lost.
+    expect(out).toMatch(/report\.candidate_tester_reports\s*:\s*4/);
+    const n = (k: string) => Number((out.match(new RegExp(`report\\.${k}\\s*:\\s*(\\d+)`)) ?? [])[1] ?? -1);
+    expect(n('issues') + n('comments') + n('unknown_kind') + n('unclassifiable_no_boundary')).toBe(4);
+  });
+
+  it('no raw user id, transcript or free-form content is emitted by the new fields', async () => {
+    const out = await runWith([withKind('r1', 'comment')]);
+    expect(out).not.toMatch(/\bu1\b/);
+    expect(out).not.toMatch(/a message/);
+  });
+});

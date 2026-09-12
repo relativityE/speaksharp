@@ -52,8 +52,8 @@ describe('TranscriptionService', () => {
 
         const storageModule = await import('../../../lib/storage');
         vi.spyOn(storageModule, 'saveSession').mockResolvedValue({ 
-            session: { id: 'test-sess', user_id: 'u1', created_at: '', duration: 0 } as unknown as PracticeSession, 
-            usageExceeded: false 
+            status: 'saved',
+            session: { id: 'test-sess', user_id: 'u1', created_at: '', duration: 0 } as unknown as PracticeSession,
         });
 
         service = new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({
