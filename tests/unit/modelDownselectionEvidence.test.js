@@ -124,8 +124,11 @@ function validEvidence() {
       geminiEvidence.push({
         releaseSha: RELEASE, candidateId, journey, journeyId, attemptId, attemptSeq,
         comparisonNonce, persistedSessionId, receiptSha256: receipt.digest,
-        source: 'fresh', model: 'gemini-3-flash-preview', providerRequestMade: true,
-        quota: { scope: 'user_utc_day', userDigest: HASH('b'), utcDate: '2026-09-07', limit: 20, requestNumber: ordinal },
+        source: 'fresh', model: LOCKED_GEMINI_CONTRACT.model, providerRequestMade: true,
+        quota: {
+          scope: 'user_utc_day', userDigest: HASH('b'), utcDate: '2026-09-07',
+          limit: LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay, requestNumber: ordinal,
+        },
         output: {
           whatWorkedItems: 1, whatToImproveItems: 1, whatWorkedWhitespaceWords: 5,
           whatToImproveWhitespaceWords: 6, readable: true,
@@ -246,7 +249,8 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     expect(schema.properties.schemaVersion.const).toBe(MODEL_DOWNSELECTION_SCHEMA_VERSION);
     expect(schema.$defs.candidate.enum).toEqual(COMPARISON_CANDIDATES);
     expect(schema.properties.geminiContract.properties).toMatchObject({
-      model: { const: 'gemini-3-flash-preview' }, uncachedRequestsPerUserUtcDay: { const: 20 },
+      model: { const: LOCKED_GEMINI_CONTRACT.model },
+      uncachedRequestsPerUserUtcDay: { const: LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay },
       whatWorkedItems: { const: 1 }, whatToImproveItems: { const: 1 },
       maxWhitespaceWordsPerPhrase: { const: 6 }, cachedResultsReadable: { const: true },
     });
@@ -377,9 +381,10 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
 
   it('enforces the locked Gemini quota, output shape, and cache replay', () => {
     const tooMany = validEvidence();
-    tooMany.geminiEvidence[0].quota.requestNumber = 21;
+    const cap = LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay;
+    tooMany.geminiEvidence[0].quota.requestNumber = cap + 1;
     tooMany.geminiEvidence[0].output.whatToImproveWhitespaceWords = 7;
-    expect(holdProblems(tooMany)).toMatch(/requestNumber must be between 1 and 20/);
+    expect(holdProblems(tooMany)).toMatch(new RegExp(`requestNumber must be between 1 and ${cap}\\b`));
     const noCache = validEvidence(); noCache.geminiEvidence.pop();
     expect(holdProblems(noCache)).toMatch(/readable cache replay/);
   });
@@ -681,5 +686,64 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
   it('rejects unknown fields instead of silently accepting drifted evidence', () => {
     const evidence = validEvidence(); evidence.selection.winner = COMPARISON_CANDIDATES[0];
     expect(holdProblems(evidence)).toMatch(/selection\.winner is not allowed/);
+  });
+});
+
+describe('#1432 PM RETURN `5654016276` — the validator, schema and template follow the deployed Edge Gemini contract', () => {
+  const edge = JSON.parse(readFileSync('backend/supabase/functions/get-ai-suggestions/contract.json', 'utf8'));
+  const schema = JSON.parse(readFileSync('product_release/evidence/human-test/model-downselection.schema.json', 'utf8'));
+  const template = JSON.parse(readFileSync('product_release/evidence/human-test/model-downselection.template.json', 'utf8'));
+  /** Every `model` const anywhere in the schema, so a second copy cannot drift unseen. */
+  const schemaModelConsts = (node, found = []) => {
+    if (Array.isArray(node)) node.forEach((child) => schemaModelConsts(child, found));
+    else if (node && typeof node === 'object') {
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'model' && value && typeof value === 'object' && 'const' in value) found.push(value.const);
+        schemaModelConsts(value, found);
+      }
+    }
+    return found;
+  };
+
+  it('CASUALTY: the locked model and uncached daily cap are the Edge contract values, read from that one file', () => {
+    expect(LOCKED_GEMINI_CONTRACT.model).toBe(edge.model);
+    expect(LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay).toBe(edge.uncachedGenerationCapPerUtcDay);
+    const validatorSource = readFileSync('scripts/human-test/modelDownselectionEvidence.mjs', 'utf8');
+    expect(validatorSource).toContain("'../../backend/supabase/functions/get-ai-suggestions/contract.json'");
+    expect(validatorSource).not.toMatch(/model:\s*'gemini-|uncachedRequestsPerUserUtcDay:\s*\d/);
+  });
+
+  it('CASUALTY: the schema and the template carry exactly the same contract', () => {
+    const models = schemaModelConsts(schema);
+    expect(models.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(models)).toEqual(new Set([edge.model]));
+    expect(schema.properties.geminiContract.properties.uncachedRequestsPerUserUtcDay.const).toBe(edge.uncachedGenerationCapPerUtcDay);
+    // Compared to the contract file directly, not only to the validator's derived value (PM guardrail).
+    expect(template.geminiContract.model).toBe(edge.model);
+    expect(template.geminiContract.uncachedRequestsPerUserUtcDay).toBe(edge.uncachedGenerationCapPerUtcDay);
+    expect(template.geminiContract).toEqual({ ...LOCKED_GEMINI_CONTRACT });
+  });
+
+  it('CASUALTY: the six-word phrase limit agrees with the Edge word budget', () => {
+    expect(edge.wordBudget).toEqual({
+      what_worked: LOCKED_GEMINI_CONTRACT.maxWhitespaceWordsPerPhrase,
+      what_to_try_next: LOCKED_GEMINI_CONTRACT.maxWhitespaceWordsPerPhrase,
+    });
+  });
+
+  it('CASUALTY: a packet or observation carrying the retired preview contract is not truthful evidence', () => {
+    const stalePacket = validEvidence();
+    stalePacket.geminiContract = { ...LOCKED_GEMINI_CONTRACT, model: 'gemini-3-flash-preview', uncachedRequestsPerUserUtcDay: 20 };
+    const packetProblems = holdProblems(stalePacket);
+    expect(packetProblems).toMatch(/geminiContract\.model must be/);
+    expect(packetProblems).toMatch(/geminiContract\.uncachedRequestsPerUserUtcDay must be/);
+
+    const staleModel = validEvidence();
+    staleModel.geminiEvidence[0].model = 'gemini-3-flash-preview';
+    expect(holdProblems(staleModel)).toMatch(/geminiEvidence\[0\]\.model must be/);
+
+    const staleLimit = validEvidence();
+    staleLimit.geminiEvidence[0].quota.limit = 20;
+    expect(holdProblems(staleLimit)).toMatch(new RegExp(`geminiEvidence\\[0\\]\\.quota\\.limit must be ${LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay}\\b`));
   });
 });

@@ -17,6 +17,14 @@ const SUGGESTIONS = JSON.stringify({
   what_to_try_next: 'Pause before the close.',
 });
 
+/** The deployed Edge Gemini contract the receipt records (#1432 PM RETURN `5654016276`). */
+const EDGE_CONTRACT = JSON.parse(readFileSync(resolve(
+  process.cwd(),
+  'backend/supabase/functions/get-ai-suggestions/contract.json',
+), 'utf8')) as { model: string; uncachedGenerationCapPerUtcDay: number };
+const EDGE_MODEL = EDGE_CONTRACT.model;
+const EDGE_CAP = EDGE_CONTRACT.uncachedGenerationCapPerUtcDay;
+
 let db: PGlite;
 
 beforeEach(async () => {
@@ -56,8 +64,8 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
   it('atomically saves coaching with provider and quota authority, then records cache reuse', async () => {
     const saved = await db.query<{ value: unknown }>(`
       SELECT public.persist_ai_suggestion_with_authority_v1(
-        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', 'gemini-3-flash-preview',
-        'user_utc_day', '2026-09-10', 20, 1
+        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', '${EDGE_MODEL}',
+        'user_utc_day', '2026-09-10', ${EDGE_CAP}, 1
       ) AS value
     `, [SUGGESTIONS]);
     expect(saved.rows[0].value).toEqual(JSON.parse(SUGGESTIONS));
@@ -67,7 +75,7 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
       quota_request_number: number; cache_read_count: number; suggestion_sha256: string;
     }>('SELECT provider, model, quota_limit, quota_request_number, cache_read_count, suggestion_sha256 FROM public.ai_suggestion_authority_receipts');
     expect(receipt.rows).toEqual([{
-      provider: 'google_gemini', model: 'gemini-3-flash-preview', quota_limit: 20,
+      provider: 'google_gemini', model: EDGE_MODEL, quota_limit: EDGE_CAP,
       quota_request_number: 1, cache_read_count: 0, suggestion_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
     }]);
 
@@ -85,7 +93,7 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
     await expect(db.query(`
       SELECT public.persist_ai_suggestion_with_authority_v1(
         '${SESSION}', '${OTHER_USER}', $1::jsonb,
-        'google_gemini', 'gemini-3-flash-preview', 'user_utc_day', '2026-09-10', 20, 1
+        'google_gemini', '${EDGE_MODEL}', 'user_utc_day', '2026-09-10', ${EDGE_CAP}, 1
       )
     `, [SUGGESTIONS])).rejects.toThrow(/session is missing or unowned/);
     const receipts = await db.query<{ count: number }>(
@@ -101,8 +109,8 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
   it('refuses a receipt whose quota ordinal is not present in the server ledger', async () => {
     await expect(db.query(`
       SELECT public.persist_ai_suggestion_with_authority_v1(
-        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', 'gemini-3-flash-preview',
-        'user_utc_day', '2026-09-10', 20, 2
+        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', '${EDGE_MODEL}',
+        'user_utc_day', '2026-09-10', ${EDGE_CAP}, 2
       )
     `, [SUGGESTIONS])).rejects.toThrow(/not backed by the usage ledger/);
     const session = await db.query<{ ai_suggestions: unknown }>(
@@ -114,8 +122,8 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
   it('CASUALTY (Codex P1 3984161768): a value rewritten after the receipt is exposed, and earns no cache replay', async () => {
     await db.query(`
       SELECT public.persist_ai_suggestion_with_authority_v1(
-        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', 'gemini-3-flash-preview',
-        'user_utc_day', '2026-09-10', 20, 1
+        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', '${EDGE_MODEL}',
+        'user_utc_day', '2026-09-10', ${EDGE_CAP}, 1
       )
     `, [SUGGESTIONS]);
     type Authority = { receipt_suggestion_sha256: string; current_suggestion_sha256: string; cache_read_count: number };

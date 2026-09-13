@@ -39,8 +39,8 @@
         "cachedResultsReadable"
       ],
       "properties": {
-        "model": { "const": "gemini-3-flash-preview" },
-        "uncachedRequestsPerUserUtcDay": { "const": 20 },
+        "model": { "const": "gemini-3.6-flash" },
+        "uncachedRequestsPerUserUtcDay": { "const": 10 },
         "quotaScope": { "const": "user_utc_day" },
         "whatWorkedItems": { "const": 1 },
         "whatToImproveItems": { "const": 1 },
@@ -177,7 +177,7 @@
         "persistedSessionId": { "$ref": "#/$defs/uuidv4" },
         "receiptSha256": { "$ref": "#/$defs/sha256" },
         "source": { "enum": ["fresh", "cached"] },
-        "model": { "const": "gemini-3-flash-preview" },
+        "model": { "const": "gemini-3.6-flash" },
         "providerRequestMade": { "type": "boolean" },
         "quota": { "anyOf": [{ "$ref": "#/$defs/quota" }, { "type": "null" }] },
         "output": { "$ref": "#/$defs/outputShape" }

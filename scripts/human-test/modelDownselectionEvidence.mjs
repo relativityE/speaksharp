@@ -7,7 +7,8 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { resolve, relative, isAbsolute } from 'node:path';
+import { dirname, resolve, relative, isAbsolute } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { RECORD_KEYS, authorizationShapeProblems, checkRunAuthority } from './modelComparisonRunAuthority.mjs';
 
 export const MODEL_DOWNSELECTION_SCHEMA_VERSION = 'speaksharp.model-downselection.v1';
@@ -19,9 +20,31 @@ export const COMPARISON_CANDIDATES = Object.freeze([
 ]);
 export const REQUIRED_JOURNEYS = Object.freeze(['open_mic', 'focus_points']);
 
+/**
+ * #1432 PM RETURN `5654016276` (Codex P1 `3999918672`) — ONE SOURCE OF TRUTH FOR THE GEMINI CONTRACT.
+ *
+ * The Edge function imports `get-ai-suggestions/contract.json` for its provider model and its uncached daily cap,
+ * and the server-owned receipt the trusted readback reports records exactly those values. A copy here drifted
+ * (the retired preview model and 20, against the deployed `gemini-3.6-flash` and 10), so every truthful Production
+ * packet failed and the downselection could never PASS. The model and cap are therefore read from that same file;
+ * a contract that does not declare both fails closed when this module loads.
+ */
+export const EDGE_COACHING_CONTRACT_PATH = 'backend/supabase/functions/get-ai-suggestions/contract.json';
+// Resolved from this module's own location with Node path APIs (not the `URL` global, which a jsdom test
+// environment replaces), so the harness, the CLI and ordinary CI all read the same file.
+const edgeCoachingContract = JSON.parse(readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../../backend/supabase/functions/get-ai-suggestions/contract.json'),
+  'utf8',
+));
+if (typeof edgeCoachingContract?.model !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(edgeCoachingContract.model)
+  || !Number.isInteger(edgeCoachingContract?.uncachedGenerationCapPerUtcDay)
+  || edgeCoachingContract.uncachedGenerationCapPerUtcDay < 1) {
+  throw new Error(`${EDGE_COACHING_CONTRACT_PATH} must declare a model and a positive uncached daily cap`);
+}
+
 export const LOCKED_GEMINI_CONTRACT = Object.freeze({
-  model: 'gemini-3-flash-preview',
-  uncachedRequestsPerUserUtcDay: 20,
+  model: edgeCoachingContract.model,
+  uncachedRequestsPerUserUtcDay: edgeCoachingContract.uncachedGenerationCapPerUtcDay,
   quotaScope: 'user_utc_day',
   whatWorkedItems: 1,
   whatToImproveItems: 1,

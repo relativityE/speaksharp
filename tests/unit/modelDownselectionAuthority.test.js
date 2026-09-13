@@ -9,6 +9,8 @@ const RELEASE = 'a'.repeat(40);
 const CANDIDATES = ['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'];
 const JOURNEYS = ['open_mic', 'focus_points'];
 const EVIDENCE_DOCUMENT_ID = '11111111-1111-4111-8111-111111111111';
+/** The deployed Edge Gemini contract the server-owned receipt records (#1432 PM RETURN `5654016276`). */
+const EDGE_CONTRACT = JSON.parse(readFileSync('backend/supabase/functions/get-ai-suggestions/contract.json', 'utf8'));
 
 function packet() {
   let index = 0;
@@ -128,8 +130,8 @@ describe('#1432 trusted model-downselection authority collector', () => {
       version: 'gemini_coaching_v1', what_worked: 'Clear concise opening',
       what_to_try_next: 'Pause before your recommendation',
     },
-    provider: 'google_gemini', model: 'gemini-3-flash-preview', provider_request_made: true,
-    quota_scope: 'user_utc_day', quota_utc_date: '2026-09-10', quota_limit: 20,
+    provider: 'google_gemini', model: EDGE_CONTRACT.model, provider_request_made: true,
+    quota_scope: 'user_utc_day', quota_utc_date: '2026-09-10', quota_limit: EDGE_CONTRACT.uncachedGenerationCapPerUtcDay,
     quota_request_number: 1, cache_read_count: 1,
     receipt_suggestion_sha256: 'c'.repeat(64), current_suggestion_sha256: 'c'.repeat(64),
     ...overrides,
@@ -140,8 +142,8 @@ describe('#1432 trusted model-downselection authority collector', () => {
     expect(authority).toMatchObject([{
       persistedSessionId: 'session-1', whatWorkedWhitespaceWords: 3,
       whatToImproveWhitespaceWords: 4, readable: true,
-      provider: 'google_gemini', model: 'gemini-3-flash-preview', providerRequestMade: true,
-      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: 20, requestNumber: 1 },
+      provider: 'google_gemini', model: EDGE_CONTRACT.model, providerRequestMade: true,
+      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: EDGE_CONTRACT.uncachedGenerationCapPerUtcDay, requestNumber: 1 },
       cacheReplayObserved: true,
       immutableSuggestionSha256: 'c'.repeat(64), immutableDigestVerified: true,
     }]);
@@ -205,8 +207,8 @@ describe('#1432 trusted model-downselection authority collector', () => {
     });
     expect(authority.gemini.observations).toHaveLength(6);
     expect(authority.gemini.observations[0]).toMatchObject({
-      provider: 'google_gemini', model: 'gemini-3-flash-preview', providerRequestMade: true,
-      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: 20, requestNumber: 1 },
+      provider: 'google_gemini', model: EDGE_CONTRACT.model, providerRequestMade: true,
+      quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: EDGE_CONTRACT.uncachedGenerationCapPerUtcDay, requestNumber: 1 },
       cacheReplayObserved: true,
     });
     expect(JSON.stringify(authority)).not.toMatch(/Clear opening|Pause before closing|posthog-secret|supabase-secret/);
