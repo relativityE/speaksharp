@@ -1,0 +1,174 @@
+// @vitest-environment node
+import { PGlite } from '@electric-sql/pglite';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { beforeEach, describe, expect, it } from 'vitest';
+
+const MIGRATION = readFileSync(resolve(
+  process.cwd(),
+  'backend/supabase/migrations/20260910193000_ai_suggestion_authority_receipt.sql',
+), 'utf8');
+const USER = '11111111-1111-4111-8111-111111111111';
+const SESSION = '22222222-2222-4222-8222-222222222222';
+const OTHER_USER = '33333333-3333-4333-8333-333333333333';
+const SUGGESTIONS = JSON.stringify({
+  version: 'gemini_coaching_v1',
+  what_worked: 'The opening was concrete.',
+  what_to_try_next: 'Pause before the close.',
+});
+
+/** The deployed Edge Gemini contract the receipt records (#1432 PM RETURN `5654016276`). */
+const EDGE_CONTRACT = JSON.parse(readFileSync(resolve(
+  process.cwd(),
+  'backend/supabase/functions/get-ai-suggestions/contract.json',
+), 'utf8')) as { model: string; uncachedGenerationCapPerUtcDay: number };
+const EDGE_MODEL = EDGE_CONTRACT.model;
+const EDGE_CAP = EDGE_CONTRACT.uncachedGenerationCapPerUtcDay;
+
+let db: PGlite;
+
+beforeEach(async () => {
+  db = new PGlite();
+  await db.exec(`
+    CREATE ROLE anon;
+    CREATE ROLE authenticated;
+    CREATE ROLE service_role BYPASSRLS;
+    CREATE TABLE public.user_profiles (id uuid PRIMARY KEY);
+    CREATE TABLE public.sessions (
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES public.user_profiles(id),
+      ai_suggestions jsonb,
+      title text, duration integer, total_words integer, filler_words jsonb, custom_words jsonb,
+      accuracy numeric, ground_truth text, transcript text, clarity_score numeric, wpm numeric,
+      status text, status_reason text, pause_metrics jsonb, transcript_state text, updated_at timestamptz
+    );
+    CREATE TABLE public.ai_suggestion_usage_daily (
+      user_id uuid NOT NULL REFERENCES public.user_profiles(id),
+      usage_date date NOT NULL,
+      request_count integer NOT NULL,
+      PRIMARY KEY (user_id, usage_date)
+    );
+    INSERT INTO public.user_profiles (id) VALUES ('${USER}'), ('${OTHER_USER}');
+    INSERT INTO public.sessions (id, user_id) VALUES ('${SESSION}', '${USER}');
+    INSERT INTO public.ai_suggestion_usage_daily (user_id, usage_date, request_count)
+      VALUES ('${USER}', '2026-09-10', 1), ('${OTHER_USER}', '2026-09-10', 1);
+    GRANT SELECT, UPDATE ON public.sessions TO service_role;
+    GRANT UPDATE ON public.sessions TO authenticated;
+    GRANT SELECT ON public.user_profiles TO service_role;
+    GRANT SELECT ON public.ai_suggestion_usage_daily TO service_role;
+  `);
+  await db.exec(MIGRATION);
+});
+
+describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => {
+  it('atomically saves coaching with provider and quota authority, then records cache reuse', async () => {
+    const saved = await db.query<{ value: unknown }>(`
+      SELECT public.persist_ai_suggestion_with_authority_v1(
+        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', '${EDGE_MODEL}',
+        'user_utc_day', '2026-09-10', ${EDGE_CAP}, 1
+      ) AS value
+    `, [SUGGESTIONS]);
+    expect(saved.rows[0].value).toEqual(JSON.parse(SUGGESTIONS));
+
+    const receipt = await db.query<{
+      provider: string; model: string; quota_limit: number;
+      quota_request_number: number; cache_read_count: number; suggestion_sha256: string;
+    }>('SELECT provider, model, quota_limit, quota_request_number, cache_read_count, suggestion_sha256 FROM public.ai_suggestion_authority_receipts');
+    expect(receipt.rows).toEqual([{
+      provider: 'google_gemini', model: EDGE_MODEL, quota_limit: EDGE_CAP,
+      quota_request_number: 1, cache_read_count: 0, suggestion_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    }]);
+
+    const cached = await db.query<{ recorded: boolean }>(`
+      SELECT public.record_ai_suggestion_cache_read_v1('${SESSION}', '${USER}') AS recorded
+    `);
+    expect(cached.rows[0].recorded).toBe(true);
+    const count = await db.query<{ cache_read_count: number }>(
+      'SELECT cache_read_count FROM public.ai_suggestion_authority_receipts',
+    );
+    expect(count.rows[0].cache_read_count).toBe(1);
+  });
+
+  it('rolls back both records when the session identity is not owned', async () => {
+    await expect(db.query(`
+      SELECT public.persist_ai_suggestion_with_authority_v1(
+        '${SESSION}', '${OTHER_USER}', $1::jsonb,
+        'google_gemini', '${EDGE_MODEL}', 'user_utc_day', '2026-09-10', ${EDGE_CAP}, 1
+      )
+    `, [SUGGESTIONS])).rejects.toThrow(/session is missing or unowned/);
+    const receipts = await db.query<{ count: number }>(
+      'SELECT count(*)::integer AS count FROM public.ai_suggestion_authority_receipts',
+    );
+    expect(receipts.rows[0].count).toBe(0);
+    const session = await db.query<{ ai_suggestions: unknown }>(
+      `SELECT ai_suggestions FROM public.sessions WHERE id = '${SESSION}'`,
+    );
+    expect(session.rows[0].ai_suggestions).toBeNull();
+  });
+
+  it('refuses a receipt whose quota ordinal is not present in the server ledger', async () => {
+    await expect(db.query(`
+      SELECT public.persist_ai_suggestion_with_authority_v1(
+        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', '${EDGE_MODEL}',
+        'user_utc_day', '2026-09-10', ${EDGE_CAP}, 2
+      )
+    `, [SUGGESTIONS])).rejects.toThrow(/not backed by the usage ledger/);
+    const session = await db.query<{ ai_suggestions: unknown }>(
+      `SELECT ai_suggestions FROM public.sessions WHERE id = '${SESSION}'`,
+    );
+    expect(session.rows[0].ai_suggestions).toBeNull();
+  });
+
+  it('CASUALTY (Codex P1 3984161768): a value rewritten after the receipt is exposed, and earns no cache replay', async () => {
+    await db.query(`
+      SELECT public.persist_ai_suggestion_with_authority_v1(
+        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', '${EDGE_MODEL}',
+        'user_utc_day', '2026-09-10', ${EDGE_CAP}, 1
+      )
+    `, [SUGGESTIONS]);
+    type Authority = { receipt_suggestion_sha256: string; current_suggestion_sha256: string; cache_read_count: number };
+    const read = async () => (await db.query<Authority>(
+      `SELECT receipt_suggestion_sha256, current_suggestion_sha256, cache_read_count
+         FROM public.read_ai_suggestion_authority_v1(ARRAY['${SESSION}']::uuid[])`,
+    )).rows[0];
+
+    const bound = await read();
+    expect(bound.current_suggestion_sha256).toBe(bound.receipt_suggestion_sha256);
+
+    // Any other writer (here the service role directly) replaces the coaching with valid-looking JSON.
+    await db.query(`UPDATE public.sessions SET ai_suggestions = $1::jsonb WHERE id = '${SESSION}'`, [JSON.stringify({
+      version: 'gemini_coaching_v1', what_worked: 'Replaced by the operator.', what_to_try_next: 'Not Gemini.',
+    })]);
+    const rewritten = await read();
+    expect(rewritten.receipt_suggestion_sha256).toBe(bound.receipt_suggestion_sha256);
+    expect(rewritten.current_suggestion_sha256).not.toBe(rewritten.receipt_suggestion_sha256);
+
+    const cached = await db.query<{ recorded: boolean }>(
+      `SELECT public.record_ai_suggestion_cache_read_v1('${SESSION}', '${USER}') AS recorded`,
+    );
+    expect(cached.rows[0].recorded).toBe(false);
+    expect((await read()).cache_read_count).toBe(0);
+  });
+
+  it('does not grant browser roles access to the authority table or RPCs', async () => {
+    const grants = await db.query<{
+      role_name: string; table_read: boolean; rpc_run: boolean; readback_run: boolean; suggestion_write: boolean;
+    }>(`
+      SELECT role_name,
+             has_table_privilege(role_name, 'public.ai_suggestion_authority_receipts', 'SELECT') AS table_read,
+             has_function_privilege(
+               role_name,
+               'public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer)',
+               'EXECUTE'
+             ) AS rpc_run,
+             has_function_privilege(role_name, 'public.read_ai_suggestion_authority_v1(uuid[])', 'EXECUTE') AS readback_run,
+             has_column_privilege(role_name, 'public.sessions', 'ai_suggestions', 'UPDATE') AS suggestion_write
+        FROM (VALUES ('anon'), ('authenticated')) AS roles(role_name)
+       ORDER BY role_name
+    `);
+    expect(grants.rows).toEqual([
+      { role_name: 'anon', table_read: false, rpc_run: false, readback_run: false, suggestion_write: false },
+      { role_name: 'authenticated', table_read: false, rpc_run: false, readback_run: false, suggestion_write: false },
+    ]);
+  });
+});

@@ -10,11 +10,15 @@
  *   `3992603040` (PM DECISION `5639821873`) — the metadata is the SECURITY review's; the code review must complete.
  *   `3992907765` (PM RETURN `5639978861`) — a completed Code Review row for head A must not vouch for head B: both
  *                  automatic reviews must complete for THIS head's Ready trigger, bound by GitHub's lifecycle record.
+ *   #1432 PM RETURN `5652158578` — GitHub cannot dismiss a COMMENTED review, so an exact-head P1 the PM reclassified as
+ *                  P2 had no reachable clearing surface. One owner-authorized, machine-readable disposition on the
+ *                  finding's own resolved thread now makes it advisory; everything short of that still blocks.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { evaluateReviewQualification, isSubstantiveImplementationFile } from '../../scripts/review-qualification.mjs';
 import {
-  buildReviewReceipt, HEAD_REF_HISTORY_PAGE_SIZE, PULL_REQUEST_REVIEW_QUERY, readPullRequest,
+  buildReviewReceipt, HEAD_REF_HISTORY_PAGE_SIZE, P2_TRANSFER_TARGETS, PULL_REQUEST_REVIEW_QUERY, readPullRequest,
+  REVIEW_DISPOSITION_MARKER,
 } from '../../scripts/collect-review-qualification.mjs';
 
 /** The reviewed head, a different commit ground to share its footer, and unrelated heads. */
@@ -187,6 +191,95 @@ describe('#1430 fix-forward `3991388525` — a resolved same-head blocker clears
 
   it("the live read selects each thread comment's review state", () => {
     expect(PULL_REQUEST_REVIEW_QUERY).toContain('pullRequestReview{state commit{oid}}');
+  });
+});
+
+describe('#1432 PM RETURN `5652158578` — an owner-authorized P2 disposition is the only other same-head clearing surface', () => {
+  const FINDING_ID = 3999104209;
+  const disposition = (overrides = {}, { raw = null } = {}) => `<!-- ${REVIEW_DISPOSITION_MARKER} ${raw ?? JSON.stringify({
+    head: HEAD, findingCommentId: FINDING_ID, classification: 'P2', transferTarget: '#1399', ...overrides,
+  })} -->`;
+  let replyId = 5_000;
+  /** A reply on the finding's thread, as GitHub returns it: its own review is COMMENTED at the same head. */
+  const reply = (body, { authorAssociation = 'OWNER', author = human } = {}) => ({
+    databaseId: (replyId += 1), author, authorAssociation, body,
+    commit: { oid: HEAD }, originalCommit: { oid: HEAD }, pullRequestReview: { state: 'COMMENTED', commit: { oid: HEAD } },
+  });
+  const codexFinding = (databaseId = FINDING_ID) => ({
+    databaseId, author: bot, authorAssociation: 'NONE', body: '**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  A release finding',
+    commit: { oid: HEAD }, originalCommit: { oid: HEAD }, pullRequestReview: { state: 'COMMENTED', commit: { oid: HEAD } },
+  });
+  const disposedThread = ({ isResolved = true, replies = [reply(`PM classification: P2, transferred to #1399.\n\n${disposition()}`)], findings = [codexFinding()] } = {}) => ({
+    isResolved,
+    comments: { nodes: [...findings, ...replies], pageInfo: { hasPreviousPage: false } },
+  });
+  /** GitHub-realistic: Codex's inline finding lives inside a COMMENTED review object at this exact head. */
+  const prWith = ({ threads, comments = [] }) => pullRequest({ reviews: [codexReview(HEAD, at(24))], threads, comments: [summary(), ...comments] });
+
+  it('CONTROL: a resolved exact-head P1 in a COMMENTED review, disposed of as P2 by the owner, is advisory and qualifies', () => {
+    const receipt = receiptFor(prWith({ threads: [disposedThread()] }));
+    expect(receipt).toMatchObject({ qualified: true, findingCount: 0, advisoryFindingCount: 1, p2DispositionFindingIds: [FINDING_ID] });
+    expect(P2_TRANSFER_TARGETS).toEqual(['#1399']);
+  });
+
+  const blocked = (label, pr) => {
+    const receipt = receiptFor(pr);
+    expect({ label, qualified: receipt.qualified, findingCount: receipt.findingCount, disposed: receipt.p2DispositionFindingIds })
+      .toEqual({ label, qualified: false, findingCount: 1, disposed: [] });
+  };
+
+  it.each([
+    ['an open thread', { isResolved: false }],
+    ['no disposition at all', { replies: [] }],
+    ['free-form owner text without the marker', { replies: [reply('PM classification: **P2**, transferred to #1399 for head 16596bdd0.')] }],
+    ['a stale head', { replies: [reply(disposition({ head: OLDER_HEAD }))] }],
+    ['an abbreviated head', { replies: [reply(disposition({ head: HEAD.slice(0, 10) }))] }],
+    ['another finding comment', { replies: [reply(disposition({ findingCommentId: FINDING_ID + 1 }))] }],
+    ['a finding id written as text', { replies: [reply(disposition({ findingCommentId: String(FINDING_ID) }))] }],
+    ['a member, not the owner', { replies: [reply(disposition(), { authorAssociation: 'MEMBER' })] }],
+    ['a collaborator, not the owner', { replies: [reply(disposition(), { authorAssociation: 'COLLABORATOR' })] }],
+    ['a marker written by Codex', { replies: [reply(disposition(), { author: bot, authorAssociation: 'OWNER' })] }],
+    ['a missing transfer target', { replies: [reply(disposition({}, { raw: JSON.stringify({ head: HEAD, findingCommentId: FINDING_ID, classification: 'P2' }) }))] }],
+    ['an unknown transfer target', { replies: [reply(disposition({ transferTarget: '#1500' }))] }],
+    ['a P1 classification', { replies: [reply(disposition({ classification: 'P1' }))] }],
+    ['a P0 classification', { replies: [reply(disposition({ classification: 'P0' }))] }],
+    ['a claimed fix instead of a classification', { replies: [reply(disposition({ classification: 'FIXED' }))] }],
+    ['a lower-case classification', { replies: [reply(disposition({ classification: 'p2' }))] }],
+    ['an extra field', { replies: [reply(disposition({ fixed: true }))] }],
+    ['malformed JSON', { replies: [reply(disposition({}, { raw: '{head: "x"}' }))] }],
+    ['a duplicate valid marker', { replies: [reply(disposition()), reply(disposition())] }],
+    ['a conflicting P1 marker', { replies: [reply(disposition()), reply(disposition({ classification: 'P1' }))] }],
+    ['a second, malformed mention of the marker', { replies: [reply(`${disposition()}\n${REVIEW_DISPOSITION_MARKER} pending`)] }],
+    ['one marker for a thread holding two exact-head findings', { findings: [codexFinding(), codexFinding(FINDING_ID + 7)] }],
+  ])('CASUALTY: %s leaves the finding blocking', (label, thread) => {
+    // Asserts through `blocked()`; declared here so the lint rule and the runner both see it.
+    expect.hasAssertions();
+    blocked(label, prWith({ threads: [disposedThread(thread)] }));
+  });
+
+  it('CASUALTY: a valid disposition in top-level PR text never reaches the thread', () => {
+    // Asserts through `blocked()`; declared here so the lint rule and the runner both see it.
+    expect.hasAssertions();
+    blocked('top-level text', prWith({
+      threads: [disposedThread({ replies: [] })],
+      comments: [{ id: 'top-level', author: human, authorAssociation: 'OWNER', createdAt: at(30), body: disposition() }],
+    }));
+  });
+
+  it('CONTROL: disposing of one thread does not mask another exact-head P1', () => {
+    const other = { ...disposedThread({ replies: [], findings: [codexFinding(FINDING_ID + 11)] }) };
+    const receipt = receiptFor(prWith({ threads: [disposedThread(), other] }));
+    expect(receipt).toMatchObject({ qualified: false, findingCount: 1, p2DispositionFindingIds: [FINDING_ID] });
+  });
+
+  it('CONTROL: the no-masking rule for fixes stands — an undisposed resolved same-head P1 still needs a new head', () => {
+    // Asserts through `blocked()`; declared here so the lint rule and the runner both see it.
+    expect.hasAssertions();
+    blocked('resolved, no disposition', prWith({ threads: [findingThread({ isResolved: true })] }));
+  });
+
+  it("the live read selects each thread comment's id and GitHub author association", () => {
+    expect(PULL_REQUEST_REVIEW_QUERY).toContain('comments(last:100){nodes{databaseId author{login} authorAssociation body commit{oid}');
   });
 });
 

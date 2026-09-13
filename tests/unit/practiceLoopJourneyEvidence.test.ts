@@ -10,6 +10,8 @@
  * "green CI" ends up meaning nothing.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { checkRunAuthority, mintRunAuthorization } from '../../scripts/human-test/modelComparisonRunAuthority.mjs';
 import {
     practiceLoopJourneyFailures,
     routeSurfaceFailures,
@@ -21,7 +23,10 @@ import {
     observedCandidateAfterSwitch,
     runningCandidateAfterSwitch,
     COMPARISON_TARGETS,
-    MODEL_COMPARISON_CDP_ARM_KEY,
+    MODEL_COMPARISON_AUTH_KEY,
+    DIAGNOSTIC_JOURNEY,
+    diagnosticAuthorizationFor,
+    diagnosticHoldMessage,
     PERSISTED_TUPLE_TO_CANDIDATE,
     type PracticeLoopJourneyEvidence,
 } from '../live/helpers/practiceLoopJourney';
@@ -33,6 +38,9 @@ const JOURNEY = 'jrn-1b8e44af';
 const CANDIDATE = 'v2:base.en';
 const V2_TUPLE = { engineVersion: 'private_v2:whisper-base.en', modelName: 'whisper-base.en' } as const;
 const BOUNDARY_AT = 1_700_000_000_000;
+const TAKE_NONCE = 'signed-take-nonce-0001';
+const EVIDENCE_DOCUMENT = '11111111-1111-4111-8111-111111111111';
+const RELEASE = 'a'.repeat(40);
 
 /** A journey that satisfies PO's procedure end to end. Every casualty is this, minus one thing. */
 const provenJourney: PracticeLoopJourneyEvidence = {
@@ -62,6 +70,8 @@ const provenJourney: PracticeLoopJourneyEvidence = {
         attemptIds: [ATTEMPT],
         journeyIds: [JOURNEY],
     },
+    authorization: { comparisonNonce: TAKE_NONCE, evidenceDocumentId: EVIDENCE_DOCUMENT, releaseSha: RELEASE },
+    takeTelemetry: { comparisonNonces: [TAKE_NONCE], evidenceDocumentIds: [EVIDENCE_DOCUMENT] },
 };
 
 const without = (patch: Partial<PracticeLoopJourneyEvidence>): PracticeLoopJourneyEvidence =>
@@ -610,16 +620,18 @@ describe('#1437 RETURN workstream 2 — an explicit target and one closed identi
             .toContain('model identity is incomplete at one of requested/observed/persisted');
     });
 
-    it('DRIFT GUARD: the restated slate, arm key and mapping still match the product constants', async () => {
+    it('DRIFT GUARD: the restated slate, signed authorization key and mapping still match the product constants', async () => {
         // Imported dynamically so a product-module load problem fails THIS test, visibly, rather than the file.
         const { buildEngineVersion } = await import('@/services/transcription/privateTelemetry');
         const { CANDIDATES } = await import('@/services/transcription/candidateRegistry');
         const { PRIV_STT_V4_VARIANTS } = await import('@/services/transcription/sttConstants');
-        const { COMPARISON_CANDIDATE_IDS, MODEL_COMPARISON_CDP_ARM_KEY: productArmKey } =
-            await import('@/services/transcription/runtimeCandidateSwitch');
+        const switchModule = await import('@/services/transcription/runtimeCandidateSwitch');
+        const { MODEL_COMPARISON_AUTH_KEY: productAuthKey } = await import('@/services/transcription/modelComparisonAuthorization');
 
-        expect([...COMPARISON_TARGETS]).toEqual([...COMPARISON_CANDIDATE_IDS]);
-        expect(MODEL_COMPARISON_CDP_ARM_KEY).toBe(productArmKey);
+        expect([...COMPARISON_TARGETS]).toEqual([...switchModule.COMPARISON_CANDIDATE_IDS]);
+        expect(MODEL_COMPARISON_AUTH_KEY).toBe(productAuthKey);
+        // #1432 PM decision A — the page-writable Boolean arm is retired in the product and must not return.
+        expect(Object.keys(switchModule)).not.toContain('MODEL_COMPARISON_CDP_ARM_KEY');
 
         const candidates = CANDIDATES as unknown as Record<string, { model: { id: string } }>;
         const v4Variants = PRIV_STT_V4_VARIANTS as unknown as Record<string, { MODEL_ID: string }>;
@@ -670,5 +682,142 @@ describe('#1437 RETURN workstream 3 — persisted identity is trusted only once 
 
     it('CONTROL: the same tuple with verified attribution passes', () => {
         expect(practiceLoopJourneyFailures(without({ persistedIdentity: { ...V2_TUPLE, attributionStatus: 'verified' } }))).toEqual([]);
+    });
+});
+
+describe('#1432 PM decisions 5651684739 / 5651830241 — the nonqualifying diagnostic arms only inside its own owner-dispatched rc-gates.yml attempt', () => {
+    const OWNER = 'relativityE';
+    const RUN_ID = 900001;
+    /** Dispatched against the exact candidate head: the executed revision IS the release. */
+    const WORKFLOW_SHA = RELEASE;
+    const WORKFLOW_REF = 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main';
+    const ISSUED_AT = Date.parse('2026-09-13T12:00:00.000Z');
+    const ORIGIN = 'https://speaksharp-public.vercel.app';
+    const artifactFor = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+        ...mintRunAuthorization({
+            repository: 'relativityE/speaksharp', ref: 'refs/heads/main', workflowRef: WORKFLOW_REF,
+            workflowSha: WORKFLOW_SHA, sha: RELEASE, owner: OWNER, actor: OWNER, triggeringActor: OWNER, runId: RUN_ID, runAttempt: 1,
+            releaseSha: RELEASE, cell: `${CANDIDATE}/${DIAGNOSTIC_JOURNEY}`, evidenceDocumentId: EVIDENCE_DOCUMENT,
+            randomHex: 'ab'.repeat(12), now: ISSUED_AT,
+        }),
+        ...overrides,
+    });
+    /** GitHub's readback of the attempt executing the diagnostic: repository, that attempt and its jobs. */
+    const bundleFor = (artifact: Record<string, unknown>) => ({
+        artifact,
+        repo: { full_name: 'relativityE/speaksharp', default_branch: 'main', owner: { login: OWNER } },
+        jobs: [{ name: 'Gate 3 - DAST / Running App', status: 'in_progress', conclusion: null }] as Array<Record<string, unknown>>,
+        run: {
+            id: RUN_ID, run_attempt: 1, repository: { full_name: 'relativityE/speaksharp' },
+            path: '.github/workflows/rc-gates.yml', event: 'workflow_dispatch', head_branch: 'main',
+            head_sha: WORKFLOW_SHA, status: 'in_progress', conclusion: null,
+            actor: { login: OWNER }, triggering_actor: { login: OWNER },
+            run_started_at: new Date(ISSUED_AT - 10_000).toISOString(), updated_at: new Date(ISSUED_AT).toISOString(),
+        } as Record<string, unknown>,
+    });
+    type Input = Parameters<typeof diagnosticAuthorizationFor>[0];
+    const decide = (overrides: Partial<Input> = {}, artifact = artifactFor()) => diagnosticAuthorizationFor({
+        authorizationText: JSON.stringify(artifact), runId: String(RUN_ID), runAttempt: '1', bundle: bundleFor(artifact),
+        target: CANDIDATE, origin: ORIGIN, now: ISSUED_AT + 5_000, check: checkRunAuthority, ...overrides,
+    });
+    const refusal = (result: ReturnType<typeof diagnosticAuthorizationFor>) => {
+        expect(result.ok).toBe(false);
+        return result.ok ? { hold: null, text: '' } : { hold: result.hold, text: result.problems.join('\n') };
+    };
+
+    it('CONTROL: this owner-dispatched, owner-triggered, default-branch attempt, minted for this candidate and open_mic, arms the take', () => {
+        const artifact = artifactFor();
+        const result = decide({}, artifact);
+        expect(result).toMatchObject({
+            ok: true,
+            authority: {
+                runId: RUN_ID, runAttempt: 1, actor: OWNER, candidateId: CANDIDATE, journey: 'open_mic', releaseSha: RELEASE,
+                origin: ORIGIN, evidenceDocumentId: EVIDENCE_DOCUMENT, comparisonNonce: artifact.nonce,
+            },
+        });
+        expect(result.ok && Object.keys(result.authority)).not.toContain('expiresAt');
+        expect(result.ok && result.authority.authorization).toEqual(artifact);
+        expect(practiceLoopJourneyFailures(provenJourney)).toEqual([]);
+    });
+
+    it('CONTROL: a take delayed by queueing or model acquisition still arms — there is no wall-clock expiry', () => {
+        expect(decide({ now: ISSUED_AT + 45 * 60_000 }).ok).toBe(true);
+    });
+
+    it('CASUALTY: with no minted authorization or no run attempt it HOLDs with a named reason, never a candidate failure', () => {
+        expect(refusal(decide({ runId: null })).hold).toBe('comparison_authorization_not_supplied');
+        expect(refusal(decide({ runAttempt: null })).hold).toBe('comparison_authorization_not_supplied');
+        expect(refusal(decide({ authorizationText: null })).hold).toBe('comparison_authorization_not_supplied');
+        const message = diagnosticHoldMessage('comparison_authorization_not_supplied', ['absent']);
+        expect(message).toMatch(/^HOLD comparison_authorization_not_supplied: absent/);
+        expect(message).toMatch(/not a candidate or product result/);
+    });
+
+    it('CASUALTY: an unreadable authorization HOLDs before any check', () => {
+        expect(refusal(decide({ authorizationText: '{not json' })).hold).toBe('comparison_authorization_unreadable');
+    });
+
+    it('CASUALTY: a run GitHub could not read back, or an authorization minted by another run or attempt, is refused', () => {
+        expect(refusal(decide({ bundle: null })).text).toMatch(/could not be read back from GitHub/);
+        expect(refusal(decide({ runId: String(RUN_ID + 1) })).text).toMatch(/not minted by the run attempt executing this diagnostic/);
+        expect(refusal(decide({ runAttempt: '2' })).text).toMatch(/not minted by the run attempt executing this diagnostic/);
+    });
+
+    const withBundle = (mutate: (bundle: ReturnType<typeof bundleFor>) => void) => {
+        const artifact = artifactFor();
+        const bundle = bundleFor(artifact);
+        mutate(bundle);
+        return decide({ bundle }, artifact);
+    };
+    it.each([
+        ['a focus_points cell', () => decide({}, artifactFor({ journey: 'focus_points' })), /journey must be "open_mic"/],
+        ['another candidate', () => decide({ target: 'v4:distil:q4' }), /candidateId must be "v4:distil:q4"/],
+        ['another origin', () => decide({ origin: 'https://preview.example.test' }), /origin must be/],
+        ['a run that is not executing this take', () => withBundle((b) => { b.run.status = 'completed'; b.run.conclusion = 'success'; }), /not the run executing this take/],
+        ['a non-owner dispatcher', () => withBundle((b) => { b.repo.owner.login = 'someone-else'; }), /not dispatched by the repository owner/],
+        ['a rerun triggered by someone else', () => withBundle((b) => { b.run.triggering_actor = { login: 'intruder' }; }), /actor and triggering actor/],
+        ['another workflow', () => withBundle((b) => { b.run.path = '.github/workflows/ci.yml'; }), /not the authorization workflow/],
+        ['a run on another branch', () => withBundle((b) => { b.run.head_branch = 'feature'; }), /workflow ref does not match the ref its run executed/],
+        ['a definition from another ref', () => decide({}, artifactFor({ workflowRef: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/feature' })), /workflow ref does not match the ref its run executed/],
+        ['a release that is not the executed revision', () => decide({}, artifactFor({ releaseSha: 'e'.repeat(40) })), /release is not the revision its run executed/],
+        ['a run not executing the diagnostic job', () => withBundle((b) => { b.jobs = [{ name: 'Model Comparison Authorization', status: 'completed', conclusion: 'success' }]; }), /not executing the diagnostic job/],
+        ['a nonce not generated by the run', () => decide({}, artifactFor({ nonce: `run-1-1-${'f'.repeat(24)}` })), /nonce was not generated by its authorization run/],
+    ])('CASUALTY: %s is refused before any product step', (_label, run, message) => {
+        const { hold, text } = refusal(run());
+        expect(hold).toBe('comparison_authorization_refused');
+        expect(text).toMatch(message);
+    });
+
+    it('CASUALTY: a take whose telemetry carries a wrong, extra or missing nonce is not this take', () => {
+        expect(practiceLoopJourneyFailures(without({ takeTelemetry: { comparisonNonces: ['later-take-nonce-0002'], evidenceDocumentIds: [EVIDENCE_DOCUMENT] } })))
+            .toContain("take telemetry carries comparison nonce(s) [later-take-nonce-0002], not exactly the verified authorization's nonce");
+        expect(practiceLoopJourneyFailures(without({ takeTelemetry: { comparisonNonces: [TAKE_NONCE, 'later-take-nonce-0002'], evidenceDocumentIds: [EVIDENCE_DOCUMENT] } })))
+            .toEqual(expect.arrayContaining([expect.stringMatching(/not exactly the verified authorization's nonce/)]));
+        expect(practiceLoopJourneyFailures(without({ takeTelemetry: { comparisonNonces: [], evidenceDocumentIds: [EVIDENCE_DOCUMENT] } })))
+            .toEqual(expect.arrayContaining([expect.stringMatching(/not exactly the verified authorization's nonce/)]));
+        expect(practiceLoopJourneyFailures(without({ takeTelemetry: { comparisonNonces: [TAKE_NONCE], evidenceDocumentIds: ['33333333-3333-4333-8333-333333333333'] } })))
+            .toContain('take telemetry does not carry exactly the verified evidence document');
+        expect(practiceLoopJourneyFailures(without({ authorization: null })))
+            .toContain('no Node-verified comparison authorization bound this take; the diagnostic must HOLD before switching');
+    });
+
+    it('CASUALTY: no retired symbol, key, envelope or expiry; this attempt is read before navigation, verified before arming, switched before preparation', async () => {
+        const helper = await import('../live/helpers/practiceLoopJourney');
+        expect(Object.keys(helper)).not.toContain('MODEL_COMPARISON_CDP_ARM_KEY');
+        expect(Object.keys(helper)).not.toContain('holdBeforeSwitch');
+        expect(Object.keys(helper)).not.toContain('SWITCH_EXPIRY_MARGIN_MS');
+        const spec = readFileSync('tests/live/practice-loop-journey.live.spec.ts', 'utf8');
+        expect(spec).not.toContain('speaksharp.model-comparison.cdp');
+        expect(spec).not.toMatch(/Symbol\.for\(key\)\]\s*=\s*true/);
+        expect(spec).not.toMatch(/VERIFICATION_KEY|publicKey|signedAuthorization|holdBeforeSwitch/);
+        expect(spec).toContain('process.env.GITHUB_RUN_ID');
+        expect(spec).toContain('process.env.GITHUB_RUN_ATTEMPT');
+        const firstNavigation = spec.indexOf("await page.goto('");
+        expect(spec.indexOf('loadRunAuthority(')).toBeGreaterThan(-1);
+        expect(spec.indexOf('loadRunAuthority(')).toBeLessThan(firstNavigation);
+        expect(spec.indexOf('diagnosticAuthorizationFor(')).toBeLessThan(firstNavigation);
+        expect(spec.indexOf('diagnosticAuthorizationFor(')).toBeLessThan(spec.indexOf('{ key: MODEL_COMPARISON_AUTH_KEY, authorization: authority.authorization }'));
+        expect(spec).toContain('__SS_SWITCH_CANDIDATE__!(id, journey)');
+        expect(spec.indexOf('__SS_SWITCH_CANDIDATE__!(id, journey)')).toBeLessThan(spec.indexOf('await preparePrivateModelIfPrompted(page'));
     });
 });

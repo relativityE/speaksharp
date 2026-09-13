@@ -97,7 +97,7 @@ Many `secrets.*` are non-secret config over-classified as Secrets; a small numbe
 
 ### 2.4 Vercel Project Env (Home B)
 
-The real production values for the §2.1 `VITE_*` live here (Production scope) plus platform vars, all encrypted at rest in Vercel: the public `VITE_*` set (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, live `VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_SENTRY_DSN`/`VITE_POSTHOG_KEY`/`VITE_POSTHOG_HOST`), `OPS_STATUS_PASSWORD` (a real secret — gates the Ops status page), and the auto-provided `VERCEL_GIT_COMMIT_SHA`.
+The real production values for the §2.1 `VITE_*` live here (Production scope) plus platform vars, all encrypted at rest in Vercel: the public `VITE_*` set (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, live `VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_SENTRY_DSN`/`VITE_POSTHOG_KEY`/`VITE_POSTHOG_HOST`), `OPS_STATUS_PASSWORD` (a real secret — gates the Ops status page), and the auto-provided `VERCEL_GIT_COMMIT_SHA`. The three-model comparison uses no key: its authorization is one owner-dispatched `rc-gates.yml` GitHub run attempt that mints a one-use nonce (#1432).
 
 ### 2.5 Feature-flag & runtime vars (code-verified)
 

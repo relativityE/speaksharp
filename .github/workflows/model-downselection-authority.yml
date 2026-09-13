@@ -1,0 +1,79 @@
+name: Model Downselection Trusted Readback
+
+# Runs trusted default-branch code only. The target commit contributes inert JSON; it never executes
+# beside the PostHog personal token or Supabase service role.
+on:
+  workflow_dispatch:
+    inputs:
+      evidence_sha:
+        description: Full commit SHA containing the completed evidence packet
+        required: true
+        type: string
+      evidence_path:
+        description: Repository-relative JSON path at evidence_sha
+        required: true
+        default: product_release/evidence/human-test/model-downselection.json
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: model-downselection-authority-${{ inputs.evidence_sha }}
+  cancel-in-progress: false
+
+jobs:
+  readback:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out trusted harness only
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Extract candidate packet as inert data
+        env:
+          EVIDENCE_SHA: ${{ inputs.evidence_sha }}
+          EVIDENCE_REPO_PATH: ${{ inputs.evidence_path }}
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "${{ github.event.repository.default_branch }}"
+          [[ "$EVIDENCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+          [[ "$EVIDENCE_REPO_PATH" =~ ^product_release/evidence/human-test/[A-Za-z0-9._/-]+\.json$ ]]
+          [[ "$EVIDENCE_REPO_PATH" != *".."* ]]
+          git fetch --no-tags --depth=1 origin "$EVIDENCE_SHA"
+          git show "$EVIDENCE_SHA:$EVIDENCE_REPO_PATH" > "$RUNNER_TEMP/model-downselection.json"
+
+      - name: Query independent authorities
+        env:
+          EVIDENCE_PATH: ${{ runner.temp }}/model-downselection.json
+          TELEMETRY_AUTHORITY_OUT: artifacts/posthog-readback.json
+          GEMINI_AUTHORITY_OUT: artifacts/gemini-session-readback.json
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/human-test/collect-model-downselection-authority.mjs
+
+      - name: Attest immutable authority files
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/*.json
+
+      - name: Upload trusted readback
+        uses: actions/upload-artifact@v6
+        with:
+          name: model-downselection-authority-${{ inputs.evidence_sha }}
+          path: artifacts/*.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,95 @@
+{
+  "probe": "#1263 windowed E/F — product engine, real runtime",
+  "verdict": "fail",
+  "findings": [
+    "PASS E1 the windowed session produced a final transcript — 38 words",
+    "FAIL E2 a SECOND session on the same engine matches the first — CROSS-SESSION STATE",
+    "FAIL E3 a FRESH engine produces the same transcript — instance-dependent",
+    "PASS F1 no six-word run is duplicated across windows",
+    "PASS F2 the final covers the session, not just the last window — final 38, first interim 1",
+    "PASS AUDIO NEVER LEAVES: no request carried a body — 0 bodied",
+    "PASS every off-origin request was a pinned asset — 14 off-origin"
+  ],
+  "outcome": {
+    "ok": true,
+    "sessionA": {
+      "final": "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left no trace of the truck",
+      "interims": [
+        "The",
+        "The stale snake",
+        "The stale smell of olive",
+        "The stale smell of old beer lent",
+        "The stale smell of old beer lingers.",
+        "The stale smell of old beer lingers. A dozen",
+        "The stale smell of old beer lingers. A dash of pepper.",
+        "The stale smell of old beer lingers. A dash of pepper spoils.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef's",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The smell of beef.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far stronger.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was done.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the part of the",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister ran",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left no trace",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left no trace of the"
+      ]
+    },
+    "sessionB": {
+      "final": "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left no trace of the child",
+      "interims": [
+        "The",
+        "The stale snake",
+        "The stale smell of olive",
+        "The stale smell of old beer lent",
+        "The stale smell of old beer lingers.",
+        "The stale smell of old beer lingers. A dozen",
+        "The stale smell of old beer lingers. A dash of pepper.",
+        "The stale smell of old beer lingers. A dash of pepper spoils.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef's",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The smell of beef.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far stronger.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was swollen.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the box.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the park",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left noisy",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left no trace of the"
+      ]
+    },
+    "sessionC": {
+      "final": "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left no trace of the child",
+      "interims": [
+        "The",
+        "The stale snake",
+        "The stale smell of olive",
+        "The stale smell of old beer lent",
+        "The stale smell of old beer lingers.",
+        "The stale smell of old beer lingers. A dozen",
+        "The stale smell of old beer lingers. A dash of pepper.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef's",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The smell of beer.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far stronger.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was swollen.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the box.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the park",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck.",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left noisy",
+        "The stale smell of old beer lingers. A dash of pepper spoils beef stew. The swan dive was far short of perfect. The box was thrown beside the parked truck the twister left no trace of the"
+      ]
+    },
+    "audioSeconds": 12.2339375
+  },
+  "egress": {
+    "total": 44,
+    "withBody": 0
+  }
+}

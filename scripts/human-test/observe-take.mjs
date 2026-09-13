@@ -11,16 +11,22 @@
  * command cannot become a second, softer opinion about what counts as egress.
  *
  * Usage:
- *   node scripts/human-test/observe-take.mjs --candidate <id> --release <sha> [--port 9222]
- *     [--app http://127.0.0.1:5174] [--out product_release/evidence/...] [--dry-run]
+ *   node scripts/human-test/observe-take.mjs --candidate <id> --release <sha>
+ *     --journey <open_mic|focus_points>
+ *     --authorization-run <successful owner-dispatched rc-gates.yml authorization run id> [--authorization-run-attempt 1] [--port 9222]
+ *   The GitHub CLI (or GH_BIN) must be authenticated to read the repository and its Actions artifacts.
+ *     [--app https://speaksharp-public.vercel.app] [--out product_release/evidence/...] [--dry-run]
  */
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { WebSocket } from 'ws';
 import { assertLoopbackOrigin, selectAppTarget, safeTargetForEvidence } from './cdpTarget.mjs';
 import { IDENTITY_PROBE, auditEgress, receiptVerdict } from './observer.mjs';
 import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE } from './payloadTripwire.mjs';
-import { MODEL_COMPARISON_CDP_ARM, modelComparisonSwitchExpression } from './modelComparisonArm.mjs';
+import { modelComparisonArmExpression, modelComparisonSwitchExpression } from './modelComparisonArm.mjs';
+import { execFileSync } from 'node:child_process';
+import { ghCliGetter, ghRunArtifactFetcher, verifyRunAuthorization } from './modelComparisonRunAuthority.mjs';
+import { modelComparisonSessionBindingSha256 } from './modelDownselectionEvidence.mjs';
 
 const arg = (name, fallback = null) => {
     const i = process.argv.indexOf(`--${name}`);
@@ -29,16 +35,42 @@ const arg = (name, fallback = null) => {
 const flag = (name) => process.argv.includes(`--${name}`);
 
 const PORT = Number(arg('port', '9222'));
-const APP = arg('app', 'http://127.0.0.1:5174');
+const APP = arg('app', 'https://speaksharp-public.vercel.app');
 const CANDIDATE = arg('candidate');
+const JOURNEY = arg('journey');
 const RELEASE = arg('release');
+const AUTHORIZATION_RUN = arg('authorization-run');
+const AUTHORIZATION_RUN_ATTEMPT = arg('authorization-run-attempt', '1');
 const OUT = arg('out', `product_release/evidence/human-test/receipt-${Date.now()}.json`);
 const DRY_RUN = flag('dry-run');
 
-if (!CANDIDATE || !RELEASE) {
-    console.error('required: --candidate <id> --release <sha>');
+if (!CANDIDATE || !['open_mic', 'focus_points'].includes(JOURNEY) || !RELEASE
+    || !/^\d{1,20}$/.test(AUTHORIZATION_RUN ?? '') || !/^\d{1,4}$/.test(AUTHORIZATION_RUN_ATTEMPT ?? '')) {
+    console.error('required: --candidate <id> --journey <open_mic|focus_points> --release <sha> --authorization-run <run id> [--authorization-run-attempt <n>]');
     process.exit(2);
 }
+// #1432 PO decision 5651663038 / PM decision 5651684739 — VERIFIED HERE, AGAINST GITHUB, BEFORE ANYTHING IS ARMED.
+// The take's authority is one completed `rc-gates.yml` run attempt: this reads that exact attempt, its immutable
+// artifact and that attempt's jobs, and requires the owner-dispatched and owner-triggered, successful
+// comparison-authorization attempt at exactly this release to name this candidate, journey, release and origin. The page gate is
+// defense-in-depth only; a take this refuses is never armed, so it can produce nothing.
+const gh = process.env.GH_BIN || 'gh';
+const verifiedAuthorization = await verifyRunAuthorization({
+    runId: Number(AUTHORIZATION_RUN),
+    runAttempt: Number(AUTHORIZATION_RUN_ATTEMPT),
+    githubGet: ghCliGetter(execFileSync, gh),
+    fetchRunArtifact: ghRunArtifactFetcher(execFileSync, gh),
+    expected: { candidateId: CANDIDATE, journey: JOURNEY, releaseSha: RELEASE, origin: new URL(APP).origin },
+});
+if (!verifiedAuthorization.ok) {
+    console.error('HOLD: the comparison authorization run did not verify against GitHub; nothing was armed');
+    for (const problem of verifiedAuthorization.problems) console.error(`  - ${problem}`);
+    process.exit(1);
+}
+/** The run's artifact, as injected into the page (the page never sees `verifiedAt`). */
+const runAuthorization = Object.fromEntries(
+    Object.entries(verifiedAuthorization.record).filter(([key]) => key !== 'verifiedAt'),
+);
 // 127.0.0.1 only. `localhost` can resolve off-loopback, and a remote debugging endpoint is the last
 // thing this should ever attach to.
 assertLoopbackOrigin(`http://127.0.0.1:${PORT}`);
@@ -96,7 +128,9 @@ const main = async () => {
     // #1426 — THE PRODUCTION SWITCH IS CLOSED UNTIL CDP ARMS THIS DOCUMENT BEFORE APP BOOT.
     // This is deliberately not a URL, storage value, build flag, or visible control. Installing after
     // navigation is too late: main.tsx has already decided whether the switch surface should exist.
-    await client.send('Page.addScriptToEvaluateOnNewDocument', { source: MODEL_COMPARISON_CDP_ARM });
+    const authorizationInstaller = await client.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: modelComparisonArmExpression(runAuthorization),
+    });
 
     // WORKERS TOO — this is where the audio actually is. Private STT runs its model in a Web Worker, so
     // a main-document-only tripwire would watch the one context least likely to hold PCM and call the
@@ -206,6 +240,12 @@ const main = async () => {
     // receipt: it reads as proof that a take happened.
     notePhase('pre-record');
     await client.send('Page.navigate', { url: APP });
+    // ONE DOCUMENT ONLY. `addScriptToEvaluateOnNewDocument` otherwise survives reload/navigation and
+    // would reinstall the same authorization into every later document. The current
+    // document has already received it; remove the installer before the operator can reload and replay.
+    await client.send('Page.removeScriptToEvaluateOnNewDocument', {
+        identifier: authorizationInstaller.identifier,
+    });
 
     // The `--candidate` argument used to be only an EXPECTATION in the final receipt: this command
     // never applied it to the page. A three-row run could therefore record the configured v2 model
@@ -225,7 +265,7 @@ const main = async () => {
     if (!surfaceReady) throw new Error('model-comparison CDP surface did not install before the take');
 
     const switched = await client.send('Runtime.evaluate', {
-        expression: modelComparisonSwitchExpression(CANDIDATE),
+        expression: modelComparisonSwitchExpression(CANDIDATE, JOURNEY),
         returnByValue: true,
         awaitPromise: true,
     });
@@ -431,6 +471,19 @@ const main = async () => {
         expectedCandidate: CANDIDATE,
         requestedCandidate: probe?.requestedCandidate ?? null,
         observedCandidate: probe?.observedCandidate ?? null,
+        observedJourney: probe?.observedJourney ?? null,
+        // The run-issued take join. Native journey/attempt identity is the governed envelope's (#1432 PM
+        // Option A); this observer cannot see it, so it records no value for it rather than a guess.
+        comparisonNonce: verifiedAuthorization.record.nonce,
+        // #1432 PO decision 5651663038 — the GitHub-verified run record for this take, re-read by the validator.
+        authorization: verifiedAuthorization.record,
+        // Computed here from the verified nonce and the persisted id the page named, not read from the page.
+        sessionBindingSha256: typeof probe?.persistedSessionId === 'string' && probe.persistedSessionId
+            ? modelComparisonSessionBindingSha256(verifiedAuthorization.record.nonce, probe.persistedSessionId)
+            : null,
+        evidenceDocumentId: verifiedAuthorization.record.evidenceDocumentId,
+        positiveControlNonce: verifiedAuthorization.record.evidenceDocumentId,
+        persistedSessionId: probe?.persistedSessionId ?? null,
         release: probe?.release ?? null,
         target: safeTargetForEvidence(target),
         dryRun: DRY_RUN,

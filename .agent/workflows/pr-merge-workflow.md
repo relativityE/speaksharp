@@ -73,6 +73,17 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    guard: after exact-head/base/bootstrap PO authorization, Dev runs the trusted installed `gh` binary
    from a neutral temporary directory with explicit `--repo` and `--match-head-commit`, executes no
    candidate repository code with the token, and stops if GitHub's server-side protection refuses.
+   **Same-head P0/P1 findings.** An exact-head Codex P0/P1 blocks whether or not its thread is resolved. It
+   stops blocking in one of two ways only. Either its review is dismissed with authority and its thread resolved, or
+   (#1432 PM RETURN 5652158578; GitHub cannot dismiss a `COMMENTED` review) the PM reclassifies it as P2 with
+   exactly one machine-readable disposition, posted by the repository owner in that finding's own resolved thread:
+   ```
+   <!-- speaksharp-review-disposition:v1 {"head":"<full 40-char head SHA>","findingCommentId":<finding comment id>,"classification":"P2","transferTarget":"#1399"} -->
+   ```
+   The receipt then counts the finding as advisory (`p2DispositionFindingIds`). Top-level or free-form text, another
+   head, another finding, a non-owner, an open thread, a missing or unknown transfer target, a P0/P1 or "fixed"
+   classification, and duplicate or conflicting markers do not clear it. A code fix still needs a replacement head
+   and a fresh review. Dev never posts a disposition; PM owns classification.
 9. **Strict mode / serial landing:** every merge advances `main`, so any other open PR goes **BEHIND**. Bring it current first (this re-runs its CI), then merge — land PRs one at a time:
    ```bash
    gh pr update-branch <PR#>   # then re-watch checks, then merge

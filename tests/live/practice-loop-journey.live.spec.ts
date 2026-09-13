@@ -32,6 +32,7 @@
  * `candidate v2:base.en` — and no workflow change is needed to name it.
  */
 import { gunzipSync, inflateSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/deployedLiveTest';
 import { waitForAppVisibleReady } from '../e2e/helpers';
@@ -54,17 +55,38 @@ import {
     runningCandidateAfterSwitch,
     classifyRequestsByBoundary,
     COMPARISON_TARGETS,
-    MODEL_COMPARISON_CDP_ARM_KEY,
+    MODEL_COMPARISON_AUTH_KEY,
+    DIAGNOSTIC_JOURNEY,
+    diagnosticAuthorizationFor,
+    diagnosticHoldMessage,
+    type DiagnosticHold,
     type PersistedIdentity,
     type PracticeLoopJourneyEvidence,
     type ReviewTerminalOutcome,
 } from './helpers/practiceLoopJourney';
+import { checkRunAuthority, githubApiGetter, loadRunAuthority } from '../../scripts/human-test/modelComparisonRunAuthority.mjs';
 
 const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 const PRO_EMAIL = process.env.PRO_TEST_EMAIL;
 const PRO_PASSWORD = process.env.PRO_TEST_PASSWORD;
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+/*
+ * #1432 PM decision 5651684739 — THIS RUN IS THE AUTHORIZATION, NO KEY. `rc-gates.yml` (inputs `comparison_cell`,
+ * `comparison_release_sha`, `comparison_evidence_document_id`) mints the take's authorization in an earlier step of
+ * the same run attempt and passes its path. That attempt is read back from GitHub in Node before any navigation;
+ * outside it the diagnostic HOLDs. It never qualifies six-cell evidence.
+ */
+const AUTHORIZATION_FILE = process.env.MODEL_COMPARISON_AUTHORIZATION_FILE;
+const AUTHORIZATION_RUN_ID = process.env.GITHUB_RUN_ID ?? null;
+const AUTHORIZATION_RUN_ATTEMPT = process.env.GITHUB_RUN_ATTEMPT ?? null;
+/** Read-only GitHub token used only in Node to read this run attempt; never passed to the page. */
+const RUN_READ_TOKEN = process.env.MODEL_COMPARISON_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN ?? null;
+const readOperatorFile = (path: string | undefined): string | null => {
+    if (!path) return null;
+    try { return readFileSync(path, 'utf8'); } catch { return null; }
+};
 
 /** The coaching endpoint, by function name — the browser-observable half of the journey. */
 const COACHING_FUNCTION = 'get-ai-suggestions';
@@ -129,7 +151,7 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
              */
             const coachingObservedAt = new Map<Request, number>();
             /** One captured analytics event: its name and only the closed-enum/identity fields read. */
-            const captured: Array<{ name: string; stage?: string; journeyId?: string; attemptId?: string; candidateId?: string; expected?: string; acquired?: string }> = [];
+            const captured: Array<{ name: string; stage?: string; journeyId?: string; attemptId?: string; candidateId?: string; expected?: string; acquired?: string; comparisonNonce?: string; evidenceDocumentId?: string }> = [];
 
             /*
              * TEST-ONLY PLUMBING, and the minimum of it. Without a record of real user input this journey
@@ -145,14 +167,51 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             });
 
             /*
-             * WORKSTREAM 2 — ARM THE GUARDED SWITCH, exactly as the CDP qualification harness does (Codex
-             * `3997967389`). `runtimeCandidateAccessAllowed` admits the switch only when this Symbol-keyed flag
-             * exists before app code runs; a normal Production navigation never creates it. Arming changes
-             * nothing by itself — it only lets the explicit switch below run.
+             * #1432 PM decision A and Product Owner decision 5651663038 — READ THE AUTHORIZATION RUN FROM GITHUB IN
+             * NODE, BEFORE ANY NAVIGATION (PM decision 5651684739: the authorization run is THIS run attempt). The page-writable Boolean arm is retired in the product and never returns
+             * here. The run must be this in-progress, owner-dispatched and owner-triggered rc-gates.yml attempt, and its
+             * artifact must name this exact take (candidate, `open_mic`, origin) with a run-generated
+             * nonce. A refusal HOLDs with a named reason and no switch is attempted, so missing, stale or inconsistent
+             * authority is never reported as a candidate or product failure. This diagnostic creates and qualifies
+             * NO six-cell evidence; only the trusted observer receipt and the terminal validator can.
              */
-            await page.addInitScript((key: string) => {
-                (globalThis as unknown as Record<symbol, unknown>)[Symbol.for(key)] = true;
-            }, MODEL_COMPARISON_CDP_ARM_KEY);
+            const holdNow = (hold: DiagnosticHold, problems: readonly string[]): Error => {
+                testInfo.annotations.push({ type: 'hold', description: hold });
+                return new Error(diagnosticHoldMessage(hold, problems));
+            };
+            const authorizationText = readOperatorFile(AUTHORIZATION_FILE);
+            if (AUTHORIZATION_FILE && authorizationText === null) {
+                throw holdNow('comparison_authorization_unreadable', ['the authorization minted by this run could not be read']);
+            }
+            // GitHub's own record of this run attempt and its jobs: repository owner, dispatched ref and revision (which must
+            // be the release), actor and triggering actor. The minted file is compared against it, never trusted alone.
+            let runBundle: Awaited<ReturnType<typeof loadRunAuthority>> | null = null;
+            if (authorizationText && AUTHORIZATION_RUN_ID && /^\d{1,20}$/.test(AUTHORIZATION_RUN_ID)
+                && AUTHORIZATION_RUN_ATTEMPT && /^\d{1,4}$/.test(AUTHORIZATION_RUN_ATTEMPT)) {
+                try {
+                    const artifact = JSON.parse(authorizationText) as unknown;
+                    runBundle = await loadRunAuthority({
+                        runId: Number(AUTHORIZATION_RUN_ID),
+                        runAttempt: Number(AUTHORIZATION_RUN_ATTEMPT),
+                        githubGet: githubApiGetter({ token: RUN_READ_TOKEN }),
+                        fetchRunArtifact: () => Promise.resolve(artifact),
+                    });
+                } catch {
+                    runBundle = null;
+                }
+            }
+            const authorization = diagnosticAuthorizationFor({
+                authorizationText,
+                runId: AUTHORIZATION_RUN_ID,
+                runAttempt: AUTHORIZATION_RUN_ATTEMPT,
+                bundle: runBundle,
+                target,
+                origin: APPROVED_ORIGIN,
+                now: Date.now(),
+                check: checkRunAuthority,
+            });
+            if (!authorization.ok) throw holdNow(authorization.hold, authorization.problems);
+            const { authority } = authorization;
 
             /**
              * DECODE BEFORE PARSING (Codex `3996845159`).
@@ -214,6 +273,9 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                         candidateId: text('candidate_id'),
                         expected: text('expected_candidate_id'),
                         acquired: text('acquired_candidate_id'),
+                        // The run-issued take join and its evidence document — opaque ids, never content.
+                        comparisonNonce: text('comparison_nonce'),
+                        evidenceDocumentId: text('comparison_evidence_document_id'),
                     });
                 }
             });
@@ -294,10 +356,57 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                     window.localStorage.setItem(`sb-${ref}-auth-token`, value);
                 }, { ref: projectRef, value: JSON.stringify(session) });
 
+                /*
+                 * #1432 PM decision A — THE VERIFIED RUN AUTHORIZATION ENTERS ONLY THE /practice DOCUMENT. The authorization is
+                 * one-use and every document boot consumes it; arming the earlier /auth/signin document would spend
+                 * the nonce there and leave /practice refused as a replay. Injected immutable and non-enumerable,
+                 * exactly as the trusted observer arms a page.
+                 */
+                await page.addInitScript(({ key, authorization }) => {
+                    if (location.pathname !== '/practice') return;
+                    Object.defineProperty(globalThis, Symbol.for(key), {
+                        value: authorization, enumerable: false, configurable: true, writable: false,
+                    });
+                }, { key: MODEL_COMPARISON_AUTH_KEY, authorization: authority.authorization });
                 await page.goto('/practice');
                 // FAIL FAST. The previous head burned 900s on a wrong route because nothing asserted the
                 // surface was present. A missing practice root now fails in seconds with a readable reason.
                 await expect(page.getByTestId('practice-root'), 'authenticated practice surface must load').toBeVisible({ timeout: 60_000 });
+            });
+
+            /*
+             * WORKSTREAM 2 — THE EXPLICIT TARGET (Codex `3997967389`), under #1432 PM decision A. The switch sets the
+             * acquisition expectation BEFORE it initialises, so the acquisition that follows is bound to this target.
+             * It runs IMMEDIATELY after the authorized surface installs and BEFORE default-model preparation, so the
+             * acquisition that follows is this target's. Only the outcome CODE crosses back. A surface that never
+             * installs, or a deployed release other than the authorized one, HOLDs before any switch is attempted.
+             */
+            let switchOutcome = 'not_attempted';
+            await test.step(`switch to the explicit target ${target} under the verified authority, before model preparation`, async () => {
+                const surfaceInstalled = await expect
+                    .poll(async () => page.evaluate(
+                        () => typeof (window as unknown as { __SS_SWITCH_CANDIDATE__?: unknown }).__SS_SWITCH_CANDIDATE__,
+                    ), { timeout: 60_000 })
+                    .toBe('function')
+                    .then(() => true)
+                    .catch(() => false);
+                if (!surfaceInstalled) {
+                    throw holdNow('comparison_surface_not_installed', ['the page did not accept the run authorization (release, origin or replay)']);
+                }
+                const deployedRelease = await page.evaluate(
+                    () => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null,
+                );
+                if (deployedRelease !== authority.releaseSha) {
+                    throw holdNow('deployed_release_mismatch', ['the deployed release is not the release the authorization run named']);
+                }
+                switchOutcome = await page.evaluate(async ({ id, journey }) => {
+                    const w = window as unknown as {
+                        __SS_SWITCH_CANDIDATE__?: (candidate: string, journey: string) => Promise<{ ok: boolean; code?: string }>;
+                    };
+                    const result = await w.__SS_SWITCH_CANDIDATE__!(id, journey);
+                    return result.ok ? 'ok' : (result.code ?? 'unknown_failure');
+                }, { id: target, journey: DIAGNOSTIC_JOURNEY });
+                expect(switchOutcome, `the guarded switch to ${target} must succeed`).toBe('ok');
             });
 
             await test.step('enter Open Mic through Products, exactly as the procedure says', async () => {
@@ -305,31 +414,6 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                 await page.getByTestId('practice-card-freeform').click();
                 await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
                 await selectBenchmarkMode(page, 'private');
-                await preparePrivateModelIfPrompted(page, 600_000);
-                await waitForPrivateEngineReady(page, 300_000);
-            });
-
-            /*
-             * WORKSTREAM 2 — THE EXPLICIT TARGET (Codex `3997967389`). Selecting only the `private` facade left
-             * `expected_candidate_id` null on every canonical run, because the acquisition's expectation is set
-             * by the guarded switch and nothing else. The switch sets the expectation BEFORE it initialises, so
-             * the acquisition that follows is bound to this target. Only the outcome CODE crosses back.
-             */
-            let switchOutcome = 'not_attempted';
-            await test.step(`switch to the explicit target ${target} through the guarded surface`, async () => {
-                await expect
-                    .poll(async () => page.evaluate(
-                        () => typeof (window as unknown as { __SS_SWITCH_CANDIDATE__?: unknown }).__SS_SWITCH_CANDIDATE__,
-                    ), { timeout: 60_000, message: 'the guarded switch surface must be installed' })
-                    .toBe('function');
-                switchOutcome = await page.evaluate(async (id: string) => {
-                    const w = window as unknown as {
-                        __SS_SWITCH_CANDIDATE__?: (candidate: string) => Promise<{ ok: boolean; code?: string }>;
-                    };
-                    const result = await w.__SS_SWITCH_CANDIDATE__!(id);
-                    return result.ok ? 'ok' : (result.code ?? 'unknown_failure');
-                }, target);
-                expect(switchOutcome, `the guarded switch to ${target} must succeed`).toBe('ok');
                 await preparePrivateModelIfPrompted(page, 600_000);
                 await waitForPrivateEngineReady(page, 300_000);
             });
@@ -484,6 +568,7 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             const requestCounts = classifyRequestsByBoundary(coachingRequests, savedAt);
 
             const reviewEvents = frozen.filter((event) => event.name.startsWith('practice_loop_review_'));
+            const takeEvents = frozen.filter((event) => event.name === 'session_started' || event.name === 'session_saved');
             const distinct = (values: Array<string | undefined>) =>
                 [...new Set(values.filter((value): value is string => Boolean(value)))];
 
@@ -508,6 +593,15 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                     boundCandidateId: runningCandidate,
                     attemptIds: distinct(reviewEvents.map((event) => event.attemptId)),
                     journeyIds: distinct(reviewEvents.map((event) => event.journeyId)),
+                },
+                authorization: {
+                    comparisonNonce: authority.comparisonNonce,
+                    evidenceDocumentId: authority.evidenceDocumentId,
+                    releaseSha: authority.releaseSha,
+                },
+                takeTelemetry: {
+                    comparisonNonces: distinct(takeEvents.map((event) => event.comparisonNonce)),
+                    evidenceDocumentIds: distinct(takeEvents.map((event) => event.evidenceDocumentId)),
                 },
             };
 

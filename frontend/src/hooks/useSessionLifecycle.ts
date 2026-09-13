@@ -25,6 +25,11 @@ import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcrip
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import {
+    modelComparisonSessionBindingSha256,
+    modelComparisonTakeNonce,
+    modelComparisonTakeTelemetry,
+} from '@/services/transcription/modelComparisonAuthorization';
 import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
 import { beginRecordingAttempt, endRecordingAttempt } from '@/services/telemetry/journeyIdentity';
 import { markCompletionStage } from '@/services/telemetry/completionStages';
@@ -294,8 +299,17 @@ export const useSessionLifecycle = () => {
                 }
 
                 const streakResult = updateStreak(); // UI layer still needs streak for display
+                // Only an AUTHORIZED comparison take has a session binding to compute. An ordinary save must not
+                // reach into the comparison surface at all: on main the save path never did, and a controller
+                // without it (main's #1259 F01 harness) threw here, inside the stop path's catch, which silently
+                // dropped the retention observation that follows.
+                const comparisonSessionBinding = modelComparisonTakeNonce()
+                    ? await modelComparisonSessionBindingSha256(speechRuntimeController.getSessionId())
+                    : null;
                 analyticsBuffer.push('session_saved', {
                     mode: effectiveMode,
+                    ...modelComparisonTakeTelemetry(),
+                    comparison_session_binding_sha256: comparisonSessionBinding,
                     duration_seconds: elapsedTime,
                     word_count: metrics.wordCount,
                     wpm: metrics.wpm,
@@ -619,6 +633,7 @@ export const useSessionLifecycle = () => {
                     mode: latestMode,
                     requested_mode: requestedMode,
                     user_tier: effectiveSubscriptionStatus,
+                    ...modelComparisonTakeTelemetry(),
                     ...getSessionCoachingExperimentProperties(),
                 });
             } catch (error) {

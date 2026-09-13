@@ -27,12 +27,34 @@ on:
           - gate-3-dast
           - gate-4-sca
           - gate-5-ux
+          - comparison-authorization
       diagnostic_dast_spec:
         description: 'DIAGNOSTIC ONLY — run a single live-DAST spec file for root-cause classification (e.g. tests/live/stt-switching-contract.live.spec.ts). EMPTY = full Gate 3 unchanged. A diagnostic run is NOT a Gate 3 pass.'
         required: false
         default: ''
       diagnostic_dast_grep:
         description: 'DIAGNOSTIC ONLY — restrict the single spec to tests matching this title (used with diagnostic_dast_spec).'
+        required: false
+        default: ''
+      comparison_cell:
+        description: 'COMPARISON ONLY (gate comparison-authorization, or the #1437 diagnostic) — the ONE cell (candidate/journey) this run authorizes; none = no authorization. The nonce is minted inside this run; no key or second workflow exists.'
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - 'v2:base.en/open_mic'
+          - 'v2:base.en/focus_points'
+          - 'v4:distil:q4/open_mic'
+          - 'v4:distil:q4/focus_points'
+          - 'moonshine:streaming-medium/open_mic'
+          - 'moonshine:streaming-medium/focus_points'
+      comparison_release_sha:
+        description: 'COMPARISON ONLY — exact 40-character release SHA: must equal the dispatched head this run executes and the release Production serves.'
+        required: false
+        default: ''
+      comparison_evidence_document_id:
+        description: 'COMPARISON ONLY — lowercase UUIDv4 evidence document shared by one six-cell packet.'
         required: false
         default: ''
       paid_launch:
@@ -42,6 +64,8 @@ on:
 
 permissions:
   contents: read
+  # #1432 PM decision 5651684739 — trusted Node live-reads this run's own attempt and jobs; nothing is written.
+  actions: read
 
 jobs:
   gate-1-product:
@@ -211,6 +235,24 @@ jobs:
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         run: pnpm rc:gate:3:dast:paid
+      # #1432 PM decisions 5651684739 / 5651830241 — NONQUALIFYING #1437 FIXTURE DIAGNOSTIC. It may mint and check its own
+      # nonce inside this job, before navigation, and keeps the terminal rejection below. The mint refuses unless the
+      # owner dispatched and triggered (reruns included) this definition at the exact release the run executes. No key,
+      # secret, variable or second workflow; no wall-clock expiry. Any refusal fails this step, so no product step runs.
+      - name: Authorize the model-comparison cell in this run (DIAGNOSTIC comparison only)
+        if: ${{ github.event.inputs.diagnostic_dast_spec != '' && github.event.inputs.comparison_cell != 'none' }}
+        env:
+          COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
+          RELEASE_SHA: ${{ github.event.inputs.comparison_release_sha }}
+          EVIDENCE_DOCUMENT_ID: ${{ github.event.inputs.comparison_evidence_document_id }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          AUTHORIZATION_OUT: ${{ runner.temp }}/model-comparison-authorization/model-comparison-authorization.json
+        run: |
+          set -euo pipefail
+          if [ "$RELEASE_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::HOLD: comparison_release_sha is not the exact commit this run executes"; exit 1
+          fi
+          node scripts/human-test/mint-model-comparison-authorization.mjs
       - name: Run DAST Live Gate (DIAGNOSTIC single spec — NOT a Gate 3 pass)
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
@@ -239,6 +281,10 @@ jobs:
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           DIAGNOSTIC_DAST_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
           DIAGNOSTIC_DAST_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
+          # #1432 PM decision 5651684739 — the authorization minted by the previous step of THIS run. Empty when no cell was
+          # dispatched, so the spec HOLDs before product steps. The token is used only in Node to read this run attempt.
+          MODEL_COMPARISON_AUTHORIZATION_FILE: ${{ github.event.inputs.comparison_cell != 'none' && format('{0}/model-comparison-authorization/model-comparison-authorization.json', runner.temp) || '' }}
+          MODEL_COMPARISON_GITHUB_TOKEN: ${{ github.token }}
         run: |
           echo "DIAGNOSTIC_SINGLE_SPEC=true"
           echo "::warning::DIAGNOSTIC single-spec run — NOT a full Gate 3 pass. Release gate stays FAIL until a full Gate 3 run (no diagnostic input) passes."
@@ -249,6 +295,15 @@ jobs:
           else
             VITE_USE_LIVE_DB=true pnpm exec playwright test "$DIAGNOSTIC_DAST_SPEC" --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line
           fi
+      # Content-free: repository, run, actor, release, origin, cell, document and nonce. Never a credential or content.
+      - name: Upload model-comparison authorization (content-free)
+        if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' && github.event.inputs.comparison_cell != 'none' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-comparison-authorization-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/model-comparison-authorization/model-comparison-authorization.json
+          retention-days: 30
+          if-no-files-found: ignore
       - name: Diagnostic single-spec notice (NOT a Gate 3 pass)
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
         run: |
@@ -300,6 +355,49 @@ jobs:
             playwright-report/
             blob-report/
           retention-days: 14
+          if-no-files-found: error
+
+  # #1432 PM decisions 5651830241 / 5651842972 — ONE PRODUCT OWNER COMPARISON CELL. This job is the authorization
+  # boundary for one spoken take on the Product Owner's device; it records no speech and runs no product step. Dispatch
+  # `gate=comparison-authorization` against the EXACT reviewed candidate head. It refuses unless that head is exactly
+  # the requested release and the release Production serves, and the repository owner dispatched and triggered the
+  # run; it then mints one nonce bound to this run attempt, with no wall-clock expiry. The attempt-named artifact is
+  # content-free. Every other gate is skipped, which the observer and the terminal validator require.
+  comparison-authorization:
+    name: Model Comparison Authorization
+    if: ${{ github.event.inputs.gate == 'comparison-authorization' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Authorize one comparison cell (exact release, Production, repository owner)
+        env:
+          COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
+          RELEASE_SHA: ${{ github.event.inputs.comparison_release_sha }}
+          EVIDENCE_DOCUMENT_ID: ${{ github.event.inputs.comparison_evidence_document_id }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          AUTHORIZATION_OUT: ${{ runner.temp }}/model-comparison-authorization/model-comparison-authorization.json
+          BASE_URL: https://speaksharp-public.vercel.app
+          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+          EVIDENCE_SCOPE: canonical-production
+          EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/comparison-authorization-eligibility.json
+        run: |
+          set -euo pipefail
+          if [ "$RELEASE_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::HOLD: comparison_release_sha is not the exact commit this run executes"; exit 1
+          fi
+          node scripts/rc-evidence-target-preflight.mjs
+          node scripts/human-test/mint-model-comparison-authorization.mjs
+      - name: Upload model-comparison authorization (content-free)
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-comparison-authorization-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/model-comparison-authorization/model-comparison-authorization.json
+          retention-days: 30
           if-no-files-found: error
 
   gate-4-sca:

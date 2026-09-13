@@ -81,12 +81,16 @@ export interface Candidate {
     id: CandidateId;
     /**
      * Whether this candidate may actually be RUN. Registering a candidate describes it; it does not
-     * make it shippable. Moonshine is registered and NOT activation-ready until its windowed E/F
-     * validation passes, because its live path was written against the non-streaming API.
+     * make it shippable. Moonshine is registered and NOT activation-ready until the real-runtime
+     * windowed E/F validation proves its implemented streaming path.
      */
     activationReady: boolean;
     /** Required when activationReady is false: what is outstanding. Never left unexplained. */
     notReadyReason?: string;
+    /** May the signed Production comparison surface measure this candidate without known harness bias? */
+    comparisonReady: boolean;
+    /** Required when comparisonReady is false: the named evidence still missing. */
+    comparisonNotReadyReason?: string;
     engine: EngineKind;
     runtime: ConfiguredRuntime;
     model: ConfiguredModel;
@@ -109,6 +113,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     'v2:base.en': {
         id: 'v2:base.en',
         activationReady: true,
+        comparisonReady: true,
         engine: 'transformers-js',
         runtime: { package: '@xenova/transformers', version: '2.17.2' },
         model: {
@@ -138,6 +143,8 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     'v4:base:q4': {
         id: 'v4:base:q4',
         activationReady: false,
+        comparisonReady: false,
+        comparisonNotReadyReason: 'benchmark control is outside the PO-approved three-model comparison',
         notReadyReason:
             'benchmark control only. It is a measured arm and a valid ATTRIBUTION target, but it is not one of the three candidates under product comparison, so a build may not ship it as the default',
         engine: 'transformers-js-v4',
@@ -161,6 +168,8 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     'v4:base:int8': {
         id: 'v4:base:int8',
         activationReady: false,
+        comparisonReady: false,
+        comparisonNotReadyReason: 'benchmark control is outside the PO-approved three-model comparison',
         notReadyReason:
             'benchmark control only, and PRIV_STT_V4_VARIANTS registers no int8 runtime variant, so the engine cannot load it at all. Selecting it could only ever run a different model under this id',
         engine: 'transformers-js-v4',
@@ -195,6 +204,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     'v4:distil:q4': {
         id: 'v4:distil:q4',
         activationReady: false,
+        comparisonReady: true,
         notReadyReason:
             'no qualification evidence exists for this candidate on the product path. It is selectable '
             + 'for internal comparison via acknowledgeNotProductionReady, and becomes eligible as a '
@@ -221,8 +231,9 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     'moonshine:streaming-medium': {
         id: 'moonshine:streaming-medium',
         activationReady: false,
-        notReadyReason: 'windowed E/F validation of the live session path has not passed; the engine\'s '
-            + 'live decode was written against the non-streaming whole-buffer API',
+        notReadyReason: 'real-runtime windowed E/F comparison-readiness passed; public-default '
+            + 'qualification awaits the PO-authorized human comparison and down-selection',
+        comparisonReady: true,
         engine: 'moonshine-streaming',
         runtime: { package: '@moonshine-ai/moonshine-wasm', version: '0.1.5' },
         model: {

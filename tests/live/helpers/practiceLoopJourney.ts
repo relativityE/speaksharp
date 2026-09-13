@@ -44,16 +44,133 @@ export interface JourneyTelemetry {
 }
 
 /**
- * #1437 RETURN `5649385757`, workstream 2 — THE COMPARISON SLATE AND THE ARM KEY.
+ * #1437 RETURN `5649385757`, workstream 2 — THE COMPARISON SLATE AND THE AUTHORIZATION KEY.
  *
- * Mirrored from `runtimeCandidateSwitch.ts` (`COMPARISON_CANDIDATE_IDS`, `MODEL_COMPARISON_CDP_ARM_KEY`).
- * A live spec cannot import the transcription stack, so the values are restated here — and a unit test
- * compares them with the product's own constants, so a drift fails in ordinary CI instead of silently
- * running the wrong arm on Production.
+ * Mirrored from `runtimeCandidateSwitch.ts` (`COMPARISON_CANDIDATE_IDS`) and `modelComparisonAuthorization.ts`
+ * (`MODEL_COMPARISON_AUTH_KEY`). A live spec cannot import the transcription stack, so the values are restated
+ * here — and a unit test compares them with the product's own constants, so a drift fails in ordinary CI
+ * instead of silently running the wrong arm on Production.
+ *
+ * #1432 PM decision A and Product Owner decision 5651663038 — the page-writable Boolean arm
+ * (`speaksharp.model-comparison.cdp`) is RETIRED in the product. This diagnostic arms through the same authority
+ * as the trusted observer: the owner-dispatched `rc-gates.yml` run attempt executing it (PM decision 5651830241),
+ * read back from GitHub in Node before anything enters the page. It never creates or qualifies six-cell down-selection evidence: only
+ * the trusted observer receipt and the terminal validator can, and a local run can only diagnose.
  */
 export const COMPARISON_TARGETS = Object.freeze(['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'] as const);
 export type ComparisonTarget = (typeof COMPARISON_TARGETS)[number];
-export const MODEL_COMPARISON_CDP_ARM_KEY = 'speaksharp.model-comparison.cdp';
+export const MODEL_COMPARISON_AUTH_KEY = 'speaksharp.model-comparison.authorization';
+/** The Practice Loop journey this diagnostic runs; the authorized take must name exactly this journey. */
+export const DIAGNOSTIC_JOURNEY = 'open_mic';
+
+/** Why the diagnostic stopped BEFORE switching. A hold is never a candidate or product result. */
+export type DiagnosticHold =
+    | 'comparison_authorization_not_supplied'
+    | 'comparison_authorization_unreadable'
+    | 'comparison_authorization_refused'
+    | 'deployed_release_mismatch'
+    | 'comparison_surface_not_installed';
+
+/** GitHub's record of the run attempt executing this diagnostic, loaded in trusted Node (`loadRunAuthority`). */
+export interface RunAuthorityBundle {
+    readonly repo: unknown;
+    readonly run: unknown;
+    readonly jobs: unknown;
+    readonly artifact: unknown;
+}
+/** Injected (`checkRunAuthority`), so this pure module never talks to GitHub and stays drivable in ordinary CI. */
+export type RunAuthorityChecker = (input: {
+    record: unknown;
+    artifact: unknown;
+    repo: unknown;
+    run: unknown;
+    jobs: unknown;
+    expected: Record<string, unknown>;
+    at: number;
+    phase: 'terminal' | 'in_run';
+}) => string[];
+
+export interface DiagnosticAuthority {
+    /** The run's authorization, injected into the page unchanged. */
+    readonly authorization: unknown;
+    readonly runId: number;
+    readonly runAttempt: number;
+    readonly actor: string;
+    readonly candidateId: string;
+    readonly journey: string;
+    readonly releaseSha: string;
+    readonly origin: string;
+    readonly evidenceDocumentId: string;
+    readonly comparisonNonce: string;
+}
+export type DiagnosticAuthorization =
+    | { readonly ok: true; readonly authority: DiagnosticAuthority }
+    | { readonly ok: false; readonly hold: DiagnosticHold; readonly problems: readonly string[] };
+
+/**
+ * Decide, in Node and before any navigation arms the page, whether this take has GitHub run authority. The
+ * authorization must have been minted by THIS run attempt (`GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT`) and GitHub must
+ * report that attempt as the in-progress, owner-dispatched and owner-triggered `rc-gates.yml` run executing the Gate 3
+ * diagnostic job at the authorized revision. There is no wall-clock expiry (PM 5651684739). This mode is nonqualifying. Every refusal is a named HOLD: absent, stale or inconsistent run
+ * or release metadata is an operator/evidence state, not a finding about v2, v4 or Moonshine.
+ */
+export function diagnosticAuthorizationFor(input: {
+    readonly authorizationText: string | null;
+    readonly runId: string | null;
+    readonly runAttempt: string | null;
+    readonly bundle: RunAuthorityBundle | null;
+    readonly target: string;
+    readonly origin: string;
+    readonly now: number;
+    readonly check: RunAuthorityChecker;
+}): DiagnosticAuthorization {
+    if (!input.authorizationText || !input.runId || !input.runAttempt) {
+        return {
+            ok: false,
+            hold: 'comparison_authorization_not_supplied',
+            problems: ['this run minted no comparison authorization (dispatch rc-gates.yml with comparison_cell, comparison_release_sha and comparison_evidence_document_id)'],
+        };
+    }
+    let parsed: unknown;
+    try { parsed = JSON.parse(input.authorizationText); } catch {
+        return { ok: false, hold: 'comparison_authorization_unreadable', problems: ['the minted authorization is not valid JSON'] };
+    }
+    if (input.bundle === null) {
+        return { ok: false, hold: 'comparison_authorization_refused', problems: ['the authorization run could not be read back from GitHub'] };
+    }
+    const authorization = (parsed ?? {}) as Record<string, unknown>;
+    if (String(authorization.runId) !== input.runId || String(authorization.runAttempt) !== input.runAttempt) {
+        return { ok: false, hold: 'comparison_authorization_refused', problems: ['the authorization was not minted by the run attempt executing this diagnostic'] };
+    }
+    const problems = input.check({
+        record: parsed,
+        ...input.bundle,
+        expected: { candidateId: input.target, journey: DIAGNOSTIC_JOURNEY, origin: input.origin },
+        at: input.now,
+        phase: 'in_run',
+    });
+    if (problems.length > 0) return { ok: false, hold: 'comparison_authorization_refused', problems };
+    return {
+        ok: true,
+        authority: {
+            authorization: parsed,
+            runId: authorization.runId as number,
+            runAttempt: authorization.runAttempt as number,
+            actor: authorization.actor as string,
+            candidateId: authorization.candidateId as string,
+            journey: authorization.journey as string,
+            releaseSha: authorization.releaseSha as string,
+            origin: authorization.origin as string,
+            evidenceDocumentId: authorization.evidenceDocumentId as string,
+            comparisonNonce: authorization.nonce as string,
+        },
+    };
+}
+
+/** The content-free message a HOLD throws with. It names the hold and says what it is not. */
+export function diagnosticHoldMessage(hold: DiagnosticHold, problems: readonly string[]): string {
+    return `HOLD ${hold}: ${problems.join('; ') || 'no detail'} — no candidate switch was attempted; this is not a candidate or product result`;
+}
 
 export interface PersistedTupleMapping {
     /** The `EngineVariant` half of `buildEngineVersion(variant, model)`. */
@@ -314,6 +431,17 @@ export interface PracticeLoopJourneyEvidence {
     /** The persisted identity tuple and its attribution status, read with the service role. */
     readonly persistedIdentity: PersistedIdentity;
     readonly telemetry: JourneyTelemetry;
+    /** #1432 PM decision A — the GitHub-verified run authority the take ran under; null if none bound it. */
+    readonly authorization: {
+        readonly comparisonNonce: string;
+        readonly evidenceDocumentId: string;
+        readonly releaseSha: string;
+    } | null;
+    /** Distinct `comparison_nonce` / `comparison_evidence_document_id` values on this take's start and save events. */
+    readonly takeTelemetry: {
+        readonly comparisonNonces: readonly string[];
+        readonly evidenceDocumentIds: readonly string[];
+    };
 }
 
 /**
@@ -478,6 +606,20 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
     for (const [label, value] of [['requested', requested], ['observed', observed], ['persisted', engineVersion]] as const) {
         if (value && /^(private|browser|cloud|native)$/i.test(value)) {
             failures.push(`${label} model identity is the product facade "${value}", not a candidate id`);
+        }
+    }
+
+    // #1432 PM decision A — ONE GitHub-verified authorization run bound this take, and the take's own telemetry
+    // carries exactly that nonce and evidence document. A different, later or missing nonce is not this take.
+    if (evidence.authorization === null) {
+        failures.push('no Node-verified comparison authorization bound this take; the diagnostic must HOLD before switching');
+    } else {
+        const { comparisonNonces, evidenceDocumentIds } = evidence.takeTelemetry;
+        if (comparisonNonces.length !== 1 || comparisonNonces[0] !== evidence.authorization.comparisonNonce) {
+            failures.push(`take telemetry carries comparison nonce(s) [${comparisonNonces.join(', ')}], not exactly the verified authorization's nonce`);
+        }
+        if (evidenceDocumentIds.length !== 1 || evidenceDocumentIds[0] !== evidence.authorization.evidenceDocumentId) {
+            failures.push('take telemetry does not carry exactly the verified evidence document');
         }
     }
 

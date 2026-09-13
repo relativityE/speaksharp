@@ -31,7 +31,10 @@ interface MockOptions {
   quota?: Record<string, unknown>;
   quotaError?: unknown;
   updateError?: unknown;
+  legacyUpdateError?: unknown;
   readback?: unknown;
+  authorityError?: unknown;
+  authorityResult?: boolean;
 }
 
 const savedSession = (overrides: Record<string, unknown> = {}) => ({
@@ -81,7 +84,10 @@ globalThis.fetch = async (url, init) => {
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
     : geminiText;
-  return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }), {
+  return new Response(JSON.stringify({
+    modelVersion: 'gemini-3-flash-preview',
+    candidates: [{ content: { parts: [{ text }] } }],
+  }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
@@ -92,6 +98,8 @@ function mockSupabase(options: MockOptions = {}) {
     updated: null as unknown,
     filters: [] as Array<[string, unknown]>,
     rpcCount: 0,
+    authorityRpcCount: 0,
+    authorityArgs: null as Record<string, unknown> | null,
     quotaArgs: null as Record<string, unknown> | null,
   };
   const profile = options.profile ?? 'pro';
@@ -113,10 +121,30 @@ function mockSupabase(options: MockOptions = {}) {
           error: options.entitlementError ?? null,
         });
       }
+      if (name === 'record_ai_suggestion_cache_read_v1') {
+        state.authorityRpcCount++;
+        state.authorityArgs = args ?? null;
+        return Promise.resolve({
+          data: options.authorityResult ?? true,
+          error: options.authorityError ?? null,
+        });
+      }
+      if (name === 'persist_ai_suggestion_with_authority_v1') {
+        state.authorityRpcCount++;
+        state.authorityArgs = args ?? null;
+        if (!options.updateError) {
+          state.updated = { ai_suggestions: args?.p_suggestions };
+          state.filters.push(['id', args?.p_session_id], ['user_id', args?.p_user_id]);
+        }
+        return Promise.resolve({
+          data: options.updateError ? null : (options.readback ?? args?.p_suggestions),
+          error: options.updateError ?? null,
+        });
+      }
       state.rpcCount++;
       if (name === 'consume_ai_suggestion_quota') state.quotaArgs = args ?? {};
       return Promise.resolve({
-        data: options.quota ?? { allowed: true, remaining: 19, limit: 20 },
+        data: options.quota ?? { allowed: true, remaining: 19, limit: 20, used: 1 },
         error: options.quotaError ?? null,
       });
     },
@@ -147,10 +175,10 @@ function mockSupabase(options: MockOptions = {}) {
           },
           select: (_columns: string) => query,
           single: () => Promise.resolve({
-            data: options.updateError
+            data: options.legacyUpdateError
               ? null
               : { ai_suggestions: options.readback ?? (state.updated as { ai_suggestions?: unknown })?.ai_suggestions },
-            error: options.updateError ?? null,
+            error: options.legacyUpdateError ?? null,
           }),
         };
         return query;
@@ -236,6 +264,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((await res.json()).suggestions, suggestionA);
     assertEquals(fetchCount, 0);
     assertEquals(mock.state.rpcCount, 0);
+    assertEquals(mock.state.authorityRpcCount, 1);
+    assertEquals(mock.state.authorityArgs, { p_session_id: 'session-a', p_user_id: 'pro-user' });
   });
 
   await t.step('keeps cached coaching readable for an expired account without new analysis', async () => {
@@ -249,6 +279,20 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((await res.json()).suggestions, suggestionA);
     assertEquals(fetchCount, 0);
     assertEquals(mock.state.rpcCount, 0);
+    assertEquals(mock.state.authorityRpcCount, 1);
+  });
+
+  await t.step('keeps legacy cached coaching readable when no authority receipt exists', async () => {
+    resetProvider();
+    const mock = mockSupabase({
+      session: savedSession({ ai_suggestions: suggestionA }),
+      authorityResult: false,
+    });
+    const res = await handler(request(), mock.create);
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).suggestions, suggestionA);
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.authorityRpcCount, 1);
   });
 
   await t.step('does not generate from expired or missing transcript evidence', async () => {
@@ -366,11 +410,38 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
 
     resetProvider();
     const saved = mockSupabase();
+    const expectedUtcDate = new Date().toISOString().slice(0, 10);
     const res = await handler(request(), saved.create);
     assertEquals(res.status, 200);
     assertEquals((await res.json()).suggestions, suggestionA);
     assertEquals((saved.state.updated as { ai_suggestions: unknown }).ai_suggestions, suggestionA);
     assertEquals(saved.state.filters, [['id', 'session-a'], ['user_id', 'pro-user']]);
+    assertEquals(saved.state.authorityArgs, {
+      p_session_id: 'session-a',
+      p_user_id: 'pro-user',
+      p_suggestions: suggestionA,
+      p_provider: 'google_gemini',
+      p_model: 'gemini-3-flash-preview',
+      p_quota_scope: 'user_utc_day',
+      p_quota_utc_date: expectedUtcDate,
+      p_quota_limit: 20,
+      p_quota_request_number: 1,
+    });
+  });
+
+  await t.step('keeps product saves working while Edge precedes the receipt migration', async () => {
+    resetProvider();
+    const skewed = mockSupabase({ updateError: { code: 'PGRST202', message: 'function not in schema cache' } });
+    const res = await handler(request(), skewed.create);
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).suggestions, suggestionA);
+    assertEquals(skewed.state.authorityRpcCount, 1);
+    assertEquals(skewed.state.filters, [['id', 'session-a'], ['user_id', 'pro-user']]);
+
+    resetProvider();
+    const realFailure = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), realFailure.create)).status, 503);
+    assertEquals(realFailure.state.filters, []);
   });
 
   await t.step('materially different saved sessions produce different grounded coaching', async () => {

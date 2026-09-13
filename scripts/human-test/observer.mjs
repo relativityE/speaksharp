@@ -42,6 +42,9 @@ export const IDENTITY_PROBE = `(() => {
     // saved under, so the two can be required to agree.
     persistedStatus: root.getAttribute('data-session-persist-status'),
     persistedSessionId: root.getAttribute('data-session-persisted-id'),
+    // Product identity from the rendered journey, never from an operator label. Focus Points owns
+    // this rail in every state; its absence on the session surface is Open Mic.
+    observedJourney: root.querySelector('[data-testid="focus-points-rail"]') ? 'focus_points' : 'open_mic',
   };
 })()`;
 
