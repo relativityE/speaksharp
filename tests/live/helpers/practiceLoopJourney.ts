@@ -43,11 +43,144 @@ export interface JourneyTelemetry {
     readonly journeyIds: readonly string[];
 }
 
+/**
+ * #1437 RETURN `5649385757`, workstream 2 — THE COMPARISON SLATE AND THE ARM KEY.
+ *
+ * Mirrored from `runtimeCandidateSwitch.ts` (`COMPARISON_CANDIDATE_IDS`, `MODEL_COMPARISON_CDP_ARM_KEY`).
+ * A live spec cannot import the transcription stack, so the values are restated here — and a unit test
+ * compares them with the product's own constants, so a drift fails in ordinary CI instead of silently
+ * running the wrong arm on Production.
+ */
+export const COMPARISON_TARGETS = Object.freeze(['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'] as const);
+export type ComparisonTarget = (typeof COMPARISON_TARGETS)[number];
+export const MODEL_COMPARISON_CDP_ARM_KEY = 'speaksharp.model-comparison.cdp';
+
+export interface PersistedTupleMapping {
+    /** The `EngineVariant` half of `buildEngineVersion(variant, model)`. */
+    readonly variant: string;
+    /** The `model_name` the same save persists beside `engine_version`. */
+    readonly modelName: string;
+    /** The canonical registry candidate id this tuple denotes. */
+    readonly candidateId: string;
+}
+
+/**
+ * ONE EXPLICIT MAPPING from the persisted identity tuple to a canonical candidate id (Codex `3997967390`).
+ *
+ * The two namespaces are different by construction: `sessions.engine_version` is
+ * `buildEngineVersion(variant, model)` — `private_v2:whisper-base.en` — while the registry and the
+ * acquisition envelope speak `v2:base.en`. Comparing them directly rejects every correct save.
+ *
+ * `20260724220000_sessions_attribution_status.sql` forbids "engine_version string heuristics", so this is
+ * deliberately NOT a normalizer. It is a closed table of the exact tuples the product writes: a value that
+ * is not in it is refused, never guessed at, and an `engine_version` whose `model_name` disagrees is refused
+ * as inconsistent. `v4:base:q4` is included not because it is on the slate but because it is what a v4 run
+ * that fell back to the default variant persists — mapping it lets that report as a DIVERGENCE, which is
+ * the truth, instead of as an unknown identity.
+ */
+export const PERSISTED_TUPLE_TO_CANDIDATE: Readonly<Record<string, PersistedTupleMapping>> = Object.freeze({
+    'private_v2:whisper-base.en': { variant: 'private_v2', modelName: 'whisper-base.en', candidateId: 'v2:base.en' },
+    'private_v4:distil_q4': { variant: 'private_v4', modelName: 'distil_q4', candidateId: 'v4:distil:q4' },
+    'private_v4:base_q4': { variant: 'private_v4', modelName: 'base_q4', candidateId: 'v4:base:q4' },
+    'private_moonshine:medium-streaming-en': {
+        variant: 'private_moonshine', modelName: 'medium-streaming-en', candidateId: 'moonshine:streaming-medium',
+    },
+});
+
+export function candidateFromPersistedTuple(
+    engineVersion: string | null,
+    modelName: string | null,
+): { readonly candidateId: string } | { readonly failure: string } {
+    if (!engineVersion || !modelName) {
+        return { failure: 'the persisted row carries no complete engine_version/model_name tuple' };
+    }
+    const mapping = PERSISTED_TUPLE_TO_CANDIDATE[engineVersion];
+    if (!mapping) {
+        return { failure: `persisted engine_version ${engineVersion} is not a known candidate; unknown identities are refused, never guessed` };
+    }
+    if (mapping.modelName !== modelName) {
+        return { failure: `persisted model_name ${modelName} disagrees with engine_version ${engineVersion}; the tuple is inconsistent` };
+    }
+    return { candidateId: mapping.candidateId };
+}
+
+/** The persisted identity columns, as read — including whether the attribution became trusted. */
+export interface PersistedIdentity {
+    readonly engineVersion: string | null;
+    readonly modelName: string | null;
+    /** `sessions.attribution_status`: `pending` | `verified` | `unverified` | `legacy_unknown`. */
+    readonly attributionStatus: string | null;
+}
+
+/**
+ * #1437 RETURN workstream 1 — COUNT REQUESTS AGAINST THE PRODUCT'S OWN SAVE BOUNDARY (Codex `3997967382`).
+ *
+ * The previous head sampled `Date.now()` after `stopBenchmarkRecording`, `waitForBenchmarkSaveCandidate` and
+ * an attribute poll. The automatic request can fire inside that gap — correctly, after persistence — and was
+ * then counted as a pre-save request. The boundary is `window.__SS_LAST_PERSISTED_SESSION__.at`, stamped by
+ * `syncSessionPersisted` at the moment of persistence. With no boundary nothing is classified, and the
+ * verdict reports the missing boundary rather than inventing an ordering.
+ */
+export function classifyRequestsByBoundary(
+    requestTimes: readonly number[],
+    boundaryAt: number | null,
+): { readonly after: number; readonly atOrBefore: number } {
+    if (boundaryAt === null || !Number.isFinite(boundaryAt)) return { after: 0, atOrBefore: 0 };
+    return {
+        after: requestTimes.filter((at) => at > boundaryAt).length,
+        atOrBefore: requestTimes.filter((at) => at <= boundaryAt).length,
+    };
+}
+
+export const TERMINAL_REVIEW_EVENTS = Object.freeze(['practice_loop_review_rendered', 'practice_loop_review_failed'] as const);
+
+export interface CorrelatedTerminalWait {
+    readonly timeoutMs: number;
+    readonly intervalMs: number;
+    /** After the first correlated terminal event, wait this long so a duplicate in the next batch is seen. */
+    readonly settleMs: number;
+    readonly now: () => number;
+    readonly sleep: (ms: number) => Promise<void>;
+}
+
+/**
+ * #1437 RETURN workstream 1 — WAIT FOR THE TERMINAL EVENT TO LEAVE THE SDK QUEUE (Codex `3997967395`).
+ *
+ * The DOM turns terminal first; the terminal telemetry enters PostHog's batch queue at the same moment and
+ * is flushed asynchronously (a 3 s default in the installed SDK). Counting at the DOM transition therefore
+ * commonly sees no terminal outcome at all. This polls, bounded, for a terminal event correlated to THIS
+ * take's attempt, then waits one settle window so a duplicate still in flight is counted rather than missed,
+ * and only then returns a frozen snapshot. An absent attempt id is never correlated — it returns unsettled.
+ */
+export async function awaitCorrelatedTerminal<T extends { readonly name: string; readonly attemptId?: string }>(
+    read: () => readonly T[],
+    attemptId: string | null,
+    wait: CorrelatedTerminalWait,
+): Promise<{ readonly settled: boolean; readonly events: readonly T[] }> {
+    const correlated = (events: readonly T[]): boolean => attemptId !== null && events.some((event) =>
+        (TERMINAL_REVIEW_EVENTS as readonly string[]).includes(event.name) && event.attemptId === attemptId);
+    const deadline = wait.now() + wait.timeoutMs;
+    while (attemptId !== null) {
+        if (correlated(read())) {
+            await wait.sleep(wait.settleMs);
+            return { settled: true, events: [...read()] };
+        }
+        if (wait.now() >= deadline) break;
+        await wait.sleep(wait.intervalMs);
+    }
+    return { settled: false, events: [...read()] };
+}
+
 export interface PracticeLoopJourneyEvidence {
     /** The saved session's id, from the persistence boundary. */
     readonly savedSessionId: string | null;
     /** Whether the save reached a completed, persisted state. */
     readonly sessionSaved: boolean;
+    /**
+     * The product's own persistence boundary, `window.__SS_LAST_PERSISTED_SESSION__` (Codex `3997967382`).
+     * `markerSessionId` must name the same session as `savedSessionId`, or the timestamp is someone else's.
+     */
+    readonly persistenceBoundary: { readonly markerSessionId: string | null; readonly at: number | null };
     /**
      * Coaching requests made STRICTLY AFTER persistence (Codex `3996845181`). A request that fired
      * before the save is not the automatic post-save behaviour, even when a review later renders, so it
@@ -62,13 +195,18 @@ export interface PracticeLoopJourneyEvidence {
     readonly renderedPhraseCounts: { readonly whatWentWell: number; readonly whatToImprove: number };
     /** Terminal outcomes observed for this session's review. */
     readonly terminalOutcomes: readonly ReviewTerminalOutcome[];
+    /** Whether the correlated terminal wire event was observed before the counts were frozen. */
+    readonly terminalFlushSettled: boolean;
     /**
-     * CANDIDATE identity at the three boundaries the down-selection depends on (Codex `3996845174`).
-     * `private` is a product facade shared by every candidate — v2, v4 and Moonshine all report it, and
-     * so does `sessions.engine`. Comparing facades lets three different models agree, which is the one
-     * thing #1432's attribution cannot survive. These must be candidate ids.
+     * The EXPLICIT target and what the guarded switch reported for it (Codex `3997967389`). Requested
+     * identity is derived from `target` and nothing else — there is no separate `requested` a caller could
+     * fill in, because the previous head's requested value was null on every canonical run.
      */
-    readonly modelIdentity: { readonly requested: string | null; readonly observed: string | null; readonly persisted: string | null };
+    readonly candidateSwitch: { readonly target: string; readonly outcome: string };
+    /** What the engine acquired for that target, from the envelope — null if no acquisition was bound to it. */
+    readonly observedCandidate: string | null;
+    /** The persisted identity tuple and its attribution status, read with the service role. */
+    readonly persistedIdentity: PersistedIdentity;
     readonly telemetry: JourneyTelemetry;
 }
 
@@ -102,17 +240,30 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
     if (!evidence.sessionSaved) failures.push('the session did not reach a saved state');
     if (!evidence.savedSessionId) failures.push('the saved session has no id, so nothing downstream can be bound to it');
 
+    // 1b. The persistence boundary is the product's own, and it names THIS session.
+    const { markerSessionId, at: boundaryAt } = evidence.persistenceBoundary;
+    const boundaryKnown = boundaryAt !== null && Number.isFinite(boundaryAt);
+    if (!boundaryKnown) {
+        failures.push('the product published no persistence timestamp, so post-save ordering cannot be established');
+    }
+    if (markerSessionId !== evidence.savedSessionId) {
+        failures.push('the persistence timestamp belongs to a different session than the one saved');
+    }
+
     // 2. Suggestions start AUTOMATICALLY — no click, no retry, no refresh, and exactly one request.
     if (evidence.manualGenerationTriggered) {
         failures.push('generation was triggered manually; the contract is automatic on save');
     }
-    if (evidence.suggestionRequestsBeforeSave > 0) {
-        failures.push(`${evidence.suggestionRequestsBeforeSave} coaching request(s) fired at or before persistence; the contract is automatic AFTER a successful save`);
-    }
-    if (evidence.suggestionRequests === 0) {
-        failures.push('no automatic suggestion request was made after the save');
-    } else if (evidence.suggestionRequests > 1) {
-        failures.push(`${evidence.suggestionRequests} suggestion requests were made; exactly one is allowed per uncached session`);
+    // Request ordering is only meaningful against a real boundary; without one it is reported above.
+    if (boundaryKnown) {
+        if (evidence.suggestionRequestsBeforeSave > 0) {
+            failures.push(`${evidence.suggestionRequestsBeforeSave} coaching request(s) fired at or before persistence; the contract is automatic AFTER a successful save`);
+        }
+        if (evidence.suggestionRequests === 0) {
+            failures.push('no automatic suggestion request was made after the save');
+        } else if (evidence.suggestionRequests > 1) {
+            failures.push(`${evidence.suggestionRequests} suggestion requests were made; exactly one is allowed per uncached session`);
+        }
     }
 
     // 3. Exactly one valid 1+1 review becomes visible.
@@ -121,7 +272,10 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
         failures.push(`the review rendered ${whatWentWell} strength(s) and ${whatToImprove} improvement(s); the contract is exactly one of each`);
     }
 
-    // 4. Exactly one terminal outcome, and it must be a real one.
+    // 4. Exactly one terminal outcome, counted only after the correlated wire event was observed.
+    if (!evidence.terminalFlushSettled) {
+        failures.push('the correlated terminal telemetry was not observed within the bounded wait, so outcomes were counted from an incomplete batch');
+    }
     if (evidence.terminalOutcomes.length === 0) {
         failures.push('the review reached no terminal outcome');
     } else if (evidence.terminalOutcomes.length > 1) {
@@ -134,12 +288,12 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
     if (outcome === 'rendered_success') {
         let cursor = -1;
         for (const required of REQUIRED_SUCCESS_SEQUENCE) {
-            const at = events.indexOf(required, cursor + 1);
-            if (at === -1) {
+            const index = events.indexOf(required, cursor + 1);
+            if (index === -1) {
                 failures.push(`telemetry is missing ${required} after the preceding step, so the journey cannot be reconstructed`);
                 break;
             }
-            cursor = at;
+            cursor = index;
         }
         // A rendered review MUST claim both links. Requiring them only in the negative let a success
         // pass with neither, which is the other half of #1422's rule.
@@ -174,19 +328,40 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
         }
     }
 
-    // 7. Requested, observed and persisted model identity agree — the down-selection's whole basis.
-    const { requested, observed, persisted } = evidence.modelIdentity;
-    if (!requested || !observed || !persisted) {
-        failures.push('model identity is incomplete at one of requested/observed/persisted');
-    } else if (!(requested === observed && observed === persisted)) {
-        failures.push(`model identity diverges: requested=${requested} observed=${observed} persisted=${persisted}`);
+    // 7. The take ran the EXPLICIT target, through the guarded switch.
+    const { target, outcome: switchOutcome } = evidence.candidateSwitch;
+    if (!(COMPARISON_TARGETS as readonly string[]).includes(target)) {
+        failures.push(`requested target ${target} is not in the three-model comparison`);
     }
-    if (boundCandidateId && persisted && boundCandidateId !== persisted) {
+    if (switchOutcome !== 'ok') {
+        failures.push(`the guarded candidate switch to ${target} did not succeed (${switchOutcome})`);
+    }
+
+    // 8. Persisted identity is TRUSTED only once attribution is verified (Codex `3997967394`). A `pending` row
+    // still carries client-supplied identity columns, so reading them as proof would credit the take to an
+    // identity the trusted attestation never confirmed.
+    const { engineVersion, modelName, attributionStatus } = evidence.persistedIdentity;
+    if (attributionStatus !== 'verified') {
+        failures.push(`persisted attribution is ${attributionStatus ?? 'absent'}, not verified; an unverified row cannot prove which model ran`);
+    }
+    const mapped = candidateFromPersistedTuple(engineVersion, modelName);
+    if ('failure' in mapped) failures.push(mapped.failure);
+    const trustedPersisted = attributionStatus === 'verified' && 'candidateId' in mapped ? mapped.candidateId : null;
+
+    // 9. Requested (the target), observed and trusted-persisted identity agree — the down-selection's basis.
+    const requested = target;
+    const observed = evidence.observedCandidate;
+    if (!observed || !trustedPersisted) {
+        failures.push('model identity is incomplete at one of requested/observed/persisted');
+    } else if (!(requested === observed && observed === trustedPersisted)) {
+        failures.push(`model identity diverges: requested=${requested} observed=${observed} persisted=${trustedPersisted}`);
+    }
+    if (boundCandidateId && trustedPersisted && boundCandidateId !== trustedPersisted) {
         failures.push('telemetry is bound to a different candidate than the one persisted');
     }
     // The facade is not an identity. `private` agreeing with `private` proves nothing about which of
     // v2, v4 or Moonshine ran, and a down-selection built on that is unattributable.
-    for (const [label, value] of [['requested', requested], ['observed', observed], ['persisted', persisted]] as const) {
+    for (const [label, value] of [['requested', requested], ['observed', observed], ['persisted', engineVersion]] as const) {
         if (value && /^(private|browser|cloud|native)$/i.test(value)) {
             failures.push(`${label} model identity is the product facade "${value}", not a candidate id`);
         }

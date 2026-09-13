@@ -14,26 +14,37 @@ import {
     practiceLoopJourneyFailures,
     routeSurfaceFailures,
     contentLeaks,
+    candidateFromPersistedTuple,
+    classifyRequestsByBoundary,
+    awaitCorrelatedTerminal,
+    COMPARISON_TARGETS,
+    MODEL_COMPARISON_CDP_ARM_KEY,
+    PERSISTED_TUPLE_TO_CANDIDATE,
     type PracticeLoopJourneyEvidence,
 } from '../live/helpers/practiceLoopJourney';
 
 const SESSION = 'sess-4f2a9c1b';
 const ATTEMPT = 'att-7c1d90e2';
 const JOURNEY = 'jrn-1b8e44af';
-/** A down-selection candidate id — the thing `private` cannot distinguish. */
-const CANDIDATE = 'whisper-base-q4-webgpu';
+/** A real comparison candidate id — the thing `private` cannot distinguish. */
+const CANDIDATE = 'v2:base.en';
+const V2_TUPLE = { engineVersion: 'private_v2:whisper-base.en', modelName: 'whisper-base.en' } as const;
+const BOUNDARY_AT = 1_700_000_000_000;
 
 /** A journey that satisfies PO's procedure end to end. Every casualty is this, minus one thing. */
 const provenJourney: PracticeLoopJourneyEvidence = {
     savedSessionId: SESSION,
     sessionSaved: true,
+    persistenceBoundary: { markerSessionId: SESSION, at: BOUNDARY_AT },
     suggestionRequests: 1,
     suggestionRequestsBeforeSave: 0,
     manualGenerationTriggered: false,
     renderedPhraseCounts: { whatWentWell: 1, whatToImprove: 1 },
     terminalOutcomes: ['rendered_success'],
-    // CANDIDATE ids, not the `private` facade: v2/v4/Moonshine is what the down-selection attributes.
-    modelIdentity: { requested: CANDIDATE, observed: CANDIDATE, persisted: CANDIDATE },
+    terminalFlushSettled: true,
+    candidateSwitch: { target: CANDIDATE, outcome: 'ok' },
+    observedCandidate: CANDIDATE,
+    persistedIdentity: { ...V2_TUPLE, attributionStatus: 'verified' },
     telemetry: {
         events: [
             'session_saved',
@@ -188,7 +199,7 @@ describe('#1437 — the Practice Loop journey verdict', () => {
     it('CASUALTY: telemetry bound to a different candidate than the one persisted', () => {
         // Down-selection integrity: a row attributed to the wrong candidate is worse than a missing row.
         expect(practiceLoopJourneyFailures(without({
-            telemetry: { ...provenJourney.telemetry, boundCandidateId: 'whisper-tiny-en' },
+            telemetry: { ...provenJourney.telemetry, boundCandidateId: 'v4:distil:q4' },
         }))).toContain('telemetry is bound to a different candidate than the one persisted');
     });
 
@@ -208,7 +219,9 @@ describe('#1437 — the Practice Loop journey verdict', () => {
         // `private` agreeing with `private` agreeing with `private` proves nothing about which model ran.
         // This is the shape that would have let all three arms of the down-selection look identical.
         const failures = practiceLoopJourneyFailures(without({
-            modelIdentity: { requested: 'private', observed: 'private', persisted: 'private' },
+            candidateSwitch: { target: 'private', outcome: 'ok' },
+            observedCandidate: 'private',
+            persistedIdentity: { engineVersion: 'private', modelName: 'private', attributionStatus: 'verified' },
             telemetry: { ...provenJourney.telemetry, boundCandidateId: 'private' },
         }));
         expect(failures).toEqual(expect.arrayContaining([
@@ -238,9 +251,10 @@ describe('#1437 — the Practice Loop journey verdict', () => {
     });
 
     it('CASUALTY: requested, observed and persisted model identity diverge', () => {
+        // A v4 row under a v2 target — both tuples are known, so this is a divergence, not an unknown.
         expect(practiceLoopJourneyFailures(without({
-            modelIdentity: { requested: CANDIDATE, observed: CANDIDATE, persisted: 'whisper-tiny-en' },
-        }))).toContain(`model identity diverges: requested=${CANDIDATE} observed=${CANDIDATE} persisted=whisper-tiny-en`);
+            persistedIdentity: { engineVersion: 'private_v4:distil_q4', modelName: 'distil_q4', attributionStatus: 'verified' },
+        }))).toContain(`model identity diverges: requested=${CANDIDATE} observed=${CANDIDATE} persisted=v4:distil:q4`);
     });
 
     it('CASUALTY: the correlated sequence is broken, so the journey cannot be reconstructed', () => {
@@ -280,5 +294,230 @@ describe('#1437 — the Practice Loop journey verdict', () => {
             .toEqual(['Clear opening named the decision.']);
         // The proven evidence shape itself carries nothing to leak.
         expect(contentLeaks(JSON.stringify(provenJourney), ['Clear opening named the decision.'])).toEqual([]);
+    });
+});
+
+describe('#1437 RETURN workstream 1 — the real save boundary and the real wire boundary', () => {
+    it('CONTROL (Codex 3997967382): a request after the real boundary but before the test resumed counts as post-save', () => {
+        // THE DISCRIMINATING CASE. The product persisted at BOUNDARY_AT and fired its request 40 ms later;
+        // the test only resumed 2 s after that. Classified against the product's own timestamp the request
+        // is post-save. Against the previous head's delayed `Date.now()` it was counted as pre-save.
+        const requestAt = BOUNDARY_AT + 40;
+        const testResumedAt = BOUNDARY_AT + 2_000;
+        expect(classifyRequestsByBoundary([requestAt], BOUNDARY_AT)).toEqual({ after: 1, atOrBefore: 0 });
+        expect(classifyRequestsByBoundary([requestAt], testResumedAt)).toEqual({ after: 0, atOrBefore: 1 });
+
+        const counts = classifyRequestsByBoundary([requestAt], BOUNDARY_AT);
+        expect(practiceLoopJourneyFailures(without({
+            suggestionRequests: counts.after,
+            suggestionRequestsBeforeSave: counts.atOrBefore,
+        }))).toEqual([]);
+    });
+
+    it('CASUALTY: a request at or before the real boundary is still refused', () => {
+        expect(classifyRequestsByBoundary([BOUNDARY_AT - 5, BOUNDARY_AT], BOUNDARY_AT)).toEqual({ after: 0, atOrBefore: 2 });
+    });
+
+    it('CASUALTY: a persistence timestamp that names a different session is refused', () => {
+        // `__SS_LAST_PERSISTED_SESSION__` keeps its last value by design; a stale marker from an earlier
+        // save must not lend its timestamp to this one.
+        expect(practiceLoopJourneyFailures(without({
+            persistenceBoundary: { markerSessionId: 'sess-previous', at: BOUNDARY_AT },
+        }))).toContain('the persistence timestamp belongs to a different session than the one saved');
+    });
+
+    it('CASUALTY: no product timestamp means ordering is unknown, not zero requests', () => {
+        const failures = practiceLoopJourneyFailures(without({
+            persistenceBoundary: { markerSessionId: SESSION, at: null },
+            suggestionRequests: 0,
+            suggestionRequestsBeforeSave: 0,
+        }));
+        expect(failures).toContain('the product published no persistence timestamp, so post-save ordering cannot be established');
+        // It is reported as an unknown boundary, never as a product that failed to request.
+        expect(failures).not.toContain('no automatic suggestion request was made after the save');
+        expect(classifyRequestsByBoundary([BOUNDARY_AT + 40], null)).toEqual({ after: 0, atOrBefore: 0 });
+    });
+
+    /** A fake clock whose `sleep` advances time and delivers events scheduled for that moment. */
+    const fakeWire = (schedule: Array<{ at: number; event: { name: string; attemptId?: string } }>) => {
+        let clock = 0;
+        const delivered: Array<{ name: string; attemptId?: string }> = [];
+        const deliver = () => {
+            for (const item of schedule) {
+                if (item.at <= clock && !delivered.includes(item.event)) delivered.push(item.event);
+            }
+        };
+        return {
+            read: () => { deliver(); return delivered; },
+            wait: {
+                timeoutMs: 20_000, intervalMs: 500, settleMs: 3_500,
+                now: () => clock,
+                sleep: async (ms: number) => { clock += ms; },
+            },
+        };
+    };
+
+    it('CONTROL (Codex 3997967395): a terminal event that flushes 3 s after the DOM turns terminal is observed', async () => {
+        const rendered = { name: 'practice_loop_review_rendered', attemptId: ATTEMPT };
+        const wire = fakeWire([{ at: 3_000, event: rendered }]);
+        // Counted at the DOM transition — the previous head's behaviour — the outcome is missing.
+        expect(wire.read()).toEqual([]);
+        const result = await awaitCorrelatedTerminal(wire.read, ATTEMPT, wire.wait);
+        expect(result.settled).toBe(true);
+        expect(result.events).toEqual([rendered]);
+    });
+
+    it('CASUALTY: a duplicate terminal event arriving in the next batch is counted, not missed', async () => {
+        const first = { name: 'practice_loop_review_failed', attemptId: ATTEMPT };
+        const second = { name: 'practice_loop_review_rendered', attemptId: ATTEMPT };
+        const wire = fakeWire([{ at: 1_000, event: first }, { at: 3_500, event: second }]);
+        const result = await awaitCorrelatedTerminal(wire.read, ATTEMPT, wire.wait);
+        expect(result.settled).toBe(true);
+        expect(result.events.filter((event) => event.name.startsWith('practice_loop_review_'))).toHaveLength(2);
+    });
+
+    it('CASUALTY: a terminal event from a different attempt never settles the wait', async () => {
+        const wire = fakeWire([{ at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: 'att-other' } }]);
+        const result = await awaitCorrelatedTerminal(wire.read, ATTEMPT, wire.wait);
+        expect(result.settled).toBe(false);
+        expect(practiceLoopJourneyFailures(without({ terminalFlushSettled: false })))
+            .toContain('the correlated terminal telemetry was not observed within the bounded wait, so outcomes were counted from an incomplete batch');
+    });
+
+    it('CASUALTY: an absent attempt id is never correlated', async () => {
+        const wire = fakeWire([{ at: 0, event: { name: 'practice_loop_review_rendered' } }]);
+        expect((await awaitCorrelatedTerminal(wire.read, null, wire.wait)).settled).toBe(false);
+    });
+});
+
+describe('#1437 RETURN workstream 2 — an explicit target and one closed identity mapping', () => {
+    it('CONTROL (Codex 3997967390): every comparison candidate maps from the tuple the product persists', () => {
+        expect(candidateFromPersistedTuple('private_v2:whisper-base.en', 'whisper-base.en')).toEqual({ candidateId: 'v2:base.en' });
+        expect(candidateFromPersistedTuple('private_v4:distil_q4', 'distil_q4')).toEqual({ candidateId: 'v4:distil:q4' });
+        expect(candidateFromPersistedTuple('private_moonshine:medium-streaming-en', 'medium-streaming-en'))
+            .toEqual({ candidateId: 'moonshine:streaming-medium' });
+        // A v4 run that fell back to the default variant maps too, so it reports as a divergence.
+        expect(candidateFromPersistedTuple('private_v4:base_q4', 'base_q4')).toEqual({ candidateId: 'v4:base:q4' });
+    });
+
+    it('CONTROL: each comparison target passes end to end with its own persisted tuple', () => {
+        const tuples: Record<string, { engineVersion: string; modelName: string }> = {
+            'v2:base.en': V2_TUPLE,
+            'v4:distil:q4': { engineVersion: 'private_v4:distil_q4', modelName: 'distil_q4' },
+            'moonshine:streaming-medium': { engineVersion: 'private_moonshine:medium-streaming-en', modelName: 'medium-streaming-en' },
+        };
+        for (const target of COMPARISON_TARGETS) {
+            expect(practiceLoopJourneyFailures(without({
+                candidateSwitch: { target, outcome: 'ok' },
+                observedCandidate: target,
+                persistedIdentity: { ...tuples[target], attributionStatus: 'verified' },
+                telemetry: { ...provenJourney.telemetry, boundCandidateId: target },
+            }))).toEqual([]);
+        }
+    });
+
+    it('CASUALTY: direct namespace equality — the previous head — would reject a correct save', () => {
+        // The exact defect: `private_v2:whisper-base.en` is never equal to `v2:base.en`.
+        expect((V2_TUPLE.engineVersion as string) === CANDIDATE).toBe(false);
+    });
+
+    it('CASUALTY: an unknown persisted identity is refused, never guessed', () => {
+        expect(candidateFromPersistedTuple('private_v4:distil_q8', 'distil_q8')).toEqual({
+            failure: 'persisted engine_version private_v4:distil_q8 is not a known candidate; unknown identities are refused, never guessed',
+        });
+        expect(practiceLoopJourneyFailures(without({
+            persistedIdentity: { engineVersion: 'private_v4:distil_q8', modelName: 'distil_q8', attributionStatus: 'verified' },
+        }))).toEqual(expect.arrayContaining([
+            'persisted engine_version private_v4:distil_q8 is not a known candidate; unknown identities are refused, never guessed',
+            'model identity is incomplete at one of requested/observed/persisted',
+        ]));
+    });
+
+    it('CASUALTY: an engine_version whose model_name disagrees is refused as inconsistent', () => {
+        expect(candidateFromPersistedTuple('private_v2:whisper-base.en', 'distil_q4')).toEqual({
+            failure: 'persisted model_name distil_q4 disagrees with engine_version private_v2:whisper-base.en; the tuple is inconsistent',
+        });
+    });
+
+    it('CASUALTY: an incomplete tuple is refused', () => {
+        expect(candidateFromPersistedTuple(null, 'whisper-base.en'))
+            .toEqual({ failure: 'the persisted row carries no complete engine_version/model_name tuple' });
+    });
+
+    it('CASUALTY (Codex 3997967389): a switch that did not succeed fails the take', () => {
+        expect(practiceLoopJourneyFailures(without({ candidateSwitch: { target: CANDIDATE, outcome: 'not_armed' } })))
+            .toContain(`the guarded candidate switch to ${CANDIDATE} did not succeed (not_armed)`);
+    });
+
+    it('CASUALTY: a target outside the three-model comparison is refused', () => {
+        expect(practiceLoopJourneyFailures(without({ candidateSwitch: { target: 'v4:base:int8', outcome: 'ok' } })))
+            .toContain('requested target v4:base:int8 is not in the three-model comparison');
+    });
+
+    it('CASUALTY: no acquisition bound to the target leaves observed identity incomplete', () => {
+        expect(practiceLoopJourneyFailures(without({ observedCandidate: null })))
+            .toContain('model identity is incomplete at one of requested/observed/persisted');
+    });
+
+    it('DRIFT GUARD: the restated slate, arm key and mapping still match the product constants', async () => {
+        // Imported dynamically so a product-module load problem fails THIS test, visibly, rather than the file.
+        const { buildEngineVersion } = await import('@/services/transcription/privateTelemetry');
+        const { CANDIDATES } = await import('@/services/transcription/candidateRegistry');
+        const { PRIV_STT_V4_VARIANTS } = await import('@/services/transcription/sttConstants');
+        const { COMPARISON_CANDIDATE_IDS, MODEL_COMPARISON_CDP_ARM_KEY: productArmKey } =
+            await import('@/services/transcription/runtimeCandidateSwitch');
+
+        expect([...COMPARISON_TARGETS]).toEqual([...COMPARISON_CANDIDATE_IDS]);
+        expect(MODEL_COMPARISON_CDP_ARM_KEY).toBe(productArmKey);
+
+        const candidates = CANDIDATES as unknown as Record<string, { model: { id: string } }>;
+        const v4Variants = PRIV_STT_V4_VARIANTS as unknown as Record<string, { MODEL_ID: string }>;
+        for (const [engineVersion, mapping] of Object.entries(PERSISTED_TUPLE_TO_CANDIDATE)) {
+            // The key IS what the product writes for this variant and model — no hand-typed drift.
+            expect(buildEngineVersion(mapping.variant as Parameters<typeof buildEngineVersion>[0], mapping.modelName)).toBe(engineVersion);
+            expect(candidates[mapping.candidateId], `${mapping.candidateId} must be a registered candidate`).toBeDefined();
+        }
+        // The model half of each engine family matches the registry. Non-empty first, so a guard over an
+        // accidentally emptied family cannot pass vacuously.
+        const mappings = Object.values(PERSISTED_TUPLE_TO_CANDIDATE);
+        const v4Mappings = mappings.filter((mapping) => mapping.variant === 'private_v4');
+        const moonshineMappings = mappings.filter((mapping) => mapping.variant === 'private_moonshine');
+        expect(v4Mappings.length).toBeGreaterThan(0);
+        expect(moonshineMappings.length).toBeGreaterThan(0);
+        for (const mapping of v4Mappings) {
+            expect(v4Variants[mapping.modelName]?.MODEL_ID).toBe(candidates[mapping.candidateId].model.id);
+        }
+        for (const mapping of moonshineMappings) {
+            expect(candidates[mapping.candidateId].model.id).toBe(mapping.modelName);
+        }
+        // Every target on the slate is reachable from a persisted tuple.
+        const mapped = new Set(Object.values(PERSISTED_TUPLE_TO_CANDIDATE).map((mapping) => mapping.candidateId));
+        for (const target of COMPARISON_TARGETS) expect(mapped.has(target), `${target} must be mapped`).toBe(true);
+    });
+});
+
+describe('#1437 RETURN workstream 3 — persisted identity is trusted only once attribution is verified', () => {
+    it('CASUALTY (Codex 3997967394): a pending row cannot satisfy requested = observed = persisted', () => {
+        // THE DISCRIMINATING CASE. Target, observed and the persisted tuple all agree on v2 — the tuple is
+        // exactly right — but the trusted attestation never confirmed it. The previous head accepted this.
+        const failures = practiceLoopJourneyFailures(without({
+            persistedIdentity: { ...V2_TUPLE, attributionStatus: 'pending' },
+        }));
+        expect(failures).toEqual(expect.arrayContaining([
+            'persisted attribution is pending, not verified; an unverified row cannot prove which model ran',
+            'model identity is incomplete at one of requested/observed/persisted',
+        ]));
+        expect(failures).not.toContain(`model identity diverges: requested=${CANDIDATE} observed=${CANDIDATE} persisted=${CANDIDATE}`);
+    });
+
+    it('CASUALTY: unverified, legacy and absent attribution are all refused', () => {
+        for (const attributionStatus of ['unverified', 'legacy_unknown', null]) {
+            expect(practiceLoopJourneyFailures(without({ persistedIdentity: { ...V2_TUPLE, attributionStatus } })))
+                .toContain(`persisted attribution is ${attributionStatus ?? 'absent'}, not verified; an unverified row cannot prove which model ran`);
+        }
+    });
+
+    it('CONTROL: the same tuple with verified attribution passes', () => {
+        expect(practiceLoopJourneyFailures(without({ persistedIdentity: { ...V2_TUPLE, attributionStatus: 'verified' } }))).toEqual([]);
     });
 });
