@@ -158,8 +158,14 @@ export interface CorrelatedTerminalWait {
  * THE CORRELATION KEY IS DISCOVERED INSIDE THE POLL, not before it (Codex `3998069827`). The event that names
  * the take — `session_saved` — travels through the same asynchronous queue as the terminal event, so a fast
  * review can reach the DOM before it is on the wire. The previous head read the key once, got `null`, and
- * never polled, failing a healthy run. `resolveCorrelation` is re-evaluated on every read; a take that never
- * appears is never correlated, and the wait ends unsettled at its deadline.
+ * never polled, failing a healthy run. the saved take is discovered on every read until one appears; a take that
+ * never appears is never correlated, and the wait ends unsettled at its deadline.
+ *
+ * LOCKED ONCE DISCOVERED (Codex `3998202205`). Re-resolving "the latest saved take" on every read let a SECOND
+ * take saved during the window silently replace the take under test: its complete terminal chain settled the
+ * wait, and the evidence combined the first take's DOM and persisted row with the second take's telemetry. The
+ * first saved pair found is now locked, and every OTHER distinct saved pair seen in the window is counted and
+ * reported, so the verdict can refuse a window that holds more than one take.
  *
  * JOURNEY AND ATTEMPT, BOTH (PM criterion). An attempt id alone is not the take's identity: a terminal event
  * carrying the same attempt id under a different journey is a different take, so it must not settle the wait
@@ -174,31 +180,52 @@ type CorrelatableEvent = { readonly name: string; readonly attemptId?: string; r
 
 export async function awaitCorrelatedTerminal<T extends CorrelatableEvent>(
     read: () => readonly T[],
-    resolveCorrelation: (events: readonly T[]) => TakeCorrelation | null,
+    resolveCorrelations: (events: readonly T[]) => readonly TakeCorrelation[],
     wait: CorrelatedTerminalWait,
-): Promise<{ readonly settled: boolean; readonly events: readonly T[] }> {
+): Promise<{
+    readonly settled: boolean;
+    readonly events: readonly T[];
+    /** The saved take locked for this wait — the only pair whose terminal events may be counted. */
+    readonly take: TakeCorrelation | null;
+    /** Distinct saved takes OTHER than the locked one seen in the window. Any is contamination. */
+    readonly additionalSavedTakes: number;
+}> {
+    let take = null as TakeCorrelation | null;
     const correlated = (events: readonly T[]): boolean => {
-        const take = resolveCorrelation(events);
-        return take !== null && events.some((event) =>
+        if (take === null) take = resolveCorrelations(events)[0] ?? null;
+        const locked = take;
+        return locked !== null && events.some((event) =>
             (TERMINAL_REVIEW_EVENTS as readonly string[]).includes(event.name)
-            && event.attemptId === take.attemptId
-            && event.journeyId === take.journeyId);
+            && event.attemptId === locked.attemptId
+            && event.journeyId === locked.journeyId);
     };
     const deadline = wait.now() + wait.timeoutMs;
     let settled = false;
     for (;;) {
-        if (!settled && correlated(read())) settled = true;
+        if (correlated(read())) settled = true;
         if (wait.now() >= deadline) break;
         await wait.sleep(wait.intervalMs);
     }
     const frozen = [...read()];
-    return { settled: settled || correlated(frozen), events: frozen };
+    if (correlated(frozen)) settled = true;
+    const locked = take;
+    const additionalSavedTakes = locked === null ? 0 : resolveCorrelations(frozen).filter((candidate) =>
+        candidate.attemptId !== locked.attemptId || candidate.journeyId !== locked.journeyId).length;
+    return { settled, events: frozen, take: locked, additionalSavedTakes };
 }
 
-/** The saved take's identity: the latest `session_saved` carrying BOTH a journey id and an attempt id. */
-export function savedCorrelationOf<T extends CorrelatableEvent>(events: readonly T[]): TakeCorrelation | null {
-    const saved = [...events].reverse().find((event) => event.name === 'session_saved' && event.attemptId && event.journeyId);
-    return saved?.attemptId && saved.journeyId ? { journeyId: saved.journeyId, attemptId: saved.attemptId } : null;
+/** Every distinct saved take, in arrival order: `session_saved` events carrying BOTH ids, deduplicated by pair. */
+export function savedCorrelationsOf<T extends CorrelatableEvent>(events: readonly T[]): TakeCorrelation[] {
+    const seen = new Set<string>();
+    const takes: TakeCorrelation[] = [];
+    for (const event of events) {
+        if (event.name !== 'session_saved' || !event.attemptId || !event.journeyId) continue;
+        const key = `${event.journeyId}|${event.attemptId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        takes.push({ journeyId: event.journeyId, attemptId: event.attemptId });
+    }
+    return takes;
 }
 
 type AcquisitionEvent = {
@@ -274,6 +301,8 @@ export interface PracticeLoopJourneyEvidence {
     readonly terminalOutcomes: readonly ReviewTerminalOutcome[];
     /** Whether the correlated terminal wire event was observed before the counts were frozen. */
     readonly terminalFlushSettled: boolean;
+    /** Distinct saved takes other than the take under test seen during the observation window (Codex `3998202205`). */
+    readonly additionalSavedTakes: number;
     /**
      * The EXPLICIT target and what the guarded switch reported for it (Codex `3997967389`). Requested
      * identity is derived from `target` and nothing else — there is no separate `requested` a caller could
@@ -350,6 +379,9 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
     }
 
     // 4. Exactly one terminal outcome, counted only after the correlated wire event was observed.
+    if (evidence.additionalSavedTakes > 0) {
+        failures.push(`${evidence.additionalSavedTakes} additional saved take(s) appeared during the observation window, so its telemetry cannot be attributed to the take under test`);
+    }
     if (!evidence.terminalFlushSettled) {
         failures.push('the correlated terminal telemetry was not observed within the bounded wait, so outcomes were counted from an incomplete batch');
     }

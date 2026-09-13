@@ -49,7 +49,7 @@ import {
     routeSurfaceFailures,
     contentLeaks,
     awaitCorrelatedTerminal,
-    savedCorrelationOf,
+    savedCorrelationsOf,
     observedCandidateAfterSwitch,
     runningCandidateAfterSwitch,
     classifyRequestsByBoundary,
@@ -391,7 +391,7 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
              */
             // The saved take — journey AND attempt — is discovered INSIDE the bounded poll (Codex `3998069827`):
             // `session_saved` rides the same async queue, so it may not be on the wire when the DOM turns terminal.
-            const flush = await awaitCorrelatedTerminal(() => captured, savedCorrelationOf, {
+            const flush = await awaitCorrelatedTerminal(() => captured, savedCorrelationsOf, {
                 timeoutMs: 30_000,
                 intervalMs: 500,
                 now: () => Date.now(),
@@ -399,7 +399,8 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             });
             const frozen = flush.events;
             // Exactly-one counting runs only over terminal events of THIS take — journey and attempt.
-            const take = savedCorrelationOf(frozen);
+            // The pair LOCKED by the wait (Codex `3998202205`) — never re-derived from the snapshot.
+            const take = flush.take;
             const terminalEvents = frozen.filter((event) =>
                 (event.name === 'practice_loop_review_rendered' || event.name === 'practice_loop_review_failed')
                 && take !== null && event.attemptId === take.attemptId && event.journeyId === take.journeyId);
@@ -497,6 +498,7 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                 renderedPhraseCounts: { whatWentWell, whatToImprove },
                 terminalOutcomes,
                 terminalFlushSettled: flush.settled,
+                additionalSavedTakes: flush.additionalSavedTakes,
                 candidateSwitch: { target, outcome: switchOutcome },
                 observedCandidate,
                 persistedIdentity,

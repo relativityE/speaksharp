@@ -17,7 +17,7 @@ import {
     candidateFromPersistedTuple,
     classifyRequestsByBoundary,
     awaitCorrelatedTerminal,
-    savedCorrelationOf,
+    savedCorrelationsOf,
     observedCandidateAfterSwitch,
     runningCandidateAfterSwitch,
     COMPARISON_TARGETS,
@@ -45,6 +45,7 @@ const provenJourney: PracticeLoopJourneyEvidence = {
     renderedPhraseCounts: { whatWentWell: 1, whatToImprove: 1 },
     terminalOutcomes: ['rendered_success'],
     terminalFlushSettled: true,
+    additionalSavedTakes: 0,
     candidateSwitch: { target: CANDIDATE, outcome: 'ok' },
     observedCandidate: CANDIDATE,
     persistedIdentity: { ...V2_TUPLE, attributionStatus: 'verified' },
@@ -368,7 +369,7 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
         const wire = fakeWire([{ at: 0, event: saved }, { at: 3_000, event: rendered }]);
         // Counted at the DOM transition — the previous head's behaviour — the outcome is missing.
         expect(wire.read().filter((event) => event.name === rendered.name)).toEqual([]);
-        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait);
         expect(result.settled).toBe(true);
         expect(result.events).toEqual([saved, rendered]);
     });
@@ -379,8 +380,8 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
         // and failed this healthy run; resolving it on every read finds it.
         const rendered = { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY };
         const wire = fakeWire([{ at: 1_000, event: rendered }, { at: 2_500, event: saved }]);
-        expect(savedCorrelationOf(wire.read())).toBeNull();
-        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
+        expect(savedCorrelationsOf(wire.read())).toEqual([]);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait);
         expect(result.settled).toBe(true);
     });
 
@@ -388,14 +389,14 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
         const first = { name: 'practice_loop_review_failed', attemptId: ATTEMPT, journeyId: JOURNEY };
         const second = { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY };
         const wire = fakeWire([{ at: 0, event: saved }, { at: 1_000, event: first }, { at: 3_500, event: second }]);
-        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait);
         expect(result.settled).toBe(true);
         expect(result.events.filter((event) => event.name.startsWith('practice_loop_review_'))).toHaveLength(2);
     });
 
     it('CASUALTY: a terminal event from a different attempt never settles the wait', async () => {
         const wire = fakeWire([{ at: 0, event: saved }, { at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: 'att-other', journeyId: JOURNEY } }]);
-        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait);
         expect(result.settled).toBe(false);
         expect(practiceLoopJourneyFailures(without({ terminalFlushSettled: false })))
             .toContain('the correlated terminal telemetry was not observed within the bounded wait, so outcomes were counted from an incomplete batch');
@@ -404,7 +405,7 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
     it('CASUALTY: a saved attempt that never reaches the wire is never correlated', async () => {
         // The terminal event arrives, but nothing ever names the attempt — unsettled at the deadline, not a pass.
         const wire = fakeWire([{ at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY } }]);
-        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait)).settled).toBe(false);
+        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait)).settled).toBe(false);
     });
 
     it('CASUALTY (Codex 3998152257): a same-take duplicate arriving well after the first terminal event is still counted', async () => {
@@ -416,9 +417,42 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
             { at: 1_000, event: { name: 'practice_loop_review_failed', attemptId: ATTEMPT, journeyId: JOURNEY } },
             { at: 12_000, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY } },
         ]);
-        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait);
         expect(result.settled).toBe(true);
         expect(result.events.filter((event) => event.name.startsWith('practice_loop_review_'))).toHaveLength(2);
+    });
+
+    it('CASUALTY (Codex 3998202205): a later take saved in the window cannot settle the wait for the take under test', async () => {
+        // THE DISCRIMINATING CASE. Take A is saved and never emits a terminal event. Take B is saved 2 s later and
+        // emits a complete terminal chain. Re-resolving "the latest saved take" on every read switched to B, let
+        // B's terminal settle the wait, and the spec re-derived B from the snapshot — pairing A's DOM and persisted
+        // row with B's telemetry. A is locked; B is reported as an additional take; nothing settles.
+        const takeB = { name: 'session_saved', attemptId: 'att-later', journeyId: JOURNEY };
+        const wire = fakeWire([
+            { at: 0, event: saved },
+            { at: 2_000, event: takeB },
+            { at: 3_000, event: { name: 'practice_loop_review_rendered', attemptId: 'att-later', journeyId: JOURNEY } },
+        ]);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait);
+        expect(result.settled).toBe(false);
+        expect(result.take).toEqual({ journeyId: JOURNEY, attemptId: ATTEMPT });
+        expect(result.additionalSavedTakes).toBe(1);
+    });
+
+    it('CONTROL: a single saved take with its own terminal settles and reports no additional take', async () => {
+        const wire = fakeWire([
+            { at: 0, event: saved },
+            { at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY } },
+        ]);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait);
+        expect(result.settled).toBe(true);
+        expect(result.take).toEqual({ journeyId: JOURNEY, attemptId: ATTEMPT });
+        expect(result.additionalSavedTakes).toBe(0);
+    });
+
+    it('CASUALTY (Codex 3998202205): the verdict refuses evidence whose window held an additional saved take', () => {
+        expect(practiceLoopJourneyFailures(without({ additionalSavedTakes: 1 })))
+            .toContain('1 additional saved take(s) appeared during the observation window, so its telemetry cannot be attributed to the take under test');
     });
 
     it('CASUALTY (PM criterion): the same attempt id under a different journey is a different take', async () => {
@@ -426,7 +460,7 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
             { at: 0, event: saved },
             { at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: 'jrn-other' } },
         ]);
-        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait)).settled).toBe(false);
+        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait)).settled).toBe(false);
     });
 
     it('CASUALTY: a saved event without a journey id is never correlated', async () => {
@@ -434,12 +468,12 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
             { at: 0, event: { name: 'session_saved', attemptId: ATTEMPT } },
             { at: 0, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY } },
         ]);
-        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait)).settled).toBe(false);
+        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait)).settled).toBe(false);
     });
 
     it('CASUALTY: an absent attempt id on the saved event is never correlated', async () => {
         const wire = fakeWire([{ at: 0, event: { name: 'session_saved' } }, { at: 0, event: { name: 'practice_loop_review_rendered' } }]);
-        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait)).settled).toBe(false);
+        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationsOf, wire.wait)).settled).toBe(false);
     });
 });
 
