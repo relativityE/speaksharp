@@ -10,6 +10,12 @@
  * "green CI" ends up meaning nothing.
  */
 import { describe, expect, it } from 'vitest';
+import { generateKeyPairSync } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import {
+    createModelComparisonAuthorization, modelComparisonPublicKey,
+} from '../../scripts/human-test/sign-model-comparison-authorization.mjs';
+import { verifyModelComparisonAuthorization } from '../../scripts/human-test/modelComparisonAuthorityVerifier.mjs';
 import {
     practiceLoopJourneyFailures,
     routeSurfaceFailures,
@@ -21,7 +27,12 @@ import {
     observedCandidateAfterSwitch,
     runningCandidateAfterSwitch,
     COMPARISON_TARGETS,
-    MODEL_COMPARISON_CDP_ARM_KEY,
+    MODEL_COMPARISON_AUTH_KEY,
+    DIAGNOSTIC_JOURNEY,
+    SWITCH_EXPIRY_MARGIN_MS,
+    diagnosticAuthorizationFor,
+    diagnosticHoldMessage,
+    holdBeforeSwitch,
     PERSISTED_TUPLE_TO_CANDIDATE,
     type PracticeLoopJourneyEvidence,
 } from '../live/helpers/practiceLoopJourney';
@@ -33,6 +44,9 @@ const JOURNEY = 'jrn-1b8e44af';
 const CANDIDATE = 'v2:base.en';
 const V2_TUPLE = { engineVersion: 'private_v2:whisper-base.en', modelName: 'whisper-base.en' } as const;
 const BOUNDARY_AT = 1_700_000_000_000;
+const TAKE_NONCE = 'signed-take-nonce-0001';
+const EVIDENCE_DOCUMENT = '11111111-1111-4111-8111-111111111111';
+const RELEASE = 'a'.repeat(40);
 
 /** A journey that satisfies PO's procedure end to end. Every casualty is this, minus one thing. */
 const provenJourney: PracticeLoopJourneyEvidence = {
@@ -62,6 +76,8 @@ const provenJourney: PracticeLoopJourneyEvidence = {
         attemptIds: [ATTEMPT],
         journeyIds: [JOURNEY],
     },
+    authorization: { comparisonNonce: TAKE_NONCE, evidenceDocumentId: EVIDENCE_DOCUMENT, releaseSha: RELEASE },
+    takeTelemetry: { comparisonNonces: [TAKE_NONCE], evidenceDocumentIds: [EVIDENCE_DOCUMENT] },
 };
 
 const without = (patch: Partial<PracticeLoopJourneyEvidence>): PracticeLoopJourneyEvidence =>
@@ -610,16 +626,18 @@ describe('#1437 RETURN workstream 2 — an explicit target and one closed identi
             .toContain('model identity is incomplete at one of requested/observed/persisted');
     });
 
-    it('DRIFT GUARD: the restated slate, arm key and mapping still match the product constants', async () => {
+    it('DRIFT GUARD: the restated slate, signed authorization key and mapping still match the product constants', async () => {
         // Imported dynamically so a product-module load problem fails THIS test, visibly, rather than the file.
         const { buildEngineVersion } = await import('@/services/transcription/privateTelemetry');
         const { CANDIDATES } = await import('@/services/transcription/candidateRegistry');
         const { PRIV_STT_V4_VARIANTS } = await import('@/services/transcription/sttConstants');
-        const { COMPARISON_CANDIDATE_IDS, MODEL_COMPARISON_CDP_ARM_KEY: productArmKey } =
-            await import('@/services/transcription/runtimeCandidateSwitch');
+        const switchModule = await import('@/services/transcription/runtimeCandidateSwitch');
+        const { MODEL_COMPARISON_AUTH_KEY: productAuthKey } = await import('@/services/transcription/modelComparisonAuthorization');
 
-        expect([...COMPARISON_TARGETS]).toEqual([...COMPARISON_CANDIDATE_IDS]);
-        expect(MODEL_COMPARISON_CDP_ARM_KEY).toBe(productArmKey);
+        expect([...COMPARISON_TARGETS]).toEqual([...switchModule.COMPARISON_CANDIDATE_IDS]);
+        expect(MODEL_COMPARISON_AUTH_KEY).toBe(productAuthKey);
+        // #1432 PM decision A — the page-writable Boolean arm is retired in the product and must not return.
+        expect(Object.keys(switchModule)).not.toContain('MODEL_COMPARISON_CDP_ARM_KEY');
 
         const candidates = CANDIDATES as unknown as Record<string, { model: { id: string } }>;
         const v4Variants = PRIV_STT_V4_VARIANTS as unknown as Record<string, { MODEL_ID: string }>;
@@ -670,5 +688,107 @@ describe('#1437 RETURN workstream 3 — persisted identity is trusted only once 
 
     it('CONTROL: the same tuple with verified attribution passes', () => {
         expect(practiceLoopJourneyFailures(without({ persistedIdentity: { ...V2_TUPLE, attributionStatus: 'verified' } }))).toEqual([]);
+    });
+});
+
+describe('#1432 PM decision A — the diagnostic arms only through Node-verified signed authority', () => {
+    const opsKey = generateKeyPairSync('ed25519').privateKey;
+    const pinned = modelComparisonPublicKey(opsKey);
+    const SIGNED_AT = Date.parse('2026-09-13T12:00:00.000Z');
+    const ORIGIN = 'https://speaksharp-public.vercel.app';
+    const sign = (overrides: Record<string, unknown> = {}) => JSON.stringify(createModelComparisonAuthorization({
+        releaseSha: RELEASE, privateKey: opsKey, now: SIGNED_AT, ttlSeconds: 300, nonce: TAKE_NONCE,
+        candidateId: CANDIDATE, journey: DIAGNOSTIC_JOURNEY, evidenceDocumentId: EVIDENCE_DOCUMENT, ...overrides,
+    }));
+    const decide = (overrides: Partial<Parameters<typeof diagnosticAuthorizationFor>[0]> = {}) => diagnosticAuthorizationFor({
+        envelopeText: sign(), publicKeyText: pinned, expectedReleaseSha: RELEASE, expectedEvidenceDocumentId: EVIDENCE_DOCUMENT,
+        target: CANDIDATE, origin: ORIGIN, now: SIGNED_AT + 5_000, verify: verifyModelComparisonAuthorization, ...overrides,
+    });
+    const refusal = (result: ReturnType<typeof diagnosticAuthorizationFor>) => {
+        expect(result.ok).toBe(false);
+        return result.ok ? { hold: null, text: '' } : { hold: result.hold, text: result.problems.join('\n') };
+    };
+
+    it('CONTROL: a genuine envelope for this candidate, open_mic, release, origin and document is verified', () => {
+        const result = decide();
+        expect(result).toMatchObject({
+            ok: true,
+            authority: {
+                candidateId: CANDIDATE, journey: 'open_mic', releaseSha: RELEASE, origin: ORIGIN,
+                evidenceDocumentId: EVIDENCE_DOCUMENT, comparisonNonce: TAKE_NONCE,
+                expiresAt: SIGNED_AT + 300_000,
+            },
+        });
+        expect(result.ok && holdBeforeSwitch(result.authority, SIGNED_AT + 5_000)).toBeNull();
+        expect(practiceLoopJourneyFailures(provenJourney)).toEqual([]);
+    });
+
+    it('CASUALTY: with no authorization inputs it HOLDs with a named reason, never a candidate failure', () => {
+        for (const missing of ['envelopeText', 'publicKeyText', 'expectedReleaseSha', 'expectedEvidenceDocumentId'] as const) {
+            expect(refusal(decide({ [missing]: null })).hold).toBe('comparison_authorization_not_supplied');
+        }
+        const message = diagnosticHoldMessage('comparison_authorization_not_supplied', ['absent']);
+        expect(message).toMatch(/^HOLD comparison_authorization_not_supplied: absent/);
+        expect(message).toMatch(/not a candidate or product result/);
+    });
+
+    it('CASUALTY: an unreadable envelope HOLDs before verification', () => {
+        expect(refusal(decide({ envelopeText: '{not json' })).hold).toBe('comparison_authorization_unreadable');
+    });
+
+    it('CASUALTY: an invalid signature is refused', () => {
+        const forged = JSON.parse(sign());
+        forged.signature = Buffer.alloc(64, 3).toString('base64');
+        const { hold, text } = refusal(decide({ envelopeText: JSON.stringify(forged) }));
+        expect(hold).toBe('comparison_authorization_refused');
+        expect(text).toMatch(/signature does not verify against the pinned key/);
+    });
+
+    it.each([
+        ['a missing or wrong journey', { envelopeText: sign({ journey: 'focus_points' }) }, /journey must be "open_mic"/],
+        ['a wrong release', { expectedReleaseSha: 'b'.repeat(40) }, /releaseSha must be/],
+        ['a wrong origin', { origin: 'https://preview.example.test' }, /origin must be/],
+        ['a wrong candidate', { target: 'v4:distil:q4' }, /candidateId must be "v4:distil:q4"/],
+        ['a wrong evidence document', { expectedEvidenceDocumentId: '33333333-3333-4333-8333-333333333333' }, /evidenceDocumentId must be/],
+        ['an expired authorization', { now: SIGNED_AT + 10 * 60_000 }, /expired before verification/],
+    ])('CASUALTY: %s is refused', (_label, overrides, message) => {
+        const { hold, text } = refusal(decide(overrides as Partial<Parameters<typeof diagnosticAuthorizationFor>[0]>));
+        expect(hold).toBe('comparison_authorization_refused');
+        expect(text).toMatch(message);
+    });
+
+    it('CASUALTY: a switch delayed past expiry (for example, after model preparation) HOLDs before switching', () => {
+        const result = decide();
+        if (!result.ok) throw new Error('fixture authorization was refused');
+        const { expiresAt } = result.authority;
+        expect(holdBeforeSwitch(result.authority, expiresAt - SWITCH_EXPIRY_MARGIN_MS - 1)).toBeNull();
+        expect(holdBeforeSwitch(result.authority, expiresAt - SWITCH_EXPIRY_MARGIN_MS)).toBe('comparison_authorization_expired_before_switch');
+        // The preparation bound alone (600 s) outlives a 300 s authorization: switching after it must hold.
+        expect(holdBeforeSwitch(result.authority, SIGNED_AT + 5_000 + 600_000)).toBe('comparison_authorization_expired_before_switch');
+    });
+
+    it('CASUALTY: a take whose telemetry carries a wrong, extra or missing nonce is not this take', () => {
+        expect(practiceLoopJourneyFailures(without({ takeTelemetry: { comparisonNonces: ['later-take-nonce-0002'], evidenceDocumentIds: [EVIDENCE_DOCUMENT] } })))
+            .toContain("take telemetry carries comparison nonce(s) [later-take-nonce-0002], not exactly the verified authorization's nonce");
+        expect(practiceLoopJourneyFailures(without({ takeTelemetry: { comparisonNonces: [TAKE_NONCE, 'later-take-nonce-0002'], evidenceDocumentIds: [EVIDENCE_DOCUMENT] } })))
+            .toEqual(expect.arrayContaining([expect.stringMatching(/not exactly the verified authorization's nonce/)]));
+        expect(practiceLoopJourneyFailures(without({ takeTelemetry: { comparisonNonces: [], evidenceDocumentIds: [EVIDENCE_DOCUMENT] } })))
+            .toEqual(expect.arrayContaining([expect.stringMatching(/not exactly the verified authorization's nonce/)]));
+        expect(practiceLoopJourneyFailures(without({ takeTelemetry: { comparisonNonces: [TAKE_NONCE], evidenceDocumentIds: ['33333333-3333-4333-8333-333333333333'] } })))
+            .toContain('take telemetry does not carry exactly the verified evidence document');
+        expect(practiceLoopJourneyFailures(without({ authorization: null })))
+            .toContain('no Node-verified comparison authorization bound this take; the diagnostic must HOLD before switching');
+    });
+
+    it('CASUALTY: the retired page-writable symbol cannot return, and the spec verifies before it arms and switches before preparation', async () => {
+        const helper = await import('../live/helpers/practiceLoopJourney');
+        expect(Object.keys(helper)).not.toContain('MODEL_COMPARISON_CDP_ARM_KEY');
+        const spec = readFileSync('tests/live/practice-loop-journey.live.spec.ts', 'utf8');
+        expect(spec).not.toContain('speaksharp.model-comparison.cdp');
+        expect(spec).not.toMatch(/Symbol\.for\(key\)\]\s*=\s*true/);
+        expect(spec.indexOf('diagnosticAuthorizationFor(')).toBeGreaterThan(-1);
+        expect(spec.indexOf('diagnosticAuthorizationFor(')).toBeLessThan(spec.indexOf('{ key: MODEL_COMPARISON_AUTH_KEY, envelope: authority.envelope }'));
+        expect(spec).toContain('__SS_SWITCH_CANDIDATE__!(id, journey)');
+        expect(spec.indexOf('__SS_SWITCH_CANDIDATE__!(id, journey)')).toBeLessThan(spec.indexOf('await preparePrivateModelIfPrompted(page'));
     });
 });

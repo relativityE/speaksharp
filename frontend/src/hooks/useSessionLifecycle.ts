@@ -27,6 +27,7 @@ import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
     modelComparisonSessionBindingSha256,
+    modelComparisonTakeNonce,
     modelComparisonTakeTelemetry,
 } from '@/services/transcription/modelComparisonAuthorization';
 import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
@@ -298,9 +299,13 @@ export const useSessionLifecycle = () => {
                 }
 
                 const streakResult = updateStreak(); // UI layer still needs streak for display
-                const comparisonSessionBinding = await modelComparisonSessionBindingSha256(
-                    speechRuntimeController.getSessionId(),
-                );
+                // Only an AUTHORIZED comparison take has a session binding to compute. An ordinary save must not
+                // reach into the comparison surface at all: on main the save path never did, and a controller
+                // without it (main's #1259 F01 harness) threw here, inside the stop path's catch, which silently
+                // dropped the retention observation that follows.
+                const comparisonSessionBinding = modelComparisonTakeNonce()
+                    ? await modelComparisonSessionBindingSha256(speechRuntimeController.getSessionId())
+                    : null;
                 analyticsBuffer.push('session_saved', {
                     mode: effectiveMode,
                     ...modelComparisonTakeTelemetry(),

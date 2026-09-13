@@ -44,16 +44,131 @@ export interface JourneyTelemetry {
 }
 
 /**
- * #1437 RETURN `5649385757`, workstream 2 — THE COMPARISON SLATE AND THE ARM KEY.
+ * #1437 RETURN `5649385757`, workstream 2 — THE COMPARISON SLATE AND THE AUTHORIZATION KEY.
  *
- * Mirrored from `runtimeCandidateSwitch.ts` (`COMPARISON_CANDIDATE_IDS`, `MODEL_COMPARISON_CDP_ARM_KEY`).
- * A live spec cannot import the transcription stack, so the values are restated here — and a unit test
- * compares them with the product's own constants, so a drift fails in ordinary CI instead of silently
- * running the wrong arm on Production.
+ * Mirrored from `runtimeCandidateSwitch.ts` (`COMPARISON_CANDIDATE_IDS`) and `modelComparisonAuthorization.ts`
+ * (`MODEL_COMPARISON_AUTH_KEY`). A live spec cannot import the transcription stack, so the values are restated
+ * here — and a unit test compares them with the product's own constants, so a drift fails in ordinary CI
+ * instead of silently running the wrong arm on Production.
+ *
+ * #1432 PM decision A — the page-writable Boolean arm (`speaksharp.model-comparison.cdp`) is RETIRED in the
+ * product, because any page script could set it. This diagnostic arms through the same Ops-signed authority
+ * as the trusted observer, verified in Node before anything enters the page. It never creates or qualifies
+ * six-cell down-selection evidence: only the trusted observer receipt and the terminal validator can.
  */
 export const COMPARISON_TARGETS = Object.freeze(['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'] as const);
 export type ComparisonTarget = (typeof COMPARISON_TARGETS)[number];
-export const MODEL_COMPARISON_CDP_ARM_KEY = 'speaksharp.model-comparison.cdp';
+export const MODEL_COMPARISON_AUTH_KEY = 'speaksharp.model-comparison.authorization';
+/** The Practice Loop journey this diagnostic runs; the signed take must name exactly this journey. */
+export const DIAGNOSTIC_JOURNEY = 'open_mic';
+/** The switch must be issued at least this long before the authorization expires, or it HOLDs. */
+export const SWITCH_EXPIRY_MARGIN_MS = 10_000;
+
+/** Why the diagnostic stopped BEFORE switching. A hold is never a candidate or product result. */
+export type DiagnosticHold =
+    | 'comparison_authorization_not_supplied'
+    | 'comparison_authorization_unreadable'
+    | 'comparison_authorization_refused'
+    | 'comparison_authorization_expired_before_switch'
+    | 'deployed_release_mismatch'
+    | 'comparison_surface_not_installed';
+
+/** The trusted Node verifier's result shape (`scripts/human-test/modelComparisonAuthorityVerifier.mjs`). */
+export interface AuthorityVerification {
+    readonly ok: boolean;
+    readonly problems: readonly string[];
+    readonly record: {
+        readonly envelope: unknown;
+        readonly verified: {
+            readonly candidateId: string;
+            readonly journey: string;
+            readonly releaseSha: string;
+            readonly origin: string;
+            readonly evidenceDocumentId: string;
+            readonly comparisonNonce: string;
+        };
+    } | null;
+}
+/** Injected, so this pure module never imports Node crypto and stays drivable in ordinary CI. */
+export type AuthorityVerifier = (input: {
+    envelope: unknown;
+    publicKey: string;
+    now: number;
+    expected: { candidateId: string; journey: string; releaseSha: string; origin: string; evidenceDocumentId: string };
+}) => AuthorityVerification;
+
+export interface DiagnosticAuthority {
+    readonly envelope: unknown;
+    readonly candidateId: string;
+    readonly journey: string;
+    readonly releaseSha: string;
+    readonly origin: string;
+    readonly evidenceDocumentId: string;
+    readonly comparisonNonce: string;
+    readonly expiresAt: number;
+}
+export type DiagnosticAuthorization =
+    | { readonly ok: true; readonly authority: DiagnosticAuthority }
+    | { readonly ok: false; readonly hold: DiagnosticHold; readonly problems: readonly string[] };
+
+/**
+ * Decide, in Node and before any navigation arms the page, whether this take has signed authority.
+ * Every refusal is a named HOLD: absent or invalid authority is an operator/evidence state, not a finding
+ * about v2, v4 or Moonshine.
+ */
+export function diagnosticAuthorizationFor(input: {
+    readonly envelopeText: string | null;
+    readonly publicKeyText: string | null;
+    readonly expectedReleaseSha: string | null;
+    readonly expectedEvidenceDocumentId: string | null;
+    readonly target: string;
+    readonly origin: string;
+    readonly now: number;
+    readonly verify: AuthorityVerifier;
+}): DiagnosticAuthorization {
+    if (!input.envelopeText || !input.publicKeyText || !input.expectedReleaseSha || !input.expectedEvidenceDocumentId) {
+        return {
+            ok: false,
+            hold: 'comparison_authorization_not_supplied',
+            problems: ['an operator-supplied signed envelope, pinned public key, expected release and evidence document are all required'],
+        };
+    }
+    let envelope: unknown;
+    try { envelope = JSON.parse(input.envelopeText); } catch {
+        return { ok: false, hold: 'comparison_authorization_unreadable', problems: ['the signed authorization envelope is not valid JSON'] };
+    }
+    const result = input.verify({
+        envelope,
+        publicKey: input.publicKeyText,
+        now: input.now,
+        expected: {
+            candidateId: input.target,
+            journey: DIAGNOSTIC_JOURNEY,
+            releaseSha: input.expectedReleaseSha,
+            origin: input.origin,
+            evidenceDocumentId: input.expectedEvidenceDocumentId,
+        },
+    });
+    if (!result.ok || !result.record) {
+        return { ok: false, hold: 'comparison_authorization_refused', problems: [...result.problems] };
+    }
+    const payload = (result.record.envelope as { payload?: { expiresAt?: unknown } } | null)?.payload;
+    const expiresAt = typeof payload?.expiresAt === 'string' ? Date.parse(payload.expiresAt) : Number.NaN;
+    if (!Number.isFinite(expiresAt)) {
+        return { ok: false, hold: 'comparison_authorization_refused', problems: ['the verified authorization has no valid expiry'] };
+    }
+    return { ok: true, authority: { envelope: result.record.envelope, ...result.record.verified, expiresAt } };
+}
+
+/** Refuse to switch on an authorization the page would consume expired (or within the margin of it). */
+export function holdBeforeSwitch(authority: DiagnosticAuthority, now: number): DiagnosticHold | null {
+    return now + SWITCH_EXPIRY_MARGIN_MS >= authority.expiresAt ? 'comparison_authorization_expired_before_switch' : null;
+}
+
+/** The content-free message a HOLD throws with. It names the hold and says what it is not. */
+export function diagnosticHoldMessage(hold: DiagnosticHold, problems: readonly string[]): string {
+    return `HOLD ${hold}: ${problems.join('; ') || 'no detail'} — no candidate switch was attempted; this is not a candidate or product result`;
+}
 
 export interface PersistedTupleMapping {
     /** The `EngineVariant` half of `buildEngineVersion(variant, model)`. */
@@ -314,6 +429,17 @@ export interface PracticeLoopJourneyEvidence {
     /** The persisted identity tuple and its attribution status, read with the service role. */
     readonly persistedIdentity: PersistedIdentity;
     readonly telemetry: JourneyTelemetry;
+    /** #1432 PM decision A — the Node-verified signed authority the take ran under; null if none bound it. */
+    readonly authorization: {
+        readonly comparisonNonce: string;
+        readonly evidenceDocumentId: string;
+        readonly releaseSha: string;
+    } | null;
+    /** Distinct `comparison_nonce` / `comparison_evidence_document_id` values on this take's start and save events. */
+    readonly takeTelemetry: {
+        readonly comparisonNonces: readonly string[];
+        readonly evidenceDocumentIds: readonly string[];
+    };
 }
 
 /**
@@ -478,6 +604,20 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
     for (const [label, value] of [['requested', requested], ['observed', observed], ['persisted', engineVersion]] as const) {
         if (value && /^(private|browser|cloud|native)$/i.test(value)) {
             failures.push(`${label} model identity is the product facade "${value}", not a candidate id`);
+        }
+    }
+
+    // #1432 PM decision A — ONE Node-verified signed authority bound this take, and the take's own telemetry
+    // carries exactly that nonce and evidence document. A different, later or missing nonce is not this take.
+    if (evidence.authorization === null) {
+        failures.push('no Node-verified comparison authorization bound this take; the diagnostic must HOLD before switching');
+    } else {
+        const { comparisonNonces, evidenceDocumentIds } = evidence.takeTelemetry;
+        if (comparisonNonces.length !== 1 || comparisonNonces[0] !== evidence.authorization.comparisonNonce) {
+            failures.push(`take telemetry carries comparison nonce(s) [${comparisonNonces.join(', ')}], not exactly the verified authorization's nonce`);
+        }
+        if (evidenceDocumentIds.length !== 1 || evidenceDocumentIds[0] !== evidence.authorization.evidenceDocumentId) {
+            failures.push('take telemetry does not carry exactly the verified evidence document');
         }
     }
 

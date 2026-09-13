@@ -32,6 +32,7 @@
  * `candidate v2:base.en` — and no workflow change is needed to name it.
  */
 import { gunzipSync, inflateSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/deployedLiveTest';
 import { waitForAppVisibleReady } from '../e2e/helpers';
@@ -54,17 +55,38 @@ import {
     runningCandidateAfterSwitch,
     classifyRequestsByBoundary,
     COMPARISON_TARGETS,
-    MODEL_COMPARISON_CDP_ARM_KEY,
+    MODEL_COMPARISON_AUTH_KEY,
+    DIAGNOSTIC_JOURNEY,
+    diagnosticAuthorizationFor,
+    diagnosticHoldMessage,
+    holdBeforeSwitch,
+    type DiagnosticHold,
     type PersistedIdentity,
     type PracticeLoopJourneyEvidence,
     type ReviewTerminalOutcome,
 } from './helpers/practiceLoopJourney';
+import { verifyModelComparisonAuthorization } from '../../scripts/human-test/modelComparisonAuthorityVerifier.mjs';
 
 const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 const PRO_EMAIL = process.env.PRO_TEST_EMAIL;
 const PRO_PASSWORD = process.env.PRO_TEST_PASSWORD;
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+/*
+ * #1432 PM decision A — OPERATOR-SUPPLIED SIGNED AUTHORITY, BY FILE PATH ONLY. These are the non-secret signed
+ * envelope and pinned public key plus the release and evidence document the take is expected to run under.
+ * The signing key never enters GitHub, CI, the browser, logs or this repository. `rc-gates.yml` supplies none
+ * of them, so an unattended dispatch HOLDs by design rather than running the retired Boolean arm.
+ */
+const AUTHORIZATION_FILE = process.env.MODEL_COMPARISON_AUTHORIZATION_FILE;
+const VERIFICATION_KEY_FILE = process.env.MODEL_COMPARISON_VERIFICATION_KEY_FILE;
+const EXPECTED_RELEASE_SHA = process.env.MODEL_COMPARISON_RELEASE_SHA ?? null;
+const EXPECTED_EVIDENCE_DOCUMENT_ID = process.env.MODEL_COMPARISON_EVIDENCE_DOCUMENT_ID ?? null;
+const readOperatorFile = (path: string | undefined): string | null => {
+    if (!path) return null;
+    try { return readFileSync(path, 'utf8'); } catch { return null; }
+};
 
 /** The coaching endpoint, by function name — the browser-observable half of the journey. */
 const COACHING_FUNCTION = 'get-ai-suggestions';
@@ -129,7 +151,7 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
              */
             const coachingObservedAt = new Map<Request, number>();
             /** One captured analytics event: its name and only the closed-enum/identity fields read. */
-            const captured: Array<{ name: string; stage?: string; journeyId?: string; attemptId?: string; candidateId?: string; expected?: string; acquired?: string }> = [];
+            const captured: Array<{ name: string; stage?: string; journeyId?: string; attemptId?: string; candidateId?: string; expected?: string; acquired?: string; comparisonNonce?: string; evidenceDocumentId?: string }> = [];
 
             /*
              * TEST-ONLY PLUMBING, and the minimum of it. Without a record of real user input this journey
@@ -145,14 +167,34 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             });
 
             /*
-             * WORKSTREAM 2 — ARM THE GUARDED SWITCH, exactly as the CDP qualification harness does (Codex
-             * `3997967389`). `runtimeCandidateAccessAllowed` admits the switch only when this Symbol-keyed flag
-             * exists before app code runs; a normal Production navigation never creates it. Arming changes
-             * nothing by itself — it only lets the explicit switch below run.
+             * #1432 PM decision A — VERIFY THE SIGNED AUTHORITY IN NODE, BEFORE ANY NAVIGATION. The page-writable
+             * Boolean arm is retired in the product and never returns here. The operator's envelope is checked
+             * against the pinned key and this exact take (candidate, `open_mic`, release, origin, evidence
+             * document). A refusal HOLDs with a named reason and no switch is attempted, so missing authority is
+             * never reported as a candidate or product failure. This diagnostic creates and qualifies NO six-cell
+             * evidence; only the trusted observer receipt and the terminal validator can.
              */
-            await page.addInitScript((key: string) => {
-                (globalThis as unknown as Record<symbol, unknown>)[Symbol.for(key)] = true;
-            }, MODEL_COMPARISON_CDP_ARM_KEY);
+            const holdNow = (hold: DiagnosticHold, problems: readonly string[]): Error => {
+                testInfo.annotations.push({ type: 'hold', description: hold });
+                return new Error(diagnosticHoldMessage(hold, problems));
+            };
+            const authorizationText = readOperatorFile(AUTHORIZATION_FILE);
+            const verificationKeyText = readOperatorFile(VERIFICATION_KEY_FILE);
+            if ((AUTHORIZATION_FILE && authorizationText === null) || (VERIFICATION_KEY_FILE && verificationKeyText === null)) {
+                throw holdNow('comparison_authorization_unreadable', ['an operator-supplied authorization or verification-key path could not be read']);
+            }
+            const authorization = diagnosticAuthorizationFor({
+                envelopeText: authorizationText,
+                publicKeyText: verificationKeyText,
+                expectedReleaseSha: EXPECTED_RELEASE_SHA,
+                expectedEvidenceDocumentId: EXPECTED_EVIDENCE_DOCUMENT_ID,
+                target,
+                origin: APPROVED_ORIGIN,
+                now: Date.now(),
+                verify: verifyModelComparisonAuthorization,
+            });
+            if (!authorization.ok) throw holdNow(authorization.hold, authorization.problems);
+            const { authority } = authorization;
 
             /**
              * DECODE BEFORE PARSING (Codex `3996845159`).
@@ -214,6 +256,9 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                         candidateId: text('candidate_id'),
                         expected: text('expected_candidate_id'),
                         acquired: text('acquired_candidate_id'),
+                        // The signed take join and its evidence document — opaque ids, never content.
+                        comparisonNonce: text('comparison_nonce'),
+                        evidenceDocumentId: text('comparison_evidence_document_id'),
                     });
                 }
             });
@@ -294,10 +339,60 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                     window.localStorage.setItem(`sb-${ref}-auth-token`, value);
                 }, { ref: projectRef, value: JSON.stringify(session) });
 
+                /*
+                 * #1432 PM decision A — THE VERIFIED ENVELOPE ENTERS ONLY THE /practice DOCUMENT. The authorization is
+                 * one-use and every document boot consumes it; arming the earlier /auth/signin document would spend
+                 * the nonce there and leave /practice refused as a replay. Injected immutable and non-enumerable,
+                 * exactly as the trusted observer arms a page.
+                 */
+                await page.addInitScript(({ key, envelope }) => {
+                    if (location.pathname !== '/practice') return;
+                    Object.defineProperty(globalThis, Symbol.for(key), {
+                        value: envelope, enumerable: false, configurable: true, writable: false,
+                    });
+                }, { key: MODEL_COMPARISON_AUTH_KEY, envelope: authority.envelope });
                 await page.goto('/practice');
                 // FAIL FAST. The previous head burned 900s on a wrong route because nothing asserted the
                 // surface was present. A missing practice root now fails in seconds with a readable reason.
                 await expect(page.getByTestId('practice-root'), 'authenticated practice surface must load').toBeVisible({ timeout: 60_000 });
+            });
+
+            /*
+             * WORKSTREAM 2 — THE EXPLICIT TARGET (Codex `3997967389`), under #1432 PM decision A. The switch sets the
+             * acquisition expectation BEFORE it initialises, so the acquisition that follows is bound to this target.
+             * It runs IMMEDIATELY after the authorized surface installs and BEFORE default-model preparation: the
+             * signed authorization lives at most 300 s, and preparation alone may take 600 s. Only the outcome CODE
+             * crosses back. A surface that never installs, a deployed release other than the signed one, or an
+             * authorization about to expire HOLDs before any switch is attempted.
+             */
+            let switchOutcome = 'not_attempted';
+            await test.step(`switch to the explicit target ${target} under the verified authority, before model preparation`, async () => {
+                const surfaceInstalled = await expect
+                    .poll(async () => page.evaluate(
+                        () => typeof (window as unknown as { __SS_SWITCH_CANDIDATE__?: unknown }).__SS_SWITCH_CANDIDATE__,
+                    ), { timeout: 60_000 })
+                    .toBe('function')
+                    .then(() => true)
+                    .catch(() => false);
+                if (!surfaceInstalled) {
+                    throw holdNow('comparison_surface_not_installed', ['the page did not accept the signed authorization (release, origin, key or replay)']);
+                }
+                const deployedRelease = await page.evaluate(
+                    () => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null,
+                );
+                if (deployedRelease !== authority.releaseSha) {
+                    throw holdNow('deployed_release_mismatch', ['the deployed release is not the release the authorization was signed for']);
+                }
+                const expiring = holdBeforeSwitch(authority, Date.now());
+                if (expiring) throw holdNow(expiring, ['the signed authorization would be expired when the page consumes it']);
+                switchOutcome = await page.evaluate(async ({ id, journey }) => {
+                    const w = window as unknown as {
+                        __SS_SWITCH_CANDIDATE__?: (candidate: string, journey: string) => Promise<{ ok: boolean; code?: string }>;
+                    };
+                    const result = await w.__SS_SWITCH_CANDIDATE__!(id, journey);
+                    return result.ok ? 'ok' : (result.code ?? 'unknown_failure');
+                }, { id: target, journey: DIAGNOSTIC_JOURNEY });
+                expect(switchOutcome, `the guarded switch to ${target} must succeed`).toBe('ok');
             });
 
             await test.step('enter Open Mic through Products, exactly as the procedure says', async () => {
@@ -305,31 +400,6 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                 await page.getByTestId('practice-card-freeform').click();
                 await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
                 await selectBenchmarkMode(page, 'private');
-                await preparePrivateModelIfPrompted(page, 600_000);
-                await waitForPrivateEngineReady(page, 300_000);
-            });
-
-            /*
-             * WORKSTREAM 2 — THE EXPLICIT TARGET (Codex `3997967389`). Selecting only the `private` facade left
-             * `expected_candidate_id` null on every canonical run, because the acquisition's expectation is set
-             * by the guarded switch and nothing else. The switch sets the expectation BEFORE it initialises, so
-             * the acquisition that follows is bound to this target. Only the outcome CODE crosses back.
-             */
-            let switchOutcome = 'not_attempted';
-            await test.step(`switch to the explicit target ${target} through the guarded surface`, async () => {
-                await expect
-                    .poll(async () => page.evaluate(
-                        () => typeof (window as unknown as { __SS_SWITCH_CANDIDATE__?: unknown }).__SS_SWITCH_CANDIDATE__,
-                    ), { timeout: 60_000, message: 'the guarded switch surface must be installed' })
-                    .toBe('function');
-                switchOutcome = await page.evaluate(async (id: string) => {
-                    const w = window as unknown as {
-                        __SS_SWITCH_CANDIDATE__?: (candidate: string) => Promise<{ ok: boolean; code?: string }>;
-                    };
-                    const result = await w.__SS_SWITCH_CANDIDATE__!(id);
-                    return result.ok ? 'ok' : (result.code ?? 'unknown_failure');
-                }, target);
-                expect(switchOutcome, `the guarded switch to ${target} must succeed`).toBe('ok');
                 await preparePrivateModelIfPrompted(page, 600_000);
                 await waitForPrivateEngineReady(page, 300_000);
             });
@@ -484,6 +554,7 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             const requestCounts = classifyRequestsByBoundary(coachingRequests, savedAt);
 
             const reviewEvents = frozen.filter((event) => event.name.startsWith('practice_loop_review_'));
+            const takeEvents = frozen.filter((event) => event.name === 'session_started' || event.name === 'session_saved');
             const distinct = (values: Array<string | undefined>) =>
                 [...new Set(values.filter((value): value is string => Boolean(value)))];
 
@@ -508,6 +579,15 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                     boundCandidateId: runningCandidate,
                     attemptIds: distinct(reviewEvents.map((event) => event.attemptId)),
                     journeyIds: distinct(reviewEvents.map((event) => event.journeyId)),
+                },
+                authorization: {
+                    comparisonNonce: authority.comparisonNonce,
+                    evidenceDocumentId: authority.evidenceDocumentId,
+                    releaseSha: authority.releaseSha,
+                },
+                takeTelemetry: {
+                    comparisonNonces: distinct(takeEvents.map((event) => event.comparisonNonce)),
+                    evidenceDocumentIds: distinct(takeEvents.map((event) => event.evidenceDocumentId)),
                 },
             };
 
