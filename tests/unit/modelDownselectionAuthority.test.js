@@ -1,4 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   collectAuthorities, comparisonRows, decodePostHogRows, geminiSessionReadback,
@@ -212,5 +215,91 @@ describe('#1432 trusted model-downselection authority collector', () => {
       cacheReplayObserved: true,
     });
     expect(JSON.stringify(authority)).not.toMatch(/Clear opening|Pause before closing|posthog-secret|supabase-secret/);
+  });
+});
+
+describe('#1432 PM RETURN `5654530191` / Product Owner Option 2 — authority attestations are bound to the trusted main workflow', () => {
+  const TRUSTED_IDENTITY = 'https://github.com/relativityE/speaksharp/.github/workflows/model-downselection-authority.yml@refs/heads/main';
+  const PINNED_ARGS = ['--repo', 'relativityE/speaksharp', '--cert-identity', TRUSTED_IDENTITY, '--source-ref', 'refs/heads/main'];
+
+  /**
+   * A recording stand-in for `gh attestation verify`. It behaves like the real CLI for the flags the validator uses:
+   * `--signer-workflow` with `--cert-identity` is rejected, and each supplied constraint must match the attestation's
+   * signer (`FAKE_SIGNER_IDENTITY`) and source ref (`FAKE_SOURCE_REF`). An unconstrained flag is not checked, so a
+   * `--repo`-only verification accepts any signer in the repository, which is the defect under test.
+   */
+  const runValidator = ({ signerIdentity = TRUSTED_IDENTITY, sourceRef = 'refs/heads/main', verifyFails = false } = {}) => {
+    const dir = mkdtempSync(join(tmpdir(), 'downselection-attest-'));
+    try {
+      const record = join(dir, 'gh-calls.jsonl');
+      const fakeGh = join(dir, 'fake-gh.mjs');
+      writeFileSync(fakeGh, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+appendFileSync(process.env.FAKE_GH_RECORD, JSON.stringify(args) + '\\n');
+if (args[0] !== 'attestation' || args[1] !== 'verify') process.exit(2);
+if (process.env.FAKE_VERIFY_FAIL === '1') process.exit(1);
+const flag = (name) => { const i = args.indexOf(name); return i === -1 ? null : args[i + 1]; };
+if (flag('--signer-workflow') !== null && flag('--cert-identity') !== null) process.exit(1);
+if (flag('--repo') !== 'relativityE/speaksharp') process.exit(1);
+if (flag('--cert-identity') !== null && flag('--cert-identity') !== process.env.FAKE_SIGNER_IDENTITY) process.exit(1);
+if (flag('--source-ref') !== null && flag('--source-ref') !== process.env.FAKE_SOURCE_REF) process.exit(1);
+process.exit(0);
+`);
+      chmodSync(fakeGh, 0o755);
+      const evidence = join(dir, 'evidence.json');
+      const telemetry = join(dir, 'posthog-readback.json');
+      const gemini = join(dir, 'gemini-session-readback.json');
+      writeFileSync(evidence, '{}');
+      writeFileSync(telemetry, JSON.stringify({ schemaVersion: 'speaksharp.posthog-readback-authority.v1' }));
+      writeFileSync(gemini, JSON.stringify({ schemaVersion: 'speaksharp.gemini-session-readback-authority.v1' }));
+      const run = spawnSync(process.execPath, [
+        'scripts/human-test/validate-model-downselection.mjs', evidence,
+        '--telemetry-authority', telemetry, '--gemini-authority', gemini,
+      ], {
+        encoding: 'utf8',
+        env: {
+          ...process.env, GH_BIN: fakeGh, FAKE_GH_RECORD: record,
+          FAKE_SIGNER_IDENTITY: signerIdentity, FAKE_SOURCE_REF: sourceRef, FAKE_VERIFY_FAIL: verifyFails ? '1' : '0',
+        },
+      });
+      let calls = [];
+      try { calls = readFileSync(record, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)); } catch { calls = []; }
+      return { run, calls, telemetry, gemini };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const HOLD = 'HOLD: trusted authority provenance or JSON could not be verified';
+
+  it('CONTROL: both authority files are verified against the exact main-branch signer before either is used', () => {
+    const { run, calls, telemetry, gemini } = runValidator();
+    expect(calls).toEqual([
+      ['attestation', 'verify', telemetry, ...PINNED_ARGS],
+      ['attestation', 'verify', gemini, ...PINNED_ARGS],
+    ]);
+    expect(calls.flat()).not.toContain('--signer-workflow');
+    expect(run.stderr).not.toContain(HOLD);
+    // Past provenance the validator runs and reports its own (HOLD) verdict for the empty packet.
+    expect(run.stdout).toContain('"verdict"');
+  });
+
+  it.each([
+    ['a branch-modified copy of the workflow (same path, another ref)', {
+      signerIdentity: 'https://github.com/relativityE/speaksharp/.github/workflows/model-downselection-authority.yml@refs/heads/feature',
+      sourceRef: 'refs/heads/feature',
+    }],
+    ['another workflow in the same repository on main', {
+      signerIdentity: 'https://github.com/relativityE/speaksharp/.github/workflows/ci.yml@refs/heads/main',
+      sourceRef: 'refs/heads/main',
+    }],
+    ['an attestation that fails verification', { verifyFails: true }],
+  ])('CASUALTY: %s HOLDs before either authority file is parsed', (_label, signer) => {
+    const { run, calls } = runValidator(signer);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(HOLD);
+    // The first verification refused, so the second was never attempted and no validation result was produced.
+    expect(calls).toHaveLength(1);
+    expect(run.stdout).toBe('');
   });
 });

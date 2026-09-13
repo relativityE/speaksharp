@@ -54,12 +54,25 @@ const telemetryAuthorityFile = resolve(telemetryAuthorityPath);
 const geminiAuthorityFile = resolve(geminiAuthorityPath);
 let telemetryAuthority;
 let geminiAuthority;
+/**
+ * #1432 PM RETURN `5654530191` (Codex P1 `4000132845`), Product Owner Option 2 — AUTHENTICATE THE SIGNER, NOT ONLY
+ * THE REPOSITORY. `--repo` alone proves an attestation came from SOME workflow run in this repository, so a
+ * branch-modified copy of the attesting workflow could sign fabricated readback and pass. Both authority files must
+ * be signed by `model-downselection-authority.yml` running from `refs/heads/main`: the certificate identity binds
+ * that exact workflow path AND ref, and the source ref must be `main`. (`gh` rejects `--signer-workflow` together
+ * with `--cert-identity`, and `--signer-workflow` alone would not bind the ref.)
+ */
+const AUTHORITY_ATTESTATION_ARGS = Object.freeze([
+  '--repo', 'relativityE/speaksharp',
+  '--cert-identity', 'https://github.com/relativityE/speaksharp/.github/workflows/model-downselection-authority.yml@refs/heads/main',
+  '--source-ref', 'refs/heads/main',
+]);
 try {
   // These are not trusted because a filename says so. Verify GitHub's artifact provenance before
   // parsing either byte. A locally rewritten authority therefore fails before it can become a resolver.
   const gh = process.env.GH_BIN || 'gh';
   for (const path of [telemetryAuthorityFile, geminiAuthorityFile]) {
-    execFileSync(gh, ['attestation', 'verify', path, '--repo', 'relativityE/speaksharp'], {
+    execFileSync(gh, ['attestation', 'verify', path, ...AUTHORITY_ATTESTATION_ARGS], {
       stdio: ['ignore', 'ignore', 'ignore'],
     });
   }
