@@ -97,12 +97,46 @@ describe('canary billing lane — test-mode wiring (structural)', () => {
   });
 });
 
-describe('canary migration/held-activation — fail-closed (structural)', () => {
-  const readiness = wf.jobs['migration-readiness'].steps.find((s) => typeof s.run === 'string' && s.run.includes('activation-applied'));
-  it('hard-fails when held activation migration 20260812042000 is applied', () => {
+describe('canary migration/recorded-activation — reports the fact, does not fail closed (structural)', () => {
+  /*
+   * This suite asserted the opposite until 2026-09-12: that the readiness step hard-fails when
+   * `20260812042000` reads as applied. That rule is gone, and its removal is the point.
+   *
+   * The migration sorts before the remote head, so it blocked every ordinary `supabase db push` as
+   * out-of-order. It was recorded applied WITHOUT executing (`migration repair … --status applied`;
+   * deploy `34691493637`'s dry-run listed only the three release migrations) so the retention migration
+   * could land. PO determined it is intentionally skipped — no existing unpaid accounts, so it stamps
+   * nothing — and it is not to be reverted or run (#1282).
+   *
+   * Migration history cannot distinguish a recorded skip from a real activation, so the old rule became
+   * permanently unsatisfiable: it failed the canary closed on what is now the intended state. The step
+   * therefore reports the recorded fact and stops short of interpreting it.
+   */
+  const readiness = wf.jobs['migration-readiness'].steps.find(
+    (s) => typeof s.run === 'string' && s.run.includes('activationRecorded'),
+  );
+
+  it('reports whether 20260812042000 is RECORDED applied, without claiming it executed', () => {
     expect(readiness.run).toContain('20260812042000');
-    expect(readiness.run).toContain('activation-applied');
-    expect(readiness.run).toContain('exit 1');
+    expect(readiness.run).toContain('activationRecorded');
+    expect(readiness.run).toMatch(/recorded, NOT executed/);
+  });
+
+  it('CASUALTY: no step fails the canary closed on the recorded activation any more', () => {
+    // The deleted branch, asserted absent by name. A future re-introduction fails here.
+    const everyRun = Object.values(wf.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .map((step) => (typeof step.run === 'string' ? step.run : ''))
+      .join('\n');
+    expect(everyRun).not.toContain("= 'activation-applied'");
+    expect(everyRun).not.toMatch(/must NOT be applied/);
+    expect(everyRun).not.toMatch(/canary must not run in an activated state/);
+  });
+
+  it('CONTROL: a genuinely pending required migration still holds the canary and skips the lanes', () => {
+    // Loosening the activation rule must not loosen what the canary is actually for.
+    expect(readiness.run).toMatch(/ready.*!=.*'true'/);
+    expect(readiness.run).toContain('required migration(s) pending');
   });
 });
 

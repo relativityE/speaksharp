@@ -55,22 +55,26 @@ jobs:
           result="$(node scripts/canary-migration-readiness.mjs "$RUNNER_TEMP/canary-migrations.txt")"
           echo "ready=$(jq -r '.ready' <<<"$result")" >> "$GITHUB_OUTPUT"
           echo "state=$(jq -r '.state' <<<"$result")" >> "$GITHUB_OUTPUT"
-          echo "pending=$(jq -r '(.pending // []) | join(\", \")' <<<"$result")" >> "$GITHUB_OUTPUT"
+          # The `\"` inside these single quotes were literal backslash-quotes, so jq refused to compile.
+          # The failure sits in a command substitution inside an `echo` argument, which `bash -e` does not
+          # treat as fatal: the step continued with an EMPTY `pending` output. That hid the pending list
+          # whenever the state really was `pending`. Runs on main@338431791ff8 (34737083558) printed this
+          # jq error and then reached the verdict branch below, failing on the activation rule, not here.
+          echo "pending=$(jq -r '(.pending // []) | join(", ")' <<<"$result")" >> "$GITHUB_OUTPUT"
           echo "### Canary migration readiness" >> "$GITHUB_STEP_SUMMARY"
           # Render the set the gate ACTUALLY enforces. This line used to be a hardcoded list, and it had
           # already drifted: it never mentioned 20260819120000 (#1314), so the summary advertised a
           # required set smaller than the one being enforced.
           echo "- Required ordered set (all must be applied): $(jq -r '((.required // .appliedSet) // []) | map("`" + . + "`") | join(" → ")' <<<"$result")" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Held (must NOT be applied): \`20260812042000\` (commercial activation)" >> "$GITHUB_STEP_SUMMARY"
+          # `20260812042000` is RECORDED applied and was never executed (#1282). The summary reports that
+          # fact and stops short of interpreting it: the migration history cannot distinguish a recorded
+          # skip from a real activation, so a line claiming either would be inventing evidence.
+          echo "- Commercial activation \`20260812042000\`: recorded applied = \`$(jq -r '.activationRecorded' <<<"$result")\` (recorded, NOT executed — see #1282)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Read-only state: \`$(jq -r '.state' <<<"$result")\`" >> "$GITHUB_STEP_SUMMARY"
-          state="$(jq -r '.state' <<<"$result")"
-          if [ "$state" = 'activation-applied' ]; then
-            # The held commercial-activation migration 20260812042000 is applied — an UNEXPECTED activated
-            # state for this closeout. Fail closed (hard error); neither product lane may run.
-            echo "- **FAIL CLOSED — held commercial-activation migration \`20260812042000\` is applied; the canary must not run in an activated state.**" >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::Held activation migration 20260812042000 is applied — canary fails closed."
-            exit 1
-          fi
+          # The `activation-applied` fail-closed branch that stood here is REMOVED, not disabled. It asserted
+          # that 42000 appearing applied means the environment is activated; since the recorded skip that is
+          # false, and the branch was unreachable-by-intent while still reading as an enforced invariant.
+          # Dead code that states a false rule is worse than no code: it invites the next reader to trust it.
           if [ "$(jq -r '.ready' <<<"$result")" != 'true' ]; then
             pending="$(jq -r '(.pending // []) | join(", ")' <<<"$result")"
             echo "- **HOLD — required migration(s) pending: \`$pending\`; canary product lanes were not executed.**" >> "$GITHUB_STEP_SUMMARY"
