@@ -66,17 +66,38 @@ describe('canary migration readiness (full ordered staged set, not just 41500)',
     expect(r.pending).toEqual(expect.arrayContaining(['20260812002000', '20260811143000', '20260812040000']));
   });
 
-  it('FAILS CLOSED (not ready) if the held commercial activation migration 42000 is applied', () => {
+  it('CASUALTY: 42000 recorded applied is the EXPECTED state and must not fail the canary closed', () => {
+    // The production state since 2026-09-12. 42000 sorts before the remote head, so it blocked every
+    // ordinary `db push` as out-of-order; it was recorded applied WITHOUT executing (deploy 34691493637 —
+    // the dry-run listed only the three release migrations) so the retention migration could land. The old
+    // rule read "applied" as "the commercial activation ran" and failed closed forever on a state the
+    // history cannot disambiguate. Reproduced against the real production list before this change:
+    //   {"ready":false,"state":"activation-applied","heldActivation":"20260812042000"}
     const r = evaluateCanaryMigrationReadiness(listing({ ...allAppliedStates(), [HELD_ACTIVATION_MIGRATION]: 'applied' }));
-    expect(r.ready).toBe(false);
-    expect(r.state).toBe('activation-applied');
-    expect(r.activationHeld).toBe(false);
+    expect({ ready: r.ready, state: r.state, recorded: r.activationRecorded })
+      .toEqual({ ready: true, state: 'applied', recorded: true });
   });
 
-  it('READY reports activationHeld=true when 42000 is NOT applied', () => {
-    const r = evaluateCanaryMigrationReadiness(listing({ ...allAppliedStates(), [HELD_ACTIVATION_MIGRATION]: 'pending' }));
-    expect(r.ready).toBe(true);
-    expect(r.activationHeld).toBe(true);
+  it('CONTROL: the recorded fact is reported, not a claim about what ran', () => {
+    // The field says "42000 is recorded applied". It deliberately does NOT say the activation executed —
+    // the migration history cannot tell those apart, and #1282 records that it did not.
+    const applied = evaluateCanaryMigrationReadiness(listing({ ...allAppliedStates(), [HELD_ACTIVATION_MIGRATION]: 'applied' }));
+    const notApplied = evaluateCanaryMigrationReadiness(listing({ ...allAppliedStates(), [HELD_ACTIVATION_MIGRATION]: 'pending' }));
+    expect({ applied: applied.activationRecorded, notApplied: notApplied.activationRecorded })
+      .toEqual({ applied: true, notApplied: false });
+  });
+
+  it('READY whether 42000 is recorded applied or still pending — neither blocks the product lanes', () => {
+    for (const state of ['applied', 'pending']) {
+      const r = evaluateCanaryMigrationReadiness(listing({ ...allAppliedStates(), [HELD_ACTIVATION_MIGRATION]: state }));
+      expect({ state, ready: r.ready }).toEqual({ state, ready: true });
+    }
+  });
+
+  it('CONTROL: a genuinely pending REQUIRED migration still holds the canary', () => {
+    // Loosening the activation rule must not loosen the thing the canary is actually for.
+    const r = evaluateCanaryMigrationReadiness(listing({ ...allAppliedStates(), '20260812040000': 'pending' }));
+    expect({ ready: r.ready, state: r.state }).toEqual({ ready: false, state: 'pending' });
   });
 
   it('fails closed on a checked-in SOURCE gap (a required migration is remote-only)', () => {
