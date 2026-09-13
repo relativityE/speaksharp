@@ -79,19 +79,22 @@ export const BOOTSTRAP = `
     -- 'hang' simulates a coordinator that blocks past a statement_timeout, producing query_canceled (57014)
     -- which WHEN OTHERS does NOT catch. Used to prove the session-metrics write survives (blocker 1).
     IF m = 'hang' THEN PERFORM pg_sleep(5); END IF;
-    -- 'pending' simulates Option A deferral: convergence did NOT reduce to <=2 (no durable Progress evidence),
+    -- 'pending' simulates Option A deferral: convergence did NOT reduce to <=1 (no durable Progress evidence),
     -- returned as a RESULT, not an exception. Used to prove the new transcript is not retained (blocker 2).
     IF m = 'pending' THEN
       RETURN jsonb_build_object('status','pending','eligible_candidate_count',1,'pending_evidence_count',1,'expired_count',0);
     END IF;
     IF m = 'expire' THEN
-      -- Simulate the newest-two sweep expiring the OLDEST transcript-bearing row for this user, using the SAME
-      -- mechanism R1 uses: 'expired' can only be established with the derivation trigger suppressed
-      -- (session_replication_role='replica'), which is precisely why no client can self-assert that state.
+      -- Simulate the newest-ONE sweep for this user: every transcript-bearing row EXCEPT the newest is
+      -- expired, using the SAME mechanism R1 uses — 'expired' can only be established with the
+      -- derivation trigger suppressed (session_replication_role='replica'), which is precisely why no
+      -- client can self-assert that state. Expiring only the single oldest row was the newest-two
+      -- shape and would leave a second readable transcript this policy does not permit.
       SET LOCAL session_replication_role = 'replica';
       UPDATE public.sessions SET transcript_state = 'expired', transcript = NULL
-      WHERE id = (SELECT id FROM public.sessions WHERE user_id = p_user_id AND transcript IS NOT NULL
-                  ORDER BY created_at ASC LIMIT 1);
+      WHERE user_id = p_user_id AND transcript IS NOT NULL
+        AND id <> (SELECT id FROM public.sessions WHERE user_id = p_user_id AND transcript IS NOT NULL
+                   ORDER BY created_at DESC, id DESC LIMIT 1);
       SET LOCAL session_replication_role = 'origin';
     END IF;
     RETURN jsonb_build_object('status','converged','expired_count',0);

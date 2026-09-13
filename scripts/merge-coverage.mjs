@@ -63,13 +63,40 @@ const mergedMetrics = {
   numTotalTests: 0,
   totalDuration: 0,
   numPendingTests: 0,
+  testFiles: [],
+  /**
+   * #1430 P1 — CARRIED ACROSS SHARDS, or the release-path skip check is inert in real CI.
+   *
+   * The reporter emits `skippedTestFiles` per shard, and the validator rejects a manifest path that
+   * appears in it. This merge dropped the field, `run-metrics.sh` never serialized it, and the
+   * validator's `Array.isArray(...) ? ... : []` default turned the absence into "nothing was skipped".
+   * So on the sharded path — the only path CI takes — a required release-path file whose acceptance
+   * casualty was skipped still qualified. The unit test injected the field directly and proved nothing
+   * about the pipeline that has to deliver it.
+   */
+  skippedTestFiles: [],
   failures: [],
 };
 let metricsMergedCount = 0;
+// Shards that merged counts but reported no skipped-file identities. See the P1 note below.
+const metricsFieldLoss = [];
 for (let shard = 1; shard <= SHARDS; shard++) {
   const shardMetricsPath = path.join(coverageDir, `shard-${shard}`, 'unit-metrics.json');
   if (!fs.existsSync(shardMetricsPath)) {
+    /*
+     * #1430 P1 — A MISSING METRICS ARTIFACT IS ALSO FIELD LOSS.
+     *
+     * `Rename Unit Metrics` in CI tolerates a missing output with `mv ... || true`, so a shard can
+     * publish valid coverage and no usable `unit-metrics.json` at all. This branch warned and
+     * continued, so the merge then serialized skip identities from only the REMAINING shards and could
+     * still produce qualifying evidence. My earlier guard ran after the file existed and parsed, which
+     * left exactly this door open.
+     *
+     * Every expected shard must supply one parseable artifact carrying a `skippedTestFiles` array. `[]`
+     * is still accepted — that is a measured zero.
+     */
     console.warn(`Note: no unit-metrics.json for shard-${shard} (diagnostic only)`);
+    metricsFieldLoss.push(shard);
     continue;
   }
   try {
@@ -80,6 +107,24 @@ for (let shard = 1; shard <= SHARDS; shard++) {
     mergedMetrics.numTotalTests += data.numTotalTests || 0;
     mergedMetrics.totalDuration += data.totalDuration || 0;
     mergedMetrics.numPendingTests += data.numPendingTests || 0;
+    if (Array.isArray(data.testFiles)) mergedMetrics.testFiles.push(...data.testFiles);
+    /*
+     * #1430 P1 — A SHARD THAT OMITS SKIP IDENTITIES IS UNMEASURED, NOT CLEAN.
+     *
+     * This silently ignored a shard whose `skippedTestFiles` was absent or not an array. Counts and
+     * `testFiles` still merged, `run-metrics.sh` defaulted the field to `[]`, and the validator reads a
+     * missing value as "no skipped paths" — so the evidence could qualify having never observed skip
+     * identities at all. That is the same absence-as-zero substitution this whole field exists to
+     * prevent, one layer up: a release-path casualty could be skipped and nothing would know.
+     *
+     * A shard that reported counts but no skip identities is therefore SHARD LOSS for this evidence,
+     * and it fails closed like any other. `[]` from a shard is fine — that is a measured zero.
+     */
+    if (!Array.isArray(data.skippedTestFiles)) {
+      metricsFieldLoss.push(shard);
+    } else {
+      mergedMetrics.skippedTestFiles.push(...data.skippedTestFiles);
+    }
     if (Array.isArray(data.failures)) mergedMetrics.failures = mergedMetrics.failures.concat(data.failures);
     metricsMergedCount++;
     console.log(
@@ -87,10 +132,26 @@ for (let shard = 1; shard <= SHARDS; shard++) {
         `${data.numFailedTests || 0} failed) in ${((data.totalDuration || 0) / 1000).toFixed(1)}s`,
     );
   } catch (e) {
+    // An unparseable artifact is indistinguishable from an absent one for this evidence: we have no
+    // skip identities from that shard and must not infer that it had none.
     console.warn(`Failed to parse ${shardMetricsPath}: ${e.message}`);
+    metricsFieldLoss.push(shard);
   }
 }
+if (metricsFieldLoss.length > 0) {
+  console.error(
+    `ERROR: shard(s) ${[...new Set(metricsFieldLoss)].join(', ')} did not supply a parseable unit `
+    + 'metrics artifact with a `skippedTestFiles` array. Skip identities are release-path evidence, and '
+    + 'a missing artifact, an unparseable one, or a missing array is unmeasured — not empty '
+    + '(fail closed).',
+  );
+  process.exitCode = 1;
+}
 if (metricsMergedCount > 0) {
+  mergedMetrics.testFiles = [...new Set(mergedMetrics.testFiles)].sort();
+  // Union across shards, deduped: one file can be split across shards, and a skip in ANY shard is a
+  // skip for that path.
+  mergedMetrics.skippedTestFiles = [...new Set(mergedMetrics.skippedTestFiles)].sort();
   fs.writeFileSync(path.join(ROOT, 'unit-metrics.json'), JSON.stringify(mergedMetrics, null, 2));
   console.log(
     `Merged unit-metrics from ${metricsMergedCount}/${SHARDS} shards: ${mergedMetrics.numTotalTests} tests total, ` +

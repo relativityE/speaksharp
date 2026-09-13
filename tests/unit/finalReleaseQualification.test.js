@@ -1,0 +1,1302 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import {
+  evaluateReviewQualification,
+  isSubstantiveImplementationFile,
+} from '../../scripts/review-qualification.mjs';
+import {
+  applyEnforcementToReceipt,
+  readReviewThreadResolutionEnforcement,
+  readPullRequest,
+  buildReviewReceipt,
+  resolveQualificationTarget,
+  reviewThreadResolutionIsEnforced,
+} from '../../scripts/collect-review-qualification.mjs';
+import {
+  CANONICAL_PRODUCTION_ORIGIN,
+  classifyDiagnosticEvidence,
+  evaluateProductionEvidenceTarget,
+  extractDeployedRelease,
+  qualifyEvidenceTarget,
+} from '../../scripts/lib/releaseEvidenceEligibility.mjs';
+import {
+  COVERAGE_RELEASE_FLOOR,
+  MEANINGFUL_COVERAGE_MANIFEST,
+  parseCiAuditOverride,
+  validateSoftwareQualityEvidence,
+} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
+
+const SHA = 'a97b740b39f678e8b5e8f769725e272d59428c64';
+const OTHER_SHA = 'b97b740b39f678e8b5e8f769725e272d59428c64';
+
+describe('Q-08 automated review qualification', () => {
+  const complete = (over = {}) => ({
+    currentSha: SHA,
+    reviewedSha: SHA,
+    reviewStatus: 'completed',
+    findingCount: 0,
+    changedFiles: ['scripts/review-qualification.mjs', 'tests/unit/finalReleaseQualification.test.js'],
+    // #1430 P1 — a receipt must say WHEN it was produced; freshness is part of qualification now.
+    generatedAt: new Date().toISOString(),
+    ...over,
+  });
+
+  it('qualifies a completed zero-finding review of the exact substantive head', () => {
+    expect(evaluateReviewQualification(complete())).toMatchObject({ qualified: true, reasons: [] });
+  });
+
+  it('CASUALTY: a zero-finding review of a scaffold is not green', () => {
+    const result = evaluateReviewQualification(complete({
+      changedFiles: ['docs/findings/final-release-qualification.md'],
+    }));
+    expect(result.qualified).toBe(false);
+    expect(result.reasons).toContain('no_substantive_implementation');
+  });
+
+  it('CASUALTY: zero findings without an explicitly completed review is not green', () => {
+    for (const reviewStatus of [undefined, 'pending', 'failed', 'in_progress']) {
+      const result = evaluateReviewQualification(complete({ reviewStatus }));
+      expect(result.qualified).toBe(false);
+      expect(result.reasons.some((reason) => reason.startsWith('review_not_completed:'))).toBe(true);
+    }
+  });
+
+  it('CASUALTY: a completed scaffold review cannot survive an implementation commit', () => {
+    const result = evaluateReviewQualification(complete({ reviewedSha: OTHER_SHA }));
+    expect(result.qualified).toBe(false);
+    expect(result.reasons).toContain('reviewed_sha_is_not_current_head');
+  });
+
+  it('fails closed on missing or malformed receipt fields and on open findings', () => {
+    expect(evaluateReviewQualification({}).qualified).toBe(false);
+    expect(evaluateReviewQualification(complete({ findingCount: 1 })).reasons).toContain('open_findings:1');
+    expect(evaluateReviewQualification(complete({ findingCount: '0' })).reasons)
+      .toContain('finding_count_missing_or_invalid');
+  });
+
+  it('implementation means executable production/control code, not tests or prose alone', () => {
+    expect(isSubstantiveImplementationFile('.github/workflows/rc-gates.yml')).toBe(true);
+    expect(isSubstantiveImplementationFile('scripts/review-qualification.mjs')).toBe(true);
+    expect(isSubstantiveImplementationFile('tests/unit/finalReleaseQualification.test.js')).toBe(false);
+    expect(isSubstantiveImplementationFile('docs/findings/final-release-qualification.md')).toBe(false);
+  });
+
+  it('qualifies only live GitHub state with a current Codex review and no current unresolved release finding', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({ qualified: true, findingCount: 0 });
+
+    const fabricated = { ...github, headRefOid: OTHER_SHA };
+    expect(buildReviewReceipt({ pullRequest: fabricated, expectedHeadSha: SHA }).reasons)
+      .toContain('github_pr_head_is_not_workflow_head');
+  });
+
+  const prWithFinding = (body) => ({
+    number: 1430,
+    headRefOid: SHA,
+    files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+    reviews: {
+      nodes: [{ author: { login: 'chatgpt-codex-connector[bot]' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+      pageInfo: { hasPreviousPage: false },
+    },
+    reviewThreads: {
+      nodes: [{
+        isResolved: false,
+        comments: {
+          nodes: [{
+            author: { login: 'chatgpt-codex-connector' },
+            commit: { oid: SHA }, originalCommit: { oid: SHA }, pullRequestReview: { commit: { oid: SHA } },
+            body,
+          }],
+          pageInfo: { hasPreviousPage: false },
+        },
+      }],
+      pageInfo: { hasNextPage: false },
+    },
+  });
+
+  it('CASUALTY: ONE readable surface cannot conclude "not enforced" for the other', async () => {
+    /**
+     * #1430 P1, found by exact-head CI on my own first fix. `/rules/branches/<b>` is readable and
+     * returns an empty list; `/branches/<b>/protection` needs admin scope and is not. Reporting
+     * `unverified` only when BOTH were unreadable let the readable half speak for the whole answer,
+     * and an empty rules list cannot see legacy branch protection at all — so the gate again stated
+     * "not enforced" about something it could not observe.
+     *
+     * Enforcement can come from either surface, so a definite `false` requires having read both.
+     */
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => (String(url).includes('/protection')
+      ? { ok: false, status: 403, json: async () => ({}) }
+      : { ok: true, status: 200, json: async () => [] });
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 't',
+      })).resolves.toBe('unverified');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  describe('#1430 P1 — a definite "not enforced" requires having read BOTH surfaces', () => {
+    /**
+     * Enforcement can be established by EITHER surface: legacy branch protection with
+     * `required_conversation_resolution`, or an active ruleset requiring review-thread resolution. So a
+     * POSITIVE finding stands on whichever surface proved it, while a NEGATIVE one is only sound when
+     * both were readable. My first correction reported `unverified` solely when both were unreadable,
+     * which let a readable-but-empty rules list speak for unreadable legacy protection.
+     */
+    // Returns the verdict; each case asserts it itself. Asserting inside the helper hid the
+    // expectation from `vitest/expect-expect`, which reads a test with no visible `expect` as one that
+    // proves nothing — and on a release gate that lint is right to be strict.
+    const enforcementUnder = async (handler) => {
+      const original = globalThis.fetch;
+      globalThis.fetch = handler;
+      try {
+        return await readReviewThreadResolutionEnforcement({
+          repository: 'o/r', branch: 'main', token: 't',
+        });
+      } finally {
+        globalThis.fetch = original;
+      }
+    };
+    const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+    const denied = { ok: false, status: 403, json: async () => ({}) };
+    const ENFORCING_RULE = [{ type: 'pull_request', parameters: { required_review_thread_resolution: true }, ruleset_id: 7 }];
+    const ENFORCING_PROTECTION = {
+      required_conversation_resolution: { enabled: true },
+      enforce_admins: { enabled: true },
+      required_pull_request_reviews: {},
+    };
+
+    it('CASUALTY: empty rules + UNREADABLE protection is unverified, not "not enforced"', async () => {
+      const verdict = await enforcementUnder(async (url) => (String(url).includes('/protection') ? denied : ok([])));
+      expect(verdict).toBe('unverified');
+    });
+
+    it('CASUALTY: UNREADABLE rules + empty protection is unverified, not "not enforced"', async () => {
+      const verdict = await enforcementUnder(async (url) => (String(url).includes('/rules/branches') ? denied : ok({})));
+      expect(verdict).toBe('unverified');
+    });
+
+    it('enforcement found on the RULESET surface establishes it, even with protection empty', async () => {
+      const verdict = await enforcementUnder(async (url) => {
+        const u = String(url);
+        if (u.includes('/protection')) return ok({});
+        if (u.includes('/rules/branches')) return ok(ENFORCING_RULE);
+        return ok({ id: 7, enforcement: 'active', bypass_actors: [] });
+      });
+      expect(verdict).toBe(true);
+    });
+
+    it('enforcement found on the legacy PROTECTION surface establishes it, even with rules empty', async () => {
+      const verdict = await enforcementUnder(async (url) => (String(url).includes('/protection') ? ok(ENFORCING_PROTECTION) : ok([])));
+      expect(verdict).toBe(true);
+    });
+
+    it('CONTROL: both readable and negative is a real "not enforced"', async () => {
+      const verdict = await enforcementUnder(async (url) => (String(url).includes('/protection')
+        ? ok({ required_conversation_resolution: { enabled: false } })
+        : ok([])));
+      expect(verdict).toBe(false);
+    });
+  });
+
+  it('CASUALTY: an unreadable RULESET DETAIL is blindness too, not absence', async () => {
+    /**
+     * #1430 P1 — the rules list can be readable and name a ruleset that requires review-thread
+     * resolution, while that ruleset's own detail needs admin scope and is not readable. Filtering the
+     * unreadable detail out and evaluating what remained dropped the very rule that would have proven
+     * enforcement, and returned the definite `false`.
+     */
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes('/protection')) return { ok: true, status: 200, json: async () => ({}) };
+      if (u.includes('/rules/branches')) {
+        return { ok: true, status: 200, json: async () => ([
+          { type: 'pull_request', parameters: { required_review_thread_resolution: true }, ruleset_id: 7 },
+        ]) };
+      }
+      // The referenced ruleset's detail — admin-scoped, unreadable.
+      return { ok: false, status: 403, json: async () => ({}) };
+    };
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 't',
+      })).resolves.toBe('unverified');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('CONTROL: both surfaces readable and negative is a real "not enforced"', async () => {
+    // The relaxation must not swallow the genuine finding it exists to preserve.
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => (String(url).includes('/protection')
+      ? { ok: true, status: 200, json: async () => ({ required_conversation_resolution: { enabled: false } }) }
+      : { ok: true, status: 200, json: async () => [] });
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 't',
+      })).resolves.toBe(false);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('CASUALTY: a 401 from an invalid credential is UNREADABLE, not a hard failure', async () => {
+    /**
+     * #1430 — the regression that took exact-head CI down at `5fbfc28563`. `GH_PAT` is expired and
+     * returns 401; `optionalGithubRequest` handled only 403/404, so a 401 threw `github_api_401` and
+     * the whole job failed with one uninformative reason instead of three honest ones.
+     *
+     * An invalid credential is the same epistemic state as an unauthorised one — we cannot see the
+     * setting — so it resolves to `unverified` rather than exploding.
+     */
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({}) });
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 'expired',
+      })).resolves.toBe('unverified');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('CONTROL: a genuine server error is still a hard failure, not silently unverified', async () => {
+    // The relaxation must not swallow real breakage: 500 is not an authorisation state.
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+    try {
+      await expect(readReviewThreadResolutionEnforcement({
+        repository: 'o/r', branch: 'main', token: 't',
+      })).rejects.toThrow(/github_api_500/);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('CASUALTY: enforcement we could not READ is not reported as enforcement that is ABSENT', () => {
+    /**
+     * #1430 P1 — branch protection and rulesets need admin scope, which `github.token` lacks, so those
+     * reads returned 401/403/404 and the gate published
+     * `review_thread_resolution_not_enforced_at_merge` — a definite claim that the repository does NOT
+     * enforce review-thread resolution. It was asserting a fact it had no ability to observe.
+     *
+     * Three outcomes, kept distinct: enforced, not enforced, and unreadable.
+     */
+    /*
+     * #1430 — `unverified` IS REPORTED, NOT BLOCKING. Decided twice; this is the durable answer.
+     *
+     * It briefly held, reasoning that unverifiable enforcement is unverifiable protection. That
+     * deadlocked every candidate: `github.token` cannot read the admin surfaces and a PR-controlled
+     * workflow must not be given `GH_PAT`, so the hold could never be cleared by anyone. A gate no
+     * candidate can pass is an outage, not a gate. The reopen gap it guarded is closed by receipt
+     * FRESHNESS instead — see the freshness cases below.
+     */
+    const unverified = applyEnforcementToReceipt({ qualified: true, reasons: [] }, 'unverified');
+    expect(unverified.qualified, "a credential gap is not the candidate's defect").toBe(true);
+    expect(unverified.reasons, 'and must never be stated as absent enforcement')
+      .not.toContain('review_thread_resolution_not_enforced_at_merge');
+    expect(unverified.warnings, 'it is surfaced, not silently dropped')
+      .toContain('review_thread_resolution_enforcement_unverified');
+
+    const absent = applyEnforcementToReceipt({ qualified: true, reasons: [] }, false);
+    expect(absent.qualified, 'a READ absence is still a real finding and still blocks').toBe(false);
+    expect(absent.reasons).toContain('review_thread_resolution_not_enforced_at_merge');
+  });
+
+  it('CASUALTY: an unresolved P2 does NOT block, and is reported rather than hidden', () => {
+    /**
+     * #1430 P1 — `RELEASE_FINDING` matched `P[012]`, so one advisory finding disqualified the head and
+     * failed the merge gate. That contradicts the standing closure rule, under which P2 and below route
+     * to the hardening ledger and never hold a release. A gate that blocks on advice trains people to
+     * bypass it, which costs more than the advice is worth.
+     *
+     * Non-blocking is not the same as invisible: the count is published on the receipt.
+     */
+    const receipt = buildReviewReceipt({ pullRequest: prWithFinding('P2 Badge: tidy this later'), expectedHeadSha: SHA });
+
+    expect(receipt.findingCount, 'a P2 is not a blocking finding').toBe(0);
+    expect(receipt.qualified, 'and it does not disqualify the head').toBe(true);
+    expect(receipt.advisoryFindingCount, 'but it is still counted and reported').toBe(1);
+  });
+
+  it('CONTROL: a P1 at the same head still blocks', () => {
+    // The half that must not regress with the P2 relaxation: narrowing the severity band must not
+    // narrow it past the findings that genuinely hold a release.
+    const receipt = buildReviewReceipt({ pullRequest: prWithFinding('P1 Badge: current defect'), expectedHeadSha: SHA });
+
+    expect(receipt.findingCount).toBe(1);
+    expect(receipt.qualified, 'a P1 still disqualifies').toBe(false);
+  });
+
+  it('CASUALTY: an unresolved current-head Codex P0/P1 fails qualification', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{ author: { login: 'chatgpt-codex-connector[bot]' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: {
+        nodes: [{
+          isResolved: false,
+          comments: { nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, originalCommit: { oid: SHA }, pullRequestReview: { commit: { oid: SHA } }, body: 'P1 Badge: current defect' }], pageInfo: { hasPreviousPage: false } },
+        }],
+        pageInfo: { hasNextPage: false },
+      },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({ qualified: false, findingCount: 1 });
+  });
+
+  it('does not relabel an old unresolved thread as current when GitHub rebases its displayed commit', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: {
+        nodes: [{
+          isResolved: false,
+          comments: { nodes: [{
+            author: { login: 'chatgpt-codex-connector' },
+            commit: { oid: SHA },
+            originalCommit: { oid: OTHER_SHA },
+            pullRequestReview: { commit: { oid: OTHER_SHA } },
+            body: 'P1 Badge: fixed on a later head',
+          }], pageInfo: { hasPreviousPage: false } },
+        }],
+        pageInfo: { hasNextPage: false },
+      },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({ qualified: true, findingCount: 0 });
+  });
+
+  it('fails closed when GitHub pagination could hide files, reviews, or findings', () => {
+    const base = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    expect(buildReviewReceipt({ pullRequest: { ...base, files: { ...base.files, pageInfo: { hasNextPage: true } } }, expectedHeadSha: SHA }).qualified).toBe(false);
+    expect(buildReviewReceipt({ pullRequest: { ...base, reviews: { ...base.reviews, pageInfo: { hasPreviousPage: true } } }, expectedHeadSha: SHA }).qualified).toBe(false);
+    expect(buildReviewReceipt({ pullRequest: { ...base, reviewThreads: { ...base.reviewThreads, pageInfo: { hasNextPage: true } } }, expectedHeadSha: SHA }).qualified).toBe(false);
+    expect(buildReviewReceipt({ pullRequest: {
+      ...base,
+      reviewThreads: { nodes: [{ isResolved: false, comments: { nodes: [], pageInfo: { hasPreviousPage: true } } }], pageInfo: { hasNextPage: false } },
+    }, expectedHeadSha: SHA }).reasons).toContain('review_thread_comments_incomplete');
+  });
+
+  it('does not accept a lookalike reviewer login or a dismissed exact-head review', () => {
+    const base = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: { nodes: [], pageInfo: { hasPreviousPage: false } },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    for (const review of [
+      { author: { login: 'fake-chatgpt-codex-connector' }, state: 'COMMENTED', commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' },
+      { author: { login: 'chatgpt-codex-connector' }, state: 'DISMISSED', commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' },
+    ]) {
+      expect(buildReviewReceipt({ pullRequest: { ...base, reviews: { ...base.reviews, nodes: [review] } }, expectedHeadSha: SHA }))
+        .toMatchObject({ qualified: false, reviewStatus: 'missing' });
+    }
+  });
+
+  it('CASUALTY: a change-requesting exact-head review body cannot qualify', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{
+          author: { login: 'chatgpt-codex-connector' }, state: 'CHANGES_REQUESTED',
+          commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z', body: 'P1: release blocker',
+        }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({
+      qualified: false,
+      reviewStatus: 'changes_requested',
+    });
+  });
+
+  it('CASUALTY: an exact-head P0/P1/P2 in the overall review body cannot qualify', () => {
+    const github = {
+      number: 1430,
+      headRefOid: SHA,
+      files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+      reviews: {
+        nodes: [{
+          author: { login: 'chatgpt-codex-connector' }, state: 'COMMENTED',
+          commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z', body: 'P1 Badge: release blocker',
+        }],
+        pageInfo: { hasPreviousPage: false },
+      },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    };
+    expect(buildReviewReceipt({ pullRequest: github, expectedHeadSha: SHA })).toMatchObject({
+      qualified: false,
+      findingCount: 1,
+    });
+  });
+
+  it('CASUALTY: merge authority requires live unresolved-thread enforcement', () => {
+    expect(reviewThreadResolutionIsEnforced({})).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({ branchProtection: {
+      required_conversation_resolution: { enabled: false },
+    } })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({ branchRules: [{
+      type: 'pull_request',
+      parameters: { required_review_thread_resolution: false },
+    }] })).toBe(false);
+
+    expect(reviewThreadResolutionIsEnforced({ branchProtection: {
+      required_conversation_resolution: { enabled: true },
+      enforce_admins: { enabled: true },
+    } })).toBe(true);
+    expect(reviewThreadResolutionIsEnforced({ branchRules: [{
+      type: 'pull_request',
+      ruleset_id: 42,
+      parameters: { required_review_thread_resolution: true },
+    }], branchRulesets: [{
+      id: 42,
+      enforcement: 'active',
+      bypass_actors: [],
+    }] })).toBe(true);
+  });
+
+  it('CASUALTY: merge authority rejects admin and named-actor bypasses', () => {
+    expect(reviewThreadResolutionIsEnforced({ branchProtection: {
+      required_conversation_resolution: { enabled: true },
+      enforce_admins: { enabled: false },
+    } })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({ branchProtection: {
+      required_conversation_resolution: { enabled: true },
+      enforce_admins: { enabled: true },
+      required_pull_request_reviews: {
+        bypass_pull_request_allowances: { users: [{ login: 'release-admin' }], teams: [], apps: [] },
+      },
+    } })).toBe(false);
+  });
+
+  it('CASUALTY: a ruleset must be active, readable, and free of bypass actors', () => {
+    const branchRules = [{
+      type: 'pull_request',
+      ruleset_id: 42,
+      parameters: { required_review_thread_resolution: true },
+    }];
+    expect(reviewThreadResolutionIsEnforced({ branchRules })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({
+      branchRules,
+      branchRulesets: [{ id: 42, enforcement: 'active' }],
+    })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({
+      branchRules,
+      branchRulesets: [{
+        id: 42,
+        enforcement: 'active',
+        bypass_actors: [{ actor_type: 'RepositoryRole', actor_id: 5, bypass_mode: 'always' }],
+      }],
+    })).toBe(false);
+    expect(reviewThreadResolutionIsEnforced({
+      branchRules,
+      branchRulesets: [{ id: 42, enforcement: 'evaluate', bypass_actors: [] }],
+    })).toBe(false);
+  });
+
+  it('the full CI lane invokes authenticated GitHub review qualification after evidence', () => {
+    const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    expect(workflow).toContain('name: exact-head-review-qualification');
+    expect(workflow).toContain('node scripts/collect-review-qualification.mjs');
+    expect(workflow).toContain('GITHUB_TOKEN: ${{ github.token }}');
+    expect(workflow).toContain('needs: [scope, full-evidence]');
+    expect(workflow).toContain('full-evidence, review-qualification]');
+    expect(workflow).toContain('[...REQUIRED_JOBS, "review-qualification"]');
+    expect(workflow).toMatch(/pull_request_review:[\s\S]{0,120}types:\s*\[submitted, edited, dismissed\]/);
+    expect(workflow).toMatch(/pull_request_review_comment:[\s\S]{0,120}types:\s*\[created, edited, deleted\]/);
+    expect(workflow).toContain("github.event_name == 'pull_request_review'");
+    expect(workflow).toContain("github.event_name == 'pull_request_review_comment'");
+    expect(workflow).toContain('postMergePush ? formatPostMergeVerification(decision) : formatQualification(decision)');
+    const collector = readFileSync('scripts/collect-review-qualification.mjs', 'utf8');
+    expect(collector).toContain('/rules/branches/${encodedBranch}?per_page=100');
+    expect(collector).toContain('review_thread_resolution_not_enforced_at_merge');
+  });
+});
+
+describe('Q-10 canonical Production evidence eligibility', () => {
+  it('qualifies only the exact canonical root with exact deployed release equality', () => {
+    expect(evaluateProductionEvidenceTarget({
+      baseUrl: `${CANONICAL_PRODUCTION_ORIGIN}/`,
+      expectedReleaseSha: SHA,
+      observedReleaseSha: SHA,
+    })).toMatchObject({
+      releaseProofEligible: true,
+      evidenceScope: 'canonical-production',
+      origin: CANONICAL_PRODUCTION_ORIGIN,
+      reasons: [],
+    });
+  });
+
+  it('CASUALTY: Preview and lookalike URLs cannot become canonical proof', () => {
+    for (const baseUrl of [
+      'https://speaksharp-git-fix.vercel.app',
+      'https://speaksharp-public.vercel.app.evil.example',
+      'http://speaksharp-public.vercel.app',
+      'https://speaksharp-public.vercel.app/a-preview-path',
+    ]) {
+      const result = evaluateProductionEvidenceTarget({
+        baseUrl,
+        expectedReleaseSha: SHA,
+        observedReleaseSha: SHA,
+      });
+      expect(result.releaseProofEligible).toBe(false);
+      expect(result.reasons).toContain('not_canonical_production_url');
+    }
+  });
+
+  it('rejects Preview before making a network request', async () => {
+    const fetchImpl = vi.fn();
+    const result = await qualifyEvidenceTarget({
+      baseUrl: 'https://speaksharp-git-fix.vercel.app',
+      expectedReleaseSha: SHA,
+      evidenceScope: 'canonical-production',
+      fetchImpl,
+    });
+    expect(result.releaseProofEligible).toBe(false);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('CASUALTY: a canonical host serving the wrong or unknown release is not proof', () => {
+    expect(evaluateProductionEvidenceTarget({
+      baseUrl: CANONICAL_PRODUCTION_ORIGIN,
+      expectedReleaseSha: SHA,
+      observedReleaseSha: OTHER_SHA,
+    }).reasons).toContain('deployed_release_sha_mismatch');
+    expect(evaluateProductionEvidenceTarget({
+      baseUrl: CANONICAL_PRODUCTION_ORIGIN,
+      expectedReleaseSha: SHA,
+      observedReleaseSha: null,
+    }).reasons).toContain('deployed_release_sha_missing_or_invalid');
+  });
+
+  it('reads the deployed release marker from served HTML', () => {
+    expect(extractDeployedRelease(`<script>window.__APP_RELEASE__ = "${SHA}";</script>`)).toBe(SHA);
+    expect(extractDeployedRelease('<script>window.__APP_RELEASE__ = "unknown";</script>')).toBeNull();
+  });
+
+  it('CASUALTY: a failed deployed identity read fails closed', async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('network unavailable'));
+    const result = await qualifyEvidenceTarget({
+      baseUrl: CANONICAL_PRODUCTION_ORIGIN,
+      expectedReleaseSha: SHA,
+      evidenceScope: 'canonical-production',
+      fetchImpl,
+    });
+    expect(result.releaseProofEligible).toBe(false);
+    expect(result.reasons).toContain('deployed_release_read_failed');
+  });
+
+  it('diagnostic/Preview evidence is explicitly and machine-readably ineligible', () => {
+    expect(classifyDiagnosticEvidence({ baseUrl: 'https://example-preview.vercel.app' })).toMatchObject({
+      evidenceScope: 'diagnostic',
+      releaseProofEligible: false,
+      reasons: ['preview_or_noncanonical_run_ineligible_for_release_proof'],
+    });
+  });
+
+  it('the workflow uses distinct artifact identities and carries the eligibility receipt', () => {
+    const workflow = readFileSync('.github/workflows/rc-gates.yml', 'utf8');
+    expect(workflow).toContain('Classify Gate 3 evidence target');
+    expect(workflow).toContain('gate-3-evidence-eligibility.json');
+    expect(workflow).toContain('gate-3-dast-production-${{ github.sha }}');
+    expect(workflow).toContain("if: ${{ success() && github.event.inputs.diagnostic_dast_spec == '' }}");
+    expect(workflow).toContain('gate-3-dast-canonical-ineligible-${{ github.sha }}');
+    expect(workflow).toContain('gate-3-dast-diagnostic-ineligible-${{ github.sha }}');
+    expect(workflow).not.toMatch(/name:\s*gate-3-dast-artifacts\s*$/m);
+  });
+
+  it('CASUALTY: a diagnostic run ends the Gate 3 job red even when its selected spec passes', () => {
+    const workflow = readFileSync('.github/workflows/rc-gates.yml', 'utf8');
+    expect(workflow).toContain('Reject diagnostic run as release qualification');
+    expect(workflow).toMatch(/Reject diagnostic run as release qualification[\s\S]*diagnostic_dast_spec != ''[\s\S]*exit 1/);
+  });
+});
+
+describe('Q-08 software-quality evidence completeness', () => {
+  const complete = (over = {}) => ({
+    tests: {
+      unit: {
+        passed: 100,
+        failed: 0,
+        skipped: 0,
+        total: 100,
+        testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
+      },
+      e2e: { passed: 20, failed: 0, skipped: 0, total: 20 },
+    },
+    runtime: { totalRuntimeSeconds: 120 },
+    performance: { initialChunkSize: '412K' },
+    targets: { coverage: { releaseFloor: COVERAGE_RELEASE_FLOOR } },
+    coverage: { statements: 80, branches: 80, functions: 80, lines: 80 },
+    ...over,
+  });
+
+  it('CASUALTY: a release-path file that SKIPPED a casualty is not signed off by its neighbours', () => {
+    /**
+     * #1430 P1 — `testFiles` admits a file as soon as ONE test in it asserted. A manifest-listed
+     * release-path file could therefore hold one passing test and a SKIPPED acceptance casualty, be
+     * reported as executed, and satisfy meaningful coverage while the criterion it exists to prove
+     * never ran. The suite-level skip count stayed non-negative, so nothing objected.
+     *
+     * The zero-skip release floor is now enforced at the only granularity that matters: the path.
+     */
+    const target = MEANINGFUL_COVERAGE_MANIFEST[0];
+    const result = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: {
+          passed: 99,
+          failed: 0,
+          skipped: 1,
+          total: 100,
+          testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
+          skippedTestFiles: [target.testFile],
+        },
+        e2e: { passed: 20, failed: 0, skipped: 0, total: 20 },
+      },
+    }));
+
+    expect(result.valid, 'a skipped release path cannot qualify').toBe(false);
+    expect(result.reasons).toContain(`meaningful_coverage_path_skipped:${target.id}`);
+  });
+
+  it('CONTROL: a skip OUTSIDE the manifest does not block the release', () => {
+    // Rejecting per path rather than suite-wide is deliberate. A skip elsewhere in the unit suite is
+    // not a release claim, and failing on it would push people to delete the manifest, not fix the skip.
+    const result = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: {
+          passed: 99,
+          failed: 0,
+          skipped: 1,
+          total: 100,
+          testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
+          skippedTestFiles: ['frontend/src/services/__tests__/someUnrelatedThing.test.ts'],
+        },
+        e2e: { passed: 20, failed: 0, skipped: 0, total: 20 },
+      },
+    }));
+
+    expect(result.valid, 'an unrelated skip is not a release-path claim').toBe(true);
+  });
+
+  it('accepts complete metrics using the shared coverage authority', () => {
+    expect(COVERAGE_RELEASE_FLOOR).toBe(75);
+    expect(validateSoftwareQualityEvidence(complete())).toMatchObject({ valid: true, reasons: [] });
+  });
+
+  it('CASUALTY: unit 0/0 is missing evidence, not a plausible green count', () => {
+    const result = validateSoftwareQualityEvidence(complete({
+      tests: { unit: {
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        total: 0,
+        testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
+      } },
+    }));
+    expect(result.reasons).toContain('unit_metrics_missing_or_empty');
+  });
+
+  it('CASUALTY: failing unit or E2E tests cannot qualify a release', () => {
+    const unitFailure = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: {
+          passed: 90,
+          failed: 10,
+          skipped: 0,
+          total: 100,
+          testFiles: MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile),
+        },
+        e2e: { passed: 20, failed: 0, skipped: 0, total: 20 },
+      },
+    }));
+    expect(unitFailure.reasons).toContain('unit_tests_failed:10');
+
+    const e2eFailure = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: complete().tests.unit,
+        e2e: { passed: 18, failed: 2, skipped: 0, total: 20 },
+      },
+    }));
+    expect(e2eFailure.reasons).toContain('e2e_tests_failed:2');
+  });
+
+  it('CASUALTY: test outcome counts must be present and reconcile to the total', () => {
+    const missingFailureCount = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: complete().tests.unit,
+        e2e: { passed: 20, skipped: 0, total: 20 },
+      },
+    }));
+    expect(missingFailureCount.reasons).toContain('e2e_failed_count_missing_or_invalid');
+
+    const inconsistent = validateSoftwareQualityEvidence(complete({
+      tests: {
+        unit: complete().tests.unit,
+        e2e: { passed: 20, failed: 0, skipped: 1, total: 20 },
+      },
+    }));
+    expect(inconsistent.reasons).toContain('e2e_test_counts_inconsistent');
+  });
+
+  it('CASUALTY: the Markdown fallback preserves failures instead of relabelling them skipped', () => {
+    const parsed = parseCiAuditOverride(`
+### Unit Tests
+- **Passed**: 90 / 100
+- **Failed**: 10
+### E2E Tests (Playwright)
+- **Passed**: 18 / 20
+- **Failed**: 2
+`);
+    expect(parsed).toMatchObject({
+      unit_tests: { passed: 90, failed: 10, skipped: 0, total: 100 },
+      e2e_tests: { passed: 18, failed: 2, skipped: 0, total: 20 },
+    });
+  });
+
+  it('CASUALTY: zero runtime is missing evidence, not a valid measurement', () => {
+    const result = validateSoftwareQualityEvidence(complete({ runtime: { totalRuntimeSeconds: 0 } }));
+    expect(result.reasons).toContain('runtime_metric_missing_or_zero');
+  });
+
+  it('CASUALTY: an unknown initial chunk cannot publish qualified evidence', () => {
+    for (const initialChunkSize of [null, undefined, 'unknown', 'N/A', '0K']) {
+      const result = validateSoftwareQualityEvidence(complete({ performance: { initialChunkSize } }));
+      expect(result.reasons).toContain('initial_chunk_metric_missing_or_unknown');
+    }
+  });
+
+  it('CASUALTY: the historical 60% floor cannot override the shared 75% authority', () => {
+    const result = validateSoftwareQualityEvidence(complete({
+      targets: { coverage: { releaseFloor: 60 } },
+    }));
+    expect(result.reasons).toContain('coverage_release_floor_not_authoritative');
+  });
+
+  it('CASUALTY: aggregate 75%+ without meaningful-path execution receipts cannot qualify', () => {
+    const result = validateSoftwareQualityEvidence(complete({
+      coverage: { statements: 90, branches: 90, functions: 90, lines: 90 },
+      tests: { unit: { passed: 100, failed: 0, skipped: 0, total: 100, testFiles: [] } },
+    }));
+    expect(result.valid).toBe(false);
+    expect(result.reasons).toContain('meaningful_coverage_execution_receipt_missing');
+    for (const { id } of MEANINGFUL_COVERAGE_MANIFEST) {
+      expect(result.reasons).toContain(`meaningful_coverage_path_missing:${id}`);
+    }
+  });
+
+  it('enforces the authoritative floor against every aggregate coverage metric', () => {
+    const result = validateSoftwareQualityEvidence(complete({
+      coverage: { statements: 75, branches: 74.99, functions: 75, lines: 75 },
+    }));
+    expect(result.reasons).toContain('coverage_below_release_floor:branches');
+  });
+
+  it('the meaningful manifest admits behavior/casualty evidence only', () => {
+    expect(MEANINGFUL_COVERAGE_MANIFEST.map(({ id }) => id)).toEqual([
+      'stt', 'session-lifecycle', 'quota-billing', 'pdf', 'analytics-truth', 'failure-handling',
+    ]);
+    expect(MEANINGFUL_COVERAGE_MANIFEST.every(({ evidenceType }) => evidenceType === 'behavior-casualty'))
+      .toBe(true);
+  });
+
+  it('fails closed when the meaningful-coverage manifest is absent', () => {
+    const result = validateSoftwareQualityEvidence(complete(), { meaningfulCoverageManifest: [] });
+    expect(result.reasons).toContain('meaningful_coverage_manifest_missing');
+  });
+
+  it('the workflow aggregates before generating evidence and preserves canonical unit counts', () => {
+    const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    expect(workflow.indexOf('- name: Aggregate CI Metrics')).toBeLessThan(
+      workflow.indexOf('- name: Generate qualified software quality evidence'),
+    );
+    expect(workflow).toContain('test-results/unit/results.json');
+  });
+
+  it('publishes qualified evidence only after final assertions and never under always()', () => {
+    const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    const assertAt = workflow.indexOf('- name: Assert Required Evidence Is Present');
+    const verifyAt = workflow.indexOf('- name: Verify Canonical Artifacts');
+    const generateAt = workflow.indexOf('- name: Generate qualified software quality evidence');
+    const uploadAt = workflow.indexOf('- name: Upload CI Metrics');
+    expect(assertAt).toBeGreaterThan(0);
+    expect(assertAt).toBeLessThan(verifyAt);
+    expect(verifyAt).toBeLessThan(generateAt);
+    expect(generateAt).toBeLessThan(uploadAt);
+    expect(workflow.slice(uploadAt, uploadAt + 120)).not.toContain('if: always()');
+  });
+});
+
+/**
+ * #1430 P1 — REOPENED THREADS, AND A PUSH THAT ACTUALLY MERGED.
+ *
+ * GitHub emits NO workflow event when a review thread is resolved or unresolved, so a green
+ * qualification can outlive the state it described: reopen a P0/P1 thread and the check stays green
+ * until some unrelated event happens to re-fire it. No trigger list closes that and none was invented.
+ *
+ * It is closed by FRESHNESS. A receipt records when it was produced, a merge requires one produced
+ * immediately beforehand, and anything older is stale. A thread reopened after the receipt was written
+ * makes that receipt stale by construction, so the merge must re-qualify and then sees the reopen.
+ *
+ * An earlier attempt instead held on unverifiable branch-protection enforcement. That deadlocked every
+ * candidate — `github.token` cannot read the admin surfaces and a PR-controlled workflow must not be
+ * given `GH_PAT` — so the hold could never be cleared by anyone. Freshness is something the release
+ * lane genuinely controls.
+ */
+describe('#1430 P1 — reopened threads and push qualification', () => {
+  const reviewedSha = 'a'.repeat(40);
+  const bot = { login: 'chatgpt-codex-connector' };
+  const pullWith = (threads, extra = {}) => ({
+    number: 1,
+    headRefOid: reviewedSha,
+    baseRefName: 'main',
+    files: { nodes: [{ path: 'scripts/collect-review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+    reviews: {
+      nodes: [{ author: bot, state: 'COMMENTED', commit: { oid: reviewedSha }, body: 'reviewed', submittedAt: '2026-09-10T00:00:00Z' }],
+      pageInfo: { hasPreviousPage: false },
+    },
+    reviewThreads: { nodes: threads, pageInfo: { hasNextPage: false } },
+    ...extra,
+  });
+  const thread = (isResolved, body) => ({
+    isResolved,
+    comments: {
+      nodes: [{ author: bot, body, createdAt: '2026-09-10T00:00:00Z', commit: { oid: reviewedSha }, originalCommit: { oid: reviewedSha }, pullRequestReview: { state: 'COMMENTED', commit: { oid: reviewedSha } } }],
+      pageInfo: { hasPreviousPage: false },
+    },
+  });
+  const freshReceipt = (over = {}) => ({
+    currentSha: reviewedSha,
+    reviewedSha,
+    reviewStatus: 'completed',
+    findingCount: 0,
+    changedFiles: ['scripts/collect-review-qualification.mjs'],
+    generatedAt: new Date().toISOString(),
+    ...over,
+  });
+
+  it('CASUALTY: an UNRESOLVED release finding at the reviewed head does not qualify', () => {
+    // The reopen case at the data level: a thread reopened is simply an unresolved thread, and the
+    // receipt must refuse it whenever the check runs.
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith([thread(false, 'P1 Badge — a live release finding')]),
+      expectedHeadSha: reviewedSha,
+    });
+    expect(receipt.qualified, 'a reopened P1 thread cannot ride a qualifying receipt').toBe(false);
+  });
+
+  it('CONTROL: the same head with that thread RESOLVED inside an authorized DISMISSED review does qualify', () => {
+    // Without this the case above would pass against a builder that refuses everything. Since #1430's
+    // fix-forward (`3991388525`) resolution alone never clears a same-head P0/P1, and under #1438 PM DECISION
+    // `5639300027` no comment clears one either: an authorized dismissal does.
+    const dismissed = thread(true, 'P1 Badge — addressed and resolved');
+    dismissed.comments.nodes[0].pullRequestReview.state = 'DISMISSED';
+    const receipt = buildReviewReceipt({ pullRequest: pullWith([dismissed]), expectedHeadSha: reviewedSha });
+    expect(receipt.qualified, 'an authorized dismissal is what clears it').toBe(true);
+  });
+
+  it('CASUALTY: a STALE receipt does not qualify, however clean it is', () => {
+    // The window a reopen exploits. Nothing about the head changed — only the age of the evidence.
+    const stale = evaluateReviewQualification(freshReceipt({
+      generatedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+    }));
+    expect(stale.qualified, 'a receipt from 90 minutes ago cannot support a merge now').toBe(false);
+    expect(stale.reasons.join(' ')).toMatch(/receipt_stale:\d+s/);
+  });
+
+  it('CASUALTY: a receipt that cannot say when it was produced is stale, not assumed fresh', () => {
+    // Absent and unparseable both disqualify. Defaulting a missing timestamp to `now` is exactly how a
+    // stale receipt would slip through, so the missing case is named rather than tolerated.
+    for (const generatedAt of [undefined, '', 'not-a-date']) {
+      const receipt = evaluateReviewQualification(freshReceipt({ generatedAt }));
+      expect(receipt.qualified).toBe(false);
+      expect(receipt.reasons).toContain('receipt_generated_at_missing_or_invalid');
+    }
+  });
+
+  it('CONTROL: a FRESH receipt on the same clean head does qualify', () => {
+    // Without this the staleness cases would pass against an evaluator that refuses everything.
+    expect(evaluateReviewQualification(freshReceipt()).qualified,
+      'freshness is the only thing the stale cases changed').toBe(true);
+  });
+
+  describe('the push lane requires a real merge into the pushed base', () => {
+    /**
+     * #1430 P1 at `763e644c90`, and Codex was right on both counts.
+     *
+     * My first push lane tried the OPEN-PR rule before the push rule, so a push whose tip was also an
+     * open PR head returned through the PR branch and never reached the merged-PR requirement — the
+     * realistic bypass, not an exotic one: push a reviewed PR head straight to `main` and it qualified.
+     * It also matched merged PRs on `head.sha` and never compared `baseRefName`, so a commit merged
+     * into some OTHER branch qualified against the branch that was pushed.
+     *
+     * The rule now is exactly one merged pull request whose MERGE COMMIT is the pushed SHA and whose
+     * BASE is the pushed ref. A reviewed head pushed directly is nobody's merge commit; a PR merged
+     * elsewhere fails the base comparison.
+     */
+    const pushSha = 'b'.repeat(40);
+    const prHead = 'c'.repeat(40);
+    const withFetch = async (payload, fn) => {
+      const original = globalThis.fetch;
+      globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => payload });
+      try { return await fn(); } finally { globalThis.fetch = original; }
+    };
+    const push = (payload, ref = 'refs/heads/main') => withFetch(payload, () => resolveQualificationTarget({
+      repository: 'o/r', expectedHeadSha: pushSha, token: 't', explicitNumber: '',
+      eventName: 'push', baseRef: ref,
+    }));
+
+    it('CASUALTY: a reviewed PR HEAD pushed straight to main does not qualify', async () => {
+      // The bypass Codex found. Under the old ordering this returned qualified through the PR branch.
+      await expect(push([{ number: 5, state: 'open', merged_at: null, merge_commit_sha: null, head: { sha: pushSha }, base: { ref: 'main' } }]))
+        .rejects.toThrow(/push_without_verifiable_merge_into_base:0/);
+    });
+
+    it('CASUALTY: a MERGED PR whose HEAD is the pushed SHA does not qualify', async () => {
+      /**
+       * Codex's exact wording, and the case my first casualty missed. That one used an OPEN pull
+       * request, so the `merged_at` guard rejected it before `head.sha` was ever consulted — the
+       * mutation that re-added `|| pull.head.sha === sha` therefore SURVIVED it.
+       *
+       * This is the real shape: a pull request GitHub has already marked merged into `main`, whose
+       * HEAD is the pushed SHA while its merge commit is some other object. That is what a
+       * fast-forward or rebase merge looks like, and matching on the head would let the reviewed head
+       * itself stand in for a merge into the base. Only the merge commit may qualify.
+       */
+      await expect(push([{
+        number: 9, state: 'closed', merged_at: '2026-09-10T00:00:00Z',
+        merge_commit_sha: 'd'.repeat(40), head: { sha: pushSha }, base: { ref: 'main' },
+      }])).rejects.toThrow(/push_without_verifiable_merge_into_base:0/);
+    });
+
+    it('CASUALTY: a PR merged into ANOTHER base does not qualify against the pushed ref', async () => {
+      // Merged, and its merge commit really is the pushed SHA — but into `release/x`, not `main`.
+      await expect(push([{ number: 6, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: prHead }, base: { ref: 'release/x' } }]))
+        .rejects.toThrow(/push_without_verifiable_merge_into_base:0/);
+    });
+
+    it('CONTROL: one PR merged INTO the pushed base qualifies the SHA it was reviewed at', async () => {
+      /**
+       * The positive control, carrying the second half of the rule: after a squash the reviewed SHA and
+       * the pushed SHA are different commits, so returning the pushed merge commit would qualify a
+       * commit nobody reviewed. Without this the two holds above would pass against a lane that
+       * refuses every push.
+       */
+      await expect(push([{ number: 7, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: prHead }, base: { ref: 'main' } }]))
+        .resolves.toEqual({ number: 7, reviewedSha: prHead });
+    });
+
+    it('CONTROL: refs/heads/main and main are the same ref', async () => {
+      // A base comparison that failed on the ref prefix would reject every real push — an outage, not
+      // a gate.
+      await expect(push([{ number: 8, state: 'closed', merged_at: '2026-09-10T00:00:00Z', merge_commit_sha: pushSha, head: { sha: prHead }, base: { ref: 'refs/heads/main' } }], 'main'))
+        .resolves.toEqual({ number: 8, reviewedSha: prHead });
+    });
+
+    it('CASUALTY: an unreadable pushed ref holds rather than skipping the base check', async () => {
+      await expect(push([], '')).rejects.toThrow(/push_base_ref_unreadable/);
+    });
+  });
+});
+
+/**
+ * #1430 P1 — CODEX'S CLEAN RESULT ARRIVES AS AN ISSUE COMMENT, NOT A REVIEW OBJECT.
+ *
+ * Found by my own whole-tree review, not by a casualty, because every fixture in this file constructs a
+ * review OBJECT. Codex submits one only when it HAS findings; a clean result is an issue comment plus a
+ * 👍. Reading `reviews` alone therefore made the gate unsatisfiable — findings meant `open_findings`,
+ * no findings meant `review_not_completed:missing`, and both held.
+ *
+ * Recognition is deliberately narrow, and each narrowing has its own case below: a trusted author, the
+ * exact head named in the body, no finding text, and a complete read of the comment page.
+ */
+describe('#1430 P1 — the trusted clean-result surface', () => {
+  const head = 'c'.repeat(40);
+  const bot = { login: 'chatgpt-codex-connector' };
+  const cleanBody = (sha) => `Codex Review: Didn't find any major issues. Nice work!\n\n**Reviewed commit:** \`${sha}\``;
+
+  const pullWith = ({ comments, commentsTruncated = false, reviews = [] }) => ({
+    number: 1430,
+    headRefOid: head,
+    baseRefName: 'main',
+    files: { nodes: [{ path: 'scripts/collect-review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+    reviews: { nodes: reviews, pageInfo: { hasPreviousPage: false } },
+    reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    comments: { nodes: comments, pageInfo: { hasPreviousPage: commentsTruncated } },
+    // #1438 PM RETURN `5639978861`: GitHub's lifecycle record — pushed at 23:40, marked ready at 23:50, no move since.
+    timelineItems: { nodes: [{ createdAt: '2026-09-10T23:50:00Z' }] },
+    headRefHistory: { complete: true, moves: [{ after: head, timestamp: '2026-09-10T23:40:00Z' }] },
+  });
+  // #1438 PM DECISION `5639300027`: a clean-result COMMENT is never completion authority on its own. Exact-head
+  // completion comes from a review object or Codex's review-summary system metadata, which `summaryComment` models.
+  const summaryComment = (sha) => ({
+    id: 'summary', author: bot, createdAt: '2026-09-10T23:51:30Z',
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"blockingSeverityThreshold":"P0","headSha":"${sha}","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-09-10T23:55:00Z">2026-09-10T23:55:00Z</relative-time> | \`${sha.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-09-10T23:56:00Z">2026-09-10T23:56:00Z</relative-time> | \`${sha.slice(0, 7)}\` | Draft marked ready |`,
+  });
+
+  it('CASUALTY: a clean head qualifies through Codex summary metadata; the clean comment alone does not', () => {
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head), createdAt: '2026-09-10T23:51:24Z' }, summaryComment(head)] }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified, 'a clean review must be able to qualify a head at all').toBe(true);
+    expect(receipt.reviewStatus).toBe('completed');
+    expect(receipt.reviewedSha).toBe(head);
+    expect(receipt.findingCount, 'clean means zero findings, never unknown').toBe(0);
+    expect(receipt.reviewEvidence, 'and the basis is auditable').toBe('codex_summary_metadata');
+
+    const commentOnly = buildReviewReceipt({
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody(head), createdAt: '2026-09-10T23:51:24Z' }] }),
+      expectedHeadSha: head,
+    });
+    expect(commentOnly.qualified, 'generated comment text is not completion authority').toBe(false);
+  });
+
+  it('CASUALTY: a trusted bot ERROR or STATUS notice with a valid footer does not qualify', () => {
+    /**
+     * Codex P1 `3984927799`. My recogniser selected a comment by three REJECTIONS — trusted author,
+     * exact head named, no P0/P1 badge — and never asserted what a clean result says. Codex reproduced
+     * `qualified: true` for `Codex could not complete this review` plus a valid footer: a FAILURE notice
+     * read as a pass.
+     *
+     * THESE ARE REAL BODIES FROM THIS PULL REQUEST, not invented ones. "Something went wrong" was posted
+     * on 2026-09-09 and is prefixed `Codex Review:` exactly like a clean result — so matching the prefix
+     * would not have helped. Only the canonical phrase separates them.
+     */
+    const notClean = [
+      'Codex could not complete this review',
+      'Codex Review: Something went wrong. Try again later by commenting “@codex review”.',
+      '## Blocked — Required Commit Objects Are Still Unavailable',
+      'Codex Review: Reviewing this pull request now.',
+    ];
+    for (const text of notClean) {
+      const receipt = buildReviewReceipt({
+        pullRequest: pullWith({
+          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``, createdAt: '2026-09-10T23:51:24Z' }],
+        }),
+        expectedHeadSha: head,
+      });
+      expect(receipt.qualified, `${text.slice(0, 40)} must not qualify a head`).toBe(false);
+      expect(receipt.reviewEvidence, 'and must not be recorded as a clean result').toBeNull();
+    }
+  });
+
+  it('CONTROL: every real sign-off variant qualifies once Codex summary metadata marks this head completed', () => {
+    // The sign-off varies run to run, so the invariant is the phrase and not the sentence. All four are
+    // verbatim first lines of genuine clean results on this PR; a match that were too strict would
+    // reintroduce the unsatisfiable gate this correction exists to fix.
+    const cleanVariants = [
+      "Codex Review: Didn't find any major issues. Keep it up!",
+      "Codex Review: Didn't find any major issues. Nice work!",
+      "Codex Review: Didn't find any major issues. Breezy!",
+      "Codex Review: Didn't find any major issues. Another round soon, please!",
+      'Codex Review: Didn\u2019t find any major issues. Typographic apostrophe!',
+    ];
+    for (const text of cleanVariants) {
+      const receipt = buildReviewReceipt({
+        pullRequest: pullWith({
+          comments: [{ author: bot, body: `${text}\n\n**Reviewed commit:** \`${head}\``, createdAt: '2026-09-10T23:51:24Z' }, summaryComment(head)],
+        }),
+        expectedHeadSha: head,
+      });
+      expect(receipt.qualified, `${text.slice(0, 45)} must qualify`).toBe(true);
+      expect(receipt.reviewEvidence).toBe('codex_summary_metadata');
+    }
+  });
+
+  it('CASUALTY: a clean comment naming a STALE sha does not qualify', () => {
+    // Evidence about an earlier tree is ignored, not tolerated — the same rule the rest of the receipt
+    // applies to a reviewed SHA that is not the current head.
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({ comments: [{ author: bot, body: cleanBody('9'.repeat(10)), createdAt: '2026-09-10T23:51:24Z' }] }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified).toBe(false);
+    expect(receipt.reasons.join(' ')).toMatch(/review_not_completed|reviewed_sha/);
+  });
+
+  it('CASUALTY: a HUMAN posting the same words does not qualify', () => {
+    /**
+     * The spoof case. The text is a literal copy of Codex's clean result, so only the author separates
+     * them — which is why the login must match the trusted set and `authorAssociation` is never consulted.
+     * A maintainer pasting the summary is not an independent review.
+     */
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({
+        comments: [{ author: { login: 'relativityE' }, authorAssociation: 'OWNER', body: cleanBody(head.slice(0, 10)), createdAt: '2026-09-10T23:51:24Z' }],
+      }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified, 'a human lookalike is not an independent review').toBe(false);
+  });
+
+  it('CASUALTY: an INCOMPLETE comment page does not qualify, even with a clean comment present', () => {
+    // The surface is load-bearing now, so a truncated read is incomplete evidence: an unseen page could
+    // hold a later finding-bearing comment.
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({
+        comments: [{ author: bot, body: cleanBody(head.slice(0, 10)), createdAt: '2026-09-10T23:51:24Z' }],
+        commentsTruncated: true,
+      }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified).toBe(false);
+    expect(receipt.reasons).toContain('issue_comments_incomplete');
+  });
+
+  it('CASUALTY: a clean comment carrying a P1 badge is not a clean result', () => {
+    // "Didn't find any major issues" beside a P1 badge is self-contradictory; the badge wins.
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({
+        comments: [{ author: bot, body: `${cleanBody(head.slice(0, 10))}\n\nP1 Badge — actually a finding`, createdAt: '2026-09-10T23:51:24Z' }],
+      }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified).toBe(false);
+  });
+
+  it('CONTROL: a finding-bearing REVIEW OBJECT is not masked by a later clean comment', () => {
+    /**
+     * Ordering matters. A review that reported findings must keep governing even when a clean summary is
+     * posted afterwards, so the review path is consulted first and the comment surface only when no
+     * review object exists at this head.
+     */
+    const receipt = buildReviewReceipt({
+      pullRequest: pullWith({
+        reviews: [{ author: bot, state: 'CHANGES_REQUESTED', commit: { oid: head }, body: 'P1 Badge — a real finding', submittedAt: '2026-09-10T22:00:00Z' }],
+        comments: [{ author: bot, body: cleanBody(head.slice(0, 10)), createdAt: '2026-09-10T23:51:24Z' }],
+      }),
+      expectedHeadSha: head,
+    });
+
+    expect(receipt.qualified, 'a reported finding cannot be cleared by a later summary').toBe(false);
+    expect(receipt.reviewEvidence).toBe('review_object');
+  });
+});
+
+describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
+  const head = 'c'.repeat(40);
+  const bot = { login: 'chatgpt-codex-connector' };
+  const clean = {
+    id: 'old-clean', author: bot, createdAt: '2026-09-10T10:00:00Z',
+    // #1438 PM DECISION `5639300027`: exact-head completion is Codex's summary system metadata, not comment text.
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"headSha":"${head}","pullRequestNumber":1430,"repository":"relativityE/speaksharp","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-09-10T09:30:00Z">2026-09-10T09:30:00Z</relative-time> | \`${head.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-09-10T09:31:00Z">2026-09-10T09:31:00Z</relative-time> | \`${head.slice(0, 7)}\` | Draft marked ready |`,
+  };
+  const base = (comments) => ({
+    number: 1430,
+    headRefOid: head,
+    headRefName: 'chore/final-release-qualification',
+    headRepository: { nameWithOwner: 'relativityE/speaksharp' },
+    baseRefName: 'main',
+    baseRefOid: 'b'.repeat(40),
+    baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
+    files: { nodes: [{ path: 'scripts/collect-review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
+    reviews: { nodes: [], pageInfo: { hasPreviousPage: false } },
+    reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    comments,
+    timelineItems: { nodes: [{ createdAt: '2026-09-10T09:00:00Z' }] },
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  function serve(pages, failAt = -1) {
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      // #1438 PM RETURN `5639978861`: the branch activity read, answered without consuming a comment page.
+      if (String(url).includes('/activity?')) {
+        return { ok: true, status: 200, json: async () => ([{ activity_type: 'push', after: head, timestamp: '2026-09-10T08:00:00Z' }]) };
+      }
+      const index = call++;
+      if (index === failAt) return { ok: false, status: 502, json: async () => ({}) };
+      const comments = pages[Math.min(index, pages.length - 1)];
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { repository: { pullRequest: base(comments) } } }),
+      };
+    }));
+  }
+
+  it('CASUALTY: a clean exact-head result on an older page is loaded and qualifies', async () => {
+    serve([
+      { nodes: [{ id: 'newer', author: { login: 'human' }, body: 'status', createdAt: '2026-09-10T11:00:00Z' }], pageInfo: { hasPreviousPage: true, startCursor: 'cursor-1' } },
+      { nodes: [clean], pageInfo: { hasPreviousPage: false, startCursor: 'cursor-0' } },
+    ]);
+    const pullRequest = await readPullRequest({ repository: 'relativityE/speaksharp', number: 1430, token: 'token' });
+    const commentPageReads = globalThis.fetch.mock.calls
+      .filter(([, init]) => JSON.parse(init?.body ?? '{}').query?.includes('comments(last:100,before:$commentsBefore)'));
+    expect(commentPageReads).toHaveLength(2);
+    expect(pullRequest.comments.nodes.map(({ id }) => id)).toEqual(['old-clean', 'newer']);
+    expect(buildReviewReceipt({ pullRequest, expectedHeadSha: head }).qualified).toBe(true);
+  });
+
+  it('CASUALTY: a later exact-head finding comment is retained and blocks', async () => {
+    const finding = {
+      id: 'new-p1', author: bot, createdAt: '2026-09-10T12:00:00Z',
+      body: `P1 Badge — current finding\n\n**Reviewed commit:** \`${head.slice(0, 10)}\``,
+    };
+    serve([
+      { nodes: [finding], pageInfo: { hasPreviousPage: true, startCursor: 'cursor-1' } },
+      { nodes: [clean], pageInfo: { hasPreviousPage: false, startCursor: 'cursor-0' } },
+    ]);
+    const pullRequest = await readPullRequest({ repository: 'relativityE/speaksharp', number: 1430, token: 'token' });
+    const receipt = buildReviewReceipt({ pullRequest, expectedHeadSha: head });
+    expect(receipt.qualified).toBe(false);
+    expect(receipt.findingCount).toBe(1);
+  });
+
+  it('CASUALTY: a page failure and cap exhaustion both remain incomplete', async () => {
+    const truncated = { nodes: [clean], pageInfo: { hasPreviousPage: true, startCursor: 'cursor-1' } };
+    serve([truncated], 1);
+    const failed = await readPullRequest({ repository: 'relativityE/speaksharp', number: 1430, token: 'token' });
+    expect(buildReviewReceipt({ pullRequest: failed, expectedHeadSha: head }).reasons)
+      .toContain('issue_comments_incomplete');
+
+    vi.unstubAllGlobals();
+    serve([truncated]);
+    const capped = await readPullRequest({
+      repository: 'relativityE/speaksharp', number: 1430, token: 'token', pageCap: 1,
+    });
+    expect(buildReviewReceipt({ pullRequest: capped, expectedHeadSha: head }).reasons)
+      .toContain('issue_comments_incomplete');
+  });
+});

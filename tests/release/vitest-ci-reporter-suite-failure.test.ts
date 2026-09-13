@@ -60,6 +60,57 @@ describe('Vitest CI reporter failure accounting', () => {
                 error: expect.stringContaining('ShieldCheck'),
             }),
         ]);
+        expect(results.testFiles).toEqual([]);
+    });
+
+    it('emits only files with a passed assertion as machine-readable execution receipts', () => {
+        const tempDir = mkdtempSync(join(tmpdir(), 'speaksharp-vitest-reporter-files-'));
+        tempDirs.push(tempDir);
+        cwdSpy.mockReturnValue(tempDir);
+        Object.defineProperty(process, 'send', {
+            value: undefined,
+            configurable: true,
+            writable: true,
+        });
+        const file = join(tempDir, 'frontend/src/lib/__tests__/pdfGenerator.test.ts');
+        new VitestCIReporter().onFinished([{ filepath: file, name: file, tasks: [{
+            name: 'exports a metrics-only PDF',
+            type: 'test',
+            result: { state: 'pass', duration: 3 },
+            meta: { assertionCalls: 1 },
+        }] }]);
+        const results = JSON.parse(readFileSync(join(tempDir, 'test-results/unit/results.json'), 'utf8'));
+        expect(results.testFiles).toEqual(['frontend/src/lib/__tests__/pdfGenerator.test.ts']);
+    });
+
+    it('does not qualify a passing file when no assertion executed', () => {
+        const results = runReporter([{
+            filepath: 'tests/release/required-path.test.ts',
+            tasks: [{
+                name: 'returns without checking anything',
+                type: 'test',
+                result: { state: 'pass', duration: 1 },
+                meta: { assertionCalls: 0 },
+            }],
+        }]);
+
+        expect(results.numPassedTests).toBe(1);
+        expect(results.numAssertedTests).toBe(0);
+        expect(results.testFiles).toEqual([]);
+    });
+
+    it('does not qualify a collected file whose tests are all skipped or todo', () => {
+        const results = runReporter([{
+            filepath: 'tests/release/required-path.test.ts',
+            tasks: [
+                { name: 'skipped', type: 'test', result: { state: 'skip' } },
+                { name: 'todo', type: 'test', mode: 'todo' },
+            ],
+        }]);
+
+        expect(results.numPassedTests).toBe(0);
+        expect(results.numPendingTests).toBe(2);
+        expect(results.testFiles).toEqual([]);
     });
 
     it('does not double-count a failed suite that already contains a failed child test', () => {

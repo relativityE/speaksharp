@@ -198,7 +198,7 @@ test.describe('Post-save consolidation', () => {
 
     // #1306 Step 3: the two properties are now DISTINCT and both matter.
     //  - the LIVE session-page transcript is still ephemeral working memory (asserted purged above);
-    //  - the SAVED review retains it for the newest two sessions, so the detail DOES render it.
+    //  - the SAVED review retains it for the NEWEST session, so the detail DOES render it.
     // Conflating the two was the superseded contract.
     await expect(page.getByTestId('session-detail-transcript')).toHaveCount(1);
     await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);

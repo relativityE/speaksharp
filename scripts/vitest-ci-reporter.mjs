@@ -38,8 +38,12 @@ export default class VitestCIReporter {
             tasks.forEach(task => {
                 const titlePath = [...ancestors, task.name].filter(Boolean);
                 if (task.type === 'test') {
-                    if (task.result?.state === 'pass') stats.passed++;
+                    if (task.result?.state === 'pass') {
+                        stats.passed++;
+                        if (Number(task.meta?.assertionCalls) > 0) stats.asserted++;
+                    }
                     else if (task.result?.state === 'fail') recordFailure(task, stats, titlePath);
+                    else stats.pending++;
                     stats.total++;
                     stats.totalDuration += (task.result?.duration || 0);
                 } else {
@@ -56,8 +60,22 @@ export default class VitestCIReporter {
             });
         };
 
-        const stats = { passed: 0, failed: 0, failedSuites: 0, total: 0, totalDuration: 0, failures: [] };
+        const stats = { passed: 0, asserted: 0, failed: 0, pending: 0, failedSuites: 0, total: 0, totalDuration: 0, failures: [] };
+        const passedFiles = new Set();
+        /**
+         * #1430 P1 — WHICH FILES SKIPPED SOMETHING, so a release path cannot be signed off on a
+         * neighbour's passing test.
+         *
+         * `passedFiles` admits a file as soon as ONE test in it asserted. A manifest-listed
+         * release-path file could therefore contain one passing test and a SKIPPED casualty, land in
+         * `testFiles`, and satisfy the meaningful-coverage requirement without the acceptance criterion
+         * ever having run. Recording the skip per file lets the validator reject that precisely,
+         * instead of rejecting every skip in the suite — most of which are not on a release path.
+         */
+        const skippedFiles = new Set();
         files.forEach((f) => {
+            const assertedBefore = stats.asserted;
+            const pendingBefore = stats.pending;
             if (f.tasks) {
                 const failuresBeforeChildren = stats.failed;
                 countTests(f.tasks, stats, [f.name || f.filepath].filter(Boolean));
@@ -72,6 +90,8 @@ export default class VitestCIReporter {
                 stats.total++;
                 stats.totalDuration += (f.result?.duration || 0);
             }
+            if (stats.asserted > assertedBefore) passedFiles.add(f);
+            if (stats.pending > pendingBefore) skippedFiles.add(f);
         });
 
         // Ensure correct IPC discriminator handling
@@ -88,13 +108,33 @@ export default class VitestCIReporter {
         const resultsDir = path.join(rootDir, 'test-results', 'unit');
         if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });
 
+        const normalizePath = (file) => {
+            const raw = file.filepath || file.name || file.file?.filepath || file.file?.name;
+            if (typeof raw !== 'string' || raw.trim() === '') return null;
+            const normalized = path.isAbsolute(raw) ? path.relative(rootDir, raw) : raw;
+            return normalized.replaceAll(path.sep, '/').replace(/^\.\//, '');
+        };
+        const skippedTestFiles = [...new Set([...skippedFiles]
+            .map(normalizePath)
+            .filter((file) => file && !file.startsWith('../')))];
+
+        const testFiles = [...new Set([...passedFiles].map((file) => {
+            const raw = file.filepath || file.name || file.file?.filepath || file.file?.name;
+            if (typeof raw !== 'string' || raw.trim() === '') return null;
+            const normalized = path.isAbsolute(raw) ? path.relative(rootDir, raw) : raw;
+            return normalized.replaceAll(path.sep, '/').replace(/^\.\//, '');
+        }).filter((file) => file && !file.startsWith('../')))];
+
         const bridge = {
             numPassedTests: stats.passed,
+            numAssertedTests: stats.asserted,
             numFailedTests: stats.failed,
             numFailedSuites: stats.failedSuites,
             numTotalTests: stats.total,
             totalDuration: stats.totalDuration,
-            numPendingTests: 0,
+            numPendingTests: stats.pending,
+            testFiles,
+            skippedTestFiles,
             failures: stats.failures,
         };
         fs.writeFileSync(path.join(resultsDir, 'results.json'), JSON.stringify(bridge, null, 2));

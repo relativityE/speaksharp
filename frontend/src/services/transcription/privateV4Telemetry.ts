@@ -9,14 +9,16 @@
  *
  * These events are emitted only when v4 is the selected engine (callers gate on the
  * flag / resolved variant). Emission NEVER throws — telemetry must not affect the
- * transcription path. This module has no side effects beyond an optional
- * `posthog.capture` + a structured internal log.
+ * transcription path. Analytics leaves through the ONE governed boundary
+ * (`AnalyticsBuffer`), never a direct `posthog.capture`; a structured internal log
+ * is the module's only other side effect.
  *
  * Stage gating: this is wired into the v4 lifecycle ONLY after v4 lands inert on
  * main (task #84). The module itself is inert until its emitters are called.
  */
-import posthog from 'posthog-js';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import logger from '@/lib/logger';
+import { sanitizeV4TelemetryProps, type V4TelemetryProps } from './privateV4TelemetrySanitizer';
 
 export const V4_TELEMETRY_EVENTS = {
     ATTEMPT: 'private_stt_v4_attempt',
@@ -29,61 +31,16 @@ export const V4_TELEMETRY_EVENTS = {
 
 export type V4TelemetryEvent = typeof V4_TELEMETRY_EVENTS[keyof typeof V4_TELEMETRY_EVENTS];
 
-/**
- * The ONLY property keys allowed to leave the client. Every key here is non-PII
- * engineering/outcome metadata. Anything not in this list is dropped by
- * `sanitizeV4TelemetryProps` before it can reach PostHog or the logs.
- */
-export const V4_TELEMETRY_ALLOWED_PROPS = [
-    'engine',
-    'variant',
-    'model',
-    'dtype',
-    'requestedDevice',
-    'resolvedDevice',
-    'webgpuAvailable',
-    'fallbackAttempted',
-    'fallbackReason',
-    'loadMs',
-    'decodeMs',
-    'rtf',
-    'recordStarted',
-    'stopSucceeded',
-    'saved',
-    'historyOpened',
-    'errorClass',
-] as const;
-
-export type V4TelemetryProp = typeof V4_TELEMETRY_ALLOWED_PROPS[number];
-export type V4TelemetryProps = Partial<Record<V4TelemetryProp, string | number | boolean | null>>;
-
-const ALLOWED = new Set<string>(V4_TELEMETRY_ALLOWED_PROPS);
-
-/**
- * Project arbitrary input down to the allowlist. Anything not enumerated (email,
- * transcript, audio, stack, provider payload, secrets, …) is DROPPED. `undefined`
- * values are omitted; `null` is preserved (meaningful "absent"). Only primitives
- * survive — objects/arrays are dropped so a nested PII blob can never ride along.
- */
-export function sanitizeV4TelemetryProps(input?: Record<string, unknown>): V4TelemetryProps {
-    const out: V4TelemetryProps = {};
-    if (!input) return out;
-    for (const key of Object.keys(input)) {
-        if (!ALLOWED.has(key)) continue; // allowlist: silently drop everything else
-        const value = input[key];
-        if (value === undefined) continue;
-        if (
-            value === null ||
-            typeof value === 'string' ||
-            typeof value === 'number' ||
-            typeof value === 'boolean'
-        ) {
-            out[key as V4TelemetryProp] = value;
-        }
-        // objects/arrays/functions are intentionally dropped (potential PII containers).
-    }
-    return out;
-}
+// The allowlist and its projection moved to `privateV4TelemetrySanitizer` so the governed capture
+// boundary can import them without a cycle. Re-exported here because existing call sites and tests
+// import them from this module.
+export {
+    V4_TELEMETRY_ALLOWED_PROPS,
+    isV4TelemetryEvent,
+    type V4TelemetryProp,
+    type V4TelemetryProps,
+} from './privateV4TelemetrySanitizer';
+export { sanitizeV4TelemetryProps };
 
 /**
  * Emit a v4 telemetry event with allowlisted props. Never throws. `userId` is NOT a
@@ -91,15 +48,17 @@ export function sanitizeV4TelemetryProps(input?: Record<string, unknown>): V4Tel
  */
 export function emitV4Telemetry(event: V4TelemetryEvent, props?: Record<string, unknown>): void {
     try {
-        const safe = sanitizeV4TelemetryProps(props);
-        logger.info({ ...safe, event }, '[V4_TELEMETRY]');
-        try {
-            posthog?.capture?.(event, safe);
-        } catch {
-            /* posthog optional — never let analytics break the STT path */
-        }
+        // The LOG keeps its local projection: it is a different sink with a different lifetime, and it
+        // must stay content-free on its own terms rather than by trusting the analytics path.
+        logger.info({ ...sanitizeV4TelemetryProps(props), event }, '[V4_TELEMETRY]');
+        // ANALYTICS GOES THROUGH THE ONE BOUNDARY. Not `posthog.capture` — that bypassed the envelope,
+        // so these three live events carried no release, no traffic type, no model attribution and no
+        // correlation identity, and were invisible to the schema registry. The buffer re-projects
+        // `private_stt_v4_*` through this same allowlist at send time, so the projection is applied at
+        // the boundary rather than only here, where a caller could skip it.
+        analyticsBuffer.push(event, props, 'LOW');
     } catch {
-        /* sanitize/log must never throw into the transcription path */
+        /* telemetry must never throw into the transcription path */
     }
 }
 

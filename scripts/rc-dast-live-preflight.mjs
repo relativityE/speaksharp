@@ -1,8 +1,15 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
+import { runEvidenceTargetPreflight } from './rc-evidence-target-preflight.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
+
+const evidenceTarget = await runEvidenceTargetPreflight();
+if (evidenceTarget.evidenceScope !== 'diagnostic' && !evidenceTarget.releaseProofEligible) {
+  console.error(`RC_DAST_LIVE_PREFLIGHT_FAILED\n- evidence target: ${evidenceTarget.reasons.join(', ')}`);
+  process.exit(1);
+}
 
 const groups = [
   {

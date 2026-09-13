@@ -2,6 +2,7 @@ import type { TranscriptionMode } from '@/services/transcription/TranscriptionPo
 import type { NextActionSignal } from '@/contracts/nextActionSignal';
 import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 import { readPersistedFillerCounts } from '@/contracts/fillerCounts';
+import { sanitizeRecordingSubject, type RecordingSubject } from '@/services/telemetry/recordingSubject';
 
 const RECOVERY_DRAFT_KEY = 'speaksharp_unsaved_session_draft';
 
@@ -42,6 +43,12 @@ export interface SessionRecoveryDraft {
   metrics: RecoveryMetrics;
   /** Present ONLY for `finalized_pending_save`; an `active_interrupted` draft never carries a next action. */
   nextActionSignal?: NextActionSignal | null;
+  /**
+   * #1421 Option A — the take's immutable subject identity, so a Retry Save or a reload can still name the take
+   * whose server attribution verdict settles. Content-free opaque ids only. Null when absent or invalid: such a
+   * draft stays recoverable for the user and simply contributes no qualifying model evidence.
+   */
+  subject?: RecordingSubject | null;
   savedAt: string;
 }
 
@@ -129,6 +136,8 @@ export function saveSessionRecoveryDraft(draft: Omit<SessionRecoveryDraft, 'save
     mode: draft.mode ?? 'unknown',
     metrics: sanitizeMetrics(draft.metrics),
     nextActionSignal: recoveryState === 'finalized_pending_save' ? nextAction : null,
+    // Validated at the WRITE boundary: a malformed identity is not persisted.
+    subject: sanitizeRecordingSubject(draft.subject),
     savedAt: new Date().toISOString(),
   };
 
@@ -177,6 +186,8 @@ export function getSessionRecoveryDraft(): SessionRecoveryDraft | null {
       mode: (parsed.mode as SessionRecoveryDraft['mode']) ?? 'unknown',
       metrics: sanitizeMetrics(parsed.metrics as RecoveryMetrics | undefined),
       nextActionSignal: nextAction, // finalized → valid action here; interrupted → null
+      // Re-validated at the READ boundary: a tampered or legacy value names no take.
+      subject: sanitizeRecordingSubject(parsed.subject),
       savedAt: (parsed.savedAt as string | undefined) ?? new Date(0).toISOString(),
     };
   } catch {

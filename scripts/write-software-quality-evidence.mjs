@@ -1,5 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import {
+  COVERAGE_RELEASE_FLOOR,
+  assertSoftwareQualityEvidence,
+  parseCiAuditOverride,
+} from './lib/softwareQualityEvidenceQualification.mjs';
 
 const METRICS_FILE = path.resolve(process.cwd(), 'test-results/metrics.json');
 const CI_AUDIT_FILE = path.resolve(process.cwd(), 'test-results/ci-audit.md');
@@ -7,6 +12,7 @@ const COVERAGE_FILE = path.resolve(process.cwd(), 'frontend/coverage/coverage-su
 const EVIDENCE_DIR = path.resolve(process.cwd(), 'product_release/evidence');
 const JSON_EVIDENCE_FILE = path.join(EVIDENCE_DIR, 'software-quality.latest.json');
 const MD_EVIDENCE_FILE = path.join(EVIDENCE_DIR, 'software-quality-summary.latest.md');
+const CI_METRICS_FILE = path.resolve(process.cwd(), 'artifacts/ci-metrics.json');
 
 const QUALITY_TARGETS = {
   tests: {
@@ -15,7 +21,7 @@ const QUALITY_TARGETS = {
     totalRuntimeMaxMinutes: 15,
   },
   coverage: {
-    releaseFloor: 60,
+    releaseFloor: COVERAGE_RELEASE_FLOOR,
     industryTarget: 80,
   },
   lighthouse: {
@@ -34,44 +40,9 @@ const QUALITY_TARGETS = {
 
 console.log('[QualityMetrics] Starting software quality evidence generation.');
 
-function matchNumber(content, regex) {
-  const match = content.match(regex);
-  return match ? Number(match[1]) : null;
-}
-
 function readCiAuditOverride() {
   if (!fs.existsSync(CI_AUDIT_FILE)) return null;
-
-  const content = fs.readFileSync(CI_AUDIT_FILE, 'utf-8');
-  const unitPassed = matchNumber(content, /Unit Tests[\s\S]*?- \*\*Passed\*\*:\s*(\d+)\s*\/\s*\d+/);
-  const unitTotal = matchNumber(content, /Unit Tests[\s\S]*?- \*\*Passed\*\*:\s*\d+\s*\/\s*(\d+)/);
-  const e2ePassed = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*(\d+)\s*\/\s*\d+/);
-  const e2eTotal = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*\d+\s*\/\s*(\d+)/);
-
-  if (unitPassed === null || unitTotal === null || e2ePassed === null || e2eTotal === null) {
-    return null;
-  }
-
-  return {
-    unit_tests: {
-      passed: unitPassed,
-      failed: 0,
-      skipped: Math.max(0, unitTotal - unitPassed),
-      total: unitTotal,
-    },
-    e2e_tests: {
-      passed: e2ePassed,
-      failed: 0,
-      skipped: Math.max(0, e2eTotal - e2ePassed),
-      total: e2eTotal,
-    },
-    lighthouse: {
-      performance: matchNumber(content, /- \*\*Performance\*\*:\s*(\d+)/),
-      accessibility: matchNumber(content, /- \*\*Accessibility\*\*:\s*(\d+)/),
-      best_practices: matchNumber(content, /- \*\*Best Practices\*\*:\s*(\d+)/),
-      seo: matchNumber(content, /- \*\*SEO\*\*:\s*(\d+)/),
-    },
-  };
+  return parseCiAuditOverride(fs.readFileSync(CI_AUDIT_FILE, 'utf-8'));
 }
 
 function readCoverage(metrics) {
@@ -115,22 +86,32 @@ function readMetrics() {
   return JSON.parse(fs.readFileSync(METRICS_FILE, 'utf-8'));
 }
 
+function readLogicalRuntimeSeconds() {
+  if (!fs.existsSync(CI_METRICS_FILE)) return null;
+  const ciMetrics = JSON.parse(fs.readFileSync(CI_METRICS_FILE, 'utf-8'));
+  const milliseconds = Number(ciMetrics?.totals?.logicalTimeMs);
+  return Number.isFinite(milliseconds) && milliseconds > 0 ? Math.ceil(milliseconds / 1000) : null;
+}
+
 function buildEvidence() {
   const metrics = readMetrics();
   const ciAuditOverride = readCiAuditOverride();
-  const unitTests = ciAuditOverride?.unit_tests ?? metrics.unit_tests ?? { passed: 0, failed: 0, skipped: 0, total: 0 };
-  const e2eTests = ciAuditOverride?.e2e_tests ?? metrics.e2e_tests ?? { passed: 0, failed: 0, skipped: 0, total: 0 };
+  // The metrics JSON is assembled from the canonical shard artifacts. The Markdown report is a
+  // presentation layer and may legitimately be absent or stale; it must never replace canonical counts.
+  const unitTests = metrics.unit_tests ?? ciAuditOverride?.unit_tests ?? null;
+  const e2eTests = metrics.e2e_tests ?? ciAuditOverride?.e2e_tests ?? null;
   const hasCurrentLighthouseMetrics = metrics.lighthouse && Object.values(metrics.lighthouse).some(value => Number(value) > 0);
   const lighthouse = hasCurrentLighthouseMetrics ? metrics.lighthouse : ciAuditOverride?.lighthouse ?? null;
   const coverage = readCoverage(metrics);
   const performance = metrics.performance ?? {};
 
-  const e2eTotal = e2eTests.total ?? ((e2eTests.passed || 0) + (e2eTests.failed || 0) + (e2eTests.skipped || 0));
-  const totalTests = (unitTests.total || 0) + e2eTotal;
-  const passingTests = (unitTests.passed || 0) + (e2eTests.passed || 0);
-  const failingTests = (unitTests.failed || 0) + (e2eTests.failed || 0);
-  const skippedTests = (unitTests.skipped || 0) + (e2eTests.skipped || 0);
-  const totalRuntimeSeconds = metrics.total_runtime_seconds || 0;
+  const e2eTotal = e2eTests?.total ?? ((e2eTests?.passed || 0) + (e2eTests?.failed || 0) + (e2eTests?.skipped || 0));
+  const totalTests = (unitTests?.total || 0) + e2eTotal;
+  const passingTests = (unitTests?.passed || 0) + (e2eTests?.passed || 0);
+  const failingTests = (unitTests?.failed || 0) + (e2eTests?.failed || 0);
+  const skippedTests = (unitTests?.skipped || 0) + (e2eTests?.skipped || 0);
+  const recordedRuntime = Number(metrics.total_runtime_seconds);
+  const totalRuntimeSeconds = recordedRuntime > 0 ? recordedRuntime : readLogicalRuntimeSeconds();
 
   return {
     schemaVersion: 1,
@@ -150,7 +131,7 @@ function buildEvidence() {
       skipped: skippedTests,
       unit: unitTests,
       e2e: {
-        ...e2eTests,
+        ...(e2eTests ?? {}),
         total: e2eTotal,
       },
     },
@@ -226,6 +207,8 @@ GitHub run: ${evidence.run.githubRunId ?? 'local/unavailable'}
 
 try {
   const evidence = buildEvidence();
+  const qualification = assertSoftwareQualityEvidence(evidence);
+  evidence.qualification = { status: 'valid', ...qualification };
   fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
   fs.writeFileSync(JSON_EVIDENCE_FILE, JSON.stringify(evidence, null, 2));
   fs.writeFileSync(MD_EVIDENCE_FILE, renderMarkdown(evidence));

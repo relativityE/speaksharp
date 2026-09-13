@@ -2,6 +2,14 @@ name: Service-Level Evidence
 
 on:
   workflow_dispatch:
+    inputs:
+      qualification_stages:
+        description: >-
+          Comma-separated UI stages this run exercises: share_feedback, session_during,
+          session_after_open_mic, session_after_focus_points. Falls back to the
+          TELEMETRY_QUALIFICATION_STAGES repository variable when omitted.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -159,6 +167,39 @@ jobs:
             }
             console.log('Service-level evidence passed and counts as release evidence.');
           "
+
+      - name: Qualify telemetry readback (fail closed)
+        env:
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          RELEASE_SHA: ${{ github.sha }}
+          # The controlled journey this qualification is scoped to. Completeness is a property of ONE
+          # pass through the product: without this the readback would union unrelated users, tabs and
+          # attempts into an apparently-complete set. Absent, the script HOLDs rather than guessing.
+          TELEMETRY_QUALIFICATION_JOURNEY_ID: ${{ vars.TELEMETRY_QUALIFICATION_JOURNEY_ID }}
+          # The class the controlled run ACTUALLY carries. `internal` is reserved for a build Production
+          # users never receive, so hard-coding it matched nothing on the deployment this qualifies and
+          # HELD even when the journey had been ingested perfectly. Named by the operator alongside the
+          # journey; an unrecognised class HOLDs rather than silently matching zero rows.
+          TELEMETRY_QUALIFICATION_TRAFFIC_TYPE: ${{ vars.TELEMETRY_QUALIFICATION_TRAFFIC_TYPE }}
+          # #1421 P1 — THE UI STAGES THIS RUN EXERCISED, or the qualification cannot start.
+          #
+          # The evaluator requires the run to DECLARE its stages: an Open Mic run legitimately produces
+          # no Focus Points coverage, so requiring every stage of every run would hold on honest
+          # evidence — while inferring the stage from what arrived is worse, because a run that silently
+          # produced nothing for a stage would qualify by appearing not to have exercised it.
+          #
+          # Supplied here because nothing else sets it. Without this line the script always took the
+          # empty-declaration branch and every otherwise-valid Service-Level Evidence run HELD before
+          # reading a single row. The dispatch input wins so an operator can scope one run; the
+          # repository variable is the standing default. Absent both, the script HOLDs — deliberately,
+          # because an undeclared run has claimed nothing.
+          QUALIFICATION_STAGES: ${{ inputs.qualification_stages || vars.TELEMETRY_QUALIFICATION_STAGES }}
+        # No `if: always()` and no `continue-on-error`. This step's exit status GOVERNS: the evaluator
+        # exits non-zero on HOLD, and a HOLD must fail the release evidence job rather than be recorded
+        # beside a green one. A qualification that cannot fail the build is a report, not a gate.
+        run: pnpm telemetry:readback-qualification
 
       - name: Upload service-level evidence
         if: always()

@@ -10,6 +10,7 @@ import {
     type ObjectiveBriefResult,
     type ObjectiveBriefFailureReason,
 } from '@/services/objective/objectiveBriefService';
+import { emitJourneyStep } from '@/services/telemetry/journeyStep';
 
 /**
  * #1046 G2 slice 2 — Focus Points capture form.
@@ -140,6 +141,21 @@ export function ObjectiveSetupForm({
             result = { ok: false, reason: 'error' };
         }
         if (result.ok && result.briefId && result.projectId) {
+            // #1259 F03 — THE CONTROL SAYS "Start speaking" AND NAVIGATES. `MicCard` uses almost the
+            // same words for the control that actually starts recording, so a user reading this as a
+            // promise arrives at a page that waits for a second click. `cta_id` is a checked-in
+            // identifier rather than the visible label: copy will change, and the identity of the
+            // control is what has to stay comparable across that change.
+            emitJourneyStep({
+                step: 'setup_submitted',
+                ctaId: 'objective_setup_primary',
+                ctaAction: 'navigate',
+                productMode: 'objective',
+                // F18 — the count the user ENTERED, recorded where entry happens. The persisted and
+                // evaluated counts come from their own authorities; the three are comparable by
+                // journey, which is what makes displacement answerable rather than suspected.
+                pointsEntered: labelledPoints.length,
+            });
             onReady?.({
                 briefId: result.briefId,
                 projectId: result.projectId,

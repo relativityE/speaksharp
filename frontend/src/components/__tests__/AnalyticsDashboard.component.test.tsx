@@ -658,7 +658,7 @@ describe('AnalyticsDashboard', () => {
         it('expired shows the retention explanation and keeps metrics visible', () => {
             renderDetail({ transcript_state: 'expired', transcript: null });
             expect(screen.getByTestId('session-detail-transcript-expired')).toBeInTheDocument();
-            // Metrics survive expiry — that is the whole point of newest-two retention.
+            // Metrics survive expiry — that is the whole point of newest-one retention.
             expect(screen.getByTestId('filler-count-value')).toHaveTextContent('1');
         });
 

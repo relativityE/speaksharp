@@ -100,3 +100,16 @@ export function formatQualification(decision) {
     : `NOT MERGE-QUALIFIED: ${decision.reasons.join(', ')}`);
   return lines.join('\n');
 }
+
+/**
+ * A push to the default branch verifies code that is already merged. It must never mint or preserve
+ * a pre-merge authority claim, even when every product job passes.
+ */
+export function formatPostMergeVerification(decision) {
+  const lines = decision.evaluated.map(({ job, result }) =>
+    `${result === PASSING ? 'ok  ' : 'FAIL'}  ${job}: ${result}`);
+  lines.push(decision.qualified
+    ? 'POST-MERGE VERIFIED: every required product job reported success; not merge qualification authority'
+    : `POST-MERGE VERIFICATION FAILED: ${decision.reasons.join(', ')}`);
+  return lines.join('\n');
+}

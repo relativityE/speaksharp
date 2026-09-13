@@ -213,6 +213,33 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
     });
 
+    it('P1 CASUALTY: Open Mic after-state keeps Practice this again, and it starts a new take', () => {
+        // `practiceLoopReview` is always an element once a session completes, and passing it as
+        // `slotDContent` REPLACED the default verdict instead of adding to it — taking `Practice this
+        // again` with it. That is the only desktop control wired to `onStartStop`, and `MobileActionBar`
+        // is hidden at `md`, so a desktop user finishing a session had no way to start another take.
+        const onStartStop = vi.fn();
+        render(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                onStartStop={onStartStop}
+                practiceLoopReview={<div data-testid="review-slot">the review</div>}
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+
+        // Both are present: the review did not evict the verdict.
+        const practiceAgain = screen.getByTestId('verdict-practice-again');
+        expect(practiceAgain).toBeInTheDocument();
+        expect(screen.getByTestId('review-slot')).toBeInTheDocument();
+        expect(screen.getByTestId('open-mic-practice-loop-review')).toBeInTheDocument();
+
+        // And it actually starts a take rather than merely rendering.
+        fireEvent.click(practiceAgain);
+        expect(onStartStop).toHaveBeenCalledTimes(1);
+    });
+
     it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
         // Production shape after #1423: finalization PURGES working memory, and the retained transcript
         // arrives from the server as the review authority. A fixture that leaves words in the buffer models
@@ -271,6 +298,50 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
         expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
     });
+
+    it.each(['expired', 'not_captured'] as const)(
+        'CASUALTY: a terminally %s transcript renders coverage-unavailable, never the Open Mic card',
+        (kind) => {
+            /**
+             * #1427 P1 — SHIPPED, and this is the casualty that pins it.
+             *
+             * `coverageTerminallyUnavailable` required `kind === 'available'`, and
+             * `coverageMayBecomeAvailable` requires `kind === 'unavailable'`. For these two terminal
+             * kinds BOTH were false, so slot C fell through to `undefined` and `SessionAfterState`
+             * rendered the generic Open Mic `ProgressVsBaseline` card — a different product's summary
+             * presented as this Focus Points take's result.
+             *
+             * The existing `available` test above could not catch it: that kind satisfied the old
+             * predicate, so the one state that worked was the only one covered. Parameterised over
+             * both terminal kinds because fixing one and not the other is the likeliest partial fix.
+             */
+            render(
+                <SessionOverhaulView
+                    {...base}
+                    objectivePoints={POINTS}
+                    /**
+                     * STALE COVERAGE, NOT NULL. A save can publish `objectiveCoverageResult` and THEN
+                     * fail transcript retention, so the array outlives the transcript it described.
+                     * My first version passed `null` here, which is the easy half: the predicate also
+                     * required `objectiveCoverage === null`, so a surviving array sent slot C to the
+                     * generic Open Mic card with a fabricated "+0% fewer fillers".
+                     */
+                    objectiveCoverage={[
+                        { briefPointId: 'fp-0', point: POINTS[0], status: 'covered' },
+                        { briefPointId: 'fp-1', point: POINTS[1], status: 'missing' },
+                    ] as never}
+                    showAnalyticsPrompt
+                    transcriptContent=""
+                    reviewTranscript={{ kind }}
+                />,
+            );
+            expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
+            // The specific wrong outcome, asserted directly: the Open Mic summary must not stand in.
+            expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
+            // And it must not claim coverage is still coming — this transcript is never coming back.
+            expect(screen.queryByTestId('coverage-awaiting-transcript')).toBeNull();
+        },
+    );
 
     it('keeps partial stop-seam evidence distinct from a full detection in the terminal rail', () => {
         render(

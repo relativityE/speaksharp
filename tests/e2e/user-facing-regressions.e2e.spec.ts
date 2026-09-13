@@ -27,7 +27,7 @@ test.describe('User-facing session and analytics regressions', () => {
     await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText('tester-facing transcript');
   });
 
-  test('shows the coaching verdict after speech is captured', async ({ page }) => {
+  test('offers the after-state actions and fabricates no verdict prose', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session?coaching=treatment');
     await selectTranscriptionEngine(page, 'private');
@@ -38,7 +38,17 @@ test.describe('User-facing session and analytics regressions', () => {
 
     // #1231/#1222: the retired live-coaching SCORE card (`live-coaching-score-card`, `live-session-score`,
     // `score-help`, `live-score-*`, `live-coaching-actions`) is replaced by the coaching verdict surface.
-    // After a captured session the after-state coaching card resolves to the verdict + one fix.
+    //
+    // #1422 — THIS TEST USED TO ASSERT THE FABRICATION. It required a non-empty `verdict-line` and a
+    // visible `verdict-fix` after any captured session. Nothing produced them: the coaching prose source
+    // is retired (#1306), so `aiSuggestions` is always undefined and `verdictFromSuggestions` manufactured
+    // "Session review not requested." plus a filler-derived fix — rendered directly ABOVE the real
+    // generated 1+1 review, so the screen denied the review while displaying it. The test passed because
+    // the defect was reliable.
+    //
+    // What the after-state actually owes the user is the two ACTIONS, which are not coaching:
+    // `Practice this again` is the only desktop control wired to start the next take (`MobileActionBar`
+    // is hidden at `md`). The absence of the prose is asserted as strictly as its presence once was.
     await page.waitForTimeout(5_200);
     await stopRecording(page);
 
@@ -46,8 +56,46 @@ test.describe('User-facing session and analytics regressions', () => {
     await expect(coaching).toBeVisible({ timeout: 15_000 });
     await expect(coaching).toHaveAttribute('data-coaching-state', 'after', { timeout: 15_000 });
     await expect(page.getByTestId('session-verdict')).toBeVisible();
-    await expect(page.getByTestId('verdict-line')).not.toHaveText('');
-    await expect(page.getByTestId('verdict-fix')).toBeVisible();
+
+    // The actions survive the removal of the prose.
+    await expect(page.getByTestId('verdict-practice-again')).toBeVisible();
+    await expect(page.getByTestId('verdict-see-all')).toBeVisible();
+
+    // And nothing invents a conclusion. `toHaveCount(0)` rather than `not.toBeVisible()`: a re-wired
+    // fabricator that rendered the line off-screen or empty would still be a fabricated verdict.
+    await expect(page.getByTestId('verdict-line')).toHaveCount(0);
+    await expect(page.getByTestId('verdict-fix')).toHaveCount(0);
+
+    // THE REAL REVIEW SURFACE IS WHERE COACHING LIVES NOW, and it must SETTLE. In this environment the
+    // provider answers with a malformed body (`INVALID_REVIEW_RESPONSE`), which is precisely the case
+    // worth pinning: the honest outcome is a card that says the review is unavailable, not one that
+    // spins forever and not a fabricated verdict standing in for it.
+    await expect(page.getByTestId('open-mic-practice-loop-review')).toBeVisible({ timeout: 15_000 });
+    const reviewCard = page.getByTestId('ai-suggestions-card');
+    await expect(reviewCard).toBeVisible();
+    await expect(reviewCard, 'the review settles rather than spinning')
+        .not.toHaveAttribute('data-review-state', 'loading', { timeout: 20_000 });
+
+    // AND IT BLOCKS NOTHING. A review that cannot be generated must not cost the user the session they
+    // just saved or the control that starts the next take.
+    //
+    // NOT `live-transcript`. My first version asserted that and CI answered "element(s) not found",
+    // correctly: #1306 purges ephemeral working memory at terminal, and the after-state deliberately
+    // renders the SERVER's transcript (`review-transcript`) or an honest notice about why it cannot
+    // (`review-transcript-notice`) — never the live buffer. Demanding the live surface here would have
+    // asserted the leak that purge exists to prevent, and a green version of it would have meant the
+    // product had regressed.
+    const savedTranscript = page.getByTestId('review-transcript');
+    const transcriptNotice = page.getByTestId('review-transcript-notice');
+    await expect
+        .poll(async () => await savedTranscript.count() + await transcriptNotice.count(),
+            { timeout: 15_000 })
+        .toBeGreaterThan(0);
+
+    // The saved session is still reachable, so the failed review cost the user nothing they recorded.
+    await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15_000 });
+    // And the only desktop control back into a recording still works.
+    await expect(page.getByTestId('verdict-practice-again')).toBeEnabled();
   });
 
   test('preserves metric parity from session to analytics detail after save and reload', async ({ page }) => {

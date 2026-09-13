@@ -45,6 +45,11 @@ describe('the envelope emits on the DEFAULT path, with nothing wired', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         clearResolvedEngine();
+        // The traffic claims are process-global on the buffer, not per-test state. Without an
+        // explicit reset a canary case classifies every test that follows it, and the failure lands
+        // in whichever test happens to run next.
+        analyticsBuffer.setCanaryClaim(false);
+        analyticsBuffer.setInternalTesterClaim(false);
         (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ = RELEASE;
     });
     afterEach(() => {
@@ -82,8 +87,10 @@ describe('the envelope emits on the DEFAULT path, with nothing wired', () => {
     });
 
     it('CASUALTY: a signed-in canary account is classified as canary, not user', async () => {
-        vi.stubEnv('VITE_CANARY_ACCOUNT_IDS', 'canary-account-1');
+        // The classification is a SERVER-ASSIGNED claim now, not a bundled account list. Stubbing an
+        // env var here proved the old mechanism; it proves nothing about the one that ships.
         analyticsBuffer.identify('canary-account-1');
+        analyticsBuffer.setCanaryClaim(true);
         const props = await captured('checkout_returned_success', {});
         expect(props?.traffic_type).toBe('canary');
     });

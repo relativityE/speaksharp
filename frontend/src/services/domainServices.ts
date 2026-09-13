@@ -112,22 +112,22 @@ export const sessionService = {
      */
     async create(session: Partial<PracticeSession> & { user_id: string }, idempotencyKey?: string): Promise<PracticeSession> {
         const { saveSession } = await import('@/lib/storage');
-        const { session: newSession, usageExceeded } = await saveSession(
+        const result = await saveSession(
             session,
             { subscription_status: 'free' } as UserProfile, // Mock profile for now
             session.engine || 'native',
             idempotencyKey
         );
 
-        if (usageExceeded) {
+        if (result.status === 'usage_exceeded') {
             throw new Error('Usage limit exceeded');
         }
 
-        if (!newSession) {
+        if (result.status === 'failed') {
             throw new Error('Failed to create session');
         }
 
-        return newSession;
+        return result.session;
     },
 
     /**

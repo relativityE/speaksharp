@@ -32,7 +32,7 @@ export interface PracticeSession {
   /** #1033 STT attribution lifecycle: legacy_unknown | pending | verified | unverified. */
   attribution_status?: import('@/constants/attributionStatus').AttributionStatus;
   /**
-   * The retained transcript — present only while this session is within the newest-two retention window; absent
+   * The retained transcript — present only while this session is the newest completed session (newest-one retention); absent
    * or empty once the server has expired it. NEVER infer expiry from emptiness: `transcript_state` is the
    * server-owned authority for that distinction (`available` / `expired` / `not_captured`).
    */

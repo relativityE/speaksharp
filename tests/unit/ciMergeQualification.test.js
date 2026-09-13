@@ -6,7 +6,12 @@
 // anything hand-written.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { evaluateMergeQualification, formatQualification, REQUIRED_JOBS } from '../../scripts/ci-merge-qualification.mjs';
+import {
+  evaluateMergeQualification,
+  formatPostMergeVerification,
+  formatQualification,
+  REQUIRED_JOBS,
+} from '../../scripts/ci-merge-qualification.mjs';
 
 /** A full lane where everything ran — real shape of main push run 32744959454 at e1b07886. */
 const ALL_SUCCESS = {
@@ -128,6 +133,22 @@ describe('CI-GATE merge qualification', () => {
     const text = formatQualification(d);
     expect(text).toContain('FAIL  e2e: skipped');
     expect(text).toContain('NOT MERGE-QUALIFIED');
+  });
+
+  it('a successful post-merge push reports verification without minting merge authority', () => {
+    const text = formatPostMergeVerification(
+      evaluateMergeQualification({ fullRequired: 'true', results: ALL_SUCCESS }),
+    );
+    expect(text).toContain('POST-MERGE VERIFIED');
+    expect(text).not.toContain('MERGE-QUALIFIED');
+  });
+
+  it('a failed post-merge push remains visibly failed', () => {
+    const text = formatPostMergeVerification(
+      evaluateMergeQualification({ fullRequired: 'true', results: withRequired({ e2e: 'failure' }) }),
+    );
+    expect(text).toContain('POST-MERGE VERIFICATION FAILED');
+    expect(text).toContain('e2e:failure');
   });
 
   // ---- The workflow must actually consume the decision ----

@@ -40,6 +40,7 @@
     // These specs drive the real app and read the same globals it declares, so they must see the
     // app's ambient Window augmentation rather than re-declaring it locally and drifting from it.
     "frontend/src/types/global.d.ts",
+    "scripts/telemetry-readback-qualification.mts",
     // `__APP_RUNTIME_CONFIG__` is augmented onto Window from inside this module's `declare global`,
     // so the augmentation only applies when the module is part of the program.
     "frontend/src/config/appRuntimeConfig.ts"

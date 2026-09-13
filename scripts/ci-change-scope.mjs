@@ -9,8 +9,11 @@
  * Pure `classifyChanges()` so it can be unit-tested; the CLI wrapper writes GitHub outputs.
  */
 
-/** Paths that always force the full lane: CI/orchestration, dependency, build/test config, DB. */
-const FULL_LANE_PATTERNS = [
+/**
+ * Paths that always force the full lane: CI/orchestration, dependency, build/test config, DB.
+ * Exported for `review-qualification.mjs`, which treats the same paths as substantive implementation.
+ */
+export const FULL_LANE_PATTERNS = [
     // CI / orchestration / tooling
     /^\.github\//,
     /^scripts\//,

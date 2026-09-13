@@ -23,11 +23,17 @@ import { buildShippingDecodeOptions } from '../decodeOptions';
 import v4WorkerUrl from './transformers-js-v4.worker.ts?worker&url';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
+import { acquisitionScopeFor } from '../candidateAssetRequests';
+import { effectiveCandidate } from '../candidateSelection';
+import {
+    mintAcquisitionAttempt, receiptMatches,
+    type AcquisitionAttempt, type AcquisitionReceipt,
+} from '../acquisitionAttempt';
 type UnknownRecord = Record<string, unknown>;
 type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
-    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device: string }
+    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device: string; acquisition?: AcquisitionReceipt | null }
     | { id: number; type: 'warmed'; warmupMs: number }
     | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
     | { id: number; type: 'destroyed' }
@@ -441,6 +447,9 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     async terminate(): Promise<void> {
+        // #1259: teardown retires the attempt too. A worker answering after termination describes an
+        // acquisition nobody is waiting for.
+        this.activeAttempt = null;
         await this.destroy();
     }
 
@@ -452,16 +461,91 @@ export class TransformersJSV4Engine extends STTEngine {
             !ENV.isTest;
     }
 
+    /** #1259: the worker's own acquisition observation for this engine, or null when absent. */
+    private acquisitionReceipt: AcquisitionReceipt | null = null;
+    /** The attempt currently in flight; null between loads so a late receipt matches nothing. */
+    private activeAttempt: AcquisitionAttempt | null = null;
+    /** Retained after settlement so a caller can verify the receipt is the one it asked for. */
+    private settledAttempt: AcquisitionAttempt | null = null;
+
+    /** What the WORKER measured while acquiring the model. Null means no receipt, not a measured zero. */
+    public getAcquisitionReceipt(): AcquisitionReceipt | null {
+        return this.acquisitionReceipt;
+    }
+
+    /** The attempt this engine last minted. */
+    public getAcquisitionAttempt(): AcquisitionAttempt | null {
+        return this.settledAttempt;
+    }
+
     private async initWorker(isMock: boolean | undefined, v4Model: { MODEL_ID: string; DTYPE: unknown }, deviceOverride?: string): Promise<void> {
         this.worker = new Worker(v4WorkerUrl, { type: 'module' });
-        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-            const response = event.data;
+        // #1259: delegated to a NAMED method so the receipt-acceptance decision can be driven
+        // directly by test. An inline closure can only be exercised by constructing a real Worker.
+        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.handleWorkerMessage(event.data, v4Model);
+        this.worker.onerror = (event) => {
+            const error = new Error(event.message || 'TransformersJSV4 worker failed.');
+            this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
+                clearTimeout(timeoutId);
+                reject(error);
+            });
+            this.pendingWorkerRequests.clear();
+        };
+
+        // MINTED BEFORE ANYTHING IS FETCHED, from the candidate frozen at this instant.
+        const candidateForAttempt = effectiveCandidate().candidate;
+        const attempt = mintAcquisitionAttempt(candidateForAttempt.id);
+        this.activeAttempt = attempt;
+        this.settledAttempt = attempt;
+        this.acquisitionReceipt = null;
+        let response;
+        try {
+            response = await this.sendWorkerRequest({
+                type: 'init', isE2E: Boolean(isMock), model: v4Model.MODEL_ID,
+                dtype: v4Model.DTYPE, device: deviceOverride,
+                // Scoped by the REPOSITORY the runtime resolves against, taken from the registry — not a
+                // hand-written file table, which would go stale the moment the loader asked for one more
+                // file. Requests in the window that fall outside it are counted and reported rather than
+                // dropped, so a redirect that changed the URL shows up as a discrepancy.
+                assetPrefixes: acquisitionScopeFor(candidateForAttempt),
+                attempt,
+            });
+        } finally {
+            // Retired the moment the load settles — success, failure or cancellation alike — so a late
+            // receipt has nothing to match against.
+            this.activeAttempt = null;
+        }
+        if (response.type !== 'ready') {
+            throw new Error(`Unexpected TransformersJSV4 worker init response: ${response.type}`);
+        }
+    }
+
+
+    /** The v4 worker message handler, extracted from the closure so it is addressable. */
+    private handleWorkerMessage(
+        response: WorkerResponse,
+        v4Model: { MODEL_ID: string; DTYPE: unknown },
+    ): void {
             if (response.type === 'progress') {
                     this.reportModelProgress(response.progress);
                     return;
             }
 
             if (response.type === 'loaded') {
+                // ACCEPTED ONLY IF IT IS THIS ATTEMPT'S, and only once. A receipt from a superseded load
+                // — a candidate switch, a retry, a torn-down worker answering late — describes a
+                // different acquisition, and attributing its numbers here is how model selection would
+                // be argued from the wrong download.
+                const incoming = response.acquisition ?? null;
+                if (receiptMatches(incoming, this.activeAttempt) && this.acquisitionReceipt === null) {
+                    this.acquisitionReceipt = incoming;
+                } else if (incoming) {
+                    logger.warn({
+                        sId: this.serviceId,
+                        event: 'acquisition_receipt_rejected',
+                        reason: this.acquisitionReceipt !== null ? 'duplicate' : 'stale_or_wrong_candidate',
+                    }, '[TransformersJSV4] ignoring an acquisition receipt that does not match the active attempt');
+                }
                 logger.info({
                     sId: this.serviceId,
                     rId: this.runId,
@@ -519,20 +603,6 @@ export class TransformersJSV4Engine extends STTEngine {
             } else {
                 pending.resolve(response);
             }
-        };
-        this.worker.onerror = (event) => {
-            const error = new Error(event.message || 'TransformersJSV4 worker failed.');
-            this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
-                clearTimeout(timeoutId);
-                reject(error);
-            });
-            this.pendingWorkerRequests.clear();
-        };
-
-        const response = await this.sendWorkerRequest({ type: 'init', isE2E: Boolean(isMock), model: v4Model.MODEL_ID, dtype: v4Model.DTYPE, device: deviceOverride });
-        if (response.type !== 'ready') {
-            throw new Error(`Unexpected TransformersJSV4 worker init response: ${response.type}`);
-        }
     }
 
     private reportModelProgress(progress: number): void {
@@ -549,7 +619,7 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     private sendWorkerRequest(
-        request: { type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string } | { type: 'transcribe'; audio: Float32Array; decodeOptions?: Record<string, unknown> } | { type: 'destroy' },
+        request: { type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string; assetPrefixes?: string[]; attempt?: AcquisitionAttempt } | { type: 'transcribe'; audio: Float32Array; decodeOptions?: Record<string, unknown> } | { type: 'destroy' },
         transfer?: Transferable[],
     ): Promise<WorkerResponse> {
         if (!this.worker) {

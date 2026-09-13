@@ -2,12 +2,21 @@ name: "CI - Test Audit"
 
 permissions:
   contents: read
+  pull-requests: read
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  # An exact-head review can add or dismiss a blocker after the code run completed. Re-evaluate the
+  # live GitHub review state on every review transition so a stale green check cannot survive it.
+  pull_request_review:
+    branches: [main]
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    branches: [main]
+    types: [created, edited, deleted]
   workflow_dispatch:
     inputs:
       force_full:
@@ -51,7 +60,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+          FORCE_FULL: ${{ github.event_name == 'pull_request_review' || github.event_name == 'pull_request_review_comment' || github.event.inputs.force_full || false }}
         run: |
           set -euo pipefail
           if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
@@ -606,8 +615,12 @@ jobs:
           if [ -d "artifacts/unit-artifacts/frontend/coverage" ]; then
             cp -r artifacts/unit-artifacts/frontend/coverage/* artifacts/coverage/ 2>/dev/null || true
           fi
-          cp artifacts/unit-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
-          cp artifacts/unit-artifacts/unit-metrics.json . 2>/dev/null || true
+          test -s artifacts/unit-artifacts/unit-metrics.json \
+            || { echo "::error::merged unit-metrics.json is missing or empty"; exit 1; }
+          mkdir -p test-results/unit
+          cp artifacts/unit-artifacts/unit-metrics.json artifacts/metrics/
+          cp artifacts/unit-artifacts/unit-metrics.json unit-metrics.json
+          cp artifacts/unit-artifacts/unit-metrics.json test-results/unit/results.json
 
           # Canonical Playwright evidence contract (ONE exact shape):
           #   artifacts/playwright/shard-<N>/report-full-suite-<N>.zip   for N in 1..4
@@ -663,20 +676,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/report-ci-timing.mjs
 
-      - name: Upload CI Metrics
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ci-metrics
-          path: |
-            artifacts/ci-metrics.json
-            artifacts/ci-wall-clock.json
-            artifacts/ci-job-timing.json
-            product_release/evidence/software-quality.latest.json
-            product_release/evidence/software-quality-summary.latest.md
-          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
-          if-no-files-found: warn
-
       - name: Upload HTML Report
         if: always()
         uses: actions/upload-artifact@v6
@@ -703,6 +702,24 @@ jobs:
 
       - name: Verify Canonical Artifacts
         run: bash scripts/verify-artifacts.sh
+
+      # Generate and publish the qualified receipt only after every final assertion has succeeded.
+      # Failure diagnostics remain in the job log/HTML report; they can never resemble acceptance.
+      - name: Generate qualified software quality evidence
+        run: node scripts/write-software-quality-evidence.mjs
+
+      - name: Upload CI Metrics
+        uses: actions/upload-artifact@v6
+        with:
+          name: ci-metrics
+          path: |
+            artifacts/ci-metrics.json
+            artifacts/ci-wall-clock.json
+            artifacts/ci-job-timing.json
+            product_release/evidence/software-quality.latest.json
+            product_release/evidence/software-quality-summary.latest.md
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
+          if-no-files-found: error
 
   # ---- Thin aggregate status --------------------------------------------------------------------
   # NOT a required branch-protection check today (protection currently requires build, edge-tests,
@@ -745,6 +762,45 @@ jobs:
             echo "Affected draft lane passed."
           fi
 
+  review-qualification:
+    name: exact-head-review-qualification
+    needs: [scope, full-evidence]
+    # #1430 P1 — RUNS ON PUSH TOO. Skipping `push` meant a commit that reached `main` directly was
+    # reported release-qualified with no review authority examined at all, and `main` is the ref the
+    # release is cut from. The push lane resolves the merged associated PR and qualifies the SHA that PR
+    # was reviewed at; a direct push has no such PR and HOLDS. See resolveQualificationTarget.
+    if: ${{ always() && needs.scope.outputs.full_required == 'true' && needs.full-evidence.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read independent review from GitHub and qualify the exact head
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          # The pushed ref, so the push lane can require the associated PR's base to MATCH it. Without
+          # this a PR merged into another branch would qualify against the branch that was pushed.
+          GITHUB_BASE_REF_FOR_PUSH: ${{ github.ref }}
+          REVIEW_QUALIFICATION_FILE: ${{ runner.temp }}/review-qualification.json
+        run: node scripts/collect-review-qualification.mjs
+      - name: Upload qualified exact-head review receipt
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-qualification-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/review-qualification.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Upload ineligible review diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-qualification-ineligible-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/review-qualification.json
+          retention-days: 1
+          if-no-files-found: warn
+
   # ---- CI-GATE (#1328): fail-closed merge qualification ------------------------------------------
   # `report` above enforces whichever lane was SELECTED, which is why a draft lane can conclude the
   # workflow as success: the draft lane passing is a legitimate result for that lane. That is exactly
@@ -758,7 +814,7 @@ jobs:
   # CI cycle per case.
   merge-qualification:
     name: merge-qualification
-    needs: [scope, build, edge-tests, unit-shard, unit-coverage-merge, e2e, health-check, full-evidence]
+    needs: [scope, build, edge-tests, unit-shard, unit-coverage-merge, e2e, health-check, full-evidence, review-qualification]
     # always(), NOT always() && !cancelled(): a cancelled upstream job must be REPORTED as unqualified
     # rather than skipping the gate that would have caught it.
     if: always()
@@ -769,22 +825,39 @@ jobs:
       - name: Evaluate merge qualification (fail closed)
         env:
           FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
+          EVENT_NAME: ${{ github.event_name }}
           RESULTS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
           node --input-type=module -e '
-            import { evaluateMergeQualification, formatQualification } from "./scripts/ci-merge-qualification.mjs";
+            import { evaluateMergeQualification, formatPostMergeVerification, formatQualification, REQUIRED_JOBS } from "./scripts/ci-merge-qualification.mjs";
             // `toJSON(needs)` gives { job: { result, outputs } }; flatten to job -> result. A job that
             // never ran is absent from this object, which the evaluator rejects as missing.
             const raw = JSON.parse(process.env.RESULTS || "null");
             const results = raw && typeof raw === "object"
               ? Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, v && v.result]))
               : null;
+            /*
+             * #1430 P1 — `review-qualification` IS REQUIRED ON A PUSH AS WELL.
+             *
+             * The previous reasoning was that a default-branch push verifies an already-merged tree
+             * rather than making a new merge decision. But dropping the job from the required set meant
+             * a push that was NOT a merge — a direct push to `main` — produced a green verification
+             * having proven nothing about review authority. The push lane now establishes the merged
+             * associated PR and the SHA it was reviewed at, and holds when it cannot, so requiring the
+             * job here is what makes that check load-bearing instead of advisory.
+             *
+             * `postMergePush` still selects the REPORT wording, because a push genuinely is verification
+             * of a merged tree rather than a pre-merge decision. Only the required-set exclusion is gone.
+             */
+            const postMergePush = process.env.EVENT_NAME === "push";
+            const required = [...REQUIRED_JOBS, "review-qualification"];
             const decision = evaluateMergeQualification({
               fullRequired: process.env.FULL_REQUIRED,
               results,
+              required,
             });
-            const text = formatQualification(decision);
+            const text = postMergePush ? formatPostMergeVerification(decision) : formatQualification(decision);
             console.log(text);
             const summary = process.env.GITHUB_STEP_SUMMARY;
             if (summary) {

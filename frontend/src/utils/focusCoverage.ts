@@ -17,6 +17,10 @@
  */
 import { computeObjectiveCoverage, type TranscriptSegment } from '@/services/objective/objectiveCoverage';
 import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
+import { emitCoverageEvaluation } from '@/services/telemetry/coverageTelemetry';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
+import { COVERED_RATIO, PARTIAL_RATIO, extractKeywords } from '@/services/rehearsal/outcomeScorecard';
+import { countWords } from '@/lib/contentDigest';
 import type { CoverageRailPoint } from '@/components/session/CoverageRail';
 
 export interface FocusCoverageRow {
@@ -149,7 +153,30 @@ export function deriveFocusCoverage(
     points: string[],
     transcript: string,
     elapsedSeconds: number,
+    /**
+     * RESOLVED IN FAVOUR OF `main`'s Map (#1427's shipped latch), keeping #1421's `settled` flag.
+     *
+     * Both sides changed this signature for unrelated reasons. `main` strengthened the latch from a
+     * Set of indices to a Map of the strongest observed status, so a transcript rewrite cannot erase a
+     * partial match or turn a prior full match amber — strictly stronger, and it wins outright rather
+     * than being blended. `settled` is #1421's and is orthogonal: it gates telemetry emission, and
+     * dropping it would restore the O(updates x points) interim rows that made a readback unable to
+     * tell a live read from the review verdict.
+     */
     latched?: ReadonlyMap<number, FocusCoverageRow>,
+    /**
+     * Whether this evaluation is the SETTLED one — the review verdict — rather than a live interim read.
+     *
+     * The evaluator runs on every render of a growing transcript. Emitting from all of them produced
+     * O(updates x points) rows that were shape-identical to the final verdict, so readback could not tell
+     * an interim read from the result; and it marked `evaluation_complete` on the FIRST during-state
+     * render, before `stop_intent`, which `markCompletionStage` then deduplicated permanently — leaving
+     * every completion receipt out of order with recording time attributed to evaluation.
+     *
+     * Defaults to false so a caller that has not thought about it emits nothing, rather than emitting a
+     * claim it did not mean to make.
+     */
+    settled = false,
 ): FocusCoverage {
     const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
     const total = cleanPoints.length;
@@ -175,6 +202,30 @@ export function deriveFocusCoverage(
         const prior = latched?.get(i);
         return prior && statusRank[prior.status] > statusRank[current.status] ? prior : current;
     });
+
+    // #1259 F06/F14/F18 — emitted HERE, where the ratio, the thresholds and the keyword count are all
+    // in scope. Downstream only the verdict survives, and the verdict is precisely what is disputed.
+    // Only for the SETTLED evaluation: see `settled`.
+    if (settled) emitCoverageEvaluation({
+        pointsSupplied: (points ?? []).length,
+        pointsEvaluated: total,
+        coveredThreshold: COVERED_RATIO,
+        partialThreshold: PARTIAL_RATIO,
+        transcriptWordCount: countWords(transcript),
+        observations: coverage.map((c, i) => ({
+            position: i,
+            matchRatio: typeof c.matchRatio === 'number' ? c.matchRatio : 0,
+            // Zero keywords means this point could never match anything the user said.
+            keywordCount: extractKeywords(briefPoints[i].label).length,
+            verdict: rows[i].status,
+            latched: latched?.has(i) ?? false,
+        })),
+    });
+
+    // #1259 F16 — coverage has a verdict, and the stage is the moment it SETTLES. Relying on
+    // `markCompletionStage` to take the mark once was the defect: the once it took was the first live
+    // render, which lands before the user has even pressed Stop.
+    if (settled) markCompletionStage('evaluation_complete');
 
     const coveredCount = rows.filter((r) => r.covered).length;
     const nextIndex = rows.findIndex((r) => !r.covered);

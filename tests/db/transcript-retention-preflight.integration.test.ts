@@ -1,5 +1,12 @@
 // @vitest-environment node
 //
+// ========================================================================================================
+// HISTORICAL — this file proves the SUPERSEDED newest-two preflight (migration 20260805000000), in
+// isolation. It applies ONLY the historical migrations and must not be read as a statement about current
+// behaviour. The live contract is the forward-only correction 20260908120000_transcript_retention_newest_one.sql,
+// proven in tests/db/transcript-retention-newest-one.integration.test.ts.
+// ========================================================================================================
+//
 // #1117 R3 — EXECUTED proof for the aggregate-only, READ-ONLY retention preflight
 // (migration 20260805000000). Applies #1131 + merged R1 + R2 + R3 verbatim on a real PostgreSQL (PGlite),
 // seeds synthetic fixtures, and exercises transcript_retention_preflight. Content-free: synthetic only.
@@ -18,7 +25,15 @@ const M1131 = SQL('20260801000000_sessions_transcript_state.sql');
 const R1 = SQL('20260803000000_transcript_retention_newest_two.sql');
 const R2 = SQL('20260804000000_transcript_retention_converge_on_save.sql');
 const R3 = SQL('20260805000000_transcript_retention_preflight.sql');
-const WORKFLOW = readFileSync(resolve(process.cwd(), '.github', 'workflows', 'transcript-retention-preflight.yml'), 'utf8');
+/**
+ * The IMMUTABLE historical identity of the newest-two preflight on PostgreSQL 17.
+ *
+ * This was previously read out of `transcript-retention-preflight.yml`. That workflow now pins the
+ * NEWEST-ONE definition, so deriving the historical expectation from it would have compared this
+ * suite's historical migrations against the current policy's digest and failed — or, worse, silently
+ * tracked whatever the workflow said and stopped proving anything at all.
+ */
+const HISTORICAL_NEWEST_TWO_PREFLIGHT_MD5 = '029a72bf14bfd2ab18260c6477c56493';
 
 const UA = '11111111-1111-4111-8111-111111111111';
 const UB = '22222222-2222-4222-8222-222222222222';
@@ -166,8 +181,8 @@ describe('#1117 R3 preflight — fail-closed, ACL, content-free', () => {
             `SELECT md5(pg_get_functiondef($1::regprocedure)) AS digest`, [signature],
         )).rows[0].digest;
         expect(reviewed).toMatch(/^[0-9a-f]{32}$/);
-        const expected = WORKFLOW.match(/EXPECTED_PREFLIGHT_FUNCTION_MD5:\s*([0-9a-f]{32})/)?.[1];
-        expect(expected).toBe(reviewed);
+        expect(reviewed, 'the historical newest-two preflight identity is fixed forever')
+            .toBe(HISTORICAL_NEWEST_TWO_PREFLIGHT_MD5);
 
         await db.exec(`CREATE OR REPLACE FUNCTION public.transcript_retention_preflight(
             p_scope text DEFAULT 'all_users', p_user_id uuid DEFAULT NULL, p_run_id text DEFAULT NULL

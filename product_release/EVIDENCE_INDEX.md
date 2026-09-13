@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for the index of dated proof artifacts — an index, not the proofs themselves)
 **Owner:** Product-Ops / Quality (relativityE)
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-08
+**Last Verified:** 2026-09-08 — historical newest-two evidence is explicitly separated from the current newest-one authority.
 **Applies To:** All dated release-proof artifacts for the SpeakSharp beta — where each lives, when it was captured, and what it proved at that moment.
 **Class:** Evidence index.
 **Authority:** The source for **where** dated proof artifacts live and **what date/point-in-time** they represent. It is a map to evidence, not a verdict.
@@ -21,7 +21,7 @@
 
 | Evidence | What it establishes | Current authority |
 |---|---|---|
-| [`evidence/CODEBASE_VS_STRATEGY_2026-08-29.md`](./evidence/CODEBASE_VS_STRATEGY_2026-08-29.md) | Code-verified reconciliation of the two SpeakSharp strategy drafts: privacy boundary, newest-two transcript retention, Progress/attempt/outcome implementation, score-retirement residue, Focus Points, waitlist reachability, competitive advantage and moat evidence. | `PRODUCT_REQUIREMENTS.md`, `PROGRESS_AND_NEXT_ACTION.md`, `ARCHITECTURE.md`, `STT.md` |
+| [`evidence/CODEBASE_VS_STRATEGY_2026-08-29.md`](./evidence/CODEBASE_VS_STRATEGY_2026-08-29.md) | Historical reconciliation describing the then-current newest-two implementation. It does not authorize that superseded policy. | `PRODUCT_REQUIREMENTS.md` and `ARCHITECTURE.md` now require newest-one retention. |
 
 Canonical **index** of the dated proof artifacts SpeakSharp has captured: quality digests, STT/UX reproof runs, beta-50 packets, launch-gate proofs, hardware logs, and entitlement audits. It records **where** each artifact lives and **when** it was captured, so a reviewer can find the original rather than trust a summary.
 
