@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  collectAuthorities, comparisonRows, decodePostHogRows, geminiSessionReadback,
-  modelComparisonSessionBindingSha256, postHogReadbackQuery,
+  FINALIZED_COVERAGE_SELECT, collectAuthorities, comparisonRows, decodePostHogRows, finalizedCoveragePath,
+  finalizedCoverageReadback, geminiSessionReadback, modelComparisonSessionBindingSha256, postHogReadbackQuery,
 } from '../../scripts/human-test/collect-model-downselection-authority.mjs';
 
 const RELEASE = 'a'.repeat(40);
@@ -269,9 +269,20 @@ describe('#1432 trusted model-downselection authority collector', () => {
       },
       quota_request_number: index + 1, cache_read_count: index === 0 ? 1 : 0,
     }));
+    const focusIds = evidence.candidateEvidence.filter((row) => row.journey === 'focus_points').map((row) => row.persistedSessionId);
+    const openMicId = evidence.candidateEvidence.find((row) => row.journey === 'open_mic').persistedSessionId;
+    // Returned out of order, and with a label the select never asked for: neither order nor wording may survive.
+    const finalizedRows = focusIds.map((id) => ({
+      source_session_id: id,
+      objective_evidence: [
+        { verdict: 'not_detected', predicate_version: 'literal-cue-v1', objective_brief_point: { sort_order: 1, label: 'Secret point wording' } },
+        { verdict: 'detected', predicate_version: 'literal-cue-v1', objective_brief_point: { sort_order: 0 } },
+      ],
+    }));
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(response({ results: posthogRows }))
-      .mockResolvedValueOnce(response(sessions));
+      .mockResolvedValueOnce(response(sessions))
+      .mockResolvedValueOnce(response(finalizedRows));
 
     const authority = await collectAuthorities({
       evidence,
@@ -283,7 +294,20 @@ describe('#1432 trusted model-downselection authority collector', () => {
         SUPABASE_SERVICE_ROLE_KEY: 'supabase-secret',
       },
     });
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    // PM RETURN `5655220799` — the finalized stop-seam record, read content-free for the Focus Points sessions only.
+    expect(fetchImpl.mock.calls[2][0]).toBe(`https://project.supabase.co${finalizedCoveragePath(focusIds)}`);
+    expect(decodeURIComponent(fetchImpl.mock.calls[2][0])).toBe(
+      `https://project.supabase.co/rest/v1/objective_session?select=${FINALIZED_COVERAGE_SELECT}&source_session_id=in.(${focusIds.join(',')})`,
+    );
+    expect(fetchImpl.mock.calls[2][1]).toMatchObject({ method: 'GET', headers: { apikey: 'supabase-secret' } });
+    expect(authority.gemini.observations.find((row) => row.persistedSessionId === focusIds[0]).finalizedCoverage).toEqual({
+      sessions: [{ points: [
+        { sortOrder: 0, verdict: 'detected', predicateVersion: 'literal-cue-v1' },
+        { sortOrder: 1, verdict: 'not_detected', predicateVersion: 'literal-cue-v1' },
+      ] }],
+    });
+    expect(authority.gemini.observations.find((row) => row.persistedSessionId === openMicId).finalizedCoverage).toBeNull();
     expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe('Bearer posthog-secret');
     expect(fetchImpl.mock.calls[1][0]).toBe('https://project.supabase.co/rest/v1/rpc/read_ai_suggestion_authority_v1');
     expect(fetchImpl.mock.calls[1][1]).toMatchObject({ method: 'POST' });
@@ -300,7 +324,54 @@ describe('#1432 trusted model-downselection authority collector', () => {
       quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: EDGE_CONTRACT.uncachedGenerationCapPerUtcDay, requestNumber: 1 },
       cacheReplayObserved: true,
     });
-    expect(JSON.stringify(authority)).not.toMatch(/Clear opening|Pause before closing|posthog-secret|supabase-secret/);
+    expect(JSON.stringify(authority)).not.toMatch(/Clear opening|Pause before closing|posthog-secret|supabase-secret|Secret point wording/);
+  });
+
+  it('CASUALTY (PM RETURN `5655220799`): the finalized select is content-free', () => {
+    expect(FINALIZED_COVERAGE_SELECT).toBe('source_session_id,objective_evidence(verdict,predicate_version,objective_brief_point(sort_order))');
+    expect(FINALIZED_COVERAGE_SELECT).not.toMatch(/label|cue|goal|audience|transcript|user_id|\*/i);
+  });
+
+  const collectWith = (finalizedResponse) => {
+    const evidence = packet();
+    const sessions = evidence.candidateEvidence.map((row, index) => authorityRow({
+      session_id: row.persistedSessionId,
+      user_id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+      quota_request_number: index + 1,
+    }));
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(response({ results: [] }))
+      .mockResolvedValueOnce(response(sessions))
+      .mockResolvedValueOnce(finalizedResponse);
+    return collectAuthorities({
+      evidence, fetchImpl,
+      env: {
+        POSTHOG_PROJECT_ID: 'project', POSTHOG_PERSONAL_API_KEY: 'posthog-secret',
+        SUPABASE_URL: 'https://project.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'supabase-secret',
+      },
+    });
+  };
+
+  it('CASUALTY (PM RETURN `5655220799`): a denied or malformed finalized readback HOLDs the collection', async () => {
+    await expect(collectWith(response({ code: '42501', message: 'permission denied for table objective_session' }, 403)))
+      .rejects.toThrow(/Supabase finalized coverage readback returned HTTP 403/);
+    await expect(collectWith(response({ not: 'a list' }))).rejects.toThrow(/finalized coverage readback is malformed/);
+  });
+
+  it('CASUALTY (PM RETURN `5655220799`): malformed finalized rows are refused; cardinality is recorded for the validator', () => {
+    const focus = ['00000000-0000-4000-8000-000000000002'];
+    const evidenceRow = (overrides = {}) => ({
+      verdict: 'detected', predicate_version: 'literal-cue-v1', objective_brief_point: { sort_order: 0 }, ...overrides,
+    });
+    const refuses = (row) => expect(() => finalizedCoverageReadback([row], focus)).toThrow(/finalized coverage row 0 is malformed/);
+    refuses({ source_session_id: focus[0], objective_evidence: [evidenceRow({ verdict: 'covered' })] });
+    refuses({ source_session_id: focus[0], objective_evidence: [evidenceRow({ objective_brief_point: null })] });
+    refuses({ source_session_id: focus[0], objective_evidence: [evidenceRow({ predicate_version: null })] });
+    refuses({ source_session_id: focus[0], objective_evidence: null });
+    refuses({ source_session_id: '99999999-9999-4999-8999-999999999999', objective_evidence: [evidenceRow()] });
+    expect(finalizedCoverageReadback([], focus).get(focus[0])).toEqual([]);
+    const twice = { source_session_id: focus[0], objective_evidence: [evidenceRow()] };
+    expect(finalizedCoverageReadback([twice, twice], focus).get(focus[0])).toHaveLength(2);
   });
 });
 

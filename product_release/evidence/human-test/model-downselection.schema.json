@@ -129,10 +129,11 @@
       "additionalProperties": false,
       "required": [
         "evaluatorVersion", "pointsEntered", "pointsSupplied", "pointsEvaluated", "coveredThreshold",
-        "partialThreshold", "points"
+        "partialThreshold", "predicateVersion", "points"
       ],
       "properties": {
         "evaluatorVersion": { "$ref": "#/$defs/token" },
+        "predicateVersion": { "$ref": "#/$defs/token" },
         "pointsEntered": { "type": "integer", "minimum": 1 },
         "pointsSupplied": { "type": "integer", "minimum": 1 },
         "pointsEvaluated": { "type": "integer", "minimum": 1 },
@@ -144,13 +145,10 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["position", "verdict", "matchRatio", "keywordCount", "latched"],
+            "required": ["position", "verdict"],
             "properties": {
               "position": { "type": "integer", "minimum": 0 },
-              "verdict": { "$ref": "#/$defs/coverageVerdict" },
-              "matchRatio": { "type": "number", "minimum": 0, "maximum": 1 },
-              "keywordCount": { "type": "integer", "minimum": 0 },
-              "latched": { "type": "boolean" }
+              "verdict": { "enum": ["detected", "not_detected"] }
             }
           }
         }

@@ -74,6 +74,16 @@ const FINAL_POINTS = [
   { position: 1, verdict: 'partial', matchRatio: 0.5, keywordCount: 2, latched: true },
   { position: 2, verdict: 'missing', matchRatio: 0, keywordCount: 4, latched: false },
 ];
+/** PM RETURN `5655220799` — the stop seam's durable binary record: `covered|partial` persist as `detected`. */
+const PREDICATE = 'literal-cue-v1';
+const FINALIZED = [
+  { position: 0, verdict: 'detected' },
+  { position: 1, verdict: 'detected' },
+  { position: 2, verdict: 'not_detected' },
+];
+const finalizedRecord = (points = FINALIZED) => ({
+  sessions: [{ points: points.map(({ position, verdict }) => ({ sortOrder: position, verdict, predicateVersion: PREDICATE })) }],
+});
 
 let fixtureSequence = 0;
 function validEvidence() {
@@ -118,7 +128,7 @@ function validEvidence() {
         comparisonNonce, persistedSessionId,
         receiptArtifact: receipt.path, receiptSha256: receipt.digest,
         ...(objective ? {
-          focusCoverage: { ...EVALUATOR, pointsEntered: 3, pointsSupplied: 3, pointsEvaluated: 3, points: structuredClone(FINAL_POINTS) },
+          focusCoverage: { ...EVALUATOR, pointsEntered: 3, pointsSupplied: 3, pointsEvaluated: 3, predicateVersion: PREDICATE, points: structuredClone(FINALIZED) },
         } : {}),
       });
       events.push({
@@ -213,6 +223,8 @@ function validEvidence() {
     cacheReplayObserved: index === 0,
     immutableSuggestionSha256: HASH('9'),
     immutableDigestVerified: true,
+    // The collector attaches the finalized stop-seam record to the Focus Points session it is keyed by.
+    finalizedCoverage: row.journey === 'focus_points' ? finalizedRecord() : null,
   }));
   const approvalValue = {
     html_url: 'https://github.com/relativityE/speaksharp/issues/1399#issuecomment-123456789',
@@ -728,7 +740,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     });
   });
 
-  describe('#1432 PM RETURN `5654659496` — Focus Points coverage is authenticated, complete, ordered, one evaluator, and absent from Open Mic', () => {
+  describe('#1432 PM RETURN `5654659496` / `5655220799` — Focus Points: finalized verdict of record, telemetry count chain, one evaluator, absent from Open Mic', () => {
     const resolvers = () => ({
       baseDir: ARTIFACT_DIR,
       runAuthorityResolver,
@@ -750,22 +762,49 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     const coverageEvents = (value, ordinal) => value.telemetryReadback.events.filter(
       (event) => event.uuid.startsWith(`coverage-evaluation-${ordinal}`) || event.uuid.startsWith(`coverage-point-${ordinal}-`),
     );
+    /** The finalized stop-seam record on one row's attested persisted-session authority. */
+    const finalizedOf = (rowIndex) => LIVE_GEMINI[rowIndex].finalizedCoverage;
+    /** A fourth point the stop seam and the row both carry. */
+    const addFinalizedPoint = (value, rowIndex) => {
+      finalizedOf(rowIndex).sessions[0].points.push({ sortOrder: 3, verdict: 'not_detected', predicateVersion: PREDICATE });
+      value.candidateEvidence[rowIndex].focusCoverage.points.push({ position: 3, verdict: 'not_detected' });
+    };
 
     it('CONTROL: the harness passes an unchanged packet, and a superseded settled emission is not an extra point', () => {
       const evidence = validEvidence();
       expect(evidence.candidateEvidence.filter((row) => row.focusCoverage).map((row) => row.journey))
         .toEqual(['focus_points', 'focus_points', 'focus_points']);
       expect(eventByUuid(evidence, 'coverage-point-2-0-superseded').verdict).toBe('missing');
+      expect(finalizedOf(0)).toBeNull();
+      expect(finalizedOf(1).sessions).toHaveLength(1);
       expect(problemsOf(evidence)).toEqual([]);
       expect(validateModelDownselectionEvidence(evidence, resolvers()).verdict).toBe('PASS');
     });
 
-    it('CASUALTY 1: an objective row missing one entered point fails', () => {
+    it('CONTROL (divergence): pre-final telemetry that disagrees never overwrites or vetoes the finalized verdict', () => {
       const evidence = validEvidence();
-      evidence.telemetryReadback.events = evidence.telemetryReadback.events.filter((event) => event.uuid !== 'coverage-point-2-2');
+      // The view-side derivation said `missing` at position 1 and `covered` at position 2; the stop seam decided otherwise.
+      eventByUuid(evidence, 'coverage-point-2-1').verdict = 'missing';
+      eventByUuid(evidence, 'coverage-point-2-2').verdict = 'covered';
+      finalizedOf(1).sessions[0].points[1].verdict = 'not_detected';
+      evidence.candidateEvidence[1].focusCoverage.points[1].verdict = 'not_detected';
+      expect(problemsOf(evidence)).toEqual([]);
+    });
+
+    it('CASUALTY (divergence): a packet carrying the pre-final verdict instead of the finalized one fails', () => {
+      const evidence = validEvidence();
+      // Telemetry still says `partial` at position 1, which maps to detected; the persisted record says not detected.
+      finalizedOf(1).sessions[0].points[1].verdict = 'not_detected';
+      expect(problemsOf(evidence)).toEqual([
+        'candidateEvidence[1].focusCoverage.points[1].verdict finalized stop-seam verdict must be "not_detected"',
+      ]);
+    });
+
+    it('CASUALTY 1: a row missing one entered point fails', () => {
+      const evidence = validEvidence();
       evidence.candidateEvidence[1].focusCoverage.points.pop();
       expect(problemsOf(evidence)).toEqual([
-        'candidateEvidence[1].focusCoverage.points must carry exactly one verdict per entered point (3)',
+        'candidateEvidence[1].focusCoverage.points must carry exactly one finalized verdict per entered point (3)',
       ]);
     });
 
@@ -778,10 +817,10 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       ]);
 
       const gapped = validEvidence();
-      eventByUuid(gapped, 'coverage-point-6-2').pointPosition = 3;
       gapped.candidateEvidence[5].focusCoverage.points[2].position = 3;
       expect(problemsOf(gapped)).toEqual([
         'candidateEvidence[5].focusCoverage.points positions must be contiguous from 0 and in order',
+        'candidateEvidence[5].focusCoverage.points[2] has no finalized stop-seam verdict at position 3',
       ]);
     });
 
@@ -801,17 +840,22 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       expect(take.else).toEqual({ not: { required: ['focusCoverage'] } });
       expect(take.required).not.toContain('focusCoverage');
       expect(take.properties.focusCoverage).toEqual({ $ref: '#/$defs/focusCoverage' });
+      expect(schema.$defs.focusCoverage.properties.points.items.properties.verdict).toEqual({ enum: ['detected', 'not_detected'] });
     });
 
-    it('CASUALTY: an Open Mic take whose own attempt carries coverage telemetry fails', () => {
+    it('CASUALTY: an Open Mic take whose attempt carries coverage telemetry, or whose session carries a finalized record, fails', () => {
       const evidence = validEvidence();
       for (const event of coverageEvents(evidence, 2)) event.attemptId = 'attempt-1';
       const problems = problemsOf(evidence).join('\n');
       expect(problems).toMatch(/candidateEvidence\[0\] quick \(Open Mic\) take links decoded coverage telemetry/);
       expect(problems).toMatch(/candidateEvidence\[1\] must link a decoded coverage_evaluation for its Focus Points take/);
+
+      const finalized = validEvidence();
+      LIVE_GEMINI[0].finalizedCoverage = finalizedRecord();
+      expect(problemsOf(finalized)).toEqual(['candidateEvidence[0] quick (Open Mic) take has finalized stop-seam coverage']);
     });
 
-    it('CASUALTY 4: candidates scored by different evaluator versions or thresholds fail', () => {
+    it('CASUALTY 4: candidates scored by different evaluator versions, thresholds or predicates fail', () => {
       const version = validEvidence();
       for (const event of coverageEvents(version, 4)) event.evaluatorVersion = 'keyword-ratio-v2';
       version.candidateEvidence[3].focusCoverage.evaluatorVersion = 'keyword-ratio-v2';
@@ -825,14 +869,23 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       expect(problemsOf(threshold)).toEqual([
         'candidateEvidence Focus Points takes were not scored by one evaluator: coveredThreshold differs (0.7, 0.8)',
       ]);
+
+      // PM RETURN `5655220799` — predicate-version drift across the three candidates.
+      const predicate = validEvidence();
+      for (const point of finalizedOf(3).sessions[0].points) point.predicateVersion = 'literal-cue-v2';
+      predicate.candidateEvidence[3].focusCoverage.predicateVersion = 'literal-cue-v2';
+      expect(problemsOf(predicate)).toEqual([
+        'candidateEvidence Focus Points takes were not scored by one evaluator: predicateVersion differs ("literal-cue-v1", "literal-cue-v2")',
+      ]);
     });
 
     it('CASUALTY 5 (PM): a point dropped before evaluation fails even when every position is contiguous', () => {
       const evidence = validEvidence();
-      // Entry agrees with supply (4), so only the loss between supply and evaluation can speak.
+      // Entry, supply and the finalized record agree on four; only evaluation saw three.
       eventByUuid(evidence, 'setup-2').pointsEntered = 4;
       eventByUuid(evidence, 'coverage-evaluation-2').pointsSupplied = 4;
       Object.assign(evidence.candidateEvidence[1].focusCoverage, { pointsEntered: 4, pointsSupplied: 4 });
+      addFinalizedPoint(evidence, 1);
       expect(problemsOf(evidence)).toEqual([
         'candidateEvidence[1].focusCoverage dropped a point before evaluation: pointsSupplied 4, pointsEvaluated 3',
       ]);
@@ -842,6 +895,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       const evidence = validEvidence();
       eventByUuid(evidence, 'setup-4').pointsEntered = 4;
       evidence.candidateEvidence[3].focusCoverage.pointsEntered = 4;
+      addFinalizedPoint(evidence, 3);
       expect(problemsOf(evidence)).toEqual([
         'candidateEvidence[3].focusCoverage lost a point between setup and evaluation: pointsEntered 4, pointsSupplied 3',
       ]);
@@ -869,7 +923,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       ]);
     });
 
-    it('CASUALTY (PM 5654994284): a second effective verdict for one position is ambiguity, not a merge', () => {
+    it('CASUALTY (PM 5654994284): a second effective telemetry row for one position is ambiguity, not a merge', () => {
       const evidence = validEvidence();
       const { events } = evidence.telemetryReadback;
       const last = events.findIndex((event) => event.uuid === 'coverage-point-2-2');
@@ -877,17 +931,66 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       expect(problemsOf(evidence).join('\n')).toMatch(/candidateEvidence\[1\] has more than one effective coverage_point at position 1/);
     });
 
-    it('CASUALTY: an operator-authored verdict or count that differs from authenticated coverage fails', () => {
-      const verdict = validEvidence();
-      verdict.candidateEvidence[1].focusCoverage.points[2].verdict = 'covered';
-      expect(problemsOf(verdict)).toEqual(['candidateEvidence[1].focusCoverage.points[2].verdict observed coverage_point must be "missing"']);
+    it('CASUALTY (PM 5655220799): zero, multiple, absent or malformed finalized stop-seam sessions fail', () => {
+      const zero = validEvidence();
+      finalizedOf(1).sessions = [];
+      expect(problemsOf(zero)).toEqual(['candidateEvidence[1] must resolve exactly one finalized stop-seam session (found 0)']);
 
-      const superseded = validEvidence();
-      // Copying the superseded emission is not the take's final verdict.
-      Object.assign(superseded.candidateEvidence[3].focusCoverage.points[0], { verdict: 'missing', matchRatio: 0.2 });
-      expect(problemsOf(superseded)).toEqual([
-        'candidateEvidence[3].focusCoverage.points[0].verdict observed coverage_point must be "covered"',
-        'candidateEvidence[3].focusCoverage.points[0].matchRatio observed coverage_point must be 0.9',
+      const multiple = validEvidence();
+      finalizedOf(3).sessions.push(structuredClone(finalizedOf(3).sessions[0]));
+      expect(problemsOf(multiple)).toEqual(['candidateEvidence[3] must resolve exactly one finalized stop-seam session (found 2)']);
+
+      const absent = validEvidence();
+      LIVE_GEMINI[5].finalizedCoverage = null;
+      expect(problemsOf(absent)).toEqual(['candidateEvidence[5] has no finalized stop-seam readback for its persisted session']);
+
+      const malformed = validEvidence();
+      LIVE_GEMINI[5].finalizedCoverage = { sessions: 'not-a-list' };
+      expect(problemsOf(malformed)).toEqual(['candidateEvidence[5] has no finalized stop-seam readback for its persisted session']);
+    });
+
+    it('CASUALTY (PM 5655220799): a missing, extra or duplicate finalized row fails', () => {
+      const missing = validEvidence();
+      finalizedOf(1).sessions[0].points.pop();
+      expect(problemsOf(missing)).toEqual([
+        'candidateEvidence[1] finalized stop-seam evidence must carry exactly one row per entered point (entered 3, finalized 2)',
+        'candidateEvidence[1].focusCoverage.points[2] has no finalized stop-seam verdict at position 2',
+      ]);
+
+      const extra = validEvidence();
+      finalizedOf(3).sessions[0].points.push({ sortOrder: 3, verdict: 'detected', predicateVersion: PREDICATE });
+      expect(problemsOf(extra)).toEqual([
+        'candidateEvidence[3] finalized stop-seam evidence must carry exactly one row per entered point (entered 3, finalized 4)',
+      ]);
+
+      const duplicate = validEvidence();
+      finalizedOf(5).sessions[0].points[2].sortOrder = 1;
+      expect(problemsOf(duplicate)).toEqual([
+        'candidateEvidence[5] finalized stop-seam sort_order must be contiguous from 0 with no duplicate',
+        'candidateEvidence[5].focusCoverage.points[2] has no finalized stop-seam verdict at position 2',
+      ]);
+    });
+
+    it('CASUALTY (PM 5655220799): an `unavailable` finalized verdict never qualifies', () => {
+      const evidence = validEvidence();
+      finalizedOf(1).sessions[0].points[2].verdict = 'unavailable';
+      expect(problemsOf(evidence)).toEqual([
+        'candidateEvidence[1] finalized stop-seam verdict at position 2 is unavailable',
+      ]);
+    });
+
+    it('CASUALTY: an operator-authored verdict or a missing structure fails', () => {
+      const verdict = validEvidence();
+      verdict.candidateEvidence[1].focusCoverage.points[2].verdict = 'detected';
+      expect(problemsOf(verdict)).toEqual([
+        'candidateEvidence[1].focusCoverage.points[2].verdict finalized stop-seam verdict must be "not_detected"',
+      ]);
+
+      const predicate = validEvidence();
+      predicate.candidateEvidence[1].focusCoverage.predicateVersion = 'typed-by-operator';
+      expect(problemsOf(predicate)).toEqual([
+        'candidateEvidence[1].focusCoverage.predicateVersion must equal the finalized stop-seam predicate_version',
+        'candidateEvidence Focus Points takes were not scored by one evaluator: predicateVersion differs ("typed-by-operator", "literal-cue-v1")',
       ]);
 
       const absent = validEvidence();

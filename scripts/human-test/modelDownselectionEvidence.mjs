@@ -100,11 +100,14 @@ const SETUP_FIELD_RULES = Object.freeze({
   step: (value) => value === 'setup_submitted', pointsEntered: isCount,
 });
 const FOCUS_COVERAGE_KEYS = [
-  'evaluatorVersion', 'pointsEntered', 'pointsSupplied', 'pointsEvaluated', 'coveredThreshold', 'partialThreshold', 'points',
+  'evaluatorVersion', 'pointsEntered', 'pointsSupplied', 'pointsEvaluated', 'coveredThreshold', 'partialThreshold',
+  'predicateVersion', 'points',
 ];
-const COVERAGE_POINT_KEYS = ['position', 'verdict', 'matchRatio', 'keywordCount', 'latched'];
-/** One evaluator must have scored every candidate, or a coverage delta is matcher drift rather than transcription. */
-const SHARED_EVALUATOR_KEYS = ['evaluatorVersion', 'coveredThreshold', 'partialThreshold'];
+const COVERAGE_POINT_KEYS = ['position', 'verdict'];
+/** PM RETURN `5655220799` — the stop seam persists a binary verdict; `unavailable` is never a qualifying verdict. */
+const FINALIZED_ROW_VERDICTS = new Set(['detected', 'not_detected']);
+/** One evaluator and one predicate must have scored every candidate, or a delta is scoring drift, not transcription. */
+const SHARED_EVALUATOR_KEYS = ['evaluatorVersion', 'coveredThreshold', 'partialThreshold', 'predicateVersion'];
 
 const stable = (value) => {
   if (Array.isArray(value)) return value.map(stable);
@@ -363,13 +366,17 @@ function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, tel
 }
 
 /**
- * One objective take's per-point coverage: entered -> supplied -> evaluated -> one verdict per position. The packet
- * copy is operator-authored. The authority is the take's last authenticated `setup_submitted` before its
- * `session_started` in the same native journey, its LAST `coverage_evaluation`, and the `coverage_point` rows
- * emitted after that evaluation. Coverage re-emits whenever the settled evaluation changes, so earlier emissions
- * are superseded; a second effective verdict for one position is ambiguity and HOLDs rather than being merged.
+ * One objective take's per-point coverage. Two authorities, never blurred (PM RETURN `5655220799`):
+ *
+ * - The FINALIZED stop-seam record is the per-point verdict of record: the take's persisted session's
+ *   `objective_evidence`, read content-free by the collector and attached to that session's attested authority. Its
+ *   binary `detected | not_detected` is what the tester saw and what persisted.
+ * - Pre-final telemetry corroborates the COUNT CHAIN only: the last `setup_submitted` before `session_started` in the
+ *   native journey (entered), the last `coverage_evaluation` (supplied, evaluated, evaluator) and the `coverage_point`
+ *   rows emitted after it (one effective row per contiguous position). Its verdicts are never compared with the
+ *   finalized ones, so a pre-final disagreement can neither overwrite nor veto the record.
  */
-function validateFocusCoverage(value, { setup, linked }, candidateId, path, problems) {
+function validateFocusCoverage(value, { setup, linked, finalized }, candidateId, path, problems) {
   const where = `${path}.focusCoverage`;
   for (const event of linked) {
     if (event.candidateId !== null && event.candidateId !== candidateId) {
@@ -377,6 +384,7 @@ function validateFocusCoverage(value, { setup, linked }, candidateId, path, prob
     }
   }
   if (!exactKeys(value, FOCUS_COVERAGE_KEYS, where, problems)) return null;
+
   if (!setup) {
     problems.push(`${path} must link a decoded setup_submitted in its native journey before its session_started`);
   } else {
@@ -385,61 +393,83 @@ function validateFocusCoverage(value, { setup, linked }, candidateId, path, prob
   if (value.pointsEntered !== value.pointsSupplied) {
     problems.push(`${where} lost a point between setup and evaluation: pointsEntered ${value.pointsEntered}, pointsSupplied ${value.pointsSupplied}`);
   }
-  const evaluation = linked.filter((event) => event.event === 'coverage_evaluation').at(-1);
-  if (!evaluation) {
-    problems.push(`${path} must link a decoded coverage_evaluation for its Focus Points take`);
-    return null;
-  }
-  for (const key of ['evaluatorVersion', ...Object.keys(EVALUATION_FIELD_RULES)]) {
-    expectEqual(value[key], evaluation[key], `${where}.${key} observed coverage_evaluation`, problems);
-  }
   // A point lost before evaluation leaves every position check satisfied, so it is caught by count alone.
   if (value.pointsSupplied !== value.pointsEvaluated) {
     problems.push(`${where} dropped a point before evaluation: pointsSupplied ${value.pointsSupplied}, pointsEvaluated ${value.pointsEvaluated}`);
   }
+  const evaluation = linked.filter((event) => event.event === 'coverage_evaluation').at(-1);
+  if (!evaluation) {
+    problems.push(`${path} must link a decoded coverage_evaluation for its Focus Points take`);
+  } else {
+    for (const key of ['evaluatorVersion', ...Object.keys(EVALUATION_FIELD_RULES)]) {
+      expectEqual(value[key], evaluation[key], `${where}.${key} observed coverage_evaluation`, problems);
+    }
+    const effective = new Map();
+    for (const event of linked.slice(linked.lastIndexOf(evaluation) + 1)) {
+      if (event.event !== 'coverage_point') continue;
+      if (effective.has(event.pointPosition)) {
+        problems.push(`${path} has more than one effective coverage_point at position ${event.pointPosition}`);
+      }
+      effective.set(event.pointPosition, event);
+      if (event.evaluatorVersion !== evaluation.evaluatorVersion) {
+        problems.push(`${path} coverage_point ${event.uuid} evaluatorVersion differs from its coverage_evaluation`);
+      }
+    }
+    const positions = [...effective.keys()].sort((left, right) => left - right);
+    if (positions.length !== evaluation.pointsEvaluated || positions.some((position, index) => position !== index)) {
+      problems.push(`${path} authenticated coverage_point rows must be one per evaluated position, contiguous from 0`);
+    }
+  }
+
+  const sessions = isObject(finalized?.finalizedCoverage) ? finalized.finalizedCoverage.sessions : undefined;
+  let record = null;
+  if (!Array.isArray(sessions)) {
+    problems.push(`${path} has no finalized stop-seam readback for its persisted session`);
+  } else if (sessions.length !== 1) {
+    problems.push(`${path} must resolve exactly one finalized stop-seam session (found ${sessions.length})`);
+  } else {
+    record = Array.isArray(sessions[0]?.points) ? sessions[0].points : [];
+    if (record.length !== value.pointsEntered) {
+      problems.push(`${path} finalized stop-seam evidence must carry exactly one row per entered point (entered ${value.pointsEntered}, finalized ${record.length})`);
+    }
+    if (record.some((point, index) => point?.sortOrder !== index)) {
+      problems.push(`${path} finalized stop-seam sort_order must be contiguous from 0 with no duplicate`);
+    }
+    for (const [index, point] of record.entries()) {
+      if (point?.verdict === 'unavailable') problems.push(`${path} finalized stop-seam verdict at position ${index} is unavailable`);
+    }
+    const predicates = new Set(record.map((point) => point?.predicateVersion));
+    if (record.length > 0 && (predicates.size !== 1 || !predicates.has(value.predicateVersion))) {
+      problems.push(`${where}.predicateVersion must equal the finalized stop-seam predicate_version`);
+    }
+  }
+
   if (!Array.isArray(value.points)) {
     problems.push(`${where}.points must be an array`);
     return null;
   }
-  if (value.points.length !== value.pointsEvaluated) {
-    problems.push(`${where}.points must carry exactly one verdict per entered point (${value.pointsEvaluated})`);
+  if (value.points.length !== value.pointsEntered) {
+    problems.push(`${where}.points must carry exactly one finalized verdict per entered point (${value.pointsEntered})`);
   }
   if (value.points.some((point, index) => point?.position !== index)) {
     problems.push(`${where}.points positions must be contiguous from 0 and in order`);
   }
-  const observedPoints = new Map();
-  for (const event of linked.slice(linked.lastIndexOf(evaluation) + 1)) {
-    if (event.event !== 'coverage_point') continue;
-    if (observedPoints.has(event.pointPosition)) {
-      problems.push(`${path} has more than one effective coverage_point at position ${event.pointPosition}`);
-    }
-    observedPoints.set(event.pointPosition, event);
-  }
   for (const [index, point] of value.points.entries()) {
     const at = `${where}.points[${index}]`;
     if (!exactKeys(point, COVERAGE_POINT_KEYS, at, problems)) continue;
-    if (!COVERAGE_VERDICTS.has(point.verdict)) problems.push(`${at}.verdict must be covered, partial or missing`);
-    const observed = observedPoints.get(point.position);
-    if (!observed) {
-      problems.push(`${at} has no authenticated coverage_point at position ${JSON.stringify(point.position)}`);
-      continue;
-    }
-    for (const key of ['verdict', 'matchRatio', 'keywordCount', 'latched']) {
-      expectEqual(point[key], observed[key], `${at}.${key} observed coverage_point`, problems);
-    }
-  }
-  for (const [position, event] of observedPoints) {
-    if (event.evaluatorVersion !== evaluation.evaluatorVersion) {
-      problems.push(`${path} coverage_point ${event.uuid} evaluatorVersion differs from its coverage_evaluation`);
-    }
-    if (!value.points.some((point) => point?.position === position)) {
-      problems.push(`${where}.points omits the authenticated coverage_point at position ${position}`);
+    if (!FINALIZED_ROW_VERDICTS.has(point.verdict)) problems.push(`${at}.verdict must be detected or not_detected`);
+    if (!record) continue;
+    const recorded = record.find((entry) => entry?.sortOrder === point.position);
+    if (!recorded) {
+      problems.push(`${at} has no finalized stop-seam verdict at position ${JSON.stringify(point.position)}`);
+    } else if (recorded.verdict !== 'unavailable') {
+      expectEqual(point.verdict, recorded.verdict, `${at}.verdict finalized stop-seam verdict`, problems);
     }
   }
   return value;
 }
 
-function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId, baseDir, runAuthorityResolver, problems) {
+function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId, baseDir, runAuthorityResolver, problems, geminiResolver) {
   if (!Array.isArray(rows)) {
     problems.push('candidateEvidence must be an array');
     return new Set();
@@ -453,6 +483,14 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
   const comparisonNonces = new Set();
   const authorizationRuns = new Set();
   const focusCoverages = [];
+  // The finalized stop-seam record rides on the attested persisted-session authority it is keyed by. A missing
+  // resolver is reported by validateGeminiEvidence; here it simply leaves every Focus Points row unproven.
+  let sessionAuthority = null;
+  if (typeof geminiResolver === 'function') {
+    try { sessionAuthority = geminiResolver(); } catch { sessionAuthority = null; }
+  }
+  const finalizedBySession = new Map((Array.isArray(sessionAuthority) ? sessionAuthority : [])
+    .filter(isObject).map((authority) => [authority.persistedSessionId, authority]));
 
   for (const [index, row] of rows.entries()) {
     const path = `candidateEvidence[${index}]`;
@@ -578,13 +616,18 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
       : [];
     if (expectedMode === 'objective') {
       if (!hasCoverage) problems.push(`${path}.focusCoverage is required on an objective (Focus Points) take`);
-      else if (validateFocusCoverage(row.focusCoverage, { setup, linked: coverage }, row.candidateId, path, problems)) {
+      else if (validateFocusCoverage(row.focusCoverage, {
+        setup, linked: coverage, finalized: finalizedBySession.get(row.persistedSessionId) ?? null,
+      }, row.candidateId, path, problems)) {
         focusCoverages.push(row.focusCoverage);
       }
     } else {
       // PRODUCT_REQUIREMENTS §2 — Focus Points state must never leak into an Open Mic take.
       if (hasCoverage) problems.push(`${path}.focusCoverage must be absent on a quick (Open Mic) take`);
       if (coverage.length > 0) problems.push(`${path} quick (Open Mic) take links decoded coverage telemetry`);
+      if (isObject(finalizedBySession.get(row.persistedSessionId)?.finalizedCoverage)) {
+        problems.push(`${path} quick (Open Mic) take has finalized stop-seam coverage`);
+      }
     }
   }
   for (const key of SHARED_EVALUATOR_KEYS) {
@@ -825,7 +868,7 @@ export function validateModelDownselectionEvidence(value, options = {}) {
   );
   const requiredTakeKeys = validateCandidateEvidence(
     value.candidateEvidence, events, releaseSha, value.evidenceDocumentId, baseDir,
-    options.runAuthorityResolver, problems,
+    options.runAuthorityResolver, problems, options.geminiResolver,
   );
   validateGeminiEvidence(value.geminiEvidence, requiredTakeKeys, options.geminiResolver, problems);
   validateSelection(

@@ -241,6 +241,42 @@ export function geminiSessionReadback(rows) {
   });
 }
 
+/**
+ * #1432 PM RETURN `5655220799` — THE FINALIZED FOCUS POINTS VERDICT IS READ FROM ITS DURABLE RECORD.
+ *
+ * Coverage telemetry is emitted from the view's pre-final derivation. The verdict the tester saw, and the one the
+ * database persisted, is the stop seam's `objective_evidence`. It is found only through the already-authenticated
+ * persisted session id (`objective_session.source_session_id`), and only content-free columns are selected: the
+ * binary verdict, its predicate version and the point's `sort_order`. Never a label, cue, goal or transcript.
+ * A non-2xx, denied or malformed response is refused here; the validator decides cardinality and completeness.
+ */
+export const FINALIZED_COVERAGE_SELECT = 'source_session_id,objective_evidence(verdict,predicate_version,objective_brief_point(sort_order))';
+const FINALIZED_VERDICTS = new Set(['detected', 'not_detected', 'unavailable']);
+
+export const finalizedCoveragePath = (sessionIds) =>
+  `/rest/v1/objective_session?select=${encodeURIComponent(FINALIZED_COVERAGE_SELECT)}&source_session_id=in.(${sessionIds.join(',')})`;
+
+export function finalizedCoverageReadback(rows, sessionIds) {
+  if (!Array.isArray(rows)) throw new Error('Supabase finalized coverage readback is malformed');
+  const bySession = new Map(sessionIds.map((id) => [id, []]));
+  for (const [index, row] of rows.entries()) {
+    const sessions = bySession.get(row?.source_session_id);
+    if (!sessions || !Array.isArray(row.objective_evidence)) {
+      throw new Error(`Supabase finalized coverage row ${index} is malformed`);
+    }
+    const points = row.objective_evidence.map((evidence) => {
+      const sortOrder = evidence?.objective_brief_point?.sort_order;
+      if (!FINALIZED_VERDICTS.has(evidence?.verdict) || typeof evidence.predicate_version !== 'string'
+        || !TOKEN.test(evidence.predicate_version) || !Number.isInteger(sortOrder) || sortOrder < 0) {
+        throw new Error(`Supabase finalized coverage row ${index} is malformed`);
+      }
+      return { sortOrder, verdict: evidence.verdict, predicateVersion: evidence.predicate_version };
+    }).sort((left, right) => left.sortOrder - right.sortOrder);
+    sessions.push({ points });
+  }
+  return bySession;
+}
+
 async function jsonResponse(response, label) {
   const text = await response.text();
   if (!response.ok) throw new Error(`${label} returned HTTP ${response.status}`);
@@ -248,7 +284,7 @@ async function jsonResponse(response, label) {
 }
 
 export async function collectAuthorities({ evidence, env = process.env, fetchImpl = fetch, now = new Date() }) {
-  const { releaseSha, sessions } = comparisonRows(evidence);
+  const { releaseSha, sessions, rows } = comparisonRows(evidence);
   const query = postHogReadbackQuery(evidence);
   const apiHost = (env.POSTHOG_API_HOST || 'https://us.posthog.com').replace(/\/$/, '');
   const projectId = required(env.POSTHOG_PROJECT_ID, 'POSTHOG_PROJECT_ID');
@@ -278,6 +314,21 @@ export async function collectAuthorities({ evidence, env = process.env, fetchImp
   if (observations.length !== sessions.length
     || observations.some((row) => !sessions.includes(row.persistedSessionId))) {
     throw new Error('Supabase coaching readback did not return every exact persisted session');
+  }
+
+  const focusSessions = rows.filter((row) => row.journey === 'focus_points').map((row) => row.persistedSessionId);
+  const finalizedResponse = await fetchImpl(`${supabaseUrl}${finalizedCoveragePath(focusSessions)}`, {
+    method: 'GET',
+    headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}` },
+  });
+  const finalized = finalizedCoverageReadback(
+    await jsonResponse(finalizedResponse, 'Supabase finalized coverage readback'), focusSessions,
+  );
+  // Attached to the attested persisted-session authority it is keyed by; an Open Mic session carries none.
+  for (const observation of observations) {
+    observation.finalizedCoverage = finalized.has(observation.persistedSessionId)
+      ? { sessions: finalized.get(observation.persistedSessionId) }
+      : null;
   }
 
   return {
