@@ -78,6 +78,34 @@ export const modelComparisonSessionBindingSha256 = (comparisonNonce, persistedSe
 /** The only events a take may link. The document positive control is never one of them. */
 const TAKE_EVENTS = new Set(['practice_mode_selected', 'session_started', 'session_saved']);
 
+/**
+ * #1432 PM RETURN `5654659496` — FOCUS POINTS COVERAGE. Selected by the saved take's native attempt, never by a
+ * nonce of its own, and content-free: counts, positions, verdicts, ratios, thresholds and the evaluator version.
+ * Each field is non-null only on the coverage event that defines it.
+ */
+const COVERAGE_EVENTS = new Set(['coverage_evaluation', 'coverage_point']);
+const COVERAGE_VERDICTS = new Set(['covered', 'partial', 'missing']);
+const isCount = (value) => Number.isInteger(value) && value >= 0;
+const isRatio = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+const EVALUATION_FIELD_RULES = Object.freeze({
+  pointsSupplied: isCount, pointsEvaluated: isCount, coveredThreshold: isRatio, partialThreshold: isRatio,
+});
+const POINT_FIELD_RULES = Object.freeze({
+  pointPosition: isCount, verdict: (value) => COVERAGE_VERDICTS.has(value), matchRatio: isRatio,
+  keywordCount: isCount, latched: (value) => typeof value === 'boolean',
+});
+/** PM 5654994284 — the entered count, recorded at setup under the take's native journey. */
+const SETUP_EVENT = 'journey_step';
+const SETUP_FIELD_RULES = Object.freeze({
+  step: (value) => value === 'setup_submitted', pointsEntered: isCount,
+});
+const FOCUS_COVERAGE_KEYS = [
+  'evaluatorVersion', 'pointsEntered', 'pointsSupplied', 'pointsEvaluated', 'coveredThreshold', 'partialThreshold', 'points',
+];
+const COVERAGE_POINT_KEYS = ['position', 'verdict', 'matchRatio', 'keywordCount', 'latched'];
+/** One evaluator must have scored every candidate, or a coverage delta is matcher drift rather than transcription. */
+const SHARED_EVALUATOR_KEYS = ['evaluatorVersion', 'coveredThreshold', 'partialThreshold'];
+
 const stable = (value) => {
   if (Array.isArray(value)) return value.map(stable);
   if (!isObject(value)) return value;
@@ -244,7 +272,8 @@ function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, tel
   const eventKeys = [
     'uuid', 'event', 'releaseSha', 'candidateId', 'productMode', 'journeyId', 'attemptId', 'attemptSeq',
     'wordCount', 'comparisonNonce', 'controlNonce', 'transportInitialized', 'evidenceDocumentId',
-    'sessionBindingSha256',
+    'sessionBindingSha256', 'evaluatorVersion', ...Object.keys(EVALUATION_FIELD_RULES), ...Object.keys(POINT_FIELD_RULES),
+    ...Object.keys(SETUP_FIELD_RULES),
   ];
   const uuids = new Set();
   for (const [index, event] of readback.events.entries()) {
@@ -286,6 +315,10 @@ function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, tel
     } else if (TAKE_EVENTS.has(event.event)) {
       if (event.controlNonce !== null) problems.push(`${path} take event must not carry the document controlNonce`);
       if (event.comparisonNonce === null) problems.push(`${path} take event has no comparisonNonce`);
+    } else if (COVERAGE_EVENTS.has(event.event) || event.event === SETUP_EVENT) {
+      if (event.comparisonNonce !== null || event.controlNonce !== null) {
+        problems.push(`${path} ${event.event} must not carry a take or document nonce`);
+      }
     } else {
       problems.push(`${path}.event ${JSON.stringify(event.event)} is not a comparison readback event`);
     }
@@ -297,6 +330,22 @@ function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, tel
     }
     if (event.sessionBindingSha256 !== null && !SHA256.test(event.sessionBindingSha256)) {
       problems.push(`${path}.sessionBindingSha256 must be a lowercase SHA-256 digest`);
+    }
+    const evaluation = event.event === 'coverage_evaluation';
+    const point = event.event === 'coverage_point';
+    if (evaluation || point
+      ? typeof event.evaluatorVersion !== 'string' || !TOKEN.test(event.evaluatorVersion)
+      : event.evaluatorVersion !== null) {
+      problems.push(`${path}.evaluatorVersion is invalid`);
+    }
+    for (const [key, valid] of Object.entries(EVALUATION_FIELD_RULES)) {
+      if (evaluation ? !valid(event[key]) : event[key] !== null) problems.push(`${path}.${key} is invalid`);
+    }
+    for (const [key, valid] of Object.entries(POINT_FIELD_RULES)) {
+      if (point ? !valid(event[key]) : event[key] !== null) problems.push(`${path}.${key} is invalid`);
+    }
+    for (const [key, valid] of Object.entries(SETUP_FIELD_RULES)) {
+      if (event.event === SETUP_EVENT ? !valid(event[key]) : event[key] !== null) problems.push(`${path}.${key} is invalid`);
     }
   }
 
@@ -313,6 +362,83 @@ function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, tel
   return readback.events;
 }
 
+/**
+ * One objective take's per-point coverage: entered -> supplied -> evaluated -> one verdict per position. The packet
+ * copy is operator-authored. The authority is the take's last authenticated `setup_submitted` before its
+ * `session_started` in the same native journey, its LAST `coverage_evaluation`, and the `coverage_point` rows
+ * emitted after that evaluation. Coverage re-emits whenever the settled evaluation changes, so earlier emissions
+ * are superseded; a second effective verdict for one position is ambiguity and HOLDs rather than being merged.
+ */
+function validateFocusCoverage(value, { setup, linked }, candidateId, path, problems) {
+  const where = `${path}.focusCoverage`;
+  for (const event of linked) {
+    if (event.candidateId !== null && event.candidateId !== candidateId) {
+      problems.push(`${path} linked ${event.event} ${event.uuid} candidateId must be ${JSON.stringify(candidateId)}`);
+    }
+  }
+  if (!exactKeys(value, FOCUS_COVERAGE_KEYS, where, problems)) return null;
+  if (!setup) {
+    problems.push(`${path} must link a decoded setup_submitted in its native journey before its session_started`);
+  } else {
+    expectEqual(value.pointsEntered, setup.pointsEntered, `${where}.pointsEntered observed setup_submitted`, problems);
+  }
+  if (value.pointsEntered !== value.pointsSupplied) {
+    problems.push(`${where} lost a point between setup and evaluation: pointsEntered ${value.pointsEntered}, pointsSupplied ${value.pointsSupplied}`);
+  }
+  const evaluation = linked.filter((event) => event.event === 'coverage_evaluation').at(-1);
+  if (!evaluation) {
+    problems.push(`${path} must link a decoded coverage_evaluation for its Focus Points take`);
+    return null;
+  }
+  for (const key of ['evaluatorVersion', ...Object.keys(EVALUATION_FIELD_RULES)]) {
+    expectEqual(value[key], evaluation[key], `${where}.${key} observed coverage_evaluation`, problems);
+  }
+  // A point lost before evaluation leaves every position check satisfied, so it is caught by count alone.
+  if (value.pointsSupplied !== value.pointsEvaluated) {
+    problems.push(`${where} dropped a point before evaluation: pointsSupplied ${value.pointsSupplied}, pointsEvaluated ${value.pointsEvaluated}`);
+  }
+  if (!Array.isArray(value.points)) {
+    problems.push(`${where}.points must be an array`);
+    return null;
+  }
+  if (value.points.length !== value.pointsEvaluated) {
+    problems.push(`${where}.points must carry exactly one verdict per entered point (${value.pointsEvaluated})`);
+  }
+  if (value.points.some((point, index) => point?.position !== index)) {
+    problems.push(`${where}.points positions must be contiguous from 0 and in order`);
+  }
+  const observedPoints = new Map();
+  for (const event of linked.slice(linked.lastIndexOf(evaluation) + 1)) {
+    if (event.event !== 'coverage_point') continue;
+    if (observedPoints.has(event.pointPosition)) {
+      problems.push(`${path} has more than one effective coverage_point at position ${event.pointPosition}`);
+    }
+    observedPoints.set(event.pointPosition, event);
+  }
+  for (const [index, point] of value.points.entries()) {
+    const at = `${where}.points[${index}]`;
+    if (!exactKeys(point, COVERAGE_POINT_KEYS, at, problems)) continue;
+    if (!COVERAGE_VERDICTS.has(point.verdict)) problems.push(`${at}.verdict must be covered, partial or missing`);
+    const observed = observedPoints.get(point.position);
+    if (!observed) {
+      problems.push(`${at} has no authenticated coverage_point at position ${JSON.stringify(point.position)}`);
+      continue;
+    }
+    for (const key of ['verdict', 'matchRatio', 'keywordCount', 'latched']) {
+      expectEqual(point[key], observed[key], `${at}.${key} observed coverage_point`, problems);
+    }
+  }
+  for (const [position, event] of observedPoints) {
+    if (event.evaluatorVersion !== evaluation.evaluatorVersion) {
+      problems.push(`${path} coverage_point ${event.uuid} evaluatorVersion differs from its coverage_evaluation`);
+    }
+    if (!value.points.some((point) => point?.position === position)) {
+      problems.push(`${where}.points omits the authenticated coverage_point at position ${position}`);
+    }
+  }
+  return value;
+}
+
 function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId, baseDir, runAuthorityResolver, problems) {
   if (!Array.isArray(rows)) {
     problems.push('candidateEvidence must be an array');
@@ -326,6 +452,7 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
   const exactKeysSeen = new Set();
   const comparisonNonces = new Set();
   const authorizationRuns = new Set();
+  const focusCoverages = [];
 
   for (const [index, row] of rows.entries()) {
     const path = `candidateEvidence[${index}]`;
@@ -334,7 +461,8 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
       'persistedSessionId',
       'receiptArtifact', 'receiptSha256',
     ];
-    if (!exactKeys(row, keys, path, problems)) continue;
+    const hasCoverage = isObject(row) && Object.hasOwn(row, 'focusCoverage');
+    if (!exactKeys(row, hasCoverage ? [...keys, 'focusCoverage'] : keys, path, problems)) continue;
     if (!CANDIDATE_SET.has(row.candidateId)) problems.push(`${path}.candidateId is not in the three-model slate`);
     if (!JOURNEY_SET.has(row.journey)) problems.push(`${path}.journey is not required`);
     expectEqual(row.releaseSha, releaseSha, `${path}.releaseSha`, problems);
@@ -435,6 +563,34 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
     }
     if (modes.some((event) => event.productMode !== expectedMode)) {
       problems.push(`${path} has contradictory decoded journey telemetry`);
+    }
+    // #1432 PM RETURN `5654659496` — conditioned on product mode. Coverage belongs to the saved take's native
+    // attempt, found through the nonce-linked session_started, never through an operator-copied identifier.
+    const start = starts.length === 1 ? starts[0] : null;
+    const startIndex = start ? events.indexOf(start) : -1;
+    const setup = start
+      ? events.filter((event, index) => index < startIndex && event?.event === SETUP_EVENT
+        && event.journeyId === start.journeyId).at(-1) ?? null
+      : null;
+    const coverage = start && typeof start.attemptId === 'string'
+      ? events.filter((event) => COVERAGE_EVENTS.has(event?.event)
+        && event.journeyId === start.journeyId && event.attemptId === start.attemptId)
+      : [];
+    if (expectedMode === 'objective') {
+      if (!hasCoverage) problems.push(`${path}.focusCoverage is required on an objective (Focus Points) take`);
+      else if (validateFocusCoverage(row.focusCoverage, { setup, linked: coverage }, row.candidateId, path, problems)) {
+        focusCoverages.push(row.focusCoverage);
+      }
+    } else {
+      // PRODUCT_REQUIREMENTS §2 — Focus Points state must never leak into an Open Mic take.
+      if (hasCoverage) problems.push(`${path}.focusCoverage must be absent on a quick (Open Mic) take`);
+      if (coverage.length > 0) problems.push(`${path} quick (Open Mic) take links decoded coverage telemetry`);
+    }
+  }
+  for (const key of SHARED_EVALUATOR_KEYS) {
+    const values = new Set(focusCoverages.map((coverage) => coverage[key]));
+    if (values.size > 1) {
+      problems.push(`candidateEvidence Focus Points takes were not scored by one evaluator: ${key} differs (${[...values].map((value) => JSON.stringify(value)).join(', ')})`);
     }
   }
   const rowNonces = new Set(rows.filter(isObject).map((row) => row.comparisonNonce));

@@ -63,6 +63,18 @@ const writeArtifact = (name, value) => {
   return { path: name, digest: createHash('sha256').update(bytes).digest('hex') };
 };
 
+/** Coverage fields are null on every event except the coverage event that defines them. */
+const NO_COVERAGE = Object.freeze({
+  evaluatorVersion: null, pointsSupplied: null, pointsEvaluated: null, coveredThreshold: null, partialThreshold: null,
+  pointPosition: null, verdict: null, matchRatio: null, keywordCount: null, latched: null, step: null, pointsEntered: null,
+});
+const EVALUATOR = { evaluatorVersion: 'keyword-ratio-v1', coveredThreshold: 0.7, partialThreshold: 0.4 };
+const FINAL_POINTS = [
+  { position: 0, verdict: 'covered', matchRatio: 0.9, keywordCount: 3, latched: false },
+  { position: 1, verdict: 'partial', matchRatio: 0.5, keywordCount: 2, latched: true },
+  { position: 2, verdict: 'missing', matchRatio: 0, keywordCount: 4, latched: false },
+];
+
 let fixtureSequence = 0;
 function validEvidence() {
   fixtureSequence += 1;
@@ -70,6 +82,7 @@ function validEvidence() {
   const candidateEvidence = [];
   // The document control is emitted under the envelope's own native identity and carries no take nonce.
   const events = [{
+    ...NO_COVERAGE,
     uuid: 'event-positive-control', event: 'telemetry_positive_control', releaseSha: RELEASE,
     candidateId: null, productMode: null, journeyId: 'native-journey-signin',
     attemptId: null, attemptSeq: 0,
@@ -99,12 +112,17 @@ function validEvidence() {
         authorization: observerAuthorization({ candidateId, journey, ordinal }),
         sessionBindingSha256: modelComparisonSessionBindingSha256(comparisonNonce, persistedSessionId),
       });
+      const objective = journey === 'focus_points';
       candidateEvidence.push({
         releaseSha: RELEASE, candidateId, journey, journeyId, attemptId, attemptSeq,
         comparisonNonce, persistedSessionId,
         receiptArtifact: receipt.path, receiptSha256: receipt.digest,
+        ...(objective ? {
+          focusCoverage: { ...EVALUATOR, pointsEntered: 3, pointsSupplied: 3, pointsEvaluated: 3, points: structuredClone(FINAL_POINTS) },
+        } : {}),
       });
       events.push({
+        ...NO_COVERAGE,
         uuid: `mode-${ordinal}`, event: 'practice_mode_selected', releaseSha: RELEASE,
         // Mode selection may precede engine attribution; take 1 proves a null candidate is not contradiction.
         candidateId: ordinal === 1 ? null : candidateId,
@@ -112,14 +130,41 @@ function validEvidence() {
         attemptId: null, attemptSeq: 0, wordCount: null, comparisonNonce, controlNonce: null,
         transportInitialized: null, evidenceDocumentId: EVIDENCE_DOCUMENT_ID, sessionBindingSha256: null,
       });
+      if (objective) {
+        // Entry happens before Start: the native journey, no attempt and no nonce.
+        events.push({
+          ...NO_COVERAGE, uuid: `setup-${ordinal}`, event: 'journey_step', releaseSha: RELEASE, candidateId: null,
+          productMode: null, journeyId, attemptId: null, attemptSeq: 0, wordCount: null, comparisonNonce: null,
+          controlNonce: null, transportInitialized: null, evidenceDocumentId: null, sessionBindingSha256: null,
+          step: 'setup_submitted', pointsEntered: 3,
+        });
+      }
       for (const event of ['session_started', 'session_saved']) {
         events.push({
+          ...NO_COVERAGE,
           uuid: `${event}-${ordinal}`, event, releaseSha: RELEASE, candidateId, productMode: null, journeyId,
           attemptId, attemptSeq, wordCount: event === 'session_saved' ? 42 : null,
           comparisonNonce, controlNonce: null, transportInitialized: null, evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
           sessionBindingSha256: event === 'session_saved'
             ? modelComparisonSessionBindingSha256(comparisonNonce, persistedSessionId) : null,
         });
+      }
+      if (objective) {
+        // The governed envelope only: no nonce, no document id. CONTROL — an earlier settled emission at position 0
+        // said `missing`; the later emission supersedes it rather than adding a point.
+        const coverageEvent = (uuid, event, fields) => ({
+          ...NO_COVERAGE, uuid, event, releaseSha: RELEASE, candidateId, productMode: null, journeyId, attemptId,
+          attemptSeq, wordCount: null, comparisonNonce: null, controlNonce: null, transportInitialized: null,
+          evidenceDocumentId: null, sessionBindingSha256: null, evaluatorVersion: EVALUATOR.evaluatorVersion, ...fields,
+        });
+        const evaluation = { pointsSupplied: 3, pointsEvaluated: 3, coveredThreshold: EVALUATOR.coveredThreshold, partialThreshold: EVALUATOR.partialThreshold };
+        const pointFields = ({ position, ...rest }) => ({ pointPosition: position, ...rest });
+        events.push(
+          coverageEvent(`coverage-evaluation-${ordinal}-superseded`, 'coverage_evaluation', evaluation),
+          coverageEvent(`coverage-point-${ordinal}-0-superseded`, 'coverage_point', pointFields({ ...FINAL_POINTS[0], verdict: 'missing', matchRatio: 0.2 })),
+          coverageEvent(`coverage-evaluation-${ordinal}`, 'coverage_evaluation', evaluation),
+          ...FINAL_POINTS.map((point) => coverageEvent(`coverage-point-${ordinal}-${point.position}`, 'coverage_point', pointFields(point))),
+        );
       }
       geminiEvidence.push({
         releaseSha: RELEASE, candidateId, journey, journeyId, attemptId, attemptSeq,
@@ -680,6 +725,174 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     it('CASUALTY: the observer session binding must match the packet row', () => {
       const evidence = rewriteReceipt(validEvidence(), 4, 'wrong-binding', (receipt) => { receipt.sessionBindingSha256 = HASH('e'); });
       expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\]\.receipt\.sessionBindingSha256 must be/);
+    });
+  });
+
+  describe('#1432 PM RETURN `5654659496` — Focus Points coverage is authenticated, complete, ordered, one evaluator, and absent from Open Mic', () => {
+    const resolvers = () => ({
+      baseDir: ARTIFACT_DIR,
+      runAuthorityResolver,
+      approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
+      telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
+      geminiResolver: () => structuredClone(LIVE_GEMINI),
+    });
+    /** Re-authorize the readback and re-approve the changed packet, so only the discriminating rule can speak. */
+    const problemsOf = (value) => {
+      authorize(value);
+      const approval = JSON.parse(readFileSync(join(ARTIFACT_DIR, value.selection.approvalArtifact), 'utf8'));
+      approval.body = approval.body.replace(/^packet_sha256: .*$/m, `packet_sha256: ${completedEvidenceDigest(value)}`);
+      LIVE_APPROVALS.set(approval.html_url, structuredClone(approval));
+      const rewritten = writeArtifact(`approval-coverage-${fixtureSequence}.json`, approval);
+      value.selection.approvalArtifact = rewritten.path;
+      value.selection.approvalSha256 = rewritten.digest;
+      return validateModelDownselectionEvidence(value, resolvers()).problems;
+    };
+    const coverageEvents = (value, ordinal) => value.telemetryReadback.events.filter(
+      (event) => event.uuid.startsWith(`coverage-evaluation-${ordinal}`) || event.uuid.startsWith(`coverage-point-${ordinal}-`),
+    );
+
+    it('CONTROL: the harness passes an unchanged packet, and a superseded settled emission is not an extra point', () => {
+      const evidence = validEvidence();
+      expect(evidence.candidateEvidence.filter((row) => row.focusCoverage).map((row) => row.journey))
+        .toEqual(['focus_points', 'focus_points', 'focus_points']);
+      expect(eventByUuid(evidence, 'coverage-point-2-0-superseded').verdict).toBe('missing');
+      expect(problemsOf(evidence)).toEqual([]);
+      expect(validateModelDownselectionEvidence(evidence, resolvers()).verdict).toBe('PASS');
+    });
+
+    it('CASUALTY 1: an objective row missing one entered point fails', () => {
+      const evidence = validEvidence();
+      evidence.telemetryReadback.events = evidence.telemetryReadback.events.filter((event) => event.uuid !== 'coverage-point-2-2');
+      evidence.candidateEvidence[1].focusCoverage.points.pop();
+      expect(problemsOf(evidence)).toEqual([
+        'candidateEvidence[1].focusCoverage.points must carry exactly one verdict per entered point (3)',
+      ]);
+    });
+
+    it('CASUALTY 2: reordered or non-contiguous positions fail', () => {
+      const reordered = validEvidence();
+      const { points } = reordered.candidateEvidence[3].focusCoverage;
+      reordered.candidateEvidence[3].focusCoverage.points = [points[1], points[0], points[2]];
+      expect(problemsOf(reordered)).toEqual([
+        'candidateEvidence[3].focusCoverage.points positions must be contiguous from 0 and in order',
+      ]);
+
+      const gapped = validEvidence();
+      eventByUuid(gapped, 'coverage-point-6-2').pointPosition = 3;
+      gapped.candidateEvidence[5].focusCoverage.points[2].position = 3;
+      expect(problemsOf(gapped)).toEqual([
+        'candidateEvidence[5].focusCoverage.points positions must be contiguous from 0 and in order',
+      ]);
+    });
+
+    it('CASUALTY 3: a quick (Open Mic) row carrying the per-point structure fails', () => {
+      const evidence = validEvidence();
+      evidence.candidateEvidence[0].focusCoverage = structuredClone(evidence.candidateEvidence[1].focusCoverage);
+      expect(problemsOf(evidence)).toEqual([
+        'candidateEvidence[0].focusCoverage must be absent on a quick (Open Mic) take',
+      ]);
+    });
+
+    it('CASUALTY 3 (schema): presence on an Open Mic row is a schema failure, not an emptiness check', () => {
+      const schema = JSON.parse(readFileSync('product_release/evidence/human-test/model-downselection.schema.json', 'utf8'));
+      const take = schema.$defs.candidateTake;
+      expect(take.if).toEqual({ required: ['journey'], properties: { journey: { const: 'focus_points' } } });
+      expect(take.then).toEqual({ required: ['focusCoverage'] });
+      expect(take.else).toEqual({ not: { required: ['focusCoverage'] } });
+      expect(take.required).not.toContain('focusCoverage');
+      expect(take.properties.focusCoverage).toEqual({ $ref: '#/$defs/focusCoverage' });
+    });
+
+    it('CASUALTY: an Open Mic take whose own attempt carries coverage telemetry fails', () => {
+      const evidence = validEvidence();
+      for (const event of coverageEvents(evidence, 2)) event.attemptId = 'attempt-1';
+      const problems = problemsOf(evidence).join('\n');
+      expect(problems).toMatch(/candidateEvidence\[0\] quick \(Open Mic\) take links decoded coverage telemetry/);
+      expect(problems).toMatch(/candidateEvidence\[1\] must link a decoded coverage_evaluation for its Focus Points take/);
+    });
+
+    it('CASUALTY 4: candidates scored by different evaluator versions or thresholds fail', () => {
+      const version = validEvidence();
+      for (const event of coverageEvents(version, 4)) event.evaluatorVersion = 'keyword-ratio-v2';
+      version.candidateEvidence[3].focusCoverage.evaluatorVersion = 'keyword-ratio-v2';
+      expect(problemsOf(version)).toEqual([
+        'candidateEvidence Focus Points takes were not scored by one evaluator: evaluatorVersion differs ("keyword-ratio-v1", "keyword-ratio-v2")',
+      ]);
+
+      const threshold = validEvidence();
+      for (const event of coverageEvents(threshold, 6)) if (event.event === 'coverage_evaluation') event.coveredThreshold = 0.8;
+      threshold.candidateEvidence[5].focusCoverage.coveredThreshold = 0.8;
+      expect(problemsOf(threshold)).toEqual([
+        'candidateEvidence Focus Points takes were not scored by one evaluator: coveredThreshold differs (0.7, 0.8)',
+      ]);
+    });
+
+    it('CASUALTY 5 (PM): a point dropped before evaluation fails even when every position is contiguous', () => {
+      const evidence = validEvidence();
+      // Entry agrees with supply (4), so only the loss between supply and evaluation can speak.
+      eventByUuid(evidence, 'setup-2').pointsEntered = 4;
+      eventByUuid(evidence, 'coverage-evaluation-2').pointsSupplied = 4;
+      Object.assign(evidence.candidateEvidence[1].focusCoverage, { pointsEntered: 4, pointsSupplied: 4 });
+      expect(problemsOf(evidence)).toEqual([
+        'candidateEvidence[1].focusCoverage dropped a point before evaluation: pointsSupplied 4, pointsEvaluated 3',
+      ]);
+    });
+
+    it('CASUALTY 6 (PM 5654994284): a point lost between setup and evaluation fails even when supplied equals evaluated', () => {
+      const evidence = validEvidence();
+      eventByUuid(evidence, 'setup-4').pointsEntered = 4;
+      evidence.candidateEvidence[3].focusCoverage.pointsEntered = 4;
+      expect(problemsOf(evidence)).toEqual([
+        'candidateEvidence[3].focusCoverage lost a point between setup and evaluation: pointsEntered 4, pointsSupplied 3',
+      ]);
+    });
+
+    it('CASUALTY (PM 5654994284): a missing, later or cross-journey setup is not the take\'s entered count', () => {
+      const missing = validEvidence();
+      missing.telemetryReadback.events = missing.telemetryReadback.events.filter((event) => event.uuid !== 'setup-6');
+      expect(problemsOf(missing)).toEqual([
+        'candidateEvidence[5] must link a decoded setup_submitted in its native journey before its session_started',
+      ]);
+
+      const crossJourney = validEvidence();
+      eventByUuid(crossJourney, 'setup-6').journeyId = 'native-journey-4';
+      expect(problemsOf(crossJourney)).toEqual([
+        'candidateEvidence[5] must link a decoded setup_submitted in its native journey before its session_started',
+      ]);
+
+      const afterStart = validEvidence();
+      const { events } = afterStart.telemetryReadback;
+      const setup = events.splice(events.findIndex((event) => event.uuid === 'setup-6'), 1)[0];
+      events.push(setup);
+      expect(problemsOf(afterStart)).toEqual([
+        'candidateEvidence[5] must link a decoded setup_submitted in its native journey before its session_started',
+      ]);
+    });
+
+    it('CASUALTY (PM 5654994284): a second effective verdict for one position is ambiguity, not a merge', () => {
+      const evidence = validEvidence();
+      const { events } = evidence.telemetryReadback;
+      const last = events.findIndex((event) => event.uuid === 'coverage-point-2-2');
+      events.splice(last + 1, 0, { ...structuredClone(eventByUuid(evidence, 'coverage-point-2-1')), uuid: 'coverage-point-2-1-duplicate', verdict: 'covered' });
+      expect(problemsOf(evidence).join('\n')).toMatch(/candidateEvidence\[1\] has more than one effective coverage_point at position 1/);
+    });
+
+    it('CASUALTY: an operator-authored verdict or count that differs from authenticated coverage fails', () => {
+      const verdict = validEvidence();
+      verdict.candidateEvidence[1].focusCoverage.points[2].verdict = 'covered';
+      expect(problemsOf(verdict)).toEqual(['candidateEvidence[1].focusCoverage.points[2].verdict observed coverage_point must be "missing"']);
+
+      const superseded = validEvidence();
+      // Copying the superseded emission is not the take's final verdict.
+      Object.assign(superseded.candidateEvidence[3].focusCoverage.points[0], { verdict: 'missing', matchRatio: 0.2 });
+      expect(problemsOf(superseded)).toEqual([
+        'candidateEvidence[3].focusCoverage.points[0].verdict observed coverage_point must be "covered"',
+        'candidateEvidence[3].focusCoverage.points[0].matchRatio observed coverage_point must be 0.9',
+      ]);
+
+      const absent = validEvidence();
+      delete absent.candidateEvidence[5].focusCoverage;
+      expect(problemsOf(absent)).toEqual(['candidateEvidence[5].focusCoverage is required on an objective (Focus Points) take']);
     });
   });
 

@@ -90,7 +90,9 @@
       "required": [
         "uuid", "event", "releaseSha", "candidateId", "productMode", "journeyId", "attemptId",
         "attemptSeq", "wordCount", "comparisonNonce", "controlNonce", "transportInitialized",
-        "evidenceDocumentId", "sessionBindingSha256"
+        "evidenceDocumentId", "sessionBindingSha256", "evaluatorVersion", "pointsSupplied",
+        "pointsEvaluated", "coveredThreshold", "partialThreshold", "pointPosition", "verdict",
+        "matchRatio", "keywordCount", "latched", "step", "pointsEntered"
       ],
       "properties": {
         "uuid": { "$ref": "#/$defs/token" },
@@ -106,7 +108,52 @@
         "controlNonce": { "anyOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
         "transportInitialized": { "type": ["boolean", "null"] },
         "evidenceDocumentId": { "anyOf": [{ "$ref": "#/$defs/uuidv4" }, { "type": "null" }] },
-        "sessionBindingSha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
+        "sessionBindingSha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "evaluatorVersion": { "anyOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
+        "pointsSupplied": { "type": ["integer", "null"], "minimum": 0 },
+        "pointsEvaluated": { "type": ["integer", "null"], "minimum": 0 },
+        "coveredThreshold": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "partialThreshold": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "pointPosition": { "type": ["integer", "null"], "minimum": 0 },
+        "verdict": { "anyOf": [{ "$ref": "#/$defs/coverageVerdict" }, { "type": "null" }] },
+        "matchRatio": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "keywordCount": { "type": ["integer", "null"], "minimum": 0 },
+        "latched": { "type": ["boolean", "null"] },
+        "step": { "enum": ["setup_submitted", null] },
+        "pointsEntered": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "coverageVerdict": { "enum": ["covered", "partial", "missing"] },
+    "focusCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evaluatorVersion", "pointsEntered", "pointsSupplied", "pointsEvaluated", "coveredThreshold",
+        "partialThreshold", "points"
+      ],
+      "properties": {
+        "evaluatorVersion": { "$ref": "#/$defs/token" },
+        "pointsEntered": { "type": "integer", "minimum": 1 },
+        "pointsSupplied": { "type": "integer", "minimum": 1 },
+        "pointsEvaluated": { "type": "integer", "minimum": 1 },
+        "coveredThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "partialThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "points": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["position", "verdict", "matchRatio", "keywordCount", "latched"],
+            "properties": {
+              "position": { "type": "integer", "minimum": 0 },
+              "verdict": { "$ref": "#/$defs/coverageVerdict" },
+              "matchRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+              "keywordCount": { "type": "integer", "minimum": 0 },
+              "latched": { "type": "boolean" }
+            }
+          }
+        }
       }
     },
     "candidateTake": {
@@ -117,6 +164,9 @@
         "comparisonNonce", "persistedSessionId",
         "receiptArtifact", "receiptSha256"
       ],
+      "if": { "required": ["journey"], "properties": { "journey": { "const": "focus_points" } } },
+      "then": { "required": ["focusCoverage"] },
+      "else": { "not": { "required": ["focusCoverage"] } },
       "properties": {
         "releaseSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "candidateId": { "$ref": "#/$defs/candidate" },
@@ -127,7 +177,8 @@
         "comparisonNonce": { "$ref": "#/$defs/token" },
         "persistedSessionId": { "$ref": "#/$defs/uuidv4" },
         "receiptArtifact": { "type": "string", "minLength": 1, "maxLength": 240 },
-        "receiptSha256": { "$ref": "#/$defs/sha256" }
+        "receiptSha256": { "$ref": "#/$defs/sha256" },
+        "focusCoverage": { "$ref": "#/$defs/focusCoverage" }
       }
     },
     "outputShape": {

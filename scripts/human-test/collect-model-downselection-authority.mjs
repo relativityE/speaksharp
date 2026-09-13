@@ -72,6 +72,22 @@ export function comparisonRows(evidence) {
  */
 export const TAKE_EVENTS = Object.freeze(['practice_mode_selected', 'session_started', 'session_saved']);
 
+/**
+ * #1432 PM RETURN `5654659496` — FOCUS POINTS COVERAGE, READ THROUGH THE SAME AUTHENTICATED QUERY.
+ *
+ * `coverage_evaluation` and `coverage_point` carry no comparison nonce, only the governed envelope. They are
+ * selected by the native `attempt_id` of THIS document's nonce-selected `session_started`/`session_saved`
+ * events, the same saved-take join the completeness gate uses, so the signed nonce stays the root selector and
+ * no operator-copied identifier selects anything. Only counts, positions, verdicts, ratios, thresholds and the
+ * evaluator version are projected: never a point label, the transcript, or any other user wording.
+ *
+ * PM 5654994284 — the entered count. `journey_step(step=setup_submitted).points_entered` is recorded where entry
+ * happens, before Start, so it carries neither a nonce nor the take's attempt. It is selected by the native
+ * `journey_id` of this document's nonce-selected take events, derived inside the query and never typed.
+ */
+export const COVERAGE_EVENTS = Object.freeze(['coverage_evaluation', 'coverage_point']);
+const READBACK_COLUMNS = 26;
+
 export function postHogReadbackQuery(evidence) {
   const { releaseSha, evidenceDocumentId, nonces } = comparisonRows(evidence);
   const positive = evidence?.telemetryReadback?.positiveControlNonce;
@@ -92,12 +108,39 @@ SELECT
   properties.control_nonce,
   properties.transport_initialized,
   properties.comparison_evidence_document_id,
-  properties.comparison_session_binding_sha256
+  properties.comparison_session_binding_sha256,
+  properties.evaluator_version,
+  properties.points_supplied,
+  properties.points_evaluated,
+  properties.covered_threshold,
+  properties.partial_threshold,
+  properties.point_position,
+  properties.verdict,
+  properties.match_ratio,
+  properties.keyword_count,
+  properties.latched,
+  properties.step,
+  properties.points_entered
 FROM events
 WHERE properties.release_sha = ${quote(releaseSha)}
   AND (
     (event IN (${TAKE_EVENTS.map(quote).join(', ')})
       AND properties.comparison_nonce IN (${nonces.map(quote).join(', ')}))
+    OR (event IN (${COVERAGE_EVENTS.map(quote).join(', ')})
+      AND properties.attempt_id IN (
+        SELECT properties.attempt_id
+        FROM events
+        WHERE properties.release_sha = ${quote(releaseSha)}
+          AND event IN ('session_started', 'session_saved')
+          AND properties.comparison_nonce IN (${nonces.map(quote).join(', ')})))
+    OR (event = 'journey_step'
+      AND properties.step = 'setup_submitted'
+      AND properties.journey_id IN (
+        SELECT properties.journey_id
+        FROM events
+        WHERE properties.release_sha = ${quote(releaseSha)}
+          AND event IN (${TAKE_EVENTS.map(quote).join(', ')})
+          AND properties.comparison_nonce IN (${nonces.map(quote).join(', ')})))
     OR (event = 'telemetry_positive_control'
       AND properties.control_nonce = ${quote(evidenceDocumentId)})
   )
@@ -107,7 +150,12 @@ ORDER BY timestamp ASC, uuid ASC`.trim();
 export function decodePostHogRows(rows) {
   if (!Array.isArray(rows)) throw new Error('PostHog response has no results array');
   return rows.map((row, index) => {
-    if (!Array.isArray(row) || row.length !== 14) throw new Error(`PostHog row ${index} has an unexpected shape`);
+    if (!Array.isArray(row) || row.length !== READBACK_COLUMNS) throw new Error(`PostHog row ${index} has an unexpected shape`);
+    // Coverage fields are decoded only on the coverage event that defines them; anywhere else they are null.
+    const evaluation = row[1] === 'coverage_evaluation';
+    const point = row[1] === 'coverage_point';
+    const setup = row[1] === 'journey_step';
+    const count = (value, applies) => (applies && value !== null && value !== undefined ? Number(value) : null);
     return {
       uuid: row[0], event: row[1], releaseSha: row[2], candidateId: row[3] ?? null,
       productMode: row[1] === 'practice_mode_selected' ? (row[4] ?? null) : null,
@@ -117,6 +165,18 @@ export function decodePostHogRows(rows) {
       transportInitialized: row[11] ?? null,
       evidenceDocumentId: row[12] ?? null,
       sessionBindingSha256: row[13] ?? null,
+      evaluatorVersion: evaluation || point ? (row[14] ?? null) : null,
+      pointsSupplied: count(row[15], evaluation),
+      pointsEvaluated: count(row[16], evaluation),
+      coveredThreshold: count(row[17], evaluation),
+      partialThreshold: count(row[18], evaluation),
+      pointPosition: count(row[19], point),
+      verdict: point ? (row[20] ?? null) : null,
+      matchRatio: count(row[21], point),
+      keywordCount: count(row[22], point),
+      latched: point ? (row[23] ?? null) : null,
+      step: setup ? (row[24] ?? null) : null,
+      pointsEntered: count(row[25], setup),
     };
   });
 }

@@ -31,6 +31,11 @@ function packet() {
   };
 }
 
+const NO_COVERAGE = Object.freeze({
+  evaluatorVersion: null, pointsSupplied: null, pointsEvaluated: null, coveredThreshold: null, partialThreshold: null,
+  pointPosition: null, verdict: null, matchRatio: null, keywordCount: null, latched: null, step: null, pointsEntered: null,
+});
+
 const response = (value, status = 200) => ({
   ok: status >= 200 && status < 300,
   status,
@@ -69,6 +74,44 @@ describe('#1432 trusted model-downselection authority collector', () => {
     expect(query).toContain('properties.comparison_evidence_document_id');
     expect(query).toContain('properties.comparison_session_binding_sha256');
     expect(query).not.toMatch(/transcript|what_worked|what_to_try_next|distinct_id/i);
+    // #1432 PM RETURN `5654659496` — the coverage columns are counts and verdicts; a point's wording is user content.
+    expect(query).not.toMatch(/properties\.(points?|labels?|topics?|quotes?|brief|objectives?|text)\b/i);
+  });
+
+  it('CASUALTY (PM RETURN `5654659496`): coverage is selected only through the attempts of nonce-selected session events', () => {
+    const query = postHogReadbackQuery(packet());
+    for (const column of [
+      'evaluator_version', 'points_supplied', 'points_evaluated', 'covered_threshold', 'partial_threshold',
+      'point_position', 'verdict', 'match_ratio', 'keyword_count', 'latched', 'step', 'points_entered',
+    ]) expect(query).toMatch(new RegExp(`^\\s*properties\\.${column},?$`, 'm'));
+    const nonceList = [1, 2, 3, 4, 5, 6].map((index) => `'comparison-nonce-${index}'`).join(', ');
+    expect(query).toContain([
+      "OR (event IN ('coverage_evaluation', 'coverage_point')",
+      '      AND properties.attempt_id IN (',
+      '        SELECT properties.attempt_id',
+      '        FROM events',
+      `        WHERE properties.release_sha = '${RELEASE}'`,
+      "          AND event IN ('session_started', 'session_saved')",
+      `          AND properties.comparison_nonce IN (${nonceList})))`,
+    ].join('\n'));
+    // Only the subquery may select by attempt; no typed attempt id ever selects.
+    expect(query.match(/attempt_id IN/g)).toHaveLength(1);
+    expect(query).not.toMatch(/attempt-\d/);
+  });
+
+  it('CASUALTY (PM 5654994284): the entered count is selected only through the journeys of nonce-selected take events', () => {
+    const query = postHogReadbackQuery(packet());
+    const nonceList = [1, 2, 3, 4, 5, 6].map((index) => `'comparison-nonce-${index}'`).join(', ');
+    expect(query).toContain([
+      "OR (event = 'journey_step'",
+      "      AND properties.step = 'setup_submitted'",
+      '      AND properties.journey_id IN (',
+      '        SELECT properties.journey_id',
+      '        FROM events',
+      `        WHERE properties.release_sha = '${RELEASE}'`,
+      "          AND event IN ('practice_mode_selected', 'session_started', 'session_saved')",
+      `          AND properties.comparison_nonce IN (${nonceList})))`,
+    ].join('\n'));
   });
 
   it('CASUALTY (PM Option A): take and document authorities are separate columns and separate predicates', () => {
@@ -79,7 +122,11 @@ describe('#1432 trusted model-downselection authority collector', () => {
     expect(query).toMatch(/^\s*properties\.control_nonce,$/m);
     // Takes are selected only by their signed nonce; journey ids are observed, never a selector.
     expect(query).toMatch(/event IN \('practice_mode_selected', 'session_started', 'session_saved'\)\s+AND properties\.comparison_nonce IN \(/);
-    expect(query).not.toMatch(/journey_id IN|journey-1'/);
+    expect(query).not.toMatch(/journey-1'/);
+    // PM 5654994284 — the one journey selector is the nonce-derived setup subquery pinned byte-exact below; a
+    // typed or listed journey id still selects nothing.
+    expect(query.match(/journey_id IN/g)).toHaveLength(1);
+    expect(query).toMatch(/journey_id IN \(\n\s+SELECT properties\.journey_id\n/);
     // The single control is selected only by the evidence document, never by a take nonce.
     expect(query).toMatch(new RegExp(`event = 'telemetry_positive_control'\\s+AND properties\\.control_nonce = '${EVIDENCE_DOCUMENT_ID}'`));
   });
@@ -108,6 +155,8 @@ describe('#1432 trusted model-downselection authority collector', () => {
       'attempt-1', 1, 42, 'comparison-nonce-1', null, null,
       EVIDENCE_DOCUMENT_ID,
       modelComparisonSessionBindingSha256('comparison-nonce-1', '00000000-0000-4000-8000-000000000001'),
+      // A stray `verdict`-shaped value on a lifecycle event is not decoded: coverage fields belong to coverage events.
+      'keyword-ratio-v1', 3, 3, 0.7, 0.4, 0, 'covered', 0.9, 2, false, 'setup_submitted', 3,
     ]])).toEqual([{
       uuid: 'event-1', event: 'session_saved', releaseSha: RELEASE, candidateId: 'v4:distil:q4',
       productMode: null, journeyId: 'journey-1', attemptId: 'attempt-1', attemptSeq: 1,
@@ -116,13 +165,50 @@ describe('#1432 trusted model-downselection authority collector', () => {
       sessionBindingSha256: modelComparisonSessionBindingSha256(
         'comparison-nonce-1', '00000000-0000-4000-8000-000000000001',
       ),
+      ...NO_COVERAGE,
     }]);
+  });
+
+  it('decodes coverage fields only on the coverage event that defines them', () => {
+    const envelope = ['v4:distil:q4', null, 'journey-1', 'attempt-1', 1, null, null, null, null, null, null];
+    const [evaluation, point, setup] = decodePostHogRows([
+      ['event-e', 'coverage_evaluation', RELEASE, ...envelope, 'keyword-ratio-v1', '4', '4', 0.7, 0.4, 2, 'covered', 0.9, 3, true, 'setup_submitted', 4],
+      ['event-p', 'coverage_point', RELEASE, ...envelope, 'keyword-ratio-v1', 4, 4, 0.7, 0.4, '2', 'partial', 0.5, '3', false, 'setup_submitted', 4],
+      ['event-s', 'journey_step', RELEASE, ...envelope, 'keyword-ratio-v1', 4, 4, 0.7, 0.4, 2, 'covered', 0.9, 3, true, 'setup_submitted', '4'],
+    ]);
+    expect(evaluation).toMatchObject({
+      evaluatorVersion: 'keyword-ratio-v1', pointsSupplied: 4, pointsEvaluated: 4, coveredThreshold: 0.7,
+      partialThreshold: 0.4, pointPosition: null, verdict: null, matchRatio: null, keywordCount: null, latched: null,
+      step: null, pointsEntered: null,
+    });
+    expect(point).toMatchObject({
+      evaluatorVersion: 'keyword-ratio-v1', pointsSupplied: null, pointsEvaluated: null, coveredThreshold: null,
+      partialThreshold: null, pointPosition: 2, verdict: 'partial', matchRatio: 0.5, keywordCount: 3, latched: false,
+      step: null, pointsEntered: null,
+    });
+    expect(setup).toMatchObject({ ...NO_COVERAGE, step: 'setup_submitted', pointsEntered: 4 });
+    // The decoded projection is the content-free key set and nothing else.
+    expect(Object.keys(point).sort()).toEqual(Object.keys({ ...point, ...NO_COVERAGE }).sort());
+    expect(Object.keys(point)).toHaveLength(26);
   });
 
   it('CASUALTY: refuses the retired 13-column coalesced projection', () => {
     expect(() => decodePostHogRows([[
       'event-1', 'session_saved', RELEASE, 'v4:distil:q4', 'private', 'journey-1',
       'attempt-1', 1, 42, 'comparison-nonce-1', null, EVIDENCE_DOCUMENT_ID, null,
+    ]])).toThrow(/unexpected shape/);
+  });
+
+  it('CASUALTY (PM RETURN `5654659496`): refuses the retired 14-column projection that carried no coverage', () => {
+    expect(() => decodePostHogRows([[
+      'event-1', 'session_saved', RELEASE, 'v4:distil:q4', 'private', 'journey-1',
+      'attempt-1', 1, 42, 'comparison-nonce-1', null, null, EVIDENCE_DOCUMENT_ID, null,
+    ]])).toThrow(/unexpected shape/);
+    // A projection with coverage but no entered count cannot close the entered -> evaluated chain (PM 5654994284).
+    expect(() => decodePostHogRows([[
+      'event-1', 'session_saved', RELEASE, 'v4:distil:q4', 'private', 'journey-1',
+      'attempt-1', 1, 42, 'comparison-nonce-1', null, null, EVIDENCE_DOCUMENT_ID, null,
+      null, null, null, null, null, null, null, null, null, null,
     ]])).toThrow(/unexpected shape/);
   });
 
@@ -173,7 +259,7 @@ describe('#1432 trusted model-downselection authority collector', () => {
     const posthogRows = [[
       'event-control', 'telemetry_positive_control', RELEASE, null, null, 'journey-control', null,
       0, null, null, EVIDENCE_DOCUMENT_ID, true,
-      EVIDENCE_DOCUMENT_ID, null,
+      EVIDENCE_DOCUMENT_ID, null, null, null, null, null, null, null, null, null, null, null, null, null,
     ]];
     const sessions = evidence.candidateEvidence.map((row, index) => authorityRow({
       session_id: row.persistedSessionId,
