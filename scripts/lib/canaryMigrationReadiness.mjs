@@ -18,7 +18,12 @@ export const REQUIRED_APPLIED_MIGRATIONS = Object.freeze([
     ...EXACT_MIGRATION_ALLOWLIST.filter((m) => m.classification === 'staged').map((m) => m.version),
 ]);
 
-/** Commercial activation stays HELD — it must NOT be applied for the canary product lanes. */
+/**
+ * The commercial-activation migration. The name is kept because it is exported and referenced, but the
+ * rule it once carried is gone: since 2026-09-12 this migration is RECORDED applied and was never
+ * executed (#1282), so "held" no longer describes the expected state. See `activationRecorded` below —
+ * the readiness result reports whether it is recorded, and draws no conclusion about whether it ran.
+ */
 export const HELD_ACTIVATION_MIGRATION =
     EXACT_MIGRATION_ALLOWLIST.find((m) => m.classification === 'commercial-activation').version;
 
@@ -69,26 +74,37 @@ export function evaluateCanaryMigrationReadiness(output) {
         };
     }
 
-    // Every staged prerequisite is applied. The commercial activation migration MUST remain held for this
-    // closeout: if 20260812042000 has been applied, the environment is in an UNEXPECTED activated state —
-    // fail closed (non-ready) so NEITHER product lane runs. This is not a soft flag; it is a HOLD.
+    /*
+     * Every staged prerequisite is applied.
+     *
+     * THE ACTIVATION MIGRATION IS NOW EXPECTED TO READ AS APPLIED, AND THAT IS NOT AN ACTIVATED
+     * ENVIRONMENT. This rule used to fail closed on `20260812042000` appearing applied, on the assumption
+     * that "applied" could only mean the commercial activation had run.
+     *
+     * On 2026-09-12 that stopped being true. The migration sorts before the remote head, so it blocked
+     * every ordinary `supabase db push` as out-of-order; it was recorded applied WITHOUT being executed
+     * (`migration repair … --status applied`, deploy run `34691493637` — the dry-run listed only the three
+     * release migrations) so the retention migration could land. PO determined the activation is
+     * intentionally skipped rather than deferred: there are no existing unpaid accounts, so it would stamp
+     * nothing, and new users get their trial dates through the normal signup path. Recorded on #1282.
+     *
+     * The migration history cannot distinguish "recorded applied" from "actually ran", so the old rule
+     * became permanently unsatisfiable — it failed the canary closed forever, on a state that is now the
+     * intended one. `activationRecorded` reports the fact without inventing a meaning for it: the honest
+     * statement is "this migration is recorded applied", not "the environment is activated".
+     */
     const activationRow = byVersion.get(HELD_ACTIVATION_MIGRATION);
-    const activationApplied = Boolean(activationRow && activationRow.remote === HELD_ACTIVATION_MIGRATION);
-    if (activationApplied) {
-        return {
-            ready: false,
-            state: 'activation-applied',
-            version: CANARY_RUNTIME_MIGRATION,
-            activationHeld: false,
-            heldActivation: HELD_ACTIVATION_MIGRATION,
-        };
-    }
+    const activationRecorded = Boolean(activationRow && activationRow.remote === HELD_ACTIVATION_MIGRATION);
 
     return {
         ready: true,
         state: 'applied',
         version: CANARY_RUNTIME_MIGRATION,
         appliedSet: [...REQUIRED_APPLIED_MIGRATIONS],
-        activationHeld: true,
+        // Kept for readers of older evidence: it meant "42000 is not applied", which is no longer the
+        // expected state. `activationRecorded` is the field that now carries the fact.
+        activationHeld: !activationRecorded,
+        activationRecorded,
+        heldActivation: HELD_ACTIVATION_MIGRATION,
     };
 }
