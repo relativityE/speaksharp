@@ -705,6 +705,20 @@ describe('#1432 PM RETURN `5654016276` — the validator, schema and template fo
     return found;
   };
 
+  /** Every quota `limit` const and `requestNumber` maximum anywhere in the schema. */
+  const schemaQuotaCaps = (node, path = '', found = []) => {
+    if (Array.isArray(node)) node.forEach((child, index) => schemaQuotaCaps(child, `${path}[${index}]`, found));
+    else if (node && typeof node === 'object') {
+      for (const [key, value] of Object.entries(node)) {
+        const here = `${path}/${key}`;
+        if (key === 'limit' && value && typeof value === 'object' && 'const' in value) found.push({ path: `${here}/const`, value: value.const });
+        if (key === 'requestNumber' && value && typeof value === 'object' && 'maximum' in value) found.push({ path: `${here}/maximum`, value: value.maximum });
+        schemaQuotaCaps(value, here, found);
+      }
+    }
+    return found;
+  };
+
   it('CASUALTY: the locked model and uncached daily cap are the Edge contract values, read from that one file', () => {
     expect(LOCKED_GEMINI_CONTRACT.model).toBe(edge.model);
     expect(LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay).toBe(edge.uncachedGenerationCapPerUtcDay);
@@ -718,10 +732,48 @@ describe('#1432 PM RETURN `5654016276` — the validator, schema and template fo
     expect(models.length).toBeGreaterThanOrEqual(2);
     expect(new Set(models)).toEqual(new Set([edge.model]));
     expect(schema.properties.geminiContract.properties.uncachedRequestsPerUserUtcDay.const).toBe(edge.uncachedGenerationCapPerUtcDay);
+    // Codex P1 `4000011161` — the nested quota definition every fresh observation references must carry the same cap.
+    const quotaCaps = schemaQuotaCaps(schema);
+    expect(quotaCaps.length).toBeGreaterThanOrEqual(2);
+    expect(quotaCaps).toEqual(quotaCaps.map(({ path }) => ({ path, value: edge.uncachedGenerationCapPerUtcDay })));
     // Compared to the contract file directly, not only to the validator's derived value (PM guardrail).
     expect(template.geminiContract.model).toBe(edge.model);
     expect(template.geminiContract.uncachedRequestsPerUserUtcDay).toBe(edge.uncachedGenerationCapPerUtcDay);
     expect(template.geminiContract).toEqual({ ...LOCKED_GEMINI_CONTRACT });
+  });
+
+  it('BOUNDARY (PM RETURN `5654225901`): request number at the contract cap is accepted; cap + 1 is refused — validator and schema', () => {
+    const cap = edge.uncachedGenerationCapPerUtcDay; // deployed contract: 10
+    const resolvers = () => ({
+      baseDir: ARTIFACT_DIR,
+      runAuthorityResolver,
+      approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
+      telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
+      geminiResolver: () => structuredClone(LIVE_GEMINI),
+    });
+
+    // Executable validator. The trusted readback carries the same ordinal, so only the cap rule can speak.
+    // Changing the packet also changes its approval digest, so acceptance is proven as "no quota problem".
+    const atCap = validEvidence();
+    atCap.geminiEvidence[0].quota.requestNumber = cap;
+    LIVE_GEMINI[0].quota.requestNumber = cap;
+    expect(validateModelDownselectionEvidence(atCap, resolvers()).problems.join('\n'))
+      .not.toMatch(/requestNumber|quota\.limit|trusted quota/);
+
+    const overCap = validEvidence();
+    overCap.geminiEvidence[0].quota.requestNumber = cap + 1;
+    LIVE_GEMINI[0].quota.requestNumber = cap + 1;
+    expect(holdProblems(overCap)).toMatch(new RegExp(`geminiEvidence\\[0\\]\\.quota\\.requestNumber must be between 1 and ${cap}\\b`));
+
+    // Schema: the nested quota definition every fresh observation references.
+    const quota = schema.$defs.quota.properties;
+    const schemaQuotaBoundsAccept = ({ limit, requestNumber }) => limit === quota.limit.const
+      && Number.isInteger(requestNumber)
+      && requestNumber >= quota.requestNumber.minimum
+      && requestNumber <= quota.requestNumber.maximum;
+    expect(schemaQuotaBoundsAccept({ limit: cap, requestNumber: cap })).toBe(true);
+    expect(schemaQuotaBoundsAccept({ limit: cap, requestNumber: cap + 1 })).toBe(false);
+    expect(schemaQuotaBoundsAccept({ limit: 20, requestNumber: cap })).toBe(false);
   });
 
   it('CASUALTY: the six-word phrase limit agrees with the Edge word budget', () => {
