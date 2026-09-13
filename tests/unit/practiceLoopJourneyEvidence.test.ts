@@ -354,7 +354,7 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
         return {
             read: () => { deliver(); return delivered; },
             wait: {
-                timeoutMs: 20_000, intervalMs: 500, settleMs: 3_500,
+                timeoutMs: 20_000, intervalMs: 500,
                 now: () => clock,
                 sleep: async (ms: number) => { clock += ms; },
             },
@@ -405,6 +405,20 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
         // The terminal event arrives, but nothing ever names the attempt — unsettled at the deadline, not a pass.
         const wire = fakeWire([{ at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY } }]);
         expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait)).settled).toBe(false);
+    });
+
+    it('CASUALTY (Codex 3998152257): a same-take duplicate arriving well after the first terminal event is still counted', async () => {
+        // THE DISCRIMINATING CASE. The first terminal event lands at 1 s; the duplicate at 12 s — far beyond the
+        // old 4 s settle window, still inside the 20 s deadline. Returning shortly after the first event dropped
+        // it, and exactly-one passed on a take with two outcomes.
+        const wire = fakeWire([
+            { at: 0, event: saved },
+            { at: 1_000, event: { name: 'practice_loop_review_failed', attemptId: ATTEMPT, journeyId: JOURNEY } },
+            { at: 12_000, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY } },
+        ]);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
+        expect(result.settled).toBe(true);
+        expect(result.events.filter((event) => event.name.startsWith('practice_loop_review_'))).toHaveLength(2);
     });
 
     it('CASUALTY (PM criterion): the same attempt id under a different journey is a different take', async () => {
@@ -545,6 +559,16 @@ describe('#1437 RETURN workstream 2 — an explicit target and one closed identi
             { name: 'private_model_acquisition_start' },
             { name: 'private_model_acquisition_success', acquired: 'v2:base.en' },
         ], 'v2:base.en')).toBeNull();
+    });
+
+    it('CASUALTY (Codex 3998152255): agreement without a post-switch running binding is refused', () => {
+        // THE DISCRIMINATING CASE. Target, acquired identity and verified persisted identity all agree on v2 —
+        // but nothing after the switch carried `candidate_id`, so there is no evidence of what actually ran.
+        // The previous verdict compared the running binding only when present, and passed this take.
+        const failures = practiceLoopJourneyFailures(without({
+            telemetry: { ...provenJourney.telemetry, boundCandidateId: null },
+        }));
+        expect(failures).toContain('no post-switch running identity was observed, so the take cannot be bound to the candidate that ran');
     });
 
     it('CASUALTY: no acquisition bound to the target leaves observed identity incomplete', () => {

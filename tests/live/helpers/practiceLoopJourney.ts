@@ -135,10 +135,9 @@ export function classifyRequestsByBoundary(
 export const TERMINAL_REVIEW_EVENTS = Object.freeze(['practice_loop_review_rendered', 'practice_loop_review_failed'] as const);
 
 export interface CorrelatedTerminalWait {
+    /** The whole observation window. The snapshot is frozen only when it ends. */
     readonly timeoutMs: number;
     readonly intervalMs: number;
-    /** After the first correlated terminal event, wait this long so a duplicate in the next batch is seen. */
-    readonly settleMs: number;
     readonly now: () => number;
     readonly sleep: (ms: number) => Promise<void>;
 }
@@ -148,9 +147,13 @@ export interface CorrelatedTerminalWait {
  *
  * The DOM turns terminal first; the terminal telemetry enters PostHog's batch queue at the same moment and
  * is flushed asynchronously (a 3 s default in the installed SDK). Counting at the DOM transition therefore
- * commonly sees no terminal outcome at all. This polls, bounded, for a terminal event correlated to THIS
- * take's attempt, then waits one settle window so a duplicate still in flight is counted rather than missed,
- * and only then returns a frozen snapshot.
+ * commonly sees no terminal outcome at all. This observes, bounded, for a terminal event correlated to THIS
+ * take, and keeps observing until the deadline before returning a frozen snapshot.
+ *
+ * THROUGH THE WHOLE WINDOW, NOT A SETTLE INTERVAL (Codex `3998152257`). The previous head returned a fixed
+ * interval after the first correlated terminal event, so a same-take duplicate arriving later — but still
+ * inside the window — fell outside the snapshot and exactly-one passed on a take with two outcomes. The
+ * snapshot is now frozen only at the deadline; `settled` records whether a correlated terminal was seen.
  *
  * THE CORRELATION KEY IS DISCOVERED INSIDE THE POLL, not before it (Codex `3998069827`). The event that names
  * the take — `session_saved` — travels through the same asynchronous queue as the terminal event, so a fast
@@ -182,15 +185,14 @@ export async function awaitCorrelatedTerminal<T extends CorrelatableEvent>(
             && event.journeyId === take.journeyId);
     };
     const deadline = wait.now() + wait.timeoutMs;
+    let settled = false;
     for (;;) {
-        if (correlated(read())) {
-            await wait.sleep(wait.settleMs);
-            return { settled: true, events: [...read()] };
-        }
+        if (!settled && correlated(read())) settled = true;
         if (wait.now() >= deadline) break;
         await wait.sleep(wait.intervalMs);
     }
-    return { settled: false, events: [...read()] };
+    const frozen = [...read()];
+    return { settled: settled || correlated(frozen), events: frozen };
 }
 
 /** The saved take's identity: the latest `session_saved` carrying BOTH a journey id and an attempt id. */
@@ -431,7 +433,12 @@ export function practiceLoopJourneyFailures(evidence: PracticeLoopJourneyEvidenc
     } else if (!(requested === observed && observed === trustedPersisted)) {
         failures.push(`model identity diverges: requested=${requested} observed=${observed} persisted=${trustedPersisted}`);
     }
-    if (boundCandidateId && trustedPersisted && boundCandidateId !== trustedPersisted) {
+    // A running binding is REQUIRED, not merely compared when present (Codex `3998152255`). Running identity is
+    // null when nothing after the switch carried `candidate_id`; accepting that let target, acquired and persisted
+    // agree with no evidence of which candidate actually ran.
+    if (!boundCandidateId) {
+        failures.push('no post-switch running identity was observed, so the take cannot be bound to the candidate that ran');
+    } else if (trustedPersisted && boundCandidateId !== trustedPersisted) {
         failures.push('telemetry is bound to a different candidate than the one persisted');
     }
     // The facade is not an identity. `private` agreeing with `private` proves nothing about which of

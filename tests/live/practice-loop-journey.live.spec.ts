@@ -386,15 +386,14 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             /*
              * WORKSTREAM 1 — WAIT FOR THE WIRE, THEN FREEZE (Codex `3997967395`). The DOM turns terminal before
              * the terminal event leaves PostHog's batch queue, so counting here commonly saw no outcome at all.
-             * Poll, bounded, for a terminal event on THIS take's attempt, allow one settle window so a duplicate
-             * in the next batch is counted, then take one frozen snapshot that everything below reads.
+             * Poll, bounded, for a terminal event on THIS take's attempt, keep observing to the deadline so a same-take
+             * duplicate anywhere in the window is counted, then take one frozen snapshot that everything below reads.
              */
             // The saved take — journey AND attempt — is discovered INSIDE the bounded poll (Codex `3998069827`):
             // `session_saved` rides the same async queue, so it may not be on the wire when the DOM turns terminal.
             const flush = await awaitCorrelatedTerminal(() => captured, savedCorrelationOf, {
                 timeoutMs: 30_000,
                 intervalMs: 500,
-                settleMs: 4_000,
                 now: () => Date.now(),
                 sleep: (ms) => page.waitForTimeout(ms),
             });
