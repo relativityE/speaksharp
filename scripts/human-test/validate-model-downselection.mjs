@@ -11,9 +11,17 @@ const arg = (name) => {
 const input = process.argv[2];
 const telemetryAuthorityPath = arg('telemetry-authority');
 const geminiAuthorityPath = arg('gemini-authority');
-if (!input || !telemetryAuthorityPath || !geminiAuthorityPath) {
-  console.error('usage: node scripts/human-test/validate-model-downselection.mjs <evidence.json> --telemetry-authority <trusted-posthog.json> --gemini-authority <trusted-gemini.json>');
+const verificationKeyPath = arg('verification-key');
+if (!input || !telemetryAuthorityPath || !geminiAuthorityPath || !verificationKeyPath) {
+  console.error('usage: node scripts/human-test/validate-model-downselection.mjs <evidence.json> --telemetry-authority <trusted-posthog.json> --gemini-authority <trusted-gemini.json> --verification-key <raw-base64-public-key.txt>');
   process.exit(2);
+}
+let verificationPublicKey;
+try {
+  verificationPublicKey = (await readFile(resolve(verificationKeyPath), 'utf8')).trim();
+} catch (error) {
+  console.error(`HOLD: pinned verification key could not be read (${error instanceof Error ? error.name : 'unknown_error'})`);
+  process.exit(1);
 }
 
 let evidence;
@@ -56,6 +64,7 @@ const approvalResolver = (htmlUrl) => {
 };
 const result = validateModelDownselectionEvidence(evidence, {
   baseDir: dirname(evidencePath),
+  verificationPublicKey,
   approvalResolver,
   telemetryResolver: (queryId) => telemetryAuthority?.schemaVersion === 'speaksharp.posthog-readback-authority.v1'
     && telemetryAuthority?.releaseSha === evidence?.environment?.releaseSha

@@ -13,7 +13,8 @@
  * Usage:
  *   node scripts/human-test/observe-take.mjs --candidate <id> --release <sha>
  *     --journey <open_mic|focus_points>
- *     --authorization </absolute/path/to/signed-envelope.json> [--port 9222]
+ *     --authorization </absolute/path/to/signed-envelope.json>
+ *     --verification-key </absolute/path/to/raw-base64-public-key.txt> [--port 9222]
  *     [--app https://speaksharp-public.vercel.app] [--out product_release/evidence/...] [--dry-run]
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -23,6 +24,8 @@ import { assertLoopbackOrigin, selectAppTarget, safeTargetForEvidence } from './
 import { IDENTITY_PROBE, auditEgress, receiptVerdict } from './observer.mjs';
 import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE } from './payloadTripwire.mjs';
 import { modelComparisonArmExpression, modelComparisonSwitchExpression } from './modelComparisonArm.mjs';
+import { verifyModelComparisonAuthorization } from './modelComparisonAuthorityVerifier.mjs';
+import { modelComparisonSessionBindingSha256 } from './modelDownselectionEvidence.mjs';
 
 const arg = (name, fallback = null) => {
     const i = process.argv.indexOf(`--${name}`);
@@ -36,17 +39,36 @@ const CANDIDATE = arg('candidate');
 const JOURNEY = arg('journey');
 const RELEASE = arg('release');
 const AUTHORIZATION_PATH = arg('authorization');
+const VERIFICATION_KEY_PATH = arg('verification-key');
 const OUT = arg('out', `product_release/evidence/human-test/receipt-${Date.now()}.json`);
 const DRY_RUN = flag('dry-run');
 
-if (!CANDIDATE || !['open_mic', 'focus_points'].includes(JOURNEY) || !RELEASE || !AUTHORIZATION_PATH) {
-    console.error('required: --candidate <id> --journey <open_mic|focus_points> --release <sha> --authorization <signed-envelope.json>');
+if (!CANDIDATE || !['open_mic', 'focus_points'].includes(JOURNEY) || !RELEASE || !AUTHORIZATION_PATH || !VERIFICATION_KEY_PATH) {
+    console.error('required: --candidate <id> --journey <open_mic|focus_points> --release <sha> --authorization <signed-envelope.json> --verification-key <public-key.txt>');
     process.exit(2);
 }
 let signedAuthorization;
 try { signedAuthorization = JSON.parse(readFileSync(AUTHORIZATION_PATH, 'utf8')); } catch {
     console.error('authorization must be a readable signed JSON envelope');
     process.exit(2);
+}
+// #1432 PM decision E — VERIFIED HERE, OUTSIDE THE PAGE, BEFORE ANYTHING IS ARMED. The in-page check can be
+// defeated by page code or DevTools replacing SubtleCrypto; this one runs in trusted Node against the
+// pinned key and the exact intended take. A take this refuses is never armed, so it can produce nothing.
+let verificationKey;
+try { verificationKey = readFileSync(VERIFICATION_KEY_PATH, 'utf8'); } catch {
+    console.error('verification-key must be a readable raw base64 Ed25519 public key file');
+    process.exit(2);
+}
+const verifiedAuthorization = verifyModelComparisonAuthorization({
+    envelope: signedAuthorization,
+    publicKey: verificationKey,
+    expected: { candidateId: CANDIDATE, journey: JOURNEY, releaseSha: RELEASE, origin: new URL(APP).origin },
+});
+if (!verifiedAuthorization.ok) {
+    console.error('HOLD: the comparison authorization did not verify outside the page; nothing was armed');
+    for (const problem of verifiedAuthorization.problems) console.error(`  - ${problem}`);
+    process.exit(1);
 }
 // 127.0.0.1 only. `localhost` can resolve off-loopback, and a remote debugging endpoint is the last
 // thing this should ever attach to.
@@ -449,12 +471,15 @@ const main = async () => {
         requestedCandidate: probe?.requestedCandidate ?? null,
         observedCandidate: probe?.observedCandidate ?? null,
         observedJourney: probe?.observedJourney ?? null,
-        controlNonce: signedAuthorization?.payload?.nonce ?? null,
-        // The app derives these exact content-free correlation fields from the signed one-use nonce.
-        // Recording them here lets the operator copy observed authority instead of inventing packet ids.
-        journeyId: signedAuthorization?.payload?.nonce ?? null,
-        attemptId: signedAuthorization?.payload?.nonce ?? null,
-        attemptSeq: 1,
+        // The signed take join. Native journey/attempt identity is the governed envelope's (#1432 PM
+        // Option A); this observer cannot see it, so it records no value for it rather than a guess.
+        comparisonNonce: signedAuthorization?.payload?.nonce ?? null,
+        // #1432 PM decision E — the Node-verified authority for this take, re-verified by the validator.
+        authorization: verifiedAuthorization.record,
+        // Computed here from the verified nonce and the persisted id the page named, not read from the page.
+        sessionBindingSha256: typeof probe?.persistedSessionId === 'string' && probe.persistedSessionId
+            ? modelComparisonSessionBindingSha256(verifiedAuthorization.record.verified.comparisonNonce, probe.persistedSessionId)
+            : null,
         evidenceDocumentId: signedAuthorization?.payload?.evidenceDocumentId ?? null,
         positiveControlNonce: signedAuthorization?.payload?.evidenceDocumentId ?? null,
         persistedSessionId: probe?.persistedSessionId ?? null,

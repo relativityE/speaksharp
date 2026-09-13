@@ -89,7 +89,7 @@
       "additionalProperties": false,
       "required": [
         "uuid", "event", "releaseSha", "candidateId", "productMode", "journeyId", "attemptId",
-        "attemptSeq", "wordCount", "controlNonce", "transportInitialized",
+        "attemptSeq", "wordCount", "comparisonNonce", "controlNonce", "transportInitialized",
         "evidenceDocumentId", "sessionBindingSha256"
       ],
       "properties": {
@@ -102,6 +102,7 @@
         "attemptId": { "anyOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
         "attemptSeq": { "type": "integer", "minimum": 0 },
         "wordCount": { "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "comparisonNonce": { "anyOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
         "controlNonce": { "anyOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
         "transportInitialized": { "type": ["boolean", "null"] },
         "evidenceDocumentId": { "anyOf": [{ "$ref": "#/$defs/uuidv4" }, { "type": "null" }] },
@@ -113,7 +114,7 @@
       "additionalProperties": false,
       "required": [
         "releaseSha", "candidateId", "journey", "journeyId", "attemptId", "attemptSeq",
-        "controlNonce", "persistedSessionId",
+        "comparisonNonce", "persistedSessionId",
         "receiptArtifact", "receiptSha256"
       ],
       "properties": {
@@ -123,7 +124,7 @@
         "journeyId": { "$ref": "#/$defs/token" },
         "attemptId": { "$ref": "#/$defs/token" },
         "attemptSeq": { "type": "integer", "minimum": 1 },
-        "controlNonce": { "$ref": "#/$defs/token" },
+        "comparisonNonce": { "$ref": "#/$defs/token" },
         "persistedSessionId": { "$ref": "#/$defs/uuidv4" },
         "receiptArtifact": { "type": "string", "minLength": 1, "maxLength": 240 },
         "receiptSha256": { "$ref": "#/$defs/sha256" }
@@ -162,7 +163,7 @@
       "additionalProperties": false,
       "required": [
         "releaseSha", "candidateId", "journey", "journeyId", "attemptId", "attemptSeq",
-        "controlNonce", "persistedSessionId", "receiptSha256",
+        "comparisonNonce", "persistedSessionId", "receiptSha256",
         "source", "model", "providerRequestMade", "quota", "output"
       ],
       "properties": {
@@ -172,7 +173,7 @@
         "journeyId": { "$ref": "#/$defs/token" },
         "attemptId": { "$ref": "#/$defs/token" },
         "attemptSeq": { "type": "integer", "minimum": 1 },
-        "controlNonce": { "$ref": "#/$defs/token" },
+        "comparisonNonce": { "$ref": "#/$defs/token" },
         "persistedSessionId": { "$ref": "#/$defs/uuidv4" },
         "receiptSha256": { "$ref": "#/$defs/sha256" },
         "source": { "enum": ["fresh", "cached"] },

@@ -262,10 +262,11 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             comparison_nonce: 'binding-vector-123456',
             comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
             comparison_session_binding_sha256: '79fb824b7746e990fce8913b12e004b18ea1f706ff69722a3da91fb25289e478',
-            journey_id: 'binding-vector-123456',
-            attempt_id: 'binding-vector-123456',
-            attempt_seq: 1,
         });
+        // #1432 PM Option A — journey/attempt identity is the envelope's; the producer never supplies it.
+        for (const envelopeKey of ['journey_id', 'attempt_id', 'attempt_seq', 'boot_id']) {
+            expect(saved?.[1]).not.toHaveProperty(envelopeKey);
+        }
         pushSpy.mockRestore();
         resetAuthorization();
     });

@@ -183,6 +183,36 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     expect(JSON.stringify(payload)).not.toContain('sensitive');
   });
 
+  // #1432 PM Option A — the model comparison joins takes by `comparison_nonce` and must never be able to
+  // relabel ambient identity. A producer that still passed the nonce as journey/attempt identity (the
+  // pre-integration design) must lose to the envelope at the seam, while its separate take join survives.
+  it('CASUALTY: producer journey/attempt identity cannot override the envelope; comparison_nonce survives', () => {
+    analyticsBuffer.ready = true;
+    analyticsBuffer.push('session_saved', {
+      mode: 'private',
+      comparison_nonce: 'signed-take-nonce-123456',
+      comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+      journey_id: 'signed-take-nonce-123456',
+      attempt_id: 'signed-take-nonce-123456',
+      attempt_seq: 1,
+      boot_id: 'forged-boot',
+    }, 'CRITICAL');
+
+    const call = ((posthog.capture as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(-1)[0]);
+    expect(call[0]).toBe('session_saved');
+    const payload = call[1] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      comparison_nonce: 'signed-take-nonce-123456',
+      comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+    });
+    for (const key of ['journey_id', 'boot_id', 'attempt_id']) {
+      expect(payload).toHaveProperty(key);
+      expect(payload[key]).not.toBe('signed-take-nonce-123456');
+      expect(payload[key]).not.toBe('forged-boot');
+    }
+    expect(payload.attempt_seq).not.toBe(1);
+  });
+
   // #1259 — THE V4 PROJECTION NOW RUNS AT THE BOUNDARY, because the side channel that used to apply it
   // is gone. `private_stt_v4_*` shares the `private_*` namespace with the Private engineering events but
   // uses a DIFFERENT allowlist, so the namespace alone cannot select the projection: applying the

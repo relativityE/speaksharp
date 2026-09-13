@@ -64,11 +64,11 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
 
     const receipt = await db.query<{
       provider: string; model: string; quota_limit: number;
-      quota_request_number: number; cache_read_count: number;
-    }>('SELECT provider, model, quota_limit, quota_request_number, cache_read_count FROM public.ai_suggestion_authority_receipts');
+      quota_request_number: number; cache_read_count: number; suggestion_sha256: string;
+    }>('SELECT provider, model, quota_limit, quota_request_number, cache_read_count, suggestion_sha256 FROM public.ai_suggestion_authority_receipts');
     expect(receipt.rows).toEqual([{
       provider: 'google_gemini', model: 'gemini-3-flash-preview', quota_limit: 20,
-      quota_request_number: 1, cache_read_count: 0,
+      quota_request_number: 1, cache_read_count: 0, suggestion_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
     }]);
 
     const cached = await db.query<{ recorded: boolean }>(`
@@ -111,9 +111,40 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
     expect(session.rows[0].ai_suggestions).toBeNull();
   });
 
+  it('CASUALTY (Codex P1 3984161768): a value rewritten after the receipt is exposed, and earns no cache replay', async () => {
+    await db.query(`
+      SELECT public.persist_ai_suggestion_with_authority_v1(
+        '${SESSION}', '${USER}', $1::jsonb, 'google_gemini', 'gemini-3-flash-preview',
+        'user_utc_day', '2026-09-10', 20, 1
+      )
+    `, [SUGGESTIONS]);
+    type Authority = { receipt_suggestion_sha256: string; current_suggestion_sha256: string; cache_read_count: number };
+    const read = async () => (await db.query<Authority>(
+      `SELECT receipt_suggestion_sha256, current_suggestion_sha256, cache_read_count
+         FROM public.read_ai_suggestion_authority_v1(ARRAY['${SESSION}']::uuid[])`,
+    )).rows[0];
+
+    const bound = await read();
+    expect(bound.current_suggestion_sha256).toBe(bound.receipt_suggestion_sha256);
+
+    // Any other writer (here the service role directly) replaces the coaching with valid-looking JSON.
+    await db.query(`UPDATE public.sessions SET ai_suggestions = $1::jsonb WHERE id = '${SESSION}'`, [JSON.stringify({
+      version: 'gemini_coaching_v1', what_worked: 'Replaced by the operator.', what_to_try_next: 'Not Gemini.',
+    })]);
+    const rewritten = await read();
+    expect(rewritten.receipt_suggestion_sha256).toBe(bound.receipt_suggestion_sha256);
+    expect(rewritten.current_suggestion_sha256).not.toBe(rewritten.receipt_suggestion_sha256);
+
+    const cached = await db.query<{ recorded: boolean }>(
+      `SELECT public.record_ai_suggestion_cache_read_v1('${SESSION}', '${USER}') AS recorded`,
+    );
+    expect(cached.rows[0].recorded).toBe(false);
+    expect((await read()).cache_read_count).toBe(0);
+  });
+
   it('does not grant browser roles access to the authority table or RPCs', async () => {
     const grants = await db.query<{
-      role_name: string; table_read: boolean; rpc_run: boolean; suggestion_write: boolean;
+      role_name: string; table_read: boolean; rpc_run: boolean; readback_run: boolean; suggestion_write: boolean;
     }>(`
       SELECT role_name,
              has_table_privilege(role_name, 'public.ai_suggestion_authority_receipts', 'SELECT') AS table_read,
@@ -122,13 +153,14 @@ describe('#1432 server-owned Gemini authority receipt (real PostgreSQL)', () => 
                'public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer)',
                'EXECUTE'
              ) AS rpc_run,
+             has_function_privilege(role_name, 'public.read_ai_suggestion_authority_v1(uuid[])', 'EXECUTE') AS readback_run,
              has_column_privilege(role_name, 'public.sessions', 'ai_suggestions', 'UPDATE') AS suggestion_write
         FROM (VALUES ('anon'), ('authenticated')) AS roles(role_name)
        ORDER BY role_name
     `);
     expect(grants.rows).toEqual([
-      { role_name: 'anon', table_read: false, rpc_run: false, suggestion_write: false },
-      { role_name: 'authenticated', table_read: false, rpc_run: false, suggestion_write: false },
+      { role_name: 'anon', table_read: false, rpc_run: false, readback_run: false, suggestion_write: false },
+      { role_name: 'authenticated', table_read: false, rpc_run: false, readback_run: false, suggestion_write: false },
     ]);
   });
 });

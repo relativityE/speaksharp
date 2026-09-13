@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +9,10 @@ import {
   modelComparisonSessionBindingSha256,
   validateModelDownselectionEvidence,
 } from '../../scripts/human-test/modelDownselectionEvidence.mjs';
+import {
+  createModelComparisonAuthorization, modelComparisonPublicKey,
+} from '../../scripts/human-test/sign-model-comparison-authorization.mjs';
+import { verifyModelComparisonAuthorization } from '../../scripts/human-test/modelComparisonAuthorityVerifier.mjs';
 
 const RELEASE = 'a'.repeat(40);
 const HASH = (character) => character.repeat(64);
@@ -18,6 +22,22 @@ const ARTIFACT_DIR = mkdtempSync(join(tmpdir(), 'speaksharp-model-evidence-'));
 const LIVE_APPROVALS = new Map();
 const LIVE_TELEMETRY = new Map();
 let LIVE_GEMINI = [];
+// The Ops signing key exists only in the test; the validator receives only its pinned PUBLIC key.
+const OPS_KEY = generateKeyPairSync('ed25519').privateKey;
+const PINNED_PUBLIC_KEY = modelComparisonPublicKey(OPS_KEY);
+const SIGNED_AT = Date.parse('2026-09-07T11:59:30.000Z');
+/** What the trusted observer writes after verifying one take's envelope in Node. */
+const observerAuthorization = ({ candidateId, journey, comparisonNonce, releaseSha = RELEASE, privateKey = OPS_KEY }) => {
+  const envelope = createModelComparisonAuthorization({
+    releaseSha, privateKey, now: SIGNED_AT, ttlSeconds: 120, nonce: comparisonNonce, candidateId, journey,
+    evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
+  });
+  const verified = verifyModelComparisonAuthorization({
+    envelope, publicKey: modelComparisonPublicKey(privateKey), now: SIGNED_AT + 5_000,
+  });
+  if (!verified.ok) throw new Error(`fixture authorization did not verify: ${verified.problems.join('; ')}`);
+  return verified.record;
+};
 afterAll(() => rmSync(ARTIFACT_DIR, { recursive: true, force: true }));
 
 const writeArtifact = (name, value) => {
@@ -31,11 +51,12 @@ function validEvidence() {
   fixtureSequence += 1;
   const suffix = fixtureSequence;
   const candidateEvidence = [];
+  // The document control is emitted under the envelope's own native identity and carries no take nonce.
   const events = [{
     uuid: 'event-positive-control', event: 'telemetry_positive_control', releaseSha: RELEASE,
-    candidateId: null, productMode: null, journeyId: 'comparison-nonce-1',
-    attemptId: 'comparison-nonce-1', attemptSeq: 1,
-    wordCount: null, controlNonce: EVIDENCE_DOCUMENT_ID, transportInitialized: true,
+    candidateId: null, productMode: null, journeyId: 'native-journey-signin',
+    attemptId: null, attemptSeq: 0,
+    wordCount: null, comparisonNonce: null, controlNonce: EVIDENCE_DOCUMENT_ID, transportInitialized: true,
     evidenceDocumentId: EVIDENCE_DOCUMENT_ID, sessionBindingSha256: null,
   }];
   const geminiEvidence = [];
@@ -44,41 +65,48 @@ function validEvidence() {
   for (const candidateId of COMPARISON_CANDIDATES) {
     for (const journey of REQUIRED_JOURNEYS) {
       ordinal += 1;
-      const journeyId = `journey-${ordinal}`;
+      // POSITIVE CONTROL for PM Option A: the first two takes share ONE native journey (distinct attempts),
+      // exactly as a single product visit would. Nonce binding must keep them apart.
+      const journeyId = ordinal <= 2 ? 'native-journey-shared' : `native-journey-${ordinal}`;
       const attemptId = `attempt-${ordinal}`;
+      const attemptSeq = ordinal <= 2 ? ordinal : 1;
       const persistedSessionId = `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`;
-      const controlNonce = `comparison-nonce-${ordinal}`;
+      const comparisonNonce = `comparison-nonce-${String(ordinal).padStart(8, '0')}`;
       const receipt = writeArtifact(`receipt-${suffix}-${ordinal}.json`, {
         verdict: 'PASS', holdKind: null, dryRun: false,
         target: { origin: PRODUCTION_ORIGIN }, release: RELEASE,
         expectedCandidate: candidateId, requestedCandidate: candidateId, observedCandidate: candidateId,
-        observedJourney: journey, controlNonce, journeyId, attemptId, attemptSeq: 1,
+        observedJourney: journey, comparisonNonce,
         evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
         persistedSessionId, capturedAt: ISO,
+        authorization: observerAuthorization({ candidateId, journey, comparisonNonce }),
+        sessionBindingSha256: modelComparisonSessionBindingSha256(comparisonNonce, persistedSessionId),
       });
       candidateEvidence.push({
-        releaseSha: RELEASE, candidateId, journey, journeyId, attemptId, attemptSeq: 1,
-        controlNonce, persistedSessionId,
+        releaseSha: RELEASE, candidateId, journey, journeyId, attemptId, attemptSeq,
+        comparisonNonce, persistedSessionId,
         receiptArtifact: receipt.path, receiptSha256: receipt.digest,
       });
       events.push({
-        uuid: `journey-${ordinal}`, event: 'practice_mode_selected', releaseSha: RELEASE,
-        candidateId: null, productMode: journey === 'focus_points' ? 'objective' : 'quick', journeyId,
-        attemptId: null, attemptSeq: 0, wordCount: null, controlNonce: null, transportInitialized: null,
-        evidenceDocumentId: null, sessionBindingSha256: null,
+        uuid: `mode-${ordinal}`, event: 'practice_mode_selected', releaseSha: RELEASE,
+        // Mode selection may precede engine attribution; take 1 proves a null candidate is not contradiction.
+        candidateId: ordinal === 1 ? null : candidateId,
+        productMode: journey === 'focus_points' ? 'objective' : 'quick', journeyId,
+        attemptId: null, attemptSeq: 0, wordCount: null, comparisonNonce, controlNonce: null,
+        transportInitialized: null, evidenceDocumentId: EVIDENCE_DOCUMENT_ID, sessionBindingSha256: null,
       });
       for (const event of ['session_started', 'session_saved']) {
         events.push({
           uuid: `${event}-${ordinal}`, event, releaseSha: RELEASE, candidateId, productMode: null, journeyId,
-          attemptId, attemptSeq: 1, wordCount: event === 'session_saved' ? 42 : null,
-          controlNonce, transportInitialized: null, evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
+          attemptId, attemptSeq, wordCount: event === 'session_saved' ? 42 : null,
+          comparisonNonce, controlNonce: null, transportInitialized: null, evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
           sessionBindingSha256: event === 'session_saved'
-            ? modelComparisonSessionBindingSha256(controlNonce, persistedSessionId) : null,
+            ? modelComparisonSessionBindingSha256(comparisonNonce, persistedSessionId) : null,
         });
       }
       geminiEvidence.push({
-        releaseSha: RELEASE, candidateId, journey, journeyId, attemptId, attemptSeq: 1,
-        controlNonce, persistedSessionId, receiptSha256: receipt.digest,
+        releaseSha: RELEASE, candidateId, journey, journeyId, attemptId, attemptSeq,
+        comparisonNonce, persistedSessionId, receiptSha256: receipt.digest,
         source: 'fresh', model: 'gemini-3-flash-preview', providerRequestMade: true,
         quota: { scope: 'user_utc_day', userDigest: HASH('b'), utcDate: '2026-09-07', limit: 20, requestNumber: ordinal },
         output: {
@@ -118,6 +146,8 @@ function validEvidence() {
     providerRequestMade: true,
     quota: structuredClone(evidence.geminiEvidence[index].quota),
     cacheReplayObserved: index === 0,
+    immutableSuggestionSha256: HASH('9'),
+    immutableDigestVerified: true,
   }));
   const approvalValue = {
     html_url: 'https://github.com/relativityE/speaksharp/issues/1399#issuecomment-123456789',
@@ -137,9 +167,32 @@ function validEvidence() {
   return evidence;
 }
 
+/** Make a mutated readback the authenticated authority, so only the discriminating rule can fail. */
+const authorize = (value) => {
+  LIVE_TELEMETRY.set(value.telemetryReadback.queryId, structuredClone(value.telemetryReadback));
+  return value;
+};
+const eventByUuid = (value, uuid) => value.telemetryReadback.events.find((event) => event.uuid === uuid);
+
+/** Rewrite one row's observer receipt through `mutate`, re-hashing it so only the rule under test fails. */
+const rewriteReceipt = (value, rowIndex, name, mutate) => {
+  const row = value.candidateEvidence[rowIndex];
+  const priorDigest = row.receiptSha256;
+  const receipt = JSON.parse(readFileSync(join(ARTIFACT_DIR, row.receiptArtifact), 'utf8'));
+  mutate(receipt);
+  const rewritten = writeArtifact(`${name}-${fixtureSequence}.json`, receipt);
+  row.receiptArtifact = rewritten.path;
+  row.receiptSha256 = rewritten.digest;
+  for (const observation of value.geminiEvidence) {
+    if (observation.receiptSha256 === priorDigest) observation.receiptSha256 = rewritten.digest;
+  }
+  return value;
+};
+
 const holdProblems = (value) => {
   const result = validateModelDownselectionEvidence(value, {
     baseDir: ARTIFACT_DIR,
+    verificationPublicKey: PINNED_PUBLIC_KEY,
     approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
     telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
     geminiResolver: () => structuredClone(LIVE_GEMINI),
@@ -152,6 +205,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
   it('accepts a complete synthetic contract fixture without selecting a model in production', () => {
     expect(validateModelDownselectionEvidence(validEvidence(), {
       baseDir: ARTIFACT_DIR,
+      verificationPublicKey: PINNED_PUBLIC_KEY,
       approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
       telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
       geminiResolver: () => structuredClone(LIVE_GEMINI),
@@ -213,11 +267,11 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     expect(holdProblems(evidence)).toMatch(/persistedSessionId is not allowed/);
   });
 
-  it('joins each observer receipt to lifecycle telemetry through its signed control nonce', () => {
+  it('joins each observer receipt to lifecycle telemetry through its signed comparison nonce', () => {
     const evidence = validEvidence();
     evidence.telemetryReadback.events.find(
       (event) => event.event === 'session_saved' && event.attemptId === 'attempt-1',
-    ).controlNonce = 'another-signed-run';
+    ).comparisonNonce = 'another-signed-run';
     expect(holdProblems(evidence)).toMatch(/must link exactly one decoded session_saved/);
   });
 
@@ -248,7 +302,10 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
         if (observation.receiptSha256 === priorDigest) observation.receiptSha256 = rewritten.digest;
       }
     }
-    expect(holdProblems(evidence)).toMatch(/must link exactly one decoded session_saved/);
+    // Take linkage is by nonce, so the rows still find their events; the authenticated document id on
+    // every one of those events is what refuses the replay.
+    expect(holdProblems(evidence)).toMatch(/linked session_saved session_saved-1 evidenceDocumentId must be "33333333/);
+    expect(holdProblems(evidence)).toMatch(/positive-control nonce must be "33333333/);
   });
 
   it('requires decoded PostHog linkage, a positive control, and unique event receipts', () => {
@@ -290,7 +347,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
 
   it('CASUALTY: rejects one signed comparison nonce reused for a second test row', () => {
     const evidence = validEvidence();
-    evidence.candidateEvidence[1].controlNonce = evidence.candidateEvidence[0].controlNonce;
+    evidence.candidateEvidence[1].comparisonNonce = evidence.candidateEvidence[0].comparisonNonce;
     expect(holdProblems(evidence)).toMatch(/reuses signed take authority/);
   });
 
@@ -330,12 +387,21 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     const unobservedCache = validEvidence();
     LIVE_GEMINI[0].cacheReplayObserved = false;
     expect(holdProblems(unobservedCache)).toMatch(/trusted cache replay/);
+
+    // Codex P1 3984161768 — an authority row that was not produced by the immutable-digest check fails.
+    const unbound = validEvidence();
+    LIVE_GEMINI[2].immutableDigestVerified = false;
+    expect(holdProblems(unbound)).toMatch(/geminiEvidence\[2\] trusted persisted-session coaching is not bound to an immutable receipt digest/);
+    const undigested = validEvidence();
+    delete LIVE_GEMINI[3].immutableSuggestionSha256;
+    expect(holdProblems(undigested)).toMatch(/geminiEvidence\[3\] trusted persisted-session coaching is not bound/);
   });
 
   it('fails closed when either independent authority resolver is absent', () => {
     const evidence = validEvidence();
     const result = validateModelDownselectionEvidence(evidence, {
       baseDir: ARTIFACT_DIR,
+      verificationPublicKey: PINNED_PUBLIC_KEY,
       approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
     });
     expect(result.verdict).toBe('HOLD');
@@ -365,6 +431,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     const noLiveAuthority = validEvidence();
     const result = validateModelDownselectionEvidence(noLiveAuthority, {
       baseDir: ARTIFACT_DIR,
+      verificationPublicKey: PINNED_PUBLIC_KEY,
       approvalResolver: () => null,
       telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
       geminiResolver: () => structuredClone(LIVE_GEMINI),
@@ -379,6 +446,208 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     forgedArtifact.selection.approvalArtifact = forgedRef.path;
     forgedArtifact.selection.approvalSha256 = forgedRef.digest;
     expect(holdProblems(forgedArtifact)).toMatch(/body differs from live GitHub readback/);
+  });
+
+  describe('#1432 PM Option A — take nonce and native envelope identity are separate authorities', () => {
+    it('CONTROL: the valid packet already places two takes inside one native journey', () => {
+      const evidence = validEvidence();
+      expect(evidence.candidateEvidence[0].journeyId).toBe(evidence.candidateEvidence[1].journeyId);
+      expect(evidence.candidateEvidence[0].attemptId).not.toBe(evidence.candidateEvidence[1].attemptId);
+      expect(validateModelDownselectionEvidence(evidence, {
+        baseDir: ARTIFACT_DIR,
+        verificationPublicKey: PINNED_PUBLIC_KEY,
+        approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
+        telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
+        geminiResolver: () => structuredClone(LIVE_GEMINI),
+      }).verdict).toBe('PASS');
+    });
+
+    it('CASUALTY: a sibling take in the same native journey cannot lend its save to another take', () => {
+      const evidence = validEvidence();
+      eventByUuid(evidence, 'session_saved-2').comparisonNonce = 'comparison-nonce-00000001';
+      const problems = holdProblems(authorize(evidence));
+      expect(problems).toMatch(/candidateEvidence\[0\] must link exactly one decoded session_saved/);
+      expect(problems).toMatch(/candidateEvidence\[1\] must link exactly one decoded session_saved/);
+    });
+
+    it('CASUALTY: two takes cannot claim the same native attempt', () => {
+      const evidence = validEvidence();
+      for (const uuid of ['session_started-2', 'session_saved-2']) {
+        Object.assign(eventByUuid(evidence, uuid), { attemptId: 'attempt-1', attemptSeq: 1 });
+      }
+      Object.assign(evidence.candidateEvidence[1], { attemptId: 'attempt-1', attemptSeq: 1 });
+      expect(holdProblems(authorize(evidence))).toMatch(/reuses telemetry correlation native-journey-shared\/attempt-1/);
+    });
+
+    it('CASUALTY: a different or later nonce cannot satisfy the intended take', () => {
+      const evidence = validEvidence();
+      eventByUuid(evidence, 'session_saved-1').comparisonNonce = 'comparison-nonce-later-take';
+      const problems = holdProblems(authorize(evidence));
+      expect(problems).toMatch(/candidateEvidence\[0\] must link exactly one decoded session_saved/);
+      expect(problems).toMatch(/carries a comparisonNonce that belongs to no candidate row/);
+    });
+
+    it('CASUALTY: a take nonce cannot shadow the document positive control', () => {
+      const shadowed = validEvidence();
+      eventByUuid(shadowed, 'event-positive-control').comparisonNonce = 'comparison-nonce-00000001';
+      expect(holdProblems(authorize(shadowed))).toMatch(/positive control must not carry a take comparisonNonce/);
+
+      const impostor = validEvidence();
+      impostor.telemetryReadback.events.shift();
+      eventByUuid(impostor, 'session_started-1').controlNonce = EVIDENCE_DOCUMENT_ID;
+      const problems = holdProblems(authorize(impostor));
+      expect(problems).toMatch(/take event must not carry the document controlNonce/);
+      expect(problems).toMatch(/exactly one telemetry_positive_control/);
+    });
+
+    it('CASUALTY: the packet copies of native journey/attempt identity must equal the authenticated readback', () => {
+      const forged = validEvidence();
+      forged.candidateEvidence[2].attemptId = 'attempt-typed-by-operator';
+      expect(holdProblems(forged)).toMatch(/candidateEvidence\[2\]\.attemptId observed native attempt/);
+
+      const split = validEvidence();
+      eventByUuid(split, 'session_saved-3').attemptId = 'attempt-from-elsewhere';
+      expect(holdProblems(authorize(split))).toMatch(/candidateEvidence\[2\] session_saved native attemptId/);
+
+      const anonymous = validEvidence();
+      Object.assign(eventByUuid(anonymous, 'session_started-3'), { attemptId: null, attemptSeq: 0 });
+      expect(holdProblems(authorize(anonymous))).toMatch(/session_started carries no native attempt identity/);
+    });
+
+    it('CASUALTY: practice-mode evidence binds to the same nonce and rejects missing, contradictory, cross-model, cross-document and stale rows', () => {
+      const missing = validEvidence();
+      missing.telemetryReadback.events = missing.telemetryReadback.events.filter((event) => event.uuid !== 'mode-3');
+      expect(holdProblems(authorize(missing))).toMatch(/candidateEvidence\[2\] must link decoded quick journey telemetry/);
+
+      const contradictory = validEvidence();
+      eventByUuid(contradictory, 'mode-4').comparisonNonce = 'comparison-nonce-00000003';
+      expect(holdProblems(authorize(contradictory))).toMatch(/candidateEvidence\[2\] has contradictory decoded journey telemetry/);
+
+      const crossModel = validEvidence();
+      eventByUuid(crossModel, 'mode-3').candidateId = COMPARISON_CANDIDATES[0];
+      expect(holdProblems(authorize(crossModel))).toMatch(/linked practice_mode_selected mode-3 candidateId must be "v4:distil:q4"/);
+
+      const crossDocument = validEvidence();
+      eventByUuid(crossDocument, 'mode-3').evidenceDocumentId = '33333333-3333-4333-8333-333333333333';
+      expect(holdProblems(authorize(crossDocument))).toMatch(/linked practice_mode_selected mode-3 evidenceDocumentId/);
+
+      const stale = validEvidence();
+      eventByUuid(stale, 'mode-3').releaseSha = 'b'.repeat(40);
+      expect(holdProblems(authorize(stale))).toMatch(/events\[\d+\]\.releaseSha must be/);
+
+      const journeyOnly = validEvidence();
+      // Same native journey, no nonce: exactly the fallback Option A forbids. It must not count.
+      eventByUuid(journeyOnly, 'mode-2').comparisonNonce = null;
+      const problems = holdProblems(authorize(journeyOnly));
+      expect(problems).toMatch(/take event has no comparisonNonce/);
+      expect(problems).toMatch(/candidateEvidence\[1\] must link decoded objective journey telemetry/);
+    });
+
+    it('CASUALTY: the observer receipt must carry the row nonce and no longer asserts native identity', () => {
+      const evidence = validEvidence();
+      const receipt = JSON.parse(readFileSync(join(ARTIFACT_DIR, evidence.candidateEvidence[0].receiptArtifact), 'utf8'));
+      expect(receipt).not.toHaveProperty('journeyId');
+      expect(receipt).not.toHaveProperty('attemptId');
+      receipt.comparisonNonce = 'comparison-nonce-00000002';
+      const rewritten = writeArtifact('receipt-wrong-nonce.json', receipt);
+      evidence.candidateEvidence[0].receiptArtifact = rewritten.path;
+      evidence.candidateEvidence[0].receiptSha256 = rewritten.digest;
+      expect(holdProblems(evidence)).toMatch(/receipt\.comparisonNonce must be "comparison-nonce-00000001"/);
+    });
+  });
+
+  describe('#1432 PM decision E — activation authority is verified outside the page', () => {
+    it('CASUALTY: a page that replaced SubtleCrypto.prototype.verify can arm itself, but its forged envelope cannot qualify', async () => {
+      // Page realm: replacing verify makes ANY signature "valid" to page code. That is exactly why the
+      // browser check carries no authority.
+      const subtle = globalThis.crypto.subtle;
+      const original = Object.getPrototypeOf(subtle).verify;
+      Object.getPrototypeOf(subtle).verify = async () => true;
+      try {
+        expect(await subtle.verify({ name: 'Ed25519' }, null, new Uint8Array(64), new Uint8Array(1))).toBe(true);
+      } finally {
+        Object.getPrototypeOf(subtle).verify = original;
+      }
+      // Trusted Node verification is unaffected by the page, and so is the validator.
+      const forgedRecord = observerAuthorization({ candidateId: 'v2:base.en', journey: 'open_mic', comparisonNonce: 'comparison-nonce-00000001' });
+      forgedRecord.envelope.signature = Buffer.alloc(64, 7).toString('base64');
+      forgedRecord.envelopeSha256 = createHash('sha256').update(Buffer.concat([
+        Buffer.from(JSON.stringify(forgedRecord.envelope.payload)), Buffer.from('\n'), Buffer.from(forgedRecord.envelope.signature),
+      ])).digest('hex');
+      const evidence = rewriteReceipt(validEvidence(), 0, 'forged-signature', (receipt) => { receipt.authorization = forgedRecord; });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[0\]\.receipt authorization signature does not verify against the pinned key/);
+    });
+
+    it('CASUALTY: direct executor invocation leaves no observer authorization record and cannot pass', () => {
+      const evidence = rewriteReceipt(validEvidence(), 1, 'no-authorization', (receipt) => { delete receipt.authorization; });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[1\]\.receipt observer receipt has no authorization record/);
+    });
+
+    it('CASUALTY: an envelope signed by any key other than the pinned key fails', () => {
+      const rogue = generateKeyPairSync('ed25519').privateKey;
+      const evidence = rewriteReceipt(validEvidence(), 2, 'rogue-key', (receipt) => {
+        receipt.authorization = observerAuthorization({
+          candidateId: 'v4:distil:q4', journey: 'open_mic', comparisonNonce: 'comparison-nonce-00000003', privateKey: rogue,
+        });
+      });
+      const problems = holdProblems(evidence);
+      expect(problems).toMatch(/candidateEvidence\[2\]\.receipt authorization verificationKeyFingerprint is not the pinned key/);
+      expect(problems).toMatch(/candidateEvidence\[2\]\.receipt authorization signature does not verify/);
+    });
+
+    it('CASUALTY: one signed authorization cannot stand behind two rows', () => {
+      const evidence = validEvidence();
+      const first = JSON.parse(readFileSync(join(ARTIFACT_DIR, evidence.candidateEvidence[0].receiptArtifact), 'utf8'));
+      rewriteReceipt(evidence, 1, 'reused-envelope', (receipt) => { receipt.authorization = first.authorization; });
+      const problems = holdProblems(evidence);
+      expect(problems).toMatch(/candidateEvidence\[1\] reuses authorization envelope/);
+      expect(problems).toMatch(/candidateEvidence\[1\]\.receipt authorization nonce must be "comparison-nonce-00000002"/);
+    });
+
+    it('CASUALTY: mismatched candidate, journey, release, document, or a verified block that disagrees with the envelope fails', () => {
+      const crossModel = rewriteReceipt(validEvidence(), 0, 'cross-model-auth', (receipt) => {
+        receipt.authorization = observerAuthorization({ candidateId: 'moonshine:streaming-medium', journey: 'open_mic', comparisonNonce: 'comparison-nonce-00000001' });
+      });
+      expect(holdProblems(crossModel)).toMatch(/candidateEvidence\[0\]\.receipt authorization candidateId must be "v2:base\.en"/);
+
+      const crossRelease = rewriteReceipt(validEvidence(), 0, 'cross-release-auth', (receipt) => {
+        receipt.authorization = observerAuthorization({ candidateId: 'v2:base.en', journey: 'open_mic', comparisonNonce: 'comparison-nonce-00000001', releaseSha: 'b'.repeat(40) });
+      });
+      expect(holdProblems(crossRelease)).toMatch(/candidateEvidence\[0\]\.receipt authorization releaseSha must be/);
+
+      const claimed = rewriteReceipt(validEvidence(), 0, 'claimed-verified', (receipt) => {
+        receipt.authorization.verified.candidateId = 'moonshine:streaming-medium';
+      });
+      expect(holdProblems(claimed)).toMatch(/candidateEvidence\[0\]\.receipt authorization verified block does not match/);
+
+      const tampered = rewriteReceipt(validEvidence(), 0, 'tampered-digest', (receipt) => {
+        receipt.authorization.envelopeSha256 = HASH('0');
+      });
+      expect(holdProblems(tampered)).toMatch(/authorization envelopeSha256 does not match the recorded envelope/);
+    });
+
+    it('CASUALTY: an authorization verified after it expired fails', () => {
+      const evidence = rewriteReceipt(validEvidence(), 3, 'expired-auth', (receipt) => {
+        receipt.authorization.verifiedAt = new Date(SIGNED_AT + 10 * 60_000).toISOString();
+      });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[3\]\.receipt authorization expired before verification/);
+    });
+
+    it('CASUALTY: the observer session binding must match the packet row', () => {
+      const evidence = rewriteReceipt(validEvidence(), 4, 'wrong-binding', (receipt) => { receipt.sessionBindingSha256 = HASH('e'); });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\]\.receipt\.sessionBindingSha256 must be/);
+    });
+
+    it('CASUALTY: the validator holds when no pinned verification key is supplied', () => {
+      const result = validateModelDownselectionEvidence(validEvidence(), {
+        baseDir: ARTIFACT_DIR,
+        approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
+        telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
+        geminiResolver: () => structuredClone(LIVE_GEMINI),
+      });
+      expect(result.verdict).toBe('HOLD');
+      expect(result.problems.join('\n')).toMatch(/no pinned verification key was supplied to the validator/);
+    });
   });
 
   it('rejects unknown fields instead of silently accepting drifted evidence', () => {

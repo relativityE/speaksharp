@@ -143,10 +143,13 @@ describe('the in-page model switch', () => {
             control_nonce: '11111111-1111-4111-8111-111111111111',
             comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
             transport_initialized: true,
-            journey_id: 'first-positive-control-take',
-            attempt_id: 'first-positive-control-take',
-            attempt_seq: 1,
         });
+        // #1432 PM Option A — the control is DOCUMENT-scoped: no take nonce may ride on it, and the
+        // journey/attempt it reaches PostHog with are the envelope's native values, never the take nonce.
+        const control = controls[0][1] as Record<string, unknown>;
+        expect(control).not.toHaveProperty('comparison_nonce');
+        expect(control.journey_id).not.toBe('first-positive-control-take');
+        expect(control.attempt_id).not.toBe('first-positive-control-take');
     });
 
     it('CASUALTY: canonical Production can run Moonshine after its real-runtime E/F preflight', async () => {

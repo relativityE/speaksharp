@@ -10,7 +10,7 @@
 
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import type { GovernedEvent } from '@/services/telemetryAllowlist';
-import { modelComparisonTelemetryContext } from '@/services/transcription/modelComparisonAuthorization';
+import { modelComparisonTakeTelemetry } from '@/services/transcription/modelComparisonAuthorization';
 
 export type PracticeMode = 'quick' | 'objective';
 
@@ -49,7 +49,7 @@ export const trackPracticeEntryViewed = (returningUser: boolean): void =>
 /** A mode was chosen (Quick or Objective card). `source` is a closed enum; unknown values are dropped. */
 export const trackPracticeModeSelected = (mode: PracticeMode, source: PracticeEntrySource): void =>
   emit('practice_mode_selected', {
-    mode, entry_source: normalizeSource(source), ...modelComparisonTelemetryContext(),
+    mode, entry_source: normalizeSource(source), ...modelComparisonTakeTelemetry(),
   });
 
 /** A mode's inline overview/preview was expanded. */

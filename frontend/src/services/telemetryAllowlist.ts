@@ -254,14 +254,12 @@ export const EVENT_SCHEMAS = Object.freeze({
     // ── session outcome loop ────────────────────────────────────────────────
     session_started: {
         mode: enumOf(STT_MODES), requested_mode: enumOf(STT_MODES), user_tier: enumOf(TIERS),
-        journey_id: slug(), attempt_id: slug(), attempt_seq: { kind: 'int', min: 1, max: 1 } as FieldRule,
         comparison_nonce: slug(),
         comparison_evidence_document_id: slug(),
         ...EXPERIMENT_FIELDS,
     },
     session_saved: {
         mode: enumOf(STT_MODES), user_tier: enumOf(TIERS),
-        journey_id: slug(), attempt_id: slug(), attempt_seq: { kind: 'int', min: 1, max: 1 } as FieldRule,
         comparison_nonce: slug(),
         comparison_evidence_document_id: slug(),
         comparison_session_binding_sha256: { kind: 'sha256' } as FieldRule,
@@ -553,7 +551,8 @@ export const EVENT_SCHEMAS = Object.freeze({
     practice_entry_viewed: { returning_user: { kind: 'bool' } as FieldRule, release_sha: slug() },
     practice_mode_selected: {
         mode: enumOf(PRACTICE_MODES), entry_source: enumOf(ENTRY_SOURCES), release_sha: slug(),
-        journey_id: slug(), attempt_id: slug(), attempt_seq: { kind: 'int', min: 1, max: 1 } as FieldRule,
+        // #1432 — the signed take join. Journey/attempt identity is the envelope's, never the producer's.
+        comparison_nonce: slug(), comparison_evidence_document_id: slug(),
     },
     practice_overview_expanded: { mode: enumOf(PRACTICE_MODES), release_sha: slug() },
     // Was entirely UNGOVERNED: a real producer whose properties were all dropped.

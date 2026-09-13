@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute } from 'node:path';
+import { validateAuthorizationRecord } from './modelComparisonAuthorityVerifier.mjs';
 
 export const MODEL_DOWNSELECTION_SCHEMA_VERSION = 'speaksharp.model-downselection.v1';
 export const PRODUCTION_ORIGIN = 'https://speaksharp-public.vercel.app';
@@ -43,14 +44,16 @@ const isIsoInstant = (value) => typeof value === 'string'
 const takeKey = (candidateId, journey) => `${candidateId}/${journey}`;
 const exactTakeKey = (value) => [
   value.releaseSha, value.candidateId, value.journey, value.journeyId, value.attemptId,
-  value.attemptSeq, value.controlNonce, value.persistedSessionId, value.receiptSha256,
+  value.attemptSeq, value.comparisonNonce, value.persistedSessionId, value.receiptSha256,
 ].join('/');
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const SESSION_BINDING_VERSION = 'speaksharp.model-comparison-session-binding.v1';
-export const modelComparisonSessionBindingSha256 = (controlNonce, persistedSessionId) => sha256(
-  Buffer.from(JSON.stringify([SESSION_BINDING_VERSION, controlNonce, persistedSessionId])),
+export const modelComparisonSessionBindingSha256 = (comparisonNonce, persistedSessionId) => sha256(
+  Buffer.from(JSON.stringify([SESSION_BINDING_VERSION, comparisonNonce, persistedSessionId])),
 );
+/** The only events a take may link. The document positive control is never one of them. */
+const TAKE_EVENTS = new Set(['practice_mode_selected', 'session_started', 'session_saved']);
 
 const stable = (value) => {
   if (Array.isArray(value)) return value.map(stable);
@@ -128,7 +131,7 @@ function validateGeminiContract(contract, problems) {
   for (const key of keys) expectEqual(contract[key], LOCKED_GEMINI_CONTRACT[key], `geminiContract.${key}`, problems);
 }
 
-function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, path, problems) {
+function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, verificationPublicKey, path, problems) {
   if (!isObject(receipt)) {
     problems.push(`${path}.receiptArtifact must contain a JSON object`);
     return;
@@ -142,13 +145,23 @@ function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, path, pro
     expectEqual(receipt[key], row.candidateId, `${path}.receipt.${key}`, problems);
   }
   expectEqual(receipt.observedJourney, row.journey, `${path}.receipt.observedJourney`, problems);
-  expectEqual(receipt.controlNonce, row.controlNonce, `${path}.receipt.controlNonce`, problems);
-  expectEqual(receipt.journeyId, row.journeyId, `${path}.receipt.journeyId`, problems);
-  expectEqual(receipt.attemptId, row.attemptId, `${path}.receipt.attemptId`, problems);
-  expectEqual(receipt.attemptSeq, row.attemptSeq, `${path}.receipt.attemptSeq`, problems);
+  expectEqual(receipt.comparisonNonce, row.comparisonNonce, `${path}.receipt.comparisonNonce`, problems);
+  // The observer cannot see the envelope's native journey/attempt identity, so it no longer records a
+  // value for them. Those come only from the authenticated readback (validateCandidateEvidence).
   expectEqual(receipt.evidenceDocumentId, evidenceDocumentId, `${path}.receipt.evidenceDocumentId`, problems);
   if (!isIsoInstant(receipt.capturedAt)) problems.push(`${path}.receipt.capturedAt must be an ISO instant`);
   expectEqual(receipt.persistedSessionId, row.persistedSessionId, `${path}.receipt.persistedSessionId`, problems);
+  expectEqual(
+    receipt.sessionBindingSha256,
+    modelComparisonSessionBindingSha256(row.comparisonNonce, row.persistedSessionId),
+    `${path}.receipt.sessionBindingSha256`,
+    problems,
+  );
+  // #1432 PM decision E — activation authority was verified by the trusted observer, and is re-verified
+  // here against the pinned key. A page-side "verified", or a receipt without this record, is not evidence.
+  for (const problem of validateAuthorizationRecord(receipt.authorization, {
+    publicKey: verificationPublicKey, row, releaseSha, origin: PRODUCTION_ORIGIN, evidenceDocumentId,
+  })) problems.push(`${path}.receipt ${problem}`);
 }
 
 function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, telemetryResolver, problems) {
@@ -185,7 +198,8 @@ function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, tel
 
   const eventKeys = [
     'uuid', 'event', 'releaseSha', 'candidateId', 'productMode', 'journeyId', 'attemptId', 'attemptSeq',
-    'wordCount', 'controlNonce', 'transportInitialized', 'evidenceDocumentId', 'sessionBindingSha256',
+    'wordCount', 'comparisonNonce', 'controlNonce', 'transportInitialized', 'evidenceDocumentId',
+    'sessionBindingSha256',
   ];
   const uuids = new Set();
   for (const [index, event] of readback.events.entries()) {
@@ -212,8 +226,23 @@ function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, tel
     if (event.wordCount !== null && (!Number.isInteger(event.wordCount) || event.wordCount < 0)) {
       problems.push(`${path}.wordCount is invalid`);
     }
+    if (event.comparisonNonce !== null
+      && (typeof event.comparisonNonce !== 'string' || !TOKEN.test(event.comparisonNonce))) {
+      problems.push(`${path}.comparisonNonce is invalid`);
+    }
     if (event.controlNonce !== null && (typeof event.controlNonce !== 'string' || !TOKEN.test(event.controlNonce))) {
       problems.push(`${path}.controlNonce is invalid`);
+    }
+    // Take authority and document authority are separate columns and must stay separate on every row.
+    if (event.event === 'telemetry_positive_control') {
+      if (event.comparisonNonce !== null) {
+        problems.push(`${path} positive control must not carry a take comparisonNonce`);
+      }
+    } else if (TAKE_EVENTS.has(event.event)) {
+      if (event.controlNonce !== null) problems.push(`${path} take event must not carry the document controlNonce`);
+      if (event.comparisonNonce === null) problems.push(`${path} take event has no comparisonNonce`);
+    } else {
+      problems.push(`${path}.event ${JSON.stringify(event.event)} is not a comparison readback event`);
     }
     if (event.transportInitialized !== null && typeof event.transportInitialized !== 'boolean') {
       problems.push(`${path}.transportInitialized is invalid`);
@@ -229,17 +258,17 @@ function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, tel
   const controls = readback.events.filter((event) => event?.event === 'telemetry_positive_control');
   if (controls.length !== 1) problems.push('telemetryReadback must contain exactly one telemetry_positive_control event');
   else {
-    expectEqual(controls[0].controlNonce, readback.positiveControlNonce,
+    expectEqual(controls[0].controlNonce, evidenceDocumentId,
       'telemetryReadback positive-control nonce', problems);
     expectEqual(controls[0].transportInitialized, true,
       'telemetryReadback positive-control transportInitialized', problems);
-    expectEqual(controls[0].evidenceDocumentId, readback.positiveControlNonce,
+    expectEqual(controls[0].evidenceDocumentId, evidenceDocumentId,
       'telemetryReadback positive-control evidenceDocumentId', problems);
   }
   return readback.events;
 }
 
-function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId, baseDir, problems) {
+function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId, baseDir, verificationPublicKey, problems) {
   if (!Array.isArray(rows)) {
     problems.push('candidateEvidence must be an array');
     return new Set();
@@ -250,12 +279,13 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
   const correlations = new Set();
   const receiptDigests = new Set();
   const exactKeysSeen = new Set();
-  const controlNonces = new Set();
+  const comparisonNonces = new Set();
+  const envelopeDigests = new Set();
 
   for (const [index, row] of rows.entries()) {
     const path = `candidateEvidence[${index}]`;
     const keys = [
-      'releaseSha', 'candidateId', 'journey', 'journeyId', 'attemptId', 'attemptSeq', 'controlNonce',
+      'releaseSha', 'candidateId', 'journey', 'journeyId', 'attemptId', 'attemptSeq', 'comparisonNonce',
       'persistedSessionId',
       'receiptArtifact', 'receiptSha256',
     ];
@@ -269,12 +299,12 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
     if (typeof row.journeyId !== 'string' || !TOKEN.test(row.journeyId)) problems.push(`${path}.journeyId is invalid`);
     if (typeof row.attemptId !== 'string' || !TOKEN.test(row.attemptId)) problems.push(`${path}.attemptId is invalid`);
     if (!Number.isInteger(row.attemptSeq) || row.attemptSeq < 1) problems.push(`${path}.attemptSeq must be positive`);
-    if (typeof row.controlNonce !== 'string' || !TOKEN.test(row.controlNonce)) {
-      problems.push(`${path}.controlNonce is invalid`);
-    } else if (controlNonces.has(row.controlNonce)) {
-      problems.push(`${path}.controlNonce reuses signed take authority ${row.controlNonce}`);
+    if (typeof row.comparisonNonce !== 'string' || !TOKEN.test(row.comparisonNonce)) {
+      problems.push(`${path}.comparisonNonce is invalid`);
+    } else if (comparisonNonces.has(row.comparisonNonce)) {
+      problems.push(`${path}.comparisonNonce reuses signed take authority ${row.comparisonNonce}`);
     } else {
-      controlNonces.add(row.controlNonce);
+      comparisonNonces.add(row.comparisonNonce);
     }
     if (typeof row.persistedSessionId !== 'string' || !UUID_V4.test(row.persistedSessionId)) {
       problems.push(`${path}.persistedSessionId must be a lowercase UUIDv4`);
@@ -288,18 +318,39 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
       receiptDigests.add(receiptDigest);
     }
     const receipt = loadVerifiedJson(row.receiptArtifact, receiptDigest, baseDir, `${path}.receiptArtifact`, problems);
-    if (receipt) validateReceipt(receipt, row, releaseSha, evidenceDocumentId, path, problems);
+    if (receipt) {
+      validateReceipt(receipt, row, releaseSha, evidenceDocumentId, verificationPublicKey, path, problems);
+      // One-use across the canonical packet: a signed authorization cannot stand behind two rows.
+      const envelopeDigest = receipt.authorization?.envelopeSha256;
+      if (typeof envelopeDigest === 'string') {
+        if (envelopeDigests.has(envelopeDigest)) problems.push(`${path} reuses authorization envelope ${envelopeDigest}`);
+        envelopeDigests.add(envelopeDigest);
+      }
+    }
     const exactKey = exactTakeKey(row);
     if (exactKeysSeen.has(exactKey)) problems.push(`${path} duplicates exact take authority`);
     exactKeysSeen.add(exactKey);
 
-    const linked = events.filter((event) => event?.releaseSha === releaseSha
-      && event?.candidateId === row.candidateId
-      && event?.journeyId === row.journeyId
-      && event?.attemptId === row.attemptId
-      && event?.attemptSeq === row.attemptSeq
-      && event?.controlNonce === row.controlNonce
-      && event?.evidenceDocumentId === evidenceDocumentId);
+    // #1432 PM Option A — THE TAKE IS FOUND BY ITS SIGNED NONCE, AND ONLY BY IT. Native journey/attempt
+    // identity belongs to the envelope and is OBSERVED here, never used to select. Two takes inside one
+    // native journey therefore cannot borrow each other's events, and a different or later nonce links
+    // nothing to this row.
+    const linked = typeof row.comparisonNonce === 'string'
+      ? events.filter((event) => TAKE_EVENTS.has(event?.event) && event?.comparisonNonce === row.comparisonNonce)
+      : [];
+    for (const event of linked) {
+      const where = `${path} linked ${event.event} ${event.uuid}`;
+      expectEqual(event.evidenceDocumentId, evidenceDocumentId, `${where} evidenceDocumentId`, problems);
+      if (event.event === 'practice_mode_selected') {
+        // Mode selection can precede engine resolution, so an absent attribution is not a contradiction;
+        // a DIFFERENT model is.
+        if (event.candidateId !== null && event.candidateId !== row.candidateId) {
+          problems.push(`${where} candidateId must be ${JSON.stringify(row.candidateId)}`);
+        }
+      } else {
+        expectEqual(event.candidateId, row.candidateId, `${where} candidateId`, problems);
+      }
+    }
     const starts = linked.filter((event) => event.event === 'session_started');
     const saves = linked.filter((event) => event.event === 'session_saved');
     if (starts.length !== 1) problems.push(`${path} must link exactly one decoded session_started event`);
@@ -309,21 +360,40 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
     } else {
       expectEqual(
         saves[0].sessionBindingSha256,
-        modelComparisonSessionBindingSha256(row.controlNonce, row.persistedSessionId),
+        modelComparisonSessionBindingSha256(row.comparisonNonce, row.persistedSessionId),
         `${path} session_saved persisted-session binding`,
         problems,
       );
     }
-    // Product identity is independently decoded from the journey telemetry. It is not trusted from
-    // the operator label, and it need not carry the attempt id because Focus Points setup precedes Start.
+    if (starts.length === 1 && saves.length === 1) {
+      const [start] = starts;
+      const [save] = saves;
+      if (typeof start.attemptId !== 'string' || start.attemptSeq < 1) {
+        problems.push(`${path} session_started carries no native attempt identity`);
+      }
+      expectEqual(save.journeyId, start.journeyId, `${path} session_saved native journeyId`, problems);
+      expectEqual(save.attemptId, start.attemptId, `${path} session_saved native attemptId`, problems);
+      expectEqual(save.attemptSeq, start.attemptSeq, `${path} session_saved native attemptSeq`, problems);
+      // The packet's copies are operator-authored; the authenticated readback is the authority.
+      expectEqual(row.journeyId, start.journeyId, `${path}.journeyId observed native journey`, problems);
+      expectEqual(row.attemptId, start.attemptId, `${path}.attemptId observed native attempt`, problems);
+      expectEqual(row.attemptSeq, start.attemptSeq, `${path}.attemptSeq observed native attempt sequence`, problems);
+    }
+    // Product identity is decoded from practice-mode telemetry bound to THIS take's nonce, not from the
+    // operator label and not from whatever else happened in the same native journey.
     const expectedMode = row.journey === 'focus_points' ? 'objective' : 'quick';
-    const journeyEvents = events.filter((event) => event?.releaseSha === releaseSha
-      && event?.journeyId === row.journeyId && event?.productMode !== null);
-    if (!journeyEvents.some((event) => event.productMode === expectedMode)) {
+    const modes = linked.filter((event) => event.event === 'practice_mode_selected');
+    if (!modes.some((event) => event.productMode === expectedMode)) {
       problems.push(`${path} must link decoded ${expectedMode} journey telemetry`);
     }
-    if (journeyEvents.some((event) => event.productMode !== expectedMode)) {
+    if (modes.some((event) => event.productMode !== expectedMode)) {
       problems.push(`${path} has contradictory decoded journey telemetry`);
+    }
+  }
+  const rowNonces = new Set(rows.filter(isObject).map((row) => row.comparisonNonce));
+  for (const event of events) {
+    if (TAKE_EVENTS.has(event?.event) && event?.comparisonNonce !== null && !rowNonces.has(event?.comparisonNonce)) {
+      problems.push(`telemetryReadback event ${event?.uuid} carries a comparisonNonce that belongs to no candidate row`);
     }
   }
   for (const key of expectedKeys) if (!seen.has(key)) problems.push(`candidateEvidence is missing ${key}`);
@@ -378,7 +448,7 @@ function validateGeminiEvidence(observations, requiredTakeKeys, geminiResolver, 
   for (const [index, observation] of observations.entries()) {
     const path = `geminiEvidence[${index}]`;
     const keys = [
-      'releaseSha', 'candidateId', 'journey', 'journeyId', 'attemptId', 'attemptSeq', 'controlNonce',
+      'releaseSha', 'candidateId', 'journey', 'journeyId', 'attemptId', 'attemptSeq', 'comparisonNonce',
       'persistedSessionId', 'receiptSha256',
       'source', 'model', 'providerRequestMade', 'quota', 'output',
     ];
@@ -392,6 +462,13 @@ function validateGeminiEvidence(observations, requiredTakeKeys, geminiResolver, 
     if (!isObject(sessionAuthority)) {
       problems.push(`${path} has no trusted readback for persisted session ${observation.persistedSessionId}`);
     } else {
+      // The collector refuses a rewritten value; an authority row that does not say so was not produced
+      // by that check and cannot stand in for it.
+      if (sessionAuthority.immutableDigestVerified !== true
+        || typeof sessionAuthority.immutableSuggestionSha256 !== 'string'
+        || !SHA256.test(sessionAuthority.immutableSuggestionSha256)) {
+        problems.push(`${path} trusted persisted-session coaching is not bound to an immutable receipt digest`);
+      }
       expectEqual(sessionAuthority.suggestionDigest, observation.output?.suggestionDigest,
         `${path} trusted persisted-session suggestionDigest`, problems);
       expectEqual(sessionAuthority.whatWorkedWhitespaceWords, observation.output?.whatWorkedWhitespaceWords,
@@ -544,7 +621,8 @@ export function validateModelDownselectionEvidence(value, options = {}) {
     value.telemetryReadback, releaseSha, value.evidenceDocumentId, options.telemetryResolver, problems,
   );
   const requiredTakeKeys = validateCandidateEvidence(
-    value.candidateEvidence, events, releaseSha, value.evidenceDocumentId, baseDir, problems,
+    value.candidateEvidence, events, releaseSha, value.evidenceDocumentId, baseDir,
+    options.verificationPublicKey, problems,
   );
   validateGeminiEvidence(value.geminiEvidence, requiredTakeKeys, options.geminiResolver, problems);
   validateSelection(

@@ -143,9 +143,11 @@ Preparation is separate from execution:
 1. Ops creates an Ed25519 private key in an operator-owned location outside the repository. The private key
    never enters Vercel, GitHub, the browser, a receipt, or a retained artifact.
 2. Derive the matching client-public raw key with
-   `corepack pnpm human-test:sign-comparison -- --private-key /absolute/operator/key.pem --show-public-key`.
-   Under separate deployment authorization, Ops places only that value in the Production-scoped
-   `VITE_MODEL_COMPARISON_PUBLIC_KEY` and deploys the exact integrated release SHA.
+   `corepack pnpm human-test:sign-comparison -- --private-key /absolute/operator/key.pem --show-public-key`
+   and save that single line to `/absolute/operator/public-key.txt`. It is not secret; it is the pinned
+   verification key for the observer and the validator. Under separate deployment authorization, Ops places
+   only that value in the Production-scoped `VITE_MODEL_COMPARISON_PUBLIC_KEY` and deploys the exact
+   integrated release SHA.
 3. Launch one isolated Chrome profile with its remote-debugging endpoint bound to loopback port 9222. Open
    exactly one `https://speaksharp-public.vercel.app` tab and sign in manually through the normal product path.
    Never expose the debugging endpoint off-device.
@@ -159,7 +161,10 @@ six rows; a later comparison packet requires a new id. Immediately before each t
 1. Create a fresh two-minute envelope bound to the deployed SHA and the exact test row:
    `corepack pnpm human-test:sign-comparison -- --release <40-char-sha> --candidate <candidate-id> --journey <open_mic|focus_points> --evidence-document <uuidv4> --private-key /absolute/operator/key.pem --out /absolute/operator/envelope.json`.
 2. Start the observer:
-   `corepack pnpm human-test:observe -- --candidate <candidate-id> --journey <open_mic|focus_points> --release <40-char-sha> --authorization /absolute/operator/envelope.json --out /absolute/evidence/receipt.json`.
+   `corepack pnpm human-test:observe -- --candidate <candidate-id> --journey <open_mic|focus_points> --release <40-char-sha> --authorization /absolute/operator/envelope.json --verification-key /absolute/operator/public-key.txt --out /absolute/evidence/receipt.json`.
+   The observer verifies the envelope's signature, candidate, journey, release, origin, and validity window in
+   Node **before** it arms the page, and HOLDs without arming if any check fails. The in-app signature check is
+   defense-in-depth only: page code or DevTools can defeat it, so it provides no qualification authority.
 3. Use the product normally while the observer runs: start, speak, stop, wait for persistence and review,
    inspect Focus Points when applicable, and use Practice again/Retry where the run requires it. Do not
    refresh or reuse an envelope; the authorization is removed after the first document and its nonce is
@@ -168,8 +173,11 @@ six rows; a later comparison packet requires a new id. Immediately before each t
 The first successful authorized switch for the evidence document automatically emits the governed
 `telemetry_positive_control`; the other five switches do not. Set the packet's `positiveControlNonce`
 to the signed evidence-document UUID reported by the observer. For each candidate row, copy
-`journeyId`, `attemptId`, and `attemptSeq` from that row's observer receipt; the app derives them from
-the signed one-use nonce, so operator-authored correlation cannot substitute for emitted telemetry.
+`comparisonNonce` from that row's observer receipt, then copy `journeyId`, `attemptId`, and `attemptSeq`
+from the trusted readback's `session_started` event carrying that `comparisonNonce`. Those three values are
+the app's native telemetry identity, not values derived from the nonce; the validator refuses any row whose
+copies differ from the authenticated readback, so operator-authored correlation cannot substitute for
+emitted telemetry.
 
 A candidate row counts only when requested, expected, and observed identities agree for the whole take;
 the saved session has a named persistence ID; the receipt is non-dry-run `PASS`; and the #1421 decoded
@@ -178,8 +186,10 @@ signed comparison nonce. A SHA-256 binding over pinned canonical bytes (version,
 proves the exact saved session without putting the raw database session ID in PostHog. Gemini evidence
 binds that persisted ID independently. A missing binding HOLDs the row; it never degrades or scores a model.
 
-Run `corepack pnpm human-test:validate-downselection -- /absolute/evidence/model-downselection.json --telemetry-authority /absolute/trusted/posthog-readback.json --gemini-authority /absolute/trusted/gemini-session-readback.json` only
-after all six candidate/journey cells and the locked Gemini evidence are present. The validator must remain
+Run `corepack pnpm human-test:validate-downselection -- /absolute/evidence/model-downselection.json --telemetry-authority /absolute/trusted/posthog-readback.json --gemini-authority /absolute/trusted/gemini-session-readback.json --verification-key /absolute/operator/public-key.txt` only
+after all six candidate/journey cells and the locked Gemini evidence are present. It re-verifies every
+receipt's recorded authorization envelope against the pinned key and refuses a missing record, a forged or
+reused envelope, or any candidate, journey, release, origin, document, nonce, or session-binding mismatch. The validator must remain
 `HOLD` until a separate Product Owner-authored approval artifact names distinct primary, fallback, and
 sits-out roles and cites the exact completed packet digest. The validation command requires authenticated
 GitHub CLI read access (or `GH_BIN` pointing to it), plus the separately downloaded artifacts from the

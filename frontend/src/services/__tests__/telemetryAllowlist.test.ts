@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
     projectEventProps, isContentFreeValue, isGovernedEvent, isValidForEventField, EVENT_ALLOWLIST, EVENT_SCHEMAS, GOVERNED_EVENTS,
 } from '../telemetryAllowlist';
@@ -27,9 +29,6 @@ describe('#1259 T1 — approved fields survive (events stay analyzable)', () => 
             mode: 'private', duration_seconds: 61, word_count: 180, wpm: 118,
             filler_count: 4, clarity_score: 82, is_new_streak_day: true, streak_count: 3,
             comparison_nonce: 'comparison-nonce-123456',
-            journey_id: 'comparison-nonce-123456',
-            attempt_id: 'comparison-nonce-123456',
-            attempt_seq: 1,
             comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
             comparison_session_binding_sha256: 'a'.repeat(64),
             session_coaching_experiment: 'session_coaching_v1',
@@ -152,34 +151,58 @@ describe('#1259 T1 — content is rejected', () => {
         for (const event of ['session_started', 'session_saved']) {
             expect(isValidForEventField(event, 'comparison_nonce', 'comparison-nonce-123456')).toBe(true);
             expect(isValidForEventField(event, 'comparison_nonce', 'not a bounded nonce')).toBe(false);
-            expect(isValidForEventField(event, 'journey_id', 'comparison-nonce-123456')).toBe(true);
-            expect(isValidForEventField(event, 'attempt_id', 'comparison-nonce-123456')).toBe(true);
-            expect(isValidForEventField(event, 'attempt_seq', 1)).toBe(true);
-            expect(isValidForEventField(event, 'attempt_seq', 2)).toBe(false);
         }
         expect(isValidForEventField('session_saved', 'persisted_session_id', 'session-123')).toBe(false);
     });
 
     it('governs the real transport positive control with closed, content-free fields', () => {
-        expect(projectEventProps('telemetry_positive_control', {
+        const { props, dropped } = projectEventProps('telemetry_positive_control', {
             control_nonce: '11111111-1111-4111-8111-111111111111',
+            instrumentation_version: 'telemetry-v1',
             comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
             transport_initialized: true,
+            comparison_nonce: 'comparison-nonce-123456',
             journey_id: 'comparison-nonce-123456',
             attempt_id: 'comparison-nonce-123456',
             attempt_seq: 1,
             prose: 'never ship me',
-        })).toEqual({
-            props: {
-                control_nonce: '11111111-1111-4111-8111-111111111111',
-                comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
-                transport_initialized: true,
-                journey_id: 'comparison-nonce-123456',
-                attempt_id: 'comparison-nonce-123456',
-                attempt_seq: 1,
-            },
-            dropped: ['prose'],
         });
+        // Required fields from BOTH producers survive: main's boot control and #1432's document control.
+        expect(props).toEqual({
+            control_nonce: '11111111-1111-4111-8111-111111111111',
+            instrumentation_version: 'telemetry-v1',
+            comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+            transport_initialized: true,
+        });
+        // #1432 PM Option A — a take nonce cannot ride on the document control, and producer journey
+        // identity is not a field this event declares.
+        expect(dropped).toEqual(expect.arrayContaining([
+            'comparison_nonce', 'journey_id', 'attempt_id', 'attempt_seq', 'prose',
+        ]));
+    });
+
+    it('CASUALTY: exactly ONE telemetry_positive_control definition exists (no last-key-wins merge)', () => {
+        // A duplicate object key compiles in JS and silently keeps only the later definition. The #1432
+        // integration produced exactly that, so the source itself is the thing asserted.
+        const source = readFileSync(resolve(__dirname, '../telemetryAllowlist.ts'), 'utf8');
+        expect(source.match(/^\s*telemetry_positive_control:\s*\{/gm)).toHaveLength(1);
+        for (const field of ['control_nonce', 'instrumentation_version', 'transport_initialized', 'comparison_evidence_document_id']) {
+            expect(Object.keys(EVENT_SCHEMAS.telemetry_positive_control)).toContain(field);
+        }
+    });
+
+    it('CASUALTY (PM Option A): comparison events declare no envelope-owned journey identity', () => {
+        const comparisonEvents = ['practice_mode_selected', 'session_started', 'session_saved', 'telemetry_positive_control'] as const;
+        for (const event of comparisonEvents) {
+            const schema = EVENT_SCHEMAS[event] as Record<string, unknown>;
+            for (const envelopeKey of ['journey_id', 'attempt_id', 'attempt_seq', 'boot_id']) {
+                expect(Object.keys(schema)).not.toContain(envelopeKey);
+            }
+        }
+        for (const event of ['practice_mode_selected', 'session_started', 'session_saved'] as const) {
+            expect(isValidForEventField(event, 'comparison_nonce', 'comparison-nonce-123456')).toBe(true);
+            expect(isValidForEventField(event, 'comparison_evidence_document_id', '11111111-1111-4111-8111-111111111111')).toBe(true);
+        }
     });
 
     it('rejects non-primitives, and no longer waves strings through on shape alone', () => {

@@ -22,8 +22,8 @@ const words = (value) => value.trim().split(/\s+/).filter(Boolean).length;
 const SESSION_BINDING_VERSION = 'speaksharp.model-comparison-session-binding.v1';
 const USER_DIGEST_VERSION = 'speaksharp.ai-suggestion-user.v1';
 
-export const modelComparisonSessionBindingSha256 = (controlNonce, persistedSessionId) => sha256(
-  JSON.stringify([SESSION_BINDING_VERSION, controlNonce, persistedSessionId]),
+export const modelComparisonSessionBindingSha256 = (comparisonNonce, persistedSessionId) => sha256(
+  JSON.stringify([SESSION_BINDING_VERSION, comparisonNonce, persistedSessionId]),
 );
 
 function required(value, name) {
@@ -47,24 +47,35 @@ export function comparisonRows(evidence) {
     if (!CANDIDATES.has(row?.candidateId) || !JOURNEYS.has(row?.journey) || cells.has(cell)) {
       throw new Error(`candidateEvidence has invalid or duplicate cell ${cell}`);
     }
-    if (typeof row.controlNonce !== 'string' || !TOKEN.test(row.controlNonce)) throw new Error(`${cell} controlNonce is invalid`);
+    if (typeof row.comparisonNonce !== 'string' || !TOKEN.test(row.comparisonNonce)) throw new Error(`${cell} comparisonNonce is invalid`);
     if (typeof row.persistedSessionId !== 'string' || !UUID_V4.test(row.persistedSessionId)) {
       throw new Error(`${cell} persistedSessionId must be a lowercase UUIDv4`);
     }
-    if (nonces.has(row.controlNonce)) throw new Error(`candidateEvidence reuses control nonce ${row.controlNonce}`);
+    if (nonces.has(row.comparisonNonce)) throw new Error(`candidateEvidence reuses comparison nonce ${row.comparisonNonce}`);
     if (sessions.has(row.persistedSessionId)) throw new Error(`candidateEvidence reuses persisted session ${row.persistedSessionId}`);
-    nonces.add(row.controlNonce);
+    nonces.add(row.comparisonNonce);
     sessions.add(row.persistedSessionId);
     cells.add(cell);
   }
   return { releaseSha, evidenceDocumentId, rows: evidence.candidateEvidence, nonces: [...nonces], sessions: [...sessions] };
 }
 
+/**
+ * #1432 PM Option A — TWO AUTHORITIES, NEVER BLURRED.
+ *
+ * A take is found only by its signed one-use `comparison_nonce`; the document's single positive control
+ * is found only by `control_nonce = evidenceDocumentId`. They are selected as separate columns. A previous
+ * `coalesce(comparison_nonce, control_nonce)` let one column stand for either, so a take nonce could shadow
+ * the control, and a `journey_id IN (...)` fallback let operator-copied journey ids select rows. The
+ * envelope's native `journey_id`/`attempt_id`/`attempt_seq` are read as observed values only.
+ */
+export const TAKE_EVENTS = Object.freeze(['practice_mode_selected', 'session_started', 'session_saved']);
+
 export function postHogReadbackQuery(evidence) {
-  const { releaseSha, rows, nonces } = comparisonRows(evidence);
-  const journeys = [...new Set(rows.map((row) => row.journeyId))];
+  const { releaseSha, evidenceDocumentId, nonces } = comparisonRows(evidence);
   const positive = evidence?.telemetryReadback?.positiveControlNonce;
   if (typeof positive !== 'string' || !TOKEN.test(positive)) throw new Error('positiveControlNonce is invalid');
+  if (positive !== evidenceDocumentId) throw new Error('positiveControlNonce must equal evidenceDocumentId');
   return `
 SELECT
   uuid,
@@ -76,17 +87,18 @@ SELECT
   properties.attempt_id,
   properties.attempt_seq,
   properties.word_count,
-  coalesce(properties.comparison_nonce, properties.control_nonce),
+  properties.comparison_nonce,
+  properties.control_nonce,
   properties.transport_initialized,
   properties.comparison_evidence_document_id,
   properties.comparison_session_binding_sha256
 FROM events
 WHERE properties.release_sha = ${quote(releaseSha)}
-  AND event IN ('telemetry_positive_control', 'practice_mode_selected', 'session_started', 'session_saved')
   AND (
-    properties.comparison_nonce IN (${nonces.map(quote).join(', ')})
-    OR properties.journey_id IN (${journeys.map(quote).join(', ')})
-    OR properties.control_nonce = ${quote(positive)}
+    (event IN (${TAKE_EVENTS.map(quote).join(', ')})
+      AND properties.comparison_nonce IN (${nonces.map(quote).join(', ')}))
+    OR (event = 'telemetry_positive_control'
+      AND properties.control_nonce = ${quote(evidenceDocumentId)})
   )
 ORDER BY timestamp ASC, uuid ASC`.trim();
 }
@@ -94,15 +106,16 @@ ORDER BY timestamp ASC, uuid ASC`.trim();
 export function decodePostHogRows(rows) {
   if (!Array.isArray(rows)) throw new Error('PostHog response has no results array');
   return rows.map((row, index) => {
-    if (!Array.isArray(row) || row.length !== 13) throw new Error(`PostHog row ${index} has an unexpected shape`);
+    if (!Array.isArray(row) || row.length !== 14) throw new Error(`PostHog row ${index} has an unexpected shape`);
     return {
       uuid: row[0], event: row[1], releaseSha: row[2], candidateId: row[3] ?? null,
       productMode: row[1] === 'practice_mode_selected' ? (row[4] ?? null) : null,
       journeyId: row[5], attemptId: row[6] ?? null, attemptSeq: Number(row[7] ?? 0),
-      wordCount: row[8] === null ? null : Number(row[8]), controlNonce: row[9] ?? null,
-      transportInitialized: row[10] ?? null,
-      evidenceDocumentId: row[11] ?? null,
-      sessionBindingSha256: row[12] ?? null,
+      wordCount: row[8] === null ? null : Number(row[8]),
+      comparisonNonce: row[9] ?? null, controlNonce: row[10] ?? null,
+      transportInitialized: row[11] ?? null,
+      evidenceDocumentId: row[12] ?? null,
+      sessionBindingSha256: row[13] ?? null,
     };
   });
 }
@@ -122,11 +135,17 @@ export function geminiSessionReadback(rows) {
       what_worked: value.what_worked.trim(),
       what_to_try_next: value.what_to_try_next.trim(),
     };
-    const receiptValue = Array.isArray(row?.ai_suggestion_authority_receipts)
-      ? row.ai_suggestion_authority_receipts[0]
-      : row?.ai_suggestion_authority_receipts;
-    if (!receiptValue || typeof receiptValue !== 'object' || Array.isArray(receiptValue)
-      || receiptValue.provider !== 'google_gemini'
+    // One flat row from `read_ai_suggestion_authority_v1`: receipt facts plus two database-computed digests.
+    const receiptValue = row;
+    if (typeof row?.receipt_suggestion_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(row.receipt_suggestion_sha256)) {
+      throw new Error(`persisted session ${index} has no valid server-owned Gemini authority receipt`);
+    }
+    // Codex P1 3984161768 — the saved coaching must still be the exact payload the receipt bound. A value
+    // rewritten after the receipt (by any path) is not Gemini output, however valid its shape.
+    if (row.current_suggestion_sha256 !== row.receipt_suggestion_sha256) {
+      throw new Error(`persisted session ${index} coaching differs from its immutable authority digest`);
+    }
+    if (receiptValue.provider !== 'google_gemini'
       || receiptValue.provider_request_made !== true
       || typeof receiptValue.model !== 'string' || !TOKEN.test(receiptValue.model)
       || receiptValue.quota_scope !== 'user_utc_day'
@@ -139,8 +158,10 @@ export function geminiSessionReadback(rows) {
       throw new Error(`persisted session ${index} has no valid server-owned Gemini authority receipt`);
     }
     return {
-      persistedSessionId: row.id,
+      persistedSessionId: row.session_id,
       suggestionDigest: sha256(JSON.stringify(normalized)),
+      immutableSuggestionSha256: row.receipt_suggestion_sha256,
+      immutableDigestVerified: true,
       whatWorkedWhitespaceWords: words(normalized.what_worked),
       whatToImproveWhitespaceWords: words(normalized.what_to_try_next),
       readable: true,
@@ -186,13 +207,11 @@ export async function collectAuthorities({ evidence, env = process.env, fetchImp
 
   const supabaseUrl = required(env.SUPABASE_URL, 'SUPABASE_URL').replace(/\/$/, '');
   const serviceRole = required(env.SUPABASE_SERVICE_ROLE_KEY, 'SUPABASE_SERVICE_ROLE_KEY');
-  const sessionFilter = `(${sessions.join(',')})`;
-  const supabaseResponse = await fetchImpl(
-    `${supabaseUrl}/rest/v1/sessions?select=id,user_id,ai_suggestions,ai_suggestion_authority_receipts(`
-      + 'provider,model,provider_request_made,quota_scope,quota_utc_date,quota_limit,quota_request_number,cache_read_count)'
-      + `&id=in.${encodeURIComponent(sessionFilter)}`,
-    { headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}` } },
-  );
+  const supabaseResponse = await fetchImpl(`${supabaseUrl}/rest/v1/rpc/read_ai_suggestion_authority_v1`, {
+    method: 'POST',
+    headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_session_ids: sessions }),
+  });
   const sessionRows = await jsonResponse(supabaseResponse, 'Supabase coaching readback');
   const observations = geminiSessionReadback(sessionRows);
   if (observations.length !== sessions.length

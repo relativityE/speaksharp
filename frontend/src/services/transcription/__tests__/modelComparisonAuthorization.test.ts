@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     consumeModelComparisonAuthorization, consumeModelComparisonTakeAuthorization,
-    modelComparisonControlNonce, modelComparisonEvidenceDocumentId,
+    modelComparisonTakeNonce, modelComparisonEvidenceDocumentId,
     modelComparisonSessionBindingSha256,
 } from '../modelComparisonAuthorization';
 import { authorizeProduction, placeSignedAuthorization, resetAuthorization } from './modelComparisonAuthorization.helper';
@@ -13,9 +13,9 @@ describe('#1432 signed Production model-comparison authorization', () => {
     it('accepts one valid release/origin-bound Ed25519 envelope', async () => {
         const accepted = await authorizeProduction();
         expect(accepted.accepted).toBe(true);
-        expect(modelComparisonControlNonce()).toBeNull();
+        expect(modelComparisonTakeNonce()).toBeNull();
         expect(consumeModelComparisonTakeAuthorization('v4:distil:q4', 'open_mic')).toBe(true);
-        expect(modelComparisonControlNonce()).toBe(accepted.authorization.payload.nonce);
+        expect(modelComparisonTakeNonce()).toBe(accepted.authorization.payload.nonce);
         expect(modelComparisonEvidenceDocumentId()).toBe('11111111-1111-4111-8111-111111111111');
     });
 
@@ -26,7 +26,7 @@ describe('#1432 signed Production model-comparison authorization', () => {
         ['invalid evidence document', { evidenceDocumentId: 'operator-label' }],
     ])('refuses %s authorization', async (_label, override) => {
         expect((await authorizeProduction(override)).accepted).toBe(false);
-        expect(modelComparisonControlNonce()).toBeNull();
+        expect(modelComparisonTakeNonce()).toBeNull();
     });
 
     it('refuses replay of an already consumed nonce', async () => {

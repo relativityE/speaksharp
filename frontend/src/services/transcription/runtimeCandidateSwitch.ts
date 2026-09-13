@@ -28,7 +28,7 @@ import {
 } from './candidateRegistry';
 import {
     claimModelComparisonPositiveControl, consumeModelComparisonTakeAuthorization,
-    hasModelComparisonAuthorization, modelComparisonTelemetryContext,
+    hasModelComparisonAuthorization,
     type ModelComparisonJourney,
 } from './modelComparisonAuthorization';
 import { analyticsBuffer } from '../AnalyticsBuffer';
@@ -271,7 +271,6 @@ export async function switchCandidate(
                 control_nonce: controlNonce,
                 comparison_evidence_document_id: controlNonce,
                 transport_initialized: true,
-                ...modelComparisonTelemetryContext(),
             }, 'CRITICAL');
         }
     }

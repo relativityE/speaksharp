@@ -26,10 +26,8 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
-    modelComparisonControlNonce,
-    modelComparisonEvidenceDocumentId,
-    modelComparisonTelemetryContext,
     modelComparisonSessionBindingSha256,
+    modelComparisonTakeTelemetry,
 } from '@/services/transcription/modelComparisonAuthorization';
 import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
 import { beginRecordingAttempt, endRecordingAttempt } from '@/services/telemetry/journeyIdentity';
@@ -305,9 +303,7 @@ export const useSessionLifecycle = () => {
                 );
                 analyticsBuffer.push('session_saved', {
                     mode: effectiveMode,
-                    comparison_nonce: modelComparisonControlNonce(),
-                    comparison_evidence_document_id: modelComparisonEvidenceDocumentId(),
-                    ...modelComparisonTelemetryContext(),
+                    ...modelComparisonTakeTelemetry(),
                     comparison_session_binding_sha256: comparisonSessionBinding,
                     duration_seconds: elapsedTime,
                     word_count: metrics.wordCount,
@@ -632,9 +628,7 @@ export const useSessionLifecycle = () => {
                     mode: latestMode,
                     requested_mode: requestedMode,
                     user_tier: effectiveSubscriptionStatus,
-                    comparison_nonce: modelComparisonControlNonce(),
-                    comparison_evidence_document_id: modelComparisonEvidenceDocumentId(),
-                    ...modelComparisonTelemetryContext(),
+                    ...modelComparisonTakeTelemetry(),
                     ...getSessionCoachingExperimentProperties(),
                 });
             } catch (error) {

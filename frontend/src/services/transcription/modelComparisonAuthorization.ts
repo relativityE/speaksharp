@@ -4,6 +4,12 @@
  * The previous `Symbol.for(...)=true` arm was writable by ordinary page-world code. This verifies an
  * Ops-signed Ed25519 envelope before setting module-private authority. The public key may ship; the
  * signing key never enters the browser or repository.
+ *
+ * DEFENSE-IN-DEPTH AND UX GATING ONLY — NOT TAMPER-PROOF (PM decision E, Codex P1 3985013874). This runs
+ * in the page realm: page code or DevTools can replace `SubtleCrypto.prototype.verify`, and anyone who
+ * controls the page can call code the bundle already ships. It therefore carries ZERO qualification
+ * authority. The trusted CDP observer verifies the envelope in Node against a pinned key before arming,
+ * and the terminal validator re-verifies that record (`scripts/human-test/modelComparisonAuthorityVerifier.mjs`).
  */
 
 export const MODEL_COMPARISON_AUTH_KEY = 'speaksharp.model-comparison.authorization';
@@ -79,10 +85,11 @@ const validShape = (value: unknown): value is SignedAuthorization => {
 export function hasModelComparisonAuthorization(): boolean { return armed !== null; }
 
 /**
- * Content-free join between the signed browser authorization and governed lifecycle telemetry.
- * This is deliberately the authorization nonce, never a user or database session identifier.
+ * Content-free join between the signed browser authorization and governed take telemetry.
+ * This is deliberately the one-use TAKE nonce, never a user or database session identifier, and never
+ * the document-scoped positive-control nonce (`control_nonce`, which is the evidence-document id).
  */
-export function modelComparisonControlNonce(): string | null {
+export function modelComparisonTakeNonce(): string | null {
     return activeNonce;
 }
 
@@ -92,13 +99,19 @@ export function modelComparisonEvidenceDocumentId(): string | null {
 }
 
 /**
- * Correlation is derived from the signed, one-use take nonce rather than from operator-authored packet
- * fields. Each authorization nonce is unique, so the three values identify exactly one take while
- * carrying no account, transcript, or database-session identity.
+ * The take-specific comparison fields for `practice_mode_selected`, `session_started` and `session_saved`.
+ *
+ * #1432 PM Option A — the governed envelope is the SOLE authority for `journey_id`, `attempt_id`,
+ * `attempt_seq` and `boot_id`, and `AnalyticsBuffer` strips any producer copy before applying it. This
+ * therefore never writes those keys: the signed take travels as `comparison_nonce`, a separate join, and
+ * the native journey/attempt identity stays independently observed. Both values are null outside an
+ * authorized take.
  */
-export function modelComparisonTelemetryContext(): Record<string, string | number> {
-    if (!activeNonce) return {};
-    return { journey_id: activeNonce, attempt_id: activeNonce, attempt_seq: 1 };
+export function modelComparisonTakeTelemetry(): {
+    comparison_nonce: string | null;
+    comparison_evidence_document_id: string | null;
+} {
+    return { comparison_nonce: activeNonce, comparison_evidence_document_id: activeEvidenceDocumentId };
 }
 
 /**

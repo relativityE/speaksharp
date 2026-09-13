@@ -8,8 +8,9 @@ import {
 
 vi.mock('@/services/AnalyticsBuffer', () => ({ analyticsBuffer: { push: vi.fn() } }));
 vi.mock('@/services/transcription/modelComparisonAuthorization', () => ({
-  modelComparisonTelemetryContext: () => ({
-    journey_id: 'signed-take-nonce', attempt_id: 'signed-take-nonce', attempt_seq: 1,
+  modelComparisonTakeTelemetry: () => ({
+    comparison_nonce: 'signed-take-nonce',
+    comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
   }),
 }));
 const push = vi.mocked(analyticsBuffer.push);
@@ -36,7 +37,7 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
 
     // Every payload carries only allowlisted keys and no free-form user content.
     const allowed = new Set([
-      'mode', 'entry_source', 'returning_user', 'release_sha', 'journey_id', 'attempt_id', 'attempt_seq',
+      'mode', 'entry_source', 'returning_user', 'release_sha', 'comparison_nonce', 'comparison_evidence_document_id',
     ]);
     const allProps = push.mock.calls.map(([, props]) => (props ?? {}) as Record<string, unknown>);
     const allKeys = [...new Set(allProps.flatMap((p) => Object.keys(p)))];
@@ -47,7 +48,16 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
     // `mode` is only ever the enum; no payload contains email-shaped or free-form content.
     allProps.map((p) => p.mode).filter(Boolean).forEach((m) => expect(['quick', 'objective']).toContain(m));
     allProps.forEach((p) => expect(JSON.stringify(p)).not.toMatch(/@/));
-    expect(allProps[1]).toMatchObject({ journey_id: 'signed-take-nonce' });
+    // #1432 PM Option A — the take travels as its own join; the producer never writes envelope identity.
+    expect(allProps[1]).toMatchObject({
+      comparison_nonce: 'signed-take-nonce',
+      comparison_evidence_document_id: '11111111-1111-4111-8111-111111111111',
+    });
+    allProps.forEach((p) => {
+      for (const envelopeKey of ['journey_id', 'attempt_id', 'attempt_seq', 'boot_id']) {
+        expect(p).not.toHaveProperty(envelopeKey);
+      }
+    });
   });
 
   it('DROPS an out-of-enum entry_source instead of emitting arbitrary text', () => {
