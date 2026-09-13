@@ -174,6 +174,48 @@ function releaseFindingStillBlocks({ thread, comment }) {
   return comment?.pullRequestReview?.state !== 'DISMISSED';
 }
 
+/**
+ * #1432 PM RETURN `5652158578` — AN OWNER-AUTHORIZED P2 DISPOSITION IS THE ONLY OTHER SAME-HEAD CLEARING SURFACE.
+ *
+ * GitHub refuses to dismiss a `COMMENTED` review ("Can not dismiss a commented pull request review"), and Codex
+ * files its inline findings inside `COMMENTED` reviews. An exact-head P1 that the PM reclassified as P2 and
+ * transferred to the hardening ledger therefore had no reachable way to stop blocking a truthful qualification.
+ *
+ * The disposition is narrow and machine-readable. It lives in the finding's OWN resolved thread, is written by the
+ * repository OWNER (GitHub's `authorAssociation`, not a login string), and is exactly one marker
+ *   <!-- speaksharp-review-disposition:v1 {"head":"<40 hex>","findingCommentId":<id>,"classification":"P2","transferTarget":"#1399"} -->
+ * naming this full head, this finding comment, `P2` and an allowed transfer target. It moves the finding to the
+ * advisory count and nothing else: it cannot classify P0/P1 and cannot claim a fix — a fix still needs a
+ * replacement head and a fresh review. Top-level or free-form text, a stale head, another finding, a non-owner, an
+ * open thread, a missing or unknown transfer target, a malformed marker, or a duplicate or conflicting marker all
+ * leave the finding blocking. A thread holding more than one exact-head release finding is never disposed of by one
+ * marker.
+ */
+export const REVIEW_DISPOSITION_MARKER = 'speaksharp-review-disposition:v1';
+const REVIEW_DISPOSITION = /<!--\s*speaksharp-review-disposition:v1\s+(\{[^{}]*\})\s*-->/g;
+const REVIEW_DISPOSITION_KEYS = Object.freeze(['classification', 'findingCommentId', 'head', 'transferTarget']);
+export const P2_TRANSFER_TARGETS = Object.freeze(['#1399']);
+
+export function authorizedP2Disposition({ thread, finding, head }) {
+  if (thread?.isResolved !== true || !/^[0-9a-f]{40}$/.test(head ?? '') || !Number.isInteger(finding?.databaseId)) return false;
+  const comments = thread?.comments?.nodes ?? [];
+  const mentions = comments.reduce((count, comment) => count + String(comment?.body ?? '').split(REVIEW_DISPOSITION_MARKER).length - 1, 0);
+  const markers = comments.flatMap((comment) =>
+    [...String(comment?.body ?? '').matchAll(REVIEW_DISPOSITION)].map((match) => ({ comment, raw: match[1] })));
+  // Exactly one well-formed marker and no other mention: a duplicate, a malformed copy or a conflicting marker holds.
+  if (mentions !== 1 || markers.length !== 1) return false;
+  const [{ comment, raw }] = markers;
+  if (comment?.authorAssociation !== 'OWNER' || isCodex(comment?.author?.login)) return false;
+  let value;
+  try { value = JSON.parse(raw); } catch { return false; }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (Object.keys(value).sort().join(',') !== REVIEW_DISPOSITION_KEYS.join(',')) return false;
+  return value.head === head
+    && value.findingCommentId === finding.databaseId
+    && value.classification === 'P2'
+    && P2_TRANSFER_TARGETS.includes(value.transferTarget);
+}
+
 export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   const head = pullRequest?.headRefOid?.toLowerCase?.() ?? '';
   const expected = expectedHeadSha?.toLowerCase?.() ?? '';
@@ -197,12 +239,21 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   // Only consulted when no review object exists at this head: a review that reported findings must never be
   // masked by summary metadata, which establishes completion and nothing else.
   const completion = latest ? null : findTrustedCompletionMetadata({ pullRequest, head });
-  const threadFindings = (pullRequest?.reviewThreads?.nodes ?? []).filter((thread) =>
-    (thread?.comments?.nodes ?? []).some((comment) =>
+  const threadFindings = [];
+  const p2DispositionFindingIds = [];
+  for (const thread of pullRequest?.reviewThreads?.nodes ?? []) {
+    const blocking = (thread?.comments?.nodes ?? []).filter((comment) =>
       isCodex(comment?.author?.login)
       && (comment?.pullRequestReview?.commit?.oid ?? comment?.originalCommit?.oid ?? comment?.commit?.oid)?.toLowerCase?.() === head
       && RELEASE_FINDING.test(comment?.body ?? '')
-      && releaseFindingStillBlocks({ thread, comment })));
+      && releaseFindingStillBlocks({ thread, comment }));
+    if (blocking.length === 0) continue;
+    if (blocking.length === 1 && authorizedP2Disposition({ thread, finding: blocking[0], head })) {
+      p2DispositionFindingIds.push(blocking[0].databaseId);
+    } else {
+      threadFindings.push(thread);
+    }
+  }
   const reviewBodyFindings = reviews.filter((review) => RELEASE_FINDING.test(review?.body ?? ''));
   const blockingReviews = reviews.filter((review) => review?.state === 'CHANGES_REQUESTED');
   const issueCommentFindings = (pullRequest?.comments?.nodes ?? []).filter((comment) =>
@@ -221,7 +272,8 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     + (pullRequest?.comments?.nodes ?? []).filter((comment) =>
       isCodex(comment?.author?.login)
       && commentNamesHead(comment, head)
-      && ADVISORY_FINDING.test(comment?.body ?? '')).length;
+      && ADVISORY_FINDING.test(comment?.body ?? '')).length
+    + p2DispositionFindingIds.length;
 
   const evaluated = evaluateReviewQualification({
     currentSha: head,
@@ -256,6 +308,8 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     reviewEvidence: latest ? 'review_object' : completion ? 'codex_summary_metadata' : null,
     /** Open P2 findings at this head. Reported for the ledger; deliberately not blocking. */
     advisoryFindingCount: advisoryCount,
+    /** #1432 PM RETURN `5652158578` — exact-head release findings the owner disposed of as P2 (counted as advisory). */
+    p2DispositionFindingIds,
   };
 }
 
@@ -450,7 +504,7 @@ function normaliseRef(ref) {
  * refused every legitimately clean PR at merge. Two copies of an evidence query can disagree about what
  * the evidence is; one exported copy cannot.
  */
-export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{author{login} body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
+export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{databaseId author{login} authorAssociation body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
 
 /**
  * The conversation surface is load-bearing and long-lived PRs routinely exceed one GraphQL page.

@@ -126,6 +126,15 @@ globalThis.fetch = async (url, init) => {
   }
   const { query = '' } = JSON.parse(init?.body ?? '{}');
   const payload = JSON.parse(body);
+  // #1432 PM RETURN 5652158578 — a thread comment's id and author association exist only when the gate selects them.
+  if (!query.includes('nodes{databaseId author{login} authorAssociation body')) {
+    for (const reviewThread of payload.data.repository.pullRequest.reviewThreads.nodes ?? []) {
+      for (const threadComment of reviewThread.comments?.nodes ?? []) {
+        delete threadComment.databaseId;
+        delete threadComment.authorAssociation;
+      }
+    }
+  }
   if (query.includes('headRepository{nameWithOwner}')) {
     payload.data.repository.pullRequest.headRefName = 'fix/1430-post-merge-codex-p1s';
     payload.data.repository.pullRequest.headRepository = { nameWithOwner: ${JSON.stringify(REPOSITORY)} };
@@ -161,6 +170,29 @@ const thread = (isResolved, body, sha = isResolved ? PRIOR_HEAD : HEAD, reviewSt
       author: { login: bot }, body, createdAt: '2026-09-10T20:00:00Z',
       commit: { oid: sha }, originalCommit: { oid: sha },
       pullRequestReview: { state: reviewState, commit: { oid: sha } },
+    }],
+    pageInfo: { hasPreviousPage: false },
+  },
+});
+
+/**
+ * #1432 PM RETURN `5652158578` — a resolved exact-head P1 inside a COMMENTED review (which GitHub cannot dismiss), with
+ * one machine-readable disposition on its own thread. `authorAssociation` is what GitHub reports for the replier.
+ */
+const DISPOSED_FINDING_ID = 4242;
+const disposedThread = (authorAssociation = 'OWNER') => ({
+  isResolved: true,
+  comments: {
+    nodes: [{
+      databaseId: DISPOSED_FINDING_ID, author: { login: bot }, authorAssociation: 'NONE', createdAt: '2026-09-10T20:00:00Z',
+      body: 'P1 Badge — reclassified P2 by the PM and transferred',
+      commit: { oid: HEAD }, originalCommit: { oid: HEAD }, pullRequestReview: { state: 'COMMENTED', commit: { oid: HEAD } },
+    }, {
+      databaseId: DISPOSED_FINDING_ID + 1, author: { login: 'relativityE' }, authorAssociation, createdAt: '2026-09-10T20:05:00Z',
+      body: `PM classification: P2.\n\n<!-- speaksharp-review-disposition:v1 ${JSON.stringify({
+        head: HEAD, findingCommentId: DISPOSED_FINDING_ID, classification: 'P2', transferTarget: '#1399',
+      })} -->`,
+      commit: { oid: HEAD }, originalCommit: { oid: HEAD }, pullRequestReview: { state: 'COMMENTED', commit: { oid: HEAD } },
     }],
     pageInfo: { hasPreviousPage: false },
   },
@@ -619,6 +651,20 @@ describe('#1430 P1 — the guarded merge CLI never invokes gh on a hold', () => 
     expect(run.stderr, 'an authorized dismissal clears the resolved finding').not.toContain('MERGE HELD');
     expect(mergeAttempted).toBe(true);
     expect(run.status).toBe(0);
+  });
+
+  it('CONTROL (#1432 PM RETURN `5652158578`): a resolved same-head P1 in a COMMENTED review, disposed of as P2 by the owner, DOES invoke gh', () => {
+    const { run, mergeAttempted } = runCli({ threads: [disposedThread('OWNER')], receiptPath: receipt(1) });
+    expect(run.stderr, 'the owner disposition makes the finding advisory at the merge boundary').not.toContain('MERGE HELD');
+    expect(mergeAttempted).toBe(true);
+    expect(run.status).toBe(0);
+  });
+
+  it('CASUALTY (#1432 PM RETURN `5652158578`): the same disposition from a non-owner never invokes gh', () => {
+    const { run, mergeAttempted } = runCli({ threads: [disposedThread('MEMBER')], receiptPath: receipt(1) });
+    expect(mergeAttempted, 'a non-owner cannot reclassify a same-head blocker').toBe(false);
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain('pre_merge_live_release_findings:1');
   });
 
   it('POSITIVE CONTROL: a Codex clean result with summary metadata and no review object DOES invoke gh', () => {
