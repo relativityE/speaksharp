@@ -20,7 +20,8 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
 const words = (value) => value.trim().split(/\s+/).filter(Boolean).length;
 const SESSION_BINDING_VERSION = 'speaksharp.model-comparison-session-binding.v1';
-const USER_DIGEST_VERSION = 'speaksharp.ai-suggestion-user.v1';
+// A version tag, not a hostname: a dotted `brand.tld` prefix trips the repository's zero-reference domain contract.
+const USER_DIGEST_VERSION = 'speaksharp-ai-suggestion-user-v1';
 
 export const modelComparisonSessionBindingSha256 = (comparisonNonce, persistedSessionId) => sha256(
   JSON.stringify([SESSION_BINDING_VERSION, comparisonNonce, persistedSessionId]),
