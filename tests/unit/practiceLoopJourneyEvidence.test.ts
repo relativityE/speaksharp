@@ -10,12 +10,8 @@
  * "green CI" ends up meaning nothing.
  */
 import { describe, expect, it } from 'vitest';
-import { generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import {
-    createModelComparisonAuthorization, modelComparisonPublicKey,
-} from '../../scripts/human-test/sign-model-comparison-authorization.mjs';
-import { verifyModelComparisonAuthorization } from '../../scripts/human-test/modelComparisonAuthorityVerifier.mjs';
+import { checkRunAuthority, mintRunAuthorization } from '../../scripts/human-test/modelComparisonRunAuthority.mjs';
 import {
     practiceLoopJourneyFailures,
     routeSurfaceFailures,
@@ -29,10 +25,8 @@ import {
     COMPARISON_TARGETS,
     MODEL_COMPARISON_AUTH_KEY,
     DIAGNOSTIC_JOURNEY,
-    SWITCH_EXPIRY_MARGIN_MS,
     diagnosticAuthorizationFor,
     diagnosticHoldMessage,
-    holdBeforeSwitch,
     PERSISTED_TUPLE_TO_CANDIDATE,
     type PracticeLoopJourneyEvidence,
 } from '../live/helpers/practiceLoopJourney';
@@ -691,80 +685,107 @@ describe('#1437 RETURN workstream 3 — persisted identity is trusted only once 
     });
 });
 
-describe('#1432 PM decision A — the diagnostic arms only through Node-verified signed authority', () => {
-    const opsKey = generateKeyPairSync('ed25519').privateKey;
-    const pinned = modelComparisonPublicKey(opsKey);
-    const SIGNED_AT = Date.parse('2026-09-13T12:00:00.000Z');
+describe('#1432 PM decisions 5651684739 / 5651830241 — the nonqualifying diagnostic arms only inside its own owner-dispatched rc-gates.yml attempt', () => {
+    const OWNER = 'relativityE';
+    const RUN_ID = 900001;
+    /** Dispatched against the exact candidate head: the executed revision IS the release. */
+    const WORKFLOW_SHA = RELEASE;
+    const WORKFLOW_REF = 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main';
+    const ISSUED_AT = Date.parse('2026-09-13T12:00:00.000Z');
     const ORIGIN = 'https://speaksharp-public.vercel.app';
-    const sign = (overrides: Record<string, unknown> = {}) => JSON.stringify(createModelComparisonAuthorization({
-        releaseSha: RELEASE, privateKey: opsKey, now: SIGNED_AT, ttlSeconds: 300, nonce: TAKE_NONCE,
-        candidateId: CANDIDATE, journey: DIAGNOSTIC_JOURNEY, evidenceDocumentId: EVIDENCE_DOCUMENT, ...overrides,
-    }));
-    const decide = (overrides: Partial<Parameters<typeof diagnosticAuthorizationFor>[0]> = {}) => diagnosticAuthorizationFor({
-        envelopeText: sign(), publicKeyText: pinned, expectedReleaseSha: RELEASE, expectedEvidenceDocumentId: EVIDENCE_DOCUMENT,
-        target: CANDIDATE, origin: ORIGIN, now: SIGNED_AT + 5_000, verify: verifyModelComparisonAuthorization, ...overrides,
+    const artifactFor = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+        ...mintRunAuthorization({
+            repository: 'relativityE/speaksharp', ref: 'refs/heads/main', workflowRef: WORKFLOW_REF,
+            workflowSha: WORKFLOW_SHA, sha: RELEASE, owner: OWNER, actor: OWNER, triggeringActor: OWNER, runId: RUN_ID, runAttempt: 1,
+            releaseSha: RELEASE, cell: `${CANDIDATE}/${DIAGNOSTIC_JOURNEY}`, evidenceDocumentId: EVIDENCE_DOCUMENT,
+            randomHex: 'ab'.repeat(12), now: ISSUED_AT,
+        }),
+        ...overrides,
+    });
+    /** GitHub's readback of the attempt executing the diagnostic: repository, that attempt and its jobs. */
+    const bundleFor = (artifact: Record<string, unknown>) => ({
+        artifact,
+        repo: { full_name: 'relativityE/speaksharp', default_branch: 'main', owner: { login: OWNER } },
+        jobs: [{ name: 'Gate 3 - DAST / Running App', status: 'in_progress', conclusion: null }] as Array<Record<string, unknown>>,
+        run: {
+            id: RUN_ID, run_attempt: 1, repository: { full_name: 'relativityE/speaksharp' },
+            path: '.github/workflows/rc-gates.yml', event: 'workflow_dispatch', head_branch: 'main',
+            head_sha: WORKFLOW_SHA, status: 'in_progress', conclusion: null,
+            actor: { login: OWNER }, triggering_actor: { login: OWNER },
+            run_started_at: new Date(ISSUED_AT - 10_000).toISOString(), updated_at: new Date(ISSUED_AT).toISOString(),
+        } as Record<string, unknown>,
+    });
+    type Input = Parameters<typeof diagnosticAuthorizationFor>[0];
+    const decide = (overrides: Partial<Input> = {}, artifact = artifactFor()) => diagnosticAuthorizationFor({
+        authorizationText: JSON.stringify(artifact), runId: String(RUN_ID), runAttempt: '1', bundle: bundleFor(artifact),
+        target: CANDIDATE, origin: ORIGIN, now: ISSUED_AT + 5_000, check: checkRunAuthority, ...overrides,
     });
     const refusal = (result: ReturnType<typeof diagnosticAuthorizationFor>) => {
         expect(result.ok).toBe(false);
         return result.ok ? { hold: null, text: '' } : { hold: result.hold, text: result.problems.join('\n') };
     };
 
-    it('CONTROL: a genuine envelope for this candidate, open_mic, release, origin and document is verified', () => {
-        const result = decide();
+    it('CONTROL: this owner-dispatched, owner-triggered, default-branch attempt, minted for this candidate and open_mic, arms the take', () => {
+        const artifact = artifactFor();
+        const result = decide({}, artifact);
         expect(result).toMatchObject({
             ok: true,
             authority: {
-                candidateId: CANDIDATE, journey: 'open_mic', releaseSha: RELEASE, origin: ORIGIN,
-                evidenceDocumentId: EVIDENCE_DOCUMENT, comparisonNonce: TAKE_NONCE,
-                expiresAt: SIGNED_AT + 300_000,
+                runId: RUN_ID, runAttempt: 1, actor: OWNER, candidateId: CANDIDATE, journey: 'open_mic', releaseSha: RELEASE,
+                origin: ORIGIN, evidenceDocumentId: EVIDENCE_DOCUMENT, comparisonNonce: artifact.nonce,
             },
         });
-        expect(result.ok && holdBeforeSwitch(result.authority, SIGNED_AT + 5_000)).toBeNull();
+        expect(result.ok && Object.keys(result.authority)).not.toContain('expiresAt');
+        expect(result.ok && result.authority.authorization).toEqual(artifact);
         expect(practiceLoopJourneyFailures(provenJourney)).toEqual([]);
     });
 
-    it('CASUALTY: with no authorization inputs it HOLDs with a named reason, never a candidate failure', () => {
-        for (const missing of ['envelopeText', 'publicKeyText', 'expectedReleaseSha', 'expectedEvidenceDocumentId'] as const) {
-            expect(refusal(decide({ [missing]: null })).hold).toBe('comparison_authorization_not_supplied');
-        }
+    it('CONTROL: a take delayed by queueing or model acquisition still arms — there is no wall-clock expiry', () => {
+        expect(decide({ now: ISSUED_AT + 45 * 60_000 }).ok).toBe(true);
+    });
+
+    it('CASUALTY: with no minted authorization or no run attempt it HOLDs with a named reason, never a candidate failure', () => {
+        expect(refusal(decide({ runId: null })).hold).toBe('comparison_authorization_not_supplied');
+        expect(refusal(decide({ runAttempt: null })).hold).toBe('comparison_authorization_not_supplied');
+        expect(refusal(decide({ authorizationText: null })).hold).toBe('comparison_authorization_not_supplied');
         const message = diagnosticHoldMessage('comparison_authorization_not_supplied', ['absent']);
         expect(message).toMatch(/^HOLD comparison_authorization_not_supplied: absent/);
         expect(message).toMatch(/not a candidate or product result/);
     });
 
-    it('CASUALTY: an unreadable envelope HOLDs before verification', () => {
-        expect(refusal(decide({ envelopeText: '{not json' })).hold).toBe('comparison_authorization_unreadable');
+    it('CASUALTY: an unreadable authorization HOLDs before any check', () => {
+        expect(refusal(decide({ authorizationText: '{not json' })).hold).toBe('comparison_authorization_unreadable');
     });
 
-    it('CASUALTY: an invalid signature is refused', () => {
-        const forged = JSON.parse(sign());
-        forged.signature = Buffer.alloc(64, 3).toString('base64');
-        const { hold, text } = refusal(decide({ envelopeText: JSON.stringify(forged) }));
-        expect(hold).toBe('comparison_authorization_refused');
-        expect(text).toMatch(/signature does not verify against the pinned key/);
+    it('CASUALTY: a run GitHub could not read back, or an authorization minted by another run or attempt, is refused', () => {
+        expect(refusal(decide({ bundle: null })).text).toMatch(/could not be read back from GitHub/);
+        expect(refusal(decide({ runId: String(RUN_ID + 1) })).text).toMatch(/not minted by the run attempt executing this diagnostic/);
+        expect(refusal(decide({ runAttempt: '2' })).text).toMatch(/not minted by the run attempt executing this diagnostic/);
     });
 
+    const withBundle = (mutate: (bundle: ReturnType<typeof bundleFor>) => void) => {
+        const artifact = artifactFor();
+        const bundle = bundleFor(artifact);
+        mutate(bundle);
+        return decide({ bundle }, artifact);
+    };
     it.each([
-        ['a missing or wrong journey', { envelopeText: sign({ journey: 'focus_points' }) }, /journey must be "open_mic"/],
-        ['a wrong release', { expectedReleaseSha: 'b'.repeat(40) }, /releaseSha must be/],
-        ['a wrong origin', { origin: 'https://preview.example.test' }, /origin must be/],
-        ['a wrong candidate', { target: 'v4:distil:q4' }, /candidateId must be "v4:distil:q4"/],
-        ['a wrong evidence document', { expectedEvidenceDocumentId: '33333333-3333-4333-8333-333333333333' }, /evidenceDocumentId must be/],
-        ['an expired authorization', { now: SIGNED_AT + 10 * 60_000 }, /expired before verification/],
-    ])('CASUALTY: %s is refused', (_label, overrides, message) => {
-        const { hold, text } = refusal(decide(overrides as Partial<Parameters<typeof diagnosticAuthorizationFor>[0]>));
+        ['a focus_points cell', () => decide({}, artifactFor({ journey: 'focus_points' })), /journey must be "open_mic"/],
+        ['another candidate', () => decide({ target: 'v4:distil:q4' }), /candidateId must be "v4:distil:q4"/],
+        ['another origin', () => decide({ origin: 'https://preview.example.test' }), /origin must be/],
+        ['a run that is not executing this take', () => withBundle((b) => { b.run.status = 'completed'; b.run.conclusion = 'success'; }), /not the run executing this take/],
+        ['a non-owner dispatcher', () => withBundle((b) => { b.repo.owner.login = 'someone-else'; }), /not dispatched by the repository owner/],
+        ['a rerun triggered by someone else', () => withBundle((b) => { b.run.triggering_actor = { login: 'intruder' }; }), /actor and triggering actor/],
+        ['another workflow', () => withBundle((b) => { b.run.path = '.github/workflows/ci.yml'; }), /not the authorization workflow/],
+        ['a run on another branch', () => withBundle((b) => { b.run.head_branch = 'feature'; }), /workflow ref does not match the ref its run executed/],
+        ['a definition from another ref', () => decide({}, artifactFor({ workflowRef: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/feature' })), /workflow ref does not match the ref its run executed/],
+        ['a release that is not the executed revision', () => decide({}, artifactFor({ releaseSha: 'e'.repeat(40) })), /release is not the revision its run executed/],
+        ['a run not executing the diagnostic job', () => withBundle((b) => { b.jobs = [{ name: 'Model Comparison Authorization', status: 'completed', conclusion: 'success' }]; }), /not executing the diagnostic job/],
+        ['a nonce not generated by the run', () => decide({}, artifactFor({ nonce: `run-1-1-${'f'.repeat(24)}` })), /nonce was not generated by its authorization run/],
+    ])('CASUALTY: %s is refused before any product step', (_label, run, message) => {
+        const { hold, text } = refusal(run());
         expect(hold).toBe('comparison_authorization_refused');
         expect(text).toMatch(message);
-    });
-
-    it('CASUALTY: a switch delayed past expiry (for example, after model preparation) HOLDs before switching', () => {
-        const result = decide();
-        if (!result.ok) throw new Error('fixture authorization was refused');
-        const { expiresAt } = result.authority;
-        expect(holdBeforeSwitch(result.authority, expiresAt - SWITCH_EXPIRY_MARGIN_MS - 1)).toBeNull();
-        expect(holdBeforeSwitch(result.authority, expiresAt - SWITCH_EXPIRY_MARGIN_MS)).toBe('comparison_authorization_expired_before_switch');
-        // The preparation bound alone (600 s) outlives a 300 s authorization: switching after it must hold.
-        expect(holdBeforeSwitch(result.authority, SIGNED_AT + 5_000 + 600_000)).toBe('comparison_authorization_expired_before_switch');
     });
 
     it('CASUALTY: a take whose telemetry carries a wrong, extra or missing nonce is not this take', () => {
@@ -780,14 +801,22 @@ describe('#1432 PM decision A — the diagnostic arms only through Node-verified
             .toContain('no Node-verified comparison authorization bound this take; the diagnostic must HOLD before switching');
     });
 
-    it('CASUALTY: the retired page-writable symbol cannot return, and the spec verifies before it arms and switches before preparation', async () => {
+    it('CASUALTY: no retired symbol, key, envelope or expiry; this attempt is read before navigation, verified before arming, switched before preparation', async () => {
         const helper = await import('../live/helpers/practiceLoopJourney');
         expect(Object.keys(helper)).not.toContain('MODEL_COMPARISON_CDP_ARM_KEY');
+        expect(Object.keys(helper)).not.toContain('holdBeforeSwitch');
+        expect(Object.keys(helper)).not.toContain('SWITCH_EXPIRY_MARGIN_MS');
         const spec = readFileSync('tests/live/practice-loop-journey.live.spec.ts', 'utf8');
         expect(spec).not.toContain('speaksharp.model-comparison.cdp');
         expect(spec).not.toMatch(/Symbol\.for\(key\)\]\s*=\s*true/);
-        expect(spec.indexOf('diagnosticAuthorizationFor(')).toBeGreaterThan(-1);
-        expect(spec.indexOf('diagnosticAuthorizationFor(')).toBeLessThan(spec.indexOf('{ key: MODEL_COMPARISON_AUTH_KEY, envelope: authority.envelope }'));
+        expect(spec).not.toMatch(/VERIFICATION_KEY|publicKey|signedAuthorization|holdBeforeSwitch/);
+        expect(spec).toContain('process.env.GITHUB_RUN_ID');
+        expect(spec).toContain('process.env.GITHUB_RUN_ATTEMPT');
+        const firstNavigation = spec.indexOf("await page.goto('");
+        expect(spec.indexOf('loadRunAuthority(')).toBeGreaterThan(-1);
+        expect(spec.indexOf('loadRunAuthority(')).toBeLessThan(firstNavigation);
+        expect(spec.indexOf('diagnosticAuthorizationFor(')).toBeLessThan(firstNavigation);
+        expect(spec.indexOf('diagnosticAuthorizationFor(')).toBeLessThan(spec.indexOf('{ key: MODEL_COMPARISON_AUTH_KEY, authorization: authority.authorization }'));
         expect(spec).toContain('__SS_SWITCH_CANDIDATE__!(id, journey)');
         expect(spec.indexOf('__SS_SWITCH_CANDIDATE__!(id, journey)')).toBeLessThan(spec.indexOf('await preparePrivateModelIfPrompted(page'));
     });

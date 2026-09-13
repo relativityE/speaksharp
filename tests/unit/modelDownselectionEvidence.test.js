@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,10 +9,7 @@ import {
   modelComparisonSessionBindingSha256,
   validateModelDownselectionEvidence,
 } from '../../scripts/human-test/modelDownselectionEvidence.mjs';
-import {
-  createModelComparisonAuthorization, modelComparisonPublicKey,
-} from '../../scripts/human-test/sign-model-comparison-authorization.mjs';
-import { verifyModelComparisonAuthorization } from '../../scripts/human-test/modelComparisonAuthorityVerifier.mjs';
+import { mintRunAuthorization } from '../../scripts/human-test/modelComparisonRunAuthority.mjs';
 
 const RELEASE = 'a'.repeat(40);
 const HASH = (character) => character.repeat(64);
@@ -22,22 +19,42 @@ const ARTIFACT_DIR = mkdtempSync(join(tmpdir(), 'speaksharp-model-evidence-'));
 const LIVE_APPROVALS = new Map();
 const LIVE_TELEMETRY = new Map();
 let LIVE_GEMINI = [];
-// The Ops signing key exists only in the test; the validator receives only its pinned PUBLIC key.
-const OPS_KEY = generateKeyPairSync('ed25519').privateKey;
-const PINNED_PUBLIC_KEY = modelComparisonPublicKey(OPS_KEY);
-const SIGNED_AT = Date.parse('2026-09-07T11:59:30.000Z');
-/** What the trusted observer writes after verifying one take's envelope in Node. */
-const observerAuthorization = ({ candidateId, journey, comparisonNonce, releaseSha = RELEASE, privateKey = OPS_KEY }) => {
-  const envelope = createModelComparisonAuthorization({
-    releaseSha, privateKey, now: SIGNED_AT, ttlSeconds: 120, nonce: comparisonNonce, candidateId, journey,
-    evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
+// #1432 PM decisions 5651830241 / 5651842972 — each take's authority is one owner-dispatched rc-gates.yml
+// comparison-authorization attempt at the exact release. LIVE_RUNS is what GitHub returns for that attempt
+// (repository, the attempt, its jobs, its artifact); the validator re-reads it.
+const OWNER = 'relativityE';
+const ISSUED_AT = Date.parse('2026-09-07T11:59:30.000Z');
+const LIVE_RUNS = new Map();
+const runIdFor = (ordinal) => 700000 + ordinal;
+const nonceFor = (ordinal) => `run-${runIdFor(ordinal)}-1-${String(ordinal).padStart(24, '0')}`;
+/** What the trusted observer records after verifying one take's run against GitHub; registers that readback. */
+const observerAuthorization = ({ candidateId, journey, ordinal, releaseSha = RELEASE, runId = runIdFor(ordinal), runAttempt = 1 }) => {
+  const ref = 'refs/heads/evidence/production-model-downselection';
+  const artifact = mintRunAuthorization({
+    repository: 'relativityE/speaksharp', ref, workflowRef: `relativityE/speaksharp/.github/workflows/rc-gates.yml@${ref}`,
+    workflowSha: releaseSha, sha: releaseSha, owner: OWNER, actor: OWNER, triggeringActor: OWNER, runId, runAttempt,
+    releaseSha, cell: `${candidateId}/${journey}`, evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
+    randomHex: String(ordinal).padStart(24, '0'), now: ISSUED_AT,
   });
-  const verified = verifyModelComparisonAuthorization({
-    envelope, publicKey: modelComparisonPublicKey(privateKey), now: SIGNED_AT + 5_000,
+  LIVE_RUNS.set(`${artifact.runId}/${runAttempt}`, {
+    artifact: structuredClone(artifact),
+    repo: { full_name: 'relativityE/speaksharp', default_branch: 'main', owner: { login: OWNER } },
+    run: {
+      id: artifact.runId, run_attempt: runAttempt, repository: { full_name: 'relativityE/speaksharp' },
+      path: '.github/workflows/rc-gates.yml', event: 'workflow_dispatch', head_branch: 'evidence/production-model-downselection',
+      head_sha: releaseSha, status: 'completed', conclusion: 'success',
+      actor: { login: OWNER }, triggering_actor: { login: OWNER },
+      run_started_at: new Date(ISSUED_AT - 10_000).toISOString(), updated_at: new Date(ISSUED_AT + 20_000).toISOString(),
+    },
+    jobs: [
+      { name: 'Gate 3 - DAST / Running App', status: 'completed', conclusion: 'skipped' },
+      { name: 'Model Comparison Authorization', status: 'completed', conclusion: 'success' },
+    ],
   });
-  if (!verified.ok) throw new Error(`fixture authorization did not verify: ${verified.problems.join('; ')}`);
-  return verified.record;
+  return { ...artifact, verifiedAt: new Date(ISSUED_AT + 5_000).toISOString() };
 };
+const runAuthorityResolver = (runId, runAttempt) => structuredClone(LIVE_RUNS.get(`${runId}/${runAttempt}`) ?? null);
+
 afterAll(() => rmSync(ARTIFACT_DIR, { recursive: true, force: true }));
 
 const writeArtifact = (name, value) => {
@@ -71,7 +88,7 @@ function validEvidence() {
       const attemptId = `attempt-${ordinal}`;
       const attemptSeq = ordinal <= 2 ? ordinal : 1;
       const persistedSessionId = `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`;
-      const comparisonNonce = `comparison-nonce-${String(ordinal).padStart(8, '0')}`;
+      const comparisonNonce = nonceFor(ordinal);
       const receipt = writeArtifact(`receipt-${suffix}-${ordinal}.json`, {
         verdict: 'PASS', holdKind: null, dryRun: false,
         target: { origin: PRODUCTION_ORIGIN }, release: RELEASE,
@@ -79,7 +96,7 @@ function validEvidence() {
         observedJourney: journey, comparisonNonce,
         evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
         persistedSessionId, capturedAt: ISO,
-        authorization: observerAuthorization({ candidateId, journey, comparisonNonce }),
+        authorization: observerAuthorization({ candidateId, journey, ordinal }),
         sessionBindingSha256: modelComparisonSessionBindingSha256(comparisonNonce, persistedSessionId),
       });
       candidateEvidence.push({
@@ -192,7 +209,7 @@ const rewriteReceipt = (value, rowIndex, name, mutate) => {
 const holdProblems = (value) => {
   const result = validateModelDownselectionEvidence(value, {
     baseDir: ARTIFACT_DIR,
-    verificationPublicKey: PINNED_PUBLIC_KEY,
+    runAuthorityResolver,
     approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
     telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
     geminiResolver: () => structuredClone(LIVE_GEMINI),
@@ -205,7 +222,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
   it('accepts a complete synthetic contract fixture without selecting a model in production', () => {
     expect(validateModelDownselectionEvidence(validEvidence(), {
       baseDir: ARTIFACT_DIR,
-      verificationPublicKey: PINNED_PUBLIC_KEY,
+      runAuthorityResolver,
       approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
       telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
       geminiResolver: () => structuredClone(LIVE_GEMINI),
@@ -401,7 +418,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     const evidence = validEvidence();
     const result = validateModelDownselectionEvidence(evidence, {
       baseDir: ARTIFACT_DIR,
-      verificationPublicKey: PINNED_PUBLIC_KEY,
+      runAuthorityResolver,
       approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
     });
     expect(result.verdict).toBe('HOLD');
@@ -431,7 +448,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     const noLiveAuthority = validEvidence();
     const result = validateModelDownselectionEvidence(noLiveAuthority, {
       baseDir: ARTIFACT_DIR,
-      verificationPublicKey: PINNED_PUBLIC_KEY,
+      runAuthorityResolver,
       approvalResolver: () => null,
       telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
       geminiResolver: () => structuredClone(LIVE_GEMINI),
@@ -455,7 +472,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       expect(evidence.candidateEvidence[0].attemptId).not.toBe(evidence.candidateEvidence[1].attemptId);
       expect(validateModelDownselectionEvidence(evidence, {
         baseDir: ARTIFACT_DIR,
-        verificationPublicKey: PINNED_PUBLIC_KEY,
+        runAuthorityResolver,
         approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
         telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
         geminiResolver: () => structuredClone(LIVE_GEMINI),
@@ -464,7 +481,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
 
     it('CASUALTY: a sibling take in the same native journey cannot lend its save to another take', () => {
       const evidence = validEvidence();
-      eventByUuid(evidence, 'session_saved-2').comparisonNonce = 'comparison-nonce-00000001';
+      eventByUuid(evidence, 'session_saved-2').comparisonNonce = nonceFor(1);
       const problems = holdProblems(authorize(evidence));
       expect(problems).toMatch(/candidateEvidence\[0\] must link exactly one decoded session_saved/);
       expect(problems).toMatch(/candidateEvidence\[1\] must link exactly one decoded session_saved/);
@@ -489,7 +506,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
 
     it('CASUALTY: a take nonce cannot shadow the document positive control', () => {
       const shadowed = validEvidence();
-      eventByUuid(shadowed, 'event-positive-control').comparisonNonce = 'comparison-nonce-00000001';
+      eventByUuid(shadowed, 'event-positive-control').comparisonNonce = nonceFor(1);
       expect(holdProblems(authorize(shadowed))).toMatch(/positive control must not carry a take comparisonNonce/);
 
       const impostor = validEvidence();
@@ -520,7 +537,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       expect(holdProblems(authorize(missing))).toMatch(/candidateEvidence\[2\] must link decoded quick journey telemetry/);
 
       const contradictory = validEvidence();
-      eventByUuid(contradictory, 'mode-4').comparisonNonce = 'comparison-nonce-00000003';
+      eventByUuid(contradictory, 'mode-4').comparisonNonce = nonceFor(3);
       expect(holdProblems(authorize(contradictory))).toMatch(/candidateEvidence\[2\] has contradictory decoded journey telemetry/);
 
       const crossModel = validEvidence();
@@ -548,105 +565,116 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       const receipt = JSON.parse(readFileSync(join(ARTIFACT_DIR, evidence.candidateEvidence[0].receiptArtifact), 'utf8'));
       expect(receipt).not.toHaveProperty('journeyId');
       expect(receipt).not.toHaveProperty('attemptId');
-      receipt.comparisonNonce = 'comparison-nonce-00000002';
+      receipt.comparisonNonce = nonceFor(2);
       const rewritten = writeArtifact('receipt-wrong-nonce.json', receipt);
       evidence.candidateEvidence[0].receiptArtifact = rewritten.path;
       evidence.candidateEvidence[0].receiptSha256 = rewritten.digest;
-      expect(holdProblems(evidence)).toMatch(/receipt\.comparisonNonce must be "comparison-nonce-00000001"/);
+      expect(holdProblems(evidence)).toMatch(new RegExp(`receipt\\.comparisonNonce must be "${nonceFor(1)}"`));
     });
   });
 
-  describe('#1432 PM decision E — activation authority is verified outside the page', () => {
-    it('CASUALTY: a page that replaced SubtleCrypto.prototype.verify can arm itself, but its forged envelope cannot qualify', async () => {
-      // Page realm: replacing verify makes ANY signature "valid" to page code. That is exactly why the
-      // browser check carries no authority.
-      const subtle = globalThis.crypto.subtle;
-      const original = Object.getPrototypeOf(subtle).verify;
-      Object.getPrototypeOf(subtle).verify = async () => true;
-      try {
-        expect(await subtle.verify({ name: 'Ed25519' }, null, new Uint8Array(64), new Uint8Array(1))).toBe(true);
-      } finally {
-        Object.getPrototypeOf(subtle).verify = original;
-      }
-      // Trusted Node verification is unaffected by the page, and so is the validator.
-      const forgedRecord = observerAuthorization({ candidateId: 'v2:base.en', journey: 'open_mic', comparisonNonce: 'comparison-nonce-00000001' });
-      forgedRecord.envelope.signature = Buffer.alloc(64, 7).toString('base64');
-      forgedRecord.envelopeSha256 = createHash('sha256').update(Buffer.concat([
-        Buffer.from(JSON.stringify(forgedRecord.envelope.payload)), Buffer.from('\n'), Buffer.from(forgedRecord.envelope.signature),
-      ])).digest('hex');
-      const evidence = rewriteReceipt(validEvidence(), 0, 'forged-signature', (receipt) => { receipt.authorization = forgedRecord; });
-      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[0\]\.receipt authorization signature does not verify against the pinned key/);
+  describe('#1432 PM decisions 5651830241 / 5651842972 — each take is authorized by one rc-gates.yml attempt, re-read here', () => {
+    const withoutRunResolver = () => ({
+      baseDir: ARTIFACT_DIR,
+      approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
+      telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
+      geminiResolver: () => structuredClone(LIVE_GEMINI),
+    });
+    const runKeyOf = (evidence, rowIndex) => {
+      const receipt = JSON.parse(readFileSync(join(ARTIFACT_DIR, evidence.candidateEvidence[rowIndex].receiptArtifact), 'utf8'));
+      return `${receipt.authorization.runId}/${receipt.authorization.runAttempt}`;
+    };
+    /** Change what GitHub reports for one row's authorization run. */
+    const withRun = (evidence, rowIndex, mutate) => {
+      const key = runKeyOf(evidence, rowIndex);
+      const bundle = LIVE_RUNS.get(key);
+      mutate(bundle);
+      LIVE_RUNS.set(key, bundle);
+      return evidence;
+    };
+
+    it('CASUALTY: a direct executor invocation or page claim leaves no GitHub run record and cannot pass', () => {
+      const evidence = rewriteReceipt(validEvidence(), 1, 'no-run-record', (receipt) => { delete receipt.authorization; });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[1\]\.receipt observer receipt has no GitHub run authorization record/);
     });
 
-    it('CASUALTY: direct executor invocation leaves no observer authorization record and cannot pass', () => {
-      const evidence = rewriteReceipt(validEvidence(), 1, 'no-authorization', (receipt) => { delete receipt.authorization; });
-      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[1\]\.receipt observer receipt has no authorization record/);
+    it('CASUALTY: the validator holds without a GitHub run authority resolver', () => {
+      const result = validateModelDownselectionEvidence(validEvidence(), withoutRunResolver());
+      expect(result.verdict).toBe('HOLD');
+      expect(result.problems.join('\n')).toMatch(/authorization has no GitHub run authority resolver/);
     });
 
-    it('CASUALTY: an envelope signed by any key other than the pinned key fails', () => {
-      const rogue = generateKeyPairSync('ed25519').privateKey;
-      const evidence = rewriteReceipt(validEvidence(), 2, 'rogue-key', (receipt) => {
-        receipt.authorization = observerAuthorization({
-          candidateId: 'v4:distil:q4', journey: 'open_mic', comparisonNonce: 'comparison-nonce-00000003', privateKey: rogue,
-        });
-      });
-      const problems = holdProblems(evidence);
-      expect(problems).toMatch(/candidateEvidence\[2\]\.receipt authorization verificationKeyFingerprint is not the pinned key/);
-      expect(problems).toMatch(/candidateEvidence\[2\]\.receipt authorization signature does not verify/);
+    it('CASUALTY: a run GitHub cannot read back fails', () => {
+      const evidence = validEvidence();
+      LIVE_RUNS.delete(runKeyOf(evidence, 0));
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[0\]\.receipt authorization run \d+ could not be read back from GitHub/);
     });
 
-    it('CASUALTY: one signed authorization cannot stand behind two rows', () => {
+    it.each([
+      ['a failed run', (bundle) => { bundle.run.conclusion = 'failure'; }, /did not complete successfully/],
+      ['another workflow', (bundle) => { bundle.run.path = '.github/workflows/ci.yml'; }, /is not the authorization workflow/],
+      ['a run on another branch than its workflow ref', (bundle) => { bundle.run.head_branch = 'feature'; }, /workflow ref does not match the ref its run executed/],
+      ['a different workflow revision', (bundle) => { bundle.run.head_sha = 'd'.repeat(40); }, /workflow revision does not match its run/],
+      ['a dispatcher who is not the repository owner', (bundle) => { bundle.repo.owner.login = 'someone-else'; }, /not dispatched by the repository owner/],
+      ['a different triggering actor', (bundle) => { bundle.run.triggering_actor.login = 'intruder'; }, /actor does not match the run's actor and triggering actor/],
+      ['a push-triggered run', (bundle) => { bundle.run.event = 'push'; }, /was not a manual dispatch/],
+      ['a #1437 diagnostic run (its Gate 3 job executed and was rejected)', (bundle) => { bundle.run.conclusion = 'failure'; bundle.jobs[0].conclusion = 'failure'; }, /executed jobs other than comparison authorization/],
+      ['a failed authorization job', (bundle) => { bundle.jobs[1].conclusion = 'failure'; }, /no single successful comparison-authorization job/],
+      ['another repository', (bundle) => { bundle.repo.full_name = 'someone/fork'; }, /repository is not the comparison repository/],
+    ])('CASUALTY: %s is not authority', (_label, mutate, message) => {
+      const problems = holdProblems(withRun(validEvidence(), 2, mutate));
+      expect(problems).toMatch(/candidateEvidence\[2\]\.receipt authorization/);
+      expect(problems).toMatch(message);
+    });
+
+    it('CASUALTY: a receipt record rewritten locally no longer matches its run artifact', () => {
+      const evidence = rewriteReceipt(validEvidence(), 3, 'forged-record', (receipt) => { receipt.authorization.candidateId = 'moonshine:streaming-medium'; });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[3\]\.receipt authorization candidateId does not match its run artifact/);
+    });
+
+    it('CASUALTY: only a nonce generated by its authorization run qualifies', () => {
+      const evidence = rewriteReceipt(validEvidence(), 0, 'foreign-nonce', (receipt) => { receipt.authorization.nonce = `run-999-1-${'f'.repeat(24)}`; });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[0\]\.receipt authorization nonce was not generated by its authorization run/);
+    });
+
+    it('CASUALTY: one authorization run cannot stand behind two rows (replay)', () => {
       const evidence = validEvidence();
       const first = JSON.parse(readFileSync(join(ARTIFACT_DIR, evidence.candidateEvidence[0].receiptArtifact), 'utf8'));
-      rewriteReceipt(evidence, 1, 'reused-envelope', (receipt) => { receipt.authorization = first.authorization; });
+      rewriteReceipt(evidence, 1, 'reused-run', (receipt) => { receipt.authorization = first.authorization; });
       const problems = holdProblems(evidence);
-      expect(problems).toMatch(/candidateEvidence\[1\] reuses authorization envelope/);
-      expect(problems).toMatch(/candidateEvidence\[1\]\.receipt authorization nonce must be "comparison-nonce-00000002"/);
+      expect(problems).toMatch(/candidateEvidence\[1\] reuses authorization run/);
+      expect(problems).toMatch(/candidateEvidence\[1\]\.receipt\.authorization\.nonce must be/);
     });
 
-    it('CASUALTY: mismatched candidate, journey, release, document, or a verified block that disagrees with the envelope fails', () => {
-      const crossModel = rewriteReceipt(validEvidence(), 0, 'cross-model-auth', (receipt) => {
-        receipt.authorization = observerAuthorization({ candidateId: 'moonshine:streaming-medium', journey: 'open_mic', comparisonNonce: 'comparison-nonce-00000001' });
-      });
+    it('CASUALTY: cross-candidate, cross-release and cross-document runs fail', () => {
+      const crossModel = withRun(validEvidence(), 0, (bundle) => { bundle.artifact.candidateId = 'moonshine:streaming-medium'; });
       expect(holdProblems(crossModel)).toMatch(/candidateEvidence\[0\]\.receipt authorization candidateId must be "v2:base\.en"/);
-
-      const crossRelease = rewriteReceipt(validEvidence(), 0, 'cross-release-auth', (receipt) => {
-        receipt.authorization = observerAuthorization({ candidateId: 'v2:base.en', journey: 'open_mic', comparisonNonce: 'comparison-nonce-00000001', releaseSha: 'b'.repeat(40) });
-      });
+      const crossRelease = withRun(validEvidence(), 0, (bundle) => { bundle.artifact.releaseSha = 'b'.repeat(40); });
       expect(holdProblems(crossRelease)).toMatch(/candidateEvidence\[0\]\.receipt authorization releaseSha must be/);
-
-      const claimed = rewriteReceipt(validEvidence(), 0, 'claimed-verified', (receipt) => {
-        receipt.authorization.verified.candidateId = 'moonshine:streaming-medium';
-      });
-      expect(holdProblems(claimed)).toMatch(/candidateEvidence\[0\]\.receipt authorization verified block does not match/);
-
-      const tampered = rewriteReceipt(validEvidence(), 0, 'tampered-digest', (receipt) => {
-        receipt.authorization.envelopeSha256 = HASH('0');
-      });
-      expect(holdProblems(tampered)).toMatch(/authorization envelopeSha256 does not match the recorded envelope/);
+      const crossDocument = withRun(validEvidence(), 0, (bundle) => { bundle.artifact.evidenceDocumentId = '33333333-3333-4333-8333-333333333333'; });
+      expect(holdProblems(crossDocument)).toMatch(/candidateEvidence\[0\]\.receipt authorization evidenceDocumentId must be/);
     });
 
-    it('CASUALTY: an authorization verified after it expired fails', () => {
-      const evidence = rewriteReceipt(validEvidence(), 3, 'expired-auth', (receipt) => {
-        receipt.authorization.verifiedAt = new Date(SIGNED_AT + 10 * 60_000).toISOString();
+    it('CASUALTY: an authorization the observer relied on before its run completed fails', () => {
+      const evidence = withRun(validEvidence(), 3, (bundle) => { bundle.run.updated_at = new Date(ISSUED_AT + 10 * 60_000).toISOString(); });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[3\]\.receipt authorization was relied on before its run completed/);
+    });
+
+    it('CASUALTY: a rerun attempt of one authorization run cannot authorize a second row (cross-attempt)', () => {
+      const evidence = validEvidence();
+      const first = JSON.parse(readFileSync(join(ARTIFACT_DIR, evidence.candidateEvidence[0].receiptArtifact), 'utf8'));
+      const row = evidence.candidateEvidence[1];
+      rewriteReceipt(evidence, 1, 'rerun-attempt', (receipt) => {
+        receipt.authorization = observerAuthorization({
+          candidateId: row.candidateId, journey: row.journey, ordinal: 91, runId: first.authorization.runId, runAttempt: 2,
+        });
       });
-      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[3\]\.receipt authorization expired before verification/);
+      expect(holdProblems(evidence)).toMatch(new RegExp(`candidateEvidence\\[1\\] reuses authorization run ${first.authorization.runId}`));
     });
 
     it('CASUALTY: the observer session binding must match the packet row', () => {
       const evidence = rewriteReceipt(validEvidence(), 4, 'wrong-binding', (receipt) => { receipt.sessionBindingSha256 = HASH('e'); });
       expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\]\.receipt\.sessionBindingSha256 must be/);
-    });
-
-    it('CASUALTY: the validator holds when no pinned verification key is supplied', () => {
-      const result = validateModelDownselectionEvidence(validEvidence(), {
-        baseDir: ARTIFACT_DIR,
-        approvalResolver: (url) => structuredClone(LIVE_APPROVALS.get(url) ?? null),
-        telemetryResolver: (queryId) => structuredClone(LIVE_TELEMETRY.get(queryId) ?? null),
-        geminiResolver: () => structuredClone(LIVE_GEMINI),
-      });
-      expect(result.verdict).toBe('HOLD');
-      expect(result.problems.join('\n')).toMatch(/no pinned verification key was supplied to the validator/);
     });
   });
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { validateModelDownselectionEvidence } from './modelDownselectionEvidence.mjs';
+import { ghCliGetter, ghRunArtifactFetcher, loadRunAuthority } from './modelComparisonRunAuthority.mjs';
 
 const arg = (name) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -11,17 +12,9 @@ const arg = (name) => {
 const input = process.argv[2];
 const telemetryAuthorityPath = arg('telemetry-authority');
 const geminiAuthorityPath = arg('gemini-authority');
-const verificationKeyPath = arg('verification-key');
-if (!input || !telemetryAuthorityPath || !geminiAuthorityPath || !verificationKeyPath) {
-  console.error('usage: node scripts/human-test/validate-model-downselection.mjs <evidence.json> --telemetry-authority <trusted-posthog.json> --gemini-authority <trusted-gemini.json> --verification-key <raw-base64-public-key.txt>');
+if (!input || !telemetryAuthorityPath || !geminiAuthorityPath) {
+  console.error('usage: node scripts/human-test/validate-model-downselection.mjs <evidence.json> --telemetry-authority <trusted-posthog.json> --gemini-authority <trusted-gemini.json>');
   process.exit(2);
-}
-let verificationPublicKey;
-try {
-  verificationPublicKey = (await readFile(resolve(verificationKeyPath), 'utf8')).trim();
-} catch (error) {
-  console.error(`HOLD: pinned verification key could not be read (${error instanceof Error ? error.name : 'unknown_error'})`);
-  process.exit(1);
 }
 
 let evidence;
@@ -33,6 +26,30 @@ try {
 }
 
 const evidencePath = resolve(input);
+// #1432 Product Owner decision 5651663038 — every row's authority is a GitHub authorization run. Read each receipt's
+// run back from GitHub now, so the validator re-checks it against GitHub rather than against what a receipt claims.
+const runAuthorities = new Map();
+try {
+  const gh = process.env.GH_BIN || 'gh';
+  const githubGet = ghCliGetter(execFileSync, gh);
+  const fetchRunArtifact = ghRunArtifactFetcher(execFileSync, gh);
+  const baseDir = dirname(evidencePath);
+  for (const row of Array.isArray(evidence?.candidateEvidence) ? evidence.candidateEvidence : []) {
+    if (typeof row?.receiptArtifact !== 'string') continue;
+    const receiptPath = resolve(baseDir, row.receiptArtifact);
+    if (relative(baseDir, receiptPath).startsWith('..')) continue;
+    let receipt;
+    try { receipt = JSON.parse(await readFile(receiptPath, 'utf8')); } catch { continue; }
+    const runId = receipt?.authorization?.runId;
+    const runAttempt = receipt?.authorization?.runAttempt;
+    const key = `${runId}/${runAttempt}`;
+    if (!Number.isInteger(runId) || !Number.isInteger(runAttempt) || runAuthorities.has(key)) continue;
+    runAuthorities.set(key, await loadRunAuthority({ runId, runAttempt, githubGet, fetchRunArtifact }));
+  }
+} catch (error) {
+  console.error(`HOLD: an authorization run could not be read from GitHub (${error instanceof Error ? error.name : 'unknown_error'})`);
+  process.exit(1);
+}
 const telemetryAuthorityFile = resolve(telemetryAuthorityPath);
 const geminiAuthorityFile = resolve(geminiAuthorityPath);
 let telemetryAuthority;
@@ -64,7 +81,7 @@ const approvalResolver = (htmlUrl) => {
 };
 const result = validateModelDownselectionEvidence(evidence, {
   baseDir: dirname(evidencePath),
-  verificationPublicKey,
+  runAuthorityResolver: (runId, runAttempt) => runAuthorities.get(`${runId}/${runAttempt}`) ?? null,
   approvalResolver,
   telemetryResolver: (queryId) => telemetryAuthority?.schemaVersion === 'speaksharp.posthog-readback-authority.v1'
     && telemetryAuthority?.releaseSha === evidence?.environment?.releaseSha

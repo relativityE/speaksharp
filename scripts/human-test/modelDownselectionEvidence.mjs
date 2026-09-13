@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute } from 'node:path';
-import { validateAuthorizationRecord } from './modelComparisonAuthorityVerifier.mjs';
+import { RECORD_KEYS, authorizationShapeProblems, checkRunAuthority } from './modelComparisonRunAuthority.mjs';
 
 export const MODEL_DOWNSELECTION_SCHEMA_VERSION = 'speaksharp.model-downselection.v1';
 export const PRODUCTION_ORIGIN = 'https://speaksharp-public.vercel.app';
@@ -131,7 +131,7 @@ function validateGeminiContract(contract, problems) {
   for (const key of keys) expectEqual(contract[key], LOCKED_GEMINI_CONTRACT[key], `geminiContract.${key}`, problems);
 }
 
-function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, verificationPublicKey, path, problems) {
+function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, runAuthorityResolver, path, problems) {
   if (!isObject(receipt)) {
     problems.push(`${path}.receiptArtifact must contain a JSON object`);
     return;
@@ -157,10 +157,32 @@ function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, verificat
     `${path}.receipt.sessionBindingSha256`,
     problems,
   );
-  // #1432 PM decision E — activation authority was verified by the trusted observer, and is re-verified
-  // here against the pinned key. A page-side "verified", or a receipt without this record, is not evidence.
-  for (const problem of validateAuthorizationRecord(receipt.authorization, {
-    publicKey: verificationPublicKey, row, releaseSha, origin: PRODUCTION_ORIGIN, evidenceDocumentId,
+  // #1432 Product Owner decision 5651663038 — the take's authority is one GitHub authorization run. The trusted
+  // observer verified it before arming; it is RE-READ from GitHub here. A page-side claim, a receipt without the
+  // run record, or a run GitHub does not confirm is not evidence.
+  const record = receipt.authorization;
+  if (!isObject(record)) {
+    problems.push(`${path}.receipt observer receipt has no GitHub run authorization record`);
+    return;
+  }
+  const shape = authorizationShapeProblems(record, RECORD_KEYS);
+  for (const problem of shape) problems.push(`${path}.receipt ${problem}`);
+  if (shape.length > 0) return;
+  expectEqual(record.nonce, row.comparisonNonce, `${path}.receipt.authorization.nonce`, problems);
+  let bundle = null;
+  if (typeof runAuthorityResolver !== 'function') {
+    problems.push(`${path}.receipt authorization has no GitHub run authority resolver`);
+  } else {
+    try { bundle = runAuthorityResolver(record.runId, record.runAttempt); } catch { bundle = null; }
+  }
+  if (!isObject(bundle)) {
+    problems.push(`${path}.receipt authorization run ${record.runId} could not be read back from GitHub`);
+    return;
+  }
+  for (const problem of checkRunAuthority({
+    record, ...bundle,
+    expected: { candidateId: row.candidateId, journey: row.journey, releaseSha, origin: PRODUCTION_ORIGIN, evidenceDocumentId },
+    at: Date.parse(record.verifiedAt),
   })) problems.push(`${path}.receipt ${problem}`);
 }
 
@@ -268,7 +290,7 @@ function validateTelemetryReadback(readback, releaseSha, evidenceDocumentId, tel
   return readback.events;
 }
 
-function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId, baseDir, verificationPublicKey, problems) {
+function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId, baseDir, runAuthorityResolver, problems) {
   if (!Array.isArray(rows)) {
     problems.push('candidateEvidence must be an array');
     return new Set();
@@ -280,7 +302,7 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
   const receiptDigests = new Set();
   const exactKeysSeen = new Set();
   const comparisonNonces = new Set();
-  const envelopeDigests = new Set();
+  const authorizationRuns = new Set();
 
   for (const [index, row] of rows.entries()) {
     const path = `candidateEvidence[${index}]`;
@@ -319,12 +341,14 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
     }
     const receipt = loadVerifiedJson(row.receiptArtifact, receiptDigest, baseDir, `${path}.receiptArtifact`, problems);
     if (receipt) {
-      validateReceipt(receipt, row, releaseSha, evidenceDocumentId, verificationPublicKey, path, problems);
-      // One-use across the canonical packet: a signed authorization cannot stand behind two rows.
-      const envelopeDigest = receipt.authorization?.envelopeSha256;
-      if (typeof envelopeDigest === 'string') {
-        if (envelopeDigests.has(envelopeDigest)) problems.push(`${path} reuses authorization envelope ${envelopeDigest}`);
-        envelopeDigests.add(envelopeDigest);
+      validateReceipt(receipt, row, releaseSha, evidenceDocumentId, runAuthorityResolver, path, problems);
+      // One authorization run stands behind exactly one row of the canonical packet — across attempts too: a rerun
+      // repeats its run's cell, so a second attempt can never authorize a second row (PM 5651684739).
+      const auth = receipt.authorization;
+      if (isObject(auth) && Number.isInteger(auth.runId)) {
+        const runKey = String(auth.runId);
+        if (authorizationRuns.has(runKey)) problems.push(`${path} reuses authorization run ${runKey}`);
+        authorizationRuns.add(runKey);
       }
     }
     const exactKey = exactTakeKey(row);
@@ -622,7 +646,7 @@ export function validateModelDownselectionEvidence(value, options = {}) {
   );
   const requiredTakeKeys = validateCandidateEvidence(
     value.candidateEvidence, events, releaseSha, value.evidenceDocumentId, baseDir,
-    options.verificationPublicKey, problems,
+    options.runAuthorityResolver, problems,
   );
   validateGeminiEvidence(value.geminiEvidence, requiredTakeKeys, options.geminiResolver, problems);
   validateSelection(

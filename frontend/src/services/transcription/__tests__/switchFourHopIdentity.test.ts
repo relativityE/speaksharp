@@ -19,7 +19,7 @@ import { installRuntimeCandidateSwitch } from '../installRuntimeSwitch';
 import {
     clearRuntimeCandidateOverride, registerSwitchExecutor,
 } from '../runtimeCandidateSwitch';
-import { placeSignedAuthorization, resetAuthorization } from './modelComparisonAuthorization.helper';
+import { placeAuthorization, resetAuthorization } from './modelComparisonAuthorization.helper';
 import { clearResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { sttRegistry } from '../STTRegistry';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
@@ -104,7 +104,7 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
     it('CASUALTY: every hop reaches READY with requested === observed', async () => {
         const seen: Array<{ requested: string; observed: string | null; matches: boolean }> = [];
         for (const id of SEQUENCE) {
-            placeSignedAuthorization({ candidateId: id, nonce: `nonce-${id}-${Date.now()}` });
+            placeAuthorization({ candidateId: id, nonce: `nonce-${id}-${Date.now()}` });
             expect(await installRuntimeCandidateSwitch()).toBe(true);
             const outcome = await active().__SS_SWITCH_CANDIDATE__(id, 'open_mic');
             expect(outcome.ok, `hop to ${id} failed: ${outcome.code}`).toBe(true);
@@ -123,7 +123,7 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
         // The dangerous residue: `resolvedEngine()` used to survive a failed switch, so the app kept
         // reporting the PREVIOUS model as the running one. An observed identity that outlives its engine
         // reads as evidence, which is worse than reporting nothing.
-        placeSignedAuthorization({ candidateId: 'v4:distil:q4' });
+        placeAuthorization({ candidateId: 'v4:distil:q4' });
         expect(await installRuntimeCandidateSwitch()).toBe(true);
         await active().__SS_SWITCH_CANDIDATE__('v4:distil:q4', 'open_mic');
         expect(active().__SS_ACTIVE_CANDIDATE__().observed).toBe('v4:distil:q4');
@@ -131,7 +131,7 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
         (speechRuntimeController.initiateModelDownload as unknown as { mockImplementation: (f: () => Promise<void>) => void })
             .mockImplementation(async () => { throw new Error('engine failed to start'); });
 
-        placeSignedAuthorization({ candidateId: 'moonshine:streaming-medium' });
+        placeAuthorization({ candidateId: 'moonshine:streaming-medium' });
         expect(await installRuntimeCandidateSwitch()).toBe(true);
         const outcome = await active().__SS_SWITCH_CANDIDATE__('moonshine:streaming-medium', 'open_mic');
         expect(outcome.ok).toBe(false);

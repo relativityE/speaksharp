@@ -13,8 +13,8 @@
  * Usage:
  *   node scripts/human-test/observe-take.mjs --candidate <id> --release <sha>
  *     --journey <open_mic|focus_points>
- *     --authorization </absolute/path/to/signed-envelope.json>
- *     --verification-key </absolute/path/to/raw-base64-public-key.txt> [--port 9222]
+ *     --authorization-run <successful owner-dispatched rc-gates.yml authorization run id> [--authorization-run-attempt 1] [--port 9222]
+ *   The GitHub CLI (or GH_BIN) must be authenticated to read the repository and its Actions artifacts.
  *     [--app https://speaksharp-public.vercel.app] [--out product_release/evidence/...] [--dry-run]
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -24,7 +24,8 @@ import { assertLoopbackOrigin, selectAppTarget, safeTargetForEvidence } from './
 import { IDENTITY_PROBE, auditEgress, receiptVerdict } from './observer.mjs';
 import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE } from './payloadTripwire.mjs';
 import { modelComparisonArmExpression, modelComparisonSwitchExpression } from './modelComparisonArm.mjs';
-import { verifyModelComparisonAuthorization } from './modelComparisonAuthorityVerifier.mjs';
+import { execFileSync } from 'node:child_process';
+import { ghCliGetter, ghRunArtifactFetcher, verifyRunAuthorization } from './modelComparisonRunAuthority.mjs';
 import { modelComparisonSessionBindingSha256 } from './modelDownselectionEvidence.mjs';
 
 const arg = (name, fallback = null) => {
@@ -38,38 +39,38 @@ const APP = arg('app', 'https://speaksharp-public.vercel.app');
 const CANDIDATE = arg('candidate');
 const JOURNEY = arg('journey');
 const RELEASE = arg('release');
-const AUTHORIZATION_PATH = arg('authorization');
-const VERIFICATION_KEY_PATH = arg('verification-key');
+const AUTHORIZATION_RUN = arg('authorization-run');
+const AUTHORIZATION_RUN_ATTEMPT = arg('authorization-run-attempt', '1');
 const OUT = arg('out', `product_release/evidence/human-test/receipt-${Date.now()}.json`);
 const DRY_RUN = flag('dry-run');
 
-if (!CANDIDATE || !['open_mic', 'focus_points'].includes(JOURNEY) || !RELEASE || !AUTHORIZATION_PATH || !VERIFICATION_KEY_PATH) {
-    console.error('required: --candidate <id> --journey <open_mic|focus_points> --release <sha> --authorization <signed-envelope.json> --verification-key <public-key.txt>');
+if (!CANDIDATE || !['open_mic', 'focus_points'].includes(JOURNEY) || !RELEASE
+    || !/^\d{1,20}$/.test(AUTHORIZATION_RUN ?? '') || !/^\d{1,4}$/.test(AUTHORIZATION_RUN_ATTEMPT ?? '')) {
+    console.error('required: --candidate <id> --journey <open_mic|focus_points> --release <sha> --authorization-run <run id> [--authorization-run-attempt <n>]');
     process.exit(2);
 }
-let signedAuthorization;
-try { signedAuthorization = JSON.parse(readFileSync(AUTHORIZATION_PATH, 'utf8')); } catch {
-    console.error('authorization must be a readable signed JSON envelope');
-    process.exit(2);
-}
-// #1432 PM decision E — VERIFIED HERE, OUTSIDE THE PAGE, BEFORE ANYTHING IS ARMED. The in-page check can be
-// defeated by page code or DevTools replacing SubtleCrypto; this one runs in trusted Node against the
-// pinned key and the exact intended take. A take this refuses is never armed, so it can produce nothing.
-let verificationKey;
-try { verificationKey = readFileSync(VERIFICATION_KEY_PATH, 'utf8'); } catch {
-    console.error('verification-key must be a readable raw base64 Ed25519 public key file');
-    process.exit(2);
-}
-const verifiedAuthorization = verifyModelComparisonAuthorization({
-    envelope: signedAuthorization,
-    publicKey: verificationKey,
+// #1432 PO decision 5651663038 / PM decision 5651684739 — VERIFIED HERE, AGAINST GITHUB, BEFORE ANYTHING IS ARMED.
+// The take's authority is one completed `rc-gates.yml` run attempt: this reads that exact attempt, its immutable
+// artifact and that attempt's jobs, and requires the owner-dispatched and owner-triggered, successful
+// comparison-authorization attempt at exactly this release to name this candidate, journey, release and origin. The page gate is
+// defense-in-depth only; a take this refuses is never armed, so it can produce nothing.
+const gh = process.env.GH_BIN || 'gh';
+const verifiedAuthorization = await verifyRunAuthorization({
+    runId: Number(AUTHORIZATION_RUN),
+    runAttempt: Number(AUTHORIZATION_RUN_ATTEMPT),
+    githubGet: ghCliGetter(execFileSync, gh),
+    fetchRunArtifact: ghRunArtifactFetcher(execFileSync, gh),
     expected: { candidateId: CANDIDATE, journey: JOURNEY, releaseSha: RELEASE, origin: new URL(APP).origin },
 });
 if (!verifiedAuthorization.ok) {
-    console.error('HOLD: the comparison authorization did not verify outside the page; nothing was armed');
+    console.error('HOLD: the comparison authorization run did not verify against GitHub; nothing was armed');
     for (const problem of verifiedAuthorization.problems) console.error(`  - ${problem}`);
     process.exit(1);
 }
+/** The run's artifact, as injected into the page (the page never sees `verifiedAt`). */
+const runAuthorization = Object.fromEntries(
+    Object.entries(verifiedAuthorization.record).filter(([key]) => key !== 'verifiedAt'),
+);
 // 127.0.0.1 only. `localhost` can resolve off-loopback, and a remote debugging endpoint is the last
 // thing this should ever attach to.
 assertLoopbackOrigin(`http://127.0.0.1:${PORT}`);
@@ -128,7 +129,7 @@ const main = async () => {
     // This is deliberately not a URL, storage value, build flag, or visible control. Installing after
     // navigation is too late: main.tsx has already decided whether the switch surface should exist.
     const authorizationInstaller = await client.send('Page.addScriptToEvaluateOnNewDocument', {
-        source: modelComparisonArmExpression(signedAuthorization),
+        source: modelComparisonArmExpression(runAuthorization),
     });
 
     // WORKERS TOO — this is where the audio actually is. Private STT runs its model in a Web Worker, so
@@ -240,7 +241,7 @@ const main = async () => {
     notePhase('pre-record');
     await client.send('Page.navigate', { url: APP });
     // ONE DOCUMENT ONLY. `addScriptToEvaluateOnNewDocument` otherwise survives reload/navigation and
-    // would reinstall the same signed envelope into every later document during its TTL. The current
+    // would reinstall the same authorization into every later document. The current
     // document has already received it; remove the installer before the operator can reload and replay.
     await client.send('Page.removeScriptToEvaluateOnNewDocument', {
         identifier: authorizationInstaller.identifier,
@@ -471,17 +472,17 @@ const main = async () => {
         requestedCandidate: probe?.requestedCandidate ?? null,
         observedCandidate: probe?.observedCandidate ?? null,
         observedJourney: probe?.observedJourney ?? null,
-        // The signed take join. Native journey/attempt identity is the governed envelope's (#1432 PM
+        // The run-issued take join. Native journey/attempt identity is the governed envelope's (#1432 PM
         // Option A); this observer cannot see it, so it records no value for it rather than a guess.
-        comparisonNonce: signedAuthorization?.payload?.nonce ?? null,
-        // #1432 PM decision E — the Node-verified authority for this take, re-verified by the validator.
+        comparisonNonce: verifiedAuthorization.record.nonce,
+        // #1432 PO decision 5651663038 — the GitHub-verified run record for this take, re-read by the validator.
         authorization: verifiedAuthorization.record,
         // Computed here from the verified nonce and the persisted id the page named, not read from the page.
         sessionBindingSha256: typeof probe?.persistedSessionId === 'string' && probe.persistedSessionId
-            ? modelComparisonSessionBindingSha256(verifiedAuthorization.record.verified.comparisonNonce, probe.persistedSessionId)
+            ? modelComparisonSessionBindingSha256(verifiedAuthorization.record.nonce, probe.persistedSessionId)
             : null,
-        evidenceDocumentId: signedAuthorization?.payload?.evidenceDocumentId ?? null,
-        positiveControlNonce: signedAuthorization?.payload?.evidenceDocumentId ?? null,
+        evidenceDocumentId: verifiedAuthorization.record.evidenceDocumentId,
+        positiveControlNonce: verifiedAuthorization.record.evidenceDocumentId,
         persistedSessionId: probe?.persistedSessionId ?? null,
         release: probe?.release ?? null,
         target: safeTargetForEvidence(target),

@@ -59,13 +59,12 @@ import {
     DIAGNOSTIC_JOURNEY,
     diagnosticAuthorizationFor,
     diagnosticHoldMessage,
-    holdBeforeSwitch,
     type DiagnosticHold,
     type PersistedIdentity,
     type PracticeLoopJourneyEvidence,
     type ReviewTerminalOutcome,
 } from './helpers/practiceLoopJourney';
-import { verifyModelComparisonAuthorization } from '../../scripts/human-test/modelComparisonAuthorityVerifier.mjs';
+import { checkRunAuthority, githubApiGetter, loadRunAuthority } from '../../scripts/human-test/modelComparisonRunAuthority.mjs';
 
 const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 const PRO_EMAIL = process.env.PRO_TEST_EMAIL;
@@ -74,15 +73,16 @@ const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 /*
- * #1432 PM decision A — OPERATOR-SUPPLIED SIGNED AUTHORITY, BY FILE PATH ONLY. These are the non-secret signed
- * envelope and pinned public key plus the release and evidence document the take is expected to run under.
- * The signing key never enters GitHub, CI, the browser, logs or this repository. `rc-gates.yml` supplies none
- * of them, so an unattended dispatch HOLDs by design rather than running the retired Boolean arm.
+ * #1432 PM decision 5651684739 — THIS RUN IS THE AUTHORIZATION, NO KEY. `rc-gates.yml` (inputs `comparison_cell`,
+ * `comparison_release_sha`, `comparison_evidence_document_id`) mints the take's authorization in an earlier step of
+ * the same run attempt and passes its path. That attempt is read back from GitHub in Node before any navigation;
+ * outside it the diagnostic HOLDs. It never qualifies six-cell evidence.
  */
 const AUTHORIZATION_FILE = process.env.MODEL_COMPARISON_AUTHORIZATION_FILE;
-const VERIFICATION_KEY_FILE = process.env.MODEL_COMPARISON_VERIFICATION_KEY_FILE;
-const EXPECTED_RELEASE_SHA = process.env.MODEL_COMPARISON_RELEASE_SHA ?? null;
-const EXPECTED_EVIDENCE_DOCUMENT_ID = process.env.MODEL_COMPARISON_EVIDENCE_DOCUMENT_ID ?? null;
+const AUTHORIZATION_RUN_ID = process.env.GITHUB_RUN_ID ?? null;
+const AUTHORIZATION_RUN_ATTEMPT = process.env.GITHUB_RUN_ATTEMPT ?? null;
+/** Read-only GitHub token used only in Node to read this run attempt; never passed to the page. */
+const RUN_READ_TOKEN = process.env.MODEL_COMPARISON_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN ?? null;
 const readOperatorFile = (path: string | undefined): string | null => {
     if (!path) return null;
     try { return readFileSync(path, 'utf8'); } catch { return null; }
@@ -167,31 +167,48 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             });
 
             /*
-             * #1432 PM decision A — VERIFY THE SIGNED AUTHORITY IN NODE, BEFORE ANY NAVIGATION. The page-writable
-             * Boolean arm is retired in the product and never returns here. The operator's envelope is checked
-             * against the pinned key and this exact take (candidate, `open_mic`, release, origin, evidence
-             * document). A refusal HOLDs with a named reason and no switch is attempted, so missing authority is
-             * never reported as a candidate or product failure. This diagnostic creates and qualifies NO six-cell
-             * evidence; only the trusted observer receipt and the terminal validator can.
+             * #1432 PM decision A and Product Owner decision 5651663038 — READ THE AUTHORIZATION RUN FROM GITHUB IN
+             * NODE, BEFORE ANY NAVIGATION (PM decision 5651684739: the authorization run is THIS run attempt). The page-writable Boolean arm is retired in the product and never returns
+             * here. The run must be this in-progress, owner-dispatched and owner-triggered rc-gates.yml attempt, and its
+             * artifact must name this exact take (candidate, `open_mic`, origin) with a run-generated
+             * nonce. A refusal HOLDs with a named reason and no switch is attempted, so missing, stale or inconsistent
+             * authority is never reported as a candidate or product failure. This diagnostic creates and qualifies
+             * NO six-cell evidence; only the trusted observer receipt and the terminal validator can.
              */
             const holdNow = (hold: DiagnosticHold, problems: readonly string[]): Error => {
                 testInfo.annotations.push({ type: 'hold', description: hold });
                 return new Error(diagnosticHoldMessage(hold, problems));
             };
             const authorizationText = readOperatorFile(AUTHORIZATION_FILE);
-            const verificationKeyText = readOperatorFile(VERIFICATION_KEY_FILE);
-            if ((AUTHORIZATION_FILE && authorizationText === null) || (VERIFICATION_KEY_FILE && verificationKeyText === null)) {
-                throw holdNow('comparison_authorization_unreadable', ['an operator-supplied authorization or verification-key path could not be read']);
+            if (AUTHORIZATION_FILE && authorizationText === null) {
+                throw holdNow('comparison_authorization_unreadable', ['the authorization minted by this run could not be read']);
+            }
+            // GitHub's own record of this run attempt and its jobs: repository owner, dispatched ref and revision (which must
+            // be the release), actor and triggering actor. The minted file is compared against it, never trusted alone.
+            let runBundle: Awaited<ReturnType<typeof loadRunAuthority>> | null = null;
+            if (authorizationText && AUTHORIZATION_RUN_ID && /^\d{1,20}$/.test(AUTHORIZATION_RUN_ID)
+                && AUTHORIZATION_RUN_ATTEMPT && /^\d{1,4}$/.test(AUTHORIZATION_RUN_ATTEMPT)) {
+                try {
+                    const artifact = JSON.parse(authorizationText) as unknown;
+                    runBundle = await loadRunAuthority({
+                        runId: Number(AUTHORIZATION_RUN_ID),
+                        runAttempt: Number(AUTHORIZATION_RUN_ATTEMPT),
+                        githubGet: githubApiGetter({ token: RUN_READ_TOKEN }),
+                        fetchRunArtifact: () => Promise.resolve(artifact),
+                    });
+                } catch {
+                    runBundle = null;
+                }
             }
             const authorization = diagnosticAuthorizationFor({
-                envelopeText: authorizationText,
-                publicKeyText: verificationKeyText,
-                expectedReleaseSha: EXPECTED_RELEASE_SHA,
-                expectedEvidenceDocumentId: EXPECTED_EVIDENCE_DOCUMENT_ID,
+                authorizationText,
+                runId: AUTHORIZATION_RUN_ID,
+                runAttempt: AUTHORIZATION_RUN_ATTEMPT,
+                bundle: runBundle,
                 target,
                 origin: APPROVED_ORIGIN,
                 now: Date.now(),
-                verify: verifyModelComparisonAuthorization,
+                check: checkRunAuthority,
             });
             if (!authorization.ok) throw holdNow(authorization.hold, authorization.problems);
             const { authority } = authorization;
@@ -256,7 +273,7 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                         candidateId: text('candidate_id'),
                         expected: text('expected_candidate_id'),
                         acquired: text('acquired_candidate_id'),
-                        // The signed take join and its evidence document — opaque ids, never content.
+                        // The run-issued take join and its evidence document — opaque ids, never content.
                         comparisonNonce: text('comparison_nonce'),
                         evidenceDocumentId: text('comparison_evidence_document_id'),
                     });
@@ -340,17 +357,17 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                 }, { ref: projectRef, value: JSON.stringify(session) });
 
                 /*
-                 * #1432 PM decision A — THE VERIFIED ENVELOPE ENTERS ONLY THE /practice DOCUMENT. The authorization is
+                 * #1432 PM decision A — THE VERIFIED RUN AUTHORIZATION ENTERS ONLY THE /practice DOCUMENT. The authorization is
                  * one-use and every document boot consumes it; arming the earlier /auth/signin document would spend
                  * the nonce there and leave /practice refused as a replay. Injected immutable and non-enumerable,
                  * exactly as the trusted observer arms a page.
                  */
-                await page.addInitScript(({ key, envelope }) => {
+                await page.addInitScript(({ key, authorization }) => {
                     if (location.pathname !== '/practice') return;
                     Object.defineProperty(globalThis, Symbol.for(key), {
-                        value: envelope, enumerable: false, configurable: true, writable: false,
+                        value: authorization, enumerable: false, configurable: true, writable: false,
                     });
-                }, { key: MODEL_COMPARISON_AUTH_KEY, envelope: authority.envelope });
+                }, { key: MODEL_COMPARISON_AUTH_KEY, authorization: authority.authorization });
                 await page.goto('/practice');
                 // FAIL FAST. The previous head burned 900s on a wrong route because nothing asserted the
                 // surface was present. A missing practice root now fails in seconds with a readable reason.
@@ -360,10 +377,9 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
             /*
              * WORKSTREAM 2 — THE EXPLICIT TARGET (Codex `3997967389`), under #1432 PM decision A. The switch sets the
              * acquisition expectation BEFORE it initialises, so the acquisition that follows is bound to this target.
-             * It runs IMMEDIATELY after the authorized surface installs and BEFORE default-model preparation: the
-             * signed authorization lives at most 300 s, and preparation alone may take 600 s. Only the outcome CODE
-             * crosses back. A surface that never installs, a deployed release other than the signed one, or an
-             * authorization about to expire HOLDs before any switch is attempted.
+             * It runs IMMEDIATELY after the authorized surface installs and BEFORE default-model preparation, so the
+             * acquisition that follows is this target's. Only the outcome CODE crosses back. A surface that never
+             * installs, or a deployed release other than the authorized one, HOLDs before any switch is attempted.
              */
             let switchOutcome = 'not_attempted';
             await test.step(`switch to the explicit target ${target} under the verified authority, before model preparation`, async () => {
@@ -375,16 +391,14 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                     .then(() => true)
                     .catch(() => false);
                 if (!surfaceInstalled) {
-                    throw holdNow('comparison_surface_not_installed', ['the page did not accept the signed authorization (release, origin, key or replay)']);
+                    throw holdNow('comparison_surface_not_installed', ['the page did not accept the run authorization (release, origin or replay)']);
                 }
                 const deployedRelease = await page.evaluate(
                     () => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null,
                 );
                 if (deployedRelease !== authority.releaseSha) {
-                    throw holdNow('deployed_release_mismatch', ['the deployed release is not the release the authorization was signed for']);
+                    throw holdNow('deployed_release_mismatch', ['the deployed release is not the release the authorization run named']);
                 }
-                const expiring = holdBeforeSwitch(authority, Date.now());
-                if (expiring) throw holdNow(expiring, ['the signed authorization would be expired when the page consumes it']);
                 switchOutcome = await page.evaluate(async ({ id, journey }) => {
                     const w = window as unknown as {
                         __SS_SWITCH_CANDIDATE__?: (candidate: string, journey: string) => Promise<{ ok: boolean; code?: string }>;

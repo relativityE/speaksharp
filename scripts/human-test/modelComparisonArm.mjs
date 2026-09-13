@@ -1,8 +1,9 @@
 /**
- * #1432 — inject an Ops-signed, release/origin-bound comparison authorization before app boot.
+ * #1432 — inject a release/origin-bound comparison authorization before app boot.
  *
- * This module never signs. The private key remains outside the repository/browser; the harness only
- * transports the already signed envelope into the new document for one-time verification by the app.
+ * Product Owner decision 5651663038 / PM decision 5651684739: the authorization is minted by one owner-dispatched
+ * `rc-gates.yml` run attempt and live-read from GitHub by trusted Node before it is injected. The page's own
+ * check of it is defense-in-depth only; nothing here is signed or secret.
  */
 export const MODEL_COMPARISON_AUTH_KEY = 'speaksharp.model-comparison.authorization';
 

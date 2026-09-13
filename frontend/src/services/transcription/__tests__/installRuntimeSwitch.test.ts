@@ -6,7 +6,7 @@ import { installRuntimeCandidateSwitch } from '../installRuntimeSwitch';
 import {
     registerSwitchExecutor, clearRuntimeCandidateOverride,
 } from '../runtimeCandidateSwitch';
-import { placeSignedAuthorization, resetAuthorization } from './modelComparisonAuthorization.helper';
+import { placeAuthorization, resetAuthorization } from './modelComparisonAuthorization.helper';
 import { recordResolvedEngine, clearResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 
 interface SwitchWindow { __SS_SWITCH_CANDIDATE__?: unknown; __SS_ACTIVE_CANDIDATE__?: unknown }
@@ -47,7 +47,7 @@ describe('installing the in-page model switch', () => {
     });
 
     it('CASUALTY: signed Production authorization installs both functions, non-enumerably', async () => {
-        placeSignedAuthorization();
+        placeAuthorization();
         expect(await installRuntimeCandidateSwitch()).toBe(true);
         expect(typeof w().__SS_SWITCH_CANDIDATE__).toBe('function');
         expect(typeof w().__SS_ACTIVE_CANDIDATE__).toBe('function');

@@ -50,10 +50,11 @@ describe('#1432 trusted model-downselection authority collector', () => {
     );
   });
 
-  it('registers the temporary Production verification key in the executable env catalog', () => {
-    const optional = readFileSync('env.optional', 'utf8').split(/\r?\n/)
-      .map((line) => line.trim()).filter((line) => line && !line.startsWith('#'));
-    expect(optional).toContain('VITE_MODEL_COMPARISON_PUBLIC_KEY');
+  it('CASUALTY (PO decision 5651663038): no comparison key exists in the env catalog or product docs', () => {
+    const optional = readFileSync('env.optional', 'utf8');
+    const operations = readFileSync('product_release/OPERATIONS_AND_SECURITY.md', 'utf8');
+    expect(optional).not.toContain('VITE_MODEL_COMPARISON_PUBLIC_KEY');
+    expect(operations).not.toContain('VITE_MODEL_COMPARISON_PUBLIC_KEY');
   });
 
   it('builds one bounded PostHog query from six unique signed rows', () => {

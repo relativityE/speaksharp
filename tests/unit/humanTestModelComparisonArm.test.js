@@ -6,19 +6,18 @@ import {
   modelComparisonSwitchExpression,
 } from '../../scripts/human-test/modelComparisonArm.mjs';
 
-describe('#1432 signed CDP Production authorization', () => {
+describe('#1432 CDP Production authorization (GitHub run artifact, verified before injection)', () => {
   const authorization = {
-    payload: {
-      version: 'speaksharp.model-comparison-authorization.v1', releaseSha: 'a'.repeat(40),
-      origin: 'https://speaksharp-public.vercel.app', nonce: 'nonce-1234567890abcdef',
-      candidateId: 'v4:distil:q4', journey: 'open_mic',
-      evidenceDocumentId: '11111111-1111-4111-8111-111111111111',
-      issuedAt: '2026-09-08T12:00:00.000Z', expiresAt: '2026-09-08T12:01:00.000Z',
-    },
-    signature: 'signed-envelope-value',
+    schemaVersion: 'speaksharp-model-comparison-run-authorization-v1', repository: 'relativityE/speaksharp',
+    workflowPath: '.github/workflows/rc-gates.yml',
+    workflowRef: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main', workflowSha: 'c'.repeat(40),
+    runId: 900001, runAttempt: 1, actor: 'relativityE', releaseSha: 'a'.repeat(40),
+    origin: 'https://speaksharp-public.vercel.app', candidateId: 'v4:distil:q4', journey: 'open_mic',
+    evidenceDocumentId: '11111111-1111-4111-8111-111111111111', nonce: `run-900001-1-${'ab'.repeat(12)}`,
+    issuedAt: '2026-09-08T12:00:00.000Z',
   };
 
-  it('installs a hidden immutable signed envelope and no URL/storage input', () => {
+  it('installs a hidden immutable run authorization and no URL/storage input', () => {
     const arm = modelComparisonArmExpression(authorization);
     expect(arm).toMatch(/Object\.defineProperty/);
     expect(arm).toContain(`Symbol.for("${MODEL_COMPARISON_AUTH_KEY}")`);
@@ -35,10 +34,12 @@ describe('#1432 signed CDP Production authorization', () => {
     expect(browserAuthority).toContain(`MODEL_COMPARISON_AUTH_KEY = '${MODEL_COMPARISON_AUTH_KEY}'`);
   });
 
-  it('the executable observer installs the signed authorization before it navigates', () => {
+  it('the executable observer verifies the run, then installs its authorization before it navigates', () => {
     const observer = readFileSync('scripts/human-test/observe-take.mjs', 'utf8');
     expect(observer).toContain("arg('app', 'https://speaksharp-public.vercel.app')");
-    const arm = observer.indexOf('source: modelComparisonArmExpression(signedAuthorization)');
+    expect(observer.indexOf('verifyRunAuthorization({')).toBeGreaterThan(-1);
+    expect(observer.indexOf('verifyRunAuthorization({')).toBeLessThan(observer.indexOf('source: modelComparisonArmExpression(runAuthorization)'));
+    const arm = observer.indexOf('source: modelComparisonArmExpression(runAuthorization)');
     const navigate = observer.indexOf("Page.navigate");
     expect({ armFound: arm >= 0, beforeNavigation: arm < navigate }).toEqual({
       armFound: true,

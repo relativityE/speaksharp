@@ -1,22 +1,22 @@
 /**
  * #1432 — one-use authorization for the canonical Production comparison surface.
  *
- * The previous `Symbol.for(...)=true` arm was writable by ordinary page-world code. This verifies an
- * Ops-signed Ed25519 envelope before setting module-private authority. The public key may ship; the
- * signing key never enters the browser or repository.
+ * PRODUCT OWNER DECISION 5651663038 / PM DECISION 5651684739 — the MVP authorization boundary is one authenticated
+ * `.github/workflows/rc-gates.yml` run attempt, dispatched and triggered by the repository owner from the default
+ * branch for ONE comparison cell. That run mints the one-use `comparison_nonce` bound to the release, candidate,
+ * journey and evidence document. Trusted Node live-reads the run before it arms this page, and the terminal
+ * validator re-reads it (`scripts/human-test/modelComparisonRunAuthority.mjs`).
  *
- * DEFENSE-IN-DEPTH AND UX GATING ONLY — NOT TAMPER-PROOF (PM decision E, Codex P1 3985013874). This runs
- * in the page realm: page code or DevTools can replace `SubtleCrypto.prototype.verify`, and anyone who
- * controls the page can call code the bundle already ships. It therefore carries ZERO qualification
- * authority. The trusted CDP observer verifies the envelope in Node against a pinned key before arming,
- * and the terminal validator re-verifies that record (`scripts/human-test/modelComparisonAuthorityVerifier.mjs`).
+ * This module is DEFENSE-IN-DEPTH AND UX GATING ONLY. It runs in the page realm, so it carries no qualification
+ * authority and performs no cryptography: it keeps an ordinary Production navigation from exposing the switch,
+ * binds the surface to this release and origin, and spends each nonce once. It has no wall-clock expiry: the
+ * authorization is one run attempt, not a time window.
  */
 
 export const MODEL_COMPARISON_AUTH_KEY = 'speaksharp.model-comparison.authorization';
 export const MODEL_COMPARISON_REPLAY_KEY = 'speaksharp.model-comparison.consumed.v1';
 export const MODEL_COMPARISON_POSITIVE_CONTROL_KEY = 'speaksharp.model-comparison.positive-control.v1';
-const VERSION = 'speaksharp.model-comparison-authorization.v1';
-const MAX_TTL_MS = 5 * 60_000;
+const VERSION = 'speaksharp-model-comparison-run-authorization-v1';
 const CLOCK_SKEW_MS = 30_000;
 const COMPARISON_CANDIDATES = new Set(['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium']);
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -24,8 +24,10 @@ const SESSION_BINDING_VERSION = 'speaksharp.model-comparison-session-binding.v1'
 
 export type ModelComparisonJourney = 'open_mic' | 'focus_points';
 
-interface AuthorizationPayload {
-    version: typeof VERSION;
+/** The authorization artifact's page-relevant fields. Run provenance is checked in trusted Node, not here. */
+interface RunAuthorization {
+    schemaVersion: typeof VERSION;
+    runId: number;
     releaseSha: string;
     origin: string;
     nonce: string;
@@ -33,59 +35,30 @@ interface AuthorizationPayload {
     journey: ModelComparisonJourney;
     evidenceDocumentId: string;
     issuedAt: string;
-    expiresAt: string;
 }
 
-interface SignedAuthorization { payload: AuthorizationPayload; signature: string }
-
-let armed: AuthorizationPayload | null = null;
+let armed: RunAuthorization | null = null;
 let activeNonce: string | null = null;
 let activeEvidenceDocumentId: string | null = null;
 
-const decodeBase64 = (value: string): ArrayBuffer => {
-    const binary = atob(value.replace(/-/g, '+').replace(/_/g, '/'));
-    const buffer = new ArrayBuffer(binary.length);
-    const bytes = new Uint8Array(buffer);
-    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-    return buffer;
-};
-
-const serializedPayload = (payload: AuthorizationPayload): ArrayBuffer => {
-    const encoded = new TextEncoder().encode(JSON.stringify({
-        version: payload.version,
-        releaseSha: payload.releaseSha,
-        origin: payload.origin,
-        nonce: payload.nonce,
-        candidateId: payload.candidateId,
-        journey: payload.journey,
-        evidenceDocumentId: payload.evidenceDocumentId,
-        issuedAt: payload.issuedAt,
-        expiresAt: payload.expiresAt,
-    }));
-    const buffer = new ArrayBuffer(encoded.byteLength);
-    new Uint8Array(buffer).set(encoded);
-    return buffer;
-};
-
-const validShape = (value: unknown): value is SignedAuthorization => {
+const validShape = (value: unknown): value is RunAuthorization => {
     if (!value || typeof value !== 'object') return false;
-    const auth = value as Partial<SignedAuthorization>;
-    const payload = auth.payload as Partial<AuthorizationPayload> | undefined;
-    return !!payload && payload.version === VERSION
-        && typeof payload.releaseSha === 'string' && /^[0-9a-f]{40}$/.test(payload.releaseSha)
-        && typeof payload.origin === 'string'
-        && typeof payload.nonce === 'string' && /^[A-Za-z0-9._:-]{16,128}$/.test(payload.nonce)
-        && typeof payload.candidateId === 'string' && COMPARISON_CANDIDATES.has(payload.candidateId)
-        && (payload.journey === 'open_mic' || payload.journey === 'focus_points')
-        && typeof payload.evidenceDocumentId === 'string' && UUID_V4.test(payload.evidenceDocumentId)
-        && typeof payload.issuedAt === 'string' && typeof payload.expiresAt === 'string'
-        && typeof auth.signature === 'string' && auth.signature.length > 20;
+    const auth = value as Partial<RunAuthorization>;
+    return auth.schemaVersion === VERSION
+        && Number.isInteger(auth.runId) && (auth.runId as number) > 0
+        && typeof auth.releaseSha === 'string' && /^[0-9a-f]{40}$/.test(auth.releaseSha)
+        && typeof auth.origin === 'string'
+        && typeof auth.nonce === 'string' && /^[A-Za-z0-9._:-]{16,128}$/.test(auth.nonce)
+        && typeof auth.candidateId === 'string' && COMPARISON_CANDIDATES.has(auth.candidateId)
+        && (auth.journey === 'open_mic' || auth.journey === 'focus_points')
+        && typeof auth.evidenceDocumentId === 'string' && UUID_V4.test(auth.evidenceDocumentId)
+        && typeof auth.issuedAt === 'string';
 };
 
 export function hasModelComparisonAuthorization(): boolean { return armed !== null; }
 
 /**
- * Content-free join between the signed browser authorization and governed take telemetry.
+ * Content-free join between the run-issued browser authorization and governed take telemetry.
  * This is deliberately the one-use TAKE nonce, never a user or database session identifier, and never
  * the document-scoped positive-control nonce (`control_nonce`, which is the evidence-document id).
  */
@@ -93,7 +66,7 @@ export function modelComparisonTakeNonce(): string | null {
     return activeNonce;
 }
 
-/** Signed document identifier shared by the six authorized rows in one down-selection packet. */
+/** Run-authorized document identifier shared by the six rows in one down-selection packet. */
 export function modelComparisonEvidenceDocumentId(): string | null {
     return activeEvidenceDocumentId;
 }
@@ -103,7 +76,7 @@ export function modelComparisonEvidenceDocumentId(): string | null {
  *
  * #1432 PM Option A — the governed envelope is the SOLE authority for `journey_id`, `attempt_id`,
  * `attempt_seq` and `boot_id`, and `AnalyticsBuffer` strips any producer copy before applying it. This
- * therefore never writes those keys: the signed take travels as `comparison_nonce`, a separate join, and
+ * therefore never writes those keys: the run-issued take travels as `comparison_nonce`, a separate join, and
  * the native journey/attempt identity stays independently observed. Both values are null outside an
  * authorized take.
  */
@@ -115,8 +88,8 @@ export function modelComparisonTakeTelemetry(): {
 }
 
 /**
- * Claim the one governed transport control for an evidence document. The document id is already
- * Ops-signed and is reused across its six takes; durable denial state makes only the first successful
+ * Claim the one governed transport control for an evidence document. The document id is named by the
+ * authorization run and reused across its six takes; durable denial state makes only the first successful
  * authorized switch emit. Deleting the ledger cannot mint model-switch authority.
  */
 export function claimModelComparisonPositiveControl(
@@ -139,11 +112,11 @@ export function claimModelComparisonPositiveControl(
 }
 
 /**
- * Privacy-safe proof that the signed take produced one exact persisted session.
+ * Privacy-safe proof that the authorized take produced one exact persisted session.
  *
  * Canonical bytes are pinned as a JSON array so browser and trusted Node readback cannot disagree
  * about separators or field order. The raw database id never enters telemetry. Privacy relies on the
- * session id being an unguessable UUIDv4; the signed nonce is correlation authority, not a secret.
+ * session id being an unguessable UUIDv4; the run-issued nonce is correlation authority, not a secret.
  */
 export async function modelComparisonSessionBindingSha256(
     persistedSessionId: string | null,
@@ -163,24 +136,24 @@ export async function modelComparisonSessionBindingSha256(
 
 type ReplayLedger = Record<string, string>;
 
-function claimDurableNonce(payload: AuthorizationPayload, root: typeof globalThis, now: number): boolean {
+function claimDurableNonce(payload: RunAuthorization, root: typeof globalThis): boolean {
     let storage: Storage;
     try {
         storage = root.localStorage;
         const raw = storage.getItem(MODEL_COMPARISON_REPLAY_KEY);
         const parsed = raw === null ? {} : JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
-        const ledger = Object.fromEntries(Object.entries(parsed as ReplayLedger).filter(([, expiresAt]) =>
-            typeof expiresAt === 'string' && Number.isFinite(Date.parse(expiresAt)) && Date.parse(expiresAt) >= now - CLOCK_SKEW_MS,
-        ));
+        // Spent nonces are never pruned: without an expiry, a spent nonce must stay spent. The controlled
+        // protocol spends at most six per evidence document, so the ledger stays small.
+        const ledger = Object.fromEntries(Object.entries(parsed as ReplayLedger).filter(([, issuedAt]) => typeof issuedAt === 'string'));
         if (Object.prototype.hasOwnProperty.call(ledger, payload.nonce)) return false;
-        ledger[payload.nonce] = payload.expiresAt;
-        // This ledger is denial state, not authority: deleting it cannot mint a valid signature.
+        ledger[payload.nonce] = payload.issuedAt;
+        // This ledger is denial state, not authority: deleting it cannot mint a GitHub run authorization.
         // The controlled test protocol permits one browser tab, so this also closes document reload
         // replay without inventing a server-side capability service for the release experiment.
         storage.setItem(MODEL_COMPARISON_REPLAY_KEY, JSON.stringify(ledger));
         const persisted = JSON.parse(storage.getItem(MODEL_COMPARISON_REPLAY_KEY) ?? 'null') as ReplayLedger | null;
-        return persisted?.[payload.nonce] === payload.expiresAt;
+        return persisted?.[payload.nonce] === payload.issuedAt;
     } catch {
         // Production comparison authority must survive a document/module replacement. If durable
         // same-origin storage cannot make the nonce use visible to the next document, fail closed.
@@ -188,13 +161,10 @@ function claimDurableNonce(payload: AuthorizationPayload, root: typeof globalThi
     }
 }
 
-export async function consumeModelComparisonAuthorization(): Promise<boolean> {
-    // This function is present in the public browser chunk, so none of its trust inputs may come
-    // from its caller. In Production Vite substitutes the public verification key from the reviewed
-    // build configuration, while release, origin, Web Crypto, and durable replay storage come only
-    // from the running document. Tests replace those platform/build values before calling this
-    // zero-argument boundary; they cannot pass an alternate authority through the public API.
-    const env = import.meta.env as unknown as Record<string, unknown>;
+function consumeAuthorizationNow(): boolean {
+    // This function is present in the public browser chunk, so none of its inputs may come from its caller:
+    // release, origin and durable replay storage come only from the running document. Tests replace those
+    // platform values before calling this zero-argument boundary; they cannot pass alternate state through it.
     const root = globalThis;
     const now = Date.now();
     armed = null;
@@ -208,42 +178,30 @@ export async function consumeModelComparisonAuthorization(): Promise<boolean> {
 
     const release = (root as typeof globalThis & { __APP_RELEASE__?: string }).__APP_RELEASE__;
     const origin = (root as typeof globalThis & { location?: Location }).location?.origin;
-    if (value.payload.releaseSha !== release || value.payload.origin !== origin) return false;
-    const issuedAt = Date.parse(value.payload.issuedAt);
-    const expiresAt = Date.parse(value.payload.expiresAt);
-    if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt)
-        || issuedAt > now + CLOCK_SKEW_MS || expiresAt < now
-        || expiresAt <= issuedAt || expiresAt - issuedAt > MAX_TTL_MS) return false;
-
-    const keyText = env.VITE_MODEL_COMPARISON_PUBLIC_KEY;
-    if (typeof keyText !== 'string' || keyText.length < 20 || !root.crypto?.subtle) return false;
-    try {
-        const key = await root.crypto.subtle.importKey('raw', decodeBase64(keyText), { name: 'Ed25519' }, false, ['verify']);
-        const valid = await root.crypto.subtle.verify(
-            { name: 'Ed25519' }, key, decodeBase64(value.signature), serializedPayload(value.payload),
-        );
-        if (!valid) return false;
-        // Claim before exposing the surface. The module-private capability below is then usable for
-        // exactly one candidate/journey switch; the durable claim prevents the signed bearer from
-        // becoming fresh again after a reload or `vi.resetModules()`.
-        if (!claimDurableNonce(value.payload, root, now)) return false;
-        armed = value.payload;
-        return true;
-    } catch { return false; }
+    if (value.releaseSha !== release || value.origin !== origin) return false;
+    const issuedAt = Date.parse(value.issuedAt);
+    if (!Number.isFinite(issuedAt) || issuedAt > now + CLOCK_SKEW_MS) return false;
+    // Claim before exposing the surface. The module-private capability below is then usable for exactly one
+    // candidate/journey switch; the durable claim keeps the nonce spent after a reload or `vi.resetModules()`.
+    if (!claimDurableNonce(value, root)) return false;
+    armed = value;
+    return true;
 }
 
-/** Consume the verified capability at the actual switch boundary, exactly once and for its signed row. */
+/** Arm the comparison surface from the injected run authorization, if it is valid for this document. */
+export function consumeModelComparisonAuthorization(): Promise<boolean> {
+    return Promise.resolve(consumeAuthorizationNow());
+}
+
+/** Consume the armed capability at the actual switch boundary, exactly once and for its authorized row. */
 export function consumeModelComparisonTakeAuthorization(
     candidateId: string,
     journey: ModelComparisonJourney | undefined,
-    now = Date.now(),
 ): boolean {
     const capability = armed;
     // Any attempt spends the module-private arm. A caller cannot probe alternate rows until one fits.
     armed = null;
     if (!capability || capability.candidateId !== candidateId || capability.journey !== journey) return false;
-    const expiresAt = Date.parse(capability.expiresAt);
-    if (!Number.isFinite(expiresAt) || expiresAt < now) return false;
     activeNonce = capability.nonce;
     activeEvidenceDocumentId = capability.evidenceDocumentId;
     return true;
