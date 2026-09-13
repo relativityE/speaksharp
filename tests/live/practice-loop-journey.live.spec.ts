@@ -49,6 +49,9 @@ import {
     routeSurfaceFailures,
     contentLeaks,
     awaitCorrelatedTerminal,
+    savedCorrelationOf,
+    observedCandidateAfterSwitch,
+    runningCandidateAfterSwitch,
     classifyRequestsByBoundary,
     COMPARISON_TARGETS,
     MODEL_COMPARISON_CDP_ARM_KEY,
@@ -386,9 +389,9 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
              * Poll, bounded, for a terminal event on THIS take's attempt, allow one settle window so a duplicate
              * in the next batch is counted, then take one frozen snapshot that everything below reads.
              */
-            const savedAttemptId = [...captured].reverse()
-                .find((event) => event.name === 'session_saved' && event.attemptId)?.attemptId ?? null;
-            const flush = await awaitCorrelatedTerminal(() => captured, savedAttemptId, {
+            // The saved take — journey AND attempt — is discovered INSIDE the bounded poll (Codex `3998069827`):
+            // `session_saved` rides the same async queue, so it may not be on the wire when the DOM turns terminal.
+            const flush = await awaitCorrelatedTerminal(() => captured, savedCorrelationOf, {
                 timeoutMs: 30_000,
                 intervalMs: 500,
                 settleMs: 4_000,
@@ -396,8 +399,11 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                 sleep: (ms) => page.waitForTimeout(ms),
             });
             const frozen = flush.events;
+            // Exactly-one counting runs only over terminal events of THIS take — journey and attempt.
+            const take = savedCorrelationOf(frozen);
             const terminalEvents = frozen.filter((event) =>
-                event.name === 'practice_loop_review_rendered' || event.name === 'practice_loop_review_failed');
+                (event.name === 'practice_loop_review_rendered' || event.name === 'practice_loop_review_failed')
+                && take !== null && event.attemptId === take.attemptId && event.journeyId === take.journeyId);
             const terminalOutcomes: ReviewTerminalOutcome[] = terminalEvents.map((event) =>
                 event.name === 'practice_loop_review_rendered' ? 'rendered_success' : 'failed_safe');
 
@@ -470,13 +476,11 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
 
             // CONFIGURED and ACQUIRED come from the acquisition event the allowlist publishes precisely so a
             // readback can prove configured = acquired = running for a three-model down-selection.
-            // An acquisition counts only if the switch bound it to THIS target; otherwise observed identity is
-            // null and the verdict reports it incomplete rather than borrowing the default engine's identity.
-            const expectationBound = frozen.some((event) =>
-                event.name === 'private_model_acquisition_start' && event.expected === target);
-            const acquiredCandidate = [...frozen].reverse().find((event) => event.acquired)?.acquired ?? null;
-            const runningCandidate = [...frozen].reverse().find((event) => event.candidateId)?.candidateId ?? null;
-            const observedCandidate = expectationBound ? (acquiredCandidate ?? runningCandidate) : null;
+            // Observed identity only from events AFTER the acquisition the switch bound to THIS target — the
+            // default engine's earlier acquisition can never lend its identity, even when target == default.
+            const observedCandidate = observedCandidateAfterSwitch(frozen, target);
+            // RUNNING identity is switch-bound too (PM `5649623145` item 3) — it feeds `boundCandidateId`.
+            const runningCandidate = runningCandidateAfterSwitch(frozen, target);
             const requestCounts = classifyRequestsByBoundary(coachingRequests, savedAt);
 
             const reviewEvents = frozen.filter((event) => event.name.startsWith('practice_loop_review_'));

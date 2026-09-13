@@ -150,17 +150,39 @@ export interface CorrelatedTerminalWait {
  * is flushed asynchronously (a 3 s default in the installed SDK). Counting at the DOM transition therefore
  * commonly sees no terminal outcome at all. This polls, bounded, for a terminal event correlated to THIS
  * take's attempt, then waits one settle window so a duplicate still in flight is counted rather than missed,
- * and only then returns a frozen snapshot. An absent attempt id is never correlated — it returns unsettled.
+ * and only then returns a frozen snapshot.
+ *
+ * THE CORRELATION KEY IS DISCOVERED INSIDE THE POLL, not before it (Codex `3998069827`). The event that names
+ * the take — `session_saved` — travels through the same asynchronous queue as the terminal event, so a fast
+ * review can reach the DOM before it is on the wire. The previous head read the key once, got `null`, and
+ * never polled, failing a healthy run. `resolveCorrelation` is re-evaluated on every read; a take that never
+ * appears is never correlated, and the wait ends unsettled at its deadline.
+ *
+ * JOURNEY AND ATTEMPT, BOTH (PM criterion). An attempt id alone is not the take's identity: a terminal event
+ * carrying the same attempt id under a different journey is a different take, so it must not settle the wait
+ * or be counted. A terminal event counts only when both ids match the saved take.
  */
-export async function awaitCorrelatedTerminal<T extends { readonly name: string; readonly attemptId?: string }>(
+export interface TakeCorrelation {
+    readonly journeyId: string;
+    readonly attemptId: string;
+}
+
+type CorrelatableEvent = { readonly name: string; readonly attemptId?: string; readonly journeyId?: string };
+
+export async function awaitCorrelatedTerminal<T extends CorrelatableEvent>(
     read: () => readonly T[],
-    attemptId: string | null,
+    resolveCorrelation: (events: readonly T[]) => TakeCorrelation | null,
     wait: CorrelatedTerminalWait,
 ): Promise<{ readonly settled: boolean; readonly events: readonly T[] }> {
-    const correlated = (events: readonly T[]): boolean => attemptId !== null && events.some((event) =>
-        (TERMINAL_REVIEW_EVENTS as readonly string[]).includes(event.name) && event.attemptId === attemptId);
+    const correlated = (events: readonly T[]): boolean => {
+        const take = resolveCorrelation(events);
+        return take !== null && events.some((event) =>
+            (TERMINAL_REVIEW_EVENTS as readonly string[]).includes(event.name)
+            && event.attemptId === take.attemptId
+            && event.journeyId === take.journeyId);
+    };
     const deadline = wait.now() + wait.timeoutMs;
-    while (attemptId !== null) {
+    for (;;) {
         if (correlated(read())) {
             await wait.sleep(wait.settleMs);
             return { settled: true, events: [...read()] };
@@ -169,6 +191,59 @@ export async function awaitCorrelatedTerminal<T extends { readonly name: string;
         await wait.sleep(wait.intervalMs);
     }
     return { settled: false, events: [...read()] };
+}
+
+/** The saved take's identity: the latest `session_saved` carrying BOTH a journey id and an attempt id. */
+export function savedCorrelationOf<T extends CorrelatableEvent>(events: readonly T[]): TakeCorrelation | null {
+    const saved = [...events].reverse().find((event) => event.name === 'session_saved' && event.attemptId && event.journeyId);
+    return saved?.attemptId && saved.journeyId ? { journeyId: saved.journeyId, attemptId: saved.attemptId } : null;
+}
+
+type AcquisitionEvent = {
+    readonly name: string;
+    readonly expected?: string;
+    readonly acquired?: string;
+    readonly candidateId?: string;
+};
+
+/**
+ * OBSERVED IDENTITY COMES ONLY FROM AFTER THE SWITCH (PM criterion; Codex `3997967389`).
+ *
+ * The page acquires its DEFAULT engine first, then the guarded switch tears it down and acquires the target
+ * with `expected_candidate_id` set. Reading `acquired_candidate_id` from anywhere in the snapshot could lend
+ * the default acquisition's identity to the take — and when the target IS the default (`v2:base.en`), that
+ * borrowed value would even agree. So only events AFTER the last acquisition start bound to this target count,
+ * preferring the acquisition's own `acquired_candidate_id`, then the envelope's running `candidate_id`. No
+ * bound start, or nothing after it, is null — reported as incomplete, never filled in.
+ */
+export function observedCandidateAfterSwitch<T extends AcquisitionEvent>(events: readonly T[], target: string): string | null {
+    const after = eventsAfterSwitch(events, target);
+    if (after === null) return null;
+    const acquired = [...after].reverse().find((event) => event.acquired)?.acquired;
+    const running = [...after].reverse().find((event) => event.candidateId)?.candidateId;
+    return acquired ?? running ?? null;
+}
+
+/**
+ * RUNNING IDENTITY IS BOUND TO THE SWITCH TOO (PM `5649623145` item 3: observed / acquired / RUNNING).
+ *
+ * The envelope's `candidate_id` feeds the verdict's `boundCandidateId`. Taking the latest one from the whole
+ * snapshot would, when nothing after the switch carries it, hand the default engine's pre-switch value to the
+ * take — the same borrow as above, on a different field. Only events after the target-bound start count.
+ */
+export function runningCandidateAfterSwitch<T extends AcquisitionEvent>(events: readonly T[], target: string): string | null {
+    const after = eventsAfterSwitch(events, target);
+    if (after === null) return null;
+    return [...after].reverse().find((event) => event.candidateId)?.candidateId ?? null;
+}
+
+/** Events strictly after the LAST acquisition start bound to `target`; null when no such start exists. */
+function eventsAfterSwitch<T extends AcquisitionEvent>(events: readonly T[], target: string): readonly T[] | null {
+    let boundAt = -1;
+    events.forEach((event, index) => {
+        if (event.name === 'private_model_acquisition_start' && event.expected === target) boundAt = index;
+    });
+    return boundAt === -1 ? null : events.slice(boundAt + 1);
 }
 
 export interface PracticeLoopJourneyEvidence {

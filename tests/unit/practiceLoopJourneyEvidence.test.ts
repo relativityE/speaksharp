@@ -17,6 +17,9 @@ import {
     candidateFromPersistedTuple,
     classifyRequestsByBoundary,
     awaitCorrelatedTerminal,
+    savedCorrelationOf,
+    observedCandidateAfterSwitch,
+    runningCandidateAfterSwitch,
     COMPARISON_TARGETS,
     MODEL_COMPARISON_CDP_ARM_KEY,
     PERSISTED_TUPLE_TO_CANDIDATE,
@@ -339,9 +342,10 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
     });
 
     /** A fake clock whose `sleep` advances time and delivers events scheduled for that moment. */
-    const fakeWire = (schedule: Array<{ at: number; event: { name: string; attemptId?: string } }>) => {
+    type WireEvent = { name: string; attemptId?: string; journeyId?: string };
+    const fakeWire = (schedule: Array<{ at: number; event: WireEvent }>) => {
         let clock = 0;
-        const delivered: Array<{ name: string; attemptId?: string }> = [];
+        const delivered: WireEvent[] = [];
         const deliver = () => {
             for (const item of schedule) {
                 if (item.at <= clock && !delivered.includes(item.event)) delivered.push(item.event);
@@ -357,36 +361,71 @@ describe('#1437 RETURN workstream 1 — the real save boundary and the real wire
         };
     };
 
+    const saved = { name: 'session_saved', attemptId: ATTEMPT, journeyId: JOURNEY };
+
     it('CONTROL (Codex 3997967395): a terminal event that flushes 3 s after the DOM turns terminal is observed', async () => {
-        const rendered = { name: 'practice_loop_review_rendered', attemptId: ATTEMPT };
-        const wire = fakeWire([{ at: 3_000, event: rendered }]);
+        const rendered = { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY };
+        const wire = fakeWire([{ at: 0, event: saved }, { at: 3_000, event: rendered }]);
         // Counted at the DOM transition — the previous head's behaviour — the outcome is missing.
-        expect(wire.read()).toEqual([]);
-        const result = await awaitCorrelatedTerminal(wire.read, ATTEMPT, wire.wait);
+        expect(wire.read().filter((event) => event.name === rendered.name)).toEqual([]);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
         expect(result.settled).toBe(true);
-        expect(result.events).toEqual([rendered]);
+        expect(result.events).toEqual([saved, rendered]);
+    });
+
+    it('CONTROL (Codex 3998069827): session_saved reaching the wire AFTER the terminal event still settles', async () => {
+        // THE DISCRIMINATING CASE. A fast review: the terminal event is on the wire at 1 s, but the batch
+        // carrying `session_saved` only flushes at 2.5 s. Resolving the attempt once, before the wait, got null
+        // and failed this healthy run; resolving it on every read finds it.
+        const rendered = { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY };
+        const wire = fakeWire([{ at: 1_000, event: rendered }, { at: 2_500, event: saved }]);
+        expect(savedCorrelationOf(wire.read())).toBeNull();
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
+        expect(result.settled).toBe(true);
     });
 
     it('CASUALTY: a duplicate terminal event arriving in the next batch is counted, not missed', async () => {
-        const first = { name: 'practice_loop_review_failed', attemptId: ATTEMPT };
-        const second = { name: 'practice_loop_review_rendered', attemptId: ATTEMPT };
-        const wire = fakeWire([{ at: 1_000, event: first }, { at: 3_500, event: second }]);
-        const result = await awaitCorrelatedTerminal(wire.read, ATTEMPT, wire.wait);
+        const first = { name: 'practice_loop_review_failed', attemptId: ATTEMPT, journeyId: JOURNEY };
+        const second = { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY };
+        const wire = fakeWire([{ at: 0, event: saved }, { at: 1_000, event: first }, { at: 3_500, event: second }]);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
         expect(result.settled).toBe(true);
         expect(result.events.filter((event) => event.name.startsWith('practice_loop_review_'))).toHaveLength(2);
     });
 
     it('CASUALTY: a terminal event from a different attempt never settles the wait', async () => {
-        const wire = fakeWire([{ at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: 'att-other' } }]);
-        const result = await awaitCorrelatedTerminal(wire.read, ATTEMPT, wire.wait);
+        const wire = fakeWire([{ at: 0, event: saved }, { at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: 'att-other', journeyId: JOURNEY } }]);
+        const result = await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait);
         expect(result.settled).toBe(false);
         expect(practiceLoopJourneyFailures(without({ terminalFlushSettled: false })))
             .toContain('the correlated terminal telemetry was not observed within the bounded wait, so outcomes were counted from an incomplete batch');
     });
 
-    it('CASUALTY: an absent attempt id is never correlated', async () => {
-        const wire = fakeWire([{ at: 0, event: { name: 'practice_loop_review_rendered' } }]);
-        expect((await awaitCorrelatedTerminal(wire.read, null, wire.wait)).settled).toBe(false);
+    it('CASUALTY: a saved attempt that never reaches the wire is never correlated', async () => {
+        // The terminal event arrives, but nothing ever names the attempt — unsettled at the deadline, not a pass.
+        const wire = fakeWire([{ at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY } }]);
+        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait)).settled).toBe(false);
+    });
+
+    it('CASUALTY (PM criterion): the same attempt id under a different journey is a different take', async () => {
+        const wire = fakeWire([
+            { at: 0, event: saved },
+            { at: 1_000, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: 'jrn-other' } },
+        ]);
+        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait)).settled).toBe(false);
+    });
+
+    it('CASUALTY: a saved event without a journey id is never correlated', async () => {
+        const wire = fakeWire([
+            { at: 0, event: { name: 'session_saved', attemptId: ATTEMPT } },
+            { at: 0, event: { name: 'practice_loop_review_rendered', attemptId: ATTEMPT, journeyId: JOURNEY } },
+        ]);
+        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait)).settled).toBe(false);
+    });
+
+    it('CASUALTY: an absent attempt id on the saved event is never correlated', async () => {
+        const wire = fakeWire([{ at: 0, event: { name: 'session_saved' } }, { at: 0, event: { name: 'practice_loop_review_rendered' } }]);
+        expect((await awaitCorrelatedTerminal(wire.read, savedCorrelationOf, wire.wait)).settled).toBe(false);
     });
 });
 
@@ -452,6 +491,60 @@ describe('#1437 RETURN workstream 2 — an explicit target and one closed identi
     it('CASUALTY: a target outside the three-model comparison is refused', () => {
         expect(practiceLoopJourneyFailures(without({ candidateSwitch: { target: 'v4:base:int8', outcome: 'ok' } })))
             .toContain('requested target v4:base:int8 is not in the three-model comparison');
+    });
+
+    it('CASUALTY (PM criterion): the default acquisition BEFORE the switch cannot lend its identity, even when target == default', () => {
+        // THE DISCRIMINATING CASE. The page acquired v2 by default, then the switch bound an acquisition to
+        // v2 — but nothing after that bound start published an identity. Reading anywhere in the snapshot would
+        // borrow the default's `v2:base.en`, and because the target IS v2 it would even agree.
+        const events = [
+            { name: 'private_model_acquisition_start' },
+            { name: 'private_model_acquisition_success', acquired: 'v2:base.en', candidateId: 'v2:base.en' },
+            { name: 'private_model_acquisition_start', expected: 'v2:base.en' },
+        ];
+        expect(observedCandidateAfterSwitch(events, 'v2:base.en')).toBeNull();
+    });
+
+    it('CONTROL: the identity published after the switch-bound acquisition is the observed identity', () => {
+        const events = [
+            { name: 'private_model_acquisition_start' },
+            { name: 'private_model_acquisition_success', acquired: 'v2:base.en' },
+            { name: 'private_model_acquisition_start', expected: 'v4:distil:q4' },
+            { name: 'private_model_acquisition_success', acquired: 'v4:distil:q4' },
+        ];
+        expect(observedCandidateAfterSwitch(events, 'v4:distil:q4')).toBe('v4:distil:q4');
+        // With no acquired value after the bound start, the envelope's running candidate after it is used.
+        expect(observedCandidateAfterSwitch([
+            { name: 'private_model_acquisition_start', expected: 'v4:distil:q4' },
+            { name: 'session_started', candidateId: 'v4:distil:q4' },
+        ], 'v4:distil:q4')).toBe('v4:distil:q4');
+    });
+
+    it('CASUALTY (PM 5649623145 item 3): a candidate id emitted BEFORE the switch never becomes the running identity', () => {
+        // The default engine published `v2:base.en` before the switch; nothing after the target-bound start
+        // carries a candidate id. Searching the whole snapshot would bind the take to the default.
+        const beforeSwitchOnly = [
+            { name: 'session_started', candidateId: 'v2:base.en' },
+            { name: 'private_model_acquisition_start', expected: 'v4:distil:q4' },
+        ];
+        expect(runningCandidateAfterSwitch(beforeSwitchOnly, 'v4:distil:q4')).toBeNull();
+        // Including when the target IS the default, where equality would otherwise mask the borrow.
+        expect(runningCandidateAfterSwitch([
+            { name: 'session_started', candidateId: 'v2:base.en' },
+            { name: 'private_model_acquisition_start', expected: 'v2:base.en' },
+        ], 'v2:base.en')).toBeNull();
+        // CONTROL: a candidate id published after the bound start is the running identity.
+        expect(runningCandidateAfterSwitch([
+            ...beforeSwitchOnly,
+            { name: 'session_started', candidateId: 'v4:distil:q4' },
+        ], 'v4:distil:q4')).toBe('v4:distil:q4');
+    });
+
+    it('CASUALTY: no acquisition bound to the target means no observed identity at all', () => {
+        expect(observedCandidateAfterSwitch([
+            { name: 'private_model_acquisition_start' },
+            { name: 'private_model_acquisition_success', acquired: 'v2:base.en' },
+        ], 'v2:base.en')).toBeNull();
     });
 
     it('CASUALTY: no acquisition bound to the target leaves observed identity incomplete', () => {
