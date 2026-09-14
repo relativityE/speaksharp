@@ -20,7 +20,10 @@ import { useSessionStore } from '@/stores/useSessionStore';
 const rpc = vi.fn();
 /** When set, recommendation reads never settle — recommendation work has no deadline in production. */
 let hangRecommendation = false;
+/** Recommendation reconciliations started (each begins by reading `progress_recommendations`). */
+let recommendationReads = 0;
 const table = (name?: string) => {
+    if (name === 'progress_recommendations') recommendationReads++;
     const chain: Record<string, unknown> = {};
     for (const m of ['select', 'eq', 'in', 'order', 'limit', 'insert', 'upsert']) chain[m] = () => chain;
     chain.maybeSingle = () => (hangRecommendation && name === 'progress_recommendations'
@@ -80,6 +83,7 @@ beforeEach(() => {
     rpc.mockReset();
     __resetProgressDebtRetryForTests();
     hangRecommendation = false;
+    recommendationReads = 0;
     useSessionStore.getState().setProgressGate(null);
     pushSpy = vi.spyOn(analyticsBuffer, 'push').mockImplementation(() => undefined);
 });
@@ -467,6 +471,120 @@ describe('RWT-20 — the release bound is isolated from retained entries and rec
         const releasedAfter = await msUntilReleased('sess-still-failing', t0, 600);
 
         expect(getQueuedSessionIdsForUser(OWNER).sessionIds).not.toContain(SESSION);
+        expect(releasedAfter).toBeGreaterThan(0);
+        expect(releasedAfter).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+    });
+});
+
+// Codex P1 4002837036 on 01b90582: with load and retry on separate locks, both triggers could attempt the SAME blocking
+// debt at once — two RPCs, two persisted attempts without the backoff between them, and duplicate success side effects.
+describe('RWT-20 — one attempt at a time per debt, across the load and retry triggers', () => {
+    const PENDING_MS = 5_000;
+    // Its own owner: R8 above deliberately leaves an owner-wide load round hung forever, and a load round joined here
+    // would never attempt, making these casualties pass without exercising the overlap.
+    const R10_OWNER = 'owner-r10-overlap';
+
+    async function overlapLoadAndRetry(outcome: 'fail' | 'succeed') {
+        expect(enqueueProgressReconcile(SESSION, R10_OWNER, new Date(Date.now() - 1_000).toISOString()).ok).toBe(true);
+        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(R10_OWNER));
+        const t0 = Date.now();
+        let inFlight = 0;
+        let maxConcurrent = 0;
+        rpc.mockImplementation((name: string) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            inFlight++;
+            maxConcurrent = Math.max(maxConcurrent, inFlight);
+            return new Promise((resolve) => setTimeout(() => {
+                inFlight--;
+                resolve(outcome === 'succeed'
+                    ? { data: 'eval-1', error: null }
+                    : { data: null, error: { code: 'XX000', message: ERROR_TEXT } });
+            }, PENDING_MS));
+        });
+
+        // The authenticated load round and the in-page schedule start together, as useProgressReconciliation starts
+        // them; the load attempt is still pending when the first retry comes due.
+        void reconcileProgressEvaluations(R10_OWNER, []);
+        void scheduleProgressDebtRetry(R10_OWNER);
+
+        const attemptTimes: number[] = [];
+        let releasedAfter = -1;
+        for (let i = 0; i < 480; i++) {
+            await vi.advanceTimersByTimeAsync(250);
+            const entry = entryFor(SESSION);
+            const at = typeof entry?.lastAttemptAtIso === 'string' ? Date.parse(entry.lastAttemptAtIso) - t0 : null;
+            if (at !== null && attemptTimes[attemptTimes.length - 1] !== at) attemptTimes.push(at);
+            if (releasedAfter < 0 && entry?.releasedAtIso) releasedAfter = Date.now() - t0;
+        }
+        return { maxConcurrent, attemptTimes, releasedAfter };
+    }
+
+    it('a failing debt is attempted by one trigger at a time, and its persisted attempts keep the configured backoff', async () => {
+        const { maxConcurrent, attemptTimes, releasedAfter } = await overlapLoadAndRetry('fail');
+
+        expect(maxConcurrent).toBe(1);
+        expect(attemptTimes).toHaveLength(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        for (let i = 1; i < attemptTimes.length; i++) {
+            expect(attemptTimes[i] - attemptTimes[i - 1]).toBeGreaterThanOrEqual(PROGRESS_DEBT_RETRY_DELAYS_MS[i]);
+        }
+        expect(entryFor(SESSION)?.attempts).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        expect(releasedAfter).toBeGreaterThan(0);
+        expect(releasedAfter).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+    });
+
+    it('one physical success produces exactly one success lifecycle and one recommendation reconciliation', async () => {
+        const { maxConcurrent } = await overlapLoadAndRetry('succeed');
+
+        expect(maxConcurrent).toBe(1);
+        expect(debtEvents().filter((e) => e.phase === 'attempt_succeeded')).toHaveLength(1);
+        expect(recommendationReads).toBe(1);
+        expect(getQueuedSessionIdsForUser(R10_OWNER).sessionIds).toEqual([]);
+    });
+    it('a skipped debt spends no budget: while load is attempting it, retries wait for the attempt load persists', async () => {
+        const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+        localStorage.setItem(PROGRESS_QUEUE_STORAGE_KEY, JSON.stringify([
+            {
+                sessionId: 'retained-first', userId: R10_OWNER, enqueuedAtIso: iso(3_600_000),
+                attempts: PROGRESS_DEBT_ATTEMPT_BUDGET, lastAttemptAtIso: iso(600_000), releasedAtIso: iso(500_000),
+            },
+            { sessionId: SESSION, userId: R10_OWNER, enqueuedAtIso: iso(1_000) },
+        ]));
+        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(R10_OWNER));
+        const failed = { data: null, error: { code: 'XX000', message: ERROR_TEXT } };
+        let blockingCalls = 0;
+        rpc.mockImplementation((name: string, args: unknown) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            // Load reaches the blocking debt at 1.5 s, behind a retained entry, and that attempt runs to its deadline —
+            // past more than one retry due time. Every later attempt fails at once.
+            if (JSON.stringify(args ?? {}).includes('retained-first')) {
+                return new Promise((resolve) => setTimeout(() => resolve(failed), 1_500));
+            }
+            blockingCalls++;
+            return blockingCalls === 1 ? new Promise(() => {}) : Promise.resolve(failed);
+        });
+
+        const t0 = Date.now();
+        void reconcileProgressEvaluations(R10_OWNER, []);
+        void scheduleProgressDebtRetry(R10_OWNER);
+
+        const attemptTimes: number[] = [];
+        let attemptsAtRelease = -1;
+        let releasedAfter = -1;
+        for (let i = 0; i < 480 && releasedAfter < 0; i++) {
+            await vi.advanceTimersByTimeAsync(250);
+            const entry = entryFor(SESSION);
+            const at = typeof entry?.lastAttemptAtIso === 'string' ? Date.parse(entry.lastAttemptAtIso) - t0 : null;
+            if (at !== null && attemptTimes[attemptTimes.length - 1] !== at) attemptTimes.push(at);
+            if (entry?.releasedAtIso) {
+                releasedAfter = Date.now() - t0;
+                attemptsAtRelease = entry.attempts as number;
+            }
+        }
+
+        expect(attemptsAtRelease).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        for (let i = 1; i < attemptTimes.length; i++) {
+            expect(attemptTimes[i] - attemptTimes[i - 1]).toBeGreaterThanOrEqual(PROGRESS_DEBT_RETRY_DELAYS_MS[i]);
+        }
         expect(releasedAfter).toBeGreaterThan(0);
         expect(releasedAfter).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
     });

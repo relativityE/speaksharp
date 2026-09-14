@@ -515,12 +515,20 @@ function releaseProgressGateFor(sessionId: string, userId: string): void {
 /** RWT-20 — the outcome of one attempt round over an owner's durable Progress debt. */
 export interface ProgressDebtRoundResult {
     drained: number;
+    /** Sessions this round actually attempted; a debt the other trigger is already attempting is skipped. */
+    attempted: ReadonlySet<string>;
     /** Entries still holding Start (not yet released) after this round. */
     remainingBlocking: number;
     unreadable: boolean;
 }
 
 const roundsInFlight = new Map<string, Promise<ProgressDebtRoundResult>>();
+
+/**
+ * RWT-20 — owner + session keys whose evaluation attempt is in flight, across BOTH triggers (Codex 4002837036). A round
+ * that meets one skips that debt: no second RPC, and no second persisted attempt, clear or telemetry for it.
+ */
+const evaluationsInFlight = new Set<string>();
 
 /**
  * RWT-20 — ONE attempt round over this owner's durable debt, single-flight per owner and trigger.
@@ -555,15 +563,27 @@ async function runProgressDebtRound(
     const owed = getQueueEntriesForUser(userId);
     if (!owed.ok) {
         logger.warn({ failure: owed.failure }, '[progress] reconcile queue unreadable — not draining');
-        return { drained: 0, remainingBlocking: 0, unreadable: true };
+        return { drained: 0, attempted: new Set<string>(), remainingBlocking: 0, unreadable: true };
     }
     // A retry round chases only the entries whose own backoff is due, so each entry's budget is spent on its own clock.
     const targets = trigger === 'retry'
         ? owed.entries.filter((e) => !e.releasedAtIso && (!onlySessionIds || onlySessionIds.has(e.sessionId)))
         : owed.entries;
     let drained = 0;
+    const attempted = new Set<string>();
     for (const entry of targets) {
-        const attempt = await attemptProgressEvaluation(entry.sessionId);
+        const flightKey = `${userId}:${entry.sessionId}`;
+        if (evaluationsInFlight.has(flightKey)) continue; // the other trigger is attempting this debt right now
+        evaluationsInFlight.add(flightKey);
+        attempted.add(entry.sessionId);
+        let attempt: EvaluationAttempt;
+        try {
+            attempt = await attemptProgressEvaluation(entry.sessionId);
+        } finally {
+            // Released here because everything from this point to the recommendation work is synchronous: this attempt's
+            // persist/clear and telemetry complete before the other trigger can start on the same debt.
+            evaluationsInFlight.delete(flightKey);
+        }
         const now = Date.now();
         const ageMs = progressDebtAgeMs(entry.enqueuedAtIso, now);
         const attemptNumber = (entry.attempts ?? 0) + 1;
@@ -600,6 +620,7 @@ async function runProgressDebtRound(
     const after = getQueueEntriesForUser(userId);
     return {
         drained,
+        attempted,
         remainingBlocking: after.ok ? after.entries.filter((e) => !e.releasedAtIso).length : 0,
         unreadable: !after.ok,
     };

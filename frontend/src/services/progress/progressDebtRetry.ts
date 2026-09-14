@@ -41,6 +41,9 @@ const schedules = new Map<string, Promise<ProgressDebtRetryResult>>();
 
 const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
 
+/** How soon a due debt that was skipped, because the other trigger was attempting it, is read again. */
+const SKIP_RECHECK_MS = 250;
+
 export function scheduleProgressDebtRetry(userId: string): Promise<ProgressDebtRetryResult> {
     if (!userId) return Promise.resolve({ resolved: 0, released: 0 });
     const existing = schedules.get(userId);
@@ -67,6 +70,7 @@ async function runSchedule(userId: string): Promise<ProgressDebtRetryResult> {
         return base + PROGRESS_DEBT_RETRY_DELAYS_MS[Math.min(attempts, PROGRESS_DEBT_RETRY_DELAYS_MS.length - 1)];
     };
     const refused = new Set<string>();
+    let recheckAt = 0;
     let resolved = 0;
     let released = 0;
     for (;;) {
@@ -83,16 +87,24 @@ async function runSchedule(userId: string): Promise<ProgressDebtRetryResult> {
         if (pending.length === 0) return { resolved, released };
 
         const nextDue = Math.min(...pending.map(dueAt));
-        await sleep(Math.max(0, nextDue - Date.now()));
+        await sleep(Math.max(0, Math.max(nextDue, recheckAt) - Date.now()));
+        // Re-read after the wait: the other trigger may have persisted, cleared or released a debt meanwhile, and a stale
+        // snapshot would treat the attempt it just made as still due (Codex 4002837036).
+        const fresh = getQueueEntriesForUser(userId);
+        if (!fresh.ok) return { resolved, released };
         const now = Date.now();
-        const due = new Set(pending.filter((e) => dueAt(e) <= now).map((e) => e.sessionId));
+        const current = fresh.entries.filter((e) => !e.releasedAtIso && !refused.has(e.sessionId) && attemptsOf(e) < PROGRESS_DEBT_ATTEMPT_BUDGET);
+        const due = new Set(current.filter((e) => dueAt(e) <= now).map((e) => e.sessionId));
         const round = await attemptProgressDebtRound(userId, 'retry', due);
         resolved += round.drained;
         if (round.unreadable) return { resolved, released };
-        for (const e of pending) {
-            if (!due.has(e.sessionId)) continue;
+        for (const e of current) {
+            // Only attempts this round made advance the in-memory floor. A skipped debt's next due time comes from the
+            // attempt the other trigger persists, so it is re-read shortly instead of being spun on or counted.
+            if (!round.attempted.has(e.sessionId)) continue;
             tried.set(e.sessionId, { attempts: attemptsOf(e) + 1, lastAt: now });
         }
+        recheckAt = [...due].some((id) => !round.attempted.has(id)) ? Date.now() + SKIP_RECHECK_MS : 0;
     }
 }
 
