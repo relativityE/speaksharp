@@ -36,6 +36,7 @@
 import {
     CONVERSION_SOURCES, UTM_SOURCES, UTM_MEDIUMS, UTM_CAMPAIGNS, closedWith,
 } from './conversionVocabulary';
+import { PROGRESS_DEBT_PHASES, PROGRESS_DEBT_REASONS, PROGRESS_DEBT_TRIGGERS } from './progress/progressDebtVocabulary';
 
 /** The checked-in Report Issue vocabularies — the same slugs the database stores. */
 const ISSUE_CATEGORIES = [
@@ -295,6 +296,19 @@ export const EVENT_SCHEMAS = Object.freeze({
         // UPPERCASE, from RuntimeState. The lowercase set dropped every real value this event carries.
         runtime_state: enumOf(RUNTIME_STATES),
         error_name: slug(), start_leaf_name: slug(),
+    },
+    /**
+     * RWT-20 — durable Progress debt lifecycle: enqueued on a failed save, each retry attempt, and the one
+     * terminal release after the retry bound. Closed reasons, counts and durations only — never a session id,
+     * an owner, or error text (the RPC error body can echo request material).
+     */
+    progress_debt: {
+        phase: enumOf(PROGRESS_DEBT_PHASES),
+        trigger: enumOf(PROGRESS_DEBT_TRIGGERS),
+        reason: enumOf(PROGRESS_DEBT_REASONS),
+        attempt: { kind: 'int', min: 0, max: 10_000 } as FieldRule,
+        age_ms: { kind: 'int', min: 0, max: Number.MAX_SAFE_INTEGER } as FieldRule,
+        latency_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
     },
     recording_blocked_stale_client: {
         status: enumOf(FRESHNESS),

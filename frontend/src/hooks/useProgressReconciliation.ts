@@ -3,6 +3,7 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { usePracticeHistory } from './usePracticeHistory';
 import { reconcileProgressEvaluations, type ReconcilableSession } from '../services/progress/recordProgress';
 import { reconstructGateFromQueue, subscribeCrossTabProgressGate } from '../services/progress/progressStartGate';
+import { scheduleProgressDebtRetry } from '../services/progress/progressDebtRetry';
 import { useSessionStore } from '../stores/useSessionStore';
 import logger from '../lib/logger';
 
@@ -53,6 +54,27 @@ export function useProgressReconciliation(): void {
             (gate) => useSessionStore.getState().setProgressGate(gate),
         );
     }, [userId]);
+
+    // RWT-20 — BOUNDED IN-PAGE RETRY. A `queued` gate (reconstructed on reload, or published by a failed save in this
+    // tab) used to wait for the NEXT page load while the card promised an automatic retry; in Production that held
+    // Start for ~88 minutes. The schedule retries on a bounded backoff, then releases Start while the debt stays
+    // durable. It is single-flight per owner, so repeated gate publications never multiply attempts.
+    const progressGate = useSessionStore((st) => st.progressGate);
+    const queuedSessionId = userId && progressGate?.state === 'queued' && progressGate.ownerId === userId
+        ? progressGate.sessionId
+        : null;
+    useEffect(() => {
+        if (!userId || !queuedSessionId) return undefined;
+        let current = true;
+        void scheduleProgressDebtRetry(userId)
+            // When the schedule settles, rebuild the visible gate from the durable queue (Codex 4003102441). A `queued`
+            // gate published after another tab cleared its debt would otherwise hold Start forever. Empty clears it,
+            // remaining debt stays queued, unreadable stays unresolved; a settlement that outlived this owner or mount
+            // publishes nothing.
+            .then(() => { if (current) useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId)); })
+            .catch((err) => logger.warn({ err }, '[progress] bounded debt retry failed (non-fatal)'));
+        return () => { current = false; };
+    }, [userId, queuedSessionId]);
 
     useEffect(() => {
         const userId = user?.id;
