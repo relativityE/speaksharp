@@ -71,6 +71,25 @@ describe('Admin - Test Users workflow contract', () => {
     }
   });
 
+  it('the run summary claims password or registry changes ONLY for setup, and verify says it changed nothing', () => {
+    // Codex P2 4009444319: the Summary step printed "Registry updated" / "New SOAK_TEST_PASSWORD generated" on
+    // every action, so a read-only verify run produced evidence of mutations that never happened.
+    const summary = wf.jobs['test-user-admin'].steps.find((s) => s.name === 'Summary');
+    expect(summary, 'Summary step missing').toBeTruthy();
+    const lines = summary.run.split('\n');
+    const guards = [];
+    const unguarded = [];
+    for (const line of lines) {
+      const t = line.trim();
+      if (/^if \[/.test(t)) guards.push(/^if \[ "\$ACTION" = "setup" \]; then$/.test(t));
+      else if (t === 'fi') guards.pop();
+      // Only EMITTED lines are claims; a shell comment naming the secret is not evidence in the run summary.
+      else if (/^echo /.test(t) && /SOAK_TEST_PASSWORD|Password Strategy|Registry updated/.test(t) && !guards.includes(true)) unguarded.push(t);
+    }
+    expect(unguarded, 'password/registry claims printed outside an ACTION=setup guard').toEqual([]);
+    expect(summary.run).toMatch(/if \[ "\$ACTION" = "verify" \]; then\s*\n\s*echo "Read-only verification: no accounts, profiles or secrets were changed\." >> \$GITHUB_STEP_SUMMARY/);
+  });
+
   it('keeps the stable script path and filename contract', () => {
     expect(raw).toContain('node scripts/setup-test-users.mjs');
   });

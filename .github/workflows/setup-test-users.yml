@@ -157,11 +157,18 @@ jobs:
             echo "**Create purpose:** ${CREATE_PURPOSE:-standard}" >> $GITHUB_STEP_SUMMARY
           fi
           echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
-          echo "**Password Strategy:** $PASSWORD_ACTION" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "$PASSWORD_ACTION" = "generate_new_credentials" ]; then
-            echo "✅ New SOAK_TEST_PASSWORD generated and saved to GitHub Secrets" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "✅ Registry updated with current SOAK_TEST_PASSWORD" >> $GITHUB_STEP_SUMMARY
+
+          # Password and registry claims describe what `setup` did. Only that action generates or applies
+          # SOAK_TEST_PASSWORD, so no other action may report it (Codex P2 4009444319).
+          if [ "$ACTION" = "setup" ]; then
+            echo "**Password Strategy:** $PASSWORD_ACTION" >> $GITHUB_STEP_SUMMARY
+            if [ "$PASSWORD_ACTION" = "generate_new_credentials" ]; then
+              echo "✅ New SOAK_TEST_PASSWORD generated and saved to GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ Registry updated with current SOAK_TEST_PASSWORD" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          if [ "$ACTION" = "verify" ]; then
+            echo "Read-only verification: no accounts, profiles or secrets were changed." >> $GITHUB_STEP_SUMMARY
           fi
