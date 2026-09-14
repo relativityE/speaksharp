@@ -38,7 +38,7 @@ Coverage state:
 
 Sources: [PM package](https://github.com/relativityE/speaksharp/pull/1432#issuecomment-5659014375), [row results](https://github.com/relativityE/speaksharp/pull/1432#issuecomment-5659031757), [PM transfer](https://github.com/relativityE/speaksharp/pull/1399#issuecomment-5659070994), and the frozen P1 disposition recorded on `#1432`.
 
-## Authoritative RWT register
+## List 1 — initial Production RWT findings
 
 | ID | Journey step / user promise | Finding and user impact | State | Coverage at `1b311f9` | Smallest missing proof |
 |---|---|---|---|---|---|
@@ -65,6 +65,106 @@ Sources: [PM package](https://github.com/relativityE/speaksharp/pull/1432#issuec
 | RWT-21 | Production telemetry reconstructs the user's terminal journey outcome | Telemetry recorded activity but could not distinguish several failures from no request. | **nonblocking P2** | **partial** | Correlated, content-free start/acquisition/finalize/progress outcomes; observation failure remains nonblocking |
 | RWT-22 | One failure emits one terminal state | Failure state flapped `FAILED` ↔ `FAILED_VISIBLE` multiple times. | **nonblocking P2** | **uncovered** at real controller seam | One injected failure → exactly one terminal visible state/event |
 | RWT-23 | Idle teardown/reacquisition is intentional, observable, and safe | Engine was silently reclaimed and reacquired without page load. | **nonblocking P2** | **partial** internal lifecycle tests | Policy-level idle casualty and content-free lifecycle evidence |
+
+## List 2 — post-RWT causal and exact-head review findings
+
+This second list is intentionally separate from the initial Production observations. It records what later source analysis and exact-head review learned about cause, diagnostic blindness, and new defects introduced or exposed by the first bounded correction. Where a row explains an initial RWT item, it cross-references that item instead of pretending the same user failure happened twice.
+
+### A. Product and telemetry findings discovered after the initial RWT
+
+| ID | Later finding | Relationship to initial RWT | Current disposition | Required effectiveness proof |
+|---|---|---|---|---|
+| NEW-01 | A shared STT strategy initialization limit of about 5 seconds overrides Moonshine's own 60-second initialization allowance. A normal cold asset transfer can therefore be terminated while still making successful progress. | Confirmed mechanism for RWT-07; also contributes to RWT-08. | **P1 causal evidence** in the later cold-acquisition/recovery lane; do not fix in this audit PR. | Real cold-cache asset path; progress-aware timeout casualty; terminal recovery proof. |
+| NEW-02 | Acquisition error classification recognizes a few message words but collapses distinct Moonshine outcomes such as an exceeded bound, superseded initialization, and identity mismatch into `unknown`. | Explains the diagnostic blindness in RWT-09 and RWT-21. | **nonblocking P2 telemetry correctness** in `#1399`. | One injected failure per governed reason; emitted category must distinguish the stage safely without raw error text. |
+| NEW-03 | Moonshine has no equivalent of the dedicated v4 lifecycle/attempt telemetry, so engine initialization and teardown cannot be reconstructed from governed events. | Extends RWT-21; helps explain why Moonshine failure could not be diagnosed live. | **nonblocking P2 observability** in `#1399`. | Content-free lifecycle sequence with exactly one terminal per attempt; no transcript, model content, or credential. |
+| NEW-04 | Five-minute idle reclamation matches the observed READY/IDLE/TERMINATED cycling and background reacquisition without a new user action. | Confirmed mechanism for RWT-23. | **nonblocking P2 policy/observability** in `#1399`. | Idle-policy casualty proving teardown/reacquisition is safe, intentional, visible to telemetry, and cannot create a stale Start. |
+| NEW-05 | In `#1463@7776a351`, debt arriving while an older schedule's final RPC was in flight could be released with zero attempts of its own. | New exact-head defect in the attempted RWT-20 correction. | **P1; remains in bounded `#1463` scope** as review thread 4002335597. | Deterministic later-arrival casualty; each obligation exhausts only its own persisted budget. |
+| NEW-06 | In `#1463@7776a351`, concurrent tabs could overwrite the shared queue and permanently lose another tab's debt while the writer reported success. | New exact-head durable-concurrency defect. | **P1; separate queued successor after the `#1463` Production micro-test**, review thread 4002335598. Not `#1399`. | True cross-renderer interleaving with durable readback, owner isolation, and legacy compatibility only if needed. |
+| NEW-07 | In `#1463@7776a351`, reload ignored persisted attempts/time and restarted a full retry schedule, recreating an indefinite hold across repeated loads. | New exact-head defect that violates the RWT-20 objective directly. | **P1; remains in bounded `#1463` scope**, review thread 4002335600. | Run → reload mid-budget → resume casualty; repeated reload cannot extend the per-obligation bound. |
+| NEW-08 | A malformed release marker such as `releasedAtIso: "corrupt"` allowed Start. | New defensive storage finding from exact-head review. | **nonblocking P2** transferred to `#1399`, review thread 4002335603. | Corrupt-marker fail-closed casualty in a separately authorized hardening lane. |
+| NEW-09 | Re-enqueueing an existing debt could emit duplicate `enqueued` telemetry with a near-zero age, obscuring the actual debt duration. | New telemetry finding from exact-head review. | **nonblocking P2** transferred to `#1399`, review thread 4002335607. | Event-cardinality and original-age casualty; telemetry remains corroborating, not release proof. |
+| NEW-10 | After auth changed from account A to B, the scheduler could continue retrying A's debt and mark it released locally. Backend ownership prevented the database write; no P0/P1 data impact was established. | New identity/security-hardening finding from exact-head review. | **nonblocking P2** transferred to `#1399`, review thread 4002356419. | Auth-epoch cancellation and owner-scoped state casualty; no cross-account local release claim. |
+| NEW-11 | The first `#1463` test design modeled one tab, one owner, one schedule, and no reload mid-budget; all six NEW-05–10 cases were absent until Codex review and Dev reproduction. | Direct evidence that case count did not equal risk coverage. | **verified effectiveness failure**; input to this Consultant audit. | Consultant must map state dimensions and interleavings, then prove every retained gate with a breaking casualty. |
+
+### B. Process escapes newly acknowledged after the initial RWT
+
+These are control failures to include in the effectiveness audit. They are not additional product defects and must not be used to inflate the implementation queue.
+
+| ID | Acknowledged escape | Missing control |
+|---|---|---|
+| ESC-01 | Dev ran comparison takes through an observer that had not been proven passive; it reloaded, wrapped network APIs, paused workers, and materially changed the outcome. | Mandatory with/without non-interference casualty before any instrument may qualify evidence. |
+| ESC-02 | Long, expanding branches accumulated user-visible changes without a short deployed user check after each bounded fix; `#1432` reached 58 files and 6,862 lines. | One outcome/failure cluster per PR, then merge, deploy, and affected-journey micro-test before the next lane. |
+| ESC-03 | Broad CI green was treated as readiness even though the canary executed zero product checks and no gate ran Start → save → coverage on the real deployed stack. | `NON_COVERAGE` for zero-check runs; no readiness claim without a row-level real-boundary result. |
+| ESC-04 | The evidence schema could encode a successful take but not a blocked, stalled, abandoned, ghost, failed, or coverage-unavailable attempt. | Failure must be a first-class row with terminal state, safe reason, latency, recovery, and evidence status. |
+| ESC-05 | Telemetry was not validated as a diagnostic before the test; Moonshine returned `unknown` and multiple failures looked like absence rather than a terminal. | Every journey/failure test also proves the content-free correlated telemetry terminal. |
+| ESC-06 | The first RWT-20 fix repeated happy/single-context coverage and missed multi-tab, auth-change, corruption, duplicate-event, and reload-resume cases. | State-space/interleaving review before implementation; deterministic RED casualties precede a correction. |
+| ESC-07 | Code paths behind the five-second Moonshine cutoff, swallowed Focus Points 422, and once-per-load progress drain were implemented or reviewed without being exercised as a user. | Production-code user validation at the exact affected journey after every deployed bounded change. |
+| ESC-08 | PM did not provide—and Consultant did not refuse to proceed without—a granular PO/Ops procedure and expected-outcome rubric. | The procedure below is the denominator; missing rows make Consultant signoff unavailable, not implicitly green. |
+
+## PO/Ops test procedure and expected-outcome rubric
+
+This is the input denominator for the Consultant's effectiveness and traceability review. It separates normal user execution from deterministic failure probes. The Consultant may identify a missing budget or expectation, but must not invent product policy.
+
+### Matrix and preparation
+
+- Cover the approved three hidden candidates across both user journeys: Open Mic and Focus Points. The comparison packet therefore contains six candidate/journey cells.
+- Record desktop and mobile coverage separately. A desktop result does not imply mobile coverage; an uncovered device class is explicit.
+- Use the canonical Production deployment at the exact reviewed SHA. Preview/local behavior, stale evidence, and test counts are not substitutes.
+- Use a fresh isolated normal browser session and the ordinary sign-in path. Baseline execution has no debugger, page-world API wrapper, forced navigation, worker pause, direct provider call, or manual suggestion-generation action.
+- Record only content-free evidence: release SHA, candidate/journey identity, authorization/attempt references, stage/outcome, safe reason category, and latency. Never record credentials, transcripts, Focus Point text, or suggestion content.
+- Mark cold/warm model state, device/browser class, and any network condition needed to interpret acquisition. Do not change those conditions silently during a row.
+
+### Normal user path for every cell
+
+| Step | User action | Expected visible/product outcome | Required evidence classification |
+|---|---|---|---|
+| P-01 | Enter the selected journey through normal product controls. | Correct journey, topic, and entered Focus Points are present; no hidden test control changes customer state. | Journey row and device class named. |
+| P-02 | Wait for readiness without manipulating the page. | Readiness copy and Start enabled/disabled state agree. If setup is not ready, the user sees one truthful stage, not contradictory “ready” and “downloading” claims. | Real engine/worker boundary; elapsed readiness time recorded. |
+| P-03 | Press Start exactly once. | Exactly one terminal within the authoritative product budget: RECORDING, or one visible safe stage-coded failed/refused outcome. No indefinite disabled state. If no authoritative budget exists, mark the budget as a product gap—never infer a pass. | One intent, one terminal, latency, safe reason. |
+| P-04 | Speak the authorized content-safe comparison script naturally. | Recording remains active, mic state is truthful, and transcript behavior is observable without a test instrument changing the app. | Human quality judgment remains separate from automated functional proof. |
+| P-05 | Press Stop exactly once. | Recording stops; no delayed or ghost restart occurs without a fresh Start action. | One stop intent and one terminal recording state. |
+| P-06 | Wait for persistence. | Session saves durably or shows one truthful save failure within the authoritative budget. Stop/save latency is measured from the user's action. | Persisted readback or one safe failed/refused terminal. |
+| P-07 | Take no manual generation action. | A successfully completed/saved session automatically starts suggestions and reaches exactly one user-visible rendered-success or safe failed/refused terminal. | Correlate session completed/saved → automatic request started → exactly one terminal with latency. Never emit readiness/rendered markers unless valid review appears. |
+| P-08 | For Focus Points, inspect every entered point in order. | Every entered and substantively spoken point receives a rendered verdict, or the user sees one coverage-unavailable terminal. HTTP 422 or missing evaluation cannot become silent HOLD. | Real `objective-register-source`/finalization boundary and per-point terminal status without point text. |
+| P-09 | Inspect recovery choices and error copy. | One failure owns one message surface; copy matches its actual class; offered retry/new-set actions are valid for the state. | Rendered surface, stage, safe reason, available recovery. |
+| P-10 | Reload through the normal browser action, then return to the journey. | Selected journey/setup and durable obligations are reconstructed truthfully. Reconciliation has observable retry/backoff and an honest terminal; unresolved debt remains durable while Start eventually releases according to policy. | Cross-load evidence; no local-only claim. |
+| P-11 | Press Start once after recovery/reload when the UI says it is usable. | Start works exactly once or returns one truthful bounded failure. No stale intent, identity mismatch loop, or hidden engine teardown. | Final affected-journey outcome at the same deployed SHA. |
+| P-12 | Finish the cell. | Requested, expected, observed, and persisted hidden candidate identities agree for the whole take. | Exact-head authority and trusted content-free readback; no customer-facing selector required. |
+
+### Deterministic failure and recovery probes
+
+These probes are test responsibilities, not extra steps imposed on the PO's ordinary baseline session.
+
+| Probe | Responsible real boundary | User outcome that must remain true |
+|---|---|---|
+| F-01 delayed worker/model readiness | real worker and controller scheduling | Start reaches RECORDING or one bounded truthful failure; readiness copy stays consistent. |
+| F-02 slow/aborted cold model asset | real candidate asset path and orchestration timeout | Progress is not killed by an arbitrary shorter timer; terminal failure is honest and recoverable. |
+| F-03 Focus Points registration returns 422 | real Edge/function contract | Coverage-unavailable appears once and is telemetered; no false coverage/readiness event. |
+| F-04 reconciliation RPC fails repeatedly | durable queue plus real RPC contract | Each obligation gets its own persisted budget; debt remains; Start releases at the honest terminal. |
+| F-05 reload mid-retry budget | durable cross-load state | Remaining schedule resumes; reload cannot restart or extend the bound. |
+| F-06 two tabs interleave queue writes | real cross-renderer storage behavior | No obligation is overwritten or lost; readback proves owner/session isolation. |
+| F-07 auth changes mid-schedule | auth epoch plus durable owner state | Prior owner's work is cancelled/isolated and cannot be released under the new owner. |
+| F-08 corrupt/unreadable durable marker | browser storage/readback | Start fails closed with one recoverable, truthful outcome; corruption is never interpreted as release. |
+| F-09 delayed/stale Start intent | controller plus mic acquisition | An abandoned or superseded intent cannot begin recording; a fresh Start still records once. |
+| F-10 observation enabled vs disabled | running deployed app | Navigation, request behavior, workers, timings, and terminal user outcome are equivalent within the approved tolerance. |
+
+### Consultant-required output
+
+For every existing unit, E2E, canary, live, workflow, observer, and evidence-schema test, Consultant must map:
+
+1. the List 1 and/or List 2 IDs it claims to protect;
+2. the procedure row or failure probe;
+3. the user-visible promise;
+4. the responsible production boundary and which parts are mocked;
+5. the terminal oracle;
+6. the RED casualty/mutation and proof the test fails;
+7. runtime and CI lane;
+8. unique risk not protected elsewhere;
+9. classification: **retain**, **consolidate**, **demote to mock-only evidence**, **repair**, **add**, or **delete candidate**;
+10. residual human-only or uncovered risk.
+
+A test with no journey/finding mapping is a bloat candidate. Two tests with the same boundary, oracle, and killed casualty are redundancy candidates. A test that stays green when its mapped finding is reintroduced is ineffective and cannot count toward readiness. A canary that executes zero product checks is `NON_COVERAGE`. Deletion still requires measured cost and proof that retained coverage preserves every unique killed failure.
+
 
 ## Candidate observations requiring PO verification
 
