@@ -687,6 +687,8 @@ describe('#1422 — superseded review requests are silent', () => {
  */
 describe('#1422 P1 — the Open Mic review receipt belongs to the rendered review', () => {
     let pushSpy: ReturnType<typeof vi.spyOn>;
+    let intersectionCallback: IntersectionObserverCallback;
+    const scrollIntoView = vi.fn();
 
     const VALID = {
         version: 'gemini_coaching_v1' as const,
@@ -702,9 +704,29 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         __resetCompletionStagesForTests();
         beginJourney();
         pushSpy = vi.spyOn(analyticsBuffer, 'push').mockImplementation(() => undefined);
+        Object.defineProperty(Element.prototype, 'scrollIntoView', {
+            configurable: true,
+            value: scrollIntoView,
+        });
+        vi.stubGlobal('IntersectionObserver', vi.fn((callback: IntersectionObserverCallback) => {
+            intersectionCallback = callback;
+            return {
+                root: null,
+                rootMargin: '0px',
+                thresholds: [0.01],
+                observe: vi.fn(),
+                unobserve: vi.fn(),
+                disconnect: vi.fn(),
+                takeRecords: vi.fn(() => []),
+            } as unknown as IntersectionObserver;
+        }));
     });
 
-    afterEach(cleanup);
+    afterEach(() => {
+        cleanup();
+        vi.unstubAllGlobals();
+        delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    });
 
     const receipts = () => pushSpy.mock.calls
         .filter((c) => c[0] === 'practice_loop')
@@ -715,14 +737,26 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         rendered: reachedStages().includes('review_rendered'),
     });
 
-    it('a rendered 1+1 review emits exactly one truthful receipt and marks both stages once', async () => {
+    const revealReview = () => {
+        const card = screen.getByTestId('ai-suggestions-card');
+        intersectionCallback([
+            { target: card, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry,
+        ], {} as IntersectionObserver);
+    };
+
+    it('a visible 1+1 review emits exactly one truthful receipt and marks both stages once', async () => {
         mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: VALID }, error: null });
 
         const view = render(<AISuggestions transcript="hello" sessionId="session-ok" />);
         await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
 
+        // DOM presence is not visibility. A below-the-fold card must not claim the user saw it.
+        expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
+        revealReview();
+
         // A re-render of the same session is not a second review.
         view.rerender(<AISuggestions transcript="hello" sessionId="session-ok" />);
+        revealReview();
 
         const emitted = receipts();
         expect({ count: emitted.length, ...stages() }).toEqual({ count: 1, ready: true, rendered: true });
@@ -745,6 +779,7 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
             rendered: true,
             suppression: 'none',
         });
+        expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
     });
 
     it('CASUALTY: a review still in flight emits no receipt and marks neither stage', async () => {
@@ -793,6 +828,7 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
 
         view.rerender(<AISuggestions transcript="hello" sessionId="session-B" initialSuggestions={VALID} />);
         await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
+        revealReview();
         expect(receipts().length).toBe(1);
 
         settleA({ data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'A strength.', what_to_try_next: 'A next step.' } }, error: null });
