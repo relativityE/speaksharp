@@ -1,7 +1,7 @@
 # Test-gate effectiveness audit after Production real-world testing
 
-**Consultant assessment — documentation only**  
-**Audited baseline:** `main@1b311f9288a383db1a4a224d69928f7af9a6753b`  
+**Consultant assessment — documentation only**
+**Audited baseline:** `main@1b311f9288a383db1a4a224d69928f7af9a6753b`
 **Question:** why did thousands of green checks fail to predict the Product Owner's actual Open Mic and Focus Points experience?
 
 This is a bounded audit, not a “fix everything” PR. It changes no product code, schema, telemetry, test, CI workflow, environment, migration, or release policy. Recommendations are successor lanes for PM/PO disposition; they are not implementation authority.
