@@ -67,6 +67,17 @@ The observer changed navigation, APIs, and worker startup and had no running-app
 
 `#1437` was told to define the authoritative Open Mic/Focus Points denominator, but the merged scope became an inventory plus a Practice Loop diagnostic. `#1432` then explicitly rejected importing the broad register to preserve its downselection scope. The scope decisions were recorded; the missing control was a separate owner/deliverable check for the displaced matrix.
 
+## Consultant accountability
+
+Consultant contributed directly to this escape. I did not deliver the promised authoritative desktop/mobile Open Mic and Focus Points journey matrix in `#1437`. I allowed that PR to pivot to one Practice Loop diagnostic without marking the absent matrix as an unfulfilled deliverable that blocked Consultant signoff. I over-weighted inventory size and test counts, and did too little risk-to-test and mutation mapping to distinguish unique protection from deletable fake, duplicate, or low-value tests. I also failed to prove that the canary executed product checks, that the observer was non-interfering, or that real boundaries covered Start, acquisition, Focus Points, reload, recovery, and rendered error states. The result was a large green estate that did not protect the Product Owner's actual journey.
+
+Binding corrections for future Consultant work:
+
+1. Begin every effectiveness audit from a PO-authored granular journey denominator covering each user action, expected visible state, terminal outcome, failure/recovery path, device class, and required real boundary.
+2. Count coverage as `proven` only when the responsible real boundary is exercised and a casualty or mutation demonstrates that the test fails when the user promise is broken.
+3. Before recommending deletion or consolidation, measure runtime and identify the unique risk protected by each candidate and the retained test that preserves it.
+4. Withhold Consultant signoff whenever a promised journey matrix is absent or a canary run executes zero product checks. Such a run is `NON_COVERAGE`, never journey evidence.
+
 ## The effective gate standard
 
 A test protects a real-world promise only when all of the following are named:
