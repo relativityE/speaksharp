@@ -1,7 +1,7 @@
 # Production real-world journey findings and traceability register
 
-**Consultant assessment — documentation only**  
-**Evidence baseline:** Production `main@1b311f9288a383db1a4a224d69928f7af9a6753b`, exercised 2026-09-14  
+**Consultant assessment — documentation only**
+**Evidence baseline:** Production `main@1b311f9288a383db1a4a224d69928f7af9a6753b`, exercised 2026-09-14
 **Purpose:** give PM and the Product Owner one deduplicated register of the real-world findings, the user promise each finding affects, and the proof the repository actually had at the audited baseline.
 
 This register does not authorize a fix, expand an implementation PR, select a model, or change release scope. It contains no transcript, coaching text, credential, account identifier, or raw session identifier.
