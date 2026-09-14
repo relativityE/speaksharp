@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * RWT-01 — ONE COMMAND before each qualifying comparison take: verify the authorization run, switch the candidate,
- * prove identity, and DISCONNECT. See `preTakeControl.mjs`. Nothing remains attached when it prints DISCONNECTED.
+ * prove identity, and DISCONNECT. See `preTakeControl.mjs`. When it prints DISCONNECTED, no debugger attachment was observed before arming or after control disconnect;
+ * the endpoint cannot prove exclusive custody, so the take browser must carry no other debugging tools.
  *
  * Usage:
  *   node scripts/human-test/prepare-take.mjs --candidate <id> --journey <open_mic|focus_points> --release <sha>
@@ -63,5 +64,5 @@ mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, `${JSON.stringify(receipt, null, 2)}\n`);
 console.log(`${receipt.verdict}  →  ${OUT}`);
 for (const p of receipt.problems) console.log(`  - ${p}`);
-if (receipt.verdict === 'PASS') console.log('DISCONNECTED — no debugger is attached. Start the take now.');
+if (receipt.verdict === 'PASS') console.log('DISCONNECTED — no debugger attachment was observed before arming or after control disconnect. Start the take now.');
 process.exit(receipt.verdict === 'PASS' ? 0 : 1);

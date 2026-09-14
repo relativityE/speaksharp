@@ -126,7 +126,8 @@ export async function runPreTakeControl({
     if (client) await client.close();
     control.disconnectedBeforeTake = true;
     control.disconnectedAt = new Date().toISOString();
-    // PASS only when NO debugger remains — not merely this one (Codex 4005311870).
+    // PASS only when no attachment is OBSERVED after disconnect — not merely this client's (Codex 4005311870). A snapshot
+    // cannot prove exclusive custody of the endpoint (PM 5664761809); the procedure isolates the take browser instead.
     const after = await attached();
     control.noAttachmentAfterDisconnect = after === false;
     if (after !== false) problems.push(after === null ? 'the page attachment state could not be read after disconnect'

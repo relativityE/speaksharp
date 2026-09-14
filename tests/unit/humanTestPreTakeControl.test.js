@@ -1,4 +1,4 @@
-// RWT-01 (PM 5663484274 / 5663519096 / 5663876247) — the qualifying comparison take runs with NO debugger attached.
+// RWT-01 (PM 5663484274 / 5663519096 / 5663876247) — no debugger attachment is observed on the qualifying comparison take.
 //
 // On Production `1b311f9` the observer that armed each spoken take auto-attached to every new worker with
 // `waitForDebuggerOnStart: true`, injected a network tripwire into it before releasing it, navigated the tab and replaced
@@ -253,6 +253,20 @@ describe('RWT-01 — the invasive observer is barred from the qualifying path', 
       '--release', RELEASE, '--authorization-run', '1',
     ], { encoding: 'utf8', env: { ...process.env, GH_BIN: '/usr/bin/false' } });
     expect({ status: result.status, barred: /--privacy-diagnostic/.test(result.stderr) }).toEqual({ status: 2, barred: true });
+  });
+
+  // PM RETURN 5664761809 (Option A): the endpoint cannot prove exclusive custody, so the operator is never told more than
+  // was observed, and the procedure keeps other debugging tools — including the privacy diagnostic — off the take's browser.
+  it('CONTRACT: the operator-facing claim is only what was observed, and the procedure isolates the take browser', () => {
+    const OBSERVED = 'no debugger attachment was observed before arming or after control disconnect';
+    const cli = readFileSync('scripts/human-test/prepare-take.mjs', 'utf8');
+    const procedure = readFileSync('product_release/TESTER_OPERATIONS.md', 'utf8');
+    const overclaim = /no debugger is attached|nothing is attached|nothing remains attached/i;
+    expect({ cli: overclaim.test(cli), procedure: overclaim.test(procedure) }).toEqual({ cli: false, procedure: false });
+    expect(cli).toContain(OBSERVED);
+    expect(procedure).toContain(OBSERVED);
+    expect(procedure).toMatch(/dedicated browser profile[^.]*no other debugging tools/i);
+    expect(procedure).toMatch(/privacy diagnostic[^.]*separate browser profile[^.]*never against the take/i);
   });
 
   it('a retired-observer receipt is stamped nonqualifying', () => {

@@ -150,7 +150,8 @@ Preparation is separate from execution:
    repository, workflow path/ref/revision, run, attempt, actor, release, origin, cell and evidence document. The
    authorization has **no wall-clock expiry**: one attempt authorizes one cell, and a rerun is a new attempt with a
    new nonce. Main ancestry and accepted-tree equality are verified after the authorized merge, as closure gates.
-2. Launch one isolated Chrome profile with its remote-debugging endpoint bound to loopback port 9222. Open
+2. Launch a dedicated browser profile and process with no other debugging tools (no DevTools, observer, extension debugger
+   or second automation client), with its remote-debugging endpoint bound to loopback port 9222. Open
    exactly one `https://speaksharp-public.vercel.app` tab and sign in manually through the normal product path.
    Never expose the debugging endpoint off-device.
 
@@ -172,12 +173,14 @@ six rows; a later comparison packet requires a new id. Immediately before each t
    attaching. It then installs only the one-use authorization, boots one fresh document, removes the installer,
    switches the candidate, requires requested = observed = expected on the authorized release, and **disconnects**.
    It never pauses workers, enables network observation, or injects a tripwire (RWT-01, PO/PM 5663876247).
-3. Start only after it prints `DISCONNECTED`. Nothing is attached to the page during the take. Use the product
+3. Start only after it prints `DISCONNECTED` — no debugger attachment was observed before arming or after control disconnect. The endpoint cannot prove exclusive
+   custody, so keep that browser free of other debugging tools for the whole take. Use the product
    normally: start, speak, stop, wait for persistence and review, inspect Focus Points when applicable, and use
    Practice again/Retry where the run requires it. Do not refresh or reuse an authorization; it is removed after the
    first document, and its nonce is evidence for exactly one take.
 
-**Privacy evidence is separate.** Audio-egress verification runs in its own session with
+**Privacy evidence is separate.** Run the privacy diagnostic in a separate browser profile and process, never against the take's
+debugging endpoint. Audio-egress verification runs in its own session with
 `corepack pnpm human-test:observe -- --privacy-diagnostic …`. That observer pauses workers and replaces network APIs
 to inspect payloads, so its receipt is stamped `evidenceKind: privacy_diagnostic` and can never qualify a
 comparison row or supply journey, performance or model-quality evidence.
