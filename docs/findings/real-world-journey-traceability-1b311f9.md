@@ -144,4 +144,3 @@ That scope firewall was reasonable for `#1432`; the delivery failure was that th
 - [`#1437` final implementation scope](https://github.com/relativityE/speaksharp/pull/1437#issuecomment-5646972559)
 - [`#1437` post-merge closure](https://github.com/relativityE/speaksharp/pull/1437#issuecomment-5651121397)
 - [`#1399` nonblocking transfer](https://github.com/relativityE/speaksharp/pull/1399#issuecomment-5659070994)
-
