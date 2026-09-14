@@ -45,10 +45,12 @@ export function guardControlClient(client) {
 }
 
 export async function runPreTakeControl({
-  client, appUrl, authorization, candidate, journey, expectedRelease, probeAttachment,
+  openClient, appUrl, authorization, candidate, journey, expectedRelease, probeAttachment,
   surfaceTimeoutMs = 30_000, sleep = (ms) => new Promise((r) => { setTimeout(r, ms); }),
 }) {
-  const guarded = guardControlClient(client);
+  // Opened only after a clean exclusivity probe: an open page client is itself an attachment (PM RETURN 5664428448).
+  let client = null;
+  const guarded = guardControlClient({ send: (method, params) => client.send(method, params) });
   const problems = [];
   const control = {
     methodsUsed: guarded.methodsUsed, armScriptsInstalled: 0, armScriptRemoved: false,
@@ -69,6 +71,7 @@ export async function runPreTakeControl({
         : 'the app page is already attached to another debugger; close it before preparing the take');
     }
     control.exclusiveBeforeArm = true;
+    client = await openClient();
     // The page never sees when Node verified the run.
     const pageAuthorization = Object.fromEntries(Object.entries(authorization).filter(([key]) => key !== 'verifiedAt'));
     await guarded.send('Page.enable');
@@ -120,7 +123,7 @@ export async function runPreTakeControl({
       } catch { problems.push('the authorization installer could not be removed'); }
     }
     // ALWAYS LEAVE. A HOLD that stays attached would still be an instrument on the page the operator uses next.
-    await client.close();
+    if (client) await client.close();
     control.disconnectedBeforeTake = true;
     control.disconnectedAt = new Date().toISOString();
     // PASS only when NO debugger remains — not merely this one (Codex 4005311870).

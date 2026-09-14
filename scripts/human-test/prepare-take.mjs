@@ -11,7 +11,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { WebSocket } from 'ws';
+import { attachmentProbe, openReady } from './cdpControlSession.mjs';
 import { assertLoopbackOrigin, selectAppTarget } from './cdpTarget.mjs';
 import { ghCliGetter, ghRunArtifactFetcher, verifyRunAuthorization } from './modelComparisonRunAuthority.mjs';
 import { runPreTakeControl } from './preTakeControl.mjs';
@@ -28,8 +28,6 @@ const RELEASE = arg('release');
 const AUTHORIZATION_RUN = arg('authorization-run');
 const AUTHORIZATION_RUN_ATTEMPT = arg('authorization-run-attempt', '1');
 const OUT = arg('out', `product_release/evidence/human-test/control-${Date.now()}.json`);
-/** Every CDP reply is bounded: an unanswered command must never leave this process, or the page, waiting. */
-const COMMAND_TIMEOUT_MS = 15_000;
 
 if (!CANDIDATE || !['open_mic', 'focus_points'].includes(JOURNEY) || !/^[0-9a-f]{40}$/.test(RELEASE ?? '')
     || !/^\d{1,20}$/.test(AUTHORIZATION_RUN ?? '') || !/^\d{1,4}$/.test(AUTHORIZATION_RUN_ATTEMPT ?? '')) {
@@ -52,56 +50,14 @@ if (!verified.ok) {
 }
 assertLoopbackOrigin(`http://127.0.0.1:${PORT}`);
 
-function connect(wsUrl) {
-    const ws = new WebSocket(wsUrl);
-    const pending = new Map();
-    let nextId = 1;
-    const ready = new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-    ws.on('message', (raw) => {
-        const msg = JSON.parse(raw.toString());
-        const entry = msg.id ? pending.get(msg.id) : undefined;
-        if (!entry) return;
-        pending.delete(msg.id);
-        clearTimeout(entry.timer);
-        if (msg.error) entry.reject(new Error(msg.error.message)); else entry.resolve(msg.result);
-    });
-    return {
-        ready,
-        send: (method, params = {}) => new Promise((resolve, reject) => {
-            const id = nextId++;
-            const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out`)); }, COMMAND_TIMEOUT_MS);
-            pending.set(id, { resolve, reject, timer });
-            ws.send(JSON.stringify({ id, method, params }));
-        }),
-        close: () => new Promise((resolve) => {
-            if (ws.readyState === WebSocket.CLOSED) { resolve(); return; }
-            ws.once('close', resolve);
-            ws.close();
-        }),
-    };
-}
-
 const targets = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
 const { target, error } = selectAppTarget(targets, APP);
 if (error) { console.error(error); process.exit(1); }
-const client = connect(target.webSocketDebuggerUrl);
-
-/** Read-only: the browser endpoint reports whether any debugger is attached to this page or to a worker. */
-async function probeAttachment() {
-    const { webSocketDebuggerUrl } = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json();
-    const browser = connect(webSocketDebuggerUrl);
-    await browser.ready;
-    try {
-        const { targetInfos } = await browser.send('Target.getTargets');
-        const page = targetInfos.find((info) => info.targetId === target.id);
-        if (!page) throw new Error('the app page target is gone');
-        return { attached: page.attached === true || targetInfos.some((info) => /worker/.test(info.type) && info.attached === true) };
-    } finally { await browser.close(); }
-}
-
 const receipt = await runPreTakeControl({
-    client, appUrl: APP, authorization: verified.record, candidate: CANDIDATE, journey: JOURNEY, expectedRelease: RELEASE,
-    probeAttachment,
+    // Probe first, open second: the page client is opened (and awaited) only after exclusivity is proven.
+    openClient: () => openReady(target.webSocketDebuggerUrl),
+    probeAttachment: attachmentProbe(`http://127.0.0.1:${PORT}`, target.id),
+    appUrl: APP, authorization: verified.record, candidate: CANDIDATE, journey: JOURNEY, expectedRelease: RELEASE,
 });
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, `${JSON.stringify(receipt, null, 2)}\n`);

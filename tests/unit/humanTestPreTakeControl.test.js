@@ -68,7 +68,7 @@ const attachment = (...states) => {
 const CLEAN = attachment(false, false);
 
 const run = (page, probeAttachment = CLEAN) => runPreTakeControl({
-  client: page, appUrl: APP, authorization: AUTHORIZATION, candidate: CANDIDATE, journey: JOURNEY,
+  openClient: async () => page, appUrl: APP, authorization: AUTHORIZATION, candidate: CANDIDATE, journey: JOURNEY,
   expectedRelease: RELEASE, sleep: async () => {}, probeAttachment,
 });
 
@@ -127,7 +127,7 @@ describe('RWT-01 — pre-take control: authorize, switch, prove identity, DISCON
     expect(refused.closed).toBe(true);
     const missing = fakePage({ surfaceReadyAfter: Number.POSITIVE_INFINITY });
     const receipt = await runPreTakeControl({
-      client: missing, appUrl: APP, authorization: AUTHORIZATION, candidate: CANDIDATE, journey: JOURNEY,
+      openClient: async () => missing, appUrl: APP, authorization: AUTHORIZATION, candidate: CANDIDATE, journey: JOURNEY,
       expectedRelease: RELEASE, sleep: async () => {}, surfaceTimeoutMs: 0, probeAttachment: attachment(false, false),
     });
     expect(receipt.verdict).toBe('HOLD');
@@ -149,9 +149,22 @@ describe('RWT-01 — exclusivity, installer cleanup on every path, and a strict 
     const receipt = await run(page, attachment(true, true));
     expect(receipt.verdict).toBe('HOLD');
     expect(receipt.problems.join('\n')).toMatch(/already attached/);
-    expect(page.calls.map((c) => c.method)).toEqual(['CLOSE']);
+    // Never opened: the page never received a single command, not even a connection.
+    expect(page.calls).toEqual([]);
     expect(receipt.control.exclusiveBeforeArm).toBe(false);
     expect(controlReceiptProblems(receipt).length).toBeGreaterThan(0);
+  });
+
+  it('CASUALTY (PM 5664428448): the pre-arm probe runs BEFORE the page client is opened', async () => {
+    const order = [];
+    const page = fakePage();
+    const receipt = await runPreTakeControl({
+      openClient: async () => { order.push('OPEN'); return page; },
+      probeAttachment: async () => { order.push('PROBE'); return { attached: false }; },
+      appUrl: APP, authorization: AUTHORIZATION, candidate: CANDIDATE, journey: JOURNEY, expectedRelease: RELEASE, sleep: async () => {},
+    });
+    expect(order).toEqual(['PROBE', 'OPEN', 'PROBE']);
+    expect(receipt.verdict).toBe('PASS');
   });
 
   it('CASUALTY: another attachment that survives this client\'s disconnect HOLDs — never PASS', async () => {
@@ -227,7 +240,7 @@ describe('RWT-01 — a qualifying row accepts only a disconnected pre-take contr
 
 describe('RWT-01 — the invasive observer is barred from the qualifying path', () => {
   it('the pre-take tooling never references worker pausing, network observation or the payload tripwire', () => {
-    for (const file of ['scripts/human-test/preTakeControl.mjs', 'scripts/human-test/prepare-take.mjs']) {
+    for (const file of ['scripts/human-test/preTakeControl.mjs', 'scripts/human-test/prepare-take.mjs', 'scripts/human-test/cdpControlSession.mjs']) {
       const source = readFileSync(file, 'utf8');
       expect({ file, invasive: source.match(/setAutoAttach|waitForDebuggerOnStart|runIfWaitingForDebugger|Network\.enable|Fetch\.enable|payloadTripwire|PAYLOAD_TRIPWIRE/g) })
         .toEqual({ file, invasive: null });
