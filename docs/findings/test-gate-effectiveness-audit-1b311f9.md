@@ -8,6 +8,30 @@ This is a bounded audit, not a “fix everything” PR. It changes no product co
 
 The companion register is `docs/findings/real-world-journey-traceability-1b311f9.md`.
 
+## Binding Consultant assignment: audit against the supplied denominator
+
+The companion register now supplies three required inputs that were absent from `#1437`:
+
+1. **List 1:** the initial Production RWT findings, RWT-01–RWT-23;
+2. **List 2:** later causal findings, exact-head `#1463` review findings, and the newly acknowledged PM/Dev/Consultant process escapes;
+3. **Procedure:** PO/Ops normal-path rows P-01–P-12 and deterministic failure/recovery probes F-01–F-10.
+
+Consultant must use those inputs as the denominator for a whole-estate effectiveness review. The output is a traceability matrix—not another file-count inventory—and must include every unit, E2E, canary, live, workflow, observer, and evidence-schema test. Each row must name its finding/procedure mapping, real versus mocked boundaries, terminal user oracle, breaking casualty/mutation, runtime, unique risk, and residual gap.
+
+The audit must make explicit recommendations for:
+
+- **gaps:** a required finding/procedure row has no effective test;
+- **masking:** a green result can coexist with the mapped real user failure;
+- **bloat:** a test maps to no user promise or killed failure;
+- **redundancy:** multiple tests cover the same boundary, oracle, and casualty without distinct risk;
+- **ineffectiveness:** the test stays green when its mapped failure is reintroduced;
+- **action:** retain, consolidate, demote, repair, add, or delete candidate.
+
+No recommendation to delete or consolidate is acceptable without measured runtime and proof that the retained set preserves every unique killed failure. No mock-only test, zero-product-check canary, local run, stale head, or raw test count may be presented as deployed journey proof.
+
+This remains documentation/audit scope only. It does not authorize a broad test rewrite. After PO verification and exact-head review, PM will split any accepted implementation into bounded successor PRs, one outcome or coherent causal seam at a time, each followed by a deployed affected-journey micro-test.
+
+
 ## Executive finding
 
 The estate was not ineffective because it lacked test count. It was ineffective because the gates mostly proved internal behavior behind mocks while the failures lived at real, timed boundaries:
