@@ -47,6 +47,8 @@ const CHAIN = [
     '20260806000000_attest_drop_unused_var.sql',
     '20260807000000_rename_guided_to_objective.sql',
     '20260809000000_focus_points_pro_capability.sql',
+    // RWT-05 correction under test: eligibility reads the attribution authority.
+    '20260914214307_objective_eligibility_reads_attribution_authority.sql',
 ];
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -56,11 +58,11 @@ const NOT_VERIFIED = /source recording attribution is not verified/;
 
 type Sql = PGlite;
 
-async function makeDb(): Promise<Sql> {
+async function makeDb(chain: readonly string[] = CHAIN): Promise<Sql> {
     const db = new PGlite();
     await db.exec(attributionBootstrap);
     await db.exec(EXTRA_BOOTSTRAP);
-    for (const m of CHAIN) await db.exec(MIG(m));
+    for (const m of chain) await db.exec(MIG(m));
     await db.query(`INSERT INTO auth.users (id) VALUES ($1), ($2)`, [USER, OTHER]);
     // Focus Points is a Pro capability (20260809): both users are Pro so capability never masks the attribution gate.
     await db.query(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ($1, 'pro'), ($2, 'pro')`, [USER, OTHER]);
@@ -196,6 +198,20 @@ describe('RWT-05 — objective eligibility reads the attribution authority (real
             await expect(db.query(`UPDATE public.sessions SET attribution_status='verified' WHERE id=$1`, [s]))
                 .rejects.toThrow(/permission denied/);
         } finally { await db.exec(`RESET ROLE`); }
+    });
+
+    it('CONTROL: the correction changes neither function ACL nor search_path', async () => {
+        // CREATE OR REPLACE must not widen or narrow who may call these functions; 20260811143000 owns the grants.
+        const db = await makeDb(CHAIN.slice(0, -1));
+        const probe = `SELECT p.oid::regprocedure::text AS sig, coalesce(p.proacl::text, '<default>') AS acl,
+                              coalesce(array_to_string(p.proconfig, ','), '') AS cfg, p.prosecdef AS secdef
+                       FROM pg_proc p
+                       WHERE p.oid IN ('public.objective_register_source_v1(uuid)'::regprocedure,
+                                       'public.objective_start_session_v1(uuid,uuid,uuid,text,text,text)'::regprocedure)
+                       ORDER BY 1`;
+        const before = (await db.query(probe)).rows;
+        await db.exec(MIG(CHAIN[CHAIN.length - 1]));
+        expect((await db.query(probe)).rows).toEqual(before);
     });
 
     it("CONTROL: another user's attested recording cannot start the caller's session", async () => {
