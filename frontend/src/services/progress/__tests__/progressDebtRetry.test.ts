@@ -589,3 +589,55 @@ describe('RWT-20 — one attempt at a time per debt, across the load and retry t
         expect(releasedAfter).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
     });
 });
+
+// Codex P1 4003746545 on 4a1237ff (PM RETURN 5661903921): the owner-wide retry round awaited due debts serially, so with
+// two due debts whose RPCs ran to the deadline each was charged the other's deadline — releases landed at 62 s and 72 s.
+describe('RWT-20 — due debts are retried independently, so each keeps its own release bound', () => {
+    // Its own owner: R8 above deliberately leaves an owner-wide load round hung for OWNER.
+    const E1_OWNER = 'owner-e1-independent';
+
+    async function releaseTimesWhenEvaluationsNeverSettle(sessionIds: string[]) {
+        for (const id of sessionIds) {
+            expect(enqueueProgressReconcile(id, E1_OWNER, new Date(Date.now() - 1_000).toISOString()).ok).toBe(true);
+        }
+        rpc.mockImplementation((name: string) => (name === 'record_progress_evaluation'
+            ? new Promise(() => {}) // every attempt ends at its RPC deadline
+            : Promise.resolve({ data: null, error: null })));
+        const t0 = Date.now();
+        const run = scheduleProgressDebtRetry(E1_OWNER);
+        await vi.advanceTimersByTimeAsync(2 * PROGRESS_DEBT_RELEASE_BOUND_MS);
+        const result = await run;
+        const read = readProgressReconcileQueue();
+        const entries = read.ok ? read.entries.filter((e) => e.userId === E1_OWNER) : [];
+        return {
+            result,
+            releasedAfter: sessionIds.map((id) => {
+                const at = entries.find((e) => e.sessionId === id)?.releasedAtIso;
+                return at ? Date.parse(at) - t0 : -1;
+            }),
+            attempts: sessionIds.map((id) => entries.find((e) => e.sessionId === id)?.attempts),
+        };
+    }
+
+    it('two due debts whose evaluations never settle are both released within the bound, and Start is allowed', async () => {
+        const { result, releasedAfter, attempts } = await releaseTimesWhenEvaluationsNeverSettle(['sess-e1-first', 'sess-e1-second']);
+
+        expect(result).toMatchObject({ resolved: 0, released: 2 });
+        for (const ms of releasedAfter) {
+            expect(ms).toBeGreaterThan(0);
+            expect(ms).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        }
+        expect(attempts).toEqual([PROGRESS_DEBT_ATTEMPT_BUDGET, PROGRESS_DEBT_ATTEMPT_BUDGET]);
+        expect(evaluateStartGate(E1_OWNER, null).allowed).toBe(true);
+    });
+
+    it('CONTROL: a single due debt is released within the bound with its full budget', async () => {
+        const { result, releasedAfter, attempts } = await releaseTimesWhenEvaluationsNeverSettle(['sess-e1-only']);
+
+        expect(result).toMatchObject({ resolved: 0, released: 1 });
+        expect(releasedAfter[0]).toBeGreaterThan(0);
+        expect(releasedAfter[0]).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        expect(attempts).toEqual([PROGRESS_DEBT_ATTEMPT_BUDGET]);
+        expect(evaluateStartGate(E1_OWNER, null).allowed).toBe(true);
+    });
+});

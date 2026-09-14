@@ -581,7 +581,7 @@ async function runProgressDebtRound(
         : owed.entries;
     let drained = 0;
     const attempted = new Set<string>();
-    for (const entry of targets) {
+    const attemptOne = async (entry: QueueEntry): Promise<void> => {
         // Cross-tab ownership (Codex 4003281159): the RPC, its persist/clear, terminal telemetry and the recommendation
         // dispatch run while this context exclusively owns owner+session. A contender skips the debt this round.
         const owned = await withAttemptOwnership(userId, entry.sessionId, async () => {
@@ -632,13 +632,22 @@ async function runProgressDebtRound(
             return { recommendation: recordRecommendationForEvaluation(entry.sessionId) };
         });
         const recommendation = owned.owned ? owned.value?.recommendation : undefined;
-        if (!recommendation) continue;
+        if (!recommendation) return;
         if (trigger === 'retry') {
             // Release-critical: recommendation work has no deadline, so it must not hold this round, or Start, open.
             void recommendation.catch((err) => logger.warn({ err }, '[progress] recommendation reconciliation failed (non-fatal)'));
         } else {
             await recommendation;
         }
+    };
+    // Due debts are attempted independently (Codex 4003746545): serially, each was charged the others' RPC deadlines and
+    // missed its own release bound. Per-session ownership still prevents same-session overlap. Load rounds stay serial.
+    if (trigger === 'retry') {
+        const outcomes = await Promise.allSettled(targets.map(attemptOne));
+        const failure = outcomes.find((o): o is PromiseRejectedResult => o.status === 'rejected');
+        if (failure) throw failure.reason;
+    } else {
+        for (const entry of targets) await attemptOne(entry);
     }
     const after = getQueueEntriesForUser(userId);
     return {
