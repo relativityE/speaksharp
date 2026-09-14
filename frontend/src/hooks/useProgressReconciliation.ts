@@ -64,9 +64,16 @@ export function useProgressReconciliation(): void {
         ? progressGate.sessionId
         : null;
     useEffect(() => {
-        if (!userId || !queuedSessionId) return;
+        if (!userId || !queuedSessionId) return undefined;
+        let current = true;
         void scheduleProgressDebtRetry(userId)
+            // When the schedule settles, rebuild the visible gate from the durable queue (Codex 4003102441). A `queued`
+            // gate published after another tab cleared its debt would otherwise hold Start forever. Empty clears it,
+            // remaining debt stays queued, unreadable stays unresolved; a settlement that outlived this owner or mount
+            // publishes nothing.
+            .then(() => { if (current) useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId)); })
             .catch((err) => logger.warn({ err }, '[progress] bounded debt retry failed (non-fatal)'));
+        return () => { current = false; };
     }, [userId, queuedSessionId]);
 
     useEffect(() => {
