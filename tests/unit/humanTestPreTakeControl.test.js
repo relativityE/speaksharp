@@ -30,7 +30,10 @@ const AUTHORIZATION = {
 const MATCH = { requested: CANDIDATE, observed: CANDIDATE, expected: CANDIDATE, matches: true, source: 'runtime_switch' };
 
 /** A CDP page session that answers exactly what the control phase asks, and records everything it was asked. */
-function fakePage({ identity = MATCH, switchOutcome = { ok: true, candidate: CANDIDATE }, release = RELEASE, surfaceReadyAfter = 0 } = {}) {
+function fakePage({
+  identity = MATCH, switchOutcome = { ok: true, candidate: CANDIDATE }, release = RELEASE, surfaceReadyAfter = 0,
+  navigateFails = false, removeFails = false,
+} = {}) {
   const calls = [];
   let closed = false;
   let polls = 0;
@@ -41,6 +44,8 @@ function fakePage({ identity = MATCH, switchOutcome = { ok: true, candidate: CAN
       if (closed) throw new Error(`CDP command after disconnect: ${method}`);
       calls.push({ method, params });
       if (method === 'Page.addScriptToEvaluateOnNewDocument') return { identifier: 'arm-1' };
+      if (method === 'Page.navigate' && navigateFails) throw new Error('Page.navigate timed out');
+      if (method === 'Page.removeScriptToEvaluateOnNewDocument' && removeFails) throw new Error('remove timed out');
       if (method === 'Runtime.evaluate') {
         if (params.expression === SURFACE_READY_EXPRESSION) { polls += 1; return { result: { value: polls > surfaceReadyAfter } }; }
         if (params.expression === modelComparisonSwitchExpression(CANDIDATE, JOURNEY)) {
@@ -51,13 +56,20 @@ function fakePage({ identity = MATCH, switchOutcome = { ok: true, candidate: CAN
       }
       return {};
     },
-    close: async () => { closed = true; },
+    close: async () => { calls.push({ method: 'CLOSE' }); closed = true; },
   };
 }
 
-const run = (page) => runPreTakeControl({
+/** The browser-level attachment state of the app page: before arming, then after this control disconnects. */
+const attachment = (...states) => {
+  const queue = [...states];
+  return async () => ({ attached: queue.length > 1 ? queue.shift() : queue[0] });
+};
+const CLEAN = attachment(false, false);
+
+const run = (page, probeAttachment = CLEAN) => runPreTakeControl({
   client: page, appUrl: APP, authorization: AUTHORIZATION, candidate: CANDIDATE, journey: JOURNEY,
-  expectedRelease: RELEASE, sleep: async () => {},
+  expectedRelease: RELEASE, sleep: async () => {}, probeAttachment,
 });
 
 describe('RWT-01 — pre-take control: authorize, switch, prove identity, DISCONNECT', () => {
@@ -65,7 +77,7 @@ describe('RWT-01 — pre-take control: authorize, switch, prove identity, DISCON
     const page = fakePage();
     const receipt = await run(page);
 
-    const methods = page.calls.map((c) => c.method);
+    const methods = page.calls.map((c) => c.method).filter((m) => m !== 'CLOSE');
     expect(methods.every((m) => ALLOWED_CONTROL_METHODS.includes(m))).toBe(true);
     expect(methods).not.toEqual(expect.arrayContaining(['Target.setAutoAttach']));
     expect(methods.filter((m) => m === 'Network.enable' || m === 'Fetch.enable' || m === 'Debugger.enable')).toEqual([]);
@@ -85,6 +97,7 @@ describe('RWT-01 — pre-take control: authorize, switch, prove identity, DISCON
       control: {
         armScriptsInstalled: 1, armScriptRemoved: true, tripwireInstalled: false, workerAttachment: false,
         networkObservation: false, disconnectedBeforeTake: true,
+        exclusiveBeforeArm: true, noAttachmentAfterDisconnect: true,
       },
     });
     expect(controlReceiptProblems(receipt)).toEqual([]);
@@ -115,7 +128,7 @@ describe('RWT-01 — pre-take control: authorize, switch, prove identity, DISCON
     const missing = fakePage({ surfaceReadyAfter: Number.POSITIVE_INFINITY });
     const receipt = await runPreTakeControl({
       client: missing, appUrl: APP, authorization: AUTHORIZATION, candidate: CANDIDATE, journey: JOURNEY,
-      expectedRelease: RELEASE, sleep: async () => {}, surfaceTimeoutMs: 0,
+      expectedRelease: RELEASE, sleep: async () => {}, surfaceTimeoutMs: 0, probeAttachment: attachment(false, false),
     });
     expect(receipt.verdict).toBe('HOLD');
     expect(missing.closed).toBe(true);
@@ -126,6 +139,65 @@ describe('RWT-01 — pre-take control: authorize, switch, prove identity, DISCON
     const receipt = await run(page);
     expect(receipt.verdict).toBe('HOLD');
     expect(receipt.problems.join('\n')).toMatch(/release/);
+  });
+});
+
+// PM RETURN 5664297750 — Codex 4005311870 / 4005312289 / 4005312297 on 08d0a3bf.
+describe('RWT-01 — exclusivity, installer cleanup on every path, and a strict method log', () => {
+  it('CASUALTY: a target already attached to another debugger is refused before anything is armed', async () => {
+    const page = fakePage();
+    const receipt = await run(page, attachment(true, true));
+    expect(receipt.verdict).toBe('HOLD');
+    expect(receipt.problems.join('\n')).toMatch(/already attached/);
+    expect(page.calls.map((c) => c.method)).toEqual(['CLOSE']);
+    expect(receipt.control.exclusiveBeforeArm).toBe(false);
+    expect(controlReceiptProblems(receipt).length).toBeGreaterThan(0);
+  });
+
+  it('CASUALTY: another attachment that survives this client\'s disconnect HOLDs — never PASS', async () => {
+    const receipt = await run(fakePage(), attachment(false, true));
+    expect(receipt.verdict).toBe('HOLD');
+    expect(receipt.problems.join('\n')).toMatch(/still attached/);
+    expect(receipt.control.noAttachmentAfterDisconnect).toBe(false);
+    expect(controlReceiptProblems(receipt).join('\n')).toMatch(/attachment remained/);
+  });
+
+  it('CASUALTY: an attachment state that cannot be read HOLDs', async () => {
+    const receipt = await run(fakePage(), async () => { throw new Error('browser endpoint unavailable'); });
+    expect(receipt.verdict).toBe('HOLD');
+    expect(controlReceiptProblems(receipt).length).toBeGreaterThan(0);
+  });
+
+  it('CASUALTY: a navigation rejection after installation still removes the installer before disconnect', async () => {
+    const page = fakePage({ navigateFails: true });
+    const receipt = await run(page);
+    const methods = page.calls.map((c) => c.method);
+    expect(methods.indexOf('Page.removeScriptToEvaluateOnNewDocument')).toBeGreaterThan(methods.indexOf('Page.navigate'));
+    expect(methods.indexOf('Page.removeScriptToEvaluateOnNewDocument')).toBeLessThan(methods.indexOf('CLOSE'));
+    expect(receipt.control.armScriptRemoved).toBe(true);
+    expect(receipt.verdict).toBe('HOLD');
+  });
+
+  it('CASUALTY: an installer removal that fails HOLDs and cannot qualify', async () => {
+    const page = fakePage({ removeFails: true });
+    const receipt = await run(page);
+    expect(receipt.verdict).toBe('HOLD');
+    expect(receipt.control.armScriptRemoved).toBe(false);
+    expect(page.closed).toBe(true);
+    expect(controlReceiptProblems(receipt).join('\n')).toMatch(/installer/);
+  });
+
+  it.each([
+    ['a string', 'Target.setAutoAttach'],
+    ['missing', undefined],
+    ['empty', []],
+    ['an unknown method', ['Page.enable', 'Target.attachToTarget']],
+    ['a duplicate', ['Page.enable', 'Page.enable']],
+    ['a non-string entry', ['Page.enable', 7]],
+  ])('CASUALTY: a method log that is %s is rejected', async (_name, log) => {
+    const receipt = await run(fakePage());
+    if (log === undefined) delete receipt.control.methodsUsed; else receipt.control.methodsUsed = log;
+    expect(controlReceiptProblems(receipt).join('\n')).toMatch(/method/);
   });
 });
 

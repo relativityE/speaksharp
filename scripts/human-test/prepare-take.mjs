@@ -85,10 +85,23 @@ const targets = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
 const { target, error } = selectAppTarget(targets, APP);
 if (error) { console.error(error); process.exit(1); }
 const client = connect(target.webSocketDebuggerUrl);
-await client.ready;
+
+/** Read-only: the browser endpoint reports whether any debugger is attached to this page or to a worker. */
+async function probeAttachment() {
+    const { webSocketDebuggerUrl } = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json();
+    const browser = connect(webSocketDebuggerUrl);
+    await browser.ready;
+    try {
+        const { targetInfos } = await browser.send('Target.getTargets');
+        const page = targetInfos.find((info) => info.targetId === target.id);
+        if (!page) throw new Error('the app page target is gone');
+        return { attached: page.attached === true || targetInfos.some((info) => /worker/.test(info.type) && info.attached === true) };
+    } finally { await browser.close(); }
+}
 
 const receipt = await runPreTakeControl({
     client, appUrl: APP, authorization: verified.record, candidate: CANDIDATE, journey: JOURNEY, expectedRelease: RELEASE,
+    probeAttachment,
 });
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, `${JSON.stringify(receipt, null, 2)}\n`);

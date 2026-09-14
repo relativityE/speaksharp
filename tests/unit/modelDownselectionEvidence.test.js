@@ -125,6 +125,7 @@ function validEvidence() {
           methodsUsed: ['Page.enable', 'Page.addScriptToEvaluateOnNewDocument', 'Page.navigate', 'Page.removeScriptToEvaluateOnNewDocument', 'Runtime.evaluate'],
           armScriptsInstalled: 1, armScriptRemoved: true, tripwireInstalled: false, workerAttachment: false,
           networkObservation: false, disconnectedBeforeTake: true, disconnectedAt: ISO,
+          exclusiveBeforeArm: true, noAttachmentAfterDisconnect: true,
         },
       });
       const objective = journey === 'focus_points';

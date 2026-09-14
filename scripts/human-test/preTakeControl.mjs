@@ -45,7 +45,7 @@ export function guardControlClient(client) {
 }
 
 export async function runPreTakeControl({
-  client, appUrl, authorization, candidate, journey, expectedRelease,
+  client, appUrl, authorization, candidate, journey, expectedRelease, probeAttachment,
   surfaceTimeoutMs = 30_000, sleep = (ms) => new Promise((r) => { setTimeout(r, ms); }),
 }) {
   const guarded = guardControlClient(client);
@@ -53,21 +53,33 @@ export async function runPreTakeControl({
   const control = {
     methodsUsed: guarded.methodsUsed, armScriptsInstalled: 0, armScriptRemoved: false,
     tripwireInstalled: false, workerAttachment: false, networkObservation: false,
-    disconnectedBeforeTake: false, disconnectedAt: null,
+    disconnectedBeforeTake: false, disconnectedAt: null, exclusiveBeforeArm: false, noAttachmentAfterDisconnect: false,
   };
+  // Browser-level attachment of the app page, read without instrumenting it (Codex 4005311870). Unreadable is not free.
+  const attached = async () => {
+    try { return (await probeAttachment()).attached !== false; } catch { return null; }
+  };
+  let installerId = null;
   let identity = null;
   let release = null;
   try {
+    const before = await attached();
+    if (before !== false) {
+      throw new Error(before === null ? 'the page attachment state could not be read'
+        : 'the app page is already attached to another debugger; close it before preparing the take');
+    }
+    control.exclusiveBeforeArm = true;
     // The page never sees when Node verified the run.
     const pageAuthorization = Object.fromEntries(Object.entries(authorization).filter(([key]) => key !== 'verifiedAt'));
     await guarded.send('Page.enable');
     const installer = await guarded.send('Page.addScriptToEvaluateOnNewDocument', {
       source: modelComparisonArmExpression(pageAuthorization),
     });
+    installerId = installer.identifier;
     control.armScriptsInstalled = 1;
     await guarded.send('Page.navigate', { url: appUrl });
     // ONE DOCUMENT ONLY: removed before anything else can load a second document with the same authorization.
-    await guarded.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: installer.identifier });
+    await guarded.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: installerId });
     control.armScriptRemoved = true;
 
     const deadline = Date.now() + surfaceTimeoutMs;
@@ -100,10 +112,22 @@ export async function runPreTakeControl({
   } catch (error) {
     problems.push(`pre-take control failed: ${error instanceof Error ? error.message : 'unknown error'}`);
   } finally {
+    // The installer is removed on EVERY path that installed it, before leaving (Codex 4005312289).
+    if (installerId !== null && !control.armScriptRemoved) {
+      try {
+        await guarded.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: installerId });
+        control.armScriptRemoved = true;
+      } catch { problems.push('the authorization installer could not be removed'); }
+    }
     // ALWAYS LEAVE. A HOLD that stays attached would still be an instrument on the page the operator uses next.
     await client.close();
     control.disconnectedBeforeTake = true;
     control.disconnectedAt = new Date().toISOString();
+    // PASS only when NO debugger remains — not merely this one (Codex 4005311870).
+    const after = await attached();
+    control.noAttachmentAfterDisconnect = after === false;
+    if (after !== false) problems.push(after === null ? 'the page attachment state could not be read after disconnect'
+      : 'a debugger is still attached to the app page after this control disconnected');
   }
 
   return {
@@ -136,10 +160,18 @@ export function controlReceiptProblems(receipt) {
   }
   const c = receipt.control;
   if (!c || typeof c !== 'object') return [...problems, 'receipt has no control record'];
-  const methods = Array.isArray(c.methodsUsed) ? c.methodsUsed : [];
-  for (const method of methods) {
-    if (!ALLOWED_CONTROL_METHODS.includes(method)) problems.push(`control used a non-permitted CDP method: ${method}`);
+  // A malformed log proves nothing about what was sent (Codex 4005312297).
+  if (!Array.isArray(c.methodsUsed) || c.methodsUsed.length === 0) {
+    problems.push('the control method log must be a non-empty array of CDP method names');
+  } else {
+    for (const [index, method] of c.methodsUsed.entries()) {
+      if (typeof method !== 'string' || !ALLOWED_CONTROL_METHODS.includes(method)) {
+        problems.push(`control used a non-permitted CDP method: ${String(method)}`);
+      } else if (c.methodsUsed.indexOf(method) !== index) problems.push(`the control method log repeats ${method}`);
+    }
   }
+  if (c.exclusiveBeforeArm !== true) problems.push('the page was not proven free of another debugger before arming');
+  if (c.noAttachmentAfterDisconnect !== true) problems.push('a debugger attachment remained after the control disconnected');
   if (c.disconnectedBeforeTake !== true) problems.push('the control session did not disconnect before the take');
   if (c.tripwireInstalled !== false) problems.push('a network tripwire was installed on the qualifying page');
   if (c.workerAttachment !== false) problems.push('a worker attachment was reported on the qualifying page');
