@@ -10,7 +10,7 @@
  * "there is no debt".
  */
 import { getQueueEntriesForUser, PROGRESS_QUEUE_STORAGE_KEY as QUEUE_KEY } from './progressReconcileQueue';
-import type { QueueFailure } from './progressReconcileQueue';
+import type { QueueEntry, QueueFailure } from './progressReconcileQueue';
 
 export type StartGateVerdict =
     | { allowed: true }
@@ -18,6 +18,33 @@ export type StartGateVerdict =
     | { allowed: false; reason: 'queue_unreadable'; failure: QueueFailure }
     | { allowed: false; reason: 'in_flight'; sessionId: string }
     | { allowed: false; reason: 'unresolved_evidence'; sessionId: string };
+
+/**
+ * RWT-20 C2 — IN-PAGE HOLD EXPIRY (PM RETURN 5668961740, Codex 4008444044).
+ *
+ * Lock ownership governs who may MUTATE the shared queue; it must not govern how long the user waits. When this page's
+ * bounded retry schedule reaches an obligation's release deadline while another context still owns its attempt lock,
+ * the release cannot be written safely, so the hold expires here instead: in memory, for this page. Nothing is written
+ * and no success is claimed. The entry stays durable and unreleased, and the owning context or a later load still
+ * records or releases it. Keyed by owner and by the obligation's own enqueue time, so a later obligation for the same
+ * session is never expired in advance.
+ */
+type HoldIdentity = Pick<QueueEntry, 'sessionId' | 'enqueuedAtIso'>;
+const expiredHolds = new Set<string>();
+const holdKey = (ownerId: string, entry: HoldIdentity) => `${ownerId}\u0000${entry.sessionId}\u0000${entry.enqueuedAtIso}`;
+
+export function expireProgressDebtHold(ownerId: string, entry: HoldIdentity): void {
+    expiredHolds.add(holdKey(ownerId, entry));
+}
+
+export function isProgressDebtHoldExpired(ownerId: string, entry: HoldIdentity): boolean {
+    return expiredHolds.has(holdKey(ownerId, entry));
+}
+
+/** Test-only: forget this page's hold expiries between cases. */
+export function __resetProgressDebtHoldExpiryForTests(): void {
+    expiredHolds.clear();
+}
 
 /**
  * Decide from the DURABLE queue alone, for this exact owner.
@@ -32,8 +59,8 @@ export function evaluateDurableStartGate(ownerId: string | null | undefined): St
     if (!owed.ok) return { allowed: false, reason: 'queue_unreadable', failure: owed.failure };
     // RWT-20: debt whose bounded retries are exhausted is RELEASED. It stays durable and is still retried on later
     // loads, but it no longer holds Start — an unbounded hold locked a Production user out for ~88 minutes. Only
-    // debt still inside its retry bound blocks.
-    const blocking = owed.entries.find((e) => !e.releasedAtIso);
+    // debt still inside its retry bound blocks. C2: neither does a hold this page expired at its release deadline.
+    const blocking = owed.entries.find((e) => !e.releasedAtIso && !isProgressDebtHoldExpired(ownerId, e));
     if (blocking) return { allowed: false, reason: 'queued_debt', sessionId: blocking.sessionId };
     return { allowed: true };
 }

@@ -641,3 +641,79 @@ describe('RWT-20 — due debts are retried independently, so each keeps its own 
         expect(evaluateStartGate(E1_OWNER, null).allowed).toBe(true);
     });
 });
+
+// PM RETURN 5668961740 / Codex 4008444052 (reproduced on 244c6c47: a future lastAttemptAtIso released Start at once with
+// zero retries). Skewed persisted timestamps and a clock set backwards must neither postpone the retries nor skip them.
+describe('RWT-20 C3 — skewed timestamps and a backwards clock keep the bounded retry schedule', () => {
+    const C3_OWNER = 'owner-c3-clock';
+    const DAY_MS = 86_400_000;
+    const failed = { data: null, error: { code: 'XX000', message: ERROR_TEXT } };
+
+    function seed(entry: Record<string, unknown>) {
+        localStorage.setItem(PROGRESS_QUEUE_STORAGE_KEY, JSON.stringify([{ sessionId: SESSION, userId: C3_OWNER, ...entry }]));
+    }
+
+    /** Elapsed time comes from `performance.now()`, which a system-clock change does not move. */
+    async function observeSchedule(setClockBackAtMs?: number) {
+        const started = performance.now();
+        const elapsed = () => Math.round(performance.now() - started);
+        const callElapsed: number[] = [];
+        rpc.mockImplementation((name: string) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            callElapsed.push(elapsed());
+            return Promise.resolve(failed);
+        });
+        // Settlement is observed, never awaited: a schedule stuck behind a clock change must fail an assertion, not hang.
+        const settled: { result: Awaited<ReturnType<typeof scheduleProgressDebtRetry>> | null } = { result: null };
+        void scheduleProgressDebtRetry(C3_OWNER).then((result) => { settled.result = result; });
+        let blockedAtOneSecond: boolean | null = null;
+        let startAllowedAtMs = -1;
+        while (elapsed() < 3 * PROGRESS_DEBT_RELEASE_BOUND_MS) {
+            if (setClockBackAtMs !== undefined && elapsed() === setClockBackAtMs) vi.setSystemTime(Date.now() - 3_600_000);
+            await vi.advanceTimersByTimeAsync(250);
+            if (elapsed() === 1_000) blockedAtOneSecond = !evaluateStartGate(C3_OWNER, null).allowed;
+            if (startAllowedAtMs < 0 && evaluateStartGate(C3_OWNER, null).allowed) startAllowedAtMs = elapsed();
+        }
+        return { callElapsed, blockedAtOneSecond, startAllowedAtMs, result: settled.result, entry: entryFor(SESSION) };
+    }
+
+    it('persisted enqueue and last-attempt times in the future (a clock that was set back) neither postpone nor skip the retries', async () => {
+        const future = new Date(Date.now() + DAY_MS).toISOString();
+        seed({ enqueuedAtIso: future, attempts: 1, lastAttemptAtIso: future });
+        const run = await observeSchedule();
+
+        expect(run.blockedAtOneSecond).toBe(true);
+        expect(run.callElapsed).toEqual([
+            PROGRESS_DEBT_RETRY_DELAYS_MS[1],
+            PROGRESS_DEBT_RETRY_DELAYS_MS[1] + PROGRESS_DEBT_RETRY_DELAYS_MS[2],
+        ]);
+        expect(run.entry?.attempts).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        expect(typeof run.entry?.releasedAtIso).toBe('string');
+        expect(run.startAllowedAtMs).toBeGreaterThan(0);
+        expect(run.startAllowedAtMs).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        expect(run.result).toMatchObject({ resolved: 0, released: 1 });
+    });
+
+    it('a system clock set back an hour mid-schedule neither stretches the hold nor skips a retry', async () => {
+        seed({ enqueuedAtIso: new Date(Date.now() - 1_000).toISOString() });
+        const run = await observeSchedule(5_000);
+
+        expect(run.callElapsed).toEqual([2_000, 10_000, 30_000]);
+        expect(run.entry?.attempts).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        expect(typeof run.entry?.releasedAtIso).toBe('string');
+        expect(run.startAllowedAtMs).toBeGreaterThan(0);
+        expect(run.startAllowedAtMs).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        expect(run.result).toMatchObject({ resolved: 0, released: 1 });
+    });
+
+    it('CONTROL: ordinary timestamps keep the configured backoff and release within the bound', async () => {
+        seed({ enqueuedAtIso: new Date(Date.now() - 1_000).toISOString() });
+        const run = await observeSchedule();
+
+        expect(run.blockedAtOneSecond).toBe(true);
+        expect(run.callElapsed).toEqual([2_000, 10_000, 30_000]);
+        expect(run.entry?.attempts).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        expect(typeof run.entry?.releasedAtIso).toBe('string');
+        expect(run.startAllowedAtMs).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+    });
+});

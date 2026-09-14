@@ -57,7 +57,8 @@ async function openTab() {
     const retry = await import('../progressDebtRetry');
     const record = await import('../recordProgress');
     const gate = await import('../progressStartGate');
-    return { push, queue, retry, record, gate };
+    const ownership = await import('../progressAttemptOwnership');
+    return { push, queue, retry, record, gate, ownership };
 }
 
 beforeEach(() => {
@@ -346,5 +347,81 @@ describe('RWT-20 — one tab owns a debt attempt at a time (Codex 4003281159)', 
         expect(saveOutcome).toEqual({ kind: 'recorded' });
         expect(phases.filter((p) => p === 'attempt_succeeded')).toHaveLength(0);
         expect(recommendationReads).toBe(1);
+    });
+});
+
+// PM RETURN 5668961740 / Codex 4008444044 (reproduced on 244c6c47: Start never allowed in 600 s, 2,400 lock requests).
+// Lock ownership governs the queue write, not the user's wait: another tab owning a debt's attempt lock forever must not
+// hold this tab's Start past the bound, and this tab must not write the shared queue or poll the lock indefinitely.
+describe('RWT-20 C2 — a lock that never grants cannot hold Start past the bound', () => {
+    const HORIZON_MS = 600_000;
+
+    async function whileAnotherTabOwnsTheLock(lockHeldForever: boolean) {
+        const tabA = await openTab();
+        const tabB = await openTab();
+        expect(tabA.queue.enqueueProgressReconcile(SESSION, OWNER, new Date(Date.now() - 1_000).toISOString()).ok).toBe(true);
+        rpc.mockImplementation((name: string) => Promise.resolve(name === 'record_progress_evaluation'
+            ? { data: null, error: { code: 'XX000', message: 'still failing' } }
+            : { data: null, error: null }));
+        if (lockHeldForever) {
+            // Tab A owns the debt's attempt lock and never lets go: a stalled or frozen context.
+            void tabA.ownership.withAttemptOwnership(OWNER, SESSION, () => new Promise(() => undefined));
+            await vi.advanceTimersByTimeAsync(0);
+        }
+        const requestSpy = vi.spyOn(navigator.locks as unknown as SharedLockManager, 'request');
+        const writeSpy = vi.spyOn(Storage.prototype, 'setItem');
+        const t0 = Date.now();
+        let settledAtMs = -1;
+        void tabB.retry.scheduleProgressDebtRetry(OWNER).then(() => { settledAtMs = Date.now() - t0; });
+        let startAllowedAtMs = -1;
+        let lockRequestsWhenAllowed = -1;
+        for (let t = 0; t < HORIZON_MS; t += 250) {
+            await vi.advanceTimersByTimeAsync(250);
+            if (startAllowedAtMs < 0 && tabB.gate.evaluateStartGate(OWNER, null).allowed) {
+                startAllowedAtMs = Date.now() - t0;
+                lockRequestsWhenAllowed = requestSpy.mock.calls.length;
+            }
+        }
+        const read = tabB.queue.readProgressReconcileQueue();
+        return {
+            tabB,
+            startAllowedAtMs,
+            settledAtMs,
+            lockRequestsAfterAllowed: requestSpy.mock.calls.length - lockRequestsWhenAllowed,
+            queueWrites: writeSpy.mock.calls.filter((c) => c[0] === tabB.queue.PROGRESS_QUEUE_STORAGE_KEY).length,
+            entry: read.ok ? read.entries.find((e) => e.sessionId === SESSION) : undefined,
+            evaluatorCalls: rpc.mock.calls.filter((c) => c[0] === 'record_progress_evaluation').length,
+        };
+    }
+
+    it('C2 lock held forever by another tab: Start is allowed by the bound, the debt stays durable and unwritten, and polling stops', async () => {
+        const run = await whileAnotherTabOwnsTheLock(true);
+        const { PROGRESS_DEBT_RELEASE_BOUND_MS } = run.tabB.retry;
+
+        expect(run.startAllowedAtMs).toBeGreaterThan(0);
+        expect(run.startAllowedAtMs).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS + TIMER_TOLERANCE_MS);
+        // The visible gate the hook rebuilds when the schedule settles agrees with the controller's decision.
+        expect(run.tabB.gate.reconstructGateFromQueue(OWNER)).toBeNull();
+        expect(run.settledAtMs).toBeGreaterThan(0);
+        expect(run.settledAtMs).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS + TIMER_TOLERANCE_MS);
+        expect(run.lockRequestsAfterAllowed).toBe(0);
+        // No unlocked read/modify/write of the shared queue, and nothing claimed: the entry is exactly as it was.
+        expect(run.queueWrites).toBe(0);
+        expect(run.entry).toMatchObject({ sessionId: SESSION, userId: OWNER });
+        expect(run.entry?.releasedAtIso).toBeUndefined();
+        expect(run.entry?.attempts).toBeUndefined();
+        expect(run.evaluatorCalls).toBe(0);
+    });
+
+    it('CONTROL: with a healthy lock the same debt spends its retries and is released durably within the bound', async () => {
+        const run = await whileAnotherTabOwnsTheLock(false);
+        const { PROGRESS_DEBT_RELEASE_BOUND_MS, PROGRESS_DEBT_ATTEMPT_BUDGET } = run.tabB.retry;
+
+        expect(run.startAllowedAtMs).toBeGreaterThan(0);
+        expect(run.startAllowedAtMs).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        expect(run.evaluatorCalls).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        expect(run.entry?.attempts).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        expect(typeof run.entry?.releasedAtIso).toBe('string');
+        expect(run.lockRequestsAfterAllowed).toBe(0);
     });
 });

@@ -8,8 +8,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
     evaluateDurableStartGate, evaluateStartGate, startGateMessage,
     reconstructGateFromQueue, subscribeCrossTabProgressGate, PROGRESS_QUEUE_STORAGE_KEY,
+    expireProgressDebtHold, __resetProgressDebtHoldExpiryForTests,
 } from '../progressStartGate';
-import { enqueueProgressReconcile, readProgressReconcileQueue } from '../progressReconcileQueue';
+import { enqueueProgressReconcile, readProgressReconcileQueue, type QueueEntry } from '../progressReconcileQueue';
 
 // #1354: point at the canonical export rather than repeating the literal — a test copy is a
 // third authority for the same key, free to drift from the one the writer actually uses.
@@ -17,7 +18,7 @@ const KEY = PROGRESS_QUEUE_STORAGE_KEY;
 const OWNER = 'user-1';
 const OTHER = 'user-2';
 
-beforeEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
+beforeEach(() => { localStorage.clear(); vi.restoreAllMocks(); __resetProgressDebtHoldExpiryForTests(); });
 
 describe('durable debt blocks its exact owner only', () => {
     it('no debt allows Start', () => {
@@ -195,6 +196,35 @@ describe('reload reconstruction and cross-tab reaction', () => {
         // must still be blocked by the fresh durable read.
         enqueueProgressReconcile('s-silent', OWNER, 'now');
         expect(evaluateStartGate(OWNER, null).allowed).toBe(false);
+    });
+});
+
+// RWT-20 C2 (PM RETURN 5668961740, Codex 4008444044): a hold this page expired at its release deadline stops blocking
+// Start without any queue write — and only for that exact obligation of that exact owner.
+describe('RWT-20 C2: an in-page hold expiry releases only that exact obligation', () => {
+    it('an expired hold no longer blocks its owner, and the entry stays durable and unreleased', () => {
+        enqueueProgressReconcile('s-held', OWNER, '2026-09-14T00:00:00.000Z');
+        const read = readProgressReconcileQueue() as { ok: true; entries: QueueEntry[] };
+        expireProgressDebtHold(OWNER, read.entries[0]);
+        expect(evaluateDurableStartGate(OWNER)).toEqual({ allowed: true });
+        expect(reconstructGateFromQueue(OWNER)).toBeNull();
+        expect(readProgressReconcileQueue()).toEqual({
+            ok: true, entries: [{ sessionId: 's-held', userId: OWNER, enqueuedAtIso: '2026-09-14T00:00:00.000Z' }],
+        });
+    });
+
+    it('a later obligation for the same session, and another owner\'s obligation, are not expired in advance', () => {
+        expireProgressDebtHold(OWNER, { sessionId: 's-held', enqueuedAtIso: '2026-09-14T00:00:00.000Z' });
+        enqueueProgressReconcile('s-held', OWNER, '2026-09-14T00:05:00.000Z');
+        expect(evaluateDurableStartGate(OWNER)).toEqual({ allowed: false, reason: 'queued_debt', sessionId: 's-held' });
+        enqueueProgressReconcile('s-held', OTHER, '2026-09-14T00:00:00.000Z');
+        expect(evaluateDurableStartGate(OTHER)).toEqual({ allowed: false, reason: 'queued_debt', sessionId: 's-held' });
+    });
+
+    it('an unreadable queue still fails closed whatever this page has expired', () => {
+        expireProgressDebtHold(OWNER, { sessionId: 's-held', enqueuedAtIso: '2026-09-14T00:00:00.000Z' });
+        localStorage.setItem(KEY, '{corrupt');
+        expect(evaluateDurableStartGate(OWNER)).toEqual({ allowed: false, reason: 'queue_unreadable', failure: 'corrupt' });
     });
 });
 
