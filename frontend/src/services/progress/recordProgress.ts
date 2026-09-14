@@ -425,7 +425,18 @@ export async function wireProgressEvaluationOnSave(ctx: {
         ? enqueueProgressReconcile(ctx.sessionId, ctx.userId, obligationAtIso)
         : ({ ok: false } as const);
 
-    const evaluation = await recordProgressEvaluationWithRetry(ctx.sessionId);
+    // Cross-tab ownership (Codex 4003555358): the save's own evaluation and its verified clear run under the same
+    // owner+session boundary as load/retry rounds, so another tab's retry cannot evaluate this debt at the same time.
+    const { sessionId, userId } = { sessionId: ctx.sessionId, userId: ctx.userId };
+    const owned = userId && obligation.ok
+        ? await withAttemptOwnership(userId, sessionId, async () => {
+            const result = await recordProgressEvaluationWithRetry(sessionId);
+            return { evaluation: result, cleared: result.id ? clearProgressReconcileEntry(sessionId, userId) : null };
+        })
+        : { owned: true as const, value: { evaluation: await recordProgressEvaluationWithRetry(sessionId), cleared: null } };
+    // Another context owns this debt's attempt right now: the obligation is durable, and that owner records it.
+    if (!owned.owned) return { kind: 'queued' };
+    const evaluation = owned.value.evaluation;
     const evalId = evaluation.id;
     if (!evalId) {
         // The evaluation failed. Whether this is retryable depends ENTIRELY on whether the obligation
@@ -452,9 +463,7 @@ export async function wireProgressEvaluationOnSave(ctx: {
     // outcomes never gate the recorder. An earlier version of this returned early on a failed clear and
     // silently dropped both, which would have made a storage hiccup cost the user their recommendation.
     // Retire the obligation ONLY now that terminal evidence exists — and only if we actually wrote one.
-    const cleared = ctx.userId && obligation.ok
-        ? clearProgressReconcileEntry(ctx.sessionId, ctx.userId)
-        : ({ ok: true } as const);
+    const cleared = owned.value.cleared ?? ({ ok: true } as const);
     await recordRecommendationForEvaluation(ctx.sessionId);
     if (ctx.userId) await resolveOpenAttemptWith(ctx.userId, ctx.sessionId);
     if (!cleared.ok) return { kind: 'unresolved', reason: 'queue_unavailable' };

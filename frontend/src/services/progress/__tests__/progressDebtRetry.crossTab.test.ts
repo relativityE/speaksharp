@@ -236,4 +236,75 @@ describe('RWT-20 — one tab owns a debt attempt at a time (Codex 4003281159)', 
         const read = tab.queue.readProgressReconcileQueue();
         expect(read.ok && read.entries.find((e) => e.sessionId === SESSION)?.attempts).toBe(1);
     });
+
+    // Codex P1 4003555358: the write-ahead SAVE evaluation ran outside cross-tab ownership, so another tab's lock-owned
+    // retry could evaluate the same debt at the same time — overlapping RPCs and, on success, duplicate side effects.
+    async function saveInTabAWhileTabBRetries(outcome: 'fail' | 'succeed') {
+        const tabA = await openTab();
+        const tabB = await openTab();
+        const OTHER = 'sess-other-debt';
+        expect(tabB.queue.enqueueProgressReconcile(OTHER, OWNER, new Date(Date.now() - 1_000).toISOString()).ok).toBe(true);
+        const failed = { data: null, error: { code: 'XX000', message: 'still failing' } };
+        const t0 = Date.now();
+        let inFlightForSession = 0;
+        let maxConcurrentForSession = 0;
+        let evaluatorCallsForSession = 0;
+        let otherFirstCallMs = -1;
+        rpc.mockImplementation((name: string, args: unknown) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            if (JSON.stringify(args ?? {}).includes(OTHER)) {
+                if (otherFirstCallMs < 0) otherFirstCallMs = Date.now() - t0;
+                return Promise.resolve(failed);
+            }
+            inFlightForSession++;
+            evaluatorCallsForSession++;
+            maxConcurrentForSession = Math.max(maxConcurrentForSession, inFlightForSession);
+            return new Promise((resolve) => setTimeout(() => {
+                inFlightForSession--;
+                resolve(outcome === 'succeed' ? { data: 'eval-1', error: null } : failed);
+            }, PENDING_MS));
+        });
+
+        // Tab A saves: the obligation is written ahead, then A evaluates. Tab B sees the debt and runs its retry schedule.
+        let saveOutcome: unknown = null;
+        let saveSettledMs = -1;
+        void tabA.record.wireProgressEvaluationOnSave({
+            sessionId: SESSION, status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: OWNER,
+        }).then((result) => {
+            saveOutcome = result;
+            saveSettledMs = Date.now() - t0;
+        });
+        await vi.advanceTimersByTimeAsync(TAB_B_OFFSET_MS);
+        void tabB.retry.scheduleProgressDebtRetry(OWNER);
+        await vi.advanceTimersByTimeAsync(120_000);
+
+        const phases = [tabA, tabB].flatMap((tab) => tab.push.mock.calls
+            .filter((c) => c[0] === 'progress_debt')
+            .map((c) => (c[1] as { phase?: string }).phase));
+        return { tabA, maxConcurrentForSession, evaluatorCallsForSession, otherFirstCallMs, saveOutcome, saveSettledMs, phases };
+    }
+
+    it('X5 a failing save and another tab\'s retry never evaluate one debt together; a different debt still progresses', async () => {
+        const { tabA, maxConcurrentForSession, otherFirstCallMs, saveOutcome, saveSettledMs, phases } = await saveInTabAWhileTabBRetries('fail');
+
+        expect(maxConcurrentForSession).toBe(1);
+        expect(saveOutcome).toEqual({ kind: 'queued' });
+        expect(otherFirstCallMs).toBeGreaterThanOrEqual(0);
+        expect(otherFirstCallMs).toBeLessThan(saveSettledMs); // the other debt is not held behind this one's ownership
+        const read = tabA.queue.readProgressReconcileQueue();
+        const entry = read.ok ? read.entries.find((e) => e.sessionId === SESSION) : undefined;
+        expect(entry?.attempts).toBe(tabA.retry.PROGRESS_DEBT_ATTEMPT_BUDGET);
+        expect(phases.filter((p) => p === 'attempt_succeeded')).toHaveLength(0);
+        expect(recommendationReads).toBe(0);
+    });
+
+    it('X6 a succeeding save is the only evaluation of its debt: no retry success and one recommendation reconciliation', async () => {
+        const { maxConcurrentForSession, evaluatorCallsForSession, saveOutcome, phases } = await saveInTabAWhileTabBRetries('succeed');
+
+        expect(maxConcurrentForSession).toBe(1);
+        expect(evaluatorCallsForSession).toBe(1); // the retry that acquires later re-reads, finds the debt gone, and calls nothing
+        expect(saveOutcome).toEqual({ kind: 'recorded' });
+        expect(phases.filter((p) => p === 'attempt_succeeded')).toHaveLength(0);
+        expect(recommendationReads).toBe(1);
+    });
 });
