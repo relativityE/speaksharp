@@ -150,7 +150,8 @@ Preparation is separate from execution:
    repository, workflow path/ref/revision, run, attempt, actor, release, origin, cell and evidence document. The
    authorization has **no wall-clock expiry**: one attempt authorizes one cell, and a rerun is a new attempt with a
    new nonce. Main ancestry and accepted-tree equality are verified after the authorized merge, as closure gates.
-2. Launch one isolated Chrome profile with its remote-debugging endpoint bound to loopback port 9222. Open
+2. Launch a dedicated browser profile and process with no other debugging tools (no DevTools, observer, extension debugger
+   or second automation client), with its remote-debugging endpoint bound to loopback port 9222. Open
    exactly one `https://speaksharp-public.vercel.app` tab and sign in manually through the normal product path.
    Never expose the debugging endpoint off-device.
 
@@ -163,30 +164,39 @@ six rows; a later comparison packet requires a new id. Immediately before each t
 1. Dispatch the authorization for that exact cell against the reviewed candidate head:
    `gh workflow run rc-gates.yml --ref <candidate-branch> -f gate=comparison-authorization -f comparison_cell=<candidate-id>/<open_mic|focus_points> -f comparison_release_sha=<40-char-sha> -f comparison_evidence_document_id=<uuidv4>`,
    wait for it to succeed, and note its run id and attempt.
-2. Start the observer, with the GitHub CLI authenticated to read the repository and its Actions artifacts:
-   `corepack pnpm human-test:observe -- --candidate <candidate-id> --journey <open_mic|focus_points> --release <40-char-sha> --authorization-run <run-id> --authorization-run-attempt <attempt> --out /absolute/evidence/receipt.json`.
-   Before arming the page, the observer live-reads that exact attempt from GitHub: `rc-gates.yml`, manual
-   dispatch, completed successfully, executed revision equal to the release and to the artifact's workflow ref,
-   actor and triggering actor equal to the repository owner, and jobs showing one successful
-   `Model Comparison Authorization` job with every other gate skipped. The artifact must name this candidate,
-   journey, release and origin. It HOLDs without arming on any mismatch, and records the verified run in the
-   receipt. The in-app check is defense-in-depth only and provides no qualification authority.
-3. Use the product normally while the observer runs: start, speak, stop, wait for persistence and review,
-   inspect Focus Points when applicable, and use Practice again/Retry where the run requires it. Do not
-   refresh or reuse an authorization; it is removed after the first document, and its nonce is evidence for
-   exactly one take.
+2. Prepare the take, with the GitHub CLI authenticated to read the repository and its Actions artifacts:
+   `node scripts/human-test/prepare-take.mjs --candidate <candidate-id> --journey <open_mic|focus_points> --release <40-char-sha> --authorization-run <run-id> --authorization-run-attempt <attempt> --out /absolute/evidence/control.json`.
+   It live-reads that exact attempt from GitHub first: `rc-gates.yml`, manual dispatch, completed successfully,
+   executed revision equal to the release and to the artifact's workflow ref, actor and triggering actor equal to
+   the repository owner, and jobs showing one successful `Model Comparison Authorization` job with every other gate
+   skipped. The artifact must name this candidate, journey, release and origin; on any mismatch it HOLDs without
+   attaching. It then installs only the one-use authorization, boots one fresh document, removes the installer,
+   switches the candidate, requires requested = observed = expected on the authorized release, and **disconnects**.
+   It never pauses workers, enables network observation, or injects a tripwire (RWT-01, PO/PM 5663876247).
+3. Start only after it prints `DISCONNECTED` — no debugger attachment was observed before arming or after control disconnect. The endpoint cannot prove exclusive
+   custody, so keep that browser free of other debugging tools for the whole take. Use the product
+   normally: start, speak, stop, wait for persistence and review, inspect Focus Points when applicable, and use
+   Practice again/Retry where the run requires it. Do not refresh or reuse an authorization; it is removed after the
+   first document, and its nonce is evidence for exactly one take.
+
+**Privacy evidence is separate.** Run the privacy diagnostic in a separate browser profile and process, never against the take's
+debugging endpoint. Audio-egress verification runs in its own session with
+`corepack pnpm human-test:observe -- --privacy-diagnostic …`. That observer pauses workers and replaces network APIs
+to inspect payloads, so its receipt is stamped `evidenceKind: privacy_diagnostic` and can never qualify a
+comparison row or supply journey, performance or model-quality evidence.
 
 The first successful authorized switch for the evidence document automatically emits the governed
 `telemetry_positive_control`; the other five switches do not. Set the packet's `positiveControlNonce`
-to the evidence-document UUID reported by the observer. For each candidate row, copy
-`comparisonNonce` from that row's observer receipt, then copy `journeyId`, `attemptId`, and `attemptSeq`
+to the evidence-document UUID reported by the control receipt. For each candidate row, copy
+`comparisonNonce` from that row's control receipt, then copy `journeyId`, `attemptId`, and `attemptSeq`
 from the trusted readback's `session_started` event carrying that `comparisonNonce`. Those three values are
 the app's native telemetry identity, not values derived from the nonce; the validator refuses any row whose
 copies differ from the authenticated readback, so operator-authored correlation cannot substitute for
 emitted telemetry.
 
 A candidate row counts only when requested, expected, and observed identities agree for the whole take;
-the saved session has a named persistence ID; the receipt is non-dry-run `PASS`; and the #1421 decoded
+the saved session has a named persistence ID; the receipt is a non-dry-run `PASS` pre-take control that
+disconnected before the take; and the #1421 decoded
 PostHog readback links the same release, evidence document, candidate, journey, attempt, sequence, and
 run-issued comparison nonce. A SHA-256 binding over pinned canonical bytes (version, nonce, persisted UUIDv4)
 proves the exact saved session without putting the raw database session ID in PostHog. Gemini evidence

@@ -112,15 +112,21 @@ function validEvidence() {
       const attemptSeq = ordinal <= 2 ? ordinal : 1;
       const persistedSessionId = `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`;
       const comparisonNonce = nonceFor(ordinal);
+      // RWT-01 — a disconnected pre-take control receipt; the saved session is bound by telemetry, not by this receipt.
       const receipt = writeArtifact(`receipt-${suffix}-${ordinal}.json`, {
-        verdict: 'PASS', holdKind: null, dryRun: false,
+        evidenceKind: 'pre_take_control', verdict: 'PASS', holdKind: null, problems: [], dryRun: false,
         target: { origin: PRODUCTION_ORIGIN }, release: RELEASE,
         expectedCandidate: candidateId, requestedCandidate: candidateId, observedCandidate: candidateId,
-        observedJourney: journey, comparisonNonce,
-        evidenceDocumentId: EVIDENCE_DOCUMENT_ID,
-        persistedSessionId, capturedAt: ISO,
+        journey, comparisonNonce,
+        evidenceDocumentId: EVIDENCE_DOCUMENT_ID, positiveControlNonce: EVIDENCE_DOCUMENT_ID,
+        capturedAt: ISO,
         authorization: observerAuthorization({ candidateId, journey, ordinal }),
-        sessionBindingSha256: modelComparisonSessionBindingSha256(comparisonNonce, persistedSessionId),
+        control: {
+          methodsUsed: ['Page.enable', 'Page.addScriptToEvaluateOnNewDocument', 'Page.navigate', 'Page.removeScriptToEvaluateOnNewDocument', 'Runtime.evaluate'],
+          armScriptsInstalled: 1, armScriptRemoved: true, tripwireInstalled: false, workerAttachment: false,
+          networkObservation: false, disconnectedBeforeTake: true, disconnectedAt: ISO,
+          exclusiveBeforeArm: true, noAttachmentAfterDisconnect: true,
+        },
       });
       const objective = journey === 'focus_points';
       candidateEvidence.push({
@@ -331,11 +337,12 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
 
   it('binds the declared journey to decoded telemetry and the persisted session to observer/Gemini evidence', () => {
     const relabeled = validEvidence(); relabeled.candidateEvidence[0].journey = 'focus_points';
-    expect(holdProblems(relabeled)).toMatch(/receipt\.observedJourney must be "focus_points"/);
+    expect(holdProblems(relabeled)).toMatch(/receipt\.journey must be "focus_points"/);
     expect(holdProblems(relabeled)).toMatch(/must link decoded objective journey telemetry/);
     const wrongSession = validEvidence();
     wrongSession.candidateEvidence[0].persistedSessionId = '99999999-9999-4999-8999-999999999999';
-    expect(holdProblems(wrongSession)).toMatch(/persistedSessionId|persisted session/);
+    // RWT-01: the control receipt no longer carries the session; the binding HOLD now comes from the telemetry readback.
+    expect(holdProblems(wrongSession)).toMatch(/persistedSessionId|persisted session|persisted-session binding/);
   });
 
   it('never requires the persisted database session id in PostHog', () => {
@@ -734,9 +741,24 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       expect(holdProblems(evidence)).toMatch(new RegExp(`candidateEvidence\\[1\\] reuses authorization run ${first.authorization.runId}`));
     });
 
-    it('CASUALTY: the observer session binding must match the packet row', () => {
-      const evidence = rewriteReceipt(validEvidence(), 4, 'wrong-binding', (receipt) => { receipt.sessionBindingSha256 = HASH('e'); });
-      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\]\.receipt\.sessionBindingSha256 must be/);
+    it('CASUALTY (RWT-01): a receipt from the retired attached observer cannot qualify a row', () => {
+      const evidence = rewriteReceipt(validEvidence(), 4, 'attached-observer', (receipt) => {
+        delete receipt.evidenceKind;
+        delete receipt.control;
+        receipt.workerInstrumentation = { attached: 2, installed: 2, drained: 2, networkEnabled: 2, mainTripwireInstalled: true };
+      });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\]\.receipt receipt evidenceKind must be "pre_take_control"/);
+    });
+
+    it('CASUALTY (RWT-01): a control receipt still attached at the take HOLDs the row', () => {
+      const evidence = rewriteReceipt(validEvidence(), 4, 'still-attached', (receipt) => { receipt.control.disconnectedBeforeTake = false; });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\]\.receipt the control session did not disconnect before the take/);
+    });
+
+    it('CASUALTY: the packet row session binding is still enforced through telemetry', () => {
+      const evidence = validEvidence();
+      evidence.candidateEvidence[4].persistedSessionId = '99999999-9999-4999-8999-999999999999';
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\] session_saved persisted-session binding/);
     });
   });
 
