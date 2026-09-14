@@ -34,6 +34,16 @@ const arg = (name, fallback = null) => {
 };
 const flag = (name) => process.argv.includes(`--${name}`);
 
+// RWT-01 (PM 5663484274, PO/PM 5663876247) — RETIRED FROM QUALIFYING TAKES. This observer pauses every new worker at
+// startup, injects a network tripwire and navigates the tab; on Production `1b311f9` every take it armed stalled. It now
+// runs only as an explicit, nonqualifying privacy diagnostic. A qualifying take is prepared by `prepare-take.mjs`,
+// which disconnects before Start.
+if (!flag('privacy-diagnostic')) {
+    console.error('observe-take is a nonqualifying privacy diagnostic: pass --privacy-diagnostic. '
+        + 'For a qualifying comparison take use scripts/human-test/prepare-take.mjs, which disconnects before Start.');
+    process.exit(2);
+}
+
 const PORT = Number(arg('port', '9222'));
 const APP = arg('app', 'https://speaksharp-public.vercel.app');
 const CANDIDATE = arg('candidate');
@@ -462,6 +472,9 @@ const main = async () => {
 
     const sockets = [...socketsByRequest.values()];
     const receipt = {
+        // Never journey or comparison evidence: the validator accepts only a disconnected pre-take control receipt.
+        evidenceKind: 'privacy_diagnostic',
+        qualifying: false,
         ...receiptVerdict({
             probe, expectedCandidate: CANDIDATE, expectedRelease: RELEASE,
             payloads, sockets, phases, appOrigin: APP, workerInstrumentation: workerStats, egress,

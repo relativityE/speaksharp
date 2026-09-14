@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RECORD_KEYS, authorizationShapeProblems, checkRunAuthority } from './modelComparisonRunAuthority.mjs';
+import { controlReceiptProblems } from './preTakeControl.mjs';
 
 export const MODEL_DOWNSELECTION_SCHEMA_VERSION = 'speaksharp.model-downselection.v1';
 export const PRODUCTION_ORIGIN = 'https://speaksharp-public.vercel.app';
@@ -190,6 +191,9 @@ function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, runAuthor
     problems.push(`${path}.receiptArtifact must contain a JSON object`);
     return;
   }
+  // RWT-01 — only a pre-take control receipt that disconnected before the take qualifies a row. The retired observer's
+  // receipt (and any privacy-diagnostic run) was produced with the instrument attached to the take it measured.
+  for (const problem of controlReceiptProblems(receipt)) problems.push(`${path}.receipt ${problem}`);
   expectEqual(receipt.verdict, 'PASS', `${path}.receipt.verdict`, problems);
   expectEqual(receipt.holdKind ?? null, null, `${path}.receipt.holdKind`, problems);
   expectEqual(receipt.dryRun, false, `${path}.receipt.dryRun`, problems);
@@ -198,19 +202,14 @@ function validateReceipt(receipt, row, releaseSha, evidenceDocumentId, runAuthor
   for (const key of ['expectedCandidate', 'requestedCandidate', 'observedCandidate']) {
     expectEqual(receipt[key], row.candidateId, `${path}.receipt.${key}`, problems);
   }
-  expectEqual(receipt.observedJourney, row.journey, `${path}.receipt.observedJourney`, problems);
+  expectEqual(receipt.journey, row.journey, `${path}.receipt.journey`, problems);
   expectEqual(receipt.comparisonNonce, row.comparisonNonce, `${path}.receipt.comparisonNonce`, problems);
   // The observer cannot see the envelope's native journey/attempt identity, so it no longer records a
   // value for them. Those come only from the authenticated readback (validateCandidateEvidence).
   expectEqual(receipt.evidenceDocumentId, evidenceDocumentId, `${path}.receipt.evidenceDocumentId`, problems);
   if (!isIsoInstant(receipt.capturedAt)) problems.push(`${path}.receipt.capturedAt must be an ISO instant`);
-  expectEqual(receipt.persistedSessionId, row.persistedSessionId, `${path}.receipt.persistedSessionId`, problems);
-  expectEqual(
-    receipt.sessionBindingSha256,
-    modelComparisonSessionBindingSha256(row.comparisonNonce, row.persistedSessionId),
-    `${path}.receipt.sessionBindingSha256`,
-    problems,
-  );
+  // The control disconnects before the take, so it cannot see the saved session. The persisted session is bound by the
+  // authenticated telemetry readback (`session_saved` binding) and the Gemini authority, never by this receipt.
   // #1432 Product Owner decision 5651663038 — the take's authority is one GitHub authorization run. The trusted
   // observer verified it before arming; it is RE-READ from GitHub here. A page-side claim, a receipt without the
   // run record, or a run GitHub does not confirm is not evidence.
