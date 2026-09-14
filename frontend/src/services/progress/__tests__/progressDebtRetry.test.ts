@@ -39,7 +39,7 @@ const { evaluateStartGate, reconstructGateFromQueue } = await import('../progres
 const { reconcileProgressEvaluations, wireProgressEvaluationOnSave } = await import('../recordProgress');
 const {
     scheduleProgressDebtRetry, PROGRESS_DEBT_RETRY_DELAYS_MS, PROGRESS_DEBT_RELEASE_BOUND_MS,
-    __resetProgressDebtRetryForTests,
+    PROGRESS_DEBT_ATTEMPT_BUDGET, __resetProgressDebtRetryForTests,
 } = await import('../progressDebtRetry');
 
 const OWNER = 'owner-rwt20';
@@ -96,8 +96,9 @@ describe('RWT-20 casualty — save → reload → failed reconciliation → retr
         await vi.advanceTimersByTimeAsync(PROGRESS_DEBT_RELEASE_BOUND_MS);
         const result = await run;
 
-        // Retried IN-PAGE on the declared schedule, not once per load.
-        expect(evalCalls()).toBe(1 + PROGRESS_DEBT_RETRY_DELAYS_MS.length);
+        // Retried IN-PAGE on the declared schedule, not once per load. The load round's failed attempt is a real,
+        // persisted attempt and counts toward the entry's budget (Codex P1 4002335600).
+        expect(evalCalls()).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
         expect(result).toMatchObject({ resolved: 0, released: 1 });
 
         // ONE honest terminal state: Start is available — for the controller, the UI and a reload alike.
@@ -109,10 +110,10 @@ describe('RWT-20 casualty — save → reload → failed reconciliation → retr
         expect(getQueuedSessionIdsForUser(OWNER).sessionIds).toEqual([SESSION]);
         const entry = entryFor(SESSION);
         expect(typeof entry?.releasedAtIso).toBe('string');
-        expect(entry?.attempts).toBe(1 + PROGRESS_DEBT_RETRY_DELAYS_MS.length);
+        expect(entry?.attempts).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
 
         const phases = debtEvents().map((e) => e.phase);
-        expect(phases.filter((p) => p === 'attempt_failed')).toHaveLength(1 + PROGRESS_DEBT_RETRY_DELAYS_MS.length);
+        expect(phases.filter((p) => p === 'attempt_failed')).toHaveLength(PROGRESS_DEBT_ATTEMPT_BUDGET);
         expect(phases.filter((p) => p === 'released')).toHaveLength(1);
         expect(phases).not.toContain('attempt_succeeded');
     });
@@ -276,5 +277,108 @@ describe('RWT-20 — telemetry is observable AND content-free', () => {
         await vi.advanceTimersByTimeAsync(5_000);
         expect(await pending).toEqual({ kind: 'recorded' });
         expect(debtEvents()).toEqual([]);
+    });
+});
+
+// Codex P1 4002335597 on 7776a351: the final round re-read the queue and released EVERY unreleased entry, so debt that
+// arrived during the schedule was released before it had been retried on its own budget.
+describe('RWT-20 — each debt keeps its own retry budget', () => {
+    it('debt arriving mid-schedule is not released with the older entry; it is released only after its own budget', async () => {
+        arrangeReloadWithDebt();
+        failRpc();
+        const run = scheduleProgressDebtRetry(OWNER);
+
+        // Just before the older entry's final retry, a newer save leaves debt of its own.
+        await vi.advanceTimersByTimeAsync(sum(PROGRESS_DEBT_RETRY_DELAYS_MS) - 1);
+        expect(enqueueProgressReconcile('sess-newer', OWNER, new Date().toISOString()).ok).toBe(true);
+        await vi.advanceTimersByTimeAsync(10);
+
+        // The older entry spent its budget and is released; the newer one has not been retried at all and still blocks.
+        expect(typeof entryFor(SESSION)?.releasedAtIso).toBe('string');
+        expect(entryFor('sess-newer')?.releasedAtIso).toBeUndefined();
+        expect(evaluateStartGate(OWNER, null)).toMatchObject({ allowed: false, reason: 'queued_debt', sessionId: 'sess-newer' });
+
+        await vi.advanceTimersByTimeAsync(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        const result = await run;
+        expect(result).toMatchObject({ resolved: 0, released: 2 });
+        expect(entryFor('sess-newer')?.attempts).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        expect(typeof entryFor('sess-newer')?.releasedAtIso).toBe('string');
+        expect(evalCalls()).toBe(2 * PROGRESS_DEBT_ATTEMPT_BUDGET);
+    });
+});
+
+// Codex P1 4002335600 on 7776a351: every page load restarted the full schedule, ignoring the persisted attempts and
+// clock, so repeated reloads could keep Start held indefinitely.
+describe('RWT-20 — a reload resumes the persisted budget and clock', () => {
+    it('a budget already spent before the reload releases Start without another hold', async () => {
+        localStorage.setItem(PROGRESS_QUEUE_STORAGE_KEY, JSON.stringify([{
+            sessionId: SESSION,
+            userId: OWNER,
+            enqueuedAtIso: new Date(Date.now() - 3_600_000).toISOString(),
+            attempts: PROGRESS_DEBT_ATTEMPT_BUDGET,
+            lastAttemptAtIso: new Date(Date.now() - 600_000).toISOString(),
+        }]));
+        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(OWNER));
+        failRpc();
+
+        const run = scheduleProgressDebtRetry(OWNER);
+        await vi.advanceTimersByTimeAsync(PROGRESS_DEBT_RETRY_DELAYS_MS[0] - 1);
+        expect(evaluateStartGate(OWNER, gate()).allowed).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        expect(await run).toMatchObject({ released: 1 });
+        expect(evalCalls()).toBe(0);
+    });
+
+    it('the persisted clock is resumed: a retry already waiting before the reload fires on its original schedule', async () => {
+        // Two attempts failed; the last one 15 s before this page loaded, so its 20 s backoff has 5 s left.
+        const elapsed = 15_000;
+        localStorage.setItem(PROGRESS_QUEUE_STORAGE_KEY, JSON.stringify([{
+            sessionId: SESSION,
+            userId: OWNER,
+            enqueuedAtIso: new Date(Date.now() - 60_000).toISOString(),
+            attempts: PROGRESS_DEBT_ATTEMPT_BUDGET - 1,
+            lastAttemptAtIso: new Date(Date.now() - elapsed).toISOString(),
+        }]));
+        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(OWNER));
+        failRpc();
+
+        const run = scheduleProgressDebtRetry(OWNER);
+        await vi.advanceTimersByTimeAsync(PROGRESS_DEBT_RETRY_DELAYS_MS[PROGRESS_DEBT_ATTEMPT_BUDGET - 1] - elapsed + 10);
+        expect(evalCalls()).toBe(1);
+        expect(evaluateStartGate(OWNER, gate()).allowed).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        expect(await run).toMatchObject({ released: 1 });
+        expect(evalCalls()).toBe(1);
+    });
+
+    it('run → reload mid-budget → resume: the reloaded page spends only the remaining budget, on the persisted clock', async () => {
+        arrangeReloadWithDebt();
+        failRpc();
+        void scheduleProgressDebtRetry(OWNER);
+
+        // First page: one retry fails and is persisted.
+        await vi.advanceTimersByTimeAsync(PROGRESS_DEBT_RETRY_DELAYS_MS[0] + 1);
+        expect(entryFor(SESSION)?.attempts).toBe(1);
+
+        // Reload: the page's timers and in-memory schedule are gone; only storage survives. The reloaded page runs its
+        // load round and then the retry schedule, exactly as `useProgressReconciliation` does.
+        vi.clearAllTimers();
+        __resetProgressDebtRetryForTests();
+        const reloadedAt = Date.now();
+        await reconcileProgressEvaluations(OWNER, []);
+        expect(entryFor(SESSION)?.attempts).toBe(2);
+        const run = scheduleProgressDebtRetry(OWNER);
+
+        await vi.advanceTimersByTimeAsync(PROGRESS_DEBT_RETRY_DELAYS_MS[2] - 1);
+        expect(evaluateStartGate(OWNER, null).allowed).toBe(false); // still inside its last backoff
+        await vi.advanceTimersByTimeAsync(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        expect(await run).toMatchObject({ released: 1 });
+
+        // Budget resumed, not restarted: three attempts in total, released one backoff after the reload's attempt.
+        expect(evalCalls()).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        const releasedAt = Date.parse(entryFor(SESSION)?.releasedAtIso as string);
+        expect(releasedAt - reloadedAt).toBeLessThanOrEqual(PROGRESS_DEBT_RETRY_DELAYS_MS[2] + 1_000);
     });
 });

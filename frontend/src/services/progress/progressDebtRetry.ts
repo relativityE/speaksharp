@@ -5,22 +5,29 @@
  * failing therefore held Start forever: in the Production real-world test one entry blocked recording for ~88 minutes
  * across two loads, under copy that promised "this will retry automatically".
  *
- * NOW. While this owner's gate is `queued`, attempt rounds run on a fixed backoff. If the debt is still owed after the
- * last round, it is RELEASED: Start becomes available, and the entry stays durable so later loads keep retrying it.
- * Single-flight per owner, so repeated gate publications never multiply attempts.
+ * NOW. While this owner's gate is `queued`, failing debt is retried on a fixed backoff. EACH entry keeps its own
+ * budget: it is released only once it has itself failed `PROGRESS_DEBT_ATTEMPT_BUDGET` attempts, so debt that arrives
+ * mid-schedule is never released by an older entry's schedule. The budget and clock are the entry's PERSISTED
+ * `attempts` / `lastAttemptAtIso`, so a reload resumes them instead of restarting the hold. A released entry stays
+ * durable and later loads keep retrying it. Single-flight per owner, so repeated gate publications never multiply
+ * attempts.
  */
+import { getQueueEntriesForUser, type QueueEntry } from './progressReconcileQueue';
 import {
     attemptProgressDebtRound,
     PROGRESS_RPC_ATTEMPT_TIMEOUT_MS,
-    releaseBlockingProgressDebt,
+    releaseProgressDebtEntry,
 } from './recordProgress';
 
-/** Delay before each retry round. The save path (3 attempts) or the load round has already tried once. */
+/** Delay before each retry, indexed by the attempts the entry has already failed. */
 export const PROGRESS_DEBT_RETRY_DELAYS_MS: readonly number[] = Object.freeze([2_000, 8_000, 20_000]);
 
+/** Failed reconciliation attempts (on any load or retry) after which an entry stops holding Start. */
+export const PROGRESS_DEBT_ATTEMPT_BUDGET = PROGRESS_DEBT_RETRY_DELAYS_MS.length;
+
 /**
- * Worst case from the start of the schedule to the release: every delay plus every attempt hitting its deadline.
- * This is the longest a queued debt can hold Start within one page (60 s with the current values).
+ * Worst case from an entry's first retry wait to its release: every delay plus every attempt hitting its deadline.
+ * This is the longest one queued debt can hold Start within one page (60 s with the current values).
  */
 export const PROGRESS_DEBT_RELEASE_BOUND_MS = PROGRESS_DEBT_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
     + PROGRESS_DEBT_RETRY_DELAYS_MS.length * PROGRESS_RPC_ATTEMPT_TIMEOUT_MS;
@@ -44,16 +51,49 @@ export function scheduleProgressDebtRetry(userId: string): Promise<ProgressDebtR
 }
 
 async function runSchedule(userId: string): Promise<ProgressDebtRetryResult> {
+    const startedAt = Date.now();
+    // In-memory floor for the budget and clock, used only when an attempt could not be persisted: without it a
+    // failing write would leave `attempts` unchanged and the schedule would retry forever.
+    const tried = new Map<string, { attempts: number; lastAt: number }>();
+    const attemptsOf = (e: QueueEntry) => Math.max(e.attempts ?? 0, tried.get(e.sessionId)?.attempts ?? 0);
+    const dueAt = (e: QueueEntry) => {
+        const attempts = attemptsOf(e);
+        const persisted = Date.parse(e.lastAttemptAtIso ?? '');
+        // Never attempted: the first wait starts when this page first chases it (or when it was enqueued, if later).
+        const base = Math.max(
+            attempts === 0 ? Math.max(startedAt, Date.parse(e.enqueuedAtIso) || 0) : (Number.isFinite(persisted) ? persisted : 0),
+            tried.get(e.sessionId)?.lastAt ?? 0,
+        );
+        return base + PROGRESS_DEBT_RETRY_DELAYS_MS[Math.min(attempts, PROGRESS_DEBT_RETRY_DELAYS_MS.length - 1)];
+    };
+    const refused = new Set<string>();
     let resolved = 0;
-    for (const delay of PROGRESS_DEBT_RETRY_DELAYS_MS) {
-        await sleep(delay);
-        const round = await attemptProgressDebtRound(userId, 'retry');
+    let released = 0;
+    for (;;) {
+        const owed = getQueueEntriesForUser(userId);
+        // Unreadable storage stays fail-closed and is outside this bound: stop without releasing anything.
+        if (!owed.ok) return { resolved, released };
+        const blocking = owed.entries.filter((e) => !e.releasedAtIso && !refused.has(e.sessionId));
+        // Release ONLY entries that have spent their own budget (possibly on earlier loads).
+        for (const entry of blocking.filter((e) => attemptsOf(e) >= PROGRESS_DEBT_ATTEMPT_BUDGET)) {
+            if (releaseProgressDebtEntry(userId, entry)) released++;
+            else refused.add(entry.sessionId); // an unrecorded release keeps blocking; stop chasing it this page
+        }
+        const pending = blocking.filter((e) => attemptsOf(e) < PROGRESS_DEBT_ATTEMPT_BUDGET);
+        if (pending.length === 0) return { resolved, released };
+
+        const nextDue = Math.min(...pending.map(dueAt));
+        await sleep(Math.max(0, nextDue - Date.now()));
+        const now = Date.now();
+        const due = new Set(pending.filter((e) => dueAt(e) <= now).map((e) => e.sessionId));
+        const round = await attemptProgressDebtRound(userId, 'retry', due);
         resolved += round.drained;
-        // Nothing left holding Start (resolved, or retired elsewhere), or storage unreadable — which stays
-        // fail-closed and is outside this bound: stop without releasing anything.
-        if (round.unreadable || round.remainingBlocking === 0) return { resolved, released: 0 };
+        if (round.unreadable) return { resolved, released };
+        for (const e of pending) {
+            if (!due.has(e.sessionId)) continue;
+            tried.set(e.sessionId, { attempts: attemptsOf(e) + 1, lastAt: now });
+        }
     }
-    return { resolved, released: releaseBlockingProgressDebt(userId) };
 }
 
 /** Test-only: forget in-flight schedules between cases. */

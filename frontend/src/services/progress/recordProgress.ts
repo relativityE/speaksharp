@@ -21,6 +21,7 @@ import {
     getQueueEntriesForUser,
     recordProgressReconcileAttempt,
     releaseProgressReconcileEntry,
+    type QueueEntry,
 } from './progressReconcileQueue';
 import type { ProgressDebtReason } from './progressDebtVocabulary';
 import { emitProgressDebt, progressDebtAgeMs } from '@/services/telemetry/progressDebtTelemetry';
@@ -528,15 +529,23 @@ const roundsInFlight = new Map<string, Promise<ProgressDebtRoundResult>>();
  * it never forgives the debt. `retry` rounds (the bounded in-page schedule) chase only entries still holding Start.
  * Every failed attempt is persisted on its entry, and every outcome is reported content-free.
  */
-export function attemptProgressDebtRound(userId: string, trigger: 'load' | 'retry'): Promise<ProgressDebtRoundResult> {
+export function attemptProgressDebtRound(
+    userId: string,
+    trigger: 'load' | 'retry',
+    onlySessionIds?: ReadonlySet<string>,
+): Promise<ProgressDebtRoundResult> {
     const existing = roundsInFlight.get(userId);
     if (existing) return existing;
-    const run = runProgressDebtRound(userId, trigger).finally(() => roundsInFlight.delete(userId));
+    const run = runProgressDebtRound(userId, trigger, onlySessionIds).finally(() => roundsInFlight.delete(userId));
     roundsInFlight.set(userId, run);
     return run;
 }
 
-async function runProgressDebtRound(userId: string, trigger: 'load' | 'retry'): Promise<ProgressDebtRoundResult> {
+async function runProgressDebtRound(
+    userId: string,
+    trigger: 'load' | 'retry',
+    onlySessionIds?: ReadonlySet<string>,
+): Promise<ProgressDebtRoundResult> {
     // An UNREADABLE queue is not an empty one. Draining zero entries because storage is unavailable or
     // corrupt would report a clean reconciliation while real Progress debts remain, so the read result
     // is inspected rather than coerced to a list.
@@ -545,7 +554,10 @@ async function runProgressDebtRound(userId: string, trigger: 'load' | 'retry'): 
         logger.warn({ failure: owed.failure }, '[progress] reconcile queue unreadable — not draining');
         return { drained: 0, remainingBlocking: 0, unreadable: true };
     }
-    const targets = trigger === 'retry' ? owed.entries.filter((e) => !e.releasedAtIso) : owed.entries;
+    // A retry round chases only the entries whose own backoff is due, so each entry's budget is spent on its own clock.
+    const targets = trigger === 'retry'
+        ? owed.entries.filter((e) => !e.releasedAtIso && (!onlySessionIds || onlySessionIds.has(e.sessionId)))
+        : owed.entries;
     let drained = 0;
     for (const entry of targets) {
         const attempt = await attemptProgressEvaluation(entry.sessionId);
@@ -585,27 +597,22 @@ async function runProgressDebtRound(userId: string, trigger: 'load' | 'retry'): 
 }
 
 /**
- * RWT-20 — the ONE honest terminal state after the retry bound: every entry still holding Start is RELEASED.
+ * RWT-20 — the ONE honest terminal state for an entry that has spent its retry budget: it is RELEASED.
  *
- * The entry stays durable and is retried on later loads; only its hold on Start ends. A release that cannot be
- * written is not claimed — that entry keeps blocking, exactly as an unreadable queue does.
+ * Only the entry the caller names is released; debt that has not had its own budget keeps blocking. The entry stays
+ * durable and is retried on later loads; only its hold on Start ends. A release that cannot be written is not
+ * claimed — that entry keeps blocking, exactly as an unreadable queue does.
  */
-export function releaseBlockingProgressDebt(userId: string): number {
-    const owed = getQueueEntriesForUser(userId);
-    if (!owed.ok) return 0;
-    let released = 0;
+export function releaseProgressDebtEntry(userId: string, entry: QueueEntry): boolean {
     const now = Date.now();
-    for (const entry of owed.entries.filter((e) => !e.releasedAtIso)) {
-        const result = releaseProgressReconcileEntry(entry.sessionId, userId, new Date(now).toISOString());
-        if (!result.ok) {
-            logger.warn({ failure: result.failure }, '[progress] debt release could not be recorded — Start stays blocked');
-            continue;
-        }
-        released++;
-        emitProgressDebt({ phase: 'released', trigger: 'retry', attempt: entry.attempts ?? 0, ageMs: progressDebtAgeMs(entry.enqueuedAtIso, now) });
-        releaseProgressGateFor(entry.sessionId, userId);
+    const result = releaseProgressReconcileEntry(entry.sessionId, userId, new Date(now).toISOString());
+    if (!result.ok) {
+        logger.warn({ failure: result.failure }, '[progress] debt release could not be recorded — Start stays blocked');
+        return false;
     }
-    return released;
+    emitProgressDebt({ phase: 'released', trigger: 'retry', attempt: entry.attempts ?? 0, ageMs: progressDebtAgeMs(entry.enqueuedAtIso, now) });
+    releaseProgressGateFor(entry.sessionId, userId);
+    return true;
 }
 
 export async function reconcileProgressEvaluations(
