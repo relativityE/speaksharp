@@ -360,7 +360,8 @@ Before declaring an authenticated or persisted-row proof unavailable:
    marked synthetic identifiers and emit sanitized assertions, not row contents.
 
 Use `pnpm verify:test-users` inside its credentialed workflow to confirm that configured
-reviewer accounts exist and have the expected profile tier. If a maintained reusable
+reviewer accounts exist and have the expected profile tier. The read-only path on its own is
+`gh workflow run setup-test-users.yml -f action=verify` (no writes; masked output). If a maintained reusable
 account fits the test, use it rather than creating another account.
 
 Reusable accounts are shared fixtures:

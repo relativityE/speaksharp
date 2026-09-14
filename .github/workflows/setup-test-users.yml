@@ -13,6 +13,9 @@ on:
           - query
           - create
           - sync_reviewers
+          # Read-only: confirms each configured reviewer account has an auth user and the expected profile tier.
+          # Writes nothing; output is masked and content-free. Use it before any create or credential repair.
+          - verify
       mode:
         description: 'Target Mode'
         required: false
@@ -134,6 +137,8 @@ jobs:
 
           if [ "$ACTION" = "sync_reviewers" ]; then
             pnpm sync:reviewer-test-users
+          elif [ "$ACTION" = "verify" ]; then
+            pnpm verify:test-users
           else
             node scripts/setup-test-users.mjs
           fi

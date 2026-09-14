@@ -14,7 +14,7 @@ const raw = readFileSync(resolve(process.cwd(), '.github/workflows/setup-test-us
 describe('Admin - Test Users workflow contract', () => {
   it('renames the display name only, keeping the stable action set', () => {
     expect(wf.name).toBe('Admin - Test Users');
-    expect(inputs.action.options).toEqual(['setup', 'query', 'create', 'sync_reviewers']);
+    expect(inputs.action.options).toEqual(['setup', 'query', 'create', 'sync_reviewers', 'verify']);
   });
 
   it('preserves standard free/pro create with NO Basic tier option', () => {
@@ -48,6 +48,26 @@ describe('Admin - Test Users workflow contract', () => {
     }
     for (const s of ['CANARY_TRIAL_PASSWORD', 'CANARY_PAID_PASSWORD', 'FREE_TEST_PASSWORD']) {
       expect(raw).toContain(`${s}: \${{ secrets.${s} }}`);
+    }
+  });
+
+  it('the verify action runs only the read-only verifier, with the credentials it needs', () => {
+    // A write-mode script behind "verify" would turn a diagnostic into a Production mutation.
+    const branch = /elif \[ "\$ACTION" = "verify" \]; then\s*\n\s*(.+)\n/.exec(raw);
+    expect(branch, 'verify branch missing from the admin action step').not.toBeNull();
+    expect(branch[1].trim()).toBe('pnpm verify:test-users');
+    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
+    expect(pkg.scripts['verify:test-users']).toBe('node scripts/verify-test-users.mjs');
+    for (const s of ['SUPABASE_URL: ${{ vars.SUPABASE_URL }}', 'SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}',
+      'FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}', 'PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}']) {
+      expect(raw).toContain(s);
+    }
+  });
+
+  it('the verifier performs no writes: no insert, update, upsert, delete or auth mutation', () => {
+    const src = readFileSync(resolve(process.cwd(), 'scripts/verify-test-users.mjs'), 'utf8');
+    for (const write of ['.insert(', '.update(', '.upsert(', '.delete(', 'createUser', 'updateUserById', 'deleteUser', 'inviteUserByEmail', '.rpc(']) {
+      expect(src, `verify-test-users.mjs must not call ${write}`).not.toContain(write);
     }
   });
 
