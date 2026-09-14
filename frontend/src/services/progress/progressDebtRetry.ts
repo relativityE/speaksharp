@@ -80,8 +80,9 @@ async function runSchedule(userId: string): Promise<ProgressDebtRetryResult> {
         const blocking = owed.entries.filter((e) => !e.releasedAtIso && !refused.has(e.sessionId));
         // Release ONLY entries that have spent their own budget (possibly on earlier loads).
         for (const entry of blocking.filter((e) => attemptsOf(e) >= PROGRESS_DEBT_ATTEMPT_BUDGET)) {
-            if (releaseProgressDebtEntry(userId, entry)) released++;
-            else refused.add(entry.sessionId); // an unrecorded release keeps blocking; stop chasing it this page
+            const outcome = await releaseProgressDebtEntry(userId, entry);
+            if (outcome === 'released') released++;
+            else if (outcome === 'refused') refused.add(entry.sessionId); // an unrecorded release keeps blocking; stop chasing it this page
         }
         const pending = blocking.filter((e) => attemptsOf(e) < PROGRESS_DEBT_ATTEMPT_BUDGET);
         if (pending.length === 0) return { resolved, released };

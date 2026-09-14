@@ -26,6 +26,7 @@ import {
 import type { ProgressDebtReason } from './progressDebtVocabulary';
 import { emitProgressDebt, progressDebtAgeMs } from '@/services/telemetry/progressDebtTelemetry';
 import { getOpenAttemptForUser, clearOpenAttempt, setOpenAttempt } from './openAttempt';
+import { withAttemptOwnership } from './progressAttemptOwnership';
 
 /** A minimal view of a persisted session — the fields the on-load reconciler needs. */
 export interface ReconcilableSession {
@@ -572,49 +573,62 @@ async function runProgressDebtRound(
     let drained = 0;
     const attempted = new Set<string>();
     for (const entry of targets) {
-        const flightKey = `${userId}:${entry.sessionId}`;
-        if (evaluationsInFlight.has(flightKey)) continue; // the other trigger is attempting this debt right now
-        evaluationsInFlight.add(flightKey);
-        attempted.add(entry.sessionId);
-        let attempt: EvaluationAttempt;
-        try {
-            attempt = await attemptProgressEvaluation(entry.sessionId);
-        } finally {
-            // Released here because everything from this point to the recommendation work is synchronous: this attempt's
-            // persist/clear and telemetry complete before the other trigger can start on the same debt.
-            evaluationsInFlight.delete(flightKey);
-        }
-        const now = Date.now();
-        const ageMs = progressDebtAgeMs(entry.enqueuedAtIso, now);
-        const attemptNumber = (entry.attempts ?? 0) + 1;
-        if (!attempt.id) {
-            // Still failing — the debt stays queued. The attempt is recorded so the count and age survive a reload.
-            const persisted = recordProgressReconcileAttempt(entry.sessionId, userId, new Date(now).toISOString());
-            if (!persisted.ok) logger.warn({ failure: persisted.failure }, '[progress] reconcile attempt could not be recorded');
-            emitProgressDebt({ phase: 'attempt_failed', trigger, attempt: attemptNumber, reason: attempt.reason, ageMs, latencyMs: attempt.latencyMs });
-            continue;
-        }
-        // #1354: the clear must be VERIFIED before this counts as drained. An entry that could not be
-        // removed survives the next reload, so reporting a clean drain would unlock the recorder on a
-        // debt that still exists.
-        const cleared = clearProgressReconcileEntry(entry.sessionId, userId);
-        if (!cleared.ok) {
-            logger.warn({ failure: cleared.failure }, '[progress] evaluation recorded but queue clear FAILED');
-            emitProgressDebt({ phase: 'attempt_failed', trigger, attempt: attemptNumber, reason: 'clear_failed', ageMs, latencyMs: attempt.latencyMs });
-            continue;
-        }
-        drained++;
-        emitProgressDebt({ phase: 'attempt_succeeded', trigger, attempt: attemptNumber, ageMs, latencyMs: attempt.latencyMs });
-        // Release the VISIBLE gate only now, and only if it belongs to this exact owner+session.
-        // Without this the user stays blocked after a successful retry — the debt is gone but the UI
-        // still says otherwise.
-        releaseProgressGateFor(entry.sessionId, userId);
+        // Cross-tab ownership (Codex 4003281159): the RPC, its persist/clear, terminal telemetry and the recommendation
+        // dispatch run while this context exclusively owns owner+session. A contender skips the debt this round.
+        const owned = await withAttemptOwnership(userId, entry.sessionId, async () => {
+            const flightKey = `${userId}:${entry.sessionId}`;
+            if (evaluationsInFlight.has(flightKey)) return null; // this tab's other trigger is attempting it right now
+            // Re-read under ownership: another tab may have cleared it, released it, or attempted it since this round read
+            // the queue (then it is no longer due). The load round still retries retained released debt, by contract.
+            const read = getQueueEntriesForUser(userId);
+            const current = read.ok ? read.entries.find((e) => e.sessionId === entry.sessionId) : undefined;
+            if (!current) return null;
+            if (trigger === 'retry' && (current.releasedAtIso || (current.attempts ?? 0) !== (entry.attempts ?? 0))) return null;
+            evaluationsInFlight.add(flightKey);
+            attempted.add(entry.sessionId);
+            let attempt: EvaluationAttempt;
+            try {
+                attempt = await attemptProgressEvaluation(entry.sessionId);
+            } finally {
+                // Released here because everything from this point to the recommendation dispatch is synchronous: this
+                // attempt's persist/clear and telemetry complete before this tab's other trigger can start on the same debt.
+                evaluationsInFlight.delete(flightKey);
+            }
+            const now = Date.now();
+            const ageMs = progressDebtAgeMs(current.enqueuedAtIso, now);
+            const attemptNumber = (current.attempts ?? 0) + 1;
+            if (!attempt.id) {
+                // Still failing — the debt stays queued. The attempt is recorded so the count and age survive a reload.
+                const persisted = recordProgressReconcileAttempt(entry.sessionId, userId, new Date(now).toISOString());
+                if (!persisted.ok) logger.warn({ failure: persisted.failure }, '[progress] reconcile attempt could not be recorded');
+                emitProgressDebt({ phase: 'attempt_failed', trigger, attempt: attemptNumber, reason: attempt.reason, ageMs, latencyMs: attempt.latencyMs });
+                return null;
+            }
+            // #1354: the clear must be VERIFIED before this counts as drained. An entry that could not be
+            // removed survives the next reload, so reporting a clean drain would unlock the recorder on a
+            // debt that still exists.
+            const cleared = clearProgressReconcileEntry(entry.sessionId, userId);
+            if (!cleared.ok) {
+                logger.warn({ failure: cleared.failure }, '[progress] evaluation recorded but queue clear FAILED');
+                emitProgressDebt({ phase: 'attempt_failed', trigger, attempt: attemptNumber, reason: 'clear_failed', ageMs, latencyMs: attempt.latencyMs });
+                return null;
+            }
+            drained++;
+            emitProgressDebt({ phase: 'attempt_succeeded', trigger, attempt: attemptNumber, ageMs, latencyMs: attempt.latencyMs });
+            // Release the VISIBLE gate only now, and only if it belongs to this exact owner+session.
+            // Without this the user stays blocked after a successful retry — the debt is gone but the UI
+            // still says otherwise.
+            releaseProgressGateFor(entry.sessionId, userId);
+            // Dispatched once, under ownership — but never awaited while owning: recommendation work has no deadline.
+            return { recommendation: recordRecommendationForEvaluation(entry.sessionId) };
+        });
+        const recommendation = owned.owned ? owned.value?.recommendation : undefined;
+        if (!recommendation) continue;
         if (trigger === 'retry') {
             // Release-critical: recommendation work has no deadline, so it must not hold this round, or Start, open.
-            void recordRecommendationForEvaluation(entry.sessionId)
-                .catch((err) => logger.warn({ err }, '[progress] recommendation reconciliation failed (non-fatal)'));
+            void recommendation.catch((err) => logger.warn({ err }, '[progress] recommendation reconciliation failed (non-fatal)'));
         } else {
-            await recordRecommendationForEvaluation(entry.sessionId);
+            await recommendation;
         }
     }
     const after = getQueueEntriesForUser(userId);
@@ -629,20 +643,30 @@ async function runProgressDebtRound(
 /**
  * RWT-20 — the ONE honest terminal state for an entry that has spent its retry budget: it is RELEASED.
  *
- * Only the entry the caller names is released; debt that has not had its own budget keeps blocking. The entry stays
- * durable and is retried on later loads; only its hold on Start ends. A release that cannot be written is not
- * claimed — that entry keeps blocking, exactly as an unreadable queue does.
+ * Only the entry the caller names is released, and only by the tab that owns it (another tab's release is `skipped`);
+ * debt that has not had its own budget keeps blocking. The entry stays durable and is retried on later loads; only its
+ * hold on Start ends. A release that cannot be written is `refused` — that entry keeps blocking, as an unreadable queue does.
  */
-export function releaseProgressDebtEntry(userId: string, entry: QueueEntry): boolean {
-    const now = Date.now();
-    const result = releaseProgressReconcileEntry(entry.sessionId, userId, new Date(now).toISOString());
-    if (!result.ok) {
-        logger.warn({ failure: result.failure }, '[progress] debt release could not be recorded — Start stays blocked');
-        return false;
-    }
-    emitProgressDebt({ phase: 'released', trigger: 'retry', attempt: entry.attempts ?? 0, ageMs: progressDebtAgeMs(entry.enqueuedAtIso, now) });
-    releaseProgressGateFor(entry.sessionId, userId);
-    return true;
+export async function releaseProgressDebtEntry(
+    userId: string,
+    entry: QueueEntry,
+): Promise<'released' | 'skipped' | 'refused'> {
+    const owned = await withAttemptOwnership(userId, entry.sessionId, async () => {
+        // Re-read under ownership: another tab may already have released or cleared this debt.
+        const read = getQueueEntriesForUser(userId);
+        const current = read.ok ? read.entries.find((e) => e.sessionId === entry.sessionId) : undefined;
+        if (!current || current.releasedAtIso) return 'skipped' as const;
+        const now = Date.now();
+        const result = releaseProgressReconcileEntry(entry.sessionId, userId, new Date(now).toISOString());
+        if (!result.ok) {
+            logger.warn({ failure: result.failure }, '[progress] debt release could not be recorded — Start stays blocked');
+            return 'refused' as const;
+        }
+        emitProgressDebt({ phase: 'released', trigger: 'retry', attempt: current.attempts ?? 0, ageMs: progressDebtAgeMs(current.enqueuedAtIso, now) });
+        releaseProgressGateFor(entry.sessionId, userId);
+        return 'released' as const;
+    });
+    return owned.owned ? owned.value : 'skipped';
 }
 
 export async function reconcileProgressEvaluations(
