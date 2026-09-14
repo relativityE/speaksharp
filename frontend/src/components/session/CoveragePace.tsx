@@ -44,8 +44,8 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
     const { pacePerPointSec, guideTotalSec, projectionSec, overGuide, barFraction } =
         computePaceStats({ elapsedSec, coveredCount: covered, totalPoints: total, guideSecPerPoint });
     const hasGuide = guideTotalSec != null;
-    const countColor = covered > 0 ? '#146b4a' : '#8b95a5';
-    const overColor = overGuide ? '#8a5510' : '#8b95a5';
+    const countColor = covered > 0 ? 'hsl(var(--success))' : 'hsl(var(--session-muted-text))';
+    const overColor = overGuide ? 'hsl(var(--verdict-partial-foreground))' : 'hsl(var(--session-muted-text))';
 
     return (
         <section
@@ -53,7 +53,7 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
             aria-label="Coverage and pace"
             className="flex flex-col rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5"
         >
-            <p className="text-[12px] font-extrabold uppercase tracking-wide text-[#414b5c]">Coverage &amp; pace</p>
+            <p className="text-[12px] font-extrabold uppercase tracking-wide text-[hsl(var(--session-secondary-text))]">Coverage &amp; pace</p>
 
             <div className="mt-3 flex items-end justify-between gap-3.5">
                 {/* Left — the glanceable count. The numerator is the dominant element; the total is smaller. */}
@@ -61,7 +61,7 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
                     <span className="font-extrabold leading-none tracking-[-0.035em]" style={{ color: countColor }}>
                         <span data-testid="coverage-pace-covered" className="text-[40px]">{covered}</span><span data-testid="coverage-pace-total" className="text-[26px] text-[#86a597]">/{total}</span>
                     </span>
-                    <span className="text-[14px] font-bold leading-tight text-[#414b5c]">points<br />detected</span>
+                    <span className="text-[14px] font-bold leading-tight text-[hsl(var(--session-secondary-text))]">points<br />detected</span>
                 </div>
 
                 {/* Right — before: the configured GUIDE per point (never "current pace"). during/after: the
@@ -71,25 +71,25 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
                         <div className="text-right" data-testid="coverage-pace-guide">
                             <div className="text-[24px] font-extrabold leading-none tracking-[-0.028em] tabular-nums text-[#2b3446]">
                                 {fmtDuration(guideSecPerPoint!)}
-                                <span className="text-[15px] font-bold text-[#8b95a5]"> /point</span>
+                                <span className="text-[15px] font-bold text-[hsl(var(--session-muted-text))]"> /point</span>
                             </div>
-                            <div className="mt-[5px] text-[12px] font-bold text-[#8b95a5]">pace guide</div>
+                            <div className="mt-[5px] text-[12px] font-bold text-[hsl(var(--session-muted-text))]">pace guide</div>
                         </div>
                     ))
                     : (hasGuide && (
                         <div className="text-right" data-testid="coverage-pace-perpoint">
-                            <div className="text-[24px] font-extrabold leading-none tracking-[-0.028em] tabular-nums" style={{ color: overGuide ? '#8a5510' : '#2b3446' }}>
+                            <div className="text-[24px] font-extrabold leading-none tracking-[-0.028em] tabular-nums" style={{ color: overGuide ? 'hsl(var(--verdict-partial-foreground))' : 'hsl(var(--foreground))' }}>
                                 {pacePerPointSec != null ? fmtDuration(pacePerPointSec) : '—'}
-                                <span className="text-[15px] font-bold" style={{ color: overGuide ? '#b1946a' : '#8b95a5' }}> /point</span>
+                                <span className="text-[15px] font-bold" style={{ color: overGuide ? '#b1946a' : 'hsl(var(--session-muted-text))' }}> /point</span>
                             </div>
-                            <div className="mt-[5px] text-[12px] font-bold text-[#8b95a5]">current pace</div>
+                            <div className="mt-[5px] text-[12px] font-bold text-[hsl(var(--session-muted-text))]">current pace</div>
                         </div>
                     ))}
             </div>
 
             {/* before: the planned total from the guide only — no bar, no projection, no measured pace. */}
             {isBefore && hasGuide && (
-                <div className="mt-4 text-[12px] font-bold text-[#8b95a5]" data-testid="coverage-pace-planned">
+                <div className="mt-4 text-[12px] font-bold text-[hsl(var(--session-muted-text))]" data-testid="coverage-pace-planned">
                     {fmtDuration(guideTotalSec!)} guide
                 </div>
             )}
@@ -106,7 +106,7 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
                     {/* during: guide vs projection ("at this pace"); after: guide vs actual. Never a countdown. */}
                     {(sessionState === 'after' || projectionSec != null) && (
                         <div className="mt-[9px] flex items-center justify-between gap-2.5 text-[12px] font-bold" data-testid="coverage-pace-projection">
-                            <span className="text-[#8b95a5]">{fmtDuration(guideTotalSec!)} guide</span>
+                            <span className="text-[hsl(var(--session-muted-text))]">{fmtDuration(guideTotalSec!)} guide</span>
                             <span style={{ color: overColor }}>
                                 {sessionState === 'after'
                                     ? `${fmtDuration(elapsedSec)} actual`
@@ -119,7 +119,7 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
 
             {/* The live nudge — during only, silent by default. A remark (#8a5510), never an alert. */}
             {sessionState === 'during' && nudge && (
-                <div className="mt-[14px] border-t border-[#eef1f6] pt-[13px] text-[13px] font-semibold leading-snug text-[#8a5510]" data-testid="coverage-pace-nudge">
+                <div className="mt-[14px] border-t border-[#eef1f6] pt-[13px] text-[13px] font-semibold leading-snug text-[hsl(var(--verdict-partial-foreground))]" data-testid="coverage-pace-nudge">
                     {nudge}
                 </div>
             )}
