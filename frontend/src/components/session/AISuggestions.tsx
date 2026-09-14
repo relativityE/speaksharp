@@ -136,6 +136,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
     : { sessionId, suggestions: parseAISuggestions(initialSuggestions), isLoading: false, error: null };
   const { suggestions, isLoading, error } = currentView;
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
+  const reviewCardRef = useRef<HTMLDivElement>(null);
+  const revealedTerminalRef = useRef<string | null>(null);
   const renderedReceiptRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -158,45 +160,80 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
    * both completion stages BEFORE generation finished, and even when it failed: release evidence claiming
    * a state the user never reached.
    *
-   * This component owns the validated result, so it owns the claim. The guard below is the whole contract:
+   * This component owns the validated result and the rendered card, so it owns the claim. The guard below
+   * is the whole contract:
    *
    *   - `suggestions` is non-null only for a result that passed `parseAISuggestions` — exactly one
    *     `what_worked` and one `what_to_try_next`, both non-blank. Loading, empty, invalid and failed
    *     requests leave it null, so none of them reaches this line.
    *   - `suggestions` is read from `currentView`, which is discarded when `sessionId` changes, so a
    *     superseded session cannot publish for the current one.
-   *   - `renderedReceiptRef` keys on the session, so a valid review publishes exactly once per session
-   *     however often the screen re-renders.
+   *   - the card must intersect the viewport before a rendered receipt or either completion stage is
+   *     published. A result below the fold is available, but it is not rendered to the user yet.
+   *   - `renderedReceiptRef` keys on the session, so a visible valid review publishes exactly once per
+   *     session however often the screen re-renders or the observer fires.
    *
    * Content-free, as before: two counts, booleans and closed enums. No session id, no prose, no provider
    * error text.
    */
   useEffect(() => {
     if (!sessionId || !suggestions || renderedReceiptRef.current === sessionId) return;
-    renderedReceiptRef.current = sessionId;
-    trackPracticeLoopReviewRendered();
-    emitPracticeLoop({
-      // The user is looking at the generated review. This is the only phase that can claim that.
-      phase: 'rendered',
-      reviewSurface: 'coaching_verdict',
-      // The contract is exactly one of each, and `parseAISuggestions` has already refused anything else.
-      whatWentWellCount: 1,
-      whatToImproveCount: 1,
-      suggestionsPresent: true,
-      whatWentWellSource: 'generated',
-      whatToImproveSource: 'generated',
-      rendered: true,
-      // Unchanged from the previous emitter's observed value: it computed `Boolean(onRetryPoints || onNewSet)`
-      // and `SessionPage` passes both unconditionally (`:735`, `:744`), so this was always true. The Open Mic
-      // next action is the verdict card's own always-rendered `Practice this again` control.
-      nextActionPersisted: true,
-      suppressionReason: 'none',
-    });
-    // #1259 F16 — the last two links, published where the review actually exists. `practice_loop_ready` is
-    // when the review HAS its content; `review_rendered` is when the user can act on it.
-    markCompletionStage('practice_loop_ready');
-    markCompletionStage('review_rendered');
+    const card = reviewCardRef.current;
+    if (!card) return;
+
+    let observer: IntersectionObserver | null = null;
+    const publishVisibleReview = () => {
+      if (renderedReceiptRef.current === sessionId) return;
+      renderedReceiptRef.current = sessionId;
+      trackPracticeLoopReviewRendered();
+      emitPracticeLoop({
+        // The validated card has intersected the viewport. This is the only phase that can claim that.
+        phase: 'rendered',
+        reviewSurface: 'coaching_verdict',
+        // The contract is exactly one of each, and `parseAISuggestions` has already refused anything else.
+        whatWentWellCount: 1,
+        whatToImproveCount: 1,
+        suggestionsPresent: true,
+        whatWentWellSource: 'generated',
+        whatToImproveSource: 'generated',
+        rendered: true,
+        // Unchanged from the previous emitter's observed value: it computed `Boolean(onRetryPoints || onNewSet)`
+        // and `SessionPage` passes both unconditionally (`:735`, `:744`), so this was always true. The Open Mic
+        // next action is the verdict card's own always-rendered `Practice this again` control.
+        nextActionPersisted: true,
+        suppressionReason: 'none',
+      });
+      // #1259 F16 — neither link may claim a review the user has not reached.
+      markCompletionStage('practice_loop_ready');
+      markCompletionStage('review_rendered');
+      observer?.disconnect();
+    };
+
+    if (typeof IntersectionObserver === 'undefined') {
+      const rect = card.getBoundingClientRect();
+      if (rect.bottom > 0 && rect.top < window.innerHeight) publishVisibleReview();
+      return;
+    }
+
+    observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.target === card && entry.isIntersecting && entry.intersectionRatio > 0)) {
+        publishVisibleReview();
+      }
+    }, { threshold: 0.01 });
+    observer.observe(card);
+    return () => observer?.disconnect();
   }, [sessionId, suggestions]);
+
+  // The review is the completed session's payoff. Bring either truthful terminal into view once instead
+  // of leaving it below the session shell where the PO missed it in two consecutive sessions.
+  useEffect(() => {
+    const terminal = suggestions ? 'ready' : error ? 'error' : null;
+    if (!sessionId || !terminal) return;
+    const key = `${sessionId}:${terminal}`;
+    if (revealedTerminalRef.current === key) return;
+    revealedTerminalRef.current = key;
+    reviewCardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [sessionId, suggestions, error]);
 
   // #1416 P2-4 — THE FIRST REQUEST FIRES ITSELF.
   //
@@ -314,7 +351,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
   const reviewState = isLoading ? 'loading' : (error ? 'error' : (suggestions ? 'ready' : 'empty'));
 
   return (
-    <Card data-testid="ai-suggestions-card" data-review-state={reviewState}>
+    <Card ref={reviewCardRef} data-testid="ai-suggestions-card" data-review-state={reviewState}>
       <CardHeader className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-purple-500" />
