@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSessionStore } from '@/stores/useSessionStore';
 import {
-    enqueueProgressReconcile, getQueuedSessionIdsForUser, PROGRESS_QUEUE_STORAGE_KEY,
+    enqueueProgressReconcile, getQueuedSessionIdsForUser, readProgressReconcileQueue, PROGRESS_QUEUE_STORAGE_KEY,
 } from '@/services/progress/progressReconcileQueue';
 import { evaluateStartGate } from '@/services/progress/progressStartGate';
 import type { ProgressEvaluationOutcome } from '@/services/progress/recordProgress';
@@ -44,7 +44,7 @@ vi.mock('@/lib/logger', () => ({
 const { useProgressReconciliation } = await import('../useProgressReconciliation');
 const { wireProgressEvaluationOnSave, progressOutcomeAllowsNextRecording } = await import('@/services/progress/recordProgress');
 const {
-    scheduleProgressDebtRetry, PROGRESS_DEBT_ATTEMPT_BUDGET, __resetProgressDebtRetryForTests,
+    scheduleProgressDebtRetry, PROGRESS_DEBT_ATTEMPT_BUDGET, PROGRESS_DEBT_RELEASE_BOUND_MS, __resetProgressDebtRetryForTests,
 } = await import('@/services/progress/progressDebtRetry');
 const { analyticsBuffer } = await import('@/services/AnalyticsBuffer');
 
@@ -226,5 +226,76 @@ describe('RWT-20 — a settled retry schedule rebuilds the visible gate from the
         await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
 
         expect(gate()?.ownerId ?? null).not.toBe(OWNER);
+    });
+});
+
+// Codex P1 4004302937 (PM RETURN 5663205404), reproduced on 042794d3: an evaluator call that THROWS, or a Web Locks `request`
+// that rejects, ended the only retry schedule at +2 s with no attempt recorded. The hook only logged it, and Start stayed
+// blocked past the release bound until a reload or an unrelated storage event.
+describe('RWT-20 — an exceptional attempt failure does not end the bounded schedule', () => {
+    afterEach(() => { Reflect.deleteProperty(navigator, 'locks'); });
+
+    /** Durable debt before the page mounts; nothing but the hook schedules anything. Observed well past the bound. */
+    async function mountWithDebt(evaluator: () => Promise<unknown>) {
+        expect(enqueueProgressReconcile(SESSION, OWNER, new Date(Date.now() - 1_000).toISOString()).ok).toBe(true);
+        const push = vi.spyOn(analyticsBuffer, 'push').mockImplementation(() => undefined);
+        const t0 = Date.now();
+        const callTimes: number[] = [];
+        rpc.mockImplementation((name: string) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            callTimes.push(Date.now() - t0);
+            return evaluator();
+        });
+        authUser.user = { id: OWNER };
+        renderHook(() => useProgressReconciliation());
+        await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+        expect(gate()).toMatchObject({ sessionId: SESSION, ownerId: OWNER, state: 'queued' });
+
+        let startAllowedAtMs = -1;
+        for (let t = 0; t < TWO_MINUTES; t += 250) {
+            await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+            if (startAllowedAtMs < 0 && evaluateStartGate(OWNER, gate()).allowed) startAllowedAtMs = Date.now() - t0;
+        }
+        const read = readProgressReconcileQueue();
+        const entry = read.ok ? read.entries.find((e) => e.sessionId === SESSION) : undefined;
+        const events = push.mock.calls.filter((c) => c[0] === 'progress_debt').map((c) => c[1] as { phase?: string; reason?: string });
+        push.mockRestore();
+        return { callTimes, startAllowedAtMs, entry, events, allowedAtEnd: evaluateStartGate(OWNER, gate()).allowed };
+    }
+
+    function expectReleasedWithinBound(o: Awaited<ReturnType<typeof mountWithDebt>>) {
+        expect(o.startAllowedAtMs).toBeGreaterThan(0);
+        expect(o.startAllowedAtMs).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        expect(o.allowedAtEnd).toBe(true);
+        expect(gate()).toBeNull();
+        // Released only after the entry's own budget, and the unresolved debt stays durable.
+        expect(o.entry).toMatchObject({ attempts: PROGRESS_DEBT_ATTEMPT_BUDGET });
+        expect(o.entry?.releasedAtIso).toBeTruthy();
+        expect(o.events.filter((e) => e.phase === 'released')).toHaveLength(1);
+        expect(o.events.filter((e) => e.phase === 'attempt_succeeded')).toHaveLength(0);
+    }
+
+    it('CONTROL: a classified `{ error }` failure is retried on the backoff and released within the bound', async () => {
+        const o = await mountWithDebt(() => Promise.resolve({ data: null, error: { code: 'XX000', message: 'still failing' } }));
+        expect(o.callTimes).toEqual([2_000, 10_000, 30_000]);
+        expectReleasedWithinBound(o);
+        expect(o.events.filter((e) => e.phase === 'attempt_failed').map((e) => e.reason)).toEqual(['rpc_error', 'rpc_error', 'rpc_error']);
+    });
+
+    it('an evaluator call that rejects is a failed attempt: the same backoff, accounting and release as the control', async () => {
+        const o = await mountWithDebt(() => Promise.reject(new Error('client threw')));
+        expect(o.callTimes).toEqual([2_000, 10_000, 30_000]);
+        expectReleasedWithinBound(o);
+        expect(o.events.filter((e) => e.phase === 'attempt_failed').map((e) => e.reason)).toEqual(['rpc_error', 'rpc_error', 'rpc_error']);
+    });
+
+    it('a Web Locks `request` that rejects runs no unowned evaluation and claims no RPC outcome, yet Start is released within the bound', async () => {
+        Object.defineProperty(navigator, 'locks', { configurable: true, value: {
+            request: () => Promise.reject(new DOMException('document is not fully active', 'InvalidStateError')),
+        } });
+        const o = await mountWithDebt(() => Promise.resolve({ data: 'eval-1', error: null }));
+        expect(o.callTimes).toEqual([]);
+        expect(o.events.filter((e) => e.phase === 'attempt_failed')).toHaveLength(0);
+        expectReleasedWithinBound(o);
     });
 });

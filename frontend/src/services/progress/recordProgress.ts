@@ -233,7 +233,12 @@ interface EvaluationAttempt { id: string | null; reason: ProgressDebtReason | nu
 /** One deadline-bounded attempt, classified: `rpc_timeout` when the call never settled within the deadline. */
 async function attemptProgressEvaluation(sessionId: string): Promise<EvaluationAttempt> {
     const started = Date.now();
-    const settled = await withAttemptDeadline(recordProgressEvaluationDetailed(sessionId), PROGRESS_RPC_ATTEMPT_TIMEOUT_MS);
+    // A THROWN call is a failed attempt like an error result — never the end of the retry schedule (Codex 4004302937).
+    const call = recordProgressEvaluationDetailed(sessionId).catch((err: unknown) => {
+        logger.warn({ err }, '[progress] record_progress_evaluation threw (non-fatal)');
+        return { id: null, reason: 'rpc_error' as const };
+    });
+    const settled = await withAttemptDeadline(call, PROGRESS_RPC_ATTEMPT_TIMEOUT_MS);
     const latencyMs = Math.max(0, Date.now() - started);
     if (settled === null) return { id: null, reason: 'rpc_timeout', latencyMs };
     return { id: settled.id, reason: settled.reason, latencyMs };
@@ -631,6 +636,17 @@ async function runProgressDebtRound(
             // Dispatched once, under ownership — but never awaited while owning: recommendation work has no deadline.
             return { recommendation: recordRecommendationForEvaluation(entry.sessionId) };
         });
+        if (!owned.owned && owned.unavailable && trigger === 'retry') {
+            // The lock API failed (Codex 4004302937): no evaluation runs unowned and no RPC outcome is reported, but the failed
+            // attempt is recorded so this entry's own budget advances and it is released within the bound.
+            const read = getQueueEntriesForUser(userId);
+            const current = read.ok ? read.entries.find((e) => e.sessionId === entry.sessionId) : undefined;
+            if (!current || current.releasedAtIso || (current.attempts ?? 0) !== (entry.attempts ?? 0)) return;
+            attempted.add(entry.sessionId);
+            const persisted = recordProgressReconcileAttempt(entry.sessionId, userId, new Date().toISOString());
+            if (!persisted.ok) logger.warn({ failure: persisted.failure }, '[progress] reconcile attempt could not be recorded');
+            return;
+        }
         const recommendation = owned.owned ? owned.value?.recommendation : undefined;
         if (!recommendation) return;
         if (trigger === 'retry') {
@@ -669,7 +685,7 @@ export async function releaseProgressDebtEntry(
     userId: string,
     entry: QueueEntry,
 ): Promise<'released' | 'skipped' | 'refused'> {
-    const owned = await withAttemptOwnership(userId, entry.sessionId, async () => {
+    const release = async () => {
         // Re-read under ownership: another tab may already have released or cleared this debt.
         const read = getQueueEntriesForUser(userId);
         const current = read.ok ? read.entries.find((e) => e.sessionId === entry.sessionId) : undefined;
@@ -683,7 +699,10 @@ export async function releaseProgressDebtEntry(
         emitProgressDebt({ phase: 'released', trigger: 'retry', attempt: current.attempts ?? 0, ageMs: progressDebtAgeMs(current.enqueuedAtIso, now) });
         releaseProgressGateFor(entry.sessionId, userId);
         return 'released' as const;
-    });
+    };
+    const owned = await withAttemptOwnership(userId, entry.sessionId, release);
+    // The lock API failed (Codex 4004302937): a spent debt's release — a re-read and one verified write, no RPC — still runs.
+    if (!owned.owned && owned.unavailable) return release();
     return owned.owned ? owned.value : 'skipped';
 }
 

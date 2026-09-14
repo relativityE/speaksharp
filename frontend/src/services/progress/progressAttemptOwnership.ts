@@ -12,14 +12,22 @@ interface LockManagerLike {
     request(name: string, options: { ifAvailable: boolean }, callback: (lock: unknown) => Promise<unknown>): Promise<unknown>;
 }
 
-export type AttemptOwnership<T> = { owned: true; value: T } | { owned: false };
+/** `unavailable`: the lock API itself failed before answering (Codex 4004302937) — neither owned nor contended; `work` never ran. */
+export type AttemptOwnership<T> = { owned: true; value: T } | { owned: false; unavailable?: true };
 
 export async function withAttemptOwnership<T>(userId: string, sessionId: string, work: () => Promise<T>): Promise<AttemptOwnership<T>> {
     const locks = (globalThis as { navigator?: { locks?: LockManagerLike } }).navigator?.locks;
     if (!locks || typeof locks.request !== 'function') return { owned: true, value: await work() };
     let ownership: AttemptOwnership<T> = { owned: false };
-    await locks.request(`ss-progress-attempt:${userId}:${sessionId}`, { ifAvailable: true }, async (lock) => {
-        if (lock) ownership = { owned: true, value: await work() };
-    });
+    const answered = { value: false };
+    try {
+        await locks.request(`ss-progress-attempt:${userId}:${sessionId}`, { ifAvailable: true }, async (lock) => {
+            answered.value = true;
+            if (lock) ownership = { owned: true, value: await work() };
+        });
+    } catch (err) {
+        if (answered.value) throw err;
+        return { owned: false, unavailable: true };
+    }
     return ownership;
 }

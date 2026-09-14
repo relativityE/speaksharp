@@ -223,18 +223,20 @@ describe('RWT-20 — one tab owns a debt attempt at a time (Codex 4003281159)', 
                 : Promise.resolve({ data: null, error: { code: 'XX000', message: 'still failing' } });
         });
 
-        const first = tab.retry.scheduleProgressDebtRetry(OWNER);
-        const firstOutcome = first.then(() => 'resolved', () => 'rejected');
-        await vi.advanceTimersByTimeAsync(3_000);
-        expect(await firstOutcome).toBe('rejected');
-        expect(calls).toBe(1);
-
-        // The next schedule for the same owner and debt attempts it again: nothing was left owned or in flight.
+        const attempts = () => {
+            const read = tab.queue.readProgressReconcileQueue();
+            return read.ok ? read.entries.find((e) => e.sessionId === SESSION)?.attempts : undefined;
+        };
         void tab.retry.scheduleProgressDebtRetry(OWNER);
         await vi.advanceTimersByTimeAsync(3_000);
+        expect(calls).toBe(1);
+        // The throw is a failed attempt, not the end of the schedule (Codex 4004302937)…
+        expect(attempts()).toBe(1);
+
+        // …and the same schedule attempts the debt again at its next due time: nothing was left owned or in flight.
+        await vi.advanceTimersByTimeAsync(8_000);
         expect(calls).toBe(2);
-        const read = tab.queue.readProgressReconcileQueue();
-        expect(read.ok && read.entries.find((e) => e.sessionId === SESSION)?.attempts).toBe(1);
+        expect(attempts()).toBe(2);
     });
 
     // Codex P1 4003555358: the write-ahead SAVE evaluation ran outside cross-tab ownership, so another tab's lock-owned
