@@ -740,7 +740,7 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
     const revealReview = () => {
         const card = screen.getByTestId('ai-suggestions-card');
         intersectionCallback([
-            { target: card, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry,
+            { target: card, isIntersecting: true, intersectionRatio: 1 } as unknown as IntersectionObserverEntry,
         ], {} as IntersectionObserver);
     };
 
