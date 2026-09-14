@@ -18,14 +18,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useSessionStore } from '@/stores/useSessionStore';
 
 const rpc = vi.fn();
-const table = () => {
+/** When set, recommendation reads never settle — recommendation work has no deadline in production. */
+let hangRecommendation = false;
+const table = (name?: string) => {
     const chain: Record<string, unknown> = {};
     for (const m of ['select', 'eq', 'in', 'order', 'limit', 'insert', 'upsert']) chain[m] = () => chain;
-    chain.maybeSingle = async () => ({ data: null, error: null });
+    chain.maybeSingle = () => (hangRecommendation && name === 'progress_recommendations'
+        ? new Promise(() => {})
+        : Promise.resolve({ data: null, error: null }));
     chain.single = async () => ({ data: null, error: null });
     return chain;
 };
-vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ rpc, from: () => table() }) }));
+vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ rpc, from: (name: string) => table(name) }) }));
 vi.mock('@/lib/logger', () => ({
     default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() },
 }));
@@ -75,6 +79,7 @@ beforeEach(() => {
     localStorage.clear();
     rpc.mockReset();
     __resetProgressDebtRetryForTests();
+    hangRecommendation = false;
     useSessionStore.getState().setProgressGate(null);
     pushSpy = vi.spyOn(analyticsBuffer, 'push').mockImplementation(() => undefined);
 });
@@ -380,5 +385,89 @@ describe('RWT-20 — a reload resumes the persisted budget and clock', () => {
         expect(evalCalls()).toBe(PROGRESS_DEBT_ATTEMPT_BUDGET);
         const releasedAt = Date.parse(entryFor(SESSION)?.releasedAtIso as string);
         expect(releasedAt - reloadedAt).toBeLessThanOrEqual(PROGRESS_DEBT_RETRY_DELAYS_MS[2] + 1_000);
+    });
+});
+
+// Codex P1 4002546939 on a04262c2: retry rounds joined the owner-wide load round. That round serially awaits every
+// retained (released) entry, each up to its RPC deadline, plus recommendation work that has no deadline, so unrelated
+// retained entries could push new debt past the release bound or suspend it indefinitely.
+describe('RWT-20 — the release bound is isolated from retained entries and recommendation work', () => {
+    const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+    const retained = (sessionId: string) => ({
+        sessionId,
+        userId: OWNER,
+        enqueuedAtIso: iso(3_600_000),
+        attempts: PROGRESS_DEBT_ATTEMPT_BUDGET,
+        lastAttemptAtIso: iso(600_000),
+        releasedAtIso: iso(500_000),
+    });
+    const failed = { data: null, error: { code: 'XX000', message: ERROR_TEXT } };
+    const forSession = (args: unknown, sessionId: string) => JSON.stringify(args ?? {}).includes(sessionId);
+    async function msUntilReleased(sessionId: string, t0: number, maxSeconds: number): Promise<number> {
+        for (let s = 1; s <= maxSeconds; s++) {
+            await vi.advanceTimersByTimeAsync(1_000);
+            if (entryFor(sessionId)?.releasedAtIso) return Date.now() - t0;
+        }
+        return -1;
+    }
+
+    it('retained entries whose evaluations never settle do not push new debt past the release bound', async () => {
+        localStorage.setItem(PROGRESS_QUEUE_STORAGE_KEY, JSON.stringify([
+            ...Array.from({ length: 6 }, (_, i) => retained(`retained-${i}`)),
+            { sessionId: SESSION, userId: OWNER, enqueuedAtIso: iso(1_000) },
+        ]));
+        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(OWNER));
+        rpc.mockImplementation((name: string, args: unknown) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            return forSession(args, 'retained-') ? new Promise(() => {}) : Promise.resolve(failed);
+        });
+
+        const t0 = Date.now();
+        void reconcileProgressEvaluations(OWNER, []); // the reload's load round, as useProgressReconciliation runs it
+        void scheduleProgressDebtRetry(OWNER);
+        const releasedAfter = await msUntilReleased(SESSION, t0, 240);
+
+        expect(releasedAfter).toBeGreaterThan(0);
+        expect(releasedAfter).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+    });
+
+    it('recommendation work that never settles on a retained entry does not hold new debt', async () => {
+        localStorage.setItem(PROGRESS_QUEUE_STORAGE_KEY, JSON.stringify([
+            retained('retained-ok'),
+            { sessionId: SESSION, userId: OWNER, enqueuedAtIso: iso(1_000) },
+        ]));
+        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(OWNER));
+        hangRecommendation = true;
+        rpc.mockImplementation((name: string, args: unknown) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            return forSession(args, 'retained-ok') ? Promise.resolve({ data: 'eval-ok', error: null }) : Promise.resolve(failed);
+        });
+
+        const t0 = Date.now();
+        void reconcileProgressEvaluations(OWNER, []);
+        void scheduleProgressDebtRetry(OWNER);
+        const releasedAfter = await msUntilReleased(SESSION, t0, 600);
+
+        expect(releasedAfter).toBeGreaterThan(0);
+        expect(releasedAfter).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+    });
+
+    it('a retry that drains one debt while its recommendation work never settles still releases the other', async () => {
+        expect(enqueueProgressReconcile(SESSION, OWNER, iso(1_000)).ok).toBe(true);
+        expect(enqueueProgressReconcile('sess-still-failing', OWNER, iso(1_000)).ok).toBe(true);
+        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(OWNER));
+        hangRecommendation = true;
+        rpc.mockImplementation((name: string, args: unknown) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            return forSession(args, SESSION) ? Promise.resolve({ data: 'eval-1', error: null }) : Promise.resolve(failed);
+        });
+
+        const t0 = Date.now();
+        void scheduleProgressDebtRetry(OWNER);
+        const releasedAfter = await msUntilReleased('sess-still-failing', t0, 600);
+
+        expect(getQueuedSessionIdsForUser(OWNER).sessionIds).not.toContain(SESSION);
+        expect(releasedAfter).toBeGreaterThan(0);
+        expect(releasedAfter).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
     });
 });

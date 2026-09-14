@@ -523,7 +523,7 @@ export interface ProgressDebtRoundResult {
 const roundsInFlight = new Map<string, Promise<ProgressDebtRoundResult>>();
 
 /**
- * RWT-20 — ONE attempt round over this owner's durable debt, single-flight per owner.
+ * RWT-20 — ONE attempt round over this owner's durable debt, single-flight per owner and trigger.
  *
  * `load` rounds (once per authenticated load) try EVERY owed entry, including released ones: release frees Start,
  * it never forgives the debt. `retry` rounds (the bounded in-page schedule) chase only entries still holding Start.
@@ -534,10 +534,13 @@ export function attemptProgressDebtRound(
     trigger: 'load' | 'retry',
     onlySessionIds?: ReadonlySet<string>,
 ): Promise<ProgressDebtRoundResult> {
-    const existing = roundsInFlight.get(userId);
+    // A retry round must never join a load round: the load round also chases retained released entries and awaits
+    // their recommendation work, which would consume or suspend the release bound (Codex 4002546939).
+    const key = `${trigger}:${userId}`;
+    const existing = roundsInFlight.get(key);
     if (existing) return existing;
-    const run = runProgressDebtRound(userId, trigger, onlySessionIds).finally(() => roundsInFlight.delete(userId));
-    roundsInFlight.set(userId, run);
+    const run = runProgressDebtRound(userId, trigger, onlySessionIds).finally(() => roundsInFlight.delete(key));
+    roundsInFlight.set(key, run);
     return run;
 }
 
@@ -586,7 +589,13 @@ async function runProgressDebtRound(
         // Without this the user stays blocked after a successful retry — the debt is gone but the UI
         // still says otherwise.
         releaseProgressGateFor(entry.sessionId, userId);
-        await recordRecommendationForEvaluation(entry.sessionId);
+        if (trigger === 'retry') {
+            // Release-critical: recommendation work has no deadline, so it must not hold this round, or Start, open.
+            void recordRecommendationForEvaluation(entry.sessionId)
+                .catch((err) => logger.warn({ err }, '[progress] recommendation reconciliation failed (non-fatal)'));
+        } else {
+            await recordRecommendationForEvaluation(entry.sessionId);
+        }
     }
     const after = getQueueEntriesForUser(userId);
     return {
@@ -626,9 +635,9 @@ export async function reconcileProgressEvaluations(
     if (pendingResolution) await resolveOpenAttemptWith(userId, pendingResolution);
 
     // ── Layer 1: one attempt round over the durable Open Mic queue (transient eval failures) for this user. ──
-    // RWT-20: this is the same round the bounded in-page retry schedule runs (`progressDebtRetry.ts`), so load and
-    // retry share one code path, one single-flight lock and one telemetry vocabulary. An UNREADABLE queue is still
-    // not an empty one: the round reports it rather than draining zero.
+    // RWT-20: this is the same round code the bounded in-page retry schedule runs (`progressDebtRetry.ts`), so load and
+    // retry share one code path and one telemetry vocabulary — but not one lock: a retry round never waits behind this
+    // load round. An UNREADABLE queue is still not an empty one: the round reports it rather than draining zero.
     const round = await attemptProgressDebtRound(userId, 'load');
     queueDrained = round.drained;
 
