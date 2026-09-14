@@ -46,6 +46,8 @@ const OWNER = 'owner-cross-tab';
 const SESSION = 'sess-cross-tab';
 const PENDING_MS = 5_000;
 const TAB_B_OFFSET_MS = 100;
+/** Deterministic allowance for the scheduler's own re-check granularity when measuring the wall-clock Start bound. */
+const TIMER_TOLERANCE_MS = 250;
 
 async function openTab() {
     vi.resetModules();
@@ -241,7 +243,7 @@ describe('RWT-20 — one tab owns a debt attempt at a time (Codex 4003281159)', 
 
     // Codex P1 4003555358: the write-ahead SAVE evaluation ran outside cross-tab ownership, so another tab's lock-owned
     // retry could evaluate the same debt at the same time — overlapping RPCs and, on success, duplicate side effects.
-    async function saveInTabAWhileTabBRetries(outcome: 'fail' | 'succeed') {
+    async function saveInTabAWhileTabBRetries(outcome: 'fail' | 'succeed' | 'hang') {
         const tabA = await openTab();
         const tabB = await openTab();
         const OTHER = 'sess-other-debt';
@@ -252,14 +254,18 @@ describe('RWT-20 — one tab owns a debt attempt at a time (Codex 4003281159)', 
         let maxConcurrentForSession = 0;
         let evaluatorCallsForSession = 0;
         let otherFirstCallMs = -1;
+        const sessionCallTimes: number[] = [];
         rpc.mockImplementation((name: string, args: unknown) => {
             if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
             if (JSON.stringify(args ?? {}).includes(OTHER)) {
                 if (otherFirstCallMs < 0) otherFirstCallMs = Date.now() - t0;
                 return Promise.resolve(failed);
             }
-            inFlightForSession++;
+            sessionCallTimes.push(Date.now() - t0);
             evaluatorCallsForSession++;
+            // Codex 4007557650: every evaluation hangs, so each attempt ends only at its own deadline.
+            if (outcome === 'hang') return new Promise(() => undefined);
+            inFlightForSession++;
             maxConcurrentForSession = Math.max(maxConcurrentForSession, inFlightForSession);
             return new Promise((resolve) => setTimeout(() => {
                 inFlightForSession--;
@@ -283,20 +289,52 @@ describe('RWT-20 — one tab owns a debt attempt at a time (Codex 4003281159)', 
         const phases = [tabA, tabB].flatMap((tab) => tab.push.mock.calls
             .filter((c) => c[0] === 'progress_debt')
             .map((c) => (c[1] as { phase?: string }).phase));
-        return { tabA, maxConcurrentForSession, evaluatorCallsForSession, otherFirstCallMs, saveOutcome, saveSettledMs, phases };
+        const read = tabA.queue.readProgressReconcileQueue();
+        const entry = read.ok ? read.entries.find((e) => e.sessionId === SESSION) : undefined;
+        const releasedAfterMs = entry?.releasedAtIso ? Date.parse(entry.releasedAtIso) - t0 : -1;
+        // The save's attempts run under its own ownership and end before it settles; later calls are tab B's retries.
+        const retryCallTimes = sessionCallTimes.filter((ms) => ms >= saveSettledMs);
+        return {
+            tabA, maxConcurrentForSession, evaluatorCallsForSession, otherFirstCallMs, saveOutcome, saveSettledMs, phases,
+            entry, releasedAfterMs, retryCallTimes,
+        };
+    }
+
+    // PM RETURN 5668213021: under contention the 60 s Start bound wins over the attempt count. Measured from tab B's
+    // schedule first seeing the debt: Start is released by the bound, the debt stays durable, and no retry is launched
+    // whose maximum completion would pass the bound.
+    function expectStartReleasedWithinBound(run: Awaited<ReturnType<typeof saveInTabAWhileTabBRetries>>) {
+        const { PROGRESS_DEBT_RELEASE_BOUND_MS, PROGRESS_DEBT_ATTEMPT_BUDGET } = run.tabA.retry;
+        const boundAt = TAB_B_OFFSET_MS + PROGRESS_DEBT_RELEASE_BOUND_MS + TIMER_TOLERANCE_MS;
+        expect(run.releasedAfterMs).toBeGreaterThan(0);
+        expect(run.releasedAfterMs).toBeLessThanOrEqual(boundAt);
+        expect(run.entry).toBeDefined(); // released, never cleared: the debt stays durable
+        expect(run.retryCallTimes.length).toBeGreaterThanOrEqual(1);
+        expect(run.entry?.attempts).toBe(run.retryCallTimes.length);
+        expect(run.entry?.attempts).toBeLessThanOrEqual(PROGRESS_DEBT_ATTEMPT_BUDGET);
+        for (const ms of run.retryCallTimes) {
+            expect(ms + run.tabA.record.PROGRESS_RPC_ATTEMPT_TIMEOUT_MS).toBeLessThanOrEqual(boundAt);
+        }
     }
 
     it('X5 a failing save and another tab\'s retry never evaluate one debt together; a different debt still progresses', async () => {
-        const { tabA, maxConcurrentForSession, otherFirstCallMs, saveOutcome, saveSettledMs, phases } = await saveInTabAWhileTabBRetries('fail');
+        const run = await saveInTabAWhileTabBRetries('fail');
 
-        expect(maxConcurrentForSession).toBe(1);
-        expect(saveOutcome).toEqual({ kind: 'queued' });
-        expect(otherFirstCallMs).toBeGreaterThanOrEqual(0);
-        expect(otherFirstCallMs).toBeLessThan(saveSettledMs); // the other debt is not held behind this one's ownership
-        const read = tabA.queue.readProgressReconcileQueue();
-        const entry = read.ok ? read.entries.find((e) => e.sessionId === SESSION) : undefined;
-        expect(entry?.attempts).toBe(tabA.retry.PROGRESS_DEBT_ATTEMPT_BUDGET);
-        expect(phases.filter((p) => p === 'attempt_succeeded')).toHaveLength(0);
+        expect(run.maxConcurrentForSession).toBe(1);
+        expect(run.saveOutcome).toEqual({ kind: 'queued' });
+        expect(run.otherFirstCallMs).toBeGreaterThanOrEqual(0);
+        expect(run.otherFirstCallMs).toBeLessThan(run.saveSettledMs); // the other debt is not held behind this one's ownership
+        expectStartReleasedWithinBound(run);
+        expect(run.phases.filter((p) => p === 'attempt_succeeded')).toHaveLength(0);
+        expect(recommendationReads).toBe(0);
+    });
+
+    it('X5b Codex 4007557650: a save whose attempts all hang holds ownership ~30 s, yet the other tab still releases Start within the bound', async () => {
+        const run = await saveInTabAWhileTabBRetries('hang');
+
+        expect(run.saveOutcome).toEqual({ kind: 'queued' });
+        expect(run.saveSettledMs).toBeGreaterThanOrEqual(3 * run.tabA.record.PROGRESS_RPC_ATTEMPT_TIMEOUT_MS);
+        expectStartReleasedWithinBound(run);
         expect(recommendationReads).toBe(0);
     });
 

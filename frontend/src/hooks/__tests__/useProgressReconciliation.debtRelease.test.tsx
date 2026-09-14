@@ -227,6 +227,75 @@ describe('RWT-20 — a settled retry schedule rebuilds the visible gate from the
 
         expect(gate()?.ownerId ?? null).not.toBe(OWNER);
     });
+
+    // Codex 4007557646 (same-tab arrival, PM RETURN 5668213021). A spent debt from a closed tab reaches this tab while it is
+    // recording, and the schedule awaits that debt's release. During the await this tab's own save fails and the controller
+    // publishes `queued` for the new debt, so the hook joins the in-flight schedule instead of starting one. The real hook,
+    // scheduler and save path run; only the release's lock grant is held until the new debt is published.
+    it('debt published by this tab while a spent debt\'s release is awaited is still retried and released within the bound', async () => {
+        const SPENT = 'sess-spent-closed-tab';
+        const NEW = 'sess-saved-during-release';
+        let releaseAwaited = false;
+        let resumeRelease: () => void = () => undefined;
+        const held = new Set<string>();
+        Object.defineProperty(navigator, 'locks', { configurable: true, value: {
+            async request(name: string, _options: unknown, callback: (lock: unknown) => Promise<unknown>) {
+                if (held.has(name)) return callback(null);
+                held.add(name);
+                try {
+                    if (name.endsWith(`:${SPENT}`) && !releaseAwaited) {
+                        releaseAwaited = true;
+                        await new Promise<void>((resolve) => { resumeRelease = resolve; });
+                    }
+                    return await callback({ name });
+                } finally {
+                    held.delete(name);
+                }
+            },
+        } });
+        try {
+            rpc.mockImplementation((name: string) => Promise.resolve(name === 'record_progress_evaluation' ? failed : { data: null, error: null }));
+            await mountFor(OWNER);
+            localStorage.setItem(PROGRESS_QUEUE_STORAGE_KEY, JSON.stringify([{
+                sessionId: SPENT, userId: OWNER, enqueuedAtIso: iso(600_000), attempts: PROGRESS_DEBT_ATTEMPT_BUDGET, lastAttemptAtIso: iso(1_000),
+            }]));
+            act(() => { window.dispatchEvent(new StorageEvent('storage', { key: PROGRESS_QUEUE_STORAGE_KEY })); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+            expect(releaseAwaited).toBe(true);
+            expect(gate()).toMatchObject({ sessionId: SPENT, state: 'queued' });
+
+            // This tab's save: the controller marks it in flight, the real save path fails, the controller publishes `queued`.
+            act(() => { useSessionStore.getState().setProgressGate({ sessionId: NEW, ownerId: OWNER, state: 'resolving' }); });
+            const saved: { outcome: ProgressEvaluationOutcome | null } = { outcome: null };
+            void wireProgressEvaluationOnSave({
+                sessionId: NEW, status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: OWNER,
+            }).then((outcome) => { saved.outcome = outcome; });
+            await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+            expect(saved.outcome).toEqual({ kind: 'queued' });
+            act(() => { expect(applyProgressGateAsController(NEW, OWNER, saved.outcome as ProgressEvaluationOutcome)).toBe(true); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+            expect(gate()).toMatchObject({ sessionId: NEW, state: 'queued' });
+            const publishedAt = Date.now();
+
+            resumeRelease();
+            let startAllowedAfterMs = -1;
+            for (let t = 0; t < TWO_MINUTES; t += 250) {
+                await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+                if (startAllowedAfterMs < 0 && evaluateStartGate(OWNER, gate()).allowed) startAllowedAfterMs = Date.now() - publishedAt;
+            }
+            const read = readProgressReconcileQueue();
+            const entries = read.ok ? read.entries : [];
+            expect(entries.find((e) => e.sessionId === SPENT)?.releasedAtIso).toBeTruthy();
+            // The new debt gets its own uncontended schedule, is released within the bound, and stays durable.
+            expect(entries.find((e) => e.sessionId === NEW)).toMatchObject({ attempts: PROGRESS_DEBT_ATTEMPT_BUDGET });
+            expect(entries.find((e) => e.sessionId === NEW)?.releasedAtIso).toBeTruthy();
+            expect(startAllowedAfterMs).toBeGreaterThan(0);
+            expect(startAllowedAfterMs).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+            expect(gate()).toBeNull();
+        } finally {
+            Reflect.deleteProperty(navigator, 'locks');
+        }
+    });
 });
 
 // Codex P1 4004302937 (PM RETURN 5663205404), reproduced on 042794d3: an evaluator call that THROWS, or a Web Locks `request`

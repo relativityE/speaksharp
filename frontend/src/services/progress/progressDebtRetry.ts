@@ -6,8 +6,10 @@
  * across two loads, under copy that promised "this will retry automatically".
  *
  * NOW. While this owner's gate is `queued`, failing debt is retried on a fixed backoff. EACH entry keeps its own
- * budget: it is released only once it has itself failed `PROGRESS_DEBT_ATTEMPT_BUDGET` attempts, so debt that arrives
- * mid-schedule is never released by an older entry's schedule. The budget and clock are the entry's PERSISTED
+ * budget: it is released once it has itself failed `PROGRESS_DEBT_ATTEMPT_BUDGET` attempts, or once its next attempt
+ * could no longer finish within `PROGRESS_DEBT_RELEASE_BOUND_MS` of this page first chasing it (PM RETURN 5668213021:
+ * the 60 s Start bound wins over the attempt count), so debt that arrives mid-schedule is never released by an older
+ * entry's schedule. The budget and clock are the entry's PERSISTED
  * `attempts` / `lastAttemptAtIso`, so a reload resumes them instead of restarting the hold. A released entry stays
  * durable and later loads keep retrying it. Single-flight per owner, so repeated gate publications never multiply
  * attempts.
@@ -22,12 +24,16 @@ import {
 /** Delay before each retry, indexed by the attempts the entry has already failed. */
 export const PROGRESS_DEBT_RETRY_DELAYS_MS: readonly number[] = Object.freeze([2_000, 8_000, 20_000]);
 
-/** Failed reconciliation attempts (on any load or retry) after which an entry stops holding Start. */
+/**
+ * Up to this many failed reconciliation attempts (on any load or retry) hold Start for one entry. Under contention an entry
+ * can stop holding Start after fewer, because the release bound wins (PM RETURN 5668213021); its debt stays durable.
+ */
 export const PROGRESS_DEBT_ATTEMPT_BUDGET = PROGRESS_DEBT_RETRY_DELAYS_MS.length;
 
 /**
- * Worst case from an entry's first retry wait to its release: every delay plus every attempt hitting its deadline.
- * This is the longest one queued debt can hold Start within one page (60 s with the current values).
+ * The longest one queued debt holds Start within one page: every delay plus every attempt hitting its deadline (60 s with
+ * the current values). Enforced, not just typical: a retry whose deadline would pass it is not launched, and the entry is
+ * released from Start instead (Codex 4007557650).
  */
 export const PROGRESS_DEBT_RELEASE_BOUND_MS = PROGRESS_DEBT_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
     + PROGRESS_DEBT_RETRY_DELAYS_MS.length * PROGRESS_RPC_ATTEMPT_TIMEOUT_MS;
@@ -69,6 +75,17 @@ async function runSchedule(userId: string): Promise<ProgressDebtRetryResult> {
         );
         return base + PROGRESS_DEBT_RETRY_DELAYS_MS[Math.min(attempts, PROGRESS_DEBT_RETRY_DELAYS_MS.length - 1)];
     };
+    // Codex 4007557650: time this page cannot attempt an entry (another context's save owns it) counts against the bound.
+    // An entry whose next attempt could no longer finish within the bound of when this schedule first saw it is released
+    // as if its budget were spent. The ordinary schedule's last attempt ends at the bound; `SKIP_RECHECK_MS` absorbs drift.
+    const firstSeenAt = new Map<string, number>();
+    const spent = (e: QueueEntry) => {
+        if (attemptsOf(e) >= PROGRESS_DEBT_ATTEMPT_BUDGET) return true;
+        const now = Date.now();
+        if (!firstSeenAt.has(e.sessionId)) firstSeenAt.set(e.sessionId, now);
+        const deadline = (firstSeenAt.get(e.sessionId) ?? now) + PROGRESS_DEBT_RELEASE_BOUND_MS + SKIP_RECHECK_MS;
+        return Math.max(dueAt(e), now) + PROGRESS_RPC_ATTEMPT_TIMEOUT_MS > deadline;
+    };
     const refused = new Set<string>();
     let recheckAt = 0;
     let resolved = 0;
@@ -78,20 +95,24 @@ async function runSchedule(userId: string): Promise<ProgressDebtRetryResult> {
         // Unreadable storage stays fail-closed and is outside this bound: stop without releasing anything.
         if (!owed.ok) return { resolved, released };
         const blocking = owed.entries.filter((e) => !e.releasedAtIso && !refused.has(e.sessionId));
-        // Release ONLY entries that have spent their own budget (possibly on earlier loads).
+        // Release ONLY entries that have spent their own budget (possibly on earlier loads) or their own bound.
         let releaseSkipped = false;
-        for (const entry of blocking.filter((e) => attemptsOf(e) >= PROGRESS_DEBT_ATTEMPT_BUDGET)) {
+        // Decided once: an entry must not become spent between the releases and `pending`, or it would be neither.
+        const spentNow = new Set(blocking.filter(spent).map((e) => e.sessionId));
+        for (const entry of blocking.filter((e) => spentNow.has(e.sessionId))) {
             const outcome = await releaseProgressDebtEntry(userId, entry);
             if (outcome === 'released') released++;
             else if (outcome === 'refused') refused.add(entry.sessionId); // an unrecorded release keeps blocking; stop chasing it this page
             else releaseSkipped = true;
         }
-        const pending = blocking.filter((e) => attemptsOf(e) < PROGRESS_DEBT_ATTEMPT_BUDGET);
-        if (pending.length === 0 && !releaseSkipped) return { resolved, released };
+        const pending = blocking.filter((e) => !spentNow.has(e.sessionId));
+        // `blocking` predates any release awaited above, and a debt published during that await would otherwise end this
+        // schedule unseen (Codex 4007557646): after releasing, re-read before deciding nothing is owed.
+        if (pending.length === 0 && !releaseSkipped && spentNow.size === 0) return { resolved, released };
         if (pending.length === 0) {
             // A spent debt's release was skipped (another tab owns it right now): re-read shortly instead of returning
             // while it still holds Start. Nothing is counted for the skip (PM RETURN 5661399676).
-            await sleep(SKIP_RECHECK_MS);
+            if (releaseSkipped) await sleep(SKIP_RECHECK_MS);
             continue;
         }
 
@@ -102,7 +123,7 @@ async function runSchedule(userId: string): Promise<ProgressDebtRetryResult> {
         const fresh = getQueueEntriesForUser(userId);
         if (!fresh.ok) return { resolved, released };
         const now = Date.now();
-        const current = fresh.entries.filter((e) => !e.releasedAtIso && !refused.has(e.sessionId) && attemptsOf(e) < PROGRESS_DEBT_ATTEMPT_BUDGET);
+        const current = fresh.entries.filter((e) => !e.releasedAtIso && !refused.has(e.sessionId) && !spent(e));
         const due = new Set(current.filter((e) => dueAt(e) <= now).map((e) => e.sessionId));
         const round = await attemptProgressDebtRound(userId, 'retry', due);
         resolved += round.drained;
