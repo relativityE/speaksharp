@@ -28,11 +28,19 @@ import logger from '@/lib/logger';
 export const PROGRESS_QUEUE_STORAGE_KEY = 'ss_progress_reconcile_queue_v1';
 const KEY = PROGRESS_QUEUE_STORAGE_KEY;
 
-interface QueueEntry {
+export interface QueueEntry {
     sessionId: string;
     userId: string;
     /** ms epoch as a string is avoided — kept as a plain field only for observability, never for ordering. */
     enqueuedAtIso: string;
+    /** RWT-20: reconciliation attempts made against this debt, so the retry bound and age survive a reload. */
+    attempts?: number;
+    lastAttemptAtIso?: string;
+    /**
+     * RWT-20: set once the bounded in-page retries are exhausted. A RELEASED entry no longer holds Start, but it is
+     * still owed: it stays in the queue and is retried on later loads until its evaluation is durably recorded.
+     */
+    releasedAtIso?: string;
 }
 
 export type QueueFailure =
@@ -79,10 +87,17 @@ export function readProgressReconcileQueue(): QueueReadResult {
         return { ok: false, failure: 'corrupt' };
     }
     if (!Array.isArray(parsed)) return { ok: false, failure: 'corrupt' };
+    const optionalString = (v: unknown) => v === undefined || typeof v === 'string';
     const valid = (e: unknown): e is QueueEntry =>
         !!e && typeof e === 'object'
         && typeof (e as QueueEntry).sessionId === 'string' && (e as QueueEntry).sessionId !== ''
-        && typeof (e as QueueEntry).userId === 'string' && (e as QueueEntry).userId !== '';
+        && typeof (e as QueueEntry).userId === 'string' && (e as QueueEntry).userId !== ''
+        // RWT-20 fields are optional (older entries carry none), but when present they must have their shape: a
+        // malformed release marker could otherwise unlock Start on debt nobody actually released.
+        && ((e as QueueEntry).attempts === undefined
+            || (Number.isInteger((e as QueueEntry).attempts) && ((e as QueueEntry).attempts as number) >= 0))
+        && optionalString((e as QueueEntry).lastAttemptAtIso)
+        && optionalString((e as QueueEntry).releasedAtIso);
     if (!parsed.every(valid)) return { ok: false, failure: 'corrupt' };
     return { ok: true, entries: parsed };
 }
@@ -133,4 +148,43 @@ export function clearProgressReconcileEntry(sessionId: string, userId: string): 
     const next = current.entries.filter((e) => !(e.sessionId === sessionId && e.userId === userId));
     if (next.length === current.entries.length) return { ok: true, verified: true }; // nothing to remove
     return writeVerified(next, (list) => !list.some((e) => e.sessionId === sessionId && e.userId === userId));
+}
+
+/** RWT-20: this owner's entries, released or not — the Start gate and the retry schedule both read these. */
+export function getQueueEntriesForUser(userId: string): QueueReadResult {
+    const res = readProgressReconcileQueue();
+    if (!res.ok) return res;
+    return { ok: true, entries: res.entries.filter((e) => e.userId === userId) };
+}
+
+/**
+ * RWT-20: record one failed reconciliation attempt on the entry — VERIFIED. `attempts` is the count after this
+ * call. An entry that is no longer present (retired by another tab) needs nothing recorded.
+ */
+export function recordProgressReconcileAttempt(
+    sessionId: string,
+    userId: string,
+    nowIso: string,
+): QueueWriteResult & { attempts?: number } {
+    const current = readProgressReconcileQueue();
+    if (!current.ok) return { ok: false, failure: current.failure };
+    const entry = current.entries.find((e) => e.sessionId === sessionId && e.userId === userId);
+    if (!entry) return { ok: true, verified: true };
+    const attempts = (entry.attempts ?? 0) + 1;
+    const next = current.entries.map((e) => (e === entry ? { ...e, attempts, lastAttemptAtIso: nowIso } : e));
+    const written = writeVerified(next, (list) => list.some((e) => e.sessionId === sessionId && e.userId === userId && e.attempts === attempts));
+    return written.ok ? { ...written, attempts } : written;
+}
+
+/**
+ * RWT-20: release an entry's hold on Start after its bounded retries — VERIFIED. The entry itself is kept: release
+ * frees the recorder, it never forgives the debt. Already released, or already retired, is a durable success.
+ */
+export function releaseProgressReconcileEntry(sessionId: string, userId: string, nowIso: string): QueueWriteResult {
+    const current = readProgressReconcileQueue();
+    if (!current.ok) return { ok: false, failure: current.failure };
+    const entry = current.entries.find((e) => e.sessionId === sessionId && e.userId === userId);
+    if (!entry || entry.releasedAtIso) return { ok: true, verified: true };
+    const next = current.entries.map((e) => (e === entry ? { ...e, releasedAtIso: nowIso } : e));
+    return writeVerified(next, (list) => list.some((e) => e.sessionId === sessionId && e.userId === userId && typeof e.releasedAtIso === 'string'));
 }

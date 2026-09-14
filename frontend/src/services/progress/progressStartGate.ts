@@ -9,7 +9,7 @@
  * Fail-closed throughout: an unreadable or corrupt queue blocks, because "we could not tell" is not
  * "there is no debt".
  */
-import { getQueuedSessionIdsForUser, PROGRESS_QUEUE_STORAGE_KEY as QUEUE_KEY } from './progressReconcileQueue';
+import { getQueueEntriesForUser, PROGRESS_QUEUE_STORAGE_KEY as QUEUE_KEY } from './progressReconcileQueue';
 import type { QueueFailure } from './progressReconcileQueue';
 
 export type StartGateVerdict =
@@ -28,10 +28,13 @@ export type StartGateVerdict =
  */
 export function evaluateDurableStartGate(ownerId: string | null | undefined): StartGateVerdict {
     if (!ownerId) return { allowed: true };
-    const queued = getQueuedSessionIdsForUser(ownerId);
-    if (!queued.ok) return { allowed: false, reason: 'queue_unreadable', failure: queued.failure };
-    const first = (queued.sessionIds ?? [])[0];
-    if (first) return { allowed: false, reason: 'queued_debt', sessionId: first };
+    const owed = getQueueEntriesForUser(ownerId);
+    if (!owed.ok) return { allowed: false, reason: 'queue_unreadable', failure: owed.failure };
+    // RWT-20: debt whose bounded retries are exhausted is RELEASED. It stays durable and is still retried on later
+    // loads, but it no longer holds Start — an unbounded hold locked a Production user out for ~88 minutes. Only
+    // debt still inside its retry bound blocks.
+    const blocking = owed.entries.find((e) => !e.releasedAtIso);
+    if (blocking) return { allowed: false, reason: 'queued_debt', sessionId: blocking.sessionId };
     return { allowed: true };
 }
 
