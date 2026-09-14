@@ -79,13 +79,21 @@ async function runSchedule(userId: string): Promise<ProgressDebtRetryResult> {
         if (!owed.ok) return { resolved, released };
         const blocking = owed.entries.filter((e) => !e.releasedAtIso && !refused.has(e.sessionId));
         // Release ONLY entries that have spent their own budget (possibly on earlier loads).
+        let releaseSkipped = false;
         for (const entry of blocking.filter((e) => attemptsOf(e) >= PROGRESS_DEBT_ATTEMPT_BUDGET)) {
             const outcome = await releaseProgressDebtEntry(userId, entry);
             if (outcome === 'released') released++;
             else if (outcome === 'refused') refused.add(entry.sessionId); // an unrecorded release keeps blocking; stop chasing it this page
+            else releaseSkipped = true;
         }
         const pending = blocking.filter((e) => attemptsOf(e) < PROGRESS_DEBT_ATTEMPT_BUDGET);
-        if (pending.length === 0) return { resolved, released };
+        if (pending.length === 0 && !releaseSkipped) return { resolved, released };
+        if (pending.length === 0) {
+            // A spent debt's release was skipped (another tab owns it right now): re-read shortly instead of returning
+            // while it still holds Start. Nothing is counted for the skip (PM RETURN 5661399676).
+            await sleep(SKIP_RECHECK_MS);
+            continue;
+        }
 
         const nextDue = Math.min(...pending.map(dueAt));
         await sleep(Math.max(0, Math.max(nextDue, recheckAt) - Date.now()));

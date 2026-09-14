@@ -54,7 +54,8 @@ async function openTab() {
     const queue = await import('../progressReconcileQueue');
     const retry = await import('../progressDebtRetry');
     const record = await import('../recordProgress');
-    return { push, queue, retry, record };
+    const gate = await import('../progressStartGate');
+    return { push, queue, retry, record, gate };
 }
 
 beforeEach(() => {
@@ -166,5 +167,73 @@ describe('RWT-20 — one tab owns a debt attempt at a time (Codex 4003281159)', 
         await expect(load).resolves.toMatchObject({ queueDrained: 0 });
         await expect(schedule).resolves.toMatchObject({ released: 1 });
         expect(maxConcurrent).toBe(1);
+    });
+
+    // Codex-review P1 on d98d68a7 (PM RETURN 5661399676): another tab's load attempt owned a SPENT debt's lock while this
+    // tab's schedule tried to release it. The release came back `skipped`, nothing else was pending, and the schedule
+    // returned — leaving the debt unreleased and Start held until reload.
+    it('X3 a release that loses the lock to another tab\'s attempt is retried: exactly one release, and Start is allowed', async () => {
+        const tabB = await openTab();
+        const tabA = await openTab();
+        const { PROGRESS_DEBT_ATTEMPT_BUDGET, PROGRESS_DEBT_RELEASE_BOUND_MS } = tabA.retry;
+        const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+        localStorage.setItem(tabA.queue.PROGRESS_QUEUE_STORAGE_KEY, JSON.stringify([{
+            sessionId: SESSION, userId: OWNER, enqueuedAtIso: iso(3_600_000),
+            attempts: PROGRESS_DEBT_ATTEMPT_BUDGET, lastAttemptAtIso: iso(600_000),
+        }]));
+        rpc.mockImplementation((name: string) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            return new Promise((resolve) => setTimeout(() => resolve({ data: null, error: { code: 'XX000', message: 'still failing' } }), PENDING_MS));
+        });
+
+        // Tab B authenticates: its load round attempts the spent debt and owns its lock for that attempt.
+        const t0 = Date.now();
+        const loadInB = tabB.record.reconcileProgressEvaluations(OWNER, []);
+        await vi.advanceTimersByTimeAsync(TAB_B_OFFSET_MS);
+        // Tab A's schedule tries to release the spent debt while B owns it.
+        let resultInA: unknown = null;
+        let settledAfter = -1;
+        void tabA.retry.scheduleProgressDebtRetry(OWNER).then((result) => {
+            resultInA = result;
+            settledAfter = Date.now() - t0;
+        });
+        await vi.advanceTimersByTimeAsync(20_000);
+        await loadInB;
+
+        expect(resultInA).toEqual({ resolved: 0, released: 1 });
+        expect(settledAfter).toBeGreaterThan(0);
+        expect(settledAfter).toBeLessThanOrEqual(PROGRESS_DEBT_RELEASE_BOUND_MS);
+        const read = tabA.queue.readProgressReconcileQueue();
+        expect(read.ok && read.entries.find((e) => e.sessionId === SESSION)?.releasedAtIso).toBeTruthy();
+        expect(tabA.gate.evaluateDurableStartGate(OWNER).allowed).toBe(true);
+        const released = [tabA, tabB].flatMap((tab) => tab.push.mock.calls
+            .filter((c) => c[0] === 'progress_debt' && (c[1] as { phase?: string }).phase === 'released'));
+        expect(released).toHaveLength(1);
+    });
+
+    it('X4 an attempt that throws under ownership strands neither the lock nor the in-tab guard', async () => {
+        const tab = await openTab();
+        expect(tab.queue.enqueueProgressReconcile(SESSION, OWNER, new Date(Date.now() - 1_000).toISOString()).ok).toBe(true);
+        let calls = 0;
+        rpc.mockImplementation((name: string) => {
+            if (name !== 'record_progress_evaluation') return Promise.resolve({ data: null, error: null });
+            calls++;
+            return calls === 1
+                ? Promise.reject(new Error('transport threw'))
+                : Promise.resolve({ data: null, error: { code: 'XX000', message: 'still failing' } });
+        });
+
+        const first = tab.retry.scheduleProgressDebtRetry(OWNER);
+        const firstOutcome = first.then(() => 'resolved', () => 'rejected');
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(await firstOutcome).toBe('rejected');
+        expect(calls).toBe(1);
+
+        // The next schedule for the same owner and debt attempts it again: nothing was left owned or in flight.
+        void tab.retry.scheduleProgressDebtRetry(OWNER);
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(calls).toBe(2);
+        const read = tab.queue.readProgressReconcileQueue();
+        expect(read.ok && read.entries.find((e) => e.sessionId === SESSION)?.attempts).toBe(1);
     });
 });
