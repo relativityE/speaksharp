@@ -13,7 +13,7 @@ export interface PracticeFocusChooserProps {
   className?: string;
 }
 
-const PURPLE = 'var(--brand-focus)';
+const SELECTED = 'var(--brand-signature)';
 
 export const PracticeFocusChooser: React.FC<PracticeFocusChooserProps> = ({ value, onSelect, className = '' }) => {
   const refs = React.useRef<(HTMLButtonElement | null)[]>([]);
@@ -81,10 +81,10 @@ export const PracticeFocusChooser: React.FC<PracticeFocusChooserProps> = ({ valu
             onKeyDown={(e) => onKeyDown(e, i)}
             className={`rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
               checked
-                ? 'border-transparent text-white'
-                : 'border-neutral-border bg-white text-neutral-secondary hover:border-focus-points-border'
+                ? 'border-transparent text-ink'
+                : 'border-neutral-border bg-white text-neutral-secondary hover:border-signature-border'
             }`}
-            style={checked ? { backgroundColor: PURPLE } : undefined}
+            style={checked ? { backgroundColor: SELECTED } : undefined}
           >
             {opt.label}
           </button>

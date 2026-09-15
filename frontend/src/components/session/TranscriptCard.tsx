@@ -186,7 +186,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                         <div className="w-full max-w-md text-center" data-testid="transcript-chosen-prompt">
                             {/* A read-aloud sample carries its own title (the label) + attribution (credit); a
                                 generated speaking prompt has neither, so it stays the generic "Your prompt". */}
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-focus-points-strong" data-testid="chosen-prompt-title">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-secondary" data-testid="chosen-prompt-title">
                                 {chosenPromptTitle || 'Your prompt'}
                             </p>
                             <p className="mt-2 text-[17px] font-semibold leading-relaxed text-neutral-body">{chosenPrompt}</p>

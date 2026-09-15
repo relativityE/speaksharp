@@ -26,10 +26,10 @@ export interface CoachingCardProps {
     onSelectFocus?: (focus: PracticeFocus) => void;
 }
 
-const PURPLE = 'var(--brand-focus)';
+const EYEBROW = 'var(--brand-neutral-heading)';
 
 const Label: React.FC<{ text: string }> = ({ text }) => (
-    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: PURPLE }}>
+    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: EYEBROW }}>
         <span aria-hidden="true">◎</span>
         {text}
     </p>
@@ -40,7 +40,7 @@ export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTi
     return (
         <div
             className="flex h-full flex-col rounded-xl border border-neutral-border bg-white p-4"
-            style={{ borderTop: `3px solid ${PURPLE}` }}
+            style={{ borderTop: `3px solid ${EYEBROW}` }}
             data-testid="coaching-card"
             data-coaching-state={sessionState}
         >
@@ -68,7 +68,7 @@ export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTi
                     <Label text="Live coaching" />
                     {/* #1264 — non-scoring reminder of the chosen intention (never affects the transcript). */}
                     {focusLabel && (
-                        <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-focus-points-ground px-2.5 py-1 text-[12px] font-semibold text-focus-points" data-testid="practice-focus-reminder">
+                        <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-neutral-band px-2.5 py-1 text-[12px] font-semibold text-neutral-heading" data-testid="practice-focus-reminder">
                             <span aria-hidden="true">◎</span> Focus: {focusLabel}
                         </p>
                     )}

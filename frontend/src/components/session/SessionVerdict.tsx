@@ -41,10 +41,10 @@ export const SessionVerdict: React.FC<SessionVerdictProps> = ({ verdictLine, fix
 
             {fixLine && (
                 <div
-                    className="mt-3 rounded-lg border border-focus-points-border bg-focus-points-ground p-3"
+                    className="mt-3 rounded-lg border border-signature-border bg-signature-ground p-3"
                     data-testid="verdict-fix"
                 >
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-focus-points-strong">Fix this next time</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-signature-text">Fix this next time</p>
                     <p className="mt-1 text-[14px] leading-relaxed text-neutral-body">{fixLine}</p>
                 </div>
             )}

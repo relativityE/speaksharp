@@ -80,10 +80,10 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                         <div
                             data-testid="during-reading-prompt"
                             data-prompt-kind={transcript.promptKind ?? 'prompt'}
-                            className="mb-3 rounded-lg border border-focus-points-border bg-focus-points-ground px-4 py-3 text-[15px] leading-relaxed text-neutral-body"
+                            className="mb-3 rounded-lg border border-neutral-border bg-neutral-band px-4 py-3 text-[15px] leading-relaxed text-neutral-body"
                         >
                             <div className="mb-1 flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-bold uppercase tracking-wide text-focus-points">
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-neutral-secondary">
                                     {isSample
                                         ? (transcript.chosenPromptTitle ? `Read aloud · ${transcript.chosenPromptTitle}` : 'Read this aloud')
                                         : 'Your prompt'}
@@ -93,7 +93,7 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                                     data-testid="during-reading-prompt-dismiss"
                                     aria-label="Dismiss"
                                     onClick={transcript.onDismissPin}
-                                    className="shrink-0 rounded px-2 py-0.5 text-[14px] leading-none font-bold text-focus-points hover:bg-focus-points-border"
+                                    className="shrink-0 rounded px-2 py-0.5 text-[14px] leading-none font-bold text-signature-text hover:bg-signature-ground"
                                 >
                                     ✕
                                 </button>
@@ -114,7 +114,7 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                             type="button"
                             data-testid="during-reopen-prompt"
                             onClick={transcript.onReopenPin}
-                            className="mb-3 inline-flex items-center gap-1 rounded-full border border-focus-points-border bg-focus-points-ground px-3 py-1 text-[12px] font-bold text-focus-points hover:bg-focus-points-border"
+                            className="mb-3 inline-flex items-center gap-1 rounded-full border border-signature-border bg-signature-ground px-3 py-1 text-[12px] font-bold text-signature-text hover:bg-signature-border"
                         >
                             Need a prompt?
                         </button>

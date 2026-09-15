@@ -9,7 +9,7 @@ import React from 'react';
  * The two actions are a **matched pair of equal weight** — two branches of the same choice — so one is
  * never a button and the other a link:
  *   • `Give me a prompt` — teal fill, white text.
- *   • `Read a sample`    — `focus-points-ground` fill, `focus-points-border` border, `focus-points-strong` text (the purple insight path).
+ *   • `Read a sample`    — white fill, `neutral-border-strong` border, `neutral-heading` text (the secondary action).
  */
 export interface PromptOfferProps {
     /** Take a generated speaking prompt (stays visible through recording). */
@@ -40,7 +40,7 @@ export const PromptOffer: React.FC<PromptOfferProps> = ({ onPrompt, onSample }) 
                     type="button"
                     onClick={onSample}
                     data-testid="prompt-offer-sample"
-                    className="rounded-lg border border-focus-points-border bg-focus-points-ground px-4 py-2 text-[14px] font-bold text-focus-points-strong transition-colors hover:bg-focus-points-border"
+                    className="rounded-lg border border-neutral-border-strong bg-white px-4 py-2 text-[14px] font-bold text-neutral-heading transition-colors hover:bg-neutral-band"
                 >
                     Read a sample
                 </button>
