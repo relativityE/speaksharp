@@ -192,8 +192,8 @@ export async function verifyCanaryFoundation(adminClient, userId, purpose) {
         .select('id, subscription_status, subscription_id, stripe_subscription_id, stripe_customer_id, trial_started_at, trial_expires_at, commercial_trial_granted_at')
         .eq('id', userId)
         .maybeSingle();
-    if (error) return { ok: false, reason: `profile_readback_error_[${classifyError(error).category}]` };
-    if (!data) return { ok: false, reason: 'profile_missing_after_foundation' };
+    if (error) return { ok: false, reason: `profile_readback_error_[${classifyError(error).category}]`, snapshot: null, effectiveTier: null };
+    if (!data) return { ok: false, reason: 'profile_missing_after_foundation', snapshot: null, effectiveTier: null };
 
     // Server-authoritative effective tier (uses now() inside the SECDEF function — NOT the runner clock).
     // #1294: pass the immutable commercial grant marker to hit the CANONICAL 5-arg overload. The legacy
@@ -206,9 +206,12 @@ export async function verifyCanaryFoundation(adminClient, userId, purpose) {
         p_subscription_id: data.subscription_id,
         p_commercial_trial_granted_at: data.commercial_trial_granted_at,
     });
-    if (tierErr) return { ok: false, reason: `tier_rpc_error_[${classifyError(tierErr).category}]` };
+    if (tierErr) return { ok: false, reason: `tier_rpc_error_[${classifyError(tierErr).category}]`, snapshot: data, effectiveTier: null };
 
-    return judgeCanaryFoundationSnapshot(data, { purpose, effectiveTier: effTier });
+    // Return the snapshot and the server-authoritative tier this verdict was actually computed from, so a caller
+    // that must REPORT the identity state reports exactly what was validated instead of reading it again. Purely
+    // additive: existing callers read only `ok`/`reason`/`facts`.
+    return { ...judgeCanaryFoundationSnapshot(data, { purpose, effectiveTier: effTier }), snapshot: data, effectiveTier: effTier ?? null };
 }
 
 /**

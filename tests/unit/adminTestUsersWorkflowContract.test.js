@@ -121,24 +121,32 @@ describe('Admin - Test Users workflow contract', () => {
     expect(found).toEqual([]);
   });
 
-  it('the canary inspection calls exactly one RPC, effective_subscription_tier, and imports only read-only helpers', () => {
+  it('the canary inspection imports only read-only helpers and runs no RPC of its own', () => {
     const lib = read('scripts/lib/canaryReadOnlyVerify.mjs');
-    const rpcNames = [...lib.matchAll(/\.rpc\(\s*'([^']+)'/g)].map((m) => m[1]);
-    expect(rpcNames).toEqual(['effective_subscription_tier']);
-    expect(lib.split('.rpc(').length - 1).toBe(rpcNames.length);
     const imported = /import \{([^}]+)\} from '\.\/canaryAccountAdmin\.mjs'/.exec(lib)[1].split(',').map((s) => s.trim()).sort();
-    expect(imported).toEqual(['judgeCanaryFoundationSnapshot', 'maskEmail', 'strictLookup']);
+    expect(imported).toEqual(['maskEmail', 'strictLookup', 'verifyCanaryFoundation']);
     expect(lib.match(/from '\.\/[^']+'/g)).toEqual(["from './canaryAccountAdmin.mjs'"]);
+    // The single tier RPC now lives in the helper that judges it (see the one-read/one-authority test below).
+    expect(lib.split('.rpc(').length - 1).toBe(0);
   });
 
-  it('the inspection judges the ONE snapshot it reports: no re-reading foundation helper', () => {
-    // Codex P2 4020951921: `verifyCanaryFoundation` performs its OWN profile read and tier RPC and returns only
-    // {ok, reason}. Pairing its verdict with a snapshot read earlier let a mid-flight entitlement downgrade be
-    // reported as ELIGIBLE. The inspection must use the pure rule function, and must read the profile ONCE.
+  it('ONE read and ONE eligibility authority: the inspection reports the snapshot the helper validated', () => {
+    // Codex P2 4020951921: the inspection used to read the profile and run the tier RPC itself, then call
+    // `verifyCanaryFoundation`, which reads AGAIN and returned only {ok, reason}. A mid-flight entitlement
+    // downgrade could pair the second read's `ok` with the first read's Pro-shaped facts and report
+    // ELIGIBLE_CREDENTIAL_PENDING for a stale identity. Per PM direction the helper now returns the snapshot it
+    // validated, and the inspection reads NOTHING about the profile itself.
     const lib = read('scripts/lib/canaryReadOnlyVerify.mjs');
-    expect(lib).not.toContain('verifyCanaryFoundation');
-    expect(lib).toContain('judgeCanaryFoundationSnapshot(profile');
-    expect(lib.match(/\.from\('user_profiles'\)/g)).toHaveLength(1);
+    const admin = read('scripts/lib/canaryAccountAdmin.mjs');
+    expect(lib).toContain('await verifyCanaryFoundation(adminClient, userId, purpose)');
+    expect(lib).toContain('foundation.snapshot');
+    // Zero profile reads and zero tier RPCs in the inspection; exactly one of each in the helper.
+    expect(lib.match(/\.from\('user_profiles'\)/g)).toBeNull();
+    expect(admin.match(/\.from\('user_profiles'\)/g)).toHaveLength(1);
+    const adminRpcs = [...admin.matchAll(/\.rpc\(\s*'([^']+)'/g)].map((m) => m[1]);
+    expect(adminRpcs).toEqual(['effective_subscription_tier']);
+    // The helper must hand back what it judged, or the report could drift from the verdict again.
+    expect(admin).toMatch(/snapshot: data, effectiveTier: effTier/);
   });
 
   it('the reused canary admin helpers are themselves read-only', () => {

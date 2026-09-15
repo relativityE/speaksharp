@@ -17,7 +17,7 @@
  * enums and counts. No email, token, Stripe identifier or row content is ever emitted.
  */
 import { hash } from 'node:crypto';
-import { judgeCanaryFoundationSnapshot, maskEmail, strictLookup } from './canaryAccountAdmin.mjs';
+import { maskEmail, strictLookup, verifyCanaryFoundation } from './canaryAccountAdmin.mjs';
 
 export const CANARY_TARGETS = Object.freeze([
     Object.freeze({ purpose: 'canary_trial', label: 'trial canary', emailVar: 'CANARY_TRIAL_EMAIL' }),
@@ -163,46 +163,41 @@ export async function inspectCanaryIdentity({ adminClient, email, purpose, label
         priorLastSignInAt: roundToMinute(authUser.last_sign_in_at),
     };
 
-    const { data: profile, error: profileError } = await adminClient
-        .from('user_profiles')
-        .select('id, subscription_status, subscription_id, stripe_customer_id, stripe_subscription_id, trial_started_at, trial_expires_at, commercial_trial_granted_at')
-        .eq('id', userId)
-        .maybeSingle();
+    // ONE read, ONE eligibility authority (Codex P2 4020951921, PM direction 15 Sep). The Admin helper performs
+    // the single profile read and the single tier RPC, judges them, and returns the snapshot it validated. This
+    // module reads NEITHER: it reports exactly that snapshot, so no second read can pair one read's verdict with
+    // another read's reported facts — a mid-flight entitlement change can no longer be reported as eligible.
+    const foundation = await verifyCanaryFoundation(adminClient, userId, purpose);
+    const profile = foundation.snapshot;
     const dependents = await countDependents(adminClient, userId);
     const withDependents = { ...report, dependentRowCounts: dependents, retirementPreflight: retirementPreflight(dependents) };
 
-    if (profileError) return withVerdict({ ...withDependents, profilePresent: null }, VERDICTS.AMBIGUOUS, 'profile_unreadable');
-    if (!profile) return withVerdict({ ...withDependents, profilePresent: false }, VERDICTS.INELIGIBLE, 'profile_missing');
+    // The helper's read-failure reasons are unreadable state, not a judgment about the identity.
+    if (/^profile_readback_error/.test(foundation.reason ?? '')) {
+        return withVerdict({ ...withDependents, profilePresent: null }, VERDICTS.AMBIGUOUS, 'profile_unreadable');
+    }
+    if (foundation.reason === 'profile_missing_after_foundation' || !profile) {
+        return withVerdict({ ...withDependents, profilePresent: false }, VERDICTS.INELIGIBLE, 'profile_missing');
+    }
 
     const start = Date.parse(profile.trial_started_at);
     const expiry = Date.parse(profile.trial_expires_at);
-    const { data: effectiveTier, error: tierError } = await adminClient.rpc('effective_subscription_tier', {
-        p_subscription_status: profile.subscription_status,
-        p_trial_expires_at: profile.trial_expires_at,
-        p_stripe_subscription_id: profile.stripe_subscription_id,
-        p_subscription_id: profile.subscription_id,
-        p_commercial_trial_granted_at: profile.commercial_trial_granted_at,
-    });
+    const tierUnreadable = /^tier_rpc_error/.test(foundation.reason ?? '');
     const shaped = {
         ...withDependents,
         profilePresent: true,
         storedTier: nonBlank(profile.subscription_status) ? profile.subscription_status.trim().toLowerCase() : null,
-        effectiveTier: tierError ? 'unreadable' : effectiveTier ?? null,
+        effectiveTier: tierUnreadable ? 'unreadable' : foundation.effectiveTier ?? null,
         billingIdentityShape: billingShape(profile),
         trialStartedAt: roundToMinute(profile.trial_started_at),
         trialExpiresAt: roundToMinute(profile.trial_expires_at),
         commercialTrialGrantedAt: roundToMinute(profile.commercial_trial_granted_at),
         trialWindowDays: Number.isFinite(start) && Number.isFinite(expiry) ? Math.round(((expiry - start) / DAY_MS) * 100) / 100 : null,
     };
-    if (tierError) return withVerdict(shaped, VERDICTS.AMBIGUOUS, 'effective_tier_unreadable');
+    if (tierUnreadable) return withVerdict(shaped, VERDICTS.AMBIGUOUS, 'effective_tier_unreadable');
 
-    // ONE snapshot decides and is reported. The Admin helper re-reads the profile and re-runs the tier RPC and
-    // returns only {ok, reason}, so pairing its verdict with the snapshot above could report a stale identity as
-    // eligible if entitlement changed between the two reads (Codex P2 on #1483). The rules below are the same
-    // rules that helper enforces, applied to the snapshot this report actually shows.
-    // Every unreadable-read case already returned AMBIGUOUS above, so any !ok here is a judgment about the
-    // identity's actual state, not a read failure: INELIGIBLE with the helper's sanitized reason.
-    const foundation = judgeCanaryFoundationSnapshot(profile, { purpose, effectiveTier: shaped.effectiveTier });
+    // Every unreadable-read case returned above, so any remaining !ok is a judgment about the identity's actual
+    // state — reported as INELIGIBLE with the helper's own sanitized reason.
     if (!foundation.ok) return withVerdict(shaped, VERDICTS.INELIGIBLE, foundation.reason);
     if (purpose === 'canary_paid') {
         // The shared paid lane deliberately accepts a clean credentials-only account (Admin writes no

@@ -196,11 +196,16 @@ describe('canary read-only inspection — FK-dependent row counts', () => {
 });
 
 describe('canary read-only inspection — one snapshot decides AND is reported', () => {
-  // Codex P2 4020951921 on #1483. The first implementation judged with `verifyCanaryFoundation`, which performs
-  // its OWN profile read and tier RPC and returns only {ok, reason}. If entitlement changed between the two
-  // reads, the second read could see a clean credentials-only Free profile — which that helper's paid lane
-  // deliberately accepts — and return ok, while the report still showed the Pro-shaped snapshot read first.
-  // The production diagnostic then called a stale paid identity ELIGIBLE. One read is the structural fix.
+  // Codex P2 4020951921 on #1483. The first implementation read the profile and ran the tier RPC here, then
+  // called `verifyCanaryFoundation`, which reads AGAIN and returned only {ok, reason}. If entitlement changed
+  // between the two reads, the second read could see a clean credentials-only Free profile — which that helper's
+  // paid lane deliberately accepts — and return ok, while the report still showed the Pro-shaped snapshot read
+  // first. The production diagnostic then called a stale paid identity ELIGIBLE.
+  //
+  // Per PM direction the helper now performs the single profile read and the single tier RPC and returns the
+  // snapshot it validated; the inspection reads nothing about the profile itself. So the one read asserted below
+  // happens INSIDE `verifyCanaryFoundation` — reached through it, not performed here — and the verdict and the
+  // reported facts provably come from that same snapshot.
   const downgradedFree = (id) => ({
     ...paidPro(id), subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null,
   });
