@@ -3800,7 +3800,13 @@ export class SpeechRuntimeController {
             // retired by the terminal transition this refusal produces.
         };
 
-        const startGate = evaluateStartGate(this.capturedUserId, useSessionStore.getState().progressGate);
+        // #1476/#1450: scope the gate to the SIGNED-IN owner. `capturedUserId` belongs to the previous recording and is
+        // only re-resolved later in this pipeline, so after a reload it is still null and after an account switch it
+        // is still the previous account. The app-global reconciliation hook publishes the signed-in owner
+        // synchronously (`''` = signed out); only while that is still undetermined does the captured owner apply.
+        const resolvedOwner = useSessionStore.getState().progressGateResolvedFor;
+        const gateOwner = resolvedOwner === null ? this.capturedUserId : (resolvedOwner || null);
+        const startGate = evaluateStartGate(gateOwner, useSessionStore.getState().progressGate);
         if (!startGate.allowed) {
             logger.warn({ reason: startGate.reason }, '[controller] startRecording blocked on Progress evidence (#1354)');
             refuseStart(startGateMessage(startGate) ?? 'Recording is unavailable right now.');
