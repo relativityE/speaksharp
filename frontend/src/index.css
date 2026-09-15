@@ -112,6 +112,38 @@ All colors MUST be HSL.
     /* Warm tile behind the collapsed filler row's glyph (warm = evidence, matching the filler chips). */
     --session-warm-tile: 36 88% 92%;
     --session-warm-tile-text: 30 84% 30%;
+
+    /* #1480 — THE ONE THEME AUTHORITY for the approved SpeakSharp colour roles (Landing Rev 2 §1). Pages and
+       components consume these through the Tailwind role colours (`signature`, `ink`, `money`, `status`,
+       `neutral-*`), never through copied hex values or page-specific palettes. `#8b95a5` is retired (3.03:1);
+       teal is retired. tests/config/themeTokenAuthority.test.ts guards this block and ratchets old literals down.
+       - signature: the only colour that means act (primary CTAs, highlights); `-text` is its on-white text form.
+       - ink: the one dark ground; `-text` / `-muted` are the text colours on it.
+       - money: prices only; `-on-ink` is the price colour on the ink ground.
+       - status: confirmation/shield marks only.
+       - neutral: page, bands, borders and text. */
+    --brand-signature: #ffb61f;
+    --brand-signature-text: #8a5510;
+    --brand-signature-ground: #fdf3e2;
+    --brand-signature-border: #f0dcb8;
+    --brand-ink: #1c2333;
+    --brand-ink-raised: #262f42;
+    --brand-ink-hairline: #3a4457;
+    --brand-ink-text: #eef1f7;
+    --brand-ink-muted: #9aa6bd;
+    --brand-money: #5b21b6;
+    --brand-money-soft: #6d28d9;
+    --brand-money-on-ink: #c4b5fd;
+    --brand-status: #146b4a;
+    --brand-neutral-page: #ffffff;
+    --brand-neutral-band: #f7f9fc;
+    --brand-neutral-border: #dbe2ec;
+    --brand-neutral-border-soft: #e6ebf2;
+    --brand-neutral-border-strong: #c8d2e0;
+    --brand-neutral-heading: #1c2333;
+    --brand-neutral-body: #1f2733;
+    --brand-neutral-secondary: #414b5c;
+    --brand-neutral-muted: #6b7688;
     --shadow-session-help: 0 6px 16px -6px hsl(164 74% 17% / 0.45), 0 2px 5px -2px hsl(164 74% 17% / 0.32);
   }
 

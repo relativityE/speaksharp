@@ -68,6 +68,40 @@ export default {
                     border: "hsl(var(--sidebar-border))",
                     ring: "hsl(var(--sidebar-ring))",
                 },
+                // #1480 shared colour roles (Landing Rev 2 §1). Values live ONLY in index.css `--brand-*`.
+                signature: {
+                    DEFAULT: "var(--brand-signature)",
+                    text: "var(--brand-signature-text)",
+                    ground: "var(--brand-signature-ground)",
+                    border: "var(--brand-signature-border)",
+                },
+                ink: {
+                    DEFAULT: "var(--brand-ink)",
+                    raised: "var(--brand-ink-raised)",
+                    hairline: "var(--brand-ink-hairline)",
+                    text: "var(--brand-ink-text)",
+                    muted: "var(--brand-ink-muted)",
+                },
+                money: {
+                    DEFAULT: "var(--brand-money)",
+                    soft: "var(--brand-money-soft)",
+                    "on-ink": "var(--brand-money-on-ink)",
+                },
+                status: {
+                    DEFAULT: "var(--brand-status)",
+                },
+                // Merged into Tailwind's built-in `neutral` scale; the numeric steps are untouched.
+                neutral: {
+                    page: "var(--brand-neutral-page)",
+                    band: "var(--brand-neutral-band)",
+                    border: "var(--brand-neutral-border)",
+                    "border-soft": "var(--brand-neutral-border-soft)",
+                    "border-strong": "var(--brand-neutral-border-strong)",
+                    heading: "var(--brand-neutral-heading)",
+                    body: "var(--brand-neutral-body)",
+                    secondary: "var(--brand-neutral-secondary)",
+                    muted: "var(--brand-neutral-muted)",
+                },
             },
             backgroundImage: {
                 'gradient-primary': 'var(--gradient-primary)',
