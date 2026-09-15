@@ -193,4 +193,36 @@ Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
     assertEquals(sb.calls().p_status, "active");
     assertEquals(sb.calls().p_cancel_at_period_end, true);
   });
+
+  // #1484 A3: the RESUME direction. A customer who un-cancels in Stripe's hosted portal sends
+  // customer.subscription.updated with cancel_at_period_end cleared and the status still 'active'. There is no
+  // resume-specific code path: entitlement is derived from STATUS, and user_profiles.stripe_cancel_at_period_end
+  // is audit-only ("Never grants or extends access"). This proves the cleared flag reaches the canonical
+  // snapshot with a granting status, so restoration needs no separate mechanism.
+  await t.step("un-cancelling an active sub forwards the cleared flag with a granting status (#1484 A3)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e12b", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: sub({ cancel_at_period_end: false }) }), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls().p_status, "active");
+    assertEquals(sb.calls().p_cancel_at_period_end, false);
+    // The grant rides on status + approved price, never on the audit flag.
+    assertEquals(sb.calls().p_has_approved_price, true);
+  });
+
+  // The other half of the same promise: the audit flag must not be able to grant on its own. A terminal status
+  // with the flag cleared is still forwarded as terminal — a cleared flag never resurrects a canceled sub.
+  await t.step("a cleared cancel flag does NOT grant on a canceled sub (#1484 A3 casualty)", async () => {
+    // The stub must answer the query: the default stub returns entitlement "pro" for every input, which would
+    // print `entitlement=pro` for a canceled subscription and read like a grant. Return what the DB actually
+    // maps a terminal status to, so this step's own output cannot be mistaken for evidence of paid access.
+    const sb = mkSupabase({ data: { success: true, entitlement: "free" }, error: null });
+    const res = await handler(req({ id: "e12c", type: "customer.subscription.deleted", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: sub({ status: "canceled", cancel_at_period_end: false }) }), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls().p_status, "canceled");
+    assertEquals(sb.calls().p_cancel_at_period_end, false);
+    // A non-granting status never claims an approved price, so nothing here can be read as paid access.
+    assertEquals(sb.calls().p_has_approved_price, false);
+  });
 });
