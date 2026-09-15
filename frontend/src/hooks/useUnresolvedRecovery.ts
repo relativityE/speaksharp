@@ -51,7 +51,11 @@ export function useUnresolvedRecovery({
      * transcript came back — there is none to come back.
      */
     const acknowledgeRecoveryDraft = React.useCallback((draft: SessionRecoveryDraft) => {
-        clearSessionRecoveryDraft(draft.sessionId);
+        // #1476/#1455: a FINALIZED draft is the only thing a Retry Save can replay. The controller rehydrates it
+        // from durable storage asynchronously and clears it itself on a successful save or an explicit discard, so
+        // deleting it here (before that rehydration ran) armed no retry and lost the saved-able work. Only an
+        // interrupted draft — which can never be completed — is cleared on acknowledgement.
+        if (draft.recoveryState !== 'finalized_pending_save') clearSessionRecoveryDraft(draft.sessionId);
         setRecoveredStatus({
             type: 'warning',
             message: draft.recoveryState === 'finalized_pending_save'
