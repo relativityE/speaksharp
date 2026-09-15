@@ -86,7 +86,7 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
 
         const evidence = screen.getByTestId('focus-point-0-covered-at');
         expect(evidence).toHaveTextContent('Partly detected at 0:12');
-        expect(evidence).toHaveClass('text-[#8a5510]');
+        expect(evidence).toHaveClass('text-signature-text');
         expect(evidence).not.toHaveTextContent(/^Detected at/);
     });
 });

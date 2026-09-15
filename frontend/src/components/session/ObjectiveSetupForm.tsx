@@ -220,7 +220,7 @@ export function ObjectiveSetupForm({
                         <li key={p.id} className="flex items-start gap-2">
                             <span
                                 aria-hidden="true"
-                                className="mt-2.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-[#fdf3e2] text-[12px] font-extrabold text-[#b8701a]"
+                                className="mt-2.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-signature-ground text-[12px] font-extrabold text-signature-text"
                             >
                                 {i + 1}
                             </span>
@@ -252,7 +252,7 @@ export function ObjectiveSetupForm({
                         type="button"
                         data-testid="objective-add-point"
                         onClick={addPoint}
-                        className="mt-2.5 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] font-bold text-[#7b5ce0] transition-colors hover:bg-[#7b5ce0]/10"
+                        className="mt-2.5 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] font-bold text-focus-points transition-colors hover:bg-focus-points-ground"
                     >
                         <Plus className="h-4 w-4" />
                         Add a point
@@ -261,41 +261,41 @@ export function ObjectiveSetupForm({
             </div>
 
             {/* §0/§2 Pace guide — minutes per point, derived total live, skippable, never blocks Start. */}
-            <div data-testid="objective-pace-guide" className="mt-6 rounded-xl border border-[#eef1f6] bg-[#f7f9fc] p-4">
+            <div data-testid="objective-pace-guide" className="mt-6 rounded-xl border border-neutral-border-soft bg-neutral-band p-4">
                 <div className="flex items-center justify-between gap-3">
                     <div>
-                        <div className="text-[14px] font-extrabold text-[#2b3446]">Pace guide</div>
-                        <div className="mt-0.5 text-[12px] font-semibold text-[#8b95a5]">A guide, not a limit.</div>
+                        <div className="text-[14px] font-extrabold text-neutral-body">Pace guide</div>
+                        <div className="mt-0.5 text-[12px] font-semibold text-neutral-muted">A guide, not a limit.</div>
                     </div>
                     {paceGuideMin != null ? (
                         <div className="flex items-center gap-2">
-                            <div className="flex items-center overflow-hidden rounded-[9px] border border-[#dbe2ec] bg-white">
+                            <div className="flex items-center overflow-hidden rounded-[9px] border border-neutral-border bg-white">
                                 <button type="button" data-testid="objective-pace-dec" aria-label="Less time per point"
                                     onClick={() => adjustPace(-0.5)} disabled={paceGuideMin <= 0.5}
-                                    className="px-[11px] py-2 text-[15px] font-bold text-[#8b95a5] hover:bg-muted disabled:opacity-30">−</button>
-                                <span data-testid="objective-pace-value" className="min-w-[46px] px-1.5 py-2 text-center text-[15px] font-extrabold tabular-nums text-[#2b3446]">{fmtMin(paceGuideMin)} min</span>
+                                    className="px-[11px] py-2 text-[15px] font-bold text-neutral-muted hover:bg-muted disabled:opacity-30">−</button>
+                                <span data-testid="objective-pace-value" className="min-w-[46px] px-1.5 py-2 text-center text-[15px] font-extrabold tabular-nums text-neutral-body">{fmtMin(paceGuideMin)} min</span>
                                 <button type="button" data-testid="objective-pace-inc" aria-label="More time per point"
                                     onClick={() => adjustPace(0.5)} disabled={paceGuideMin >= 3}
-                                    className="px-[11px] py-2 text-[15px] font-bold text-[#8b95a5] hover:bg-muted disabled:opacity-30">+</button>
+                                    className="px-[11px] py-2 text-[15px] font-bold text-neutral-muted hover:bg-muted disabled:opacity-30">+</button>
                             </div>
-                            <span className="whitespace-nowrap text-[13px] font-bold text-[#414b5c]">/point</span>
+                            <span className="whitespace-nowrap text-[13px] font-bold text-neutral-secondary">/point</span>
                         </div>
                     ) : (
                         <button type="button" data-testid="objective-pace-restore" onClick={() => setPaceGuideMin(1)}
-                            className="text-[13px] font-bold text-[#6d28d9] hover:underline">Add a guide</button>
+                            className="text-[13px] font-bold text-focus-points hover:underline">Add a guide</button>
                     )}
                 </div>
-                <div className="mt-[13px] flex items-center justify-between gap-3 border-t border-[#e6ebf2] pt-3">
+                <div className="mt-[13px] flex items-center justify-between gap-3 border-t border-neutral-border-soft pt-3">
                     {paceGuideMin != null ? (
-                        <span data-testid="objective-pace-total" className="text-[13px] font-bold text-[#414b5c]">
-                            {labelledPoints.length} point{labelledPoints.length === 1 ? '' : 's'} × {fmtMin(paceGuideMin)} min ≈ <strong className="font-extrabold text-[#2b3446]">{fmtMin(paceTotalMin ?? 0)} min</strong>
+                        <span data-testid="objective-pace-total" className="text-[13px] font-bold text-neutral-secondary">
+                            {labelledPoints.length} point{labelledPoints.length === 1 ? '' : 's'} × {fmtMin(paceGuideMin)} min ≈ <strong className="font-extrabold text-neutral-body">{fmtMin(paceTotalMin ?? 0)} min</strong>
                         </span>
                     ) : (
-                        <span className="text-[13px] font-semibold text-[#8b95a5]">No pace guide — you’ll see coverage only.</span>
+                        <span className="text-[13px] font-semibold text-neutral-muted">No pace guide — you’ll see coverage only.</span>
                     )}
                     {paceGuideMin != null && (
                         <button type="button" data-testid="objective-pace-skip" onClick={() => setPaceGuideMin(null)}
-                            className="whitespace-nowrap text-[13px] font-bold text-[#8b95a5] hover:underline">Skip the guide</button>
+                            className="whitespace-nowrap text-[13px] font-bold text-neutral-muted hover:underline">Skip the guide</button>
                     )}
                 </div>
             </div>
@@ -310,7 +310,7 @@ export function ObjectiveSetupForm({
                 type="submit"
                 data-testid="objective-setup-submit"
                 disabled={!canSubmit}
-                className="mt-7 flex w-full items-center justify-center gap-2 rounded-[10px] bg-[#7b5ce0] py-[15px] text-[16px] font-bold text-white hover:bg-[#6a4fd0]"
+                className="mt-7 flex w-full items-center justify-center gap-2 rounded-[10px] bg-focus-points py-[15px] text-[16px] font-bold text-white hover:bg-focus-points-strong"
             >
                 {submitting
                     ? <><Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden="true" /> Saving…</>

@@ -33,22 +33,22 @@ export const FocusDeliveryStrip: React.FC<FocusDeliveryStripProps> = ({ fillerCo
     return (
         <section
             data-testid="focus-delivery-strip"
-            className="mt-[14px] rounded-xl border border-[#dbe2ec] bg-white px-4 py-[15px]"
+            className="mt-[14px] rounded-xl border border-neutral-border bg-white px-4 py-[15px]"
         >
             <div className="flex items-center justify-between gap-3">
-                <p className="text-[14px] text-[#2b3446]">{line}</p>
+                <p className="text-[14px] text-neutral-body">{line}</p>
                 <button
                     type="button"
                     onClick={() => setShowDetail((v) => !v)}
                     data-testid="focus-delivery-detail-toggle"
                     aria-expanded={showDetail}
-                    className="shrink-0 text-[13px] font-bold text-[#0d7d74] hover:underline"
+                    className="shrink-0 text-[13px] font-bold text-signature-text hover:underline"
                 >
                     {showDetail ? 'Hide detail' : 'Delivery detail →'}
                 </button>
             </div>
             {showDetail && (
-                <div className="mt-3 border-t border-[#eef2f7] pt-3">
+                <div className="mt-3 border-t border-neutral-border-soft pt-3">
                     <FillerBreakdown fillerData={fillerData} stats={`${fillerCount} ${plural}`} />
                 </div>
             )}
