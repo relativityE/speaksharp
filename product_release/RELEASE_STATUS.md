@@ -46,7 +46,7 @@ lane-moonshine: returned
 | **Next release-candidate line** | `v0.9.0-rc` | The version step reflects the significance of the current product/release-control update. This is the release line, not an exact tag name or tag authorization. Before tagging, inventory the existing `v0.9.0-rc*` tags, select the next unused monotonically increasing identifier, align `package.json`, and qualify that exact integrated `main` under explicit Product Owner authorization. |
 | **Next merge candidate** | PR #1469, head `33ced29f4352b8f65244c3b34771fcf1d8140435` into base `8e638c844d101312b507e84fd9559467f6eb0c82` | Exact-head CI and automatic reviews were running at this review; no PM acceptance or PO merge authorization is implied. |
 | **Next product lane** | PR #1467 after #1469 | Restack and exact-head evidence are required after `main` moves. |
-| **Documentation lane** | #1318 currentization | Review-only alongside the product lane; it does not hold the merge token. |
+| **Queued gate/docs implementation** | PR #1477 | Frozen behind #1469 because it changes review-qualification code. After #1469 closes, restack/currentize once and repeat exact-head reviews and CI. |
 
 The repository currency guard verifies committed-file consistency and ancestry only; it **cannot read a moving GitHub branch or Production deployment**. Those facts must be re-read externally at every decision point.
 
@@ -65,7 +65,7 @@ The repository currency guard verifies committed-file consistency and ancestry o
 3. **Practice Loop availability:** #1473 owns automatic 1+1 review generation, structured cause handling, and truthful retry. The observed Production failure reached a `42501` profile-read denial before the quota path; a quota-exhaustion explanation is refuted for those requests.
 4. **Filler truth:** #1472 owns persisted `complete | unobservable | no_speech` semantics across Session, Analytics, PDF, Progress, recovery, and telemetry.
 5. **Moonshine readiness:** #1263 has local fixes for slow acquisition and failed-switch retry, but the real ~95-second probe reproduced an unsanitized repeated 25-word span in all three runs, plus abrupt-stop tail loss and an 18-word live rewrite. Moonshine remains a P1 RWT blocker; do not deduplicate or sanitize model output to manufacture a pass.
-6. **Comparable downselection:** #1304/#1390 require like-for-like v2, v4, and Moonshine rows with the same corpus, canonical model identity, word-count authority, filler-completeness state, WER, latency, stability, and requested/observed release identity.
+6. **Comparable downselection:** #1304/#1390 require like-for-like v2, v4, and Moonshine rows with the same corpus, canonical model identity, word-count authority, filler-completeness state, WER, latency, stability, and requested/observed release identity. During internal comparison, v4 may report an honest `unobservable` cache result while its asset pins are unshipped test material. If v4 is selected, measurable cache-versus-network acquisition plus download duration or a directly measured no-download outcome becomes a **pre-MVP blocker**. The selected model must report candidate/model identity, total setup time, cache result, and download/no-download evidence.
 7. **Product presentation:** #1474 owns the complete G10 during/after Practice Loop hierarchy and theme. #1475 owns the approved G12 landing page and the exact “30 days free, no card. Then $10/month. Cancel any time.” offer.
 8. **Final evidence:** #1259 and #1382/#1383/#1384 own received-event reliability, clean baseline, SLOs, dashboard/alert, and cleanup proof. #1258 remains the final deployed two-product, real-device PO GO/HOLD.
 
@@ -84,6 +84,11 @@ The prior RWT is **incomplete**:
 - A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 No Production RWT, migration, Edge/config change, credential/account repair, payment activation, deployment, or merge is authorized by this document.
+
+## Accepted limitations and retained debt
+
+- The ≈90-second post-Stop finalization figure for a full five-minute Private v2 recording is a conservative planning allowance, not a measured Production p95 and not a requirement to wait 90 seconds. The UI must show honest Finalizing progress; comparable RWT rows must record observed stop-to-final latency. The former <30-second requirement remains withdrawn.
+- #1354's write-ahead obligation is still client-only: if Progress evaluation and the browser obligation write fail together and the user reloads after storage recovers, the obligation cannot be reconstructed without a server-side record. #1471/#1476 may reduce adjacent failure modes but do not close this retained debt unless their exact evidence proves reconstruction.
 
 ## External Admin/Ops dependencies
 
