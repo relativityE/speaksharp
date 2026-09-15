@@ -141,6 +141,13 @@ export default {
                     axis: "var(--brand-neutral-secondary)",
                     zero: "var(--brand-neutral-border-strong)",
                 },
+                // Focus Points identity (app routes only). Named `focus-points` so it cannot be read as keyboard focus.
+                "focus-points": {
+                    DEFAULT: "var(--brand-focus)",
+                    strong: "var(--brand-focus-strong)",
+                    ground: "var(--brand-focus-ground)",
+                    border: "var(--brand-focus-border)",
+                },
             },
             backgroundImage: {
                 'gradient-primary': 'var(--gradient-primary)',

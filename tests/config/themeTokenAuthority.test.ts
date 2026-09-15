@@ -54,10 +54,17 @@ const ROLE_TOKENS: Record<string, string> = {
     '--brand-surface-session': '#aeb9cd',
     '--brand-surface-session-text': '#232c3a',
     '--brand-metric-clarity': '#6d28d9',
+    // Focus Points identity, app routes only (#1480 comment 5685776478).
+    '--brand-focus': '#6d28d9',
+    '--brand-focus-strong': '#5b21b6',
+    '--brand-focus-ground': '#f5f0ff',
+    '--brand-focus-border': '#e6dcfb',
 };
 
 const RETIRED_GREY = /#8b95a5/i;
 const RETIRED_TEAL = /#0d7d74|#17a99b|#0a5f58|#1d4a45|#e6f4f2|\bteal-\d{2,3}\b/i;
+// Focus Points violets retired by the Designer's contrast ruling (#7b5ce0 is 3.9:1 on white).
+const RETIRED_FOCUS_VIOLET = /#7b5ce0|#6a4fd0/i;
 // Raw copies of role values outside the authority. `#ffffff` is excluded: white is not a brand literal.
 const ROLE_LITERAL = new RegExp(
     [...new Set(Object.values(ROLE_TOKENS))].filter((hex) => hex !== '#ffffff').join('|'),
@@ -92,10 +99,19 @@ const BASELINE_RETIRED_TEAL: Record<string, number> = {
     'frontend/src/styles/practice.css': 6,
 };
 
+const BASELINE_RETIRED_FOCUS_VIOLET: Record<string, number> = {
+    'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 2,
+    'frontend/src/components/practice/practiceArt.tsx': 1,
+    'frontend/src/components/session/ObjectiveSetupForm.tsx': 2,
+    'frontend/src/components/session/PracticeOnramp.tsx': 1,
+    'frontend/src/pages/PracticePage.tsx': 3,
+    'frontend/src/styles/practice.css': 4,
+};
+
 // Includes the Designer-ruling values added on 15 Sep (record, progress bar, regression, error/success states,
 // session surface, clarity), recounted on the same `main@8e638c84` tree.
 const BASELINE_ROLE_LITERALS: Record<string, number> = {
-    'frontend/src/components/AnalyticsDashboard.tsx': 14,
+    'frontend/src/components/AnalyticsDashboard.tsx': 15,
     'frontend/src/components/IssueReportDialog.tsx': 7,
     'frontend/src/components/faq/FaqMenu.tsx': 3,
     'frontend/src/components/practice/AuthenticatedHome.tsx': 1,
@@ -108,10 +124,10 @@ const BASELINE_ROLE_LITERALS: Record<string, number> = {
     'frontend/src/components/session/CustomWordsBar.tsx': 4,
     'frontend/src/components/session/FillerBreakdown.tsx': 4,
     'frontend/src/components/session/FocusDeliveryStrip.tsx': 1,
-    'frontend/src/components/session/FocusPointsRail.tsx': 13,
+    'frontend/src/components/session/FocusPointsRail.tsx': 14,
     'frontend/src/components/session/FreeformHelpOverlay.tsx': 1,
     'frontend/src/components/session/LiveTip.tsx': 3,
-    'frontend/src/components/session/LiveTranscript.tsx': 4,
+    'frontend/src/components/session/LiveTranscript.tsx': 5,
     'frontend/src/components/session/MicCard.tsx': 7,
     'frontend/src/components/session/ObjectiveSetupForm.tsx': 7,
     'frontend/src/components/session/PlaybackScrubber.tsx': 3,
@@ -120,8 +136,8 @@ const BASELINE_ROLE_LITERALS: Record<string, number> = {
     'frontend/src/components/session/PromptOffer.tsx': 5,
     'frontend/src/components/session/RecorderBar.tsx': 4,
     'frontend/src/components/session/ReviewTranscriptNotice.tsx': 1,
-    'frontend/src/components/session/SessionDuringState.tsx': 3,
-    'frontend/src/components/session/SessionVerdict.tsx': 3,
+    'frontend/src/components/session/SessionDuringState.tsx': 4,
+    'frontend/src/components/session/SessionVerdict.tsx': 4,
     'frontend/src/components/session/TranscriptCard.tsx': 11,
     'frontend/src/components/session/__tests__/FocusPointsRail.test.tsx': 1,
     'frontend/src/components/session/__tests__/LiveTranscript.test.tsx': 1,
@@ -181,6 +197,10 @@ describe('#1480 — retired colours and raw palette literals only ratchet down',
 
     it('no file adds retired teal', () => {
         expect(ratchetViolations(RETIRED_TEAL, BASELINE_RETIRED_TEAL)).toEqual([]);
+    });
+
+    it('no file adds the retired Focus Points violets (#7b5ce0 fails 4.5:1)', () => {
+        expect(ratchetViolations(RETIRED_FOCUS_VIOLET, BASELINE_RETIRED_FOCUS_VIOLET)).toEqual([]);
     });
 
     it('no file adds a raw copy of a role value outside the token authority', () => {

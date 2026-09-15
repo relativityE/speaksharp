@@ -160,6 +160,13 @@ All colors MUST be HSL.
     --brand-surface-session: #aeb9cd;
     --brand-surface-session-text: #232c3a;
     --brand-metric-clarity: #6d28d9;
+    /* Focus Points identity — app routes only (Designer ruling, #1480 comment 5685776478). Never on the landing
+       route (purple is prices-only there) and never a second action colour: signature still owns the actions, and
+       at most one purple element per card. Replaces the retired #7b5ce0 (3.9:1) and #6a4fd0. */
+    --brand-focus: #6d28d9;
+    --brand-focus-strong: #5b21b6;
+    --brand-focus-ground: #f5f0ff;
+    --brand-focus-border: #e6dcfb;
     --shadow-session-help: 0 6px 16px -6px hsl(164 74% 17% / 0.45), 0 2px 5px -2px hsl(164 74% 17% / 0.32);
   }
 
