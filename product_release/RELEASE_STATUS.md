@@ -80,6 +80,7 @@ The prior RWT is **incomplete**:
 - Stop C still needs #1469, #1467, #1473, a deployed exact release, and working managed test identities.
 - Stop D cannot begin while Moonshine fails long-form integrity.
 - No model may be selected until v2, v4, and Moonshine satisfy one comparable evidence contract.
+- A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 No Production RWT, migration, Edge/config change, credential/account repair, payment activation, deployment, or merge is authorized by this document.
 
