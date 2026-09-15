@@ -264,6 +264,49 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const reviewSettled = inAfter && !isFinalizing;
 
     /**
+     * #1466 PM RETURN 5673020845 (Codex P1 4010908720) — A BURIED RESULT IS BROUGHT INTO VIEW, ONCE.
+     *
+     * The band is first in the DOM, which puts it at eye level for a user at the top of the page. It does not help
+     * one who scrolled down through the stacked recording UI and stopped there: browsers keep that lower viewport
+     * while the band is inserted above it, so the centerpiece result stays out of sight.
+     *
+     * Once the take has settled (not while the transcript is still finalizing), the band is measured one time. If
+     * its heading/current state is inside the visible area — below the fixed header, above the phone's fixed action
+     * bar — nothing moves. Otherwise the page returns to its top, where the saved confirmation and the band sit
+     * together (proven at scrollY 0 on desktop and mobile). The flag resets only when the view leaves `after`, so
+     * loading → rendered → failed transitions and rerenders never jump the page again; the next take may reveal once.
+     */
+    const practiceLoopBandRef = React.useRef<HTMLDivElement | null>(null);
+    const practiceLoopRevealedRef = React.useRef(false);
+    React.useEffect(() => {
+        if (!inAfter) {
+            practiceLoopRevealedRef.current = false;
+            return;
+        }
+        const band = practiceLoopBandRef.current;
+        if (!reviewSettled || !band || practiceLoopRevealedRef.current) return;
+        practiceLoopRevealedRef.current = true;
+
+        const root = window.getComputedStyle(document.documentElement);
+        const remPx = parseFloat(root.fontSize) || 16;
+        const lengthPx = (value: string, fallbackPx: number) => {
+            const v = value.trim();
+            if (v.endsWith('rem')) return (parseFloat(v) || 0) * remPx;
+            if (v.endsWith('px')) return parseFloat(v) || 0;
+            return fallbackPx;
+        };
+        const headerPx = lengthPx(root.getPropertyValue('--header-height'), 64);
+        const wide = typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 768px)').matches;
+        const bottomBarPx = wide ? 0 : lengthPx(root.getPropertyValue('--bottom-nav-height'), 80);
+        const rect = band.getBoundingClientRect();
+        // The heading and the one-line current state occupy the top of the band; the full review may extend below.
+        const headingBlockPx = Math.min(rect.height, 96);
+        const headingInView = rect.top >= headerPx && rect.top + headingBlockPx <= window.innerHeight - bottomBarPx;
+        if (headingInView) return;
+        window.scrollTo({ top: 0, behavior: 'auto' });
+    }, [inAfter, reviewSettled, practiceLoopReview]);
+
+    /**
      * #1259 — WHICH option the user chose, not only which were offered.
      *
      * `post_session_options` recorded the menu and nothing recorded the pick: `option_selected` existed in
@@ -791,6 +834,25 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // after — transcript-only review (no retained audio).
     return (
         <>
+            {/*
+                #1466 — THE PRACTICE LOOP IS THE PRIMARY RESULT, SO IT COMES FIRST.
+
+                It rendered after the whole shell, which stacks to one column on phones: last on every
+                breakpoint and last for keyboard and screen-reader users. The Product Owner had to scroll
+                past the transcript and secondary cards to reach it — and a failed review sat at the bottom
+                where nobody saw it. Placement is DOM order, not a scroll: loading, rendered and failed
+                states all occupy this one band, directly under the page's saved confirmation. Slot D keeps
+                its verdict and `Practice this again` (#1422 P1).
+            */}
+            {practiceLoopReview && (
+                <div
+                    ref={practiceLoopBandRef}
+                    className="mb-[14px]"
+                    data-testid={isObjective ? 'focus-practice-loop-review' : 'open-mic-practice-loop-review'}
+                >
+                    {practiceLoopReview}
+                </div>
+            )}
             <SessionAfterState
                 scrubber={{
                     playing: false,
@@ -873,15 +935,6 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     fillerData={reviewFillerData}
                     hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
                 />
-            )}
-            {/* The review sits below the shell in BOTH products, so slot D keeps its verdict either way. */}
-            {practiceLoopReview && (
-                <div
-                    className="mt-[14px]"
-                    data-testid={isObjective ? 'focus-practice-loop-review' : 'open-mic-practice-loop-review'}
-                >
-                    {practiceLoopReview}
-                </div>
             )}
         </>
     );

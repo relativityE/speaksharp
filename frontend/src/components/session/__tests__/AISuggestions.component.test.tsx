@@ -687,6 +687,8 @@ describe('#1422 — superseded review requests are silent', () => {
  */
 describe('#1422 P1 — the Open Mic review receipt belongs to the rendered review', () => {
     let pushSpy: ReturnType<typeof vi.spyOn>;
+    let intersectionCallback: IntersectionObserverCallback;
+    const scrollIntoView = vi.fn();
 
     const VALID = {
         version: 'gemini_coaching_v1' as const,
@@ -702,9 +704,29 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         __resetCompletionStagesForTests();
         beginJourney();
         pushSpy = vi.spyOn(analyticsBuffer, 'push').mockImplementation(() => undefined);
+        Object.defineProperty(Element.prototype, 'scrollIntoView', {
+            configurable: true,
+            value: scrollIntoView,
+        });
+        vi.stubGlobal('IntersectionObserver', vi.fn((callback: IntersectionObserverCallback) => {
+            intersectionCallback = callback;
+            return {
+                root: null,
+                rootMargin: '0px',
+                thresholds: [0.01],
+                observe: vi.fn(),
+                unobserve: vi.fn(),
+                disconnect: vi.fn(),
+                takeRecords: vi.fn(() => []),
+            } as unknown as IntersectionObserver;
+        }));
     });
 
-    afterEach(cleanup);
+    afterEach(() => {
+        cleanup();
+        vi.unstubAllGlobals();
+        delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    });
 
     const receipts = () => pushSpy.mock.calls
         .filter((c) => c[0] === 'practice_loop')
@@ -715,14 +737,29 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         rendered: reachedStages().includes('review_rendered'),
     });
 
-    it('a rendered 1+1 review emits exactly one truthful receipt and marks both stages once', async () => {
+    const revealReview = () => {
+        const card = screen.getByTestId('ai-suggestions-card');
+        intersectionCallback([
+            { target: card, isIntersecting: true, intersectionRatio: 1 } as unknown as IntersectionObserverEntry,
+        ], {} as IntersectionObserver);
+    };
+
+    it('a visible 1+1 review emits exactly one truthful receipt and marks both stages once', async () => {
         mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: VALID }, error: null });
 
         const view = render(<AISuggestions transcript="hello" sessionId="session-ok" />);
         await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
 
+        // #1466 Codex P1 (PM RETURN 4010857491) — READINESS IS NOT RENDERING. The validated review is available the
+        // moment it arrives, so `practice_loop_ready` is marked now; only the rendered receipt and `review_rendered`
+        // wait for the card to be seen. Gating readiness on intersection folded the user's scroll time into the
+        // generation interval and collapsed the render interval to zero.
+        expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: true, rendered: false });
+        revealReview();
+
         // A re-render of the same session is not a second review.
         view.rerender(<AISuggestions transcript="hello" sessionId="session-ok" />);
+        revealReview();
 
         const emitted = receipts();
         expect({ count: emitted.length, ...stages() }).toEqual({ count: 1, ready: true, rendered: true });
@@ -745,6 +782,8 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
             rendered: true,
             suppression: 'none',
         });
+        // #1466 — placement provides visibility; the card never scrolls the page (and the saved confirmation with it).
+        expect(scrollIntoView).not.toHaveBeenCalled();
     });
 
     it('CASUALTY: a review still in flight emits no receipt and marks neither stage', async () => {
@@ -793,6 +832,7 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
 
         view.rerender(<AISuggestions transcript="hello" sessionId="session-B" initialSuggestions={VALID} />);
         await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
+        revealReview();
         expect(receipts().length).toBe(1);
 
         settleA({ data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'A strength.', what_to_try_next: 'A next step.' } }, error: null });
@@ -802,5 +842,50 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         expect({ count: receipts().length, aOnScreen: screen.queryByText('A strength.') !== null })
             .toEqual({ count: 1, aOnScreen: false });
         expect(screen.getByText('Clear opening.')).toBeInTheDocument();
+    });
+
+    // #1466 Codex P1 (PM RETURN) — readiness and rendering are separate intervals, each published exactly once.
+    // Counted from the real `stage_latency` rows, not only the reached-stage set: the chain is seeded at
+    // `session_saved` so every later stage publishes one row, and a duplicate mark would publish a second.
+    it('CASUALTY: an offscreen valid review is ready once and rendered zero; first intersection renders once; repeats add nothing', async () => {
+        const { markCompletionStage } = await import('@/services/telemetry/completionStages');
+        markCompletionStage('session_saved');
+        mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: VALID }, error: null });
+        const latencyRows = (stage: string) => pushSpy.mock.calls
+            .filter((c) => c[0] === 'stage_latency' && (c[1] as Record<string, unknown> | undefined)?.stage === stage)
+            .length;
+        const snapshot = () => ({
+            readyRows: latencyRows('practice_loop_ready'),
+            renderedRows: latencyRows('review_rendered'),
+            receipts: receipts().length,
+            ...stages(),
+        });
+
+        const view = render(<AISuggestions transcript="hello" sessionId="session-offscreen" />);
+        await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
+
+        // Available but not yet seen: ready once, nothing rendered.
+        expect(snapshot()).toEqual({ readyRows: 1, renderedRows: 0, receipts: 0, ready: true, rendered: false });
+        view.rerender(<AISuggestions transcript="hello" sessionId="session-offscreen" />);
+        expect(snapshot()).toEqual({ readyRows: 1, renderedRows: 0, receipts: 0, ready: true, rendered: false });
+
+        // First intersection renders once; repeated observer notifications and rerenders add nothing.
+        revealReview();
+        revealReview();
+        view.rerender(<AISuggestions transcript="hello" sessionId="session-offscreen" />);
+        revealReview();
+        expect(snapshot()).toEqual({ readyRows: 1, renderedRows: 1, receipts: 1, ready: true, rendered: true });
+    });
+
+    it('CASUALTY: an empty review (blank takeaways) is neither ready nor rendered', async () => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue({
+            data: { suggestions: { version: 'gemini_coaching_v1', what_worked: '   ', what_to_try_next: '' } },
+            error: null,
+        });
+
+        render(<AISuggestions transcript="hello" sessionId="session-empty" />);
+        await waitFor(() => expect(vi.mocked(trackPracticeLoopReviewFailed).mock.calls.length).toBe(1));
+
+        expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
     });
 });
