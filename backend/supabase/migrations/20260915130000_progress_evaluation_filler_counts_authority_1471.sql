@@ -6,10 +6,14 @@
 -- clarity_evidence_available -> 23502. The client then records rpc_error Progress debt and holds the next Start ~30 s.
 --
 -- FIX (one CREATE OR REPLACE of this function; generated from 20260812030000's text with four asserted replacements):
---   1. filler evidence/count come from sessions.filler_counts via public._ss_valid_filler_total (20260817140000);
---      legacy filler_words is consulted only when filler_counts IS NULL, and only on an affirmative numeric count;
+--   1. filler evidence/count come from sessions.filler_counts via public._ss_valid_filler_total (20260817140000), and
+--      only a POSITIVE valid total is observed evidence; legacy filler_words is consulted only when filler_counts IS
+--      NULL, and only on an affirmative numeric count;
 --   2. v_has_clarity is COALESCEd to false, and the INSERT writes COALESCE(v_has_clarity, false);
---   3. absent/malformed evidence => clarity_evidence_available = false, ineligible, 'no_clarity_evidence', no score.
+--   3. absent/malformed/zero-total evidence => clarity_evidence_available = false, ineligible, 'no_clarity_evidence',
+--      no score. A zero total ({} included) is UNOBSERVABLE here: nothing persisted proves the detector was able to
+--      observe, and a false clean zero is the higher-severity failure. The verified zero is owned by #1472's
+--      persisted completeness authority; this function does not manufacture it.
 -- UNCHANGED: signature, SECURITY DEFINER, search_path, ownership, attribution defer/verdict, §4 gates, clarity formula,
 -- #1265 mode/cohort selection, idempotent ON CONFLICT, and the function ACL (CREATE OR REPLACE keeps existing grants;
 -- none are restated). NOT applied to Production by merging; application requires separate authorization.
@@ -32,7 +36,7 @@ DECLARE
     v_words      integer;
     v_fillers    integer;
     v_errors     integer;                    -- DERIVED from the persisted transcript; never hardcoded
-    v_has_filler_evidence boolean;           -- present, usable filler evidence (a valid zero counts; NULL/empty does not)
+    v_has_filler_evidence boolean;           -- affirmative filler evidence (a positive valid count; NULL/malformed/zero does not)
     v_filler_total bigint;                   -- #1471: _ss_valid_filler_total(filler_counts); NULL = not measured / malformed
     v_wpm        double precision;
     v_has_clarity boolean;
@@ -68,17 +72,20 @@ BEGIN
     v_wpm := s.wpm;
 
     -- #1471 FILLER EVIDENCE AUTHORITY (must never be imputed).
-    -- Current saves persist filler evidence ONLY in sessions.filler_counts (#1306): a flat map of approved keys, where
-    -- {} is the measured zero complete_session_v2 requires and NULL means "not measured". The legacy filler_words blob
-    -- is stripped at the save boundary and stored as '{}' — which the old predicate evaluated to NULL (three-valued
-    -- logic), so every current save wrote NULL into NOT NULL clarity_evidence_available and failed 23502.
+    -- Current saves persist filler evidence ONLY in sessions.filler_counts (#1306): a flat map of approved keys. The
+    -- save writes {} both when the detector observed zero fillers and when it could not observe at all, so {} alone
+    -- proves nothing. The legacy filler_words blob is stripped at the save boundary and stored as '{}' — which the old
+    -- predicate evaluated to NULL (three-valued logic), so every current save wrote NULL into NOT NULL
+    -- clarity_evidence_available and failed 23502.
     -- CURRENT EVIDENCE ALWAYS WINS: a non-null filler_counts is judged only by the shared validity helper
-    -- _ss_valid_filler_total (NULL when malformed -> unavailable; {} -> 0; otherwise the sum), and a total beyond the
-    -- integer range is treated as malformed. Only when filler_counts IS NULL (a pre-#1306 row) may evidence fall back to
-    -- legacy filler_words, and only on an AFFIRMATIVE numeric count: an empty legacy object is never a clean zero.
+    -- _ss_valid_filler_total (NULL when malformed; {} -> 0; otherwise the sum). Only a POSITIVE total within the integer
+    -- range is affirmative evidence; NULL, malformed, out-of-range and ZERO totals are unobservable (#1471 PM RETURN
+    -- 5682372478 — a verified zero needs #1472's separate persisted completeness authority). Only when filler_counts IS
+    -- NULL (a pre-#1306 row) may evidence fall back to legacy filler_words, and only on an AFFIRMATIVE numeric count:
+    -- an empty legacy object is never a clean zero.
     IF s.filler_counts IS NOT NULL THEN
         v_filler_total := public._ss_valid_filler_total(s.filler_counts);
-        v_has_filler_evidence := v_filler_total IS NOT NULL AND v_filler_total <= 2147483647;
+        v_has_filler_evidence := v_filler_total IS NOT NULL AND v_filler_total > 0 AND v_filler_total <= 2147483647;
         v_fillers := CASE WHEN v_has_filler_evidence THEN v_filler_total::int END;
     ELSE
         v_has_filler_evidence := COALESCE(s.filler_words IS NOT NULL AND jsonb_typeof(s.filler_words) = 'object' AND (
