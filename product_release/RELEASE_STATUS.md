@@ -43,6 +43,7 @@ lane-moonshine: returned
 |---|---|---|
 | **Repository `main` (moving branch pointer)** | `8e638c844d101312b507e84fd9559467f6eb0c82` (#1468), read 2026-09-15 | Re-read GitHub before every exact-pair decision. |
 | **Deployed product release (verified)** | `window.__APP_RELEASE__ = 8e638c844d101312b507e84fd9559467f6eb0c82`, reported from the canonical Production app after #1468 | A deployment receipt is point-in-time evidence; re-read before any RWT. |
+| **Next release candidate** | `v0.9.0-rc` | The version step reflects the significance of the current product/release-control update. Create the exact tag only from an integrated, same-SHA-qualified `main` under explicit Product Owner authorization. |
 | **Next merge candidate** | PR #1469, head `33ced29f4352b8f65244c3b34771fcf1d8140435` into base `8e638c844d101312b507e84fd9559467f6eb0c82` | Exact-head CI and automatic reviews were running at this review; no PM acceptance or PO merge authorization is implied. |
 | **Next product lane** | PR #1467 after #1469 | Restack and exact-head evidence are required after `main` moves. |
 | **Documentation lane** | #1318 currentization | Review-only alongside the product lane; it does not hold the merge token. |
