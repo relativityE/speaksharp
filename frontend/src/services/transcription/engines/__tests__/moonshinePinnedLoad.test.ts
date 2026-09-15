@@ -95,6 +95,33 @@ describe('the runtime consumes the verified buffers and fetches nothing else', (
         expect([...options.files['encoder.ort']].every((b) => b === 3), 'the bytes handed over are the ones verified').toBe(true);
     });
 
+    // #1263 — no unproven decoding change ships: speculative-off did not hold on the real runtime (1 of 3 runs still
+    // re-emitted), so the default loader leaves the runtime's decoding defaults untouched and records exactly that.
+    it('CONTROL: the default loader hands the runtime NO decoding options, and metadata records none', async () => {
+        vi.stubGlobal('fetch', serveBytes());
+        const e = await newEngine();
+        await e.init();
+
+        expect(loadSpy).toHaveBeenCalledTimes(1);
+        expect(loadSpy.mock.calls[0][0], 'no options key means the runtime defaults apply').not.toHaveProperty('options');
+        expect(e.getMetadata().configuredDecoding).toEqual({});
+    });
+
+    it('CONTROL: an explicit runtime option overrides the default and is what gets recorded', async () => {
+        vi.stubGlobal('fetch', serveBytes());
+        const { MoonshineStreamingEngine } = await import('../MoonshineStreamingEngine');
+        const e = new MoonshineStreamingEngine({
+            candidateId: 'moonshine:streaming-medium',
+            modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            runtimeOptions: { use_speculative_decoding: 'true' },
+        });
+        await e.init();
+
+        const options = loadSpy.mock.calls[0][0] as { options?: Record<string, string> };
+        expect(options.options).toEqual({ use_speculative_decoding: 'true' });
+        expect(e.getMetadata().configuredDecoding).toEqual({ use_speculative_decoding: 'true' });
+    });
+
     it('CASUALTY: every fetch goes to a PINNED url — nothing unpinned is requested', async () => {
         const fetchImpl = serveBytes();
         vi.stubGlobal('fetch', fetchImpl);

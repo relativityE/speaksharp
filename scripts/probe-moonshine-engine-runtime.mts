@@ -34,7 +34,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 import { chromium, type Request as PwRequest } from '@playwright/test';
@@ -69,6 +69,29 @@ if (!Number.isFinite(TRAILING_SILENCE_MS) || TRAILING_SILENCE_MS < 0) {
     console.error(`--trailing-silence-ms must be a non-negative number`);
     process.exit(2);
 }
+/**
+ * A DECLARED diagnostic drive, recorded in the artifact. `final-only` never asks the runtime for a live pass (it
+ * still receives every frame through addAudio), isolating live pass cadence from the forced final.
+ */
+const EXPERIMENT = arg('experiment', '');
+if (EXPERIMENT !== '' && EXPERIMENT !== 'final-only') {
+    console.error(`--experiment must be empty or final-only`);
+    process.exit(2);
+}
+/**
+ * Native runtime options for the engine's DEFAULT loader, as `key=value` pairs separated by commas. Only keys the
+ * pinned runtime documents for decoding are accepted, so a typo cannot silently run the defaults under a new label.
+ */
+const RUNTIME_OPTION_KEYS = new Set(['use_speculative_decoding', 'max_tokens_per_second', 'vad_max_segment_duration', 'transcription_interval']);
+const RUNTIME_OPTIONS: Record<string, string> = {};
+for (const pair of arg('runtime-option').split(',').map((s) => s.trim()).filter(Boolean)) {
+    const [key, value] = pair.split('=');
+    if (!RUNTIME_OPTION_KEYS.has(key) || value === undefined || value === '') {
+        console.error(`--runtime-option: unsupported or empty entry "${pair}"; allowed keys: ${[...RUNTIME_OPTION_KEYS].join(', ')}`);
+        process.exit(2);
+    }
+    RUNTIME_OPTIONS[key] = value;
+}
 /** Committed references for the long-audio clips. Public fixtures only — never the PO-held RWT corpus. */
 const REFERENCES: Record<string, string> = {
     washington_01: WASHINGTON_01.transcript,
@@ -84,6 +107,12 @@ for (const n of FIXTURE_NAMES) {
     if (!REFERENCES[n]) { console.error(`no committed reference for ${n}; long-audio checks need one`); process.exit(2); }
 }
 const FIXTURE_URLS = FIXTURE_PATHS.map((p) => `/${p.replace(/^tests\//, '')}`);
+/**
+ * A COMPACT, CONTENT-SAFE result manifest for committing (#1263 PM 5682354664): identities, digests, parameters,
+ * pass/fail by check name, numeric metrics and the raw artifact's hash — never transcript text. The raw report
+ * (`--out`) stays local and is referenced only by its hash.
+ */
+const MANIFEST = arg('manifest', '');
 const REPO = resolve('.');
 
 /**
@@ -107,6 +136,9 @@ const pinTable = JSON.parse(readFileSync('frontend/src/services/transcription/mo
 
 /** Bundle the ACTUAL product module. Not a copy, not a reimplementation — the file that ships. */
 const BUNDLE = 'tests/evidence/certification/browser/engine.bundle.js';
+// The generated bundle sits inside the linted tree; a copy left behind fails `pnpm lint`. Removed on EVERY exit —
+// success, failure and `process.exit` alike — so a probe run can never pollute the quality gate.
+process.on('exit', () => { rmSync(BUNDLE, { force: true }); });
 await build({
     entryPoints: ['frontend/src/services/transcription/engines/MoonshineStreamingEngine.ts'],
     bundle: true, format: 'esm', outfile: BUNDLE, platform: 'browser', keepNames: true,
@@ -244,6 +276,7 @@ const outcome = await page.evaluate(async (input) => {
         // NO loadTranscriber: the DEFAULT loader runs, which is the whole point.
         const engine = new mod.MoonshineStreamingEngine({
             candidateId: input.candidateId,
+            runtimeOptions: input.runtimeOptions,
             modelArch: input.arch,
             onDownloadProgress: (f: number) => progress.push(f),
         });
@@ -262,6 +295,17 @@ const outcome = await page.evaluate(async (input) => {
         // It is counted apart, as `runtimeStopFlushPasses`, so it is neither hidden nor mistaken for one.
         const ledger = { streams: 0, livePasses: 0, forcedPasses: 0, runtimeStopFlushPasses: 0 };
         type RuntimeStream = { transcribe: (flags?: number) => unknown; stop: () => void };
+        // RAW LINES, as the runtime returned them, before the engine joins them into one string. The duplicate is
+        // located against these: distinct line ids over overlapping audio, or one line reported twice.
+        type RawLine = { id?: unknown; text?: string; startTime?: number; duration?: number; isComplete?: boolean };
+        type LineShape = { id: string; startTime: number; duration: number; isComplete: boolean; text: string };
+        const shapeLines = (lines?: RawLine[]): LineShape[] => (Array.isArray(lines) ? lines : []).map((l) => ({
+            id: String(l.id ?? ''), startTime: Number(l.startTime ?? 0), duration: Number(l.duration ?? 0),
+            isComplete: !!l.isComplete, text: l.text ?? '',
+        }));
+        const rawLines: { latestLive: LineShape[]; forcedFinal: LineShape[]; stopFlush: LineShape[] } = {
+            latestLive: [], forcedFinal: [], stopFlush: [],
+        };
         const runtime = (engine as unknown as { transcriber: { createStream: () => RuntimeStream } }).transcriber;
         const openStream = runtime.createStream.bind(runtime);
         runtime.createStream = () => {
@@ -273,8 +317,16 @@ const outcome = await page.evaluate(async (input) => {
             stream.transcribe = (flags?: number) => {
                 if (inRuntimeStop) ledger.runtimeStopFlushPasses += 1;
                 else if (flags === mod.FORCE_UPDATE) ledger.forcedPasses += 1;
-                else ledger.livePasses += 1;
-                return pass(flags);
+                else {
+                    ledger.livePasses += 1;
+                    if (input.experiment === 'final-only') return { lines: [] };
+                }
+                const out = pass(flags) as { lines?: RawLine[] };
+                const lines = shapeLines(out?.lines);
+                if (inRuntimeStop) rawLines.stopFlush = lines;
+                else if (flags === mod.FORCE_UPDATE) rawLines.forcedFinal = lines;
+                else rawLines.latestLive = lines;
+                return out;
             };
             stream.stop = () => {
                 inRuntimeStop = true;
@@ -292,18 +344,20 @@ const outcome = await page.evaluate(async (input) => {
         let fed = 0;
         let interimAtWindow = '';
         let fedAtWindow = 0;
-        const snapshots: { fed: number; text: string }[] = [];
+        const snapshots: { fed: number; text: string; lines: LineShape[] }[] = [];
         let nextSnapshotAt = 5;
         while (fed < audio.seconds) {
             fed += mic.emit(fed, 0.5);
             await sleep(input.longform ? 500 : 60);
             if (input.longform && fed >= nextSnapshotAt) {
-                snapshots.push({ fed, text: engine.getInterimTranscript() });
+                snapshots.push({ fed, text: engine.getInterimTranscript(), lines: rawLines.latestLive });
                 nextSnapshotAt += 5;
             }
             // Capture the live transcript once enough audio exists to fill the window but well before
             // the clip ends, so a window transcript and a full transcript are genuinely different spans.
-            if (!interimAtWindow && fed >= mod.LIVE_WINDOW_SECONDS + 1) {
+            // Attempted ONCE. A drive with no live passes never produces an interim, and re-entering here on every
+            // frame turned each half-second frame into a ten-second wait.
+            if (!interimAtWindow && fedAtWindow === 0 && fed >= mod.LIVE_WINDOW_SECONDS + 1) {
                 for (let i = 0; i < 40 && !engine.getInterimTranscript(); i++) await sleep(250);
                 interimAtWindow = engine.getInterimTranscript();
                 fedAtWindow = fed;
@@ -328,14 +382,14 @@ const outcome = await page.evaluate(async (input) => {
         return {
             ok: true as const, loadMs, finalMs, audioSeconds: audio.seconds, sampleRate: audio.sampleRate,
             liveWindowSeconds: mod.LIVE_WINDOW_SECONDS,
-            interimAtWindow, fedAtWindow, interimAtEnd, final, metadata, snapshots,
+            interimAtWindow, fedAtWindow, interimAtEnd, final, metadata, snapshots, rawLines,
             commitText: commit.isOk ? (commit.data ?? '') : null, ledgerAfterStop, ledgerAfterCommit,
             progressCount: progress.length, progressMax: progress.length ? Math.max(...progress) : null,
         };
     } catch (error) {
         return { ok: false as const, stage: 'run', error: (error as Error)?.message?.slice(0, 400) ?? String(error), progressCount: 0 };
     }
-}, { bundleUrl: '/engine.bundle.js', fixtureUrls: FIXTURE_URLS, arch: ARCH, candidateId: CANDIDATE_ID, longform: LONGFORM, trailingSilenceMs: TRAILING_SILENCE_MS });
+}, { bundleUrl: '/engine.bundle.js', fixtureUrls: FIXTURE_URLS, arch: ARCH, candidateId: CANDIDATE_ID, longform: LONGFORM, trailingSilenceMs: TRAILING_SILENCE_MS, experiment: EXPERIMENT, runtimeOptions: RUNTIME_OPTIONS });
 
 const words = (s: string): string[] => s.trim().toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').split(/\s+/).filter(Boolean);
 
@@ -467,7 +521,7 @@ console.log(`\n  verdict: ${verdict.toUpperCase()}  (${egress.length} requests, 
 
 const report = {
     probe: '#1263 moonshine engine on the real runtime',
-    verdict, rowDisposition, arch: ARCH, candidateId: CANDIDATE_ID, trailingSilenceMs: TRAILING_SILENCE_MS,
+    verdict, rowDisposition, arch: ARCH, candidateId: CANDIDATE_ID, trailingSilenceMs: TRAILING_SILENCE_MS, experiment: EXPERIMENT || null, runtimeOptions: RUNTIME_OPTIONS,
     runtimePackage: '@moonshine-ai/moonshine-wasm', runtimeVersion: pinTable.runtimeVersion,
     componentSet: pinTable.componentSet,
     engineSource: 'frontend/src/services/transcription/engines/MoonshineStreamingEngine.ts',
@@ -480,7 +534,56 @@ const report = {
 };
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, `${JSON.stringify(report, null, 2)}\n`);
-console.log(`  artifact: ${OUT}  sha256=${createHash('sha256').update(readFileSync(OUT)).digest('hex')}`);
+const rawArtifactSha256 = createHash('sha256').update(readFileSync(OUT)).digest('hex');
+console.log(`  artifact: ${OUT}  sha256=${rawArtifactSha256}`);
+
+if (MANIFEST) {
+    // Check NAMES and outcomes only: a finding's detail can quote transcript words, so it never enters the manifest.
+    const checks = findings.map((f) => {
+        const [head] = f.split(' — ');
+        return { check: head.replace(/^(PASS|FAIL) /, ''), pass: head.startsWith('PASS') };
+    });
+    const lf = longform as null | {
+        prefixBreaks: { atFed: number; firstDifferentWord: number; settledWords: number }[];
+        finalLoop: { reason: string } | null; liveLoops: unknown[]; openingKept: boolean; tailKept: boolean;
+        finalWords: number; referenceWords: number; prefixSlackWords: number;
+    };
+    const manifest = {
+        probe: '#1263 moonshine engine on the real runtime — result manifest (content-free)',
+        verdict, rowDisposition,
+        identity: {
+            candidateId: CANDIDATE_ID, arch: ARCH,
+            runtimePackage: '@moonshine-ai/moonshine-wasm', runtimeVersion: pinTable.runtimeVersion,
+            componentSet: pinTable.componentSet, bundleSha256: bundleDigest,
+        },
+        parameters: {
+            fixtures: FIXTURE_PATHS.map((path) => ({ id: path.replace(/^.*\//, '').replace(/\.wav$/, ''), sha256: createHash('sha256').update(readFileSync(path)).digest('hex') })),
+            trailingSilenceMs: TRAILING_SILENCE_MS, experiment: EXPERIMENT || null,
+            runtimeOptions: RUNTIME_OPTIONS,
+            configuredDecoding: outcome.ok ? (outcome.metadata as { configuredDecoding?: unknown }).configuredDecoding ?? null : null,
+        },
+        checks,
+        metrics: outcome.ok ? {
+            audioSeconds: outcome.audioSeconds, loadMs: Math.round(outcome.loadMs), finalMs: Math.round(outcome.finalMs),
+            snapshots: outcome.snapshots.length, ledger: outcome.ledgerAfterCommit,
+            ...(lf ? {
+                finalWords: lf.finalWords, referenceWords: lf.referenceWords, prefixSlackWords: lf.prefixSlackWords,
+                prefixBreaks: lf.prefixBreaks, finalLoopReason: lf.finalLoop?.reason ?? null, liveLoopSnapshots: lf.liveLoops.length,
+                openingKept: lf.openingKept, tailKept: lf.tailKept,
+            } : {}),
+            egress: { total: egress.length, offOrigin: offOrigin.length, withBody: audioEgress.length }, pinViolations: pinViolations.length,
+        } : { failedStage: outcome.stage },
+        rawArtifactSha256,
+        reproduce: `npx tsx scripts/probe-moonshine-engine-runtime.mts --cache=<repo with .hf-cache/external>`
+            + (FIXTURE_NAMES.length ? ` --fixtures=${FIXTURE_NAMES.join(',')}` : '')
+            + (TRAILING_SILENCE_MS ? ` --trailing-silence-ms=${TRAILING_SILENCE_MS}` : '')
+            + (EXPERIMENT ? ` --experiment=${EXPERIMENT}` : '')
+            + (Object.keys(RUNTIME_OPTIONS).length ? ` --runtime-option=${Object.entries(RUNTIME_OPTIONS).map(([k, v]) => `${k}=${v}`).join(',')}` : ''),
+    };
+    mkdirSync(dirname(MANIFEST), { recursive: true });
+    writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
+    console.log(`  manifest: ${MANIFEST}`);
+}
 
 await context.close();
 await browser.close();

@@ -47,6 +47,11 @@ export interface MoonshineEngineOptions {
      */
     candidateSource?: (id: MoonshineCandidateId) => typeof CANDIDATES[CandidateId] | undefined;
     onDownloadProgress?: (fraction: number) => void;
+    /**
+     * #1263 — native `moonshine_option_t` entries handed to `Transcriber.load` by the DEFAULT loader. They change
+     * how the runtime decodes, never the text it returns. Absent, the runtime's own defaults apply.
+     */
+    runtimeOptions?: Readonly<Record<string, string>>;
 }
 
 /** A live session. The runtime accumulates state across `addAudio` calls BY DESIGN. */
@@ -132,6 +137,8 @@ export interface MoonshineEngineMetadata {
     /** CONFIGURED: from the candidate registry. Never introspected. */
     configuredRuntime: { package: string; version: string };
     configuredModel: { model: string; revision: string | null; pinDigest: string | null };
+    /** CONFIGURED: the native decoding options handed to the runtime at load (#1263). */
+    configuredDecoding: Readonly<Record<string, string>>;
     /** OBSERVED: what this run actually did. */
     observedExecution: {
         initSucceeded: boolean;
@@ -148,6 +155,16 @@ export interface MoonshineEngineMetadata {
     /** Set when the engine failed. Failure is reported, never swallowed into a fallback. */
     failure: { phase: 'init' | 'start' | 'decode' | 'stop'; message: string } | null;
 }
+
+/**
+ * #1263 — the native decoding options the engine loads with. EMPTY: the runtime's own defaults apply.
+ *
+ * `use_speculative_decoding=false` was tried as the bounded fix for the long-audio re-emission (a forced ten-second
+ * segment re-emitting a 25-word clause) and did NOT hold. With it off, the same clause re-emitted in 1 of 3
+ * real-runtime runs; with it on, in every run. A decoding change the evidence does not prove is not shipped.
+ * `runtimeOptions` stays available so the probe can run controlled experiments.
+ */
+export const MOONSHINE_DECODING_OPTIONS: Readonly<Record<string, string>> = Object.freeze({});
 
 export class MoonshineStreamingEngine implements STTStrategy {
     private transcriber: MoonshineTranscriber | null = null;
@@ -257,7 +274,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
             }
             const load = this.options.loadTranscriber
                 ?? ((arch: MoonshineArch, onProgress?: (fraction: number) => void) =>
-                    defaultLoadTranscriber(arch, onProgress, candidate.model.id));
+                    defaultLoadTranscriber(arch, onProgress, candidate.model.id, this.decodingOptions()));
 
             // THE ABANDONED LOADER. `Promise.race` only decides which promise this function waits for —
             // it does not cancel the loser. When the timeout won, `load()` kept running: it finished
@@ -451,6 +468,14 @@ export class MoonshineStreamingEngine implements STTStrategy {
             // THE SAME SESSION, forced. Not a fresh stream over the processed buffer: that stream has
             // none of the session's accumulated state, so trailing words it had already committed come
             // back missing and the user watches the end of their sentence disappear.
+            //
+            // #1263 — STOP FIRST, THEN READ THE DRAINED FINAL. `stream.stop()` tells the runtime no more audio is
+            // coming, and the runtime's own stop flush is the pass that encodes the session's END: frames held back
+            // for lookahead are released, so a last word spoken right before Stop is decoded. The forced pass used
+            // to run BEFORE stop, so it read a transcript that could not yet contain that word, and the flush that
+            // did contain it was discarded. After stop there is no new audio, so this forced read decodes nothing
+            // further; it returns the drained transcript.
+            this.stream.stop();
             this.committed = textOf(this.stream.transcribe(FORCE_UPDATE));
             this.finalized = true;
             this.lastHeartbeat = Date.now();
@@ -458,7 +483,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
             this.recordFailure('stop', e instanceof Error ? e.message : String(e));
             throw e instanceof Error ? e : new Error(String(e));
         } finally {
-            try { this.stream.stop(); } finally { this.stream.close(); this.stream = null; }
+            try { this.stream.close(); } finally { this.stream = null; }
         }
     }
 
@@ -590,6 +615,11 @@ export class MoonshineStreamingEngine implements STTStrategy {
     async getTranscript(): Promise<string> { return this.committed || this.interim; }
     getInterimTranscript(): string { return this.interim; }
 
+    /** The decoding options this instance loads with: the engine's declared defaults, then any explicit override. */
+    private decodingOptions(): Readonly<Record<string, string>> {
+        return Object.freeze({ ...MOONSHINE_DECODING_OPTIONS, ...(this.options.runtimeOptions ?? {}) });
+    }
+
     getMetadata(): MoonshineEngineMetadata {
         // NEVER THROWS. An unregistered candidate is exactly the case where init failed, and this is the
         // object a caller reads to find out why — a diagnostic that crashes on the failure it describes
@@ -608,6 +638,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
                 revision: candidate?.model.revision ?? null,
                 pinDigest: candidate?.assets.pinDigest ?? null,
             },
+            configuredDecoding: this.decodingOptions(),
             observedExecution: {
                 initSucceeded: this.transcriber !== null,
                 firstDecodeAt: this.firstDecodeAt,
@@ -673,6 +704,7 @@ async function defaultLoadTranscriber(
     arch: MoonshineArch,
     onDownloadProgress?: (fraction: number) => void,
     modelId?: string,
+    runtimeOptions?: Readonly<Record<string, string>>,
 ): Promise<MoonshineTranscriber> {
     const g = globalThis as unknown as { __name?: (t: unknown, v?: unknown) => unknown };
     g.__name ??= (target) => target;
@@ -712,5 +744,6 @@ async function defaultLoadTranscriber(
     return lib.Transcriber.load({
         files,
         modelArch: resolveModelArch(lib.ModelArch, arch),
+        ...(runtimeOptions && Object.keys(runtimeOptions).length > 0 ? { options: { ...runtimeOptions } } : {}),
     });
 }

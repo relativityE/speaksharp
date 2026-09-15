@@ -1,0 +1,175 @@
+{
+  "probe": "#1263 moonshine engine on the real runtime — result manifest (content-free)",
+  "verdict": "fail",
+  "rowDisposition": "repetition_loop",
+  "identity": {
+    "candidateId": "moonshine:streaming-medium",
+    "arch": "MOONSHINE_STREAMING_MEDIUM",
+    "runtimePackage": "@moonshine-ai/moonshine-wasm",
+    "runtimeVersion": "0.1.5",
+    "componentSet": "quantized_26_07_30",
+    "bundleSha256": "2d829b8198acef120918b4028b8dc55566121da1643df53e9d89e8f6b24366c9"
+  },
+  "parameters": {
+    "fixtures": [
+      {
+        "id": "washington_01",
+        "sha256": "e271239d16ddefa9501ee053182192c04943ba082b4c5f60bb3c66eeb4b6e24a"
+      },
+      {
+        "id": "h1_1",
+        "sha256": "3ee18ce2592b248e2cfbf2a9b4b279fb0e22362a6051167d3f7d1ec6490f24dd"
+      },
+      {
+        "id": "h1_2",
+        "sha256": "87e24e74b1a6baa4522ad0b91251f0480605279a99898d3823580a1b52a48724"
+      },
+      {
+        "id": "h1_3",
+        "sha256": "6452501daf276a59cb66f6e0c7a7e3fa0121c8af3c19622d9690cd776f9bfbcd"
+      },
+      {
+        "id": "h1_4",
+        "sha256": "4c9f34d8925b3d4d7ca022d5b9c2daede3b3aeabbb1cbd7b4a47108faa7b900c"
+      },
+      {
+        "id": "h1_5",
+        "sha256": "ec779c59f326258e5dde47d8b6672a52f3dea23010dfff98afb9d2e772c1e14c"
+      },
+      {
+        "id": "h1_6",
+        "sha256": "017f72ad0c6f6692d5ec02d8d1524733bd7e6ba0c985df7eebb15065fdfed3c7"
+      },
+      {
+        "id": "h1_7",
+        "sha256": "02895c9015d79c21b42b54e0739621029ee29521bfeda96582c7f1d1224be9ef"
+      },
+      {
+        "id": "h1_8",
+        "sha256": "ef529a2b861bd8e4e7290a9337f1d0449daeb8cc945e951374b9030f6420d784"
+      },
+      {
+        "id": "h1_9",
+        "sha256": "f58daf7cc46200facef9c9ef70e16692b43f055cd4036d6099a3ed9c657d5b16"
+      },
+      {
+        "id": "h1_10",
+        "sha256": "2dce38e9fb739f82db97e1374604ed1eb229a6494633ae729ef77cf7565a08dc"
+      }
+    ],
+    "trailingSilenceMs": 0,
+    "experiment": null,
+    "runtimeOptions": {},
+    "configuredDecoding": {
+      "use_speculative_decoding": "false"
+    }
+  },
+  "checks": [
+    {
+      "check": "default loader produced a transcriber",
+      "pass": true
+    },
+    {
+      "check": "live window decoded real speech",
+      "pass": true
+    },
+    {
+      "check": "final pass decoded real speech",
+      "pass": true
+    },
+    {
+      "check": "window transcript is SHORTER than the final",
+      "pass": true
+    },
+    {
+      "check": "window transcript is not the final transcript",
+      "pass": true
+    },
+    {
+      "check": "final carries substantially more than one window",
+      "pass": true
+    },
+    {
+      "check": "NO request carried a body",
+      "pass": true
+    },
+    {
+      "check": "every off-origin request was a PINNED asset",
+      "pass": true
+    },
+    {
+      "check": "zero pin violations",
+      "pass": true
+    },
+    {
+      "check": "download progress was reported",
+      "pass": true
+    },
+    {
+      "check": "live snapshots were captured across the whole take",
+      "pass": true
+    },
+    {
+      "check": "stable prefix",
+      "pass": false
+    },
+    {
+      "check": "NO repetition loop in the final transcript (raw engine output, unsanitized)",
+      "pass": false
+    },
+    {
+      "check": "NO repetition loop in any live snapshot",
+      "pass": false
+    },
+    {
+      "check": "opening preserved",
+      "pass": true
+    },
+    {
+      "check": "tail preserved",
+      "pass": true
+    },
+    {
+      "check": "exactly ONE forced final inference, on the session stream",
+      "pass": true
+    },
+    {
+      "check": "a facade commit after stop returns the final",
+      "pass": true
+    }
+  ],
+  "metrics": {
+    "audioSeconds": 95.3815,
+    "loadMs": 3952,
+    "finalMs": 1132,
+    "snapshots": 19,
+    "ledger": {
+      "streams": 1,
+      "livePasses": 191,
+      "forcedPasses": 1,
+      "runtimeStopFlushPasses": 1
+    },
+    "finalWords": 321,
+    "referenceWords": 278,
+    "prefixSlackWords": 12,
+    "prefixBreaks": [
+      {
+        "atFed": 30,
+        "firstDifferentWord": 57,
+        "settledWords": 62
+      }
+    ],
+    "finalLoopReason": "repeated_span",
+    "liveLoopSnapshots": 10,
+    "openingKept": true,
+    "tailKept": true,
+    "egress": {
+      "total": 47,
+      "offOrigin": 7,
+      "withBody": 0
+    },
+    "pinViolations": 0
+  },
+  "rawArtifactSha256": "fff54da2a9918b05a52e095c6aa889beece40db52f637f365d7ac647e3b2d165",
+  "reproduce": "npx tsx scripts/probe-moonshine-engine-runtime.mts --cache=<repo with .hf-cache/external> --fixtures=washington_01,h1_1,h1_2,h1_3,h1_4,h1_5,h1_6,h1_7,h1_8,h1_9,h1_10"
+}
