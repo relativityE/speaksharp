@@ -1,84 +1,67 @@
 /**
- * #1475 — the G12 hero waveform is DECORATIVE and DETERMINISTIC. It is never a recording, never live, and never
- * randomized per render or hydration: the envelope below is generated once, from a fixed seed, at module load, so
- * every visitor and every render sees the same shape.
+ * #1475 G12 Rev 2 §4 — the hero waveform is DECORATION, not data: no recording sits behind it. It is generated from
+ * a fixed seed so the same shape renders on every load, for every visitor, on server and client.
  *
- * Geometry contract:
- * - an 84px track; 2px bars on a 4px pitch, so the bar count is `floor(trackWidth / 4)`;
- * - the envelope is downsampled by the PEAK of each bucket (a mean would flatten syllables into mush);
- * - genuine phrase pauses are kept: silence samples are `0.02 + rnd() * 0.025`, which render at or below 4px;
- * - the first 62% of bars are highlighted.
+ * - `N = floor(trackWidth / 4)`, recomputed on resize; the envelope is REGENERATED for the new N with the same seed,
+ *   never resampled or interpolated (interpolation smooths away the silences that make it read as speech).
+ * - Syllable bursts rise and fall over 5–13 samples; 2–4 sample word boundaries and three phrase pauses stay
+ *   near-silent. PM corrections: amplitude is clamped to 1, and silence/gap samples are `0.02 + rnd() * 0.025`.
+ * - Line height is `max(2, round(amplitude * trackHeight))`; the first 62% of lines take the signature colour.
  */
 
+export const HERO_WAVEFORM_SEED = 9;
 export const HERO_WAVEFORM_TRACK_PX = 84;
-export const HERO_WAVEFORM_BAR_PITCH_PX = 4;
+export const HERO_WAVEFORM_TRACK_PX_NARROW = 56;
+export const HERO_WAVEFORM_NARROW_BELOW_PX = 768;
+export const HERO_WAVEFORM_LINE_PITCH_PX = 4;
 export const HERO_WAVEFORM_HIGHLIGHT_FRACTION = 0.62;
 
-const ENVELOPE_SAMPLES = 1200;
-const ENVELOPE_SEED = 0x5eed1475;
+const silence = (rnd: () => number): number => 0.02 + rnd() * 0.025;
 
-/** Small seeded PRNG (mulberry32): the same seed always yields the same sequence. */
-function seededRandom(seed: number): () => number {
-    let state = seed >>> 0;
-    return () => {
-        state = (state + 0x6d2b79f5) >>> 0;
-        let t = state;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
-function buildEnvelope(): readonly number[] {
-    const rnd = seededRandom(ENVELOPE_SEED);
-    const samples: number[] = [];
-    while (samples.length < ENVELOPE_SAMPLES) {
-        // A spoken phrase: syllable pulses under a rise-and-fall contour.
-        const phraseLength = 40 + Math.floor(rnd() * 60);
-        const phrasePeak = 0.45 + rnd() * 0.5;
-        for (let k = 0; k < phraseLength && samples.length < ENVELOPE_SAMPLES; k += 1) {
-            const contour = Math.sin((Math.PI * (k + 0.5)) / phraseLength);
-            const syllable = 0.35 + 0.65 * Math.abs(Math.sin(k * 0.9 + rnd() * 0.6));
-            samples.push(Math.min(1, phrasePeak * contour * syllable + rnd() * 0.06));
+/** Rev 2 §4.3 seeded speech envelope (LCG — no Math.random), with the PM clamp and silence corrections. */
+export function heroEnvelope(n: number, seed: number = HERO_WAVEFORM_SEED): number[] {
+    const count = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    let s = seed;
+    const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const values: number[] = [];
+    const pauseWidth = Math.max(2, Math.round(count * 0.03));
+    const pauses = [0.30, 0.55, 0.78].map((p) => Math.floor(count * p)); // phrase breaks
+    while (values.length < count) {
+        if (pauses.some((p) => Math.abs(values.length - p) < pauseWidth)) {
+            values.push(silence(rnd)); // near-silence
+            continue;
         }
-        // A genuine pause between phrases.
-        const pauseLength = 35 + Math.floor(rnd() * 50);
-        for (let k = 0; k < pauseLength && samples.length < ENVELOPE_SAMPLES; k += 1) {
-            samples.push(0.02 + rnd() * 0.025);
+        const length = 5 + Math.floor(rnd() * 9); // one syllable
+        const peak = 0.30 + rnd() * 0.70;
+        for (let k = 0; k < length && values.length < count; k += 1) {
+            const burst = peak * Math.sin(((k + 0.5) / length) * Math.PI) * (0.7 + rnd() * 0.45);
+            values.push(Math.min(1, Math.max(0.05, burst)));
         }
+        const gap = 2 + Math.floor(rnd() * 3); // word boundary
+        for (let k = 0; k < gap && values.length < count; k += 1) values.push(silence(rnd));
     }
-    return Object.freeze(samples);
+    return values.slice(0, count);
 }
 
-/** The committed, normalized (0..1) envelope every hero render draws from. */
-export const HERO_WAVEFORM_ENVELOPE: readonly number[] = buildEnvelope();
-
-/** Bars that fit a track of this width on a 4px pitch. Invalid or non-positive widths render none. */
-export function waveformBarCount(trackWidth: number): number {
+/** Lines that fit a track of this width on a 4px pitch. Invalid or non-positive widths render none. */
+export function waveformLineCount(trackWidth: number): number {
     if (!Number.isFinite(trackWidth) || trackWidth <= 0) return 0;
-    return Math.floor(trackWidth / HERO_WAVEFORM_BAR_PITCH_PX);
+    return Math.floor(trackWidth / HERO_WAVEFORM_LINE_PITCH_PX);
 }
 
-/** Pixel heights for `barCount` bars: peak per bucket, amplitude clamped to 0..1, at least 1px so every bar shows. */
-export function buildWaveformBars(envelope: readonly number[], barCount: number): number[] {
-    if (!Number.isFinite(barCount) || barCount <= 0 || envelope.length === 0) return [];
-    const count = Math.floor(barCount);
-    const bars: number[] = [];
-    for (let bar = 0; bar < count; bar += 1) {
-        const start = Math.floor((bar * envelope.length) / count);
-        const end = Math.max(start + 1, Math.floor(((bar + 1) * envelope.length) / count));
-        let peak = 0;
-        for (let i = start; i < end && i < envelope.length; i += 1) {
-            const amplitude = Math.min(1, Math.max(0, envelope[i]));
-            if (amplitude > peak) peak = amplitude;
-        }
-        bars.push(Math.max(1, Math.round(peak * HERO_WAVEFORM_TRACK_PX)));
-    }
-    return bars;
+/** Track height for the viewport: 84px, reduced to 56px below 768px. */
+export function waveformTrackHeight(viewportWidth: number): number {
+    return viewportWidth < HERO_WAVEFORM_NARROW_BELOW_PX ? HERO_WAVEFORM_TRACK_PX_NARROW : HERO_WAVEFORM_TRACK_PX;
 }
 
-/** How many leading bars take the highlight colour. */
-export function waveformHighlightCount(barCount: number): number {
-    if (!Number.isFinite(barCount) || barCount <= 0) return 0;
-    return Math.floor(barCount * HERO_WAVEFORM_HIGHLIGHT_FRACTION);
+/** Pixel heights for `lineCount` lines on a track of `trackHeight`: floor 2px, never taller than the track. */
+export function waveformLineHeights(lineCount: number, trackHeight: number = HERO_WAVEFORM_TRACK_PX): number[] {
+    return heroEnvelope(lineCount).map((amplitude) =>
+        Math.max(2, Math.round(Math.min(1, Math.max(0, amplitude)) * trackHeight)));
+}
+
+/** How many leading lines take the signature colour. */
+export function waveformHighlightCount(lineCount: number): number {
+    if (!Number.isFinite(lineCount) || lineCount <= 0) return 0;
+    return Math.floor(lineCount * HERO_WAVEFORM_HIGHLIGHT_FRACTION);
 }

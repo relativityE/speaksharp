@@ -113,17 +113,33 @@ All colors MUST be HSL.
     --session-warm-tile: 36 88% 92%;
     --session-warm-tile-text: 30 84% 30%;
 
-    /* #1475 G12 landing tokens. Ink is the full-bleed hero/closing ground and the single Practice Loop card;
-       signature yellow is the brand highlight on ink; money-purple is reserved for prices; green is reserved
-       for privacy confirmation (no teal accent). Components consume these as hsl(var(--landing-…)). */
-    --landing-ink: 222 47% 11%;
-    --landing-ink-foreground: 45 33% 97%;
-    --landing-ink-muted: 220 18% 76%;
-    --landing-signature: 45 93% 58%;
-    --landing-signature-foreground: 222 47% 11%;
-    --landing-rule: 220 14% 38%;
-    --landing-money: 262 52% 40%;
-    --landing-privacy: 164 74% 22%;
+    /* #1475 G12 Rev 2 §1 landing palette — the Designer's exact values, one semantic token per role, consumed as
+       var(--landing-…) with no raw hex in components. Ink is the one dark ground (hero, Practice Loop card, closing
+       band); signature is the only colour that means act; money is prices only; status is the disclosure-chip
+       shields only; no teal and no Focus purple. The marketing page is a single light look, so these are
+       deliberately NOT redefined for the dark theme. */
+    --landing-ink: #1c2333;
+    --landing-ink-raised: #262f42;
+    --landing-ink-hairline: #3a4457;
+    --landing-ink-text: #eef1f7;
+    --landing-ink-muted: #9aa6bd;
+    --landing-signature: #ffb61f;
+    --landing-signature-text: #8a5510;
+    --landing-signature-ground: #fdf3e2;
+    --landing-signature-border: #f0dcb8;
+    --landing-money: #5b21b6;
+    --landing-money-soft: #6d28d9;
+    --landing-money-on-ink: #c4b5fd;
+    --landing-status: #146b4a;
+    --landing-page: #ffffff;
+    --landing-band: #f7f9fc;
+    --landing-border: #dbe2ec;
+    --landing-border-soft: #e6ebf2;
+    --landing-border-strong: #c8d2e0;
+    --landing-heading: #1c2333;
+    --landing-body: #1f2733;
+    --landing-secondary: #414b5c;
+    --landing-muted: #6b7688;
     --shadow-session-help: 0 6px 16px -6px hsl(164 74% 17% / 0.45), 0 2px 5px -2px hsl(164 74% 17% / 0.32);
   }
 
@@ -193,16 +209,6 @@ All colors MUST be HSL.
     --session-green-soft-text: 160 55% 78%;
     --session-warm-tile: 32 40% 20%;
     --session-warm-tile-text: 36 85% 72%;
-    /* #1475 dark counterparts: ink deepens below the dark body so the hero still reads as its own ground;
-       money-purple and privacy green lighten to stay legible on dark surfaces. */
-    --landing-ink: 224 50% 5%;
-    --landing-ink-foreground: 45 33% 97%;
-    --landing-ink-muted: 220 18% 76%;
-    --landing-signature: 45 93% 58%;
-    --landing-signature-foreground: 222 47% 11%;
-    --landing-rule: 220 14% 40%;
-    --landing-money: 262 85% 80%;
-    --landing-privacy: 160 55% 70%;
     --shadow-session-help: 0 6px 16px -6px hsl(164 60% 26% / 0.55), 0 2px 5px -2px hsl(164 60% 26% / 0.4);
     --nav-avatar-bg: 218 20% 26%;
     --nav-avatar-fg: 214 30% 88%;

@@ -1,12 +1,14 @@
-import { Mic, ShieldCheck, Target } from 'lucide-react';
+import { BarChart3, Mic } from 'lucide-react';
 import { PRODUCT_NAMES } from '@/constants/productNames';
-import { LANDING_OFFER_SHORT } from './landingOffer';
 
 /**
- * #1475 G12 — the two product entries on the signed-out homepage. The actions are the page's existing product
- * handlers (content-free practice telemetry, then account access that preserves the product intent), so this
- * section changes presentation only. Both cards share one responsive flex basis, and the offer sits in the same
- * decision unit because each action leads a signed-out visitor to signup.
+ * #1475 G12 Rev 2 §2 section 3 — the two product entries on white. Open Mic keeps the repository description
+ * verbatim; Focus Points keeps the #1377 detection language locked by the public copy contract (ruling E on #1475).
+ * The Focus Points card is distinguished by content, not hue (no product purple on this page).
+ *
+ * Each card keeps ONE entry control on the page's existing handler — content-free practice telemetry, then account
+ * access that preserves the product intent. That control is a deliberate deviation from Appendix A (ruling A1):
+ * these are the tested #1061 signed-out entry journeys. Its visible label is its accessible name.
  */
 export const ProductsSection = ({
     onStartFreeform,
@@ -18,59 +20,58 @@ export const ProductsSection = ({
     const products = [
         {
             title: PRODUCT_NAMES.freeform,
-            description: 'Start a practice take whenever you are ready. Speak freely, then see what to fix.',
+            description: 'Start a Private practice recording whenever you are ready. Speak freely, then review the transcript and coaching.',
             Icon: Mic,
+            signature: true,
             testid: 'practice-card-freeform',
-            ctaAria: 'Start your session',
             onClick: onStartFreeform,
         },
         {
             title: PRODUCT_NAMES.objective,
             // #1377 approved Focus Points detection language — locked by tests/release/public-product-copy-contract.
-            description: 'Prepare the points you need to cover. See which points were detected — and what to retry.',
-            Icon: Target,
+            description: 'Optionally name the points you want to cover. See which points were detected — and what to retry.',
+            Icon: BarChart3,
+            signature: false,
             testid: 'practice-card-objective',
-            ctaAria: `Start ${PRODUCT_NAMES.objective}`,
             onClick: onStartObjective,
         },
     ];
 
     return (
-        <section aria-label="Products" className="w-full bg-background py-14 md:py-20" data-signup-decision>
-            <div className="mx-auto max-w-5xl px-4 md:px-6">
-                <h2 className="text-3xl font-bold tracking-tight text-foreground [text-wrap:balance] sm:text-4xl">
-                    Two ways to practice
-                </h2>
-                <p className="mt-3 text-[17px] font-semibold leading-relaxed text-foreground">
-                    {LANDING_OFFER_SHORT} No card required to start.
-                </p>
-                <div className="mt-8 flex flex-wrap gap-5">
-                    {products.map(({ title, description, Icon, testid, ctaAria, onClick }) => (
-                        <article
-                            key={testid}
-                            data-testid={`${testid}-card`}
-                            className="flex min-w-0 flex-[1_1_18rem] flex-col gap-3 rounded-lg border border-border bg-card p-6 text-card-foreground"
-                        >
-                            <Icon className="size-7 text-foreground" aria-hidden="true" />
-                            <h3 className="text-xl font-bold">{title}</h3>
-                            <p className="text-[17px] leading-relaxed text-foreground/80">{description}</p>
-                            <button
-                                type="button"
-                                onClick={onClick}
-                                data-testid={testid}
-                                data-signup-action
-                                aria-label={ctaAria}
-                                className="mt-auto inline-flex h-12 items-center justify-center whitespace-nowrap rounded-md border border-foreground/20 bg-background px-6 text-base font-bold text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        <section
+            aria-label="Products"
+            className="w-full border-b border-landing-border-soft bg-landing-page px-5 py-11 md:px-7 lg:px-[34px]"
+        >
+            <div className="flex flex-wrap items-stretch gap-4">
+                {products.map(({ title, description, Icon, signature, testid, onClick }) => (
+                    <article
+                        key={testid}
+                        data-testid={`${testid}-card`}
+                        className={`flex min-w-0 flex-[1_1_320px] flex-col rounded-[14px] border border-t-[3px] border-landing-border px-7 pb-7 pt-[26px] ${
+                            signature ? 'border-t-landing-signature' : 'border-t-landing-border-strong'
+                        }`}
+                    >
+                        <div className="mb-[15px] flex items-center gap-3">
+                            <span
+                                className={`flex size-[42px] shrink-0 items-center justify-center rounded-[10px] ${
+                                    signature ? 'bg-landing-signature-ground text-landing-signature-text' : 'bg-landing-band text-landing-secondary'
+                                }`}
                             >
-                                Start your session
-                            </button>
-                        </article>
-                    ))}
-                </div>
-                <p className="mt-6 flex items-start gap-2 text-[17px] leading-relaxed text-foreground/80">
-                    <ShieldCheck className="mt-1 size-5 shrink-0 text-landing-privacy" aria-hidden="true" />
-                    <span>Every recording uses on-device Private transcription, so your practice audio stays on your device.</span>
-                </p>
+                                <Icon className="size-[21px]" aria-hidden="true" />
+                            </span>
+                            <h3 className="text-[22px] font-extrabold tracking-[-0.025em] text-landing-heading">{title}</h3>
+                        </div>
+                        <p className="text-[17px] font-medium leading-[1.6] text-landing-body">{description}</p>
+                        <button
+                            type="button"
+                            onClick={onClick}
+                            data-testid={testid}
+                            className="mt-5 inline-flex min-h-[44px] items-center justify-center self-start whitespace-nowrap rounded-[11px] border border-landing-border-strong bg-landing-page px-5 text-base font-extrabold text-landing-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-landing-signature-text focus-visible:ring-offset-2"
+                        >
+                            {`Start ${title}`}
+                        </button>
+                    </article>
+                ))}
             </div>
         </section>
     );

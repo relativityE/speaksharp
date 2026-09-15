@@ -144,13 +144,14 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       }
       // The retired teal trial strip is replaced by the complete offer at every signup decision point.
       expect(screen.queryByTestId('freeform-trial-strip')).not.toBeInTheDocument();
-      expect(screen.getByRole('region', { name: /hero/i })).toHaveTextContent(/30 days free, no card\. Then \$10\/month\./);
+      expect(screen.getByRole('region', { name: /^hero$/i })).toHaveTextContent('30 days free, no card.');
+      expect(screen.getByRole('region', { name: /^hero$/i })).toHaveTextContent('Then $10/month. Cancel any time.');
       expect(screen.queryByTestId('support-freeform-explain')).not.toBeInTheDocument();
       // Focus Points is activated — no SOON badge on the anonymous card either.
       expect(screen.queryByTestId('objective-soon-badge')).not.toBeInTheDocument();
       expect(screen.queryByText(/Planned/)).toBeNull();
-      // Product cards own their actions (anon shows CTAs, same as authed).
-      expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
+      // Product cards own their actions; on the G12 homepage each visible label is its accessible name.
+      expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start open mic/i);
       expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/start focus points/i);
       // No authenticated continuity/account actions.
       expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();
@@ -168,7 +169,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       render(<PracticePage />);
       const closing = screen.getByRole('region', { name: /call to action/i });
       expect(within(closing).getByRole('link', { name: 'Try it out!' })).toHaveAttribute('href', '/auth/signup');
-      expect(closing).toHaveTextContent(/30 days free\. Then \$10\/month\./);
+      expect(closing).toHaveTextContent(/free for 30 days\. Then \$10\/month\./);
     });
 
     it('Freeform product card CTA → account access preserving /session intent', () => {
