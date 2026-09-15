@@ -46,6 +46,7 @@ const initialState: SessionState = {
     finalizedWordCount: null,
     finalizedFillerData: null,
     finalizedFillerCount: null,
+    finalizedFillerCompleteness: null,
     isBooting: false,
     engineSelectionLocked: false,
     pendingResolutionKind: null,
@@ -188,6 +189,11 @@ export function createTestSessionStore(
         setFinalizedFillerCount: vi.fn((finalizedFillerCount) =>
             set({
                 finalizedFillerCount,
+            })),
+
+        setFinalizedFillerCompleteness: vi.fn((finalizedFillerCompleteness) =>
+            set({
+                finalizedFillerCompleteness,
             })),
 
         resetSession: vi.fn(() =>

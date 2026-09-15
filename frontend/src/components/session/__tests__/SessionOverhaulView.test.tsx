@@ -135,7 +135,9 @@ describe('SessionOverhaulView filler consistency (#1314 C3)', () => {
         expect(renderedTotal()).toBe(renderedChipSum());
     });
 
-    it('measured zero renders zero with no chips', () => {
+    // #1472 (PM 5682359616): an empty map alone never proves a clean zero. Without a complete measurement the zero is
+    // unverified and makes no numeric claim; only a stated-complete zero renders "0 fillers".
+    it('a zero snapshot with NO stated completeness makes no numeric claim and says the zero is unverified', () => {
         render(
             <SessionOverhaulView
                 {...base}
@@ -143,7 +145,20 @@ describe('SessionOverhaulView filler consistency (#1314 C3)', () => {
                 finalizedFillerData={{} as unknown as FillerCounts}
             />,
         );
-        expect(screen.getByTestId('filler-breakdown-empty')).toBeInTheDocument();
+        expect(screen.getByTestId('filler-breakdown-empty')).toHaveTextContent(/could not be verified/i);
+        expect(screen.getByTestId('after-stats').textContent || '').not.toMatch(/\d+\s+fillers/);
+    });
+
+    it('a zero snapshot stated COMPLETE renders zero with no chips', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                {...afterProps}
+                finalizedFillerData={{} as unknown as FillerCounts}
+                finalizedFillerCompleteness="complete"
+            />,
+        );
+        expect(screen.getByTestId('filler-breakdown-empty')).toHaveTextContent(/No filler words detected/i);
         expect(renderedTotal()).toBe(0);
     });
 

@@ -138,20 +138,34 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.clarityScore).toBeLessThan(100);
     });
 
-    it('#1306: a MEASURED zero ({}) filler map reads as 0 (never inflated — there is no transcript to recount)', () => {
-        // A measured `{}` is a genuine zero. There is no transcript, so it can never be "repaired up" from text.
+    // #1472 (PM 5682359616): an empty map alone never proves a clean zero. Only a zero whose completeness authority
+    // says `complete` reads as 0; a legacy/unstated `{}` is unavailable — and neither is ever "repaired up" from text.
+    it('#1472: a zero ({}) filler map with NO completeness state is UNAVAILABLE (null), never a clean 0', () => {
         const session = {
             id: 'session-1', user_id: 'user-1', created_at: '2026-05-21T12:00:00.000Z',
             title: 'Truth check', duration: 60, total_words: 8,
-            filler_counts: {}, // measured zero
+            filler_counts: {}, // zero, but nothing affirms the measurement was complete
             clarity_score: null, wpm: null,
         } as unknown as PracticeSession;
 
         const metrics = getSessionAnalysisMetrics(session);
 
-        expect(metrics.fillerCount).toBe(0);           // measured zero, not unavailable, not inflated
-        expect(metrics.fillerData.total.count).toBe(0);
+        expect(metrics.fillerCount).toBeNull();        // unverifiable zero → unavailable, not "no fillers"
         expect(metrics.wpm).toBe(8);                   // wpm from stored total_words (8 words / 1 min)
+    });
+
+    it('#1472: a zero ({}) filler map stated COMPLETE reads as 0 (never inflated — there is no transcript to recount)', () => {
+        const session = {
+            id: 'session-1', user_id: 'user-1', created_at: '2026-05-21T12:00:00.000Z',
+            title: 'Truth check', duration: 60, total_words: 8,
+            filler_counts: {}, filler_completeness: 'complete',
+            clarity_score: null, wpm: null,
+        } as unknown as PracticeSession;
+
+        const metrics = getSessionAnalysisMetrics(session);
+
+        expect(metrics.fillerCount).toBe(0);           // verified zero
+        expect(metrics.fillerData.total.count).toBe(0);
     });
 
     it('#1306: NO transcript recount — an absent (NULL) filler map is UNAVAILABLE (null), never re-derived or shown as 0', () => {
@@ -247,17 +261,22 @@ describe('Live filler SSOT — live count is canonical, recount is diagnostic/fa
 
     // #1306: the FOUR filler evidence states are honestly distinguished at the READ boundary — NEVER collapsed
     // into 0, and NEVER recounted from a (non-existent) transcript.
-    it('analytics: null/invalid = UNAVAILABLE (null); {} = measured zero (0); nonempty = measured total', () => {
+    it('analytics: null/invalid = UNAVAILABLE (null); {} = null unless stated complete (0); nonempty = measured total', () => {
         const base = { id: 's', user_id: 'u', created_at: '', title: 't', duration: 60, clarity_score: null, wpm: null };
-        const read = (persisted: unknown) => getSessionAnalysisMetrics({ ...base, filler_counts: persisted } as unknown as PracticeSession).fillerCount;
+        const read = (persisted: unknown, completeness?: string) => getSessionAnalysisMetrics(
+            { ...base, filler_counts: persisted, filler_completeness: completeness } as unknown as PracticeSession,
+        ).fillerCount;
         // NOT measured / invalid → null (unavailable), never a fabricated 0 "zero fillers".
         expect(read(null)).toBeNull();
         expect(read(undefined)).toBeNull();
         expect(read({ um: -1 })).toBeNull();          // invalid value → unavailable
         expect(read({ 'a prose key': 3 })).toBeNull(); // invalid key → unavailable
-        // Measured → a number (0 for `{}`), never a recount.
-        expect(read({})).toBe(0);                      // measured zero
-        expect(read({ um: 4 })).toBe(4);               // measured counts
+        // #1472: a zero is a number ONLY with the complete state; never a recount.
+        expect(read({})).toBeNull();                   // unstated zero → unavailable
+        expect(read({}, 'unobservable')).toBeNull();
+        expect(read({}, 'no_speech')).toBeNull();
+        expect(read({}, 'complete')).toBe(0);          // verified zero
+        expect(read({ um: 4 })).toBe(4);               // observed counts keep their truth regardless of state
     });
 
     // #8: no transcript/raw-custom text is embedded in the canonical filler data structure.
@@ -410,10 +429,19 @@ describe('#1306 P1-4 — unavailable vs measured-zero filler copy', () => {
         expect(metrics.clarityExplanation).not.toMatch(/no filler words or transcript errors were detected/i);
     });
 
-    it('reader: a MEASURED empty map ({}) → fillerCount 0 + genuine measured-zero copy', () => {
+    it('reader (#1472): an UNSTATED empty map ({}) → fillerCount null + no "no filler words" claim', () => {
         const metrics = getSessionAnalysisMetrics({
             id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
             duration: 60, total_words: PLENTY, filler_counts: {},
+        } as unknown as PracticeSession);
+        expect(metrics.fillerCount).toBeNull();
+        expect(metrics.fillerExplanation).not.toMatch(/no filler words were detected/i);
+    });
+
+    it('reader (#1472): an empty map stated COMPLETE → fillerCount 0 + genuine measured-zero copy', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, filler_counts: {}, filler_completeness: 'complete',
         } as unknown as PracticeSession);
         expect(metrics.fillerCount).toBe(0);
         expect(metrics.fillerExplanation).toMatch(/no filler words were detected/i);

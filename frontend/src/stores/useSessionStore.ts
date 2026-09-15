@@ -180,6 +180,8 @@ export interface SessionState {
     finalizedWordCount: number | null;
     finalizedFillerData: FillerCounts | null;
     finalizedFillerCount: number | null;
+    /** #1472: the closed completeness state of THIS take's filler measurement; null until stated (fail closed). */
+    finalizedFillerCompleteness: 'complete' | 'unobservable' | 'no_speech' | null;
     isBooting: boolean;
 }
 
@@ -235,6 +237,7 @@ interface SessionActions {
     setFinalizedWordCount: (wordCount: number | null) => void;
     setFinalizedFillerData: (data: FillerCounts | null) => void;
     setFinalizedFillerCount: (count: number | null) => void;
+    setFinalizedFillerCompleteness: (completeness: 'complete' | 'unobservable' | 'no_speech' | null) => void;
     setIsBooting: (isBooting: boolean) => void;
 }
 
@@ -306,6 +309,7 @@ const initialState: SessionState = {
     finalizedWordCount: null,
     finalizedFillerData: null,
     finalizedFillerCount: null,
+    finalizedFillerCompleteness: null,
     isBooting: false,
 };
 
@@ -559,6 +563,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
             finalizedWordCount: null,
             finalizedFillerData: null,
             finalizedFillerCount: null,
+            finalizedFillerCompleteness: null,
             nativeFormatting: initialState.nativeFormatting,
             sttStatus: { type: 'ready', message: 'Ready to record' },
             // The reviewed brief and its coverage: keeping either would show the previous take's results
@@ -582,6 +587,8 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         set({ finalizedFillerData }),
     setFinalizedFillerCount: (finalizedFillerCount) =>
         set({ finalizedFillerCount }),
+    setFinalizedFillerCompleteness: (finalizedFillerCompleteness) =>
+        set({ finalizedFillerCompleteness }),
 
     addChunk: (chunk) =>
         set((state) => ({

@@ -8,6 +8,7 @@ import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
 import { readPersistedFillerCounts } from '@/contracts/fillerCounts';
+import { sessionFillerEvidence } from '@/contracts/fillerEvidence';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 
 // A more specific type for the internal, undocumented API
@@ -48,7 +49,10 @@ const formatDuration = (seconds: number): string => {
 
 export const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
   // #1306 metrics-only: the stored flat filler_counts is authoritative; there is no transcript to recount.
+  // #1472: rows are listed only for OBSERVED evidence — the same rule every surface reads, so the PDF can never
+  // present an unverified or unavailable zero differently from the Session result, Analytics or Progress.
   if (readPersistedFillerCounts(session.filler_counts) === null) return [];
+  if (sessionFillerEvidence(session).kind !== 'observed') return [];
   return getFillerTableData(session.filler_counts);
 };
 

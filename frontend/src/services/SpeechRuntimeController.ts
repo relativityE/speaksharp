@@ -13,7 +13,7 @@ import {
     ensureRecordingAttempt, endRecordingAttempt,
 } from '@/services/telemetry/journeyIdentity';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
-import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
+import { emitFillerMeasurement, resolveCompleteness } from '@/services/telemetry/fillerMeasurement';
 import { noteEngineReady, noteEngineTeardown } from '@/services/telemetry/reinitObservation';
 import { resetTranscriptStability } from '@/services/telemetry/transcriptStability';
 import { markCompletionStage, resetCompletionChain } from '@/services/telemetry/completionStages';
@@ -5137,10 +5137,18 @@ export class SpeechRuntimeController {
                             // useFillerWords→store sync overwrites to `{}` once the chunks are purged). `fillerWords`
                             // (== sessionMetrics.fillerData) is the canonical nested per-key shape the review
                             // consumes; `sessionMetrics.fillerCount` is the true-filler headline.
+                            // #1472 — THE TAKE'S COMPLETENESS, stated once, from the same final snapshot. `complete` only
+                            // when at least one filler was counted; words with no filler token are `unobservable` (a fluent
+                            // speaker and a recognizer that dropped disfluencies look identical); no words is `no_speech`.
+                            // No surface may call a zero clean unless this says `complete` (PM 5682359616).
+                            const finalFillerTotal = Object.values(finalFillerCounts)
+                                .reduce<number>((sum, n) => sum + (typeof n === 'number' ? n : 0), 0);
+                            const finalFillerCompleteness = resolveCompleteness(wordCount, finalFillerTotal);
                             this.publishIfStopOwner(stopAuthority, token, 'finalized_metrics', () => {
                                 useSessionStore.getState().setFinalizedWordCount(wordCount);
                                 useSessionStore.getState().setFinalizedFillerData(fillerWords);
                                 useSessionStore.getState().setFinalizedFillerCount(sessionMetrics.fillerCount);
+                                useSessionStore.getState().setFinalizedFillerCompleteness(finalFillerCompleteness);
                             });
                             const PAUSE_KEYS = ['totalPauses', 'averagePauseDuration', 'longestPause', 'pausesPerMinute', 'silencePercentage', 'transitionPauses', 'extendedPauses'] as const;
                             const finalPauseMetrics = store.pauseMetrics

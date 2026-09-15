@@ -2,6 +2,7 @@ import type { PracticeSession } from '@/types/session';
 import { countFillerWords, type FillerCounts } from './fillerWordUtils';
 import { countedFillerTotal, countedFillerMap } from './fillerTiers';
 import { readPersistedFillerCounts } from '@/contracts/fillerCounts';
+import { measuredFillerTotal, sessionFillerEvidence } from '@/contracts/fillerEvidence';
 
 export interface CoreSessionMetrics {
     wordCount: number;
@@ -460,7 +461,12 @@ export const getSessionAnalysisMetrics = (
     // is NULLABLE: null = UNAVAILABLE (absent/invalid filler_counts), 0 = a measured `{}` (or discourse-only),
     // N = measured true fillers. This is DISTINCT from the aggregate avgFillerWordsPerMin, which sums all
     // approved keys. Never collapse unavailable/invalid into 0 (that would fabricate "zero fillers").
-    const fillerHeadline = fillerData === null ? null : metrics.fillerCount;
+    // #1472 (PM 5682359616): a stored zero is a number ONLY when the completeness authority says the measurement was
+    // complete. An unobservable, no-speech or legacy (NULL completeness) zero is unavailable here, so no headline,
+    // clarity copy or trend can present it as "no fillers". Observed nonzero evidence keeps its measured headline.
+    const fillerHeadline = fillerData === null || measuredFillerTotal(sessionFillerEvidence(session)) === null
+        ? null
+        : metrics.fillerCount;
     const wordCount = Math.max(metrics.wordCount, session.total_words ?? 0);
     const wpm = session.wpm ?? calculateWpm(wordCount, session.duration || 0);
     // #1131 (preserved): the PERSISTED clarity score is authoritative when present — an expired session

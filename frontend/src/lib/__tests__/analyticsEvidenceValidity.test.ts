@@ -71,10 +71,15 @@ describe('#1045 aggregate evidence validity', () => {
         expect(stats.avgFillerWordsPerMin).toBeNull();
     });
 
-    it('#1306: keeps a GENUINE MEASURED zero ({}) as a real 0.0/min — never excluded', () => {
-        // A measured `{}` (real speech, genuinely-counted zero fillers) is a true, valuable 0.0/min — included
-        // in the denominator as a genuine zero, not treated as "no evidence".
+    // #1472 (PM 5682359616): `{}` alone cannot tell counted-zero from unobservable, so it is no longer evidence. A zero
+    // is a genuine 0.0/min only with the complete state; an unstated zero is excluded like absent evidence.
+    it('#1472: an UNSTATED zero ({}) is excluded (null) — an unverifiable zero is never praised as 0.0/min', () => {
         const stats = calculateOverallStats([session({ filler_counts: {} })]);
+        expect(stats.avgFillerWordsPerMin).toBeNull();
+    });
+
+    it('#1472: keeps a zero ({}) stated COMPLETE as a real 0.0/min — never excluded', () => {
+        const stats = calculateOverallStats([session({ filler_counts: {}, filler_completeness: 'complete' } as never)]);
         expect(stats.avgFillerWordsPerMin).not.toBeNull();
         expect(Number(stats.avgFillerWordsPerMin)).toBe(0);
     });
@@ -82,7 +87,11 @@ describe('#1045 aggregate evidence validity', () => {
     it('#1306: a MALFORMED filler map is excluded (null), while a measured {} is a genuine 0.0/min', () => {
         // Measured zero → a real 0.0/min (included). Malformed/invalid data (nested / non-numeric) is NOT a
         // measurement → excluded (never a fabricated 0.0).
-        expect(Number(calculateOverallStats([session({ filler_counts: {} })]).avgFillerWordsPerMin)).toBe(0);
+        // #1472: `Number(null)` is 0, so this line would pass vacuously for an EXCLUDED zero. Assert non-null explicitly,
+        // on a zero stated complete — the only zero that is a genuine measurement.
+        const verifiedZero = calculateOverallStats([session({ filler_counts: {}, filler_completeness: 'complete' } as never)]).avgFillerWordsPerMin;
+        expect(verifiedZero).not.toBeNull();
+        expect(Number(verifiedZero)).toBe(0);
         expect(calculateOverallStats([session({ filler_counts: { um: {} } as never })]).avgFillerWordsPerMin).toBeNull();
         expect(calculateOverallStats([session({ filler_counts: { um: { count: null } } as never })]).avgFillerWordsPerMin).toBeNull();
     });

@@ -17,6 +17,7 @@ import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
 import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
+import { evidenceKindFromSnapshot } from '@/contracts/fillerEvidence';
 import { applyFinalizedCoverageAuthority, deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusCoverageRow } from '@/utils/focusCoverage';
 import type { PracticeFocus } from '@/constants/practiceFocus';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
@@ -84,6 +85,8 @@ export interface SessionOverhaulViewProps {
      *  and the live fillerData is zeroed by the useFillerWords sync — so the review reads these instead). */
     finalizedWordCount?: number | null;
     finalizedFillerData?: FillerCounts | null;
+    /** #1472: the take's closed filler-completeness state. Absent or null means NOT verified (fail closed). */
+    finalizedFillerCompleteness?: string | null;
     showAnalyticsPrompt: boolean;
     metricsFillerCount: number;
     onStartStop: () => void;
@@ -160,6 +163,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onRetryReviewTranscript = null,
     finalizedWordCount,
     finalizedFillerData,
+    finalizedFillerCompleteness,
     showAnalyticsPrompt,
     metricsFillerCount,
     onStartStop,
@@ -424,7 +428,15 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // unavailable snapshot (SQL NULL) makes no numeric claim; `{}` is a measured zero (0, no chips).
     const reviewFillerSnapshot = selectReviewFillerSnapshot({ inAfter, finalizedFillerData, liveFillerData: fillerData });
     const reviewFillerData = reviewFillerSnapshot.counts;
-    const reviewFillerCount = reviewFillerSnapshot.available ? reviewFillerSnapshot.total : null;
+    // #1472 — the completed take's filler claim comes from ONE rule shared with every persisted surface. A zero is only
+    // "no fillers" when the measurement is stated complete; an unstated or unobservable zero makes no numeric claim.
+    // Before/during keep the live count, which is a running tally rather than a verdict.
+    const reviewFillerEvidence = inAfter
+        ? evidenceKindFromSnapshot(reviewFillerSnapshot, finalizedFillerCompleteness)
+        : (reviewFillerSnapshot.available ? 'observed' : 'unavailable');
+    const reviewFillerCountClaimable = reviewFillerEvidence === 'observed' || reviewFillerEvidence === 'verified_zero'
+        || (!inAfter && reviewFillerSnapshot.available);
+    const reviewFillerCount = reviewFillerSnapshot.available && reviewFillerCountClaimable ? reviewFillerSnapshot.total : null;
     const fillerStatsLine = reviewFillerCount === null
         ? `${reviewWordCount} words`
         : `${reviewFillerCount} fillers · ${reviewWordCount} words`;
@@ -892,7 +904,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     ? (coverage && coverage.coveredQuotes.length > 0
                         ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
                         : null)
-                    : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
+                    : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} evidence={reviewFillerEvidence} />}
                 /**
                  * #1422 — NO FABRICATED VERDICT. `aiSuggestions` is always `undefined` here because the
                  * coaching prose this card carried is retired (#1306), and `verdictFromSuggestions` then
@@ -933,6 +945,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 <FocusDeliveryStrip
                     fillerCount={reviewFillerCount ?? 0}
                     fillerData={reviewFillerData}
+                    evidence={reviewFillerEvidence}
                     hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
                 />
             )}

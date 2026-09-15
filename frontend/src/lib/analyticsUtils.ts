@@ -7,7 +7,7 @@ import {
     getSessionAnalysisMetrics,
     isValidFillerCount,
 } from '@/utils/sessionAnalysis';
-import { persistedFillerTotal } from '@/contracts/fillerCounts';
+import { measuredFillerTotal, sessionFillerEvidence } from '@/contracts/fillerEvidence';
 
 const isRealNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -18,7 +18,10 @@ const isRealNumber = (v: unknown): v is number => typeof v === 'number' && Numbe
  * and fractional/negative counts are NOT evidence. Mirrors the RPC helper `_ss_valid_filler_total IS NOT NULL`
  * so client and server agree on which rows may contribute the filler metric.
  */
-const hasRealFillerData = (s: PracticeSession): boolean => persistedFillerTotal(s.filler_counts) !== null;
+// #1472 (PM 5682359616): valid counts are necessary but no longer sufficient. A zero contributes ONLY when the
+// completeness authority says the measurement was complete; an unobservable, no-speech or legacy (NULL completeness)
+// zero is not evidence, so it can never flatten the filler average toward a clean rate. Observed counts still count.
+const hasRealFillerData = (s: PracticeSession): boolean => measuredFillerTotal(sessionFillerEvidence(s)) !== null;
 
 /**
  * #1047 U1 (review correction): provenance is METRIC-SPECIFIC, not all-or-nothing. `available` shows every
@@ -136,7 +139,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
             fillerDurationSeconds += duration;
             // #1131 correction 3: the filler NUMERATOR is the validated, total-authoritative count (honors a
             // total-only snapshot); a row is only eligible when this is a real value, so it is never null here.
-            totalFillerWords += persistedFillerTotal(s.filler_counts) ?? 0;
+            totalFillerWords += measuredFillerTotal(sessionFillerEvidence(s)) ?? 0;
         }
         // #1045 finding 1: object truthiness is not evidence — `pause_metrics: {}` is truthy and
         // carries no measurement. Only a structurally complete snapshot contributes. (Pause rhythm is
@@ -205,7 +208,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         const duration = s.duration || 0;
         const sessionMetrics = getSessionAnalysisMetrics(s);
         // #1131 correction 3: the plotted filler count is the validated, total-authoritative value.
-        const totalFillerCount = persistedFillerTotal(s.filler_counts) ?? 0;
+        const totalFillerCount = measuredFillerTotal(sessionFillerEvidence(s)) ?? 0;
 
         return {
             date: new Date(s.created_at).toLocaleDateString(),
