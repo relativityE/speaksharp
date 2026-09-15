@@ -29,7 +29,7 @@ const CANONICAL_PRODUCT_RELEASE_DOCUMENT_SET = new Set(CANONICAL_PRODUCT_RELEASE
  * gain a merge path merely by being Markdown under product_release/.
  */
 export function isCanonicalProductReleaseDocument(file) {
-  return typeof file === 'string' && CANONICAL_PRODUCT_RELEASE_DOCUMENT_SET.has(file.trim());
+  return typeof file === 'string' && CANONICAL_PRODUCT_RELEASE_DOCUMENT_SET.has(file);
 }
 
 /**
