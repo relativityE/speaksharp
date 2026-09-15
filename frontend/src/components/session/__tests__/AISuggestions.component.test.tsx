@@ -779,7 +779,8 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
             rendered: true,
             suppression: 'none',
         });
-        expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+        // #1466 — placement provides visibility; the card never scrolls the page (and the saved confirmation with it).
+        expect(scrollIntoView).not.toHaveBeenCalled();
     });
 
     it('CASUALTY: a review still in flight emits no receipt and marks neither stage', async () => {

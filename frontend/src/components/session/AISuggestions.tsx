@@ -137,7 +137,6 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
   const { suggestions, isLoading, error } = currentView;
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
   const reviewCardRef = useRef<HTMLDivElement>(null);
-  const revealedTerminalRef = useRef<string | null>(null);
   const renderedReceiptRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -224,16 +223,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
     return () => observer?.disconnect();
   }, [sessionId, suggestions]);
 
-  // The review is the completed session's payoff. Bring either truthful terminal into view once instead
-  // of leaving it below the session shell where the PO missed it in two consecutive sessions.
-  useEffect(() => {
-    const terminal = suggestions ? 'ready' : error ? 'error' : null;
-    if (!sessionId || !terminal) return;
-    const key = `${sessionId}:${terminal}`;
-    if (revealedTerminalRef.current === key) return;
-    revealedTerminalRef.current = key;
-    reviewCardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-  }, [sessionId, suggestions, error]);
+  // #1466 — no forced scroll. The review is visible because `SessionOverhaulView` places it first, above the
+  // session shell, in every state. Scrolling to it only ever helped the success case and could push the
+  // page's saved confirmation out of view.
 
   // #1416 P2-4 — THE FIRST REQUEST FIRES ITSELF.
   //

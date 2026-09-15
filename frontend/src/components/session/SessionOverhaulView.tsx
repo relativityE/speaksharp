@@ -791,6 +791,24 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // after — transcript-only review (no retained audio).
     return (
         <>
+            {/*
+                #1466 — THE PRACTICE LOOP IS THE PRIMARY RESULT, SO IT COMES FIRST.
+
+                It rendered after the whole shell, which stacks to one column on phones: last on every
+                breakpoint and last for keyboard and screen-reader users. The Product Owner had to scroll
+                past the transcript and secondary cards to reach it — and a failed review sat at the bottom
+                where nobody saw it. Placement is DOM order, not a scroll: loading, rendered and failed
+                states all occupy this one band, directly under the page's saved confirmation. Slot D keeps
+                its verdict and `Practice this again` (#1422 P1).
+            */}
+            {practiceLoopReview && (
+                <div
+                    className="mb-[14px]"
+                    data-testid={isObjective ? 'focus-practice-loop-review' : 'open-mic-practice-loop-review'}
+                >
+                    {practiceLoopReview}
+                </div>
+            )}
             <SessionAfterState
                 scrubber={{
                     playing: false,
@@ -873,15 +891,6 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     fillerData={reviewFillerData}
                     hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
                 />
-            )}
-            {/* The review sits below the shell in BOTH products, so slot D keeps its verdict either way. */}
-            {practiceLoopReview && (
-                <div
-                    className="mt-[14px]"
-                    data-testid={isObjective ? 'focus-practice-loop-review' : 'open-mic-practice-loop-review'}
-                >
-                    {practiceLoopReview}
-                </div>
             )}
         </>
     );
