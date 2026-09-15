@@ -1,6 +1,7 @@
 import React from 'react';
 import { FillerBreakdown } from './FillerBreakdown';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import type { FillerEvidenceKind } from '@/contracts/fillerEvidence';
 
 /**
  * #1046 Focus Points — the after-only delivery strip (spec §5).
@@ -19,16 +20,26 @@ export interface FocusDeliveryStripProps {
     fillerData?: FillerCounts | null;
     /** True when at least one point went uncovered — lets us honestly hint at the recall gap. */
     hasMissedPoint: boolean;
+    /**
+     * #1472 — what this run's filler measurement may claim. Only a `verified_zero` is "clean delivery"; an absent kind is
+     * treated as unverified, so a zero the product cannot verify is never praised.
+     */
+    evidence?: FillerEvidenceKind;
 }
 
-export const FocusDeliveryStrip: React.FC<FocusDeliveryStripProps> = ({ fillerCount, fillerData, hasMissedPoint }) => {
+export const FocusDeliveryStrip: React.FC<FocusDeliveryStripProps> = ({ fillerCount, fillerData, hasMissedPoint, evidence }) => {
     const [showDetail, setShowDetail] = React.useState(false);
     const plural = fillerCount === 1 ? 'filler' : 'fillers';
-    const line = fillerCount === 0
-        ? 'Also worth noting: no fillers this run — clean delivery.'
-        : hasMissedPoint
+    const countClaimable = fillerCount > 0 || evidence === 'verified_zero';
+    const line = fillerCount > 0
+        ? (hasMissedPoint
             ? `Also worth noting: ${fillerCount} ${plural} — some may mark where a point slipped.`
-            : `Also worth noting: ${fillerCount} ${plural}.`;
+            : `Also worth noting: ${fillerCount} ${plural}.`)
+        : evidence === 'verified_zero'
+            ? 'Also worth noting: no fillers this run — clean delivery.'
+            : evidence === 'no_speech'
+                ? 'Also worth noting: no speech was transcribed, so fillers were not measured.'
+                : 'Also worth noting: fillers could not be verified for this run.';
 
     return (
         <section
@@ -49,7 +60,11 @@ export const FocusDeliveryStrip: React.FC<FocusDeliveryStripProps> = ({ fillerCo
             </div>
             {showDetail && (
                 <div className="mt-3 border-t border-[#eef2f7] pt-3">
-                    <FillerBreakdown fillerData={fillerData} stats={`${fillerCount} ${plural}`} />
+                    <FillerBreakdown
+                        fillerData={fillerData}
+                        stats={countClaimable ? `${fillerCount} ${plural}` : undefined}
+                        evidence={evidence}
+                    />
                 </div>
             )}
         </section>

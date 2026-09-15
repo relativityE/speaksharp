@@ -68,6 +68,8 @@ export const SessionPage: React.FC = () => {
     // (which the useFillerWords sync zeroes once the chunks are purged).
     const finalizedWordCount = useSessionStore(state => state.finalizedWordCount);
     const finalizedFillerData = useSessionStore(state => state.finalizedFillerData);
+    // #1472: whether this take's filler measurement was complete. Null until the stop path states it (fail closed).
+    const finalizedFillerCompleteness = useSessionStore(state => state.finalizedFillerCompleteness);
     // #1046 slice 5a: per-point Focus Points coverage, published by the stop seam after an objective
     // session finalizes; null for Open Mic sessions (and cleared at the next recording start).
     const objectiveCoverageResult = useSessionStore(state => state.objectiveCoverageResult);
@@ -636,6 +638,7 @@ export const SessionPage: React.FC = () => {
                     transcriptContent={transcriptContent}
                     finalizedWordCount={finalizedWordCount}
                     finalizedFillerData={finalizedFillerData}
+                    finalizedFillerCompleteness={finalizedFillerCompleteness}
                     showAnalyticsPrompt={showAnalyticsPrompt}
                     metricsFillerCount={metrics.fillerCount}
                     onStartStop={() => { void handleStartStop(); }}

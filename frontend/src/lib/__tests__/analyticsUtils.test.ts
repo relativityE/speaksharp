@@ -238,15 +238,25 @@ describe('#1306 metric-presence provenance — a metric is included iff its OWN 
         expect(nmPoint?.clarity).toBeNull();
     });
 
-    it('a MEASURED zero ({}) filler row IS included (counts as a genuine 0 in the denominator)', () => {
-        // One measured-zero row over 1 minute → 0 fillers / 1 min contributes a real 0.0/min data point; it is
-        // a filler-rate CONTRIBUTOR (unlike a null/unmeasured row, which is excluded).
+    // #1472 (PM 5682359616): a zero contributes to the filler rate ONLY when its completeness authority says the
+    // measurement was complete. A legacy/unstated `{}` is excluded like any other unverifiable value.
+    it('an UNSTATED zero ({}) filler row is EXCLUDED — never a flattering 0.0/min', () => {
         const zeroRow: PracticeSession = {
             id: 'z', created_at: '2023-10-29T10:00:00.000Z', user_id: 'user-1', duration: 60,
             total_words: 100, filler_counts: {}, clarity_score: 90,
         };
         const stats = calculateOverallStats([zeroRow]);
-        expect(stats.avgFillerWordsPerMin).toBe('0.0'); // measured zero → a real 0.0/min, not "unavailable"
+        expect(stats.avgFillerWordsPerMin).toBeNull();
+    });
+
+    it('a zero ({}) filler row stated COMPLETE IS included (counts as a genuine 0 in the denominator)', () => {
+        // One verified-zero row over 1 minute → 0 fillers / 1 min contributes a real 0.0/min data point.
+        const zeroRow: PracticeSession = {
+            id: 'z', created_at: '2023-10-29T10:00:00.000Z', user_id: 'user-1', duration: 60,
+            total_words: 100, filler_counts: {}, filler_completeness: 'complete', clarity_score: 90,
+        };
+        const stats = calculateOverallStats([zeroRow]);
+        expect(stats.avgFillerWordsPerMin).toBe('0.0'); // verified zero → a real 0.0/min, not "unavailable"
     });
 });
 

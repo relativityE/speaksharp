@@ -1,5 +1,6 @@
 import React from 'react';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import type { FillerEvidenceKind } from '@/contracts/fillerEvidence';
 
 /**
  * #1231 R2 — the after-state filler breakdown: a lean, ranked per-word list ("um ×4 · like ×2 · you know
@@ -20,6 +21,18 @@ export interface FillerBreakdownProps {
     stats?: string;
     /** Max words shown before "+N more". */
     maxWords?: number;
+    /**
+     * #1472 — what the empty state may claim. Only a `verified_zero` says "no filler words detected"; an absent kind is
+     * treated as unverified, so a caller that never learned completeness can never render a clean result.
+     */
+    evidence?: FillerEvidenceKind;
+}
+
+/** #1472: the empty-state sentence for each evidence kind. Anything short of a verified zero makes no clean claim. */
+function emptyStateCopy(evidence: FillerEvidenceKind | undefined): string {
+    if (evidence === 'verified_zero') return 'No filler words detected this session.';
+    if (evidence === 'no_speech') return 'No speech was transcribed, so filler words could not be measured.';
+    return 'Filler words could not be verified for this session.';
 }
 
 /** Ranked per-word counts (desc), excluding the synthetic `total` key and zero/invalid counts. */
@@ -34,7 +47,7 @@ function rankedFillers(fillerData?: FillerCounts | null): { word: string; count:
     return rows.sort((a, b) => b.count - a.count);
 }
 
-export const FillerBreakdown: React.FC<FillerBreakdownProps> = ({ fillerData, stats, maxWords = 6 }) => {
+export const FillerBreakdown: React.FC<FillerBreakdownProps> = ({ fillerData, stats, maxWords = 6, evidence }) => {
     const ranked = rankedFillers(fillerData);
     const shown = ranked.slice(0, maxWords);
     const extra = ranked.length - shown.length;
@@ -59,8 +72,8 @@ export const FillerBreakdown: React.FC<FillerBreakdownProps> = ({ fillerData, st
                     {extra > 0 && <li className="text-[12px] text-[#414b5c]">+{extra} more</li>}
                 </ul>
             ) : (
-                <p className="text-[12px] text-[#414b5c]" data-testid="filler-breakdown-empty">
-                    No filler words detected this session.
+                <p className="text-[12px] text-[#414b5c]" data-testid="filler-breakdown-empty" data-evidence={evidence ?? 'unobservable'}>
+                    {emptyStateCopy(evidence)}
                 </p>
             )}
         </div>

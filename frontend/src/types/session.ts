@@ -22,9 +22,13 @@ export interface PracticeSession {
   duration: number;
   title?: string;
   total_words?: number;
-  /** Strict flat filler tally — APPROVED standard keys only ({ um: 3, uh: 1 }); `{}` = measured zero. Never a
-   *  nested/free-form/prose-keyed map. Runtime-validated at the persistence boundary + read path. */
+  /** Strict flat filler tally — APPROVED standard keys only ({ um: 3, uh: 1 }). Never a nested/free-form/prose-keyed
+   *  map. Runtime-validated at the persistence boundary + read path. #1472: `{}` alone does NOT prove a clean zero —
+   *  read it only through `@/contracts/fillerEvidence` together with `filler_completeness`. */
   filler_counts?: PersistedFillerCounts;
+  /** #1472: the closed filler-evidence completeness authority. NULL/absent (legacy rows, older clients) is read as
+   *  unobservable — a zero is a verified zero only when this is `complete`. */
+  filler_completeness?: 'complete' | 'unobservable' | 'no_speech' | null;
   engine?: string;
   engine_version?: string;
   model_name?: string;

@@ -1,6 +1,6 @@
 import type { PracticeSession } from '@/types/session';
 import { getSessionAnalysisMetrics, ANALYTICS_THRESHOLDS } from './sessionAnalysis';
-import { persistedFillerTotal } from '@/contracts/fillerCounts';
+import { measuredFillerTotal, sessionFillerEvidence } from '@/contracts/fillerEvidence';
 import { hasValidPauseEvidence } from './metricValidity';
 
 /**
@@ -158,7 +158,9 @@ export function computeAggregateProgress(sessionsOldestFirst: SessionSignals[]):
 /** Extract the v1 signal set from a persisted session, honouring existing provenance gates (never fabricate). */
 export function signalsFromSession(s: PracticeSession): SessionSignals {
     const duration = s.duration || 0;
-    const fillerTotal = persistedFillerTotal(s.filler_counts);
+    // #1472: a filler rate exists only for measured evidence (observed, or a verified zero). An unobservable, no-speech
+    // or legacy zero contributes no rate, so it can never read as a perfect score in the progress composite.
+    const fillerTotal = measuredFillerTotal(sessionFillerEvidence(s));
     const m = getSessionAnalysisMetrics(s);
     const pauseOk = hasValidPauseEvidence(s.pause_metrics);
     return {

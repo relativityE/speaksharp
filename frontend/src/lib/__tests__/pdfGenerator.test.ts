@@ -247,13 +247,31 @@ describe('generateSessionPdf', () => {
     }));
   });
 
-  it('a measured filler ZERO ({}) renders NO filler table and a headline of 0', async () => {
+  // #1472 (PM 5682359616): the PDF tells the same truth as the Session result and Analytics. An unstated zero is
+  // unavailable (N/A); only a zero stated complete prints 0.
+  it('an UNSTATED filler zero ({}) renders NO filler table and an N/A headline — never a clean 0', async () => {
     await generateSessionPdf({
       ...mockSession,
-      filler_counts: {}, // measured zero — a genuine "no fillers", never recounted from anything
+      filler_counts: {}, // zero, but nothing affirms the measurement was complete
     } as unknown as Session);
 
-    // Measured zero is the headline, but there are no per-word rows to tabulate.
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([['Total Filler Words', 'N/A']]),
+    }));
+    const unverifiedTable = vi.mocked(autoTable).mock.calls.some(
+      ([, opts]) => JSON.stringify((opts as { head?: unknown })?.head ?? null).includes('Filler Word'),
+    );
+    expect(unverifiedTable).toBe(false);
+  });
+
+  it('a filler zero stated COMPLETE renders NO filler table and a headline of 0', async () => {
+    vi.mocked(autoTable).mockClear();
+    await generateSessionPdf({
+      ...mockSession,
+      filler_counts: {}, filler_completeness: 'complete', // verified zero — a genuine "no fillers"
+    } as unknown as Session);
+
+    // Verified zero is the headline, but there are no per-word rows to tabulate.
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([['Total Filler Words', '0']]),
     }));
@@ -384,8 +402,8 @@ describe('generateSessionPdf — metric-presence: unmeasured metrics render N/A,
     }));
   });
 
-  it('a measured filler ZERO ({}) renders a headline 0, but an absent word count stays N/A', async () => {
-    await generateSessionPdf(base({ total_words: undefined, filler_counts: {} }), 'TestUser');
+  it('a filler zero stated COMPLETE renders a headline 0, but an absent word count stays N/A', async () => {
+    await generateSessionPdf(base({ total_words: undefined, filler_counts: {}, filler_completeness: 'complete' } as never), 'TestUser');
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([
         ['Total Words', 'N/A'],

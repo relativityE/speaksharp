@@ -53,7 +53,7 @@ test.describe('#1047/#1231 filler breakdown states', () => {
     await expect(page.getByText(/cannot be verified yet/i)).toHaveCount(0);
   });
 
-  test('completed with ZERO fillers: after-state shows the honest empty breakdown', async ({ page }) => {
+  test('completed with ZERO fillers: after-state says the zero could not be verified, never "no fillers"', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
 
@@ -61,9 +61,10 @@ test.describe('#1047/#1231 filler breakdown states', () => {
     await recordAndStop(page, MOCK_TRANSCRIPTS);
 
     await expect(page.getByTestId('filler-breakdown')).toBeVisible({ timeout: 15000 });
-    // A RESULT, not a promise of one — the empty breakdown states there were no fillers this session.
-    await expect(page.getByTestId('filler-breakdown-empty'))
-      .toContainText('No filler words detected this session.');
+    // #1472 (PM 5682359616): a transcript with words and no filler token cannot tell a fluent speaker from a recognizer
+    // that dropped disfluencies, so the zero is UNOBSERVABLE. The empty breakdown says so and makes no clean claim.
+    await expect(page.getByTestId('filler-breakdown-empty')).toContainText('could not be verified');
+    await expect(page.getByTestId('filler-breakdown-empty')).not.toContainText('No filler words detected');
 
     // The ranked list stays absent: there is no evidence to show.
     await expect(page.getByTestId('filler-breakdown-list')).toHaveCount(0);
