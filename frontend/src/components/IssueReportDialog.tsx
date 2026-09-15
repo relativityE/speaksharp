@@ -505,7 +505,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
               maxLength={5000}
               data-testid="issue-report-description"
             />
-            {bodyCopy?.helper && <span className="block text-xs font-semibold text-neutral-muted">{bodyCopy.helper}</span>}
+            {bodyCopy?.helper && <span className="block text-xs font-semibold text-muted-foreground">{bodyCopy.helper}</span>}
           </label>
 
           {/*
@@ -561,7 +561,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
 
           {error && <p role="alert" className="text-sm font-semibold text-destructive">{error}</p>}
 
-          <div className="border-t border-neutral-border-soft pt-4 text-xs font-semibold text-neutral-muted" data-testid="issue-report-page-context">
+          <div className="border-t border-neutral-border-soft pt-4 text-xs font-semibold text-muted-foreground" data-testid="issue-report-page-context">
             {/*
               #1416 item 4 — PM-owned wording, exact.
 
@@ -573,7 +573,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
               The detail stays behind "What's included" so the default form remains short. The long
               introductory privacy block and the audio checkbox are deliberately NOT restored.
             */}
-            Sent from <strong className="font-extrabold text-neutral-secondary">{pageContext.pageLabel}</strong> · transcript and audio aren&rsquo;t attached automatically.{' '}
+            Sent from <strong className="font-extrabold text-foreground">{pageContext.pageLabel}</strong> · transcript and audio aren&rsquo;t attached automatically.{' '}
             <button type="button" onClick={() => setShowDisclosure((value) => !value)} className="font-bold underline underline-offset-2">What&apos;s included</button>
             {showDisclosure && (
               <p className="mt-2 leading-relaxed" data-testid="issue-report-disclosure">

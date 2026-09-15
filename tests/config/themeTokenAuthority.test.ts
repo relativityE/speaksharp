@@ -188,7 +188,7 @@ const CHANNEL_ROLES: Record<string, string> = {
     '--secondary': '--brand-neutral-band',
     '--secondary-foreground': '--brand-neutral-body',
     '--muted': '--brand-neutral-band',
-    '--muted-foreground': '--brand-neutral-secondary',
+    '--muted-foreground': '--brand-surface-session-text',
     '--accent': '--brand-neutral-band',
     '--accent-foreground': '--brand-neutral-heading',
     '--destructive': '--brand-error',

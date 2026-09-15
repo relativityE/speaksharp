@@ -57,8 +57,11 @@ async function checkColourAndRecord(page: Page, surface: string): Promise<void> 
       2,
     ),
   );
-  const colour = result.violations.filter((v) => COLOUR_RULES.has(v.id));
-  expect(colour, `${surface}: colour violations\n${JSON.stringify(colour, null, 2)}`).toEqual([]);
+  // Soft: one run must report EVERY colour defect on every surface, not stop at the first failing surface.
+  const colour = result.violations
+    .filter((v) => COLOUR_RULES.has(v.id))
+    .flatMap((v) => v.nodes.map((n) => ({ rule: v.id, html: n.html.slice(0, 160), summary: n.failureSummary?.split('\n').slice(1).join(' ').trim() })));
+  expect.soft(colour, `${surface}: colour violations\n${JSON.stringify(colour, null, 2)}`).toEqual([]);
 }
 
 async function captureBands(page: Page, surface: string): Promise<void> {
@@ -69,7 +72,7 @@ async function captureBands(page: Page, surface: string): Promise<void> {
       viewport: document.documentElement.clientWidth,
       document: document.documentElement.scrollWidth,
     }));
-    expect(widths.document, `${surface} overflows horizontally at ${band.name}: ${JSON.stringify(widths)}`).toBeLessThanOrEqual(widths.viewport);
+    expect.soft(widths.document, `${surface} overflows horizontally at ${band.name}: ${JSON.stringify(widths)}`).toBeLessThanOrEqual(widths.viewport);
     await page.screenshot({ path: `${SHOTS}/${surface}-${band.name}.png`, fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 900 });

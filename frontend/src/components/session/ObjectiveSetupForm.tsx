@@ -265,7 +265,7 @@ export function ObjectiveSetupForm({
                 <div className="flex items-center justify-between gap-3">
                     <div>
                         <div className="text-[14px] font-extrabold text-neutral-body">Pace guide</div>
-                        <div className="mt-0.5 text-[12px] font-semibold text-neutral-muted">A guide, not a limit.</div>
+                        <div className="mt-0.5 text-[12px] font-semibold text-neutral-secondary">A guide, not a limit.</div>
                     </div>
                     {paceGuideMin != null ? (
                         <div className="flex items-center gap-2">
@@ -291,11 +291,11 @@ export function ObjectiveSetupForm({
                             {labelledPoints.length} point{labelledPoints.length === 1 ? '' : 's'} × {fmtMin(paceGuideMin)} min ≈ <strong className="font-extrabold text-neutral-body">{fmtMin(paceTotalMin ?? 0)} min</strong>
                         </span>
                     ) : (
-                        <span className="text-[13px] font-semibold text-neutral-muted">No pace guide — you’ll see coverage only.</span>
+                        <span className="text-[13px] font-semibold text-neutral-secondary">No pace guide — you’ll see coverage only.</span>
                     )}
                     {paceGuideMin != null && (
                         <button type="button" data-testid="objective-pace-skip" onClick={() => setPaceGuideMin(null)}
-                            className="whitespace-nowrap text-[13px] font-bold text-neutral-muted hover:underline">Skip the guide</button>
+                            className="whitespace-nowrap text-[13px] font-bold text-neutral-secondary hover:underline">Skip the guide</button>
                     )}
                 </div>
             </div>

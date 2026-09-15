@@ -531,7 +531,7 @@ export const SessionPage: React.FC = () => {
                     <div className="mb-[34px] flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4" data-testid="session-title-block">
                         <div>
                             <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
-                            <p className="text-sm text-foreground/70" data-testid="session-subtitle">{sessionSubtitle}</p>
+                            <p className="text-sm text-muted-foreground" data-testid="session-subtitle">{sessionSubtitle}</p>
                         </div>
                         <FreeformHelpOverlay available={helpOverlayAvailable} className="shrink-0" variant={isObjectiveSession ? 'objective' : 'freeform'} />
                     </div>

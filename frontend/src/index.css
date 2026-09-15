@@ -15,8 +15,8 @@ All colors MUST be HSL.
      * drifts from its role. Mapping (PM-accepted checkpoint map, #1480 comment 5685490234):
      *   background = surface-session · foreground/card/popover text = neutral-body · primary = signature (fills;
      *   text uses signature-text) · primary-foreground = ink · secondary/muted/accent = neutral-band ·
-     *   accent-foreground = neutral-heading · muted-foreground = neutral-secondary (never neutral-muted on the
-     *   session surface) · destructive = error · success = status · border = neutral-border ·
+     *   accent-foreground = neutral-heading · muted-foreground = surface-session-text (muted copy sits on the
+     *   session surface; neutral-secondary is 4.45:1 there) · destructive = error · success = status · border = neutral-border ·
      *   border-strong/input = neutral-border-strong · ring = signature-text · charts = metric roles.
      */
     --background: 218.7 23.7% 74.3%;
@@ -35,7 +35,9 @@ All colors MUST be HSL.
     --secondary-foreground: 216 24.4% 16.1%;
 
     --muted: 216 45.5% 97.8%;
-    --muted-foreground: 217.8 17.2% 30.8%;
+    /* surface-session-text, not neutral-secondary: muted copy sits directly on the #aeb9cd surface on most routes,
+       where neutral-secondary measures 4.45:1 (theme matrix, #1481 CI run 35031211720). */
+    --muted-foreground: 216.5 24.7% 18.2%;
 
     --accent: 216 45.5% 97.8%;
     --accent-foreground: 221.7 29.1% 15.5%;
