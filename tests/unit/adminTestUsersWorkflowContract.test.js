@@ -93,4 +93,52 @@ describe('Admin - Test Users workflow contract', () => {
   it('keeps the stable script path and filename contract', () => {
     expect(raw).toContain('node scripts/setup-test-users.mjs');
   });
+
+  it('verify_target selects the reviewers check (default) or the read-only canary inspection', () => {
+    expect(inputs.verify_target.options).toEqual(['reviewers', 'canaries']);
+    expect(inputs.verify_target.default).toBe('reviewers');
+    expect(raw).toContain('VERIFY_TARGET: ${{ github.event.inputs.verify_target }}');
+  });
+
+  // Product Owner decision (15 Sep 2026): the canary inspection is STRICTLY read-only. No writes, no authentication
+  // (no token, no last_sign_in_at stamp), and the only RPC is the effective-tier read.
+  const WRITES = ['.insert(', '.update(', '.upsert(', '.delete(', 'createUser', 'updateUserById', 'deleteUser', 'inviteUserByEmail', 'generateLink'];
+  const AUTH = ['signInWithPassword', 'signInWithOtp', 'signInWithIdToken', 'signInAnonymously', 'signUp(', 'refreshSession', 'setSession', 'resetPasswordForEmail', 'updateUser(', 'provisionCanaryCredential', 'authenticateAndVerify', 'signInWithBoundedRetry'];
+  const CREDENTIALS = ['CANARY_TRIAL_PASSWORD', 'CANARY_PAID_PASSWORD', 'SUPABASE_ANON_KEY', 'FREE_TEST_PASSWORD', 'SOAK_TEST_PASSWORD'];
+  const read = (p) => readFileSync(resolve(process.cwd(), p), 'utf8');
+  const fnBody = (src, name) => {
+    const start = src.indexOf(`export async function ${name}(`);
+    return start < 0 ? '' : src.slice(start, src.indexOf('\n}\n', start) + 2);
+  };
+
+  it('the canary inspection and the verifier contain no write, authentication or credential path', () => {
+    const lib = read('scripts/lib/canaryReadOnlyVerify.mjs');
+    const verifier = read('scripts/verify-test-users.mjs');
+    const found = [];
+    for (const [name, src] of [['canaryReadOnlyVerify.mjs', lib], ['verify-test-users.mjs', verifier]]) {
+      for (const token of [...WRITES, ...AUTH, ...CREDENTIALS]) if (src.includes(token)) found.push(`${name}: ${token}`);
+    }
+    expect(found).toEqual([]);
+  });
+
+  it('the canary inspection calls exactly one RPC, effective_subscription_tier, and imports only read-only helpers', () => {
+    const lib = read('scripts/lib/canaryReadOnlyVerify.mjs');
+    const rpcNames = [...lib.matchAll(/\.rpc\(\s*'([^']+)'/g)].map((m) => m[1]);
+    expect(rpcNames).toEqual(['effective_subscription_tier']);
+    expect(lib.split('.rpc(').length - 1).toBe(rpcNames.length);
+    const imported = /import \{([^}]+)\} from '\.\/canaryAccountAdmin\.mjs'/.exec(lib)[1].split(',').map((s) => s.trim()).sort();
+    expect(imported).toEqual(['maskEmail', 'strictLookup', 'verifyCanaryFoundation']);
+    expect(lib.match(/from '\.\/[^']+'/g)).toEqual(["from './canaryAccountAdmin.mjs'"]);
+  });
+
+  it('the reused canary admin helpers are themselves read-only', () => {
+    const admin = read('scripts/lib/canaryAccountAdmin.mjs');
+    const bodies = { strictLookup: fnBody(admin, 'strictLookup'), verifyCanaryFoundation: fnBody(admin, 'verifyCanaryFoundation') };
+    const found = [];
+    for (const [name, body] of Object.entries(bodies)) {
+      if (body.length === 0) found.push(`${name}: not found`);
+      for (const token of [...WRITES, ...AUTH]) if (body.includes(token)) found.push(`${name}: ${token}`);
+    }
+    expect(found).toEqual([]);
+  });
 });
