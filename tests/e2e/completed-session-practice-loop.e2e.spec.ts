@@ -63,6 +63,53 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
     });
   }
 
+  // #1466 PM acceptance lock — the Practice Loop is the primary result, so it must be at eye level WITHOUT
+  // scrolling: heading and current state inside the initial viewport at scrollY 0, ahead of the transcript,
+  // with the saved confirmation still on screen. The Product Owner found it below the transcript and the
+  // secondary cards, reachable only by scrolling; a forced scroll would also have qualified a page that
+  // still buries it, so the page is pinned to the top before anything is measured.
+  for (const viewport of VIEWPORTS) {
+    test(`${viewport.name}: the practice loop is at eye level at scrollY 0`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await programmaticLoginWithRoutes(page, { userType: 'pro' });
+      await navigateToRoute(page, '/session');
+      await recordAndStop(page);
+      await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15_000 });
+
+      const card = page.getByTestId('ai-suggestions-card');
+      await expect(card).toBeVisible({ timeout: 15_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+      const inViewport = async (box: { y: number; height: number } | null) =>
+        Boolean(box && box.y >= 0 && box.y + box.height <= viewport.height);
+
+      const heading = card.getByText('Practice Loop review', { exact: true });
+      await expect(heading).toBeVisible();
+      expect(await inViewport(await heading.boundingBox()), 'Practice Loop heading inside the first viewport').toBe(true);
+
+      // The heading is not merely inside the rectangle — nothing fixed (header, mobile action bar) covers it.
+      const headingOnTop = await heading.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return Boolean(hit && (el === hit || el.contains(hit)));
+      });
+      expect(headingOnTop, 'Practice Loop heading is not obscured').toBe(true);
+
+      // The card's current state starts inside the viewport too, whichever state it is in.
+      const cardBox = await card.boundingBox();
+      expect(cardBox && cardBox.y < viewport.height, 'review state begins inside the first viewport').toBe(true);
+
+      // Ahead of the transcript detail, in layout and reading order.
+      const transcriptBox = await page.getByTestId('session-slot-b').boundingBox();
+      expect(cardBox && transcriptBox && cardBox.y < transcriptBox.y, 'review band sits above the transcript').toBe(true);
+
+      // The saved confirmation is still visible, not scrolled away.
+      expect(await inViewport(await page.getByTestId('live-session-header').boundingBox()), 'saved confirmation stays on screen').toBe(true);
+    });
+  }
+
   test('desktop: Practice this again actually starts a new take', async ({ page }) => {
     test.setTimeout(90_000);
     await page.setViewportSize({ width: 1280, height: 800 });
