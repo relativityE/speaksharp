@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for unfinished and deferred product/release work)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-15 — reconciled to `main@8e638c84`, the four open PRs, the 29 open issues, the 20 immediate closures/consolidations, and incomplete RWT evidence.
+**Last Verified:** 2026-09-15 — reconciled to `main@8e638c84`, the five open PRs, the 29 open issues, the 20 immediate closures/consolidations, and incomplete RWT evidence.
 **Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
