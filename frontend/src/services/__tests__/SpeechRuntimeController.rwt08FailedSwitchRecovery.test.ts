@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import type { TranscriptionMode } from '../transcription/TranscriptionPolicy';
 import { speechRuntimeController } from '../SpeechRuntimeController';
 import { useSessionStore } from '@/stores/useSessionStore';
-import { __resetRecordingIntentForTests } from '../recordingIntent';
+import { __resetRecordingIntentForTests, pendingRecordingIntent } from '../recordingIntent';
 import { installRuntimeCandidateSwitch } from '../transcription/installRuntimeSwitch';
 import {
     clearRuntimeCandidateOverride,
@@ -98,6 +98,23 @@ describe('RWT-08 a failed Moonshine acquisition does not strand Start', () => {
         expect(setupRetried,
             `Start must drive setup for the same authorized candidate; presses refused with ${JSON.stringify(refusals)}`)
             .toBe(true);
+    });
+
+    it('CASUALTY: EVERY press re-prepares, is answered with the real cause, and leaves Start usable', async () => {
+        // A single retry is not recovery. If the first unprepared attempt parks the runtime in
+        // DOWNLOAD_REQUIRED, the next press is absorbed as a no-op and the page is stranded again.
+        await switchCandidate('moonshine:streaming-medium');
+        const setupCallsAfterSwitch = setupSpy.mock.calls.length;
+        (speechRuntimeController as unknown as { state: string }).state = 'IDLE';
+
+        for (let press = 1; press <= 2; press += 1) {
+            await expect(speechRuntimeController.startRecording(PRIVATE_POLICY as never, []),
+                `press ${press} must settle with the preparation outcome, not hang or resolve silently`)
+                .rejects.toThrow('RUNTIME_CANDIDATE_IDENTITY_MISMATCH:observed_missing');
+            await vi.waitFor(() => expect(speechRuntimeController.getState()).toBe('IDLE'));
+            expect(setupSpy.mock.calls.length - setupCallsAfterSwitch).toBe(press);
+        }
+        expect(pendingRecordingIntent(), 'no wish may survive to auto-start later').toBeNull();
     });
 
     it('CONTROL: a genuinely DIFFERENT observed model is still refused before any setup work', async () => {

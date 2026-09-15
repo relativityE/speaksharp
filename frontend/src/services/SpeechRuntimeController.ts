@@ -3741,15 +3741,32 @@ export class SpeechRuntimeController {
         // expected here, at the recording authority. This runs before service creation, locks, auth,
         // attestation, microphone acquisition, or transcription. A mismatch therefore produces an
         // explicit refusal and a content-free governed signal, never a wrongly labelled recording.
+        //
+        // #1263 RWT-08 — `observed_missing` is NOT A MISMATCH. The authorized candidate is still the expected one; its
+        // engine simply is not loaded (a failed acquisition publishes no identity). Refusing it identically on every
+        // press stranded the page: the copy told the user to switch again, and in Production that authorization is
+        // single-use. A FRESH click therefore prepares the same authorized candidate through the #1415 preparation path
+        // (below, before any service, auth or microphone work) and the resumed attempt re-runs this gate. A RESUMED
+        // attempt that still observes nothing is a real failure and is refused — one preparation per click, never a
+        // loop. `requested_mismatch` and `observed_mismatch` stay immediate refusals with no setup work (#1426).
+        let prepareCandidateBeforeStart = false;
         if ((policy?.preferredMode ?? 'private') === 'private') {
             const candidateGate = evaluateRuntimeCandidateTakeGate();
-            if (candidateGate.enabled && !candidateGate.allowed) {
+            if (candidateGate.enabled && !candidateGate.allowed
+                && candidateGate.refusal === 'observed_missing' && !resumedFromPreparation) {
+                prepareCandidateBeforeStart = true;
+                pushNativeRuntimeTrace('controller_start_candidate_requires_preparation', {
+                    refusal: candidateGate.refusal,
+                });
+            } else if (candidateGate.enabled && !candidateGate.allowed) {
                 emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.ERROR, {
                     error_code: 'RuntimeCandidateIdentityMismatch',
                     fallback_reason: candidateGate.refusal,
                     model_attribution_verified: false,
                 });
-                const message = 'Model comparison identity could not be verified. Switch the model again before recording.';
+                const message = candidateGate.refusal === 'observed_missing'
+                    ? 'The selected model could not be prepared, so recording did not start. Press Start to try again.'
+                    : 'Model comparison identity could not be verified. Switch the model again before recording.';
                 useSessionStore.getState().setSTTStatus({ type: 'error', message });
                 const refusal = new Error(`RUNTIME_CANDIDATE_IDENTITY_MISMATCH:${candidateGate.refusal}`);
                 // #1433 Codex P1 `3990876675` — a RESUMED start is fired unawaited by `transition()`, so a throw here
@@ -3937,6 +3954,40 @@ export class SpeechRuntimeController {
                 // #1033 item 4: aborting before the INITIATING transition — release the Start-intent lock.
                 this.engineSelectionIntentLocked = false;
                 this.publishLockState();
+                return;
+            }
+
+            // #1263 RWT-08 — PREPARE THE SAME AUTHORIZED CANDIDATE, THEN RE-GATE. Runs before any service, auth
+            // or microphone work, exactly like the #1415 preparation branch below: the intent is kept, the
+            // download is driven, and reaching READY claims the intent and re-enters `startRecording` as a
+            // RESUMED attempt, which re-runs the candidate gate. A claimed intent is no longer current, so
+            // the settle below cannot touch a resumed start that is already running.
+            if (prepareCandidateBeforeStart && isCurrentIntent(intent.token) && !intent.resumed) {
+                pushNativeRuntimeTrace('controller_start_preparing_candidate', {
+                    recordingId, intentToken: intent.token,
+                });
+                await this.transition('DOWNLOAD_REQUIRED', undefined, _token);
+                // Preparation that ended WITHOUT reaching READY (the service caught an INIT_FAILED and
+                // returned) or could not begin at all: this click is answered with the real cause, and
+                // the runtime returns to a state a later press can prepare from again — never parked
+                // where Start is a silent no-op.
+                const settleUnprepared = (cause: Error) => {
+                    if (!isCurrentIntent(intent.token)) return;
+                    void this.enqueue(async (resetToken) => {
+                        if (this.state === 'DOWNLOAD_REQUIRED') await this.transition('IDLE', undefined, resetToken);
+                    });
+                    retireRecordingIntent('acquisition_failed', intent.token, cause);
+                };
+                void Promise.resolve()
+                    .then(() => this.initiateModelDownload(this.policy?.preferredMode ?? 'private'))
+                    .then(
+                        () => settleUnprepared(new Error('RUNTIME_CANDIDATE_IDENTITY_MISMATCH:observed_missing')),
+                        (downloadErr: unknown) => {
+                            settleUnprepared(downloadErr instanceof Error
+                                ? downloadErr : new Error('RUNTIME_CANDIDATE_IDENTITY_MISMATCH:observed_missing'));
+                            logger.warn({ downloadErr }, '[controller] #1263 candidate preparation failed; intent retired');
+                        },
+                    );
                 return;
             }
 

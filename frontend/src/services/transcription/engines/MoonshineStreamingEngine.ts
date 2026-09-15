@@ -35,7 +35,7 @@ export interface MoonshineEngineOptions {
     candidateId: MoonshineCandidateId;
     modelArch: MoonshineArch;
     /** Injected so tests drive the real lifecycle without loading a 318 MB model. */
-    loadTranscriber?: (arch: MoonshineArch) => Promise<MoonshineTranscriber>;
+    loadTranscriber?: (arch: MoonshineArch, onProgress?: (fraction: number) => void) => Promise<MoonshineTranscriber>;
     /**
      * Where the configured identity comes from. Defaults to the registry.
      *
@@ -227,7 +227,17 @@ export class MoonshineStreamingEngine implements STTStrategy {
         return { isAvailable: true };
     }
 
-    async init(timeoutMs = 60_000): Promise<Result<void, Error>> {
+    /**
+     * #1263 RWT-07 / NEW-01 — THE BUDGET IS A STALL LIMIT, NOT A WALL CLOCK.
+     *
+     * `stallMs` is the longest the acquisition may go WITHOUT REPORTING PROGRESS. The pinned medium set is ~305 MB,
+     * and a flat timer cannot tell a slow-but-healthy transfer from a dead one: it failed the former and orphaned
+     * the download. Every progress report from the loader re-arms the limit, so a transfer that keeps moving is never
+     * failed on a timer, while one that genuinely stops still fails with a message naming the stall. A loader that
+     * reports no progress at all (injected doubles, or a runtime that never calls back) sees exactly the previous
+     * wall-clock behaviour.
+     */
+    async init(stallMs = 60_000): Promise<Result<void, Error>> {
         try {
             // FAIL CLOSED ON INCOMPLETE IDENTITY, before any weights are fetched. A session that cannot
             // say which model produced its transcript is not usable as A/B evidence, and discovering
@@ -246,7 +256,8 @@ export class MoonshineStreamingEngine implements STTStrategy {
                 );
             }
             const load = this.options.loadTranscriber
-                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress, candidate.model.id));
+                ?? ((arch: MoonshineArch, onProgress?: (fraction: number) => void) =>
+                    defaultLoadTranscriber(arch, onProgress, candidate.model.id));
 
             // THE ABANDONED LOADER. `Promise.race` only decides which promise this function waits for —
             // it does not cancel the loser. When the timeout won, `load()` kept running: it finished
@@ -261,7 +272,21 @@ export class MoonshineStreamingEngine implements STTStrategy {
             const myGeneration = ++this.generation;
             let settled = false;
             let timer: ReturnType<typeof setTimeout> | undefined;
-            const loading = Promise.resolve(load(this.options.modelArch));
+            let stalled: ((error: Error) => void) | undefined;
+            const armStallTimer = () => {
+                if (timer !== undefined) clearTimeout(timer);
+                timer = setTimeout(
+                    () => stalled?.(new Error(`moonshine init made no progress for ${stallMs}ms`)),
+                    stallMs,
+                );
+            };
+            const onProgress = (fraction: number) => {
+                // Progress after this init settled (or from a superseded generation) re-arms nothing.
+                if (settled || this.generation !== myGeneration) return;
+                armStallTimer();
+                this.options.onDownloadProgress?.(fraction);
+            };
+            const loading = Promise.resolve(load(this.options.modelArch, onProgress));
             loading.then(
                 (late) => {
                     if (settled || this.generation !== myGeneration) {
@@ -276,10 +301,8 @@ export class MoonshineStreamingEngine implements STTStrategy {
             let loaded: MoonshineTranscriber;
             try {
                 loaded = await new Promise<MoonshineTranscriber>((resolve, reject) => {
-                    timer = setTimeout(
-                        () => reject(new Error(`moonshine init exceeded ${timeoutMs}ms`)),
-                        timeoutMs,
-                    );
+                    stalled = reject;
+                    armStallTimer();
                     loading.then(resolve, reject);
                 });
             } finally {

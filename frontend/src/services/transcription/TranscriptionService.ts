@@ -813,7 +813,10 @@ export default class TranscriptionService {
       // population that measures what a user actually waits for.
       const acquiring = this.strategy as { setAcquisitionTrigger?: (t: 'warmup' | 'explicit-setup') => void };
       acquiring.setAcquisitionTrigger?.(isExplicitInit ? 'explicit-setup' : 'warmup');
-      const initResult = await this.strategy.init(STT_CONFIG.STRATEGY_INIT_TIMEOUT_MS, isMock);
+      // #1263 RWT-07 / NEW-01 — NO SERVICE-WIDE ACQUISITION CAP. This passed a generic 5 s value into every
+      // strategy's init. v2 and v4 never read it; Moonshine did, so a cold ~305 MB pinned transfer that was still
+      // making progress was failed at 5 s and orphaned. Each engine owns its own acquisition budget.
+      const initResult = await this.strategy.init(undefined, isMock);
 
       if (version !== this.strategyVersion) {
         logger.debug('[TranscriptionService] initializeStrategy aborted: strategy version mismatch');
