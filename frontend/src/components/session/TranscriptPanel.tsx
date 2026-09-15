@@ -79,7 +79,7 @@ const HighlightedTranscript: React.FC<HighlightedTranscriptProps> = ({ chunks, i
         <p className="text-lg leading-relaxed text-foreground" data-testid="transcript-container">
             {chunks.map((chunk, index) => (
                 <React.Fragment key={chunk.id}>
-                    {chunk.speaker && <strong className="mr-2 text-primary">{`Speaker ${chunk.speaker}:`}</strong>}
+                    {chunk.speaker && <strong className="mr-2 text-signature-text">{`Speaker ${chunk.speaker}:`}</strong>}
                     <MemoizedChunk chunk={chunk.transcript} fillerData={fillerData} />
                     {index < chunks.length - 1 && ' '}
                 </React.Fragment>

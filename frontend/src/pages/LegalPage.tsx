@@ -15,7 +15,7 @@ const LegalPage = ({ title, updated, sections }: LegalPageProps) => {
     <div className="min-h-screen bg-background px-4 pb-16 pt-28">
       <article className="mx-auto max-w-3xl space-y-8">
         <header className="space-y-3">
-          <Link to="/" className="text-sm font-semibold text-primary hover:underline">
+          <Link to="/" className="text-sm font-semibold text-signature-text hover:underline">
             SpeakSharp
           </Link>
           <div className="space-y-2">

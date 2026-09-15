@@ -382,7 +382,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
     return (
     <Card className={`rounded-xl p-6 ${className}`} data-testid={resolvedTestId}>
         <div className="flex items-center justify-between mb-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-accent/10 text-accent' : 'bg-primary/10 text-primary'}`}>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-signature-ground text-signature-text' : 'bg-primary/10 text-signature-text'}`}>
                 {/* Clone icon to enforce size and styling if needed, but usually props are fine. Wrapper handles color. */}
                 {React.cloneElement(icon as React.ReactElement, { size: 24, className: "stroke-current" })}
             </div>
@@ -466,13 +466,13 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Speaking Pace</p>
                 </div>
                 <div className="min-w-0 text-center">
-                    <p className={`font-bold text-lg ${typeof totalFillers === 'number' && totalFillers <= 3 ? "text-success" : "text-primary"}`}>
+                    <p className={`font-bold text-lg ${typeof totalFillers === 'number' && totalFillers <= 3 ? "text-success" : "text-signature-text"}`}>
                         {totalFillers}
                     </p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Detected filler words</p>
                 </div>
                 <div className="min-w-0 text-center">
-                    <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? `${clarity.toFixed(0)}%` : clarity}</p>
+                    <p className="font-bold text-signature-text text-lg">{typeof clarity === 'number' ? `${clarity.toFixed(0)}%` : clarity}</p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clear Delivery</p>
                 </div>
 
@@ -806,7 +806,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <Card className="lg:col-span-2">
                             <CardHeader className="flex flex-row items-center justify-between">
                                 <CardTitle className="flex items-center gap-2">
-                                    <Mic className="h-5 w-5 text-primary" />
+                                    <Mic className="h-5 w-5 text-signature-text" />
                                     Transcript
                                 </CardTitle>
                                 <div className="flex items-center gap-2">
@@ -906,7 +906,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         label: "Start Practice Session",
                         href: "/session"
                     }}
-                    icon={<BarChart className="w-10 h-10 text-primary" />}
+                    icon={<BarChart className="w-10 h-10 text-signature-text" />}
                     compact
                     className="mx-auto max-w-3xl border border-border surface-shadow"
                     testId={TEST_IDS.ANALYTICS_EMPTY_STATE}
@@ -925,7 +925,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <CardHeader className="space-y-4">
                             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                                 <div className="space-y-1">
-                                    <p className="text-xs font-bold uppercase tracking-wider text-primary">Working on</p>
+                                    <p className="text-xs font-bold uppercase tracking-wider text-signature-text">Working on</p>
                                     <CardTitle className="text-2xl font-extrabold text-foreground">{focusLabel}</CardTitle>
                                     <p className="max-w-3xl text-sm font-semibold leading-snug text-foreground/75">
                                         {focusPurpose}
@@ -936,7 +936,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         <Button
                                             variant="outline"
                                             size="sm"
-                                            className="gap-2 self-start border-[hsl(var(--border-strong))] font-semibold text-foreground hover:border-primary hover:bg-primary/10 hover:text-primary"
+                                            className="gap-2 self-start border-[hsl(var(--border-strong))] font-semibold text-foreground hover:border-primary hover:bg-primary/10 hover:text-signature-text"
                                             data-testid={TEST_IDS.ANALYTICS_FOCUS_TRIGGER}
                                         >
                                             Choose focus
@@ -983,7 +983,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         {isCustomFocus && (
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-primary">
+                                    <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-signature-text">
                                         <Settings className="h-4 w-4" />
                                         Choose Stat Cards
                                     </Button>
@@ -1107,7 +1107,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         {isCustomFocus && (
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-primary">
+                                    <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-signature-text">
                                         <Settings className="h-4 w-4" />
                                         Choose Analysis Tools
                                     </Button>

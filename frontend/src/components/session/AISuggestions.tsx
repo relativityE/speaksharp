@@ -364,7 +364,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
     <Card ref={reviewCardRef} data-testid="ai-suggestions-card" data-review-state={reviewState}>
       <CardHeader className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-purple-500" />
+          <Sparkles className="h-5 w-5 text-signature-text" />
           Practice Loop review
         </CardTitle>
         {/*

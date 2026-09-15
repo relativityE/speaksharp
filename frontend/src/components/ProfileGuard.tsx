@@ -127,7 +127,7 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     if (authLoading) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6" data-testid="auth-loading">
-                <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+                <Loader2 className="h-10 w-10 animate-spin text-signature-text mb-4" />
                 <p className="text-sm font-medium text-muted-foreground animate-pulse">Initializing session...</p>
             </div>
         );
@@ -163,7 +163,7 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
             <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6" data-testid="app-loading">
                 <div className="relative">
                     <div className="absolute inset-0 blur-xl bg-primary/20 rounded-full animate-pulse" />
-                    <Loader2 className="h-12 w-12 animate-spin text-primary relative z-10" />
+                    <Loader2 className="h-12 w-12 animate-spin text-signature-text relative z-10" />
                 </div>
                 <h2 className="mt-8 text-xl font-bold text-foreground">Readying your experience</h2>
                 <p className="mt-2 text-sm text-muted-foreground">Synchronizing your preferences...</p>
@@ -178,7 +178,7 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
             <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6" data-testid="profile-provisioning">
                 <div className="relative">
                     <div className="absolute inset-0 blur-xl bg-primary/20 rounded-full animate-pulse" />
-                    <Loader2 className="h-12 w-12 animate-spin text-primary relative z-10" />
+                    <Loader2 className="h-12 w-12 animate-spin text-signature-text relative z-10" />
                 </div>
                 <h2 className="mt-8 text-xl font-bold text-foreground">Setting up your account</h2>
                 <p className="mt-2 text-sm text-muted-foreground">This only takes a moment for new accounts…</p>

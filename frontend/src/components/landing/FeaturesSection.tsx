@@ -40,21 +40,21 @@ const features = [
     title: "Open Mic",
     description: "Start a Private practice recording whenever you are ready. Speak freely, then review the transcript and coaching.",
     iconBgColor: "bg-primary/20",
-    iconTextColor: "text-primary",
+    iconTextColor: "text-signature-text",
   },
   {
     icon: <BarChart3 className="size-8" />,
     title: "Focus Points",
     description: "Optionally name the points you want to cover, then see which were detected and what to retry.",
     iconBgColor: "bg-primary/20",
-    iconTextColor: "text-primary",
+    iconTextColor: "text-signature-text",
   },
   {
     icon: <ShieldCheck className="size-8" />,
     title: "Private by design",
     description: "Every customer recording uses on-device Private transcription. Trial and paid access provide the same complete product.",
     iconBgColor: "bg-primary/20",
-    iconTextColor: "text-primary",
+    iconTextColor: "text-signature-text",
   }
 ]
 

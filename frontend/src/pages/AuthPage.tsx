@@ -228,7 +228,7 @@ export default function AuthPage() {
                           variant="link"
                           type="button"
                           onClick={() => handleViewChange('forgot_password')}
-                          className="px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"
+                          className="px-0 font-normal text-xs text-muted-foreground hover:text-signature-text h-auto"
                           data-testid="forgot-password-button"
                         >
                           Forgot Password? Reset
@@ -314,7 +314,7 @@ export default function AuthPage() {
                     variant="outline"
                     type="button"
                     onClick={() => handleViewChange('sign_up')}
-                    className="w-full h-11 font-semibold border-primary/20 hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-colors"
+                    className="w-full h-11 font-semibold border-primary/20 hover:bg-primary/5 hover:text-signature-text hover:border-primary/50 transition-colors"
                     data-testid="mode-toggle"
                   >
                     Create an account
@@ -339,7 +339,7 @@ export default function AuthPage() {
         </Card>
 
         <p className="text-center text-sm text-muted-foreground px-8">
-          By clicking continue, you agree to our <Link to="/terms" className="underline underline-offset-4 hover:text-primary">Terms of Service</Link> and <Link to="/privacy" className="underline underline-offset-4 hover:text-primary">Privacy Policy</Link>.
+          By clicking continue, you agree to our <Link to="/terms" className="underline underline-offset-4 hover:text-signature-text">Terms of Service</Link> and <Link to="/privacy" className="underline underline-offset-4 hover:text-signature-text">Privacy Policy</Link>.
         </p>
       </div>
     </div>

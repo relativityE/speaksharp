@@ -11,7 +11,7 @@ export const buttonVariants = cva(
         secondary: "bg-white text-foreground border border-border hover:bg-muted shadow-sm hover:shadow-md transform hover:-translate-y-0.5",
         accent: "bg-accent text-accent-foreground hover:bg-accent/90 shadow-md hover:shadow-lg transform hover:-translate-y-0.5",
         ghost: "text-muted-foreground hover:bg-muted hover:text-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        link: "text-signature-text underline-offset-4 hover:underline",
       },
       size: {
         default: "h-10 px-4 py-2",

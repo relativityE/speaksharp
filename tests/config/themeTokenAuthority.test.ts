@@ -126,7 +126,6 @@ const BASELINE_PALETTE_UTILITY: Record<string, number> = {
     'frontend/src/components/landing/FeaturesSection.tsx': 2,
     'frontend/src/components/landing/HeroSection.tsx': 4,
     'frontend/src/components/landing/HeroStatsDashboard.tsx': 7,
-    'frontend/src/components/session/AISuggestions.tsx': 1,
     'frontend/src/components/session/__tests__/StatusNotificationBar.test.tsx': 1,
     'frontend/src/lib/__tests__/utils.test.ts': 4,
 };
@@ -172,6 +171,80 @@ describe('#1480 — one theme authority', () => {
             .filter((value) => value !== '#ffffff')
             .filter((value) => config.toLowerCase().includes(value));
         expect({ unmapped, leakedLiterals }).toEqual({ unmapped: [], leakedLiterals: [] });
+    });
+});
+
+// shadcn HSL channel tokens are the brand roles in channel form (kept for Tailwind opacity modifiers). Each one must
+// convert back to exactly its role's hex, so a channel value can never become an independent colour choice.
+const CHANNEL_ROLES: Record<string, string> = {
+    '--background': '--brand-surface-session',
+    '--foreground': '--brand-neutral-body',
+    '--card': '--brand-neutral-page',
+    '--card-foreground': '--brand-neutral-body',
+    '--popover': '--brand-neutral-page',
+    '--popover-foreground': '--brand-neutral-body',
+    '--primary': '--brand-signature',
+    '--primary-foreground': '--brand-ink',
+    '--secondary': '--brand-neutral-band',
+    '--secondary-foreground': '--brand-neutral-body',
+    '--muted': '--brand-neutral-band',
+    '--muted-foreground': '--brand-neutral-secondary',
+    '--accent': '--brand-neutral-band',
+    '--accent-foreground': '--brand-neutral-heading',
+    '--destructive': '--brand-error',
+    '--destructive-foreground': '--brand-neutral-page',
+    '--success': '--brand-status',
+    '--success-foreground': '--brand-neutral-page',
+    '--border': '--brand-neutral-border',
+    '--border-strong': '--brand-neutral-border-strong',
+    '--input': '--brand-neutral-border-strong',
+    '--ring': '--brand-signature-text',
+    '--sidebar-background': '--brand-neutral-page',
+    '--sidebar-foreground': '--brand-neutral-body',
+    '--sidebar-primary': '--brand-signature',
+    '--sidebar-primary-foreground': '--brand-ink',
+    '--sidebar-accent': '--brand-neutral-band',
+    '--sidebar-accent-foreground': '--brand-neutral-heading',
+    '--sidebar-border': '--brand-neutral-border',
+    '--sidebar-ring': '--brand-signature-text',
+    '--chart-1': '--brand-signature',
+    '--chart-2': '--brand-metric-clarity',
+    '--chart-3': '--brand-status',
+    '--chart-4': '--brand-ink-hairline',
+    '--chart-5': '--brand-error',
+    '--nav-active-bg': '--brand-signature-border',
+    '--nav-active-fg': '--brand-signature-text',
+    '--nav-item-fg': '--brand-neutral-secondary',
+    '--nav-item-fg-hover': '--brand-neutral-heading',
+    '--nav-avatar-bg': '--brand-neutral-border-soft',
+    '--nav-avatar-fg': '--brand-neutral-secondary',
+    '--session-warm-tile': '--brand-signature-ground',
+    '--session-warm-tile-text': '--brand-signature-text',
+};
+
+function channelToHex(channel: string): string {
+    const match = channel.match(/^([\d.]+) ([\d.]+)% ([\d.]+)%$/);
+    if (!match) return `unparsed(${channel})`;
+    const [h, s, l] = [Number(match[1]), Number(match[2]) / 100, Number(match[3]) / 100];
+    const k = (n: number) => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return `#${[0, 8, 4].map((n) => Math.round(f(n) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+describe('#1480 — shadcn channel tokens are the brand roles, never independent colours', () => {
+    it('every light-theme channel token converts back to exactly its brand role', () => {
+        const css = readFileSync(join(ROOT, TOKEN_AUTHORITY), 'utf8');
+        const rootBlock = css.slice(css.indexOf(':root {'), css.indexOf('.dark {'));
+        const firstValue = (token: string) => rootBlock.match(new RegExp(`\\n\\s*${token}:\\s*([^;]+);`))?.[1].trim() ?? 'missing';
+        const actual = Object.fromEntries(Object.keys(CHANNEL_ROLES).map((token) => [token, channelToHex(firstValue(token))]));
+        const expected = Object.fromEntries(Object.entries(CHANNEL_ROLES).map(([token, role]) => [token, ROLE_TOKENS[role]]));
+        expect(actual).toEqual(expected);
+    });
+
+    it('CASUALTY: a drifted channel value is detected', () => {
+        expect(channelToHex('40.4 100% 56.1%')).toBe(ROLE_TOKENS['--brand-signature']);
+        expect(channelToHex('36 92% 40%')).not.toBe(ROLE_TOKENS['--brand-signature']);
     });
 });
 

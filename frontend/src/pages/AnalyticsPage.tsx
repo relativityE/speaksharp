@@ -69,7 +69,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
                 >
                     <div className="flex items-center gap-3">
                         <div className="rounded-lg bg-primary/15 p-2">
-                            <Mic className="w-5 h-5 text-primary" />
+                            <Mic className="w-5 h-5 text-signature-text" />
                         </div>
                         <div className="text-left">
                             <span className="font-bold block text-base">Turn practice into progress</span>

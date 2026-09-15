@@ -46,7 +46,7 @@ export function SessionPageSkeleton() {
                         <div className="space-y-4 w-full">
                             <Skeleton className="h-8 w-48 mx-auto" />
                             <div className="space-y-2 pt-4">
-                                <p className="text-sm font-medium text-primary/80 uppercase tracking-widest">Preparing your session</p>
+                                <p className="text-sm font-medium text-signature-text uppercase tracking-widest">Preparing your session</p>
                                 <p className="min-h-[3rem] text-lg font-medium italic text-foreground/70 transition-opacity duration-500">
                                     "{tip}"
                                 </p>

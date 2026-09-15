@@ -24,7 +24,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     logger.debug('[ProtectedRoute] Auth loading...');
     return (
       <div className="flex h-[50vh] w-full items-center justify-center" data-testid="protected-route-loading">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-8 w-8 animate-spin text-signature-text" />
       </div>
     );
   }
