@@ -48,8 +48,7 @@
   "include": [
     "src",
     "tests",
-    "playwright.config.ts",
-    "tailwind.config.ts"
+    "playwright.config.ts"
   ],
   "exclude": [
     "dist",
