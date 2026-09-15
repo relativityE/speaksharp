@@ -127,13 +127,35 @@ describe('Admin - Test Users workflow contract', () => {
     expect(rpcNames).toEqual(['effective_subscription_tier']);
     expect(lib.split('.rpc(').length - 1).toBe(rpcNames.length);
     const imported = /import \{([^}]+)\} from '\.\/canaryAccountAdmin\.mjs'/.exec(lib)[1].split(',').map((s) => s.trim()).sort();
-    expect(imported).toEqual(['maskEmail', 'strictLookup', 'verifyCanaryFoundation']);
+    expect(imported).toEqual(['judgeCanaryFoundationSnapshot', 'maskEmail', 'strictLookup']);
     expect(lib.match(/from '\.\/[^']+'/g)).toEqual(["from './canaryAccountAdmin.mjs'"]);
+  });
+
+  it('the inspection judges the ONE snapshot it reports: no re-reading foundation helper', () => {
+    // Codex P2 4020951921: `verifyCanaryFoundation` performs its OWN profile read and tier RPC and returns only
+    // {ok, reason}. Pairing its verdict with a snapshot read earlier let a mid-flight entitlement downgrade be
+    // reported as ELIGIBLE. The inspection must use the pure rule function, and must read the profile ONCE.
+    const lib = read('scripts/lib/canaryReadOnlyVerify.mjs');
+    expect(lib).not.toContain('verifyCanaryFoundation');
+    expect(lib).toContain('judgeCanaryFoundationSnapshot(profile');
+    expect(lib.match(/\.from\('user_profiles'\)/g)).toHaveLength(1);
   });
 
   it('the reused canary admin helpers are themselves read-only', () => {
     const admin = read('scripts/lib/canaryAccountAdmin.mjs');
-    const bodies = { strictLookup: fnBody(admin, 'strictLookup'), verifyCanaryFoundation: fnBody(admin, 'verifyCanaryFoundation') };
+    // fnBody matches `export async function` only, so the pure (sync) rule function needs its own slice — an
+    // empty body would otherwise pass this scan vacuously.
+    const pureStart = admin.indexOf('export function judgeCanaryFoundationSnapshot(');
+    const pureBody = pureStart < 0 ? '' : admin.slice(pureStart, admin.indexOf('\n}\n', pureStart) + 2);
+    const bodies = {
+      strictLookup: fnBody(admin, 'strictLookup'),
+      verifyCanaryFoundation: fnBody(admin, 'verifyCanaryFoundation'),
+      judgeCanaryFoundationSnapshot: pureBody,
+    };
+    // The rules function must perform no I/O at all — no reads, not just no writes.
+    for (const io of ['await ', '.from(', '.rpc(', 'adminClient']) {
+      expect(pureBody, `judgeCanaryFoundationSnapshot must be pure: found ${io}`).not.toContain(io);
+    }
     const found = [];
     for (const [name, body] of Object.entries(bodies)) {
       if (body.length === 0) found.push(`${name}: not found`);

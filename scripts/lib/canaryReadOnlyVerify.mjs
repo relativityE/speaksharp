@@ -17,7 +17,7 @@
  * enums and counts. No email, token, Stripe identifier or row content is ever emitted.
  */
 import { hash } from 'node:crypto';
-import { maskEmail, strictLookup, verifyCanaryFoundation } from './canaryAccountAdmin.mjs';
+import { judgeCanaryFoundationSnapshot, maskEmail, strictLookup } from './canaryAccountAdmin.mjs';
 
 export const CANARY_TARGETS = Object.freeze([
     Object.freeze({ purpose: 'canary_trial', label: 'trial canary', emailVar: 'CANARY_TRIAL_EMAIL' }),
@@ -196,14 +196,17 @@ export async function inspectCanaryIdentity({ adminClient, email, purpose, label
     };
     if (tierError) return withVerdict(shaped, VERDICTS.AMBIGUOUS, 'effective_tier_unreadable');
 
-    // Same foundation rules the Admin create/reuse path enforces, so "eligible" means the same thing everywhere.
-    const foundation = await verifyCanaryFoundation(adminClient, userId, purpose);
-    if (!foundation.ok) {
-        const unreadable = /^(profile_readback_error|tier_rpc_error)/.test(foundation.reason);
-        return withVerdict(shaped, unreadable ? VERDICTS.AMBIGUOUS : VERDICTS.INELIGIBLE, foundation.reason);
-    }
+    // ONE snapshot decides and is reported. The Admin helper re-reads the profile and re-runs the tier RPC and
+    // returns only {ok, reason}, so pairing its verdict with the snapshot above could report a stale identity as
+    // eligible if entitlement changed between the two reads (Codex P2 on #1483). The rules below are the same
+    // rules that helper enforces, applied to the snapshot this report actually shows.
+    // Every unreadable-read case already returned AMBIGUOUS above, so any !ok here is a judgment about the
+    // identity's actual state, not a read failure: INELIGIBLE with the helper's sanitized reason.
+    const foundation = judgeCanaryFoundationSnapshot(profile, { purpose, effectiveTier: shaped.effectiveTier });
+    if (!foundation.ok) return withVerdict(shaped, VERDICTS.INELIGIBLE, foundation.reason);
     if (purpose === 'canary_paid') {
-        // The paid lane runs only on a genuine, server-effective paid Pro binding (canaryProvision paid lane).
+        // The shared paid lane deliberately accepts a clean credentials-only account (Admin writes no
+        // entitlement). The canary additionally needs a genuine, server-effective paid Pro binding to run.
         if (shaped.effectiveTier !== 'pro') return withVerdict(shaped, VERDICTS.INELIGIBLE, 'paid_not_effective_pro');
         if (shaped.storedTier !== 'pro') return withVerdict(shaped, VERDICTS.INELIGIBLE, 'paid_stored_tier_not_pro');
         if (shaped.billingIdentityShape !== 'complete') return withVerdict(shaped, VERDICTS.INELIGIBLE, 'paid_billing_identity_incomplete');

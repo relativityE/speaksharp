@@ -194,3 +194,42 @@ describe('canary read-only inspection — FK-dependent row counts', () => {
     expect([unknown.dependentRowCounts.user_issue_reports, unknown.retirementPreflight]).toEqual(['unreadable', 'UNKNOWN']);
   });
 });
+
+describe('canary read-only inspection — one snapshot decides AND is reported', () => {
+  // Codex P2 4020951921 on #1483. The first implementation judged with `verifyCanaryFoundation`, which performs
+  // its OWN profile read and tier RPC and returns only {ok, reason}. If entitlement changed between the two
+  // reads, the second read could see a clean credentials-only Free profile — which that helper's paid lane
+  // deliberately accepts — and return ok, while the report still showed the Pro-shaped snapshot read first.
+  // The production diagnostic then called a stale paid identity ELIGIBLE. One read is the structural fix.
+  const downgradedFree = (id) => ({
+    ...paidPro(id), subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null,
+  });
+
+  it('reads the profile exactly ONCE, so no later change can be paired with the reported snapshot', async () => {
+    let profileReads = 0;
+    // Serves Pro on the first read and a downgraded Free profile on every read after it: a second read would
+    // judge a different identity state than the one this report shows.
+    const profiles = {
+      get p1() {
+        profileReads += 1;
+        return profileReads === 1 ? paidPro('p1') : downgradedFree('p1');
+      },
+    };
+    const admin = makeAdmin({ users: [authUser('p1', PAID_EMAIL)], profiles });
+    const report = await inspectPaid(admin);
+
+    expect(profileReads).toBe(1);
+    expect(admin.calls.selects.filter((s) => s.table === 'user_profiles')).toHaveLength(1);
+    expect(admin.calls.rpc).toEqual(['effective_subscription_tier']);
+    // Verdict and reported facts both come from that single read.
+    expect([report.verdict, report.storedTier, report.billingIdentityShape]).toEqual([VERDICTS.ELIGIBLE, 'pro', 'complete']);
+  });
+
+  it('a downgraded snapshot is judged as exactly the state it reports', async () => {
+    const admin = makeAdmin({ users: [authUser('p1', PAID_EMAIL)], profiles: { p1: downgradedFree('p1') }, effTier: 'free' });
+    const report = await inspectPaid(admin);
+    expect([report.verdict, report.reason]).toEqual([VERDICTS.INELIGIBLE, 'paid_not_effective_pro']);
+    expect([report.storedTier, report.effectiveTier, report.billingIdentityShape]).toEqual(['free', 'free', 'none']);
+    expect(admin.calls.forbidden).toEqual([]);
+  });
+});
