@@ -13,6 +13,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useSessionStore } from '@/stores/useSessionStore';
 import {
     enqueueProgressReconcile, getQueuedSessionIdsForUser, readProgressReconcileQueue, PROGRESS_QUEUE_STORAGE_KEY,
+    PROGRESS_QUEUE_V2_PREFIX,
 } from '@/services/progress/progressReconcileQueue';
 import { evaluateStartGate } from '@/services/progress/progressStartGate';
 import type { ProgressEvaluationOutcome } from '@/services/progress/recordProgress';
@@ -185,7 +186,10 @@ describe('RWT-20 — a settled retry schedule rebuilds the visible gate from the
         }]));
         const realSet = Storage.prototype.setItem;
         const refuseRelease = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-            if (key === PROGRESS_QUEUE_STORAGE_KEY && value.includes('releasedAtIso')) throw new Error('quota exceeded');
+            // #1476: a release is written to the entry's own v2 key (an older tab would write the v1 aggregate).
+            if ((key === PROGRESS_QUEUE_STORAGE_KEY || key.startsWith(PROGRESS_QUEUE_V2_PREFIX)) && value.includes('releasedAtIso')) {
+                throw new Error('quota exceeded');
+            }
             return realSet.call(this, key, value);
         });
 

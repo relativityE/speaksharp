@@ -388,7 +388,9 @@ describe('RWT-20 C2 — a lock that never grants cannot hold Start past the boun
             startAllowedAtMs,
             settledAtMs,
             lockRequestsAfterAllowed: requestSpy.mock.calls.length - lockRequestsWhenAllowed,
-            queueWrites: writeSpy.mock.calls.filter((c) => c[0] === tabB.queue.PROGRESS_QUEUE_STORAGE_KEY).length,
+            // #1476: the queue lives in per-entry v2 keys; the v1 aggregate is still what an older tab writes. Both count.
+            queueWrites: writeSpy.mock.calls.filter((c) => c[0] === tabB.queue.PROGRESS_QUEUE_STORAGE_KEY
+                || String(c[0]).startsWith(tabB.queue.PROGRESS_QUEUE_V2_PREFIX)).length,
             entry: read.ok ? read.entries.find((e) => e.sessionId === SESSION) : undefined,
             evaluatorCalls: rpc.mock.calls.filter((c) => c[0] === 'record_progress_evaluation').length,
         };

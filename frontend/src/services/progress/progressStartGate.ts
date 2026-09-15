@@ -9,7 +9,7 @@
  * Fail-closed throughout: an unreadable or corrupt queue blocks, because "we could not tell" is not
  * "there is no debt".
  */
-import { getQueueEntriesForUser, PROGRESS_QUEUE_STORAGE_KEY as QUEUE_KEY } from './progressReconcileQueue';
+import { getQueueEntriesForUser, PROGRESS_QUEUE_STORAGE_KEY as QUEUE_KEY, PROGRESS_QUEUE_V2_PREFIX } from './progressReconcileQueue';
 import type { QueueEntry, QueueFailure } from './progressReconcileQueue';
 
 export type StartGateVerdict =
@@ -166,8 +166,9 @@ export function subscribeCrossTabProgressGate(
 ): () => void {
     if (typeof window === 'undefined') return () => {};
     const onStorage = (e: StorageEvent) => {
-        // `key === null` is a whole-storage clear, which also invalidates our view.
-        if (e.key !== null && e.key !== QUEUE_KEY) return;
+        // `key === null` is a whole-storage clear, which also invalidates our view. #1476: the queue now lives in
+        // per-entry v2 keys, and a tab still running older code writes the v1 aggregate, so both must wake the gate.
+        if (e.key !== null && e.key !== QUEUE_KEY && !e.key.startsWith(PROGRESS_QUEUE_V2_PREFIX)) return;
         publish(reconstructGateFromQueue(getOwnerId()));
     };
     window.addEventListener('storage', onStorage);
