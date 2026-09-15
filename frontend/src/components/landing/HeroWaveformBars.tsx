@@ -1,53 +1,61 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    HERO_WAVEFORM_ENVELOPE,
-    buildWaveformBars,
-    waveformBarCount,
     waveformHighlightCount,
+    waveformLineCount,
+    waveformLineHeights,
+    waveformTrackHeight,
 } from './heroWaveform';
 
-const RESIZE_SETTLE_MS = 150;
+const RESIZE_DEBOUNCE_MS = 100;
 
 /**
- * #1475 — decorative hero waveform. Hidden from assistive technology, static (no animation, so reduced-motion
- * needs no special case), and re-measured only after a resize settles.
+ * #1475 G12 Rev 2 §4 — the decorative hero waveform. Lines are 2px and never flex; the track spreads the leftover
+ * width into gaps and mirrors lines around its centre axis. Static (no animated variant) and hidden from assistive
+ * technology. On resize the line count is recomputed and the envelope regenerated with the same seed.
  */
 export const HeroWaveform = ({ className = '' }: { className?: string }) => {
     const trackRef = useRef<HTMLDivElement>(null);
-    const [barCount, setBarCount] = useState(0);
+    const [geometry, setGeometry] = useState({ lineCount: 0, trackHeight: waveformTrackHeight(Number.POSITIVE_INFINITY) });
 
     useEffect(() => {
         const track = trackRef.current;
         if (!track) return undefined;
-        const measure = () => setBarCount(waveformBarCount(track.getBoundingClientRect().width));
+        const measure = () => setGeometry({
+            lineCount: waveformLineCount(track.getBoundingClientRect().width),
+            trackHeight: waveformTrackHeight(typeof window === 'undefined' ? Number.POSITIVE_INFINITY : window.innerWidth),
+        });
         measure();
         if (typeof ResizeObserver === 'undefined') return undefined;
-        let settle: ReturnType<typeof setTimeout> | undefined;
+        let debounce: ReturnType<typeof setTimeout> | undefined;
         const observer = new ResizeObserver(() => {
-            clearTimeout(settle);
-            settle = setTimeout(measure, RESIZE_SETTLE_MS);
+            clearTimeout(debounce);
+            debounce = setTimeout(measure, RESIZE_DEBOUNCE_MS);
         });
         observer.observe(track);
         return () => {
-            clearTimeout(settle);
+            clearTimeout(debounce);
             observer.disconnect();
         };
     }, []);
 
-    const bars = useMemo(() => buildWaveformBars(HERO_WAVEFORM_ENVELOPE, barCount), [barCount]);
-    const highlighted = waveformHighlightCount(bars.length);
+    const heights = useMemo(
+        () => waveformLineHeights(geometry.lineCount, geometry.trackHeight),
+        [geometry.lineCount, geometry.trackHeight],
+    );
+    const highlighted = waveformHighlightCount(heights.length);
 
     return (
         <div
             ref={trackRef}
             aria-hidden="true"
             data-testid="hero-waveform"
-            className={`flex h-[84px] w-full items-center gap-[2px] overflow-hidden ${className}`}
+            className={`flex w-full items-center justify-between overflow-hidden ${className}`}
+            style={{ height: `${geometry.trackHeight}px` }}
         >
-            {bars.map((height, index) => (
+            {heights.map((height, index) => (
                 <span
                     key={index}
-                    className={`block w-[2px] shrink-0 rounded-full ${index < highlighted ? 'bg-landing-signature' : 'bg-landing-rule'}`}
+                    className={`block w-[2px] shrink-0 rounded-[1px] ${index < highlighted ? 'bg-landing-signature' : 'bg-landing-ink-hairline'}`}
                     style={{ height: `${height}px` }}
                 />
             ))}

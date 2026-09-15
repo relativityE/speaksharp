@@ -35,7 +35,10 @@ import {
 } from '@/services/practiceTelemetry';
 import { LandingHero } from '@/components/landing/LandingHero';
 import { ProductsSection } from '@/components/landing/ProductsSection';
-import { PracticeLoopSection } from '@/components/landing/PracticeLoopSection';
+import { PrivateRepeatSection } from '@/components/landing/PrivateRepeatSection';
+import { LandingFooter } from '@/components/landing/LandingFooter';
+import { BrowserWarning } from '@/components/BrowserWarning';
+import { useBrowserSupport } from '@/hooks/useBrowserSupport';
 import { LandingPricingSection } from '@/components/landing/LandingPricingSection';
 import { ClosingCTASection } from '@/components/landing/ClosingCTASection';
 
@@ -45,6 +48,8 @@ export default function PracticePage() {
   const { user } = useAuthProvider();
   const isAuthed = !!user;
   const { setSurface } = usePracticeSurface();
+  // #1475 G12 Rev 2 §0.3: the signed-out homepage keeps the shell's browser-capability warning.
+  const { isSupported: browserSupported, error: browserSupportError } = useBrowserSupport();
   // #1042 PR4: narrow recent-session read (authed only; the hook is disabled without a user).
   const { data: recentSessions, isLoading: recentLoading, error: recentError } = useRecentPracticeSummary();
   const lastSession = recentSessions && recentSessions.length > 0 ? recentSessions[0] : null;
@@ -140,13 +145,19 @@ export default function PracticePage() {
 
   return (
     // App.tsx owns the single <main id="main-content"> landmark and the global Navigation; this is a plain
-    // content container for the #1475 G12 homepage.
-    <div className="practice-root min-h-screen bg-background font-sans antialiased" data-testid="practice-root">
+    // content container for the #1475 G12 Rev 2 homepage, closed by the shell footer (ruling A1 on #1475).
+    <div className="practice-root min-h-screen bg-landing-page font-sans antialiased" data-testid="practice-root">
+      {!browserSupported && browserSupportError && (
+        <div className="px-5 pb-2 pt-[calc(var(--header-height)+1rem)] md:px-7 lg:px-[34px]">
+          <BrowserWarning isSupported={browserSupported} supportError={browserSupportError} />
+        </div>
+      )}
       <LandingHero />
       <ProductsSection onStartFreeform={startFreeform} onStartObjective={startObjective} />
-      <PracticeLoopSection />
+      <PrivateRepeatSection />
       <LandingPricingSection />
       <ClosingCTASection />
+      <LandingFooter />
     </div>
   );
 }

@@ -11,60 +11,17 @@ import {
 } from '@/services/conversionFunnel';
 import { startProCheckout } from '@/services/proCheckout';
 import { offerDisclosureChips, PAID_CONTINUATION_UNAVAILABLE } from '@/components/pricing/offerDisclosure';
+import { PRICING_HEADING, PRICING_TIERS, pricingIntro, type PricingTier } from '@/components/pricing/pricingTiers';
 import { toast } from '@/lib/toast';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import logger from '../lib/logger';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPaidProEntitlement } from '@/constants/subscriptionTiers';
 
-interface Tier {
-  name: string;
-  plan: 'free' | 'pro';
-  price: string;
-  priceDescription: string;
-  features: string[];
-  cta: string;
-  action: 'signup' | 'checkout';
-  isPopular?: boolean;
-}
-
-// #1266 / #1254 — SpeakSharp is ONE product (the Private Practice Loop). The commercial model is a
-// 30-day free trial of the complete product, then $10/month to continue — NOT a permanent feature-limited
-// Free tier and NOT feature-tiered Private. Both cards describe the SAME product; they differ only by
-// lifecycle (trial vs paid continuation). No invented fair-use numbers appear here — any operational limit
-// is server-authoritative and owned by the entitlement lane (#1282).
-const tiers: Tier[] = [
-  {
-    name: 'Free trial',
-    plan: 'free',
-    price: '$0',
-    priceDescription: 'first 30 days · no card required',
-    features: [
-      'The complete Private Practice product, free for 30 days',
-      'Open Mic and Focus Points, with saved review and comparable Progress',
-      'Private on-device transcription after one-time model setup',
-      'History and PDF export',
-      'No card required to start',
-    ],
-    cta: 'Start free',
-    action: 'signup',
-  },
-  {
-    name: 'Pro',
-    plan: 'pro',
-    price: '$10',
-    priceDescription: 'per month, after your 30-day trial',
-    features: [
-      'Everything in the trial — the same complete product',
-      'Keep practicing after your first 30 days',
-      'Open Mic, Focus Points, saved review, Progress, History, and PDF',
-      'Private on-device transcription stays the foundation',
-    ],
-    cta: 'Continue for $10/month',
-    action: 'checkout',
-    isPopular: true,
-  },
-];
+// #1266 / #1254 / #1475 — the one-product, two-lifecycle tier copy lives in `pricingTiers.ts`, shared verbatim with
+// the landing pricing section so the two surfaces cannot state different terms.
+type Tier = PricingTier;
+const tiers = PRICING_TIERS;
 
 const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   const source: ConversionSource = tier.plan === 'free' ? 'pricing_free_card' : 'pricing_pro_card';
@@ -230,12 +187,8 @@ export const PricingPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-background px-4 pb-16 pt-28">
       <div className="mx-auto max-w-4xl text-center mb-10">
-        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">One product. Free for 30 days.</h1>
-        <p className="text-base text-muted-foreground mt-3 sm:text-lg">
-          {paymentsEnabled
-            ? 'The complete Private Practice product is free for your first 30 days — no card required. After that, continue for $10/month.'
-            : 'The complete Private Practice product is free for your first 30 days — no card required. Paid continuation ($10/month) opens when Pro enrollment is enabled.'}
-        </p>
+        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{PRICING_HEADING}</h1>
+        <p className="text-base text-muted-foreground mt-3 sm:text-lg">{pricingIntro(paymentsEnabled)}</p>
       </div>
       <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
         {tiers.map((tier) => (
