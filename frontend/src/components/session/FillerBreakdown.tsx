@@ -41,7 +41,7 @@ export const FillerBreakdown: React.FC<FillerBreakdownProps> = ({ fillerData, st
 
     return (
         <div className="flex flex-col gap-2" data-testid="filler-breakdown">
-            {stats && <span className="text-[12px] text-[#414b5c]" data-testid="after-stats">{stats}</span>}
+            {stats && <span className="text-[12px] text-neutral-secondary" data-testid="after-stats">{stats}</span>}
 
             {shown.length > 0 ? (
                 <ul className="flex flex-wrap items-center gap-1.5" data-testid="filler-breakdown-list">
@@ -50,16 +50,16 @@ export const FillerBreakdown: React.FC<FillerBreakdownProps> = ({ fillerData, st
                             key={word}
                             data-testid="filler-breakdown-word"
                             data-word={word}
-                            className="flex items-center gap-1 rounded-full bg-[#fdf3e2] px-2 py-0.5 text-[12px] font-semibold text-[#241503]"
+                            className="flex items-center gap-1 rounded-full bg-signature-ground px-2 py-0.5 text-[12px] font-semibold text-ink"
                         >
                             <span>{word}</span>
-                            <span className="text-[#a8571f]" data-testid="filler-breakdown-count">×{count}</span>
+                            <span className="text-signature-text" data-testid="filler-breakdown-count">×{count}</span>
                         </li>
                     ))}
-                    {extra > 0 && <li className="text-[12px] text-[#414b5c]">+{extra} more</li>}
+                    {extra > 0 && <li className="text-[12px] text-neutral-secondary">+{extra} more</li>}
                 </ul>
             ) : (
-                <p className="text-[12px] text-[#414b5c]" data-testid="filler-breakdown-empty">
+                <p className="text-[12px] text-neutral-secondary" data-testid="filler-breakdown-empty">
                     No filler words detected this session.
                 </p>
             )}

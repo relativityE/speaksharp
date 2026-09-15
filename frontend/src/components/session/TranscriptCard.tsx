@@ -66,7 +66,7 @@ export interface TranscriptCardProps {
 
 const OrangeTick: React.FC = () => (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className="shrink-0">
-        <path d="M3 8.5l3 3 7-7" fill="none" stroke="#d98a1f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M3 8.5l3 3 7-7" fill="none" stroke="var(--brand-signature)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
 );
 
@@ -112,7 +112,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
 
     return (
         <div
-            className="flex h-full flex-col rounded-xl border border-[#dbe2ec] bg-white p-4"
+            className="flex h-full flex-col rounded-xl border border-neutral-border bg-white p-4"
             data-testid="transcript-card"
             data-transcript-state={hasContent ? 'content' : hasChosenPrompt ? 'prompt' : showingOffer ? 'offer' : 'empty'}
         >
@@ -120,9 +120,9 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <OrangeTick />
-                    <h2 className="text-[14px] font-extrabold text-[#1f2733]">Live Transcript</h2>
+                    <h2 className="text-[14px] font-extrabold text-neutral-body">Live Transcript</h2>
                     {headerMeta && (
-                        <span className="text-[12px] font-semibold text-[#414b5c]" data-testid="transcript-header-meta">
+                        <span className="text-[12px] font-semibold text-neutral-secondary" data-testid="transcript-header-meta">
                             {headerMeta}
                         </span>
                     )}
@@ -133,7 +133,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                             type="button"
                             onClick={onRestoreOffer}
                             data-testid="transcript-need-prompt"
-                            className="text-[12px] font-bold text-[#0d7d74] underline-offset-2 hover:underline"
+                            className="text-[12px] font-bold text-signature-text underline-offset-2 hover:underline"
                         >
                             Need a prompt?
                         </button>
@@ -144,7 +144,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                             onClick={onDismissOffer}
                             data-testid="transcript-dismiss-offer"
                             aria-label="Dismiss prompt offer"
-                            className="text-[16px] leading-none text-[#414b5c] hover:text-[#1f2733]"
+                            className="text-[16px] leading-none text-neutral-secondary hover:text-neutral-body"
                         >
                             ✕
                         </button>
@@ -160,12 +160,12 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 exclusive; finalizing wins (it is the post-Stop state). */}
             {(finalizing || live) && (
                 <div
-                    className="mb-3 flex items-center gap-2 rounded-lg bg-[#fdf3e2] px-3 py-2 text-[13px] font-semibold text-[#a8571f]"
+                    className="mb-3 flex items-center gap-2 rounded-lg bg-signature-ground px-3 py-2 text-[13px] font-semibold text-signature-text"
                     role="status"
                     data-testid={finalizing ? 'transcript-finalizing-banner' : 'transcript-live-indicator'}
                     aria-label={finalizing ? undefined : 'Draft text in progress — the transcript is finalized when you stop'}
                 >
-                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#d98a1f]" aria-hidden="true" />
+                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-signature" aria-hidden="true" />
                     {finalizing
                         ? `${isPrivate ? 'Finalizing your transcript locally…' : 'Finalizing your transcript…'}${finalizeRemaining ? ` ~${finalizeRemaining}s` : ''}`
                         : 'Draft text in progress — finalized when you stop'}
@@ -179,19 +179,19 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 </div>
             ) : (
                 <div
-                    className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#c5cfdd] p-6"
+                    className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-border-strong p-6"
                     data-testid="transcript-empty-frame"
                 >
                     {hasChosenPrompt ? (
                         <div className="w-full max-w-md text-center" data-testid="transcript-chosen-prompt">
                             {/* A read-aloud sample carries its own title (the label) + attribution (credit); a
                                 generated speaking prompt has neither, so it stays the generic "Your prompt". */}
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-[#5b21b6]" data-testid="chosen-prompt-title">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-focus-points-strong" data-testid="chosen-prompt-title">
                                 {chosenPromptTitle || 'Your prompt'}
                             </p>
-                            <p className="mt-2 text-[17px] font-semibold leading-relaxed text-[#1f2733]">{chosenPrompt}</p>
+                            <p className="mt-2 text-[17px] font-semibold leading-relaxed text-neutral-body">{chosenPrompt}</p>
                             {chosenPromptAttribution && (
-                                <p className="mt-2 text-[12px] italic text-[#5c6672]" data-testid="chosen-prompt-attribution">
+                                <p className="mt-2 text-[12px] italic text-neutral-secondary" data-testid="chosen-prompt-attribution">
                                     — {chosenPromptAttribution}
                                 </p>
                             )}
@@ -201,7 +201,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                                     onClick={onRerollPrompt}
                                     data-testid="transcript-reroll-prompt"
                                     aria-label="Get another prompt"
-                                    className="mt-3 inline-flex items-center gap-1 text-[13px] font-bold text-[#0d7d74] hover:underline"
+                                    className="mt-3 inline-flex items-center gap-1 text-[13px] font-bold text-signature-text hover:underline"
                                 >
                                     ↻ Another
                                 </button>
@@ -213,11 +213,11 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                         // #1046 Focus Points empty state: two quiet lines that point at the rail, no buttons.
                         // The points list is NOT duplicated here — the rail already holds it (spec §4).
                         <div className="max-w-md text-center" data-testid="transcript-plain-empty">
-                            <p className="text-[13px] text-[#414b5c]">Your words appear here as you speak.</p>
-                            <p className="mt-1 text-[13px] text-[#414b5c]">Each point on the right ticks green the moment you cover it.</p>
+                            <p className="text-[13px] text-neutral-secondary">Your words appear here as you speak.</p>
+                            <p className="mt-1 text-[13px] text-neutral-secondary">Each point on the right ticks green the moment you cover it.</p>
                         </div>
                     ) : (
-                        <p className="text-[13px] text-[#414b5c]" data-testid="transcript-plain-empty">
+                        <p className="text-[13px] text-neutral-secondary" data-testid="transcript-plain-empty">
                             Your words appear here as you speak.
                         </p>
                     )}
@@ -225,7 +225,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
             )}
 
             {footer && (
-                <div className="mt-3 border-t border-[#eef2f7] pt-2 text-[12px] text-[#414b5c]" data-testid="transcript-footer">
+                <div className="mt-3 border-t border-neutral-border-soft pt-2 text-[12px] text-neutral-secondary" data-testid="transcript-footer">
                     {footer}
                 </div>
             )}

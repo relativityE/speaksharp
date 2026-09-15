@@ -19,15 +19,15 @@ describe('Waveform (#1222 §4)', () => {
         render(<Waveform amplitudes={amps} recordedCount={4} />);
         const bars = screen.getAllByTestId('waveform-bar');
         expect(bars.filter((b) => b.getAttribute('data-recorded') === 'true')).toHaveLength(4);
-        expect(bars[0]).toHaveStyle({ backgroundColor: 'rgb(217, 138, 31)' }); // #d98a1f
-        expect(bars[11]).toHaveStyle({ backgroundColor: 'rgb(224, 230, 238)' }); // #e0e6ee tail
+        expect(bars[0].style.backgroundColor).toBe('var(--brand-signature)'); // recorded
+        expect(bars[11].style.backgroundColor).toBe('var(--brand-neutral-border)'); // tail
     });
 
     it('after: resting grey track with orange filler positions + a travelling playhead', () => {
         render(<Waveform amplitudes={amps} fillerBars={[2, 7]} playedFraction={0.5} />);
         const bars = screen.getAllByTestId('waveform-bar');
         expect(bars[2].getAttribute('data-filler')).toBe('true');
-        expect(bars[2]).toHaveStyle({ backgroundColor: 'rgb(217, 138, 31)' });
+        expect(bars[2].style.backgroundColor).toBe('var(--brand-signature)');
         expect(bars[3].getAttribute('data-filler')).toBeNull();
         const playhead = screen.getByTestId('waveform-playhead');
         expect(playhead).toHaveStyle({ left: '50%' });

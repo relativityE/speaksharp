@@ -80,10 +80,10 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                         <div
                             data-testid="during-reading-prompt"
                             data-prompt-kind={transcript.promptKind ?? 'prompt'}
-                            className="mb-3 rounded-lg border border-[#e6ddfb] bg-[#f5f0ff] px-4 py-3 text-[15px] leading-relaxed text-[#3b2f5c]"
+                            className="mb-3 rounded-lg border border-focus-points-border bg-focus-points-ground px-4 py-3 text-[15px] leading-relaxed text-neutral-body"
                         >
                             <div className="mb-1 flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-bold uppercase tracking-wide text-[#6d28d9]">
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-focus-points">
                                     {isSample
                                         ? (transcript.chosenPromptTitle ? `Read aloud · ${transcript.chosenPromptTitle}` : 'Read this aloud')
                                         : 'Your prompt'}
@@ -93,7 +93,7 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                                     data-testid="during-reading-prompt-dismiss"
                                     aria-label="Dismiss"
                                     onClick={transcript.onDismissPin}
-                                    className="shrink-0 rounded px-2 py-0.5 text-[14px] leading-none font-bold text-[#6d28d9] hover:bg-[#ece3ff]"
+                                    className="shrink-0 rounded px-2 py-0.5 text-[14px] leading-none font-bold text-focus-points hover:bg-focus-points-border"
                                 >
                                     ✕
                                 </button>
@@ -103,7 +103,7 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                             <div className={isSample ? 'max-h-[16vh] overflow-y-auto pr-1' : ''}>
                                 {transcript.chosenPrompt}
                                 {transcript.chosenPromptAttribution && (
-                                    <div className="mt-1.5 text-[12px] italic text-[#6b5b8a]">— {transcript.chosenPromptAttribution}</div>
+                                    <div className="mt-1.5 text-[12px] italic text-neutral-secondary">— {transcript.chosenPromptAttribution}</div>
                                 )}
                             </div>
                         </div>
@@ -114,7 +114,7 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                             type="button"
                             data-testid="during-reopen-prompt"
                             onClick={transcript.onReopenPin}
-                            className="mb-3 inline-flex items-center gap-1 rounded-full border border-[#e6ddfb] bg-[#f5f0ff] px-3 py-1 text-[12px] font-bold text-[#6d28d9] hover:bg-[#ece3ff]"
+                            className="mb-3 inline-flex items-center gap-1 rounded-full border border-focus-points-border bg-focus-points-ground px-3 py-1 text-[12px] font-bold text-focus-points hover:bg-focus-points-border"
                         >
                             Need a prompt?
                         </button>

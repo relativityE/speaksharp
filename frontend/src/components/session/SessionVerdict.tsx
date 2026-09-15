@@ -34,18 +34,18 @@ export const SessionVerdict: React.FC<SessionVerdictProps> = ({ verdictLine, fix
     return (
         <div data-testid="session-verdict">
             {line && (
-                <p className="text-[21px] font-extrabold leading-tight text-[#1f2733]" data-testid="verdict-line">
+                <p className="text-[21px] font-extrabold leading-tight text-neutral-body" data-testid="verdict-line">
                     {line}
                 </p>
             )}
 
             {fixLine && (
                 <div
-                    className="mt-3 rounded-lg border border-[#e6dcfb] bg-[#f5f0ff] p-3"
+                    className="mt-3 rounded-lg border border-focus-points-border bg-focus-points-ground p-3"
                     data-testid="verdict-fix"
                 >
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-[#5b21b6]">Fix this next time</p>
-                    <p className="mt-1 text-[14px] leading-relaxed text-[#1f2733]">{fixLine}</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-focus-points-strong">Fix this next time</p>
+                    <p className="mt-1 text-[14px] leading-relaxed text-neutral-body">{fixLine}</p>
                 </div>
             )}
 
@@ -54,7 +54,7 @@ export const SessionVerdict: React.FC<SessionVerdictProps> = ({ verdictLine, fix
                     type="button"
                     onClick={onPracticeAgain}
                     data-testid="verdict-practice-again"
-                    className="rounded-lg bg-[#0d7d74] px-4 py-2 text-[14px] font-bold text-white hover:bg-[#0a5f58]"
+                    className="rounded-lg bg-signature px-4 py-2 text-[14px] font-bold text-ink hover:brightness-95"
                 >
                     Practice this again
                 </button>
@@ -62,7 +62,7 @@ export const SessionVerdict: React.FC<SessionVerdictProps> = ({ verdictLine, fix
                     type="button"
                     onClick={onSeeAllSessions}
                     data-testid="verdict-see-all"
-                    className="text-[13px] font-bold text-[#0d7d74] hover:underline"
+                    className="text-[13px] font-bold text-signature-text hover:underline"
                 >
                     See all sessions
                 </button>

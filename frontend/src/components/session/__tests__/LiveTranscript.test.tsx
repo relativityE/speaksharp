@@ -25,8 +25,9 @@ describe('LiveTranscript (#1222 slot B during)', () => {
         const fillers = screen.getAllByTestId('live-filler') as HTMLElement[];
         expect(fillers.map((f) => f.textContent)).toEqual(['um', 'like']);
         // Assert the inline style directly (jsdom's UA stylesheet on <mark> shadows getComputedStyle).
-        expect(fillers[0].style.backgroundColor).toBe('rgb(253, 243, 226)'); // #fdf3e2
-        expect(fillers[0].style.borderBottom).toContain('rgb(217, 138, 31)'); // #d98a1f
+        // #1480: the fillers metric colour comes from the shared roles, never a literal.
+        expect(fillers[0].style.backgroundColor).toBe('var(--brand-signature-ground)');
+        expect(fillers[0].style.borderBottom).toContain('var(--brand-signature)');
     });
 
     it('shows the live caret while recording, and hides it when asked', () => {
@@ -40,7 +41,7 @@ describe('LiveTranscript (#1222 slot B during)', () => {
         render(<LiveTranscript tokens={[{ text: 'so' }, { text: 'today', interim: true }]} />);
         const interim = screen.getByTestId('live-interim');
         expect(interim).toHaveTextContent('today');
-        expect(interim).toHaveStyle({ color: 'rgb(138, 148, 166)' }); // #8a94a6 muted/settling
+        expect(interim.style.color).toBe('var(--brand-neutral-muted)'); // muted/settling
     });
 
     it('after: fillers become seek buttons and the caret is dropped', () => {

@@ -711,9 +711,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const objectiveAfterSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
         : isObjective && coverageMayBecomeAvailable
-            ? <section data-testid="coverage-awaiting-transcript" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-[#4b5563]">Coverage will appear when your transcript is available.</section>
+            ? <section data-testid="coverage-awaiting-transcript" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-neutral-secondary">Coverage will appear when your transcript is available.</section>
             : coverageTerminallyUnavailable
-                ? <section data-testid="coverage-unavailable" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-[#4b5563]">Focus Points detection is unavailable for this take.</section>
+                ? <section data-testid="coverage-unavailable" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-neutral-secondary">Focus Points detection is unavailable for this take.</section>
             : undefined;
     const objectivePlanSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />
