@@ -42,7 +42,7 @@ The currency guard checks internal consistency and recent ancestry; it cannot re
 
 ## Now — closure-first path back to RWT
 
-Keep one merge token and one active coding lane. Documentation-only #1318 may be reviewed independently but does not receive the merge token ahead of product work.
+Keep one merge token and one active coding lane. PR #1477 now contains a bounded review-qualification implementation and is frozen behind the current merge-token holder, PR #1469. It may not proceed as a parallel implementation lane or merge until #1469 closes; then it must restack/currentize once and repeat exact-head reviews and CI.
 
 | Order | Outcome | Owner | Smallest closure evidence |
 |---|---|---|---|
@@ -69,7 +69,7 @@ All 23 current MVP/pre-GO issues have an owner and closure boundary:
 | Observability/operations | #1259, #1382, #1383, #1384 | Active; received evidence and cleanup are required, not producer calls. |
 | Security/CI truth | #1261, #1313, #1315, #1385 | Active pre-GO controls; keep separate from product-feature PRs. |
 | STT comparison | #1263, #1304, #1390 | Active; Moonshine is mandatory and currently blocked on long-form integrity. |
-| Documentation | #1318 | Active docs-only currentization; archives and dated evidence remain immutable. |
+| Documentation/review gate | #1318 / PR #1477 | Queued implementation behind #1469; canonical-authority currentization plus the bounded documentation-review qualification. Archives and dated evidence remain immutable. |
 | Retention safety | #1452 | Must close before newest-one retention is activated; it does not authorize activation. |
 | Progress/review/filler | #1471, #1472, #1473, #1476 | Active release blockers with separate owners. |
 | Approved UI | #1474, #1475 | Active approved design work; no scope leakage into unrelated PRs. |
@@ -107,4 +107,4 @@ A closed issue may remain as provenance. New evidence goes to the current owner 
 - Do not resume Production RWT until the exact deployed candidate is PM-qualified and the Product Owner authorizes the named stop.
 - Do not downselect STT from the partial Stop B or descriptive v2/v4 observations.
 - Do not treat CI, a transport 200, a generated artifact, or an installed observer as proof of received/user-visible behavior.
-- Do not let the docs lane or post-MVP debt displace the current product merge token.
+- Do not let the queued #1477 gate/docs lane or post-MVP debt displace the current product merge token.
