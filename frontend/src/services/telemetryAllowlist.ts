@@ -52,7 +52,7 @@ const PRACTICE_MODES = ['quick', 'objective'] as const;
 const ENTRY_SOURCES = ['landing_card', 'freeform_overview'] as const;
 const PRACTICE_LOOP_REVIEW_FAILURE_REASONS = [
     'access_denied', 'invalid_response', 'network', 'not_found', 'rate_limited',
-    'transcript_unavailable', 'unavailable',
+    'service_configuration', 'transcript_unavailable', 'unavailable',
 ] as const;
 /** `RuntimeState` in SpeechRuntimeController.ts — UPPERCASE. A lowercase set dropped every real value. */
 const RUNTIME_STATES = [

@@ -8,6 +8,7 @@ export type PracticeLoopReviewFailureReason =
   | 'network'
   | 'not_found'
   | 'rate_limited'
+  | 'service_configuration'
   | 'transcript_unavailable'
   | 'unavailable';
 

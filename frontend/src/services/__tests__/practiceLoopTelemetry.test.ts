@@ -40,4 +40,9 @@ describe('Practice Loop review telemetry', () => {
       error: 'raw provider response',
     })).toEqual({ props: {}, dropped: ['reason', 'error'] });
   });
+
+  it('#1473: keeps the closed service_configuration reason the review client now emits', () => {
+    expect(projectEventProps('practice_loop_review_failed', { reason: 'service_configuration' }))
+      .toEqual({ props: { reason: 'service_configuration' }, dropped: [] });
+  });
 });
