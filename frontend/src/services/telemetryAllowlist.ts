@@ -267,6 +267,9 @@ export const EVENT_SCHEMAS = Object.freeze({
         duration_seconds: { kind: 'int', min: 0, max: 86_400 } as FieldRule,
         word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
         filler_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        // #1472 — the same closed state the product persists. Without it a `filler_count: 0` receipt cannot say
+        // whether the zero was measured or the model stripped the evidence upstream.
+        filler_completeness: enumOf(['complete', 'unobservable', 'no_speech']),
         wpm: { kind: 'number', min: 0, max: 1_000 } as FieldRule,
         clarity_score: { kind: 'number', min: 0, max: 100 } as FieldRule,
         streak_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
