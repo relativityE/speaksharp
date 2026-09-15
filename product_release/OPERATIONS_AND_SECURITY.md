@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for env/secrets/config catalog, rotation, paid-path activation controls, ops health, SCA exceptions, and security rules)
 **Owner:** Operations / Security (relativityE)
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — the #1468 read-only verifier, managed-identity result, #1473 permission-versus-quota boundary, and separate mutation authority were reconciled.
 **Applies To:** The SpeakSharp beta platform's operational surface — environment configuration, secret handling, paid-path activation gating, operational health, dependency-audit exceptions, and runtime security rules.
 **Class:** Procedure.
 **Authority:** The source for the environment-variable catalog (names × scope × storage home), secret inventory & rotation procedures, the paid-path activation controls & gating architecture, operational-health checks & their security rules, the documented SCA suppressions, and the operational security rules.
@@ -9,11 +9,10 @@
 **Supersedes:** `LAUNCH_ENV_CHECKLIST.md`, `ENV_INVENTORY.md`, `SECRET_ROTATION_RUNBOOK.md`, `PAID_OPS_HARDENING_RUNBOOK.md`, `OPS_HEALTH_DASHBOARD.md`, `SCA_EXCEPTIONS.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.G extraction mapping; the `backend/supabase/functions/*`, `frontend/src/*`, and `.github/workflows/*` paths cited inline; the live consoles (Vercel / GitHub / Supabase) which remain authoritative for actual values.
 
-<!-- pm-currentization:2026-09-04 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Currentized 4 Sep 2026.** Human/model qualification uses only the canonical Production URL. Do not require `VITE_INTERNAL_BUILD`, a Preview environment, `VERCEL_ORG_ID`, a test branch, or a second host. The three registered STT candidates must be selectable between settled takes through controlled CDP/runtime configuration, with complete teardown and requested/observed identity receipts. Controlled PO/Dev test traffic must be distinguishable from ordinary customer traffic without collecting raw identity or creating another product variant.
-
-<!-- /pm-currentization:2026-09-04 -->
+> **Currentized 15 Sep 2026.** #1468 adds a read-only `setup-test-users.yml action=verify` path; it never provisions, rotates, repairs, or mutates accounts. Any missing managed identity must be repaired only through the approved secret/account workflow under exact-action authority. For #1473, the observed profile-table `42501` occurs before the quota-consumption path, so those requests must not be classified as quota exhaustion. A Production grant change, Edge deployment, credential repair, or account mutation remains separately authorized and content-safe.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Operations & Security (v1)
 

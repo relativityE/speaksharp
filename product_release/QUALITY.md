@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for quality evidence taxonomy, engineering test protocol, general SLOs, and the RC test inventory)
 **Owner:** Engineering / Quality (relativityE)
-**Last Reviewed:** 2026-09-08
-**Last Verified:** 2026-09-08 — reconciled to the real-world journey traceability requirement and newest-one retention qualification.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — the incomplete RWT, exact-head review discipline, received-event boundary, and comparable v2/v4/Moonshine evidence requirements were reconciled.
 **Applies To:** The SpeakSharp beta platform — how software quality is measured, what evidence closes it, and which tests count for a controlled tester release.
 **Class:** Procedure / SLO.
 **Authority:** The source for the evidence chain, quality evidence sources & targets, general (non-STT) service-level objectives, the RC test inventory and gate map, engineering acceptance criteria, the manual hardware-validation protocol, and interpretation/closure rules.
@@ -9,11 +9,10 @@
 **Supersedes:** `SOFTWARE_QUALITY.operational.md`, `QUALITY_METRICS.md`, the general (non-STT) content of `SERVICE_LEVELS.operational.md`, and `RC_TEST_INVENTORY.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.E extraction mapping; the CI workflows and `frontend/`/`backend/`/`tests/` paths cited inline; CI-generated evidence under `product_release/evidence/` (indexed by `EVIDENCE_INDEX.md`).
 
-<!-- pm-currentization:2026-09-04 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 4 Sep 2026.** Green mechanism/unit suites did not protect the real user experience. Release evidence now requires real-model corpus boundaries, assertions on what the user can read and do after settlement, labelled Focus Points recall/precision evidence, double/concrete-class conformance, and real PostHog receipts correlated across each Production journey. Injected transcripts, store attributes, source assertions, HTTP 200s, and installed hooks are supporting evidence only; none proves that the model preserved the signal, the UI remained readable, or the event crossed the governed boundary.
-
-<!-- /pm-currentization:2026-09-04 -->
+> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. Release evidence must compare v2, v4, and Moonshine under one corpus/identity/word-count/filler-completeness/WER contract. Moonshine's repeated long-form span, abrupt-stop tail loss, and live rewrite are failures to investigate at the model-driving boundary; output cleanup is not evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Quality (v1)
 

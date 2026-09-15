@@ -1,13 +1,18 @@
 **Status:** Authoritative (SSOT for the external, tester-facing beta copy)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — tester-facing copy was checked against the current single-product, pricing, Practice Loop, filler, privacy, and feedback contracts; distribution remains governed by RELEASE_STATUS.md.
 **Applies To:** The controlled invite-only SpeakSharp beta — the copy sent to human testers (intro, invitation, walkthrough, feedback prompts).
 **Class:** Product copy (external).
 **Authority:** The source for what testers are told and asked. This is the only place external tester copy is maintained; operators send from here verbatim.
 **Not Authoritative For:** operator setup, environment rules, entitlement checks, model variants, telemetry, or the first-time-tester proof (→ `TESTER_OPERATIONS.md`); acceptance criteria and the manual hardware protocol (→ `QUALITY.md`); current gate/run status, blockers, and go/no-go (→ `RELEASE_STATUS.md`); tier/quota/billing mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); dated proof artifacts (→ `EVIDENCE_INDEX.md`).
 **Supersedes:** the external (tester-facing) content of `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` (interim source; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md` §3.H).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.H extraction mapping; the product surfaces the copy describes (verified in `PRODUCT_REQUIREMENTS.md` / `QUALITY.md`).
+
+<!-- pm-currentization:2026-09-15 -->
+> [!CAUTION]
+> **Reviewed 15 Sep 2026; do not distribute while `RELEASE_STATUS.md` is HOLD.** This remains the target tester-facing copy. Before sending it, re-read the exact deployed release and verify that automatic Practice Loop review, progress persistence, truthful filler availability, and the approved landing/session presentation are actually shipped. Contract text is not proof of deployed behavior.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Beta Tester Guide
 
