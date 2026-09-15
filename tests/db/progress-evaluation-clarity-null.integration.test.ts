@@ -10,9 +10,10 @@
 // evaluator still reads only `filler_words`; for `'{}'` its predicate is NULL (three-valued logic), `IF NOT v_has_clarity`
 // appends no reason, and the INSERT writes NULL into a NOT NULL boolean.
 //
-// Contract (PM #1471 brief + scope decision): current evidence always wins; absent or malformed evidence is a real
-// `false` with `no_clarity_evidence`, never imputed as zero fillers; a valid measured zero stays valid; legacy
-// `filler_words` is a strict fallback only when `filler_counts` is absent, and only on an affirmative numeric count.
+// Contract (PM #1471 brief + scope decision + RETURN 5682372478): current evidence always wins; only a POSITIVE valid
+// current map is observed evidence; absent, malformed or zero-total evidence (`{}` included) is a real `false` with
+// `no_clarity_evidence`, never imputed as a clean zero — a verified zero needs #1472's persisted completeness authority;
+// legacy `filler_words` is a strict fallback only when `filler_counts` is absent, and only on an affirmative numeric count.
 //
 // Production-shaped bootstrap and verbatim migration chain (#1265 suite + #1306 Stage A + the shared validity helper).
 // Content-free: synthetic UUIDs and a neutral transcript.
@@ -156,15 +157,23 @@ describe('#1471 — Progress evaluation reads the current filler evidence author
         expect(rows[0].clarity_raw).not.toBeNull();
     });
 
-    it('C2 CASUALTY: a valid measured zero (filler_counts {}) stays valid — eligible with 0 fillers, never "absent"', async () => {
+    // RETURN 5682372478: `{}` is written both for an observed zero and for a detector that could not observe, so on its
+    // own it is UNOBSERVABLE — one honest terminal row, never a clean, scorable zero. A genuinely zero-filler session
+    // stays ineligible until #1472's persisted completeness authority can prove the zero.
+    it('C2 CASUALTY: an empty current map (filler_counts {}) is unobservable — honest false, no clean zero, no 23502', async () => {
+        expect.hasAssertions();
         const db = await makeDb();
         const s = await savedSession(db, { fillerCounts: {} });
-        await expect(evaluate(db, s)).resolves.toBeDefined();
-        const rows = await evalRows(db, s);
-        expect(rows).toHaveLength(1);
-        expect(rows[0].clarity_evidence_available).toBe(true);
-        expect(rows[0].eligible).toBe(true);
-        expect(rows[0].filler_count).toBe(0);
+        await expectHonestAbsence(db, s);
+    });
+
+    // The #1306 validator accepts explicit zero values, so a non-empty map can still total zero. Keys present with a
+    // zero count prove no more than `{}` does: only a POSITIVE total is affirmative evidence.
+    it('C2b CASUALTY: an explicit all-zero map (filler_counts {"um":0}) is unobservable too, not a clean zero', async () => {
+        expect.hasAssertions();
+        const db = await makeDb();
+        const s = await savedSession(db, { fillerCounts: { um: 0 } });
+        await expectHonestAbsence(db, s);
     });
 
     it('C3 CASUALTY: absent evidence (filler_counts NULL, filler_words "{}") is an honest false — no 23502, no clean zero', async () => {
