@@ -79,8 +79,10 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
 
       const card = page.getByTestId('ai-suggestions-card');
       await expect(card).toBeVisible({ timeout: 15_000 });
-      await page.evaluate(() => window.scrollTo(0, 0));
-      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+      // #1466 Codex P1 4010908720 — NO TEST SCROLL. This user never left the top of the page, so the result must
+      // already be at eye level, and the product must not move them: a forced reset here would also have
+      // qualified a page that buries the result for anyone who stopped further down.
+      expect(await page.evaluate(() => window.scrollY), 'a top-of-page user stays stationary').toBe(0);
 
       const inViewport = async (box: { y: number; height: number } | null) =>
         Boolean(box && box.y >= 0 && box.y + box.height <= viewport.height);
@@ -107,6 +109,57 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
 
       // The saved confirmation is still visible, not scrolled away.
       expect(await inViewport(await page.getByTestId('live-session-header').boundingBox()), 'saved confirmation stays on screen').toBe(true);
+    });
+  }
+
+  // #1466 PM RETURN 5673020845 (Codex P1 4010908720) — the realistic path the top-of-page proof cannot see: the user
+  // scrolls down through the stacked recording UI and stops there. Nothing in this test scrolls the page after Stop;
+  // the application itself must bring the Practice Loop heading and current state into view, with the saved
+  // confirmation still on screen. The stop control is operated without a helper click, because Playwright's click
+  // scrolls its target into view and would silently undo the very position under test.
+  for (const viewport of VIEWPORTS) {
+    test(`${viewport.name}: stopping while scrolled down brings the practice loop into view`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await programmaticLoginWithRoutes(page, { userType: 'pro' });
+      await navigateToRoute(page, '/session');
+
+      await startRecording(page);
+      await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
+      await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toBeVisible({ timeout: 15_000 });
+      await page.waitForTimeout(5_200);
+
+      // The user scrolls down. Precondition: the page genuinely left the top, or this test proves nothing.
+      await page.mouse.move(viewport.width / 2, viewport.height / 2);
+      await page.mouse.wheel(0, 3_000);
+      await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBeGreaterThan(0);
+
+      if (viewport.name === 'mobile') {
+        // The phone's Stop lives in the fixed bottom bar — always on screen, so pressing it does not scroll.
+        await page.getByTestId(`${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`).dispatchEvent('click');
+      } else {
+        await page.getByTestId('recorder-stop').dispatchEvent('click');
+      }
+      await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
+      await expect(page.getByTestId('post-save-review-session-link')).toBeAttached({ timeout: 15_000 });
+
+      const card = page.getByTestId('ai-suggestions-card');
+      await expect(card).toBeAttached({ timeout: 15_000 });
+      const heading = card.getByText('Practice Loop review', { exact: true });
+      const inViewport = async (box: { y: number; height: number } | null) =>
+        Boolean(box && box.y >= 0 && box.y + box.height <= viewport.height);
+
+      await expect.poll(async () => inViewport(await heading.boundingBox()), {
+        timeout: 15_000,
+        message: 'the application brought the Practice Loop heading into view without a test scroll',
+      }).toBe(true);
+      const headingOnTop = await heading.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return Boolean(hit && (el === hit || el.contains(hit)));
+      });
+      expect(headingOnTop, 'Practice Loop heading is not obscured').toBe(true);
+      expect(await inViewport(await page.getByTestId('live-session-header').boundingBox()), 'saved confirmation on screen').toBe(true);
     });
   }
 
