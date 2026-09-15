@@ -23,6 +23,8 @@ const suggestionB = {
 
 interface MockOptions {
   profile?: 'pro' | 'free' | 'unauthenticated';
+  /** Overrides the profile read's error, e.g. a lost table privilege (42501) or a forged-token rejection. */
+  profileError?: unknown;
   entitlement?: Record<string, unknown>;
   entitlementError?: unknown;
   userId?: string | null;
@@ -154,6 +156,7 @@ function mockSupabase(options: MockOptions = {}) {
           eq: (_column: string, _value: unknown) => query,
           single: () => {
             if (table === 'user_profiles') {
+              if (options.profileError) return Promise.resolve({ data: null, error: options.profileError });
               return profile === 'unauthenticated'
                 ? Promise.resolve({ data: null, error: { code: 'PGRST116' } })
                 : Promise.resolve({ data: { subscription_status: profile }, error: null });
@@ -235,6 +238,51 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const mock = mockSupabase({ entitlementError: { message: 'database unavailable' } });
     assertEquals((await handler(request(), mock.create)).status, 503);
     assertEquals(fetchCount, 0);
+  });
+
+  // #1473 — a profile read denied by a missing table privilege is a SERVICE CONFIGURATION failure, not the user's
+  // account and not a transient outage. It must say so with one closed code, expose no database/table/role text,
+  // and spend no quota and no provider call.
+  await t.step('CASUALTY: a profile-read 42501 returns 503 with only the closed code service_configuration', async () => {
+    resetProvider();
+    const mock = mockSupabase({
+      profileError: { code: '42501', message: 'permission denied for table user_profiles', details: null, hint: null },
+    });
+    const response = await handler(request(), mock.create);
+    const body = await response.json() as Record<string, unknown>;
+    assertEquals(response.status, 503);
+    assertEquals(body.code, 'service_configuration');
+    const serialized = JSON.stringify(body).toLowerCase();
+    for (const leaked of ['user_profiles', 'permission', 'denied', 'table', '42501', 'role']) {
+      assertEquals(serialized.includes(leaked), false, `response body must not expose "${leaked}"`);
+    }
+    assertEquals(fetchCount, 0, 'no provider call on a pre-provider trust failure');
+    assertEquals(outboundRequests.length, 0, 'no outbound request of any kind');
+    assertEquals(mock.state.rpcCount, 0, 'no quota consumed');
+    assertEquals(mock.state.authorityRpcCount, 0, 'no authority write');
+  });
+
+  await t.step('CONTROL: PGRST116 stays the authentication path (401) and never carries the configuration code', async () => {
+    resetProvider();
+    const mock = mockSupabase({ profileError: { code: 'PGRST116', message: 'No rows returned' } });
+    const response = await handler(request(), mock.create);
+    const body = await response.json() as Record<string, unknown>;
+    assertEquals(response.status, 401);
+    assertNotEquals(body.code, 'service_configuration');
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.rpcCount, 0);
+  });
+
+  await t.step('CONTROL: a forged-token rejection (PGRST301) stays fail-closed and never carries the configuration code', async () => {
+    resetProvider();
+    const mock = mockSupabase({ profileError: { code: 'PGRST301', message: 'JWSError JWSInvalidSignature' } });
+    const response = await handler(request(), mock.create);
+    const body = await response.json() as Record<string, unknown>;
+    assertNotEquals(response.status, 200);
+    assertNotEquals(response.status, 503);
+    assertNotEquals(body.code, 'service_configuration');
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.rpcCount, 0);
   });
 
   await t.step('requires a saved session id and ignores caller evidence', async () => {

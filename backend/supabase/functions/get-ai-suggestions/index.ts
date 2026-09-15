@@ -179,6 +179,21 @@ export async function handler(
           status: 401,
         });
       }
+      // #1473 — 42501: the caller's role lacks the privilege to read its own profile. That is a SERVICE CONFIGURATION
+      // failure, not the user's account and not a transient outage, so it gets one closed, allowlisted code the client
+      // can act on. The body names no table, role or database detail, and nothing past this point (quota, provider,
+      // persistence) runs. Only this code maps here: PGRST116 stays authentication, and anything else — including a
+      // forged-token PGRST301 — stays the generic fail-closed 500.
+      if (profileError.code === '42501') {
+        console.error('Profile read refused: service configuration (42501).');
+        return new Response(JSON.stringify({
+          error: 'AI coaching is unavailable right now.',
+          code: 'service_configuration',
+        }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 503,
+        });
+      }
       console.error('Profile fetch error:', profileError);
       return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
