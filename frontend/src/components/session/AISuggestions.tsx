@@ -167,8 +167,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
    *     requests leave it null, so none of them reaches this line.
    *   - `suggestions` is read from `currentView`, which is discarded when `sessionId` changes, so a
    *     superseded session cannot publish for the current one.
-   *   - the card must intersect the viewport before a rendered receipt or either completion stage is
-   *     published. A result below the fold is available, but it is not rendered to the user yet.
+   *   - the card must intersect the viewport before the rendered receipt or `review_rendered` is published.
+   *     A result below the fold is available — `practice_loop_ready` is marked by its own effect below — but
+   *     it is not rendered to the user yet.
    *   - `renderedReceiptRef` keys on the session, so a visible valid review publishes exactly once per
    *     session however often the screen re-renders or the observer fires.
    *
@@ -202,8 +203,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
         nextActionPersisted: true,
         suppressionReason: 'none',
       });
-      // #1259 F16 — neither link may claim a review the user has not reached.
-      markCompletionStage('practice_loop_ready');
+      // #1259 F16 — rendering may not be claimed for a review the user has not reached. Readiness is marked
+      // separately below, when the validated review becomes available.
       markCompletionStage('review_rendered');
       observer?.disconnect();
     };
@@ -221,6 +222,23 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
     }, { threshold: 0.01 });
     observer.observe(card);
     return () => observer?.disconnect();
+  }, [sessionId, suggestions]);
+
+  /**
+   * #1466 Codex P1 (PM RETURN) — READINESS IS NOT RENDERING.
+   *
+   * `practice_loop_ready` rode inside the intersection callback, so a valid review that arrived below the fold
+   * was not "ready" until the user scrolled to it — the scroll time was charged to generation, and the render
+   * interval (`practice_loop_ready` → `review_rendered`) collapsed to zero. The completion chain exists to keep
+   * those two latencies apart. A validated 1+1 review is ready the moment `suggestions` holds it; only the
+   * rendered receipt and `review_rendered` wait for the user to see it. Same guard as the receipt: loading,
+   * empty, invalid, failed and superseded states leave `suggestions` null and never reach this line.
+   */
+  const readyMarkedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sessionId || !suggestions || readyMarkedRef.current === sessionId) return;
+    readyMarkedRef.current = sessionId;
+    markCompletionStage('practice_loop_ready');
   }, [sessionId, suggestions]);
 
   // #1466 — no forced scroll. The review is visible because `SessionOverhaulView` places it first, above the

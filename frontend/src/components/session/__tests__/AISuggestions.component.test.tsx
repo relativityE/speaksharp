@@ -750,8 +750,11 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         const view = render(<AISuggestions transcript="hello" sessionId="session-ok" />);
         await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
 
-        // DOM presence is not visibility. A below-the-fold card must not claim the user saw it.
-        expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
+        // #1466 Codex P1 (PM RETURN 4010857491) — READINESS IS NOT RENDERING. The validated review is available the
+        // moment it arrives, so `practice_loop_ready` is marked now; only the rendered receipt and `review_rendered`
+        // wait for the card to be seen. Gating readiness on intersection folded the user's scroll time into the
+        // generation interval and collapsed the render interval to zero.
+        expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: true, rendered: false });
         revealReview();
 
         // A re-render of the same session is not a second review.
@@ -839,5 +842,50 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         expect({ count: receipts().length, aOnScreen: screen.queryByText('A strength.') !== null })
             .toEqual({ count: 1, aOnScreen: false });
         expect(screen.getByText('Clear opening.')).toBeInTheDocument();
+    });
+
+    // #1466 Codex P1 (PM RETURN) — readiness and rendering are separate intervals, each published exactly once.
+    // Counted from the real `stage_latency` rows, not only the reached-stage set: the chain is seeded at
+    // `session_saved` so every later stage publishes one row, and a duplicate mark would publish a second.
+    it('CASUALTY: an offscreen valid review is ready once and rendered zero; first intersection renders once; repeats add nothing', async () => {
+        const { markCompletionStage } = await import('@/services/telemetry/completionStages');
+        markCompletionStage('session_saved');
+        mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: VALID }, error: null });
+        const latencyRows = (stage: string) => pushSpy.mock.calls
+            .filter((c) => c[0] === 'stage_latency' && (c[1] as Record<string, unknown> | undefined)?.stage === stage)
+            .length;
+        const snapshot = () => ({
+            readyRows: latencyRows('practice_loop_ready'),
+            renderedRows: latencyRows('review_rendered'),
+            receipts: receipts().length,
+            ...stages(),
+        });
+
+        const view = render(<AISuggestions transcript="hello" sessionId="session-offscreen" />);
+        await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
+
+        // Available but not yet seen: ready once, nothing rendered.
+        expect(snapshot()).toEqual({ readyRows: 1, renderedRows: 0, receipts: 0, ready: true, rendered: false });
+        view.rerender(<AISuggestions transcript="hello" sessionId="session-offscreen" />);
+        expect(snapshot()).toEqual({ readyRows: 1, renderedRows: 0, receipts: 0, ready: true, rendered: false });
+
+        // First intersection renders once; repeated observer notifications and rerenders add nothing.
+        revealReview();
+        revealReview();
+        view.rerender(<AISuggestions transcript="hello" sessionId="session-offscreen" />);
+        revealReview();
+        expect(snapshot()).toEqual({ readyRows: 1, renderedRows: 1, receipts: 1, ready: true, rendered: true });
+    });
+
+    it('CASUALTY: an empty review (blank takeaways) is neither ready nor rendered', async () => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue({
+            data: { suggestions: { version: 'gemini_coaching_v1', what_worked: '   ', what_to_try_next: '' } },
+            error: null,
+        });
+
+        render(<AISuggestions transcript="hello" sessionId="session-empty" />);
+        await waitFor(() => expect(vi.mocked(trackPracticeLoopReviewFailed).mock.calls.length).toBe(1));
+
+        expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
     });
 });
