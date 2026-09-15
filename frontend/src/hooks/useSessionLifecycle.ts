@@ -306,6 +306,9 @@ export const useSessionLifecycle = () => {
                 const comparisonSessionBinding = modelComparisonTakeNonce()
                     ? await modelComparisonSessionBindingSha256(speechRuntimeController.getSessionId())
                     : null;
+                // #1472: the controller records completeness at finalized metrics, before stopRecording returns.
+                // Omitted (never guessed) when this stop produced no finalized state.
+                const fillerCompleteness = useSessionStore.getState().finalizedFillerCompleteness;
                 analyticsBuffer.push('session_saved', {
                     mode: effectiveMode,
                     ...modelComparisonTakeTelemetry(),
@@ -314,6 +317,7 @@ export const useSessionLifecycle = () => {
                     word_count: metrics.wordCount,
                     wpm: metrics.wpm,
                     filler_count: metrics.fillerCount,
+                    ...(fillerCompleteness ? { filler_completeness: fillerCompleteness } : {}),
                     clarity_score: Math.round(metrics.clarityScore),
                     is_new_streak_day: streakResult.isNewDay,
                     streak_count: streakResult.currentStreak,

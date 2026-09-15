@@ -271,6 +271,34 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         resetAuthorization();
     });
 
+    it('#1472 CASUALTY: session_saved carries the finalized filler completeness beside filler_count', async () => {
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        const mockStore = createTestSessionStore({
+            sttMode: 'private', isListening: true, runtimeState: 'RECORDING', elapsedTime: 10,
+            finalizedFillerCompleteness: 'unobservable',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript, chunks: [], interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } }, startListening: mockStartListening,
+            stopListening: mockStopListening, isListening: true, isReady: true, isSupported: true,
+            error: null, reset: mockReset, pauseMetrics: basePauseMetrics, modelLoadingProgress: null,
+            sttStatus: { type: 'recording', message: 'Speak now' }, mode: 'private', micWarning: null,
+            micLevel: 0, hasSpeechActivity: false,
+        });
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        await act(async () => { await result.current.handleStartStop(); });
+
+        const saved = pushSpy.mock.calls.find(([event]) => event === 'session_saved');
+        expect(saved?.[1]).toMatchObject({ filler_count: expect.any(Number), filler_completeness: 'unobservable' });
+        pushSpy.mockRestore();
+    });
+
     it('does not stop an entitled recording when accumulated usage exceeds former limits', async () => {
         const mockElapsedTime = 31;
         const mockLimit: UsageLimitCheck = {
