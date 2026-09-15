@@ -136,13 +136,15 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
   describe('anonymous state (`/`)', () => {
     beforeEach(() => { mockUser = null; });
 
-    it('shows the large hero, the Freeform FREE TRIAL strip, and product cards WITH their own CTAs (no support section / continuity)', () => {
+    it('shows the #1475 G12 homepage: hero with the complete offer, products, Practice Loop, pricing and closing CTA (no continuity)', () => {
       render(<PracticePage />);
       expect(screen.getByTestId('practice-hero-start-free')).toBeVisible();
-      // Freeform FREE TRIAL strip (the four support cards + connectors are removed).
-      const strip = screen.getByTestId('freeform-trial-strip');
-      expect(strip).toHaveTextContent(/free trial/i);
-      expect(strip).toHaveTextContent(/complete Private Practice Loop is free for 30 days/i);
+      for (const region of [/hero/i, /products/i, /practice loop/i, /pricing/i, /call to action/i]) {
+        expect(screen.getByRole('region', { name: region })).toBeInTheDocument();
+      }
+      // The retired teal trial strip is replaced by the complete offer at every signup decision point.
+      expect(screen.queryByTestId('freeform-trial-strip')).not.toBeInTheDocument();
+      expect(screen.getByRole('region', { name: /hero/i })).toHaveTextContent(/30 days free, no card\. Then \$10\/month\./);
       expect(screen.queryByTestId('support-freeform-explain')).not.toBeInTheDocument();
       // Focus Points is activated — no SOON badge on the anonymous card either.
       expect(screen.queryByTestId('objective-soon-badge')).not.toBeInTheDocument();
@@ -155,16 +157,18 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.queryByTestId('practice-continuity-empty')).not.toBeInTheDocument();
     });
 
-    it('Start free → signup → /practice', () => {
+    it('hero "Try it out!" is a real link to the signup destination', () => {
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-hero-start-free'));
-      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup');
+      const cta = screen.getByTestId('practice-hero-start-free');
+      expect(cta).toHaveAccessibleName('Try it out!');
+      expect(cta).toHaveAttribute('href', '/auth/signup');
     });
 
-    it('complete-product trial CTA → account access carrying the session intent (no auto-record)', () => {
+    it('closing CTA is a real link to the signup destination beside the complete offer', () => {
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('freeform-trial-start'));
-      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
+      const closing = screen.getByRole('region', { name: /call to action/i });
+      expect(within(closing).getByRole('link', { name: 'Try it out!' })).toHaveAttribute('href', '/auth/signup');
+      expect(closing).toHaveTextContent(/30 days free\. Then \$10\/month\./);
     });
 
     it('Freeform product card CTA → account access preserving /session intent', () => {
