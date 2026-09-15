@@ -61,7 +61,7 @@ The `onnxruntime-web` int8/q8 failure was the upstream QDQ regression #28306/#28
 
 ## Active MVP and pre-GO issue register
 
-All 23 current MVP/pre-GO issues have an owner and closure boundary:
+All 24 current MVP/pre-GO issues and roadmap-owned gaps have an owner and closure boundary:
 
 | Area | Issues | Disposition |
 |---|---|---|
@@ -71,6 +71,7 @@ All 23 current MVP/pre-GO issues have an owner and closure boundary:
 | STT comparison | #1263, #1304, #1390 | Active; Moonshine is mandatory and currently blocked on long-form integrity. |
 | Documentation/review gate | #1318 / PR #1477 | Queued implementation behind #1469; canonical-authority currentization plus the bounded documentation-review qualification. Archives and dated evidence remain immutable. |
 | Retention safety | #1452 | Must close before newest-one retention is activated; it does not authorize activation. |
+| Account deletion | Roadmap-owned pre-GO gap | Product Owner owns disposition; Dev may author a bounded corrective issue/PR. Choose one deletion authority, make account erasure unblockable, cover unfinished `session_delivery_measurements` rows and the non-cascading `user_id` dependency, define cleanup/SLA ownership, and prove the real migrations in tests. Production migration remains separately authorized. |
 | Progress/review/filler | #1471, #1472, #1473, #1476 | Active release blockers with separate owners. |
 | Approved UI | #1474, #1475 | Active approved design work; no scope leakage into unrelated PRs. |
 
