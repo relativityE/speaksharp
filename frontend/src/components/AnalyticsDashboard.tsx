@@ -83,14 +83,14 @@ interface StatCardProps {
 // `ontrack` = on target (good), `fix` = needs attention (watch/off). Colors from the four-role palette.
 type G4Status = 'fix' | 'ontrack' | 'nodata';
 const G4_CHIP: Record<G4Status, { text: string; cls: string }> = {
-    fix: { text: 'FIX THIS', cls: 'bg-[#fdf3e2] text-[#8a5510]' },
-    ontrack: { text: 'ON TRACK', cls: 'bg-[#e7f4ed] text-[#146b4a]' },
-    nodata: { text: 'NEED 2 MORE', cls: 'bg-[#eef1f6] text-[#5a6472]' },
+    fix: { text: 'FIX THIS', cls: 'bg-signature-ground text-signature-text' },
+    ontrack: { text: 'ON TRACK', cls: 'bg-state-success-ground text-status' },
+    nodata: { text: 'NEED 2 MORE', cls: 'bg-neutral-band text-neutral-secondary' },
 };
 const G4_NUM_COLOR: Record<G4Status, string> = {
-    fix: 'text-[#a8321f]',
-    ontrack: 'text-[#146b4a]',
-    nodata: 'text-[#8b95a5]',
+    fix: 'text-regression',
+    ontrack: 'text-status',
+    nodata: 'text-neutral-muted',
 };
 
 interface SessionHistoryItemProps {
@@ -368,13 +368,13 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
         return (
             <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
                 <div className="flex items-start justify-between gap-2">
-                    <p className="text-[12px] font-extrabold uppercase tracking-wide text-[#414b5c]">{label}</p>
+                    <p className="text-[12px] font-extrabold uppercase tracking-wide text-neutral-secondary">{label}</p>
                     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${chip.cls}`} data-testid={`${resolvedTestId}-chip`}>{chip.text}</span>
                 </div>
                 <p className={`mt-3 text-[34px] font-extrabold leading-none ${G4_NUM_COLOR[status]}`} data-testid={`${resolvedTestId}-interpretation`}>
                     {evidenceMissing ? '—' : <>{displayValue}<span className="ml-1 text-[14px] font-bold text-foreground/55">{unitText}</span></>}
                 </p>
-                <p className="mt-2 text-[13px] leading-snug text-[#414b5c]" data-testid={`${resolvedTestId}-detail`}>{sentence}</p>
+                <p className="mt-2 text-[13px] leading-snug text-neutral-secondary" data-testid={`${resolvedTestId}-detail`}>{sentence}</p>
             </Card>
         );
     }
@@ -481,7 +481,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                 <div className="hidden items-center gap-2 border-l border-border pl-4 md:flex" data-testid={`download-pdf-container-${session.id}`}>
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-[#b8d9d5] bg-white px-[14px] py-[9px] text-[13px] font-bold text-[#0d7d74] transition-colors hover:bg-[#f0f9f8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-signature-border bg-white px-[14px] py-[9px] text-[13px] font-bold text-signature-text transition-colors hover:bg-signature-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-${session.id}`}
                     >
@@ -497,7 +497,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                         }}
                         title="Download Session PDF"
                         data-testid={`download-pdf-btn-${session.id}`}
-                        className="inline-flex items-center justify-center gap-2 rounded-[9px] bg-[#0d7d74] px-[14px] py-[9px] text-[13px] font-bold text-white transition-colors hover:bg-[#0b6a62] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex items-center justify-center gap-2 rounded-[9px] bg-signature px-[14px] py-[9px] text-[13px] font-bold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                         <Download className="h-4 w-4" aria-hidden="true" />
                         PDF
@@ -508,7 +508,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                 <div className="flex w-full flex-col gap-2">
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] border border-[#b8d9d5] bg-white px-[14px] py-[9px] text-[13px] font-bold text-[#0d7d74] transition-colors hover:bg-[#f0f9f8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] border border-signature-border bg-white px-[14px] py-[9px] text-[13px] font-bold text-signature-text transition-colors hover:bg-signature-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-mobile-${session.id}`}
                     >
@@ -523,7 +523,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                             void generateSessionPdf(session, profileName, _isPro, sessionHistory);
                         }}
                         data-testid={`download-pdf-btn-mobile-${session.id}`}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] bg-[#0d7d74] px-[14px] py-[9px] text-[13px] font-bold text-white transition-colors hover:bg-[#0b6a62] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] bg-signature px-[14px] py-[9px] text-[13px] font-bold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                         <Download className="h-4 w-4" aria-hidden="true" /> Download Session PDF
                     </button>
@@ -1048,26 +1048,26 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             }
                         })();
                         return (
-                            <div className="rounded-xl border border-[#dbe2ec] border-t-[3px] border-t-[#6d28d9] bg-white p-6 shadow-sm" data-testid="try-this-next">
+                            <div className="rounded-xl border border-neutral-border border-t-[3px] border-t-signature bg-white p-6 shadow-sm" data-testid="try-this-next">
                                 <div className="grid gap-6 md:grid-cols-[1fr_300px] md:items-start">
                                     <div>
-                                        <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-[#6d28d9]">◎ Do this next</p>
-                                        <p className="mt-2 text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#1f2733]" data-testid="try-this-next-action">{summary.action}</p>
-                                        <p className="mt-3 text-[16px] leading-relaxed text-[#232c3a]" data-testid="try-this-next-why">{detail.evidence}</p>
+                                        <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-signature-text">◎ Do this next</p>
+                                        <p className="mt-2 text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] text-neutral-body" data-testid="try-this-next-action">{summary.action}</p>
+                                        <p className="mt-3 text-[16px] leading-relaxed text-neutral-body" data-testid="try-this-next-why">{detail.evidence}</p>
                                         <div className="mt-5 flex items-center gap-4">
-                                            <a href="/session" className="inline-flex items-center rounded-[10px] bg-[#0d7d74] px-4 py-2.5 text-[15px] font-bold text-white hover:bg-[#0a5f58]" data-testid="hero-practise-now">Practise this now</a>
-                                            <details className="text-[13px] font-bold text-[#0d7d74]">
+                                            <a href="/session" className="inline-flex items-center rounded-[10px] bg-signature px-4 py-2.5 text-[15px] font-bold text-ink hover:brightness-95" data-testid="hero-practise-now">Practise this now</a>
+                                            <details className="text-[13px] font-bold text-signature-text">
                                                 <summary className="cursor-pointer list-none hover:underline" data-testid="hero-method">How we worked this out</summary>
-                                                <p className="mt-2 max-w-md text-[13px] font-normal leading-snug text-[#414b5c]">We compare each delivery signal (pace, fillers, clarity, pause rhythm) against its target across your last 6 sessions and surface the one with the largest, most persistent gap — never more than one at a time.</p>
+                                                <p className="mt-2 max-w-md text-[13px] font-normal leading-snug text-neutral-secondary">We compare each delivery signal (pace, fillers, clarity, pause rhythm) against its target across your last 6 sessions and surface the one with the largest, most persistent gap — never more than one at a time.</p>
                                             </details>
                                         </div>
                                     </div>
-                                    <div className="rounded-lg bg-[#f5f0ff] p-4" data-testid="hero-what-to-try">
-                                        <p className="text-[11px] font-extrabold uppercase tracking-wide text-[#5b21b6]">What to try</p>
+                                    <div className="rounded-lg bg-neutral-band p-4" data-testid="hero-what-to-try">
+                                        <p className="text-[11px] font-extrabold uppercase tracking-wide text-neutral-secondary">What to try</p>
                                         <ol className="mt-3 space-y-3">
                                             {detail.steps.map((step, i) => (
-                                                <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-[#232c3a]">
-                                                    <span className="font-extrabold text-[#6d28d9]">{i + 1}</span>
+                                                <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-neutral-body">
+                                                    <span className="font-extrabold text-signature-text">{i + 1}</span>
                                                     <span>{step}</span>
                                                 </li>
                                             ))}

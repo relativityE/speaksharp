@@ -39,11 +39,12 @@ interface TrendChartProps {
 
 export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, description }) => {
     const chartContainer = useChartContainerReady();
+    // #1480 metric palette: a metric keeps one colour everywhere. Pause rhythm is a pace signal, so it shares pace.
     const metricConfig = {
-        wpm: { color: 'hsl(var(--primary))', label: `WPM (Target: ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}-${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX})`, unit: '' },
-        clarity: { color: 'hsl(var(--chart-2))', label: 'Clarity', unit: '%' },
-        fillers: { color: 'hsl(var(--secondary))', label: 'Fillers', unit: '' },
-        pauses: { color: 'hsl(var(--chart-4))', label: 'Pause Rhythm', unit: '/min' },
+        wpm: { color: 'var(--brand-ink-hairline)', label: `WPM (Target: ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}-${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX})`, unit: '' },
+        clarity: { color: 'var(--brand-metric-clarity)', label: 'Clarity', unit: '%' },
+        fillers: { color: 'var(--brand-signature)', label: 'Fillers', unit: '' },
+        pauses: { color: 'var(--brand-ink-hairline)', label: 'Pause Rhythm', unit: '/min' },
     };
 
     const config = metricConfig[metric];
@@ -76,7 +77,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
                     </div>
                 ) : chartContainer.isReady ? (
                     <AreaChart width={chartContainer.size.width} height={chartContainer.size.height} data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--brand-neutral-border-soft)" />
                             {/* #G4 §3: target band. ifOverflow="extendDomain" forces the Y axis to include the
                                 band even when every session sits above/below it, so the target is always visible. */}
                             {band && (
@@ -87,12 +88,12 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
                                     fill={config.color}
                                     fillOpacity={0.08}
                                     strokeOpacity={0}
-                                    label={{ value: `Target ${band.min}–${band.max}`, position: 'insideTopRight', fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                                    label={{ value: `Target ${band.min}–${band.max}`, position: 'insideTopRight', fontSize: 11, fill: 'var(--brand-neutral-secondary)' }}
                                 />
                             )}
                             <XAxis
                                 dataKey="date"
-                                stroke="hsl(var(--muted-foreground))"
+                                stroke="var(--brand-neutral-secondary)"
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}
@@ -101,7 +102,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
                                 tickFormatter={shortenTrendDate}
                             />
                             <YAxis
-                                stroke="hsl(var(--muted-foreground))"
+                                stroke="var(--brand-neutral-secondary)"
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}

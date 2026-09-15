@@ -72,13 +72,9 @@ const ROLE_LITERAL = new RegExp(
 );
 
 const BASELINE_RETIRED_GREY: Record<string, number> = {
-    'frontend/src/components/AnalyticsDashboard.tsx': 1,
-    'frontend/src/components/IssueReportDialog.tsx': 2,
 };
 
 const BASELINE_RETIRED_TEAL: Record<string, number> = {
-    'frontend/src/components/AnalyticsDashboard.tsx': 6,
-    'frontend/src/components/IssueReportDialog.tsx': 1,
     'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 3,
     'frontend/src/components/practice/practiceArt.tsx': 2,
     'frontend/src/components/session/CustomWordsBar.tsx': 1,
@@ -103,8 +99,6 @@ const BASELINE_RETIRED_FOCUS_VIOLET: Record<string, number> = {
 // Includes the Designer-ruling values added on 15 Sep (record, progress bar, regression, error/success states,
 // session surface, clarity), recounted on the same `main@8e638c84` tree.
 const BASELINE_ROLE_LITERALS: Record<string, number> = {
-    'frontend/src/components/AnalyticsDashboard.tsx': 15,
-    'frontend/src/components/IssueReportDialog.tsx': 7,
     'frontend/src/components/practice/AuthenticatedHome.tsx': 1,
     'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 3,
     'frontend/src/components/session/CoachingCard.tsx': 4,
@@ -137,8 +131,6 @@ const PALETTE_UTILITY =
     /\b(?:text|bg|border|ring|from|to|via|fill|stroke|divide|outline|decoration|shadow|placeholder|accent|caret)-(?:teal|emerald|green|amber|yellow|orange|red|rose|pink|fuchsia|violet|purple|indigo|blue|sky|cyan|slate|gray|zinc|stone|lime)-\d{2,3}\b/;
 
 const BASELINE_RAW_HEX: Record<string, number> = {
-    'frontend/src/components/AnalyticsDashboard.tsx': 23,
-    'frontend/src/components/IssueReportDialog.tsx': 10,
     'frontend/src/components/practice/AuthenticatedHome.tsx': 2,
     'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 11,
     'frontend/src/components/practice/practiceArt.tsx': 13,
@@ -199,8 +191,6 @@ const BASELINE_PALETTE_UTILITY: Record<string, number> = {
     'frontend/src/App.tsx': 1,
     'frontend/src/components/LocalErrorBoundary.tsx': 5,
     'frontend/src/components/SttIdentityBadge.tsx': 1,
-    'frontend/src/components/analytics/FillerWordTable.tsx': 9,
-    'frontend/src/components/analytics/ProgressIndicator.tsx': 1,
     'frontend/src/components/landing/BenefitsSection.tsx': 1,
     'frontend/src/components/landing/CTASection.tsx': 1,
     'frontend/src/components/landing/FeaturesSection.tsx': 2,
