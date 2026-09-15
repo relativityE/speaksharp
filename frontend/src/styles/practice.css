@@ -12,9 +12,10 @@
   --ss-border: var(--brand-neutral-border);
   --ss-focus: var(--brand-signature-text);
 
-  /* Signed-out entrance: neutral page, a signature-yellow hero wash fading into it. */
-  --ss-landing-canvas: var(--brand-neutral-border-soft);
-  --ss-hero-gradient: linear-gradient(102deg, var(--brand-signature) 0%, var(--brand-signature-border) 46%, var(--brand-neutral-border-soft) 100%);
+  /* Signed-out entrance: the approved per-route landing ground is WHITE (neutral-page), with a
+     signature-yellow hero wash fading into it. */
+  --ss-landing-canvas: var(--brand-neutral-page);
+  --ss-hero-gradient: linear-gradient(102deg, var(--brand-signature) 0%, var(--brand-signature-border) 46%, var(--brand-neutral-page) 100%);
   --ss-hero-glow: radial-gradient(120% 90% at 10% -6%, rgba(255, 182, 31, 0.26) 0%, rgba(255, 182, 31, 0) 54%);
   --ss-amber: var(--brand-signature);
   --ss-coral: var(--brand-signature);
@@ -123,7 +124,7 @@
 .practice-root.ss-landing-canvas { background: var(--ss-landing-canvas); }
 /* Warm hero: a signature glow anchored at the brand statement (top-left) over the signature gradient, with a
    subtle bottom fade into the page so the seam is soft (not a hard line). */
-.practice-root .ss-theme-hero { background: linear-gradient(to bottom, rgba(230, 235, 242, 0) 82%, var(--ss-landing-canvas) 100%), var(--ss-hero-glow), var(--ss-hero-gradient); }
+.practice-root .ss-theme-hero { background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 82%, var(--ss-landing-canvas) 100%), var(--ss-hero-glow), var(--ss-hero-gradient); }
 .practice-root .ss-card-panel { background: var(--ss-card-panel); }
 
 /* A card may name its own CTA fill and ink; otherwise its accent fill carries white text. */
