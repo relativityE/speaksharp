@@ -102,6 +102,45 @@ export default {
                     secondary: "var(--brand-neutral-secondary)",
                     muted: "var(--brand-neutral-muted)",
                 },
+                // #1480 Designer rulings (15 Sep): reserved and system colours, all from the shared --brand-* source.
+                record: {
+                    DEFAULT: "var(--brand-record)",
+                    text: "var(--brand-record-text)",
+                },
+                progress: {
+                    DEFAULT: "var(--brand-status)",
+                    bar: "var(--brand-progress-bar)",
+                },
+                regression: {
+                    DEFAULT: "var(--brand-regression)",
+                },
+                // System states. Named `state` because a bare `success` key would retro-colour existing classes.
+                state: {
+                    error: "var(--brand-error)",
+                    "error-ground": "var(--brand-error-ground)",
+                    "error-border": "var(--brand-error-border)",
+                    success: "var(--brand-status)",
+                    "success-ground": "var(--brand-success-ground)",
+                    "success-border": "var(--brand-success-border)",
+                },
+                surface: {
+                    landing: "var(--brand-neutral-page)",
+                    session: "var(--brand-surface-session)",
+                    "session-text": "var(--brand-surface-session-text)",
+                },
+                // Metric palette: a metric keeps one colour everywhere (chart, rail, review card).
+                metric: {
+                    fillers: "var(--brand-signature)",
+                    pace: "var(--brand-ink-hairline)",
+                    "pace-on-ink": "var(--brand-ink-muted)",
+                    clarity: "var(--brand-metric-clarity)",
+                    baseline: "var(--brand-neutral-border-strong)",
+                },
+                chart: {
+                    grid: "var(--brand-neutral-border-soft)",
+                    axis: "var(--brand-neutral-secondary)",
+                    zero: "var(--brand-neutral-border-strong)",
+                },
             },
             backgroundImage: {
                 'gradient-primary': 'var(--gradient-primary)',

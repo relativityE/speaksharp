@@ -144,6 +144,22 @@ All colors MUST be HSL.
     --brand-neutral-body: #1f2733;
     --brand-neutral-secondary: #414b5c;
     --brand-neutral-muted: #6b7688;
+    /* Designer rulings 15 Sep (#1480 comment 5685636195). Record red is reserved for the stop control and
+       RECORDING. Progress green marks a genuine improvement on a number or arrow only — never a series colour.
+       System states: error has its own red; success reuses status text; warnings take no hue. Route surfaces are
+       per-route (landing uses neutral-page; the session page sits on its own surface). */
+    --brand-record: #d92d20;
+    --brand-record-text: #a1261c;
+    --brand-progress-bar: #1f9d6b;
+    --brand-regression: #a8321f;
+    --brand-error: #b42318;
+    --brand-error-ground: #fef3f2;
+    --brand-error-border: #fda29b;
+    --brand-success-ground: #ecfdf3;
+    --brand-success-border: #a6f4c5;
+    --brand-surface-session: #aeb9cd;
+    --brand-surface-session-text: #232c3a;
+    --brand-metric-clarity: #6d28d9;
     --shadow-session-help: 0 6px 16px -6px hsl(164 74% 17% / 0.45), 0 2px 5px -2px hsl(164 74% 17% / 0.32);
   }
 
