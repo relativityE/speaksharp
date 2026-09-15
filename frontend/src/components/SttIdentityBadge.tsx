@@ -39,7 +39,7 @@ export default function SttIdentityBadge() {
     return (
         <div
             data-testid="stt-identity-badge"
-            className="fixed bottom-3 right-3 z-[120] max-w-[16rem] rounded-md border border-sky-700 bg-sky-950/90 px-3 py-2 font-mono text-[11px] leading-tight text-sky-100 shadow-lg"
+            className="fixed bottom-3 right-3 z-[120] max-w-[16rem] rounded-md border border-ink-hairline bg-ink px-3 py-2 font-mono text-[11px] leading-tight text-ink-text shadow-lg"
         >
             <div className="font-bold uppercase tracking-wide">STT identity · debug</div>
             <div data-testid="stt-identity-mode">mode: {show(identity.mode)}</div>

@@ -94,12 +94,12 @@ export function showStaleChunkRecoveryUI(doc: Document = document): void {
   host.setAttribute('aria-label', 'SpeakSharp was updated');
   host.style.cssText =
     'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;' +
-    'background:#0f172acc;backdrop-filter:blur(2px);font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px';
+    'background:rgba(28,35,51,0.8);backdrop-filter:blur(2px);font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px';
   host.innerHTML =
-    '<div style="max-width:420px;width:100%;background:#fff;border-radius:12px;padding:28px;box-shadow:0 20px 60px rgba(15,23,42,.28);text-align:center">' +
-    '<h2 style="margin:0 0 10px;font-size:19px;font-weight:700;color:#16213e">SpeakSharp was updated</h2>' +
-    `<p style="margin:0 0 20px;font-size:15px;line-height:1.5;color:#45526f">${RECOVERY_MESSAGE}</p>` +
-    '<button id="ss-stale-chunk-reload" style="cursor:pointer;border:0;border-radius:8px;background:#08746f;color:#fff;font-weight:600;font-size:15px;padding:11px 20px">Reload latest version</button>' +
+    '<div style="max-width:420px;width:100%;background:white;border-radius:12px;padding:28px;box-shadow:0 20px 60px rgba(15,23,42,.28);text-align:center">' +
+    '<h2 style="margin:0 0 10px;font-size:19px;font-weight:700;color:var(--brand-neutral-heading)">SpeakSharp was updated</h2>' +
+    `<p style="margin:0 0 20px;font-size:15px;line-height:1.5;color:var(--brand-neutral-secondary)">${RECOVERY_MESSAGE}</p>` +
+    '<button id="ss-stale-chunk-reload" style="cursor:pointer;border:0;border-radius:8px;background:var(--brand-signature);color:var(--brand-ink);font-weight:600;font-size:15px;padding:11px 20px">Reload latest version</button>' +
     '</div>';
   doc.body.appendChild(host);
   doc.getElementById('ss-stale-chunk-reload')?.addEventListener('click', () => {

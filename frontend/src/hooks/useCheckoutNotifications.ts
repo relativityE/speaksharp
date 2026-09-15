@@ -56,13 +56,13 @@ export function useCheckoutNotifications() {
                 void queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
                 toast.success('Payment received', {
                     description: 'We are confirming your plan with Stripe. Pro unlocks after your account updates.',
-                    icon: React.createElement(CheckCircle2, { className: "h-5 w-5 text-emerald-700" }),
+                    icon: React.createElement(CheckCircle2, { className: "h-5 w-5 text-status" }),
                     duration: 7000,
                 });
             } else if (checkoutStatus === 'cancelled') {
                 toast.error('Checkout cancelled', {
                     description: 'No payment was made. You can try again anytime.',
-                    icon: React.createElement(AlertCircle, { className: "h-5 w-5 text-red-700" }),
+                    icon: React.createElement(AlertCircle, { className: "h-5 w-5 text-state-error" }),
                     duration: 6000,
                 });
             }

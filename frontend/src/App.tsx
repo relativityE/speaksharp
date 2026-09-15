@@ -343,7 +343,7 @@ const App: React.FC = () => {
         Skip to content
       </a>
       {showTestModeBadge && (
-        <div className="fixed left-3 top-3 z-[100] rounded-md border border-amber-600 bg-amber-100 px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide text-amber-950 shadow">
+        <div className="fixed left-3 top-3 z-[100] rounded-md border border-signature bg-signature-ground px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide text-ink shadow">
           Test Mode · Mock Auth
         </div>
       )}

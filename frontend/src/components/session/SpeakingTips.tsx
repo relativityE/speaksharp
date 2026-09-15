@@ -46,7 +46,7 @@ export const SpeakingTips: React.FC = () => {
         <Card className="bg-secondary/20 border-secondary/50">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
-                    <Lightbulb className="h-5 w-5 text-yellow-500" />
+                    <Lightbulb className="h-5 w-5 text-signature-text" />
                     Speaking Tip
                 </CardTitle>
                 <Button variant="ghost" size="icon" onClick={nextTip} className="h-8 w-8 text-muted-foreground hover:text-foreground">

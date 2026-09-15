@@ -35,7 +35,7 @@ const STATUS_STYLES: Record<OpsStatus, string> = {
   pass: 'border-success/30 bg-success/10 text-success',
   fail: 'border-destructive/35 bg-destructive/10 text-destructive',
   warn: 'border-primary/35 bg-primary/10 text-primary',
-  skip: 'border-slate-400/40 bg-slate-100 text-slate-700',
+  skip: 'border-neutral-border bg-neutral-band text-neutral-secondary',
 };
 
 const ORDER: Record<OpsStatus, number> = {

@@ -123,7 +123,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   return (
     <Card className={`relative flex h-full flex-col border-border bg-card surface-shadow ${tier.isPopular ? 'border-primary' : ''}`}>
       {tier.isPopular && (
-        <div className="absolute right-5 top-5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 border border-amber-200 shadow-none">
+        <div className="absolute right-5 top-5 inline-flex items-center gap-1 rounded-full bg-signature-ground px-3 py-1 text-xs font-semibold text-signature-text border border-signature-border shadow-none">
           <Zap className="h-3 w-3" />
           Most popular
         </div>

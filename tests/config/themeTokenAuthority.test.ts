@@ -101,7 +101,6 @@ const BASELINE_RAW_HEX: Record<string, number> = {
     'frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx': 1,
     'frontend/src/hooks/__tests__/useSessionMetrics.test.ts': 7,
     'frontend/src/hooks/useSessionLifecycle.ts': 1,
-    'frontend/src/lib/staleChunkRecovery.ts': 4,
     'frontend/src/services/__tests__/SpeechRuntimeController.test.ts': 2,
     'frontend/src/services/transcription/__tests__/TranscriptionService.test.ts': 2,
     'frontend/src/services/transcription/__tests__/transcriptSanitizer.test.ts': 1,
@@ -122,28 +121,14 @@ const BASELINE_RAW_HEX: Record<string, number> = {
 };
 
 const BASELINE_PALETTE_UTILITY: Record<string, number> = {
-    'frontend/src/App.tsx': 1,
-    'frontend/src/components/LocalErrorBoundary.tsx': 5,
-    'frontend/src/components/SttIdentityBadge.tsx': 1,
     'frontend/src/components/landing/BenefitsSection.tsx': 1,
     'frontend/src/components/landing/CTASection.tsx': 1,
     'frontend/src/components/landing/FeaturesSection.tsx': 2,
     'frontend/src/components/landing/HeroSection.tsx': 4,
     'frontend/src/components/landing/HeroStatsDashboard.tsx': 7,
     'frontend/src/components/session/AISuggestions.tsx': 1,
-    'frontend/src/components/session/FillerWordAnalysis.tsx': 7,
-    'frontend/src/components/session/MobileActionBar.tsx': 2,
-    'frontend/src/components/session/SpeakingTips.tsx': 1,
-    'frontend/src/components/session/TimerDisplay.tsx': 1,
-    'frontend/src/components/session/UnresolvedRecoveryBanner.tsx': 1,
-    'frontend/src/components/session/__tests__/FillerWordAnalysis.component.test.tsx': 2,
     'frontend/src/components/session/__tests__/StatusNotificationBar.test.tsx': 1,
-    'frontend/src/components/ui/sonner.tsx': 4,
-    'frontend/src/hooks/useCheckoutNotifications.ts': 2,
     'frontend/src/lib/__tests__/utils.test.ts': 4,
-    'frontend/src/pages/OpsStatusPage.tsx': 1,
-    'frontend/src/pages/PricingPage.tsx': 1,
-    'frontend/src/pages/SessionPage.tsx': 1,
 };
 
 const SCANNED = /\.(tsx?|jsx?|css)$/;

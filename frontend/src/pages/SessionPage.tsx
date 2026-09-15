@@ -591,7 +591,7 @@ export const SessionPage: React.FC = () => {
                     it offering a different action for the same session is a contradiction, not a choice. */}
                 {recoveryDraft && !isListening && !pendingResolutionKind && (
                     <div
-                        className="mt-3 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                        className="mt-3 flex flex-col gap-2 rounded-md border border-neutral-border bg-neutral-band p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
                         data-testid="session-recovery-actions"
                         data-recovery-state={recoveryDraft.recoveryState}
                     >
