@@ -68,6 +68,16 @@ export default {
                     border: "hsl(var(--sidebar-border))",
                     ring: "hsl(var(--sidebar-ring))",
                 },
+                landing: {
+                    ink: "hsl(var(--landing-ink))",
+                    "ink-foreground": "hsl(var(--landing-ink-foreground))",
+                    "ink-muted": "hsl(var(--landing-ink-muted))",
+                    signature: "hsl(var(--landing-signature))",
+                    "signature-foreground": "hsl(var(--landing-signature-foreground))",
+                    rule: "hsl(var(--landing-rule))",
+                    money: "hsl(var(--landing-money))",
+                    privacy: "hsl(var(--landing-privacy))",
+                },
             },
             backgroundImage: {
                 'gradient-primary': 'var(--gradient-primary)',

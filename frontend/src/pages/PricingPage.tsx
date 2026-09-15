@@ -5,12 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import {
-  buildCheckoutBody,
-  trackCheckoutStarted,
   trackConversionCtaClicked,
   trackConversionCtaViewed,
   type ConversionSource,
 } from '@/services/conversionFunnel';
+import { startProCheckout } from '@/services/proCheckout';
+import { offerDisclosureChips, PAID_CONTINUATION_UNAVAILABLE } from '@/components/pricing/offerDisclosure';
 import { toast } from '@/lib/toast';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import logger from '../lib/logger';
@@ -98,21 +98,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
         return;
       }
 
-      trackCheckoutStarted({ source, plan: 'pro' });
-
-      const supabase = getSupabaseClient();
-      if (!supabase) throw new Error("Supabase client not available");
-
-      const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-        body: buildCheckoutBody('pro', source)
-      });
-
-      if (error) throw error;
-      if (data?.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
-      } else {
-        throw new Error("No checkout URL returned");
-      }
+      await startProCheckout(source);
     } catch (err: unknown) {
       logger.error({ err, tier: tier.name }, 'Error creating Stripe checkout session:');
       toast.error('Unable to start checkout. Please try again or contact support if it continues.');
@@ -162,10 +148,8 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
             data-testid="pricing-pro-beta-unavailable"
             className="w-full rounded-md border border-border bg-muted/40 px-4 py-3 text-center"
           >
-            <p className="text-sm font-semibold text-foreground">Paid continuation isn&apos;t open yet.</p>
-            <p className="mt-1 text-xs text-foreground/70">
-              The complete product is free for your first 30 days — no card required. Paid continuation ($10/month) opens when Pro enrollment is enabled.
-            </p>
+            <p className="text-sm font-semibold text-foreground">{PAID_CONTINUATION_UNAVAILABLE.title}</p>
+            <p className="mt-1 text-xs text-foreground/70">{PAID_CONTINUATION_UNAVAILABLE.detail}</p>
           </div>
         )}
       </div>
@@ -259,11 +243,7 @@ export const PricingPage: React.FC = () => {
         ))}
       </div>
       <div className="mx-auto mt-8 flex max-w-4xl flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
-        {[
-          'Private transcription keeps audio local',
-          'Transcript data supports SpeakSharp features',
-          paymentsEnabled ? 'Pro continues only after Stripe confirmation' : 'No card is collected until paid continuation opens',
-        ].map((label) => (
+        {offerDisclosureChips(paymentsEnabled).map((label) => (
           <span key={label} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
             <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
             {label}

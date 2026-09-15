@@ -112,6 +112,18 @@ All colors MUST be HSL.
     /* Warm tile behind the collapsed filler row's glyph (warm = evidence, matching the filler chips). */
     --session-warm-tile: 36 88% 92%;
     --session-warm-tile-text: 30 84% 30%;
+
+    /* #1475 G12 landing tokens. Ink is the full-bleed hero/closing ground and the single Practice Loop card;
+       signature yellow is the brand highlight on ink; money-purple is reserved for prices; green is reserved
+       for privacy confirmation (no teal accent). Components consume these as hsl(var(--landing-…)). */
+    --landing-ink: 222 47% 11%;
+    --landing-ink-foreground: 45 33% 97%;
+    --landing-ink-muted: 220 18% 76%;
+    --landing-signature: 45 93% 58%;
+    --landing-signature-foreground: 222 47% 11%;
+    --landing-rule: 220 14% 38%;
+    --landing-money: 262 52% 40%;
+    --landing-privacy: 164 74% 22%;
     --shadow-session-help: 0 6px 16px -6px hsl(164 74% 17% / 0.45), 0 2px 5px -2px hsl(164 74% 17% / 0.32);
   }
 
@@ -181,6 +193,16 @@ All colors MUST be HSL.
     --session-green-soft-text: 160 55% 78%;
     --session-warm-tile: 32 40% 20%;
     --session-warm-tile-text: 36 85% 72%;
+    /* #1475 dark counterparts: ink deepens below the dark body so the hero still reads as its own ground;
+       money-purple and privacy green lighten to stay legible on dark surfaces. */
+    --landing-ink: 224 50% 5%;
+    --landing-ink-foreground: 45 33% 97%;
+    --landing-ink-muted: 220 18% 76%;
+    --landing-signature: 45 93% 58%;
+    --landing-signature-foreground: 222 47% 11%;
+    --landing-rule: 220 14% 40%;
+    --landing-money: 262 85% 80%;
+    --landing-privacy: 160 55% 70%;
     --shadow-session-help: 0 6px 16px -6px hsl(164 60% 26% / 0.55), 0 2px 5px -2px hsl(164 60% 26% / 0.4);
     --nav-avatar-bg: 218 20% 26%;
     --nav-avatar-fg: 214 30% 88%;
