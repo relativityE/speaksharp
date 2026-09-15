@@ -5,6 +5,33 @@ import { FULL_LANE_PATTERNS } from './ci-change-scope.mjs';
 
 const FULL_SHA = /^[0-9a-f]{40}$/;
 
+export const CANONICAL_PRODUCT_RELEASE_DOCUMENTS = Object.freeze([
+  'product_release/ARCHITECTURE.md',
+  'product_release/ENTITLEMENTS_AND_BILLING.md',
+  'product_release/EVIDENCE_INDEX.md',
+  'product_release/OPERATIONS_AND_SECURITY.md',
+  'product_release/PRODUCT_REQUIREMENTS.md',
+  'product_release/PROGRESS_AND_NEXT_ACTION.md',
+  'product_release/QUALITY.md',
+  'product_release/README.md',
+  'product_release/RELEASE_PROCESS.md',
+  'product_release/RELEASE_STATUS.md',
+  'product_release/ROADMAP.md',
+  'product_release/STT.md',
+  'product_release/TESTER_GUIDE.md',
+  'product_release/TESTER_OPERATIONS.md',
+]);
+const CANONICAL_PRODUCT_RELEASE_DOCUMENT_SET = new Set(CANONICAL_PRODUCT_RELEASE_DOCUMENTS);
+
+/**
+ * Canonical product authorities are a reviewable documentation claim, not an implementation claim.
+ * Keep this allowlist exact: archive/evidence/work-item prose and a fifteenth root document do not
+ * gain a merge path merely by being Markdown under product_release/.
+ */
+export function isCanonicalProductReleaseDocument(file) {
+  return typeof file === 'string' && CANONICAL_PRODUCT_RELEASE_DOCUMENT_SET.has(file.trim());
+}
+
 /**
  * A scope-only finding document is not implementation. Keep this predicate deliberately narrow:
  * release-qualification code must change an executable source, workflow, or repository configuration.
@@ -80,7 +107,12 @@ export function evaluateReviewQualification({
 
   const files = Array.isArray(changedFiles) ? changedFiles : [];
   const substantiveFiles = files.filter(isSubstantiveImplementationFile);
-  if (substantiveFiles.length === 0) reasons.push('no_substantive_implementation');
+  const documentationFiles = files.filter(isCanonicalProductReleaseDocument);
+  const canonicalDocumentationOnly = files.length > 0 && documentationFiles.length === files.length;
+  const reviewScope = substantiveFiles.length > 0
+    ? 'implementation'
+    : canonicalDocumentationOnly ? 'canonical_product_release_documentation' : null;
+  if (reviewScope === null) reasons.push('no_substantive_implementation');
 
   if (FULL_SHA.test(normalizedCurrent)
       && FULL_SHA.test(normalizedReviewed)
@@ -112,12 +144,17 @@ export function evaluateReviewQualification({
     reviewStatus: reviewStatus ?? null,
     findingCount: Number.isInteger(findingCount) ? findingCount : null,
     substantiveFiles,
+    documentationFiles,
+    reviewScope,
   };
 }
 
 export function formatReviewQualification(result) {
+  const subject = result.reviewScope === 'canonical_product_release_documentation'
+    ? 'canonical product-release documentation'
+    : 'implementation';
   return result.qualified
-    ? `REVIEW-QUALIFIED: completed zero-finding review covers current implementation head ${result.currentSha}`
+    ? `REVIEW-QUALIFIED: completed zero-finding review covers current ${subject} head ${result.currentSha}`
     : `NOT REVIEW-QUALIFIED: ${result.reasons.join(', ')}`;
 }
 
