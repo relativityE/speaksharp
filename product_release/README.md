@@ -1,7 +1,7 @@
 **Status:** Authoritative (canonical portal)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-08
-**Last Verified:** 2026-09-08 — reconciled to the newest-one retention ruling, the 19-finding burn-down, and the current canonical-document inventory.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — the complete 142-file tree was inventoried; all 14 canonical authorities were reviewed; archived and dated evidence remained immutable.
 **Applies To:** All SpeakSharp product/release documentation under `product_release/`
 **Class:** Procedure (documentation portal)
 **Authority:** Entry point, precedence model, and canonical-document map — the SSOT for *documentation structure and authority*.
@@ -9,13 +9,12 @@
 **Supersedes:** archived `content_list.md`; absorbs archived `PRECEDENCE.md` (§1).
 **Evidence Sources:** the 14 canonical documents (§2) and the archived migration ledger.
 
-<!-- pm-currentization:2026-09-08 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Portal currentized 8 Sep 2026.** The Production biopsy and subsequent PO decisions—including newest-one transcript retention—supersede conflicting current-state text anywhere below this directory. The 14 root documents are current authorities. `archive/**` and dated `evidence/**` remain historical provenance, never current instruction. `v4_work/**` is exploratory history; `work_items/**` is actionable only when its owning open issue says so.
+> **Portal currentized 15 Sep 2026.** The 14 root Markdown documents remain the only current authorities. The former `BACKLOG.md` exists only at `archive/superseded-docs-2026-08-29/BACKLOG.md`; it was reviewed as historical provenance and must not be revived. **`ROADMAP.md` is the live backlog authority.**
 >
-> **Review census:** all 103 Markdown files under `product_release/` were dispositioned: 14 canonical authorities currentized; 2 archive/evidence routing files corrected; 5 `v4_work` runbooks marked historical; 4 `work_items` packets marked superseded; and 78 dated archive/evidence files preserved unchanged under the historical warnings.
-
-<!-- /pm-currentization:2026-09-08 -->
+> **Review census:** 142 files were inventoried: 14 canonical root files, 48 archived files, 66 evidence files, 5 historical `v4_work` files, and 9 `work_items` files. The 106 Markdown files were checked by authority class. Root authorities were currentized where facts or ownership changed; `archive/**`, dated/retained evidence, pinned SQL packets, images, JSON evidence, and the financial workbook remain point-in-time artifacts and were not rewritten. Non-root material is actionable only when an open owning issue explicitly adopts it.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Documentation Portal
 

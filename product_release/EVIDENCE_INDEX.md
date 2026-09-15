@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for the index of dated proof artifacts — an index, not the proofs themselves)
 **Owner:** Product-Ops / Quality (relativityE)
-**Last Reviewed:** 2026-09-08
-**Last Verified:** 2026-09-08 — historical newest-two evidence is explicitly separated from the current newest-one authority.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — the 66-file evidence tree and current issue-held decision evidence were reconciled; dated and retained artifacts remain immutable.
 **Applies To:** All dated release-proof artifacts for the SpeakSharp beta — where each lives, when it was captured, and what it proved at that moment.
 **Class:** Evidence index.
 **Authority:** The source for **where** dated proof artifacts live and **what date/point-in-time** they represent. It is a map to evidence, not a verdict.
@@ -9,11 +9,10 @@
 **Supersedes:** the ad-hoc "current truth source" framing of `evidence/README.md`; dated closeout, public-launch and entitlement records are retained below as evidence, not current posture.
 **Evidence Sources:** the `product_release/evidence/` tree itself; `evidence/retained/attribution-sanitation-crosswalk.md` for pre-2026-07-15 SHA provenance.
 
-<!-- pm-currentization:2026-09-04 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Currentized 4 Sep 2026.** The 4 Sep Production human test is current decision evidence in #1390/#1258 and the reopened #1259, not yet a frozen retained artifact. It established two failed v2 journeys and exposed missing observability; it did not qualify any model or release. Existing dated files below remain immutable evidence of what was known when captured and must not override these newer authorities.
-
-<!-- /pm-currentization:2026-09-04 -->
+> **Currentized 15 Sep 2026.** The evidence tree was inventoried without rewriting dated or retained artifacts. The partial RWT, #1468 managed-identity verification, and #1263 Moonshine long-form runs currently live as issue/PR decision evidence; they are not silently promoted into permanent files or model-selection rows. The Moonshine probe is a P1 failure observation, not a downselection result. Current pass/fail and deployed identity remain in `RELEASE_STATUS.md`.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Evidence Index
 
