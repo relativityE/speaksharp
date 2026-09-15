@@ -1,0 +1,21 @@
+-- #1473 — CONTINGENT repair: authenticated users may read (only) their own profile row again.
+--
+-- SYMPTOM (Production, 2026-09-14): the browser's profile read and the get-ai-suggestions edge function's
+-- `user_profiles` read both failed with 42501 "permission denied for table user_profiles", so the Practice Loop
+-- review was unavailable for every user.
+--
+-- WHY A GRANT, AND ONLY THIS ONE: no migration in this repository grants or revokes any privilege on
+-- public.user_profiles; `authenticated` access has always come from the platform's default privileges. Row
+-- visibility is governed by RLS: the single policy "Users can select own profile" (20260522090000), FOR SELECT
+-- USING ((SELECT auth.uid()) = id). A missing table privilege blocks that policy from ever being evaluated. This
+-- restores SELECT alone, so RLS again limits each user to their own row. No INSERT, UPDATE or DELETE is granted,
+-- no policy changes, and `anon` gains nothing.
+--
+-- CONTINGENT: apply ONLY after the sanitized Admin read confirms `authenticated` lacks SELECT on
+-- public.user_profiles in Production. Merging this file does not apply it; application requires a separate exact
+-- Product Owner authorization.
+--
+-- ROLLBACK: REVOKE SELECT ON public.user_profiles FROM authenticated;
+--   (this restores the broken state; correct only if the Admin read shows the privilege was never missing)
+
+GRANT SELECT ON public.user_profiles TO authenticated;
