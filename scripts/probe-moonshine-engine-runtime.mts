@@ -22,7 +22,14 @@
  * downloading anything.
  *
  *   usage: npx tsx scripts/probe-moonshine-engine-runtime.mts \
- *            [--arch=MOONSHINE_STREAMING_SMALL] [--cache=/path/to/repo/with/.hf-cache] [--out=report.json]
+ *            [--cache=/path/to/repo/with/.hf-cache] [--out=report.json] [--fixtures=washington_01,h1_1,…]
+ *
+ * #1263 LONG-AUDIO MODE (`--fixtures=`). The named committed clips under tests/fixtures/stt-isomorphic/audio
+ * are JOINED, in order, into one take of different speech and fed at microphone pace. Joined, never looped:
+ * looped input honestly produces a looped transcript, which is indistinguishable from a model loop. The take
+ * is checked for a stable live prefix, no repetition loop, a preserved opening and tail, and exactly one
+ * forced final inference that a later facade commit reuses. A detected loop FAILS the row as
+ * `repetition_loop`; the raw engine output is recorded as produced and is never collapsed or relabelled.
  */
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -32,14 +39,51 @@ import { dirname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 import { chromium, type Request as PwRequest } from '@playwright/test';
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
+import { detectRepetitionRisk } from '../frontend/src/utils/repetitionRisk';
+import { WASHINGTON_01 } from '../tests/fixtures/stt-isomorphic/washington-speeches';
+import { HARVARD_SENTENCES } from '../tests/fixtures/stt-isomorphic/harvard-sentences';
 
 const arg = (name: string, fallback = ''): string =>
     process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=') ?? fallback;
 
-const ARCH = arg('arch', 'MOONSHINE_STREAMING_SMALL');
+const ARCH = arg('arch', 'MOONSHINE_STREAMING_MEDIUM');
+/**
+ * The engine FAILS CLOSED on an identity the registry does not describe, so the probe runs as the
+ * registered candidate. The old free-string id (`probe-engine-runtime`) is refused before any weights load.
+ */
+const CANDIDATE_BY_ARCH: Record<string, string> = { MOONSHINE_STREAMING_MEDIUM: 'moonshine:streaming-medium' };
+const CANDIDATE_ID = CANDIDATE_BY_ARCH[ARCH];
+if (!CANDIDATE_ID) {
+    console.error(`no registered candidate for ${ARCH}; registered: ${Object.keys(CANDIDATE_BY_ARCH).join(', ')}`);
+    process.exit(2);
+}
 const OUT = arg('out', 'product_release/evidence/retained/moonshine-engine-runtime.json');
-const FIXTURE = '/fixtures/harvard_sentences_16k.wav';
-const FIXTURE_PATH = 'tests/fixtures/harvard_sentences_16k.wav';
+const FIXTURE_NAMES = arg('fixtures').split(',').map((s) => s.trim()).filter(Boolean);
+const LONGFORM = FIXTURE_NAMES.length > 0;
+/**
+ * Silence appended after the last clip, as a speaker's pause before pressing Stop. Default 0 so a run is the
+ * committed bytes only; a nonzero value is a DECLARED variant and is recorded in the artifact.
+ */
+const TRAILING_SILENCE_MS = Number(arg('trailing-silence-ms', '0'));
+if (!Number.isFinite(TRAILING_SILENCE_MS) || TRAILING_SILENCE_MS < 0) {
+    console.error(`--trailing-silence-ms must be a non-negative number`);
+    process.exit(2);
+}
+/** Committed references for the long-audio clips. Public fixtures only — never the PO-held RWT corpus. */
+const REFERENCES: Record<string, string> = {
+    washington_01: WASHINGTON_01.transcript,
+    ...Object.fromEntries(HARVARD_SENTENCES.map((s) => [s.id, s.transcript])),
+};
+const FIXTURE_PATHS = LONGFORM
+    ? FIXTURE_NAMES.map((n) => `tests/fixtures/stt-isomorphic/audio/${n}.wav`)
+    : ['tests/fixtures/harvard_sentences_16k.wav'];
+for (const p of FIXTURE_PATHS) {
+    if (!existsSync(p)) { console.error(`missing fixture ${p}`); process.exit(2); }
+}
+for (const n of FIXTURE_NAMES) {
+    if (!REFERENCES[n]) { console.error(`no committed reference for ${n}; long-audio checks need one`); process.exit(2); }
+}
+const FIXTURE_URLS = FIXTURE_PATHS.map((p) => `/${p.replace(/^tests\//, '')}`);
 const REPO = resolve('.');
 
 /**
@@ -162,7 +206,7 @@ await page.goto(`${harness.origin}/engine-runtime.html`);
 await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true);
 
 console.log(`\n#1263 engine runtime probe — arch=${ARCH}, runtime@${pinTable.runtimeVersion}, components=${pinTable.componentSet}`);
-console.log(`fixture: ${FIXTURE_PATH}`);
+console.log(`fixtures: ${FIXTURE_PATHS.join(' + ')}${LONGFORM ? '  (long-audio mode, microphone pace)' : ''}`);
 
 const outcome = await page.evaluate(async (input) => {
     const w = window as unknown as {
@@ -176,19 +220,30 @@ const outcome = await page.evaluate(async (input) => {
                 init: () => Promise<{ isOk: boolean; error?: Error }>;
                 start: (m: unknown) => Promise<void>;
                 stop: () => Promise<void>;
+                transcribe: (a: Float32Array, o?: { final?: boolean }) => Promise<{ isOk: boolean; data?: string }>;
                 getTranscript: () => Promise<string>;
                 getInterimTranscript: () => string;
                 getMetadata: () => Record<string, unknown>;
                 terminate: () => Promise<void>;
             };
             LIVE_WINDOW_SECONDS: number;
+            FORCE_UPDATE: number;
         };
-        const audio = await w.__readPcm16(input.fixtureUrl);
+        // One take of DIFFERENT speech: the clips are joined end to end, each exactly once.
+        const clips = await Promise.all(input.fixtureUrls.map((u) => w.__readPcm16(u)));
+        const sampleRate = clips[0].sampleRate;
+        if (clips.some((c) => c.sampleRate !== sampleRate)) throw new Error('fixtures disagree on sample rate');
+        const silenceSamples = Math.round((input.trailingSilenceMs / 1000) * sampleRate);
+        // Float32Array is zero-filled, so the declared trailing silence is the unset tail.
+        const joined = new Float32Array(clips.reduce((n, c) => n + c.samples.length, 0) + silenceSamples);
+        let offset = 0;
+        for (const c of clips) { joined.set(c.samples, offset); offset += c.samples.length; }
+        const audio = { samples: joined, sampleRate, seconds: joined.length / sampleRate };
 
         const progress: number[] = [];
         // NO loadTranscriber: the DEFAULT loader runs, which is the whole point.
         const engine = new mod.MoonshineStreamingEngine({
-            candidateId: 'probe-engine-runtime',
+            candidateId: input.candidateId,
             modelArch: input.arch,
             onDownloadProgress: (f: number) => progress.push(f),
         });
@@ -198,17 +253,54 @@ const outcome = await page.evaluate(async (input) => {
         const loadMs = performance.now() - t0;
         if (!init.isOk) return { ok: false as const, stage: 'init', error: String(init.error?.message ?? 'init failed'), progressCount: progress.length };
 
+        // INFERENCE LEDGER. Counts every stream the runtime opens and every pass made on one, split into live
+        // passes and FORCED passes. It wraps the runtime's objects, so the engine code under test is untouched.
+        //
+        // The runtime's own `stream.stop()` runs one more forced pass internally ("flush a final transcription so
+        // any trailing line is completed"). The engine calls stop() only AFTER it has committed its single forced
+        // result, so that flush is discarded — real compute, but not a second inference that replaces the final.
+        // It is counted apart, as `runtimeStopFlushPasses`, so it is neither hidden nor mistaken for one.
+        const ledger = { streams: 0, livePasses: 0, forcedPasses: 0, runtimeStopFlushPasses: 0 };
+        type RuntimeStream = { transcribe: (flags?: number) => unknown; stop: () => void };
+        const runtime = (engine as unknown as { transcriber: { createStream: () => RuntimeStream } }).transcriber;
+        const openStream = runtime.createStream.bind(runtime);
+        runtime.createStream = () => {
+            ledger.streams += 1;
+            const stream = openStream();
+            const pass = stream.transcribe.bind(stream);
+            const stopStream = stream.stop.bind(stream);
+            let inRuntimeStop = false;
+            stream.transcribe = (flags?: number) => {
+                if (inRuntimeStop) ledger.runtimeStopFlushPasses += 1;
+                else if (flags === mod.FORCE_UPDATE) ledger.forcedPasses += 1;
+                else ledger.livePasses += 1;
+                return pass(flags);
+            };
+            stream.stop = () => {
+                inRuntimeStop = true;
+                try { return stopStream(); } finally { inRuntimeStop = false; }
+            };
+            return stream;
+        };
+
         const mic = w.__fixtureMic(audio.samples, audio.sampleRate);
         await engine.start(mic.stream);
 
         // Feed the fixture as half-second frames, as a microphone would. The live window is only
-        // exercised when audio arrives OVER TIME.
+        // exercised when audio arrives OVER TIME. Long-audio mode feeds at MICROPHONE PACE: how far the live
+        // passes fall behind over a long take is part of what is being measured, and a fast feed hides it.
         let fed = 0;
         let interimAtWindow = '';
         let fedAtWindow = 0;
+        const snapshots: { fed: number; text: string }[] = [];
+        let nextSnapshotAt = 5;
         while (fed < audio.seconds) {
             fed += mic.emit(fed, 0.5);
-            await sleep(60);
+            await sleep(input.longform ? 500 : 60);
+            if (input.longform && fed >= nextSnapshotAt) {
+                snapshots.push({ fed, text: engine.getInterimTranscript() });
+                nextSnapshotAt += 5;
+            }
             // Capture the live transcript once enough audio exists to fill the window but well before
             // the clip ends, so a window transcript and a full transcript are genuinely different spans.
             if (!interimAtWindow && fed >= mod.LIVE_WINDOW_SECONDS + 1) {
@@ -225,33 +317,74 @@ const outcome = await page.evaluate(async (input) => {
         await engine.stop();
         const finalMs = performance.now() - t1;
         const final = await engine.getTranscript();
+        const ledgerAfterStop = { ...ledger };
+        // THE FACADE COMMIT AFTER STOP. The shipping order can reach a commit decode once the session has
+        // already finalized; it must hand back the committed transcript, never a second whole-buffer inference.
+        const commit = await engine.transcribe(audio.samples, { final: true });
+        const ledgerAfterCommit = { ...ledger };
         const metadata = engine.getMetadata();
         await engine.terminate();
 
         return {
             ok: true as const, loadMs, finalMs, audioSeconds: audio.seconds, sampleRate: audio.sampleRate,
             liveWindowSeconds: mod.LIVE_WINDOW_SECONDS,
-            interimAtWindow, fedAtWindow, interimAtEnd, final, metadata,
+            interimAtWindow, fedAtWindow, interimAtEnd, final, metadata, snapshots,
+            commitText: commit.isOk ? (commit.data ?? '') : null, ledgerAfterStop, ledgerAfterCommit,
             progressCount: progress.length, progressMax: progress.length ? Math.max(...progress) : null,
         };
     } catch (error) {
         return { ok: false as const, stage: 'run', error: (error as Error)?.message?.slice(0, 400) ?? String(error), progressCount: 0 };
     }
-}, { bundleUrl: '/engine.bundle.js', fixtureUrl: FIXTURE, arch: ARCH });
+}, { bundleUrl: '/engine.bundle.js', fixtureUrls: FIXTURE_URLS, arch: ARCH, candidateId: CANDIDATE_ID, longform: LONGFORM, trailingSilenceMs: TRAILING_SILENCE_MS });
 
 const words = (s: string): string[] => s.trim().toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').split(/\s+/).filter(Boolean);
+
+/** Occurrences of a word sequence in a word list. */
+const occurrences = (hay: string[], needle: string[]): number => {
+    let count = 0;
+    for (let i = 0; needle.length > 0 && i + needle.length <= hay.length; i++) {
+        if (needle.every((word, j) => hay[i + j] === word)) count++;
+    }
+    return count;
+};
+/** Is `needle` present, in order, within `hay` (other words may sit between)? */
+const containsInOrder = (hay: string[], needle: string[]): boolean => {
+    let j = 0;
+    for (const word of hay) { if (word === needle[j]) j++; if (j === needle.length) return true; }
+    return needle.length === 0;
+};
+
+/**
+ * A REPETITION LOOP, as the saved-transcript detector reports it — with one exclusion that keeps a row from
+ * failing on real speech: a recurring 4-word span that the committed references themselves contain twice was
+ * genuinely spoken twice. Adjacent loops and whole-text doubling are never excused.
+ */
+const referenceWords = FIXTURE_NAMES.flatMap((n) => words(REFERENCES[n]));
+const loopIn = (text: string): { reason: string; span: string | null } | null => {
+    const risk = detectRepetitionRisk(text);
+    if (!risk.repetitionRisk) return null;
+    if (risk.repetitionRiskReason === 'repeated_span') {
+        const span = /"([^"]+)"/.exec(risk.repeatedSpanSummary ?? '')?.[1] ?? '';
+        if (span && occurrences(referenceWords, words(span)) >= 2) return null;
+    }
+    return { reason: risk.repetitionRiskReason ?? 'unknown', span: risk.repeatedSpanSummary };
+};
 const audioEgress = egress.filter((e) => e.bodyBytes > 0);
 const offOrigin = egress.filter((e) => e.disposition !== 'local');
 
 let verdict: 'pass' | 'fail' = 'fail';
+/** The row's disposition. A loop is named as a loop, never folded into a generic fail or into success. */
+let rowDisposition: 'pass' | 'fail' | 'repetition_loop' | 'run_failed' = 'run_failed';
 const findings: string[] = [];
+let longform: Record<string, unknown> | null = null;
 
 if (!outcome.ok) {
     findings.push(`FAIL ${outcome.stage}: ${outcome.error}`);
 } else {
     const w0 = words(outcome.interimAtWindow), wEnd = words(outcome.interimAtEnd), wFin = words(outcome.final);
+    const observed = outcome.metadata.observedExecution as { initSucceeded?: boolean } | undefined;
     const checks: [string, boolean, string][] = [
-        ['default loader produced a transcriber', outcome.metadata.runtimeVersion !== undefined, 'init returned ok'],
+        ['default loader produced a transcriber', observed?.initSucceeded === true, 'init returned ok'],
         ['live window decoded real speech', w0.length > 0, `${w0.length} words after ${outcome.fedAtWindow.toFixed(1)}s fed`],
         ['final pass decoded real speech', wFin.length > 0, `${wFin.length} words`],
         // THE COMPARISON THAT MATTERS. A 3-second window over a 12-second clip cannot contain the whole
@@ -266,8 +399,61 @@ if (!outcome.ok) {
         ['zero pin violations', pinViolations.length === 0, JSON.stringify(pinViolations.slice(0, 3))],
         ['download progress was reported', outcome.progressCount > 0, `${outcome.progressCount} callbacks`],
     ];
+
+    let loopDetected = false;
+    if (LONGFORM) {
+        // STABLE PREFIX. Each live snapshot, less its most recent words (the part a later pass may still
+        // revise), must survive unchanged at the head of the next snapshot and of the final transcript.
+        const PREFIX_SLACK_WORDS = 12;
+        const sequence = [...outcome.snapshots, { fed: outcome.audioSeconds, text: outcome.final }];
+        const prefixBreaks: { atFed: number; firstDifferentWord: number; settledWords: number }[] = [];
+        for (let i = 1; i < sequence.length; i++) {
+            const prev = words(sequence[i - 1].text), cur = words(sequence[i].text);
+            const settled = prev.slice(0, Math.max(0, prev.length - PREFIX_SLACK_WORDS));
+            const firstDifferentWord = settled.findIndex((word, j) => cur[j] !== word);
+            if (firstDifferentWord !== -1) prefixBreaks.push({ atFed: sequence[i].fed, firstDifferentWord, settledWords: settled.length });
+        }
+
+        const finalLoop = loopIn(outcome.final);
+        const liveLoops = outcome.snapshots
+            .map((s) => ({ fed: s.fed, loop: loopIn(s.text) }))
+            .filter((s) => s.loop !== null);
+        loopDetected = finalLoop !== null || liveLoops.length > 0;
+
+        const EDGE_WORDS = 4, SEARCH_WORDS = 15;
+        const opening = words(REFERENCES[FIXTURE_NAMES[0]]).slice(0, EDGE_WORDS);
+        const tail = words(REFERENCES[FIXTURE_NAMES[FIXTURE_NAMES.length - 1]]).slice(-EDGE_WORDS);
+        const openingKept = containsInOrder(wFin.slice(0, SEARCH_WORDS), opening);
+        const tailKept = containsInOrder(wFin.slice(-SEARCH_WORDS), tail);
+
+        const { ledgerAfterStop: stopLedger, ledgerAfterCommit: commitLedger } = outcome;
+        checks.push(
+            ['live snapshots were captured across the whole take', outcome.snapshots.length >= Math.floor(outcome.audioSeconds / 5) - 1,
+                `${outcome.snapshots.length} snapshots over ${outcome.audioSeconds.toFixed(1)}s`],
+            ['stable prefix — settled live text is never rewritten by a later pass', prefixBreaks.length === 0,
+                prefixBreaks.length ? JSON.stringify(prefixBreaks.slice(0, 3)) : `${sequence.length - 1} transitions, slack ${PREFIX_SLACK_WORDS} words`],
+            ['NO repetition loop in the final transcript (raw engine output, unsanitized)', finalLoop === null,
+                finalLoop ? `${finalLoop.reason}: ${finalLoop.span}` : ''],
+            ['NO repetition loop in any live snapshot', liveLoops.length === 0,
+                liveLoops.length ? JSON.stringify(liveLoops.slice(0, 3)) : ''],
+            ['opening preserved', openingKept, `"${opening.join(' ')}" within the first ${SEARCH_WORDS} words`],
+            ['tail preserved', tailKept, `"${tail.join(' ')}" within the last ${SEARCH_WORDS} words`],
+            ['exactly ONE forced final inference, on the session stream', stopLedger.forcedPasses === 1 && stopLedger.streams === 1,
+                JSON.stringify(stopLedger)],
+            ['a facade commit after stop returns the final — no second inference', outcome.commitText === outcome.final
+                && commitLedger.forcedPasses === stopLedger.forcedPasses && commitLedger.streams === stopLedger.streams,
+                JSON.stringify(commitLedger)],
+        );
+        longform = {
+            fixtures: FIXTURE_NAMES, prefixSlackWords: PREFIX_SLACK_WORDS, prefixBreaks,
+            finalLoop, liveLoops, opening, tail, openingKept, tailKept,
+            finalWords: wFin.length, referenceWords: referenceWords.length,
+        };
+    }
+
     for (const [name, ok, detail] of checks) findings.push(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
     verdict = checks.every(([, ok]) => ok) ? 'pass' : 'fail';
+    rowDisposition = loopDetected ? 'repetition_loop' : verdict;
 }
 
 for (const f of findings) console.log(`  ${f}`);
@@ -276,17 +462,18 @@ if (outcome.ok) {
     console.log(`  final  (${outcome.audioSeconds.toFixed(2)}s clip): ${JSON.stringify(outcome.final)}`);
     console.log(`  metadata: ${JSON.stringify(outcome.metadata)}`);
 }
+console.log(`  row disposition: ${rowDisposition}`);
 console.log(`\n  verdict: ${verdict.toUpperCase()}  (${egress.length} requests, ${offOrigin.length} off-origin, ${audioEgress.length} with a body)`);
 
 const report = {
     probe: '#1263 moonshine engine on the real runtime',
-    verdict, arch: ARCH,
+    verdict, rowDisposition, arch: ARCH, candidateId: CANDIDATE_ID, trailingSilenceMs: TRAILING_SILENCE_MS,
     runtimePackage: '@moonshine-ai/moonshine-wasm', runtimeVersion: pinTable.runtimeVersion,
     componentSet: pinTable.componentSet,
     engineSource: 'frontend/src/services/transcription/engines/MoonshineStreamingEngine.ts',
     bundleSha256: bundleDigest,
-    fixture: { path: FIXTURE_PATH, sha256: createHash('sha256').update(readFileSync(FIXTURE_PATH)).digest('hex') },
-    findings, outcome,
+    fixtures: FIXTURE_PATHS.map((path) => ({ path, sha256: createHash('sha256').update(readFileSync(path)).digest('hex') })),
+    findings, longform, outcome,
     egress: { total: egress.length, offOrigin: offOrigin.length, withBody: audioEgress.length, requests: egress },
     pinViolations,
     harnessRuntimeFailures: harness.runtimeFailures,
