@@ -44,13 +44,17 @@ const TRANSCRIPT = 'a clean transcript with plenty of ordinary words and no mark
 
 type Sql = PGlite;
 
-async function makeDb(): Promise<Sql> {
+// The #1471 correction: one CREATE OR REPLACE of record_progress_evaluation, applied last.
+const FIX_MIGRATION = '20260915130000_progress_evaluation_filler_counts_authority_1471.sql';
+
+async function makeDb({ withFix = true }: { withFix?: boolean } = {}): Promise<Sql> {
     const db = new PGlite();
     await db.exec(bootstrapSql);
     for (const m of CHAIN) await db.exec(MIG(m));
     await db.exec(OBJECTIVE_STUB);
     await db.exec(MIG(MODE_MIGRATION));
     for (const m of FILLER_AUTHORITY_CHAIN) await db.exec(MIG(m));
+    if (withFix) await db.exec(MIG(FIX_MIGRATION));
     await db.query(`INSERT INTO auth.users (id) VALUES ($1), ($2)`, [USER, OTHER]);
     return db;
 }
@@ -164,12 +168,14 @@ describe('#1471 — Progress evaluation reads the current filler evidence author
     });
 
     it('C3 CASUALTY: absent evidence (filler_counts NULL, filler_words "{}") is an honest false — no 23502, no clean zero', async () => {
+        expect.hasAssertions();
         const db = await makeDb();
         const s = await savedSession(db, {});
         await expectHonestAbsence(db, s);
     });
 
     it('C4 CASUALTY: malformed filler_counts is unavailable, not a partial or zero count', async () => {
+        expect.hasAssertions();
         const db = await makeDb();
         const s = await savedSession(db, { fillerCounts: { um: '2' }, bypassFillerValidation: true });
         await expectHonestAbsence(db, s);
@@ -233,5 +239,26 @@ describe('#1471 — Progress evaluation reads the current filler evidence author
         const s = await savedSession(db, { fillerCounts: { um: 2 } });
         await expect(evaluateAs(db, OTHER, s)).rejects.toThrow(/session not found for this user/);
         expect(await evalRows(db, s)).toHaveLength(0);
+    });
+
+    it('C9 CONTROL: the correction replaces only the body — identity, return type, ACL, search_path and SECURITY DEFINER are unchanged', async () => {
+        const fingerprint = async (db: Sql) => (await db.query<{
+            args: string; rettype: string; acl: string | null; secdef: boolean; config: string[] | null; src: string;
+        }>(
+            `SELECT pg_get_function_identity_arguments(p.oid) AS args, p.prorettype::regtype::text AS rettype,
+                    p.proacl::text AS acl, p.prosecdef AS secdef, p.proconfig AS config, p.prosrc AS src
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'public' AND p.proname = 'record_progress_evaluation'`)).rows;
+        const before = await fingerprint(await makeDb({ withFix: false }));
+        const after = await fingerprint(await makeDb());
+        expect(before).toHaveLength(1);
+        expect(after).toHaveLength(1);
+        const { src: srcBefore, ...shapeBefore } = before[0];
+        const { src: srcAfter, ...shapeAfter } = after[0];
+        expect(shapeAfter).toEqual(shapeBefore);
+        expect(shapeAfter.secdef).toBe(true);
+        // Not vacuous: the body really is the corrected one, and the old one really was not.
+        expect(srcBefore).not.toContain('_ss_valid_filler_total');
+        expect(srcAfter).toContain('_ss_valid_filler_total');
     });
 });
