@@ -72,6 +72,8 @@ describe('Q-08 automated review qualification', () => {
       'product_release/archive/README.md',
       'product_release/evidence/README.md',
       'product_release/UNREGISTERED.md',
+      'product_release/RELEASE_STATUS.md ',
+      ' product_release/RELEASE_STATUS.md',
       'README.md',
       'docs/findings/final-release-qualification.md',
     ]) {
