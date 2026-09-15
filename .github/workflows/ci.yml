@@ -513,6 +513,7 @@ jobs:
             test-results/product-discovery
             test-results/session-shell-responsive
             test-results/fp-g6g7-widths
+            test-results/theme-matrix-1480
           retention-days: 1
           if-no-files-found: ignore
 
