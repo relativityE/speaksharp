@@ -40,10 +40,10 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
       <section
         data-testid="practice-onramp"
         aria-label="Reading helper — not sure what to say?"
-        className="pointer-events-auto rounded-xl border border-[color:var(--ss-border,#e2e8f0)] bg-slate-100/85 dark:bg-slate-800/85 backdrop-blur-md p-4 shadow-2xl"
+        className="pointer-events-auto rounded-xl border border-neutral-border bg-neutral-band p-4 shadow-2xl"
       >
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-bold text-[color:var(--ss-text,#0f172a)]">
+          <h3 className="text-sm font-bold text-neutral-heading">
             {collapsed ? 'Reading helper' : 'Not sure what to say?'}
           </h3>
           <div className="flex shrink-0 items-center gap-1">
@@ -53,7 +53,7 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
               onClick={() => setCollapsed((c) => !c)}
               aria-expanded={!collapsed}
               aria-label={collapsed ? 'Expand reading helper' : 'Collapse reading helper'}
-              className="ss-ring rounded-md px-2 text-sm leading-none text-[color:var(--ss-text-muted,#64748b)]"
+              className="ss-ring rounded-md px-2 text-sm leading-none text-neutral-muted"
             >
               {collapsed ? '▸' : '–'}
             </button>
@@ -62,7 +62,7 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
               data-testid="onramp-dismiss"
               onClick={() => setDismissed(true)}
               aria-label="Dismiss reading helper"
-              className="ss-ring rounded-md px-2 text-lg leading-none text-[color:var(--ss-text-muted,#64748b)]"
+              className="ss-ring rounded-md px-2 text-lg leading-none text-neutral-muted"
             >
               ×
             </button>
@@ -71,13 +71,13 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
 
         {!collapsed && view === 'choose' && (
           <div data-testid="onramp-choose" className="mt-2 space-y-3">
-            <p className="text-base leading-snug text-blue-700 dark:text-blue-300">
+            <p className="text-base leading-snug text-neutral-body">
               Get a quick starter — or read a short sample aloud to try it out. Then press the mic; this stays up so you can read it.
             </p>
             <div className="flex flex-wrap gap-2">
-              {/* Homage to the homepage mode palette: Open Mic green + Focus Points violet. */}
-              <Button type="button" size="sm" data-testid="onramp-give-prompt" onClick={showPrompt} className="bg-[#0d7d74] text-white hover:bg-[#0a5f58]">Give me a prompt</Button>
-              <Button type="button" size="sm" data-testid="onramp-test-sample" onClick={showSample} className="bg-[#7b5ce0] text-white hover:bg-[#6a4fd0]">
+              {/* #1480: one signature action; the alternative is an ink outline (purple is Focus Points only). */}
+              <Button type="button" size="sm" data-testid="onramp-give-prompt" onClick={showPrompt} className="bg-signature text-ink hover:bg-signature hover:brightness-95">Give me a prompt</Button>
+              <Button type="button" size="sm" data-testid="onramp-test-sample" onClick={showSample} className="border border-neutral-border-strong bg-white text-neutral-heading hover:bg-neutral-band">
                 Let me test with a sample
               </Button>
             </div>
@@ -86,7 +86,7 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
 
         {!collapsed && view === 'prompt' && prompt && (
           <div data-testid="onramp-prompt" className="mt-2 space-y-2">
-            <p className="text-base leading-snug text-[color:var(--ss-text,#0f172a)]">{prompt.text}</p>
+            <p className="text-base leading-snug text-neutral-heading">{prompt.text}</p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="outline" data-testid="onramp-next-prompt" onClick={showPrompt}>Another prompt</Button>
               <Button type="button" size="sm" variant="ghost" data-testid="onramp-switch-sample" onClick={showSample}>Read a sample instead</Button>
@@ -96,16 +96,16 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
 
         {!collapsed && view === 'sample' && sample && (
           <div data-testid="onramp-sample" className="mt-2 space-y-2">
-            <p className="text-sm font-semibold text-[color:var(--ss-text,#0f172a)]">
-              {sample.title} <span className="font-normal text-[color:var(--ss-text-muted,#64748b)]">· ~{sample.estSeconds}s to read</span>
+            <p className="text-sm font-semibold text-neutral-heading">
+              {sample.title} <span className="font-normal text-neutral-muted">· ~{sample.estSeconds}s to read</span>
             </p>
             <blockquote
               data-testid="onramp-sample-text"
-              className="max-h-[38vh] overflow-auto border-l-2 border-[color:var(--ss-border,#cbd5e1)] pl-3 text-base italic leading-relaxed text-[color:var(--ss-text,#0f172a)]"
+              className="max-h-[38vh] overflow-auto border-l-2 border-neutral-border-strong pl-3 text-base italic leading-relaxed text-neutral-heading"
             >
               {sample.text}
             </blockquote>
-            <p className="text-xs text-[color:var(--ss-text-muted,#64748b)]">{sample.attribution}</p>
+            <p className="text-xs text-neutral-muted">{sample.attribution}</p>
             <div className="flex flex-wrap gap-2 pt-0.5">
               <Button type="button" size="sm" variant="outline" data-testid="onramp-next-sample" onClick={showSample}>Another sample</Button>
               <Button type="button" size="sm" variant="ghost" data-testid="onramp-switch-prompt" onClick={showPrompt}>Get a prompt instead</Button>

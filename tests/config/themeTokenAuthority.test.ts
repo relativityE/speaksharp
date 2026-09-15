@@ -75,27 +75,14 @@ const BASELINE_RETIRED_GREY: Record<string, number> = {
 };
 
 const BASELINE_RETIRED_TEAL: Record<string, number> = {
-    'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 3,
-    'frontend/src/components/practice/practiceArt.tsx': 2,
-    'frontend/src/components/session/PracticeOnramp.tsx': 1,
-    'frontend/src/pages/PracticePage.tsx': 10,
-    'frontend/src/styles/practice.css': 6,
 };
 
 const BASELINE_RETIRED_FOCUS_VIOLET: Record<string, number> = {
-    'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 2,
-    'frontend/src/components/practice/practiceArt.tsx': 1,
-    'frontend/src/components/session/PracticeOnramp.tsx': 1,
-    'frontend/src/pages/PracticePage.tsx': 3,
-    'frontend/src/styles/practice.css': 4,
 };
 
 // Includes the Designer-ruling values added on 15 Sep (record, progress bar, regression, error/success states,
 // session surface, clarity), recounted on the same `main@8e638c84` tree.
 const BASELINE_ROLE_LITERALS: Record<string, number> = {
-    'frontend/src/components/practice/AuthenticatedHome.tsx': 1,
-    'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 3,
-    'frontend/src/styles/practice.css': 1,
     'frontend/src/utils/fillerWordUtils.ts': 1,
 };
 
@@ -107,11 +94,7 @@ const PALETTE_UTILITY =
     /\b(?:text|bg|border|ring|from|to|via|fill|stroke|divide|outline|decoration|shadow|placeholder|accent|caret)-(?:teal|emerald|green|amber|yellow|orange|red|rose|pink|fuchsia|violet|purple|indigo|blue|sky|cyan|slate|gray|zinc|stone|lime)-\d{2,3}\b/;
 
 const BASELINE_RAW_HEX: Record<string, number> = {
-    'frontend/src/components/practice/AuthenticatedHome.tsx': 2,
-    'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 11,
-    'frontend/src/components/practice/practiceArt.tsx': 13,
     'frontend/src/components/session/LiveTranscriptPanel.tsx': 2,
-    'frontend/src/components/session/PracticeOnramp.tsx': 11,
     'frontend/src/components/session/__tests__/FillerWordAnalysis.component.test.tsx': 15,
     'frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx': 5,
     'frontend/src/components/session/__tests__/TranscriptPanel.component.test.tsx': 5,
@@ -119,7 +102,6 @@ const BASELINE_RAW_HEX: Record<string, number> = {
     'frontend/src/hooks/__tests__/useSessionMetrics.test.ts': 7,
     'frontend/src/hooks/useSessionLifecycle.ts': 1,
     'frontend/src/lib/staleChunkRecovery.ts': 4,
-    'frontend/src/pages/PracticePage.tsx': 18,
     'frontend/src/services/__tests__/SpeechRuntimeController.test.ts': 2,
     'frontend/src/services/transcription/__tests__/TranscriptionService.test.ts': 2,
     'frontend/src/services/transcription/__tests__/transcriptSanitizer.test.ts': 1,
@@ -131,7 +113,6 @@ const BASELINE_RAW_HEX: Record<string, number> = {
     'frontend/src/services/transcription/utils/frameReplayBuffer.ts': 1,
     'frontend/src/stores/__tests__/useSessionStore.test.ts': 6,
     'frontend/src/stores/useSessionStore.ts': 1,
-    'frontend/src/styles/practice.css': 58,
     'frontend/src/utils/__tests__/fillerWordUtils.test.ts': 1,
     'frontend/src/utils/__tests__/finalizedSessionAnalysis.test.ts': 1,
     'frontend/src/utils/__tests__/sessionAnalysis.test.ts': 1,
@@ -152,7 +133,6 @@ const BASELINE_PALETTE_UTILITY: Record<string, number> = {
     'frontend/src/components/session/AISuggestions.tsx': 1,
     'frontend/src/components/session/FillerWordAnalysis.tsx': 7,
     'frontend/src/components/session/MobileActionBar.tsx': 2,
-    'frontend/src/components/session/PracticeOnramp.tsx': 2,
     'frontend/src/components/session/SpeakingTips.tsx': 1,
     'frontend/src/components/session/TimerDisplay.tsx': 1,
     'frontend/src/components/session/UnresolvedRecoveryBanner.tsx': 1,

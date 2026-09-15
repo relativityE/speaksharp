@@ -1,37 +1,37 @@
 /**
  * Practice-entry illustrations — hand-authored SVG (no stock art/avatars/external assets). They read
- * per-card accent CSS vars so Quick renders teal, Objective renders violet. aria-hidden (titles carry
- * meaning). Ported from the accepted #1017 design.
+ * per-card accent CSS vars so each card renders in its own identity. aria-hidden (titles carry
+ * meaning). Ported from the accepted #1017 design; colours are the shared #1480 roles.
  */
 
 import React from 'react';
 
 /**
- * Overall-landing shared graphic: one bold ORANGE voice (the SpeakSharp brand through-line) BRANCHING
- * into the teal (Quick) and violet (Objective) practice paths. Deliberately bold — strong line weights and
- * solid nodes so the "one voice → two ways to practice" idea reads instantly, without any caption.
+ * Overall-landing shared graphic: one bold SIGNATURE voice (the SpeakSharp brand through-line) BRANCHING
+ * into the practice paths. Deliberately bold — strong line weights and solid nodes so the "one voice → two
+ * ways to practice" idea reads instantly, without any caption. Landing route: no Focus purple.
  */
 export function LandingHeroArt() {
   return (
     <svg viewBox="0 0 320 200" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
-      {/* Straight voice bars — alternating orange / teal (the brand source signal). */}
+      {/* Straight voice bars — alternating signature / ink (the brand source signal). */}
       {[38, 74, 104, 62, 88, 46].map((h, i) => (
-        <rect key={i} x={12 + i * 12} y={85 - h / 2} width={6} height={h} rx={3} fill={i % 2 === 0 ? '#d98a1f' : '#0d7d74'} />
+        <rect key={i} x={12 + i * 12} y={85 - h / 2} width={6} height={h} rx={3} fill={i % 2 === 0 ? 'var(--brand-signature)' : 'var(--brand-ink)'} />
       ))}
       {/* Junction dot with a soft ring. */}
-      <circle cx={100} cy={85} r={13.5} fill="rgba(217,138,31,0.16)" />
-      <circle cx={100} cy={85} r={7.5} fill="#d98a1f" />
-      {/* Three flat result rows: covered (teal + check) / in-progress (violet) / open (orange). */}
+      <circle cx={100} cy={85} r={13.5} fill="rgba(255,182,31,0.2)" />
+      <circle cx={100} cy={85} r={7.5} fill="var(--brand-signature)" />
+      {/* Three flat result rows: covered (status + check) / in-progress (ink) / open (signature). */}
       {[
-        { c: '#0d7d74', check: true },
-        { c: '#7b5ce0', check: false },
-        { c: '#d98a1f', check: false },
+        { c: 'var(--brand-status)', check: true },
+        { c: 'var(--brand-ink-hairline)', check: false },
+        { c: 'var(--brand-signature)', check: false },
       ].map((r, i) => {
         const y = 49 + i * 36;
         return (
           <g key={`r${i}`}>
             <circle cx={144} cy={y} r={8} fill={r.c} />
-            {r.check && <path d={`M139.5 ${y} l3 3 l6 -6.5`} fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />}
+            {r.check && <path d={`M139.5 ${y} l3 3 l6 -6.5`} fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />}
             <rect x={162} y={y - 4} width={118 - i * 20} height={8} rx={4} fill={r.c} opacity={0.5} />
           </g>
         );
@@ -40,8 +40,8 @@ export function LandingHeroArt() {
   );
 }
 
-/** Quick Practice — waveform → transcript → delivery-feedback check. Uses a deep-teal INK
- * (`--ss-art-ink`) so it reads clearly on the LIGHT teal band; warm bars stay orange. */
+/** Quick Practice — waveform → transcript → delivery-feedback check. Uses the card's INK
+ * (`--ss-art-ink`) so it reads clearly on its band; warm bars stay signature. */
 export function FreeformArt({ emphasis = false }: { emphasis?: boolean }) {
   const heights = [14, 26, 20, 38, 30, 46, 34, 52, 40, 30, 44, 24];
   const warmAt = new Set([5, 9]);
@@ -61,20 +61,20 @@ export function FreeformArt({ emphasis = false }: { emphasis?: boolean }) {
         <rect key={i} x={190} y={38 + i * 16} width={w} height={8} rx={4} fill={ink} opacity={i === 0 ? 0.7 : 0.45} />
       ))}
       <circle cx={196} cy={92} r={9} fill={ink} opacity={1} />
-      <path d="M191.5 92 l3 3 l6 -6.5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M191.5 92 l3 3 l6 -6.5" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
 /** Focus Points — agenda points → covered / partly / recovered / open outcomes. Rendered LIGHT-on-dark
- * (light circles + dark-violet glyphs + brighter bars) so every row reads clearly on the deep violet band. */
+ * (light circles + ink glyphs + brighter bars) so every row reads clearly on the dark band. */
 export function ObjectiveArt({ emphasis = false }: { emphasis?: boolean }) {
-  const glyphInk = '#3A2E96'; // deep violet — reads on the light circles that sit over the dark band
+  const glyphInk = 'var(--brand-ink)'; // reads on the light circles that sit over the dark band
   const rows = [
-    { c: '#7FE8B6', w: 150, glyph: 'check' }, // covered = light green
-    { c: '#FFCF6E', w: 116, glyph: 'half' },  // partial = light amber
-    { c: '#FFFFFF', w: 132, glyph: 'star' },  // rehearsed = white
-    { c: '#D3DAF6', w: 92, glyph: 'open' },   // open = light indigo outline
+    { c: 'var(--brand-success-border)', w: 150, glyph: 'check' }, // covered = light success
+    { c: 'var(--brand-signature)', w: 116, glyph: 'half' },       // partial = signature
+    { c: 'white', w: 132, glyph: 'star' },                         // rehearsed = white
+    { c: 'var(--brand-neutral-border)', w: 92, glyph: 'open' },   // open = light neutral outline
   ];
   return (
     <svg viewBox="0 0 320 120" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
@@ -89,7 +89,7 @@ export function ObjectiveArt({ emphasis = false }: { emphasis?: boolean }) {
             {r.glyph === 'check' ? <path d={`M20.4 ${y} l2.6 2.6 l4.9 -5.3`} fill="none" stroke={glyphInk} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /> : null}
             {r.glyph === 'star' ? <path d={`M24 ${y - 3.4} l1.05 2.3 l2.5 .3 l-1.8 1.8 l.45 2.5 l-2.2 -1.15 l-2.2 1.15 l.45 -2.5 l-1.8 -1.8 l2.5 -.3 z`} fill={glyphInk} /> : null}
             <rect x={40} y={y - 4} width={r.w} height={8} rx={4} fill={r.c} opacity={emphasis ? 0.68 : 0.6} />
-            <rect x={40 + r.w + 8} y={y - 4} width={40} height={8} rx={4} fill="#FFFFFF" opacity={0.3} />
+            <rect x={40 + r.w + 8} y={y - 4} width={40} height={8} rx={4} fill="white" opacity={0.3} />
           </g>
         );
       })}
