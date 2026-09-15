@@ -88,7 +88,6 @@ const BASELINE_RETIRED_TEAL: Record<string, number> = {
     'frontend/src/components/session/CustomWordsBar.tsx': 1,
     'frontend/src/components/session/FocusDeliveryStrip.tsx': 1,
     'frontend/src/components/session/FocusPointsRail.tsx': 2,
-    'frontend/src/components/session/FreeformHelpOverlay.tsx': 1,
     'frontend/src/components/session/PracticeOnramp.tsx': 1,
     'frontend/src/components/session/PromptOffer.tsx': 1,
     'frontend/src/components/session/ReviewTranscriptNotice.tsx': 1,
@@ -113,7 +112,6 @@ const BASELINE_RETIRED_FOCUS_VIOLET: Record<string, number> = {
 const BASELINE_ROLE_LITERALS: Record<string, number> = {
     'frontend/src/components/AnalyticsDashboard.tsx': 15,
     'frontend/src/components/IssueReportDialog.tsx': 7,
-    'frontend/src/components/faq/FaqMenu.tsx': 3,
     'frontend/src/components/practice/AuthenticatedHome.tsx': 1,
     'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 3,
     'frontend/src/components/session/CoachingCard.tsx': 4,
@@ -125,7 +123,6 @@ const BASELINE_ROLE_LITERALS: Record<string, number> = {
     'frontend/src/components/session/FillerBreakdown.tsx': 4,
     'frontend/src/components/session/FocusDeliveryStrip.tsx': 1,
     'frontend/src/components/session/FocusPointsRail.tsx': 14,
-    'frontend/src/components/session/FreeformHelpOverlay.tsx': 1,
     'frontend/src/components/session/LiveTip.tsx': 3,
     'frontend/src/components/session/LiveTranscript.tsx': 5,
     'frontend/src/components/session/MicCard.tsx': 7,
@@ -144,6 +141,107 @@ const BASELINE_ROLE_LITERALS: Record<string, number> = {
     'frontend/src/components/session/__tests__/ProgressVsBaseline.test.tsx': 2,
     'frontend/src/styles/practice.css': 1,
     'frontend/src/utils/fillerWordUtils.ts': 1,
+};
+
+// Any raw hex literal. Six digits anywhere; three digits only after a quote, bracket, paren or colon, so issue
+// references such as `#891` in comments are not counted. Recorded on `main@8e638c84`.
+const RAW_HEX = /#[0-9a-fA-F]{6}\b|['"`[(:]\s*#[0-9a-fA-F]{3}\b/;
+// Tailwind's built-in hue scales bypass the roles entirely (amber caution strips, emerald links, red alerts).
+const PALETTE_UTILITY =
+    /\b(?:text|bg|border|ring|from|to|via|fill|stroke|divide|outline|decoration|shadow|placeholder|accent|caret)-(?:teal|emerald|green|amber|yellow|orange|red|rose|pink|fuchsia|violet|purple|indigo|blue|sky|cyan|slate|gray|zinc|stone|lime)-\d{2,3}\b/;
+
+const BASELINE_RAW_HEX: Record<string, number> = {
+    'frontend/src/components/AnalyticsDashboard.tsx': 23,
+    'frontend/src/components/IssueReportDialog.tsx': 10,
+    'frontend/src/components/practice/AuthenticatedHome.tsx': 2,
+    'frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx': 11,
+    'frontend/src/components/practice/practiceArt.tsx': 13,
+    'frontend/src/components/session/CoachingCard.tsx': 8,
+    'frontend/src/components/session/ComparableProgressNotice.tsx': 4,
+    'frontend/src/components/session/CoveragePace.tsx': 17,
+    'frontend/src/components/session/CoverageRail.tsx': 4,
+    'frontend/src/components/session/CoverageThisRun.tsx': 5,
+    'frontend/src/components/session/CustomWordsBar.tsx': 8,
+    'frontend/src/components/session/FillerBreakdown.tsx': 5,
+    'frontend/src/components/session/FocusDeliveryStrip.tsx': 4,
+    'frontend/src/components/session/FocusPointsRail.tsx': 21,
+    'frontend/src/components/session/LiveTip.tsx': 3,
+    'frontend/src/components/session/LiveTranscript.tsx': 10,
+    'frontend/src/components/session/LiveTranscriptPanel.tsx': 2,
+    'frontend/src/components/session/MicCard.tsx': 14,
+    'frontend/src/components/session/ObjectiveSetupForm.tsx': 17,
+    'frontend/src/components/session/PlaybackScrubber.tsx': 5,
+    'frontend/src/components/session/PracticeFocusChooser.tsx': 2,
+    'frontend/src/components/session/PracticeOnramp.tsx': 11,
+    'frontend/src/components/session/ProgressVsBaseline.tsx': 15,
+    'frontend/src/components/session/PromptOffer.tsx': 6,
+    'frontend/src/components/session/RecorderBar.tsx': 6,
+    'frontend/src/components/session/ReviewTranscriptNotice.tsx': 2,
+    'frontend/src/components/session/SessionAfterState.tsx': 1,
+    'frontend/src/components/session/SessionDuringState.tsx': 5,
+    'frontend/src/components/session/SessionOverhaulView.tsx': 2,
+    'frontend/src/components/session/SessionVerdict.tsx': 6,
+    'frontend/src/components/session/TranscriptCard.tsx': 17,
+    'frontend/src/components/session/Waveform.tsx': 4,
+    'frontend/src/components/session/__tests__/FillerWordAnalysis.component.test.tsx': 15,
+    'frontend/src/components/session/__tests__/FocusPointsRail.test.tsx': 1,
+    'frontend/src/components/session/__tests__/LiveTranscript.test.tsx': 3,
+    'frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx': 5,
+    'frontend/src/components/session/__tests__/ProgressVsBaseline.test.tsx': 2,
+    'frontend/src/components/session/__tests__/RecorderBar.test.tsx': 1,
+    'frontend/src/components/session/__tests__/TranscriptPanel.component.test.tsx': 5,
+    'frontend/src/components/session/__tests__/Waveform.test.tsx': 2,
+    'frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx': 1,
+    'frontend/src/hooks/__tests__/useSessionMetrics.test.ts': 7,
+    'frontend/src/hooks/useSessionLifecycle.ts': 1,
+    'frontend/src/lib/staleChunkRecovery.ts': 4,
+    'frontend/src/pages/PracticePage.tsx': 18,
+    'frontend/src/services/__tests__/SpeechRuntimeController.test.ts': 2,
+    'frontend/src/services/transcription/__tests__/TranscriptionService.test.ts': 2,
+    'frontend/src/services/transcription/__tests__/transcriptSanitizer.test.ts': 1,
+    'frontend/src/services/transcription/modes/__tests__/PrivateWhisper.opening-capture.test.ts': 2,
+    'frontend/src/services/transcription/modes/__tests__/PrivateWhisper.softonset-fixture.test.ts': 1,
+    'frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts': 1,
+    'frontend/src/services/transcription/modes/__tests__/helpers/wav.ts': 1,
+    'frontend/src/services/transcription/utils/__tests__/frameReplayBuffer.test.ts': 1,
+    'frontend/src/services/transcription/utils/frameReplayBuffer.ts': 1,
+    'frontend/src/stores/__tests__/useSessionStore.test.ts': 6,
+    'frontend/src/stores/useSessionStore.ts': 1,
+    'frontend/src/styles/practice.css': 58,
+    'frontend/src/utils/__tests__/fillerWordUtils.test.ts': 1,
+    'frontend/src/utils/__tests__/finalizedSessionAnalysis.test.ts': 1,
+    'frontend/src/utils/__tests__/sessionAnalysis.test.ts': 1,
+    'frontend/src/utils/fillerWordUtils.ts': 1,
+    'frontend/src/utils/finalizedSessionAnalysis.ts': 2,
+    'frontend/src/utils/highlightUtils.ts': 12,
+};
+
+const BASELINE_PALETTE_UTILITY: Record<string, number> = {
+    'frontend/src/App.tsx': 1,
+    'frontend/src/components/LocalErrorBoundary.tsx': 5,
+    'frontend/src/components/SttIdentityBadge.tsx': 1,
+    'frontend/src/components/analytics/FillerWordTable.tsx': 9,
+    'frontend/src/components/analytics/ProgressIndicator.tsx': 1,
+    'frontend/src/components/landing/BenefitsSection.tsx': 1,
+    'frontend/src/components/landing/CTASection.tsx': 1,
+    'frontend/src/components/landing/FeaturesSection.tsx': 2,
+    'frontend/src/components/landing/HeroSection.tsx': 4,
+    'frontend/src/components/landing/HeroStatsDashboard.tsx': 7,
+    'frontend/src/components/session/AISuggestions.tsx': 1,
+    'frontend/src/components/session/FillerWordAnalysis.tsx': 7,
+    'frontend/src/components/session/MobileActionBar.tsx': 2,
+    'frontend/src/components/session/PracticeOnramp.tsx': 2,
+    'frontend/src/components/session/SpeakingTips.tsx': 1,
+    'frontend/src/components/session/TimerDisplay.tsx': 1,
+    'frontend/src/components/session/UnresolvedRecoveryBanner.tsx': 1,
+    'frontend/src/components/session/__tests__/FillerWordAnalysis.component.test.tsx': 2,
+    'frontend/src/components/session/__tests__/StatusNotificationBar.test.tsx': 1,
+    'frontend/src/components/ui/sonner.tsx': 4,
+    'frontend/src/hooks/useCheckoutNotifications.ts': 2,
+    'frontend/src/lib/__tests__/utils.test.ts': 4,
+    'frontend/src/pages/OpsStatusPage.tsx': 1,
+    'frontend/src/pages/PricingPage.tsx': 1,
+    'frontend/src/pages/SessionPage.tsx': 1,
 };
 
 const SCANNED = /\.(tsx?|jsx?|css)$/;
@@ -205,6 +303,14 @@ describe('#1480 — retired colours and raw palette literals only ratchet down',
 
     it('no file adds a raw copy of a role value outside the token authority', () => {
         expect(ratchetViolations(ROLE_LITERAL, BASELINE_ROLE_LITERALS)).toEqual([]);
+    });
+
+    it('no file adds a raw hex literal', () => {
+        expect(ratchetViolations(RAW_HEX, BASELINE_RAW_HEX)).toEqual([]);
+    });
+
+    it('no file adds a built-in Tailwind hue utility', () => {
+        expect(ratchetViolations(PALETTE_UTILITY, BASELINE_PALETTE_UTILITY)).toEqual([]);
     });
 
     it('CASUALTY: the ratchet flags an added occurrence in a file that has no baseline', () => {

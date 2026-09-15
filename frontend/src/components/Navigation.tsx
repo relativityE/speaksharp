@@ -224,7 +224,7 @@ const Navigation = () => {
     <>
       {/* The bar itself is the page header (banner landmark); the nav landmarks are the
           labelled <nav> elements inside it. */}
-      <header className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-[#e3e8f0]">
+      <header className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-neutral-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo → authenticated home is /practice; anonymous logo stays the public Index. */}
@@ -232,7 +232,7 @@ const Navigation = () => {
               {/* Brand mark: four ascending orange bars (not a mic glyph). */}
               <span aria-hidden="true" className="flex items-end" style={{ height: 19, gap: 2 }}>
                 {[7, 14, 19, 11].map((h, i) => (
-                  <span key={i} style={{ width: 3, height: h, background: '#d98a1f', borderRadius: 1 }} />
+                  <span key={i} style={{ width: 3, height: h, background: 'var(--brand-signature)', borderRadius: 1 }} />
                 ))}
               </span>
               <span className="text-lg font-bold text-foreground tracking-tight">SpeakSharp</span>
@@ -321,7 +321,7 @@ const Navigation = () => {
                         Stop control below it. It shrinks rather than hides, and `max-w` keeps it
                         from crowding the actions beside it at 320px.
                       */
-                      className="inline max-w-[9.5rem] truncate text-[11px] font-semibold leading-tight text-[#5b6472] sm:max-w-none sm:text-xs"
+                      className="inline max-w-[9.5rem] truncate text-[11px] font-semibold leading-tight text-neutral-secondary sm:max-w-none sm:text-xs"
                     >
                       Open Mic starts after this take
                     </span>
@@ -389,7 +389,7 @@ const Navigation = () => {
                   {session && isConfirmedPaidUser && (
                     <Badge
                       variant="secondary"
-                      className="bg-amber-100 text-amber-900 border border-amber-200 shadow-none animate-in fade-in zoom-in duration-300 px-3 py-1"
+                      className="bg-signature-ground text-signature-text border border-signature-border shadow-none animate-in fade-in zoom-in duration-300 px-3 py-1"
                       data-testid={TEST_IDS.PRO_BADGE}
                     >
                       <Zap className="w-3 h-3 mr-1 fill-current" />
@@ -428,7 +428,7 @@ const Navigation = () => {
                   <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground transition-colors">
                     <Link to="/auth">Sign In</Link>
                   </Button>
-                  <Button size="sm" className="font-semibold px-5 h-9 rounded-xl cta-shadow hover:brightness-95" style={{ background: '#d98a1f', color: '#241503' }} asChild>
+                  <Button size="sm" className="font-semibold px-5 h-9 rounded-xl cta-shadow bg-signature text-ink hover:bg-signature hover:brightness-95" asChild>
                     <Link to="/auth/signup">Get Started</Link>
                   </Button>
                 </nav>

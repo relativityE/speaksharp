@@ -113,7 +113,7 @@ export function FreeformHelpOverlay({
                 aria-describedby={disabled ? 'freeform-help-disabled-reason' : undefined}
                 data-disabled={disabled ? 'true' : 'false'}
                 data-testid="freeform-help-button"
-                className={`session-help-shadow inline-flex h-auto max-w-full items-center gap-[8px] whitespace-normal rounded-[10px] bg-[hsl(var(--session-green-deep))] px-[22px] py-[13px] text-center text-[15px] font-bold leading-tight text-[hsl(var(--session-green-deep-foreground))] hover:bg-[hsl(var(--session-green-deep-hover))] hover:text-[hsl(var(--session-green-deep-foreground))] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${disabled ? 'opacity-50' : ''}`}
+                className={`session-help-shadow inline-flex h-auto max-w-full items-center gap-[8px] whitespace-normal rounded-[10px] bg-ink px-[22px] py-[13px] text-center text-[15px] font-bold leading-tight text-signature hover:bg-ink-raised hover:text-signature focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${disabled ? 'opacity-50' : ''}`}
                 onClick={() => { if (!disabled) setOpen(true); }}
             >
                 <Play className="h-4 w-4 fill-current" aria-hidden="true" />
@@ -144,7 +144,7 @@ export function FreeformHelpOverlay({
                                 {/* Branded amber numeral — same treatment as the coaching tips. */}
                                 <span
                                     aria-hidden="true"
-                                    className="mt-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-[#fdf3e2] text-[13px] font-extrabold text-[#b8701a]"
+                                    className="mt-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-signature-ground text-[13px] font-extrabold text-signature-text"
                                 >
                                     {i + 1}
                                 </span>
@@ -161,7 +161,7 @@ export function FreeformHelpOverlay({
                         type="button"
                         data-testid="freeform-help-start"
                         onClick={() => { setOpen(false); onStart?.(); }}
-                        className="mt-7 flex w-full items-center justify-center gap-2 rounded-[10px] bg-[#0d7d74] py-[15px] text-[16px] font-bold text-white hover:bg-[#0a5f58]"
+                        className="mt-7 flex w-full items-center justify-center gap-2 rounded-[10px] bg-signature py-[15px] text-[16px] font-bold text-ink hover:bg-signature hover:brightness-95"
                     >
                         Got it — start speaking
                         <ArrowRight className="h-[18px] w-[18px]" aria-hidden="true" />
