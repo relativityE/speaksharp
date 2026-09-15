@@ -103,9 +103,11 @@ function sanitizeMetrics(m: RecoveryMetrics | null | undefined): RecoveryMetrics
   if (num(m.wpm) !== undefined) out.wpm = num(m.wpm);
   // #1306 P1: filler counts must satisfy the APPROVED-key / non-negative-integer / whole-map-fail-closed
   // contract (identical to the DB firewall + persisted reader). An unknown/prose key or bad value drops the
-  // entire map (readPersistedFillerCounts → null), never a partial map. `{}` (measured zero) is omitted here.
+  // entire map (readPersistedFillerCounts → null), never a partial map. #1472/#1456: a valid `{}` is KEPT — the
+  // completion RPC rejects a NULL map for a completed session, so dropping it made Retry Save permanently fail.
+  // Whether that zero is a verified clean result is decided by filler completeness, not by this boundary.
   const fillers = readPersistedFillerCounts(m.fillerCounts);
-  if (fillers && Object.keys(fillers).length) out.fillerCounts = fillers;
+  if (fillers) out.fillerCounts = fillers;
   const pauses = sanitizePauseMetrics(m.pauseMetrics);
   if (pauses) out.pauseMetrics = pauses;
   return out;
