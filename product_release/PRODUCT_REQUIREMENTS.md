@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for user-visible product requirements)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-08
-**Last Verified:** 2026-09-08 — reconciled to the newest-one retention ruling and all-entered Focus Points detection requirement.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — recent shipped foundations and the approved-but-unshipped G10/G12, Practice Loop, progress, filler, and model requirements were reconciled.
 **Applies To:** The SpeakSharp individual speaking-practice product. Enterprise expansion is future direction, not current scope.
 **Class:** Product requirement.
 **Authority:** User-visible product guarantees, failure behavior, non-goals, and the feature contract.
@@ -9,11 +9,10 @@
 **Supersedes:** Earlier multi-product, multi-engine, Free/Pro tier, and accumulated-minute-quota statements in this file are retired.
 **Evidence Sources:** Product Owner launch-contract decisions recorded on #1290; canonical owning documents listed in §12; executable repository contract guard.
 
-<!-- pm-currentization:2026-09-04 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 8 Sep 2026 — approved recovery contract; not yet shipped.** The Production test failed both Open Mic and Focus Points. Required recovery: an explicit mic intent survives model preparation and starts recording exactly once when ready; real microphone data drives the waveform; recording uses the conventional red circle/white-square Stop control; provisional transcript churn is bounded; final transcript remains readable after save/teardown; Focus Points preserves and detects every user-entered point; the Session review renders exactly one **What went well** suggestion and one **What to improve** suggestion — two suggestions total; Home/Open Mic/Focus Points are directly navigable; and Share feedback follows #1404’s exact two-field design. Transcript retention is newest-one: saving a newer eligible transcript expires every older transcript while preserving session history, content-free metrics, and Practice Loop history. Every outcome has #1259 content-safe telemetry, but telemetry never substitutes for the behavior.
-
-<!-- /pm-currentization:2026-09-04 -->
+> **Currentized 15 Sep 2026 — shipped foundation and open product contract are distinct.** #1416 shipped direct product navigation, the accepted Share feedback form, corrected labels, and the red Stop control; #1466 shipped the bounded Practice Loop placement/reveal foundation. Still required: #1473 automatic 1+1 review availability and truthful retry, #1471/#1476 durable progress, #1472 filler completeness, and comparable v2/v4/Moonshine behavior. #1474 owns the approved G10 during/after hierarchy and theme: the Practice Loop dominates the first usable post-save viewport while metrics/transcript are secondary. #1475 owns the approved G12 landing page and its full above-fold offer: **30 days free, no card. Then $10/month. Cancel any time.** Newest-one retention remains the approved target and is not activated by this document.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Product Requirements
 

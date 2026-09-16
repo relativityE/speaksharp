@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for system structure, boundaries, persistence & retention, and authority ADRs)
 **Owner:** Engineering (relativityE)
-**Last Reviewed:** 2026-09-08
-**Last Verified:** 2026-09-08 — reconciled to the newest-one retention ruling; shipped behavior and approved-not-shipped correction remain explicitly distinguished.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — reconciled to the shipped #1416/#1463/#1466 foundation and the still-open retention, progress, review, filler, and model-readiness boundaries.
 **Applies To:** The SpeakSharp beta platform — the React/Vite SPA, the Supabase persistence + Edge Function layer, and the CI/release machinery that ships them.
 **Class:** Architecture invariant / ADR.
 **Authority:** The source for system context, component boundaries and ownership, trust/data-flow, persistence & retention boundaries, identity & session lifecycle, the engine identity/provenance contract, requested-mode vs normalized-capability separation, failure/fail-closed boundaries, the release-identity mechanism, and the authoritative-source ADRs (entitlement, retention).
@@ -9,11 +9,10 @@
 **Supersedes:** `ARCHITECTURE.operational.md` and `CODEBASE_MAP.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.C extraction mapping; the `frontend/` and `backend/` code paths cited inline; the engine-provenance contract proven in #1033; the release-identity mechanism (#1027).
 
-<!-- pm-currentization:2026-09-04 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Currentized 8 Sep 2026 after the Production human-test biopsy.** Approved architecture now requires: one canonical Production surface; a controlled runtime candidate authority rather than a build-gated Preview; one governed, content-safe telemetry boundary with journey/attempt correlation; newest-one transcript retention; a saved-review view independent of the purged live STT buffer; and separate feedback-store/product-analytics payloads. The existing newest-two implementation is noncompliant and must be corrected before release. These are approved target contracts, not claims that the currently deployed SHA already satisfies them. See #1259, #1263, #1404, and #1258.
-
-<!-- /pm-currentization:2026-09-04 -->
+> **Currentized 15 Sep 2026.** The architecture remains one canonical Production surface and one engine per take. #1416, #1463, and #1466 shipped bounded navigation/feedback, progress-debt, and Practice Loop placement foundations. The remaining owners are #1471/#1476 for durable progress/reconciliation, #1473 for automatic review and structured failure handling, #1472 for filler-evidence completeness, #1263/#1304/#1390 for comparable v2/v4/Moonshine authority, and #1474 for the full G10 presentation. Newest-one retention remains the approved target, not a claim of Production activation; #1452 must close before activation. Historical newest-two migrations remain immutable provenance.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Architecture (v1)
 

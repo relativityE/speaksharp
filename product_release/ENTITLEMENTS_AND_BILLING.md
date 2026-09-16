@@ -1,7 +1,7 @@
 **Status:** Authoritative product contract
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — the 30-day/$10 single-product contract remains unchanged; #1475 is the sole landing-page implementation owner.
 **Applies To:** Private Practice Loop commercial launch
 **Class:** Entitlement and billing policy
 **Authority:** Product terms, commercial access, expiry permissions, Private-only customer entitlement, and activation boundaries.
@@ -9,11 +9,10 @@
 **Supersedes:** The former Free/Pro feature-tier, external-transcription, one-shot, and accumulated-minute policy in this file.
 **Evidence Sources:** Product Owner contract for #1266/#1282/#1290; executable proof remains required before release acceptance.
 
-<!-- pm-currentization:2026-09-04 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Currentized 4 Sep 2026.** The Production biopsy does not change the 30-day/$10 entitlement contract. Model comparison controls are operator-only runtime configuration on the canonical Production app and never a customer tier, entitlement, paid feature, alternate build, or URL. Product recovery work may not introduce a new commercial gate.
-
-<!-- /pm-currentization:2026-09-04 -->
+> **Currentized 15 Sep 2026 — no policy change.** SpeakSharp remains one complete product free for 30 days, then $10/month. Candidate selection, AI-review recovery, filler completeness, and RWT work may not create a customer tier or quota gate. #1475 is the sole implementation owner for the approved landing/pricing presentation; payment activation and any live commercial action remain separately authorized.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Entitlements and Billing
 

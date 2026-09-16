@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for internal tester administration and evidence handling)
 **Owner:** Product Operations / Quality
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — the three-candidate procedure, managed-account read-only verification path, filler completeness, and Moonshine long-form entry checks were reconciled.
 **Applies To:** Internal release operators, invited testers, synthetic qualification accounts, and evidence handling.
 **Class:** Procedure.
 **Authority:** Tester preparation, scope verification, real-device execution, cleanup, and evidence recording.
@@ -23,6 +23,11 @@
 >   and Focus Points, rather than whichever one happens to be resolved.
 > - **Never ask the Product Owner to choose Preview, local, or internal testing.** The customer
 >   surface is the only one their judgment is being asked about.
+
+<!-- pm-currentization:2026-09-15 -->
+> [!IMPORTANT]
+> **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. A qualifying matrix must run v2, v4, and Moonshine with requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Tester Operations
 
