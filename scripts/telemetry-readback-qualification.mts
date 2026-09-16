@@ -37,6 +37,7 @@ import {
 import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
 import { resolveQualifyingIdentity } from '../frontend/src/services/telemetry/qualifyingIdentity';
 import { QUALIFICATION_STAGES, evaluateQualificationStage } from '../frontend/src/services/telemetry/completenessGate';
+import { evaluateDeliveryReceipts } from '../frontend/src/services/telemetry/deliveryReceiptGate';
 import {
     bootScopedReceiptFamilies,
     buildReadbackQuery,
@@ -71,6 +72,10 @@ type Evidence = {
     /** The UI stages this run declared it exercised, and any stage evidence it could not produce. */
     stages_declared?: string[];
     stage_reasons?: string[];
+    /** Received-vendor cardinality and a named failure when a singleton receipt is absent. */
+    received_counts?: Record<string, number>;
+    duplicate_families?: string[];
+    delivery_failures?: ReturnType<typeof evaluateDeliveryReceipts>['deliveryFailures'];
     identity_bound?: boolean;
     window_hours: number;
     observed_families: string[];
@@ -281,6 +286,10 @@ async function main(): Promise<void> {
                 stage: cells[18] ?? null,
                 transcript_visibly_present: cells[19] ?? null,
                 digests_match: cells[20] ?? null,
+                transport_initialized: cells[21] ?? null,
+                flush_outcome: cells[22] ?? null,
+                dropped_count: cells[23] ?? null,
+                comparison_evidence_document_id: cells[24] ?? null,
             },
         };
     });
@@ -327,6 +336,25 @@ async function main(): Promise<void> {
     }
 
     const result = evaluateTelemetryCompleteness(observed);
+    /**
+     * THE RECEIVED-VENDOR CASUALTY.
+     *
+     * `observed` is intentionally a family set for completeness, but a Set cannot prove that a
+     * singleton receipt arrived once: two rows collapse to the same value. Drive cardinality from the
+     * decoded rows instead, after binding them to this boot and journey. Health rows from this boot are
+     * included only to NAME the failure boundary; they never replace a missing receipt or turn HOLD
+     * into QUALIFIED.
+     */
+    const deliveryRows = readback.filter((row) => row.bootId === boot.bootId && (
+        row.journeyId === journeyId
+        || PRE_JOURNEY_EVENT_FAMILIES.includes(row.event as typeof PRE_JOURNEY_EVENT_FAMILIES[number])
+    ));
+    const delivery = evaluateDeliveryReceipts(deliveryRows);
+    const verdict: CompletenessResult['verdict'] = stageReasons.length > 0
+        || result.verdict !== 'QUALIFIED'
+        || delivery.verdict !== 'QUALIFIED'
+        ? 'HOLD'
+        : 'QUALIFIED';
     const evidence: Evidence = {
         gate: 'TELEMETRY-READBACK-COMPLETENESS',
         release_sha: releaseSha,
@@ -341,18 +369,21 @@ async function main(): Promise<void> {
         required_families: [...REQUIRED_EVENT_FAMILIES],
         stages_declared: declared,
         stage_reasons: stageReasons,
-        verdict: stageReasons.length > 0 ? 'HOLD' : result.verdict,
-        missing: result.missing,
+        received_counts: delivery.receivedCounts,
+        duplicate_families: delivery.duplicateFamilies,
+        delivery_failures: delivery.deliveryFailures,
+        verdict,
+        missing: [...new Set([...result.missing, ...delivery.missingFamilies])],
         unrecognised: result.unrecognised,
-        reasons: result.reasons,
+        reasons: [...result.reasons, ...delivery.reasons],
     };
     console.log(`TELEMETRY_READBACK_QUALIFICATION_EVIDENCE ${JSON.stringify(evidence)}`);
 
-    if (result.verdict !== 'QUALIFIED' || stageReasons.length > 0) {
-        console.error(`HOLD — ${[...result.reasons, ...stageReasons].join('; ')}`);
+    if (verdict !== 'QUALIFIED') {
+        console.error(`HOLD — ${[...result.reasons, ...delivery.reasons, ...stageReasons].join('; ')}`);
         process.exit(1);
     }
-    console.log(`QUALIFIED — every required governed family was INGESTED for journey ${journeyId} on ${releaseSha}.`);
+    console.log(`QUALIFIED — every required governed family was INGESTED and singleton receipts arrived once for journey ${journeyId} on ${releaseSha}.`);
 }
 
 await main();

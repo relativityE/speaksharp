@@ -231,6 +231,41 @@ describe('#1259 completeness gate wiring', () => {
             .toEqual({ transports: 1, sharedHelper: true });
     });
 
+    it('CASUALTY: received-vendor rows preserve cardinality and name the delivery boundary', () => {
+        // The former caller collapsed rows through `new Set(...)`, which proved only that a family was
+        // present. Two singleton receipts looked identical to one, and a missing page-load receipt had
+        // no way to distinguish client backpressure, uninitialised transport, a clean drain followed by
+        // vendor loss, or an unexplained gap. The cardinality judge must consume decoded rows, while the
+        // readback selects only the existing content-free health fields needed to classify the failure.
+        const src = readFileSync(join(REPO, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+        const query = buildReadbackQuery({
+            windowHours: 24,
+            releaseSha: 'sha',
+            trafficType: 'canary',
+            qualifyingIdentity: 'person-1',
+            governedEvents: ['telemetry_positive_control', 'telemetry_health', 'session_started'],
+            quote: (value: string) => `'${value}'`,
+        });
+
+        expect({
+            drivesReceivedRows: src.includes('evaluateDeliveryReceipts(deliveryRows)'),
+            publishesCounts: src.includes('received_counts: delivery.receivedCounts'),
+            publishesNamedFailures: src.includes('delivery_failures: delivery.deliveryFailures'),
+            readsTransportInit: query.includes('properties.transport_initialized AS transport_initialized'),
+            readsFlushOutcome: query.includes('properties.flush_outcome AS flush_outcome'),
+            readsDropCount: query.includes('properties.dropped_count AS dropped_count'),
+            readsComparisonDocument: query.includes('properties.comparison_evidence_document_id AS comparison_evidence_document_id'),
+        }).toEqual({
+            drivesReceivedRows: true,
+            publishesCounts: true,
+            publishesNamedFailures: true,
+            readsTransportInit: true,
+            readsFlushOutcome: true,
+            readsDropCount: true,
+            readsComparisonDocument: true,
+        });
+    });
+
     it('that caller is reachable as a command', () => {
         const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
         const wired = Object.entries(pkg.scripts)

@@ -157,7 +157,11 @@ export function buildReadbackQuery(params: {
                properties.subject_attempt_id AS subject_attempt_id, properties.subject_attempt_seq AS subject_attempt_seq,
                properties.attribution_status AS attribution_status,
                properties.stage AS stage, properties.transcript_visibly_present AS transcript_visibly_present,
-               properties.digests_match AS digests_match
+               properties.digests_match AS digests_match,
+               properties.transport_initialized AS transport_initialized,
+               properties.flush_outcome AS flush_outcome,
+               properties.dropped_count AS dropped_count,
+               properties.comparison_evidence_document_id AS comparison_evidence_document_id
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}
