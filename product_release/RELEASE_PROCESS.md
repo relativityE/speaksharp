@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for release-gate definitions, release workflow, freshness rules, and recovery)
 **Owner:** Engineering / Quality (relativityE)
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-16 — the closure-first lane, one active implementation lane against one merge token with a narrow temporary RWT-closure exception, exact-action authorities, incomplete RWT, and the current **two-candidate** entry gates (v4 provisional primary against v2 fallback) were reconciled.
 **Applies To:** The SpeakSharp controlled-tester release process — the five RC gates, evidence freshness, the release workflow & commands, and emergency recovery/rollback.
 **Class:** Acceptance criterion / procedure.
 **Authority:** The source for the definition of each RC gate (what "green" means), the gate evidence rules, evidence freshness & same-SHA rules, the release workflow/commands and observability readback, and the forward-fix/rollback/recovery playbook.
@@ -9,11 +9,12 @@
 **Supersedes:** `RC_GATES.md`, `RELEASE_RECOVERY.md`, and the release-workflow material of `RC_TEST_INVENTORY.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.F extraction mapping; the `.github/workflows/*` and `backend/supabase/*` paths cited inline; the release-identity mechanism (#1027); `tests/release/private-launch-playbook-contract.test.ts`; `evidence/ISSUE_1267_PRIVATE_LAUNCH_REHEARSAL.md`.
 
-<!-- pm-currentization:2026-09-04 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 4 Sep 2026.** Final MVP qualification happens on the canonical Production URL after the recovery increments deploy. Dev executes both complete product journeys across all three controlled runtime candidates first; the PO then repeats them. The explicit first mic intent must survive cold acquisition and auto-start exactly once. Every required #1259 family must be reconstructed from real PostHog readback. Missing receipts, user-visible false claims, unreadable completed transcripts, absent Practice Loop, or an unrunnable candidate row are HOLD even with green CI. Merge, deployment, migration, runtime activation, and Production testing remain separate PO authorizations.
-
-<!-- /pm-currentization:2026-09-04 -->
+> **Currentized 16 Sep 2026.** Use **one merge token**, **one active implementation lane** as the standing rule, and exact-head review evidence. Review or CI waiting does not block unrelated executable work; only the merge token is serialized.
+>
+> **Narrow, temporary exception in force for the RWT closure queue only.** The Product Owner directed a deconflicted division of labour: Dev's active lane is #1477, then #1486, then #1467; PM's is #1488, then #1490. It holds only because the lanes share no branch and no file and neither side edits the other's; each lane completes exact-head Codex independently before handoff; merges stay strictly serial on the one token. **The exception expires when this RWT closure queue completes, and it is not standing policy** — the default remains one active implementation lane. The prior RWT remains incomplete and paused. Resume only when PM qualifies an exact deployed candidate and the Product Owner authorizes the named stop. Every qualifying model row must include **v2 and v4** on the same evidence contract, validating v4 as provisional primary against v2 as fallback; **Moonshine is deferred until after RWT or MVP and is not required for the current RWT**, and its repetition failure is never something to sanitize. Merge, deployment, database migration, Edge/config change, credential repair, payment action, and Production RWT remain separate exact-action authorizations.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Release Process (v1)
 

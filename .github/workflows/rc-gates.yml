@@ -47,14 +47,12 @@ on:
           - 'v2:base.en/focus_points'
           - 'v4:distil:q4/open_mic'
           - 'v4:distil:q4/focus_points'
-          - 'moonshine:streaming-medium/open_mic'
-          - 'moonshine:streaming-medium/focus_points'
       comparison_release_sha:
         description: 'COMPARISON ONLY — exact 40-character release SHA: must equal the dispatched head this run executes and the release Production serves.'
         required: false
         default: ''
       comparison_evidence_document_id:
-        description: 'COMPARISON ONLY — lowercase UUIDv4 evidence document shared by one six-cell packet.'
+        description: 'COMPARISON ONLY — lowercase UUIDv4 evidence document shared by one four-cell packet.'
         required: false
         default: ''
       paid_launch:

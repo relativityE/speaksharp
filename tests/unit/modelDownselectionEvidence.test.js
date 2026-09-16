@@ -211,8 +211,12 @@ function validEvidence() {
     },
     candidateEvidence, geminiEvidence,
     selection: {
-      status: 'selected', primary: COMPARISON_CANDIDATES[0], fallback: COMPARISON_CANDIDATES[1],
-      sitsOut: COMPARISON_CANDIDATES[2], approvalArtifact: null, approvalSha256: null,
+      // #1477 P1: the authorised matrix is two candidates, so `sitsOut` is null. A deferred candidate is
+      // not a sitting-out candidate — it never entered this comparison.
+      // The DECIDED roles, named rather than positional: COMPARISON_CANDIDATES[0] is v2, so the previous
+      // positional form declared v2 primary and v4 fallback — the reverse of the decision — and passed.
+      status: 'selected', primary: 'v4:distil:q4', fallback: 'v2:base.en',
+      sitsOut: null, approvalArtifact: null, approvalSha256: null,
     },
   };
   LIVE_TELEMETRY.set(evidence.telemetryReadback.queryId, structuredClone(evidence.telemetryReadback));
@@ -328,8 +332,9 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
 
   it('fails closed on missing, duplicate, or reused candidate evidence', () => {
     const missing = validEvidence(); missing.candidateEvidence.pop();
-    expect(holdProblems(missing)).toMatch(/candidateEvidence is missing moonshine:streaming-medium\/focus_points/);
-    const duplicate = validEvidence(); duplicate.candidateEvidence[5] = structuredClone(duplicate.candidateEvidence[0]);
+    // Popping the last row of the AUTHORISED four-cell matrix removes v4/focus_points (#1477 P1).
+    expect(holdProblems(missing)).toMatch(/candidateEvidence is missing v4:distil:q4\/focus_points/);
+    const duplicate = validEvidence(); duplicate.candidateEvidence[3] = structuredClone(duplicate.candidateEvidence[0]);
     expect(holdProblems(duplicate)).toMatch(/duplicates v2:base\.en\/open_mic/);
     const reused = validEvidence(); reused.candidateEvidence[1].receiptSha256 = reused.candidateEvidence[0].receiptSha256;
     expect(holdProblems(reused)).toMatch(/reuses observer receipt/);
@@ -697,7 +702,10 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     });
 
     it('CASUALTY: a receipt record rewritten locally no longer matches its run artifact', () => {
-      const evidence = rewriteReceipt(validEvidence(), 3, 'forged-record', (receipt) => { receipt.authorization.candidateId = 'moonshine:streaming-medium'; });
+      // Row 3 is v4/focus_points, so forging the OTHER AUTHORISED candidate is what exercises the
+      // run-artifact mismatch. A deferred candidate would now be refused one check earlier, by the
+      // authorised-slate guard, and this casualty would stop testing what it names (#1477 P1).
+      const evidence = rewriteReceipt(validEvidence(), 3, 'forged-record', (receipt) => { receipt.authorization.candidateId = 'v2:base.en'; });
       expect(holdProblems(evidence)).toMatch(/candidateEvidence\[3\]\.receipt authorization candidateId does not match its run artifact/);
     });
 
@@ -742,23 +750,23 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     });
 
     it('CASUALTY (RWT-01): a receipt from the retired attached observer cannot qualify a row', () => {
-      const evidence = rewriteReceipt(validEvidence(), 4, 'attached-observer', (receipt) => {
+      const evidence = rewriteReceipt(validEvidence(), 2, 'attached-observer', (receipt) => {
         delete receipt.evidenceKind;
         delete receipt.control;
         receipt.workerInstrumentation = { attached: 2, installed: 2, drained: 2, networkEnabled: 2, mainTripwireInstalled: true };
       });
-      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\]\.receipt receipt evidenceKind must be "pre_take_control"/);
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[2\]\.receipt receipt evidenceKind must be "pre_take_control"/);
     });
 
     it('CASUALTY (RWT-01): a control receipt still attached at the take HOLDs the row', () => {
-      const evidence = rewriteReceipt(validEvidence(), 4, 'still-attached', (receipt) => { receipt.control.disconnectedBeforeTake = false; });
-      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\]\.receipt the control session did not disconnect before the take/);
+      const evidence = rewriteReceipt(validEvidence(), 2, 'still-attached', (receipt) => { receipt.control.disconnectedBeforeTake = false; });
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[2\]\.receipt the control session did not disconnect before the take/);
     });
 
     it('CASUALTY: the packet row session binding is still enforced through telemetry', () => {
       const evidence = validEvidence();
-      evidence.candidateEvidence[4].persistedSessionId = '99999999-9999-4999-8999-999999999999';
-      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[4\] session_saved persisted-session binding/);
+      evidence.candidateEvidence[2].persistedSessionId = '99999999-9999-4999-8999-999999999999';
+      expect(holdProblems(evidence)).toMatch(/candidateEvidence\[2\] session_saved persisted-session binding/);
     });
   });
 
@@ -795,7 +803,8 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
     it('CONTROL: the harness passes an unchanged packet, and a superseded settled emission is not an extra point', () => {
       const evidence = validEvidence();
       expect(evidence.candidateEvidence.filter((row) => row.focusCoverage).map((row) => row.journey))
-        .toEqual(['focus_points', 'focus_points', 'focus_points']);
+        // Two, not three: one Focus Points take per AUTHORISED candidate (#1477 P1).
+        .toEqual(['focus_points', 'focus_points']);
       expect(eventByUuid(evidence, 'coverage-point-2-0-superseded').verdict).toBe('missing');
       expect(finalizedOf(0)).toBeNull();
       expect(finalizedOf(1).sessions).toHaveLength(1);
@@ -839,10 +848,10 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       ]);
 
       const gapped = validEvidence();
-      gapped.candidateEvidence[5].focusCoverage.points[2].position = 3;
+      gapped.candidateEvidence[3].focusCoverage.points[2].position = 3;
       expect(problemsOf(gapped)).toEqual([
-        'candidateEvidence[5].focusCoverage.points positions must be contiguous from 0 and in order',
-        'candidateEvidence[5].focusCoverage.points[2] has no finalized stop-seam verdict at position 3',
+        'candidateEvidence[3].focusCoverage.points positions must be contiguous from 0 and in order',
+        'candidateEvidence[3].focusCoverage.points[2] has no finalized stop-seam verdict at position 3',
       ]);
     });
 
@@ -886,8 +895,8 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       ]);
 
       const threshold = validEvidence();
-      for (const event of coverageEvents(threshold, 6)) if (event.event === 'coverage_evaluation') event.coveredThreshold = 0.8;
-      threshold.candidateEvidence[5].focusCoverage.coveredThreshold = 0.8;
+      for (const event of coverageEvents(threshold, 4)) if (event.event === 'coverage_evaluation') event.coveredThreshold = 0.8;
+      threshold.candidateEvidence[3].focusCoverage.coveredThreshold = 0.8;
       expect(problemsOf(threshold)).toEqual([
         'candidateEvidence Focus Points takes were not scored by one evaluator: coveredThreshold differs (0.7, 0.8)',
       ]);
@@ -925,23 +934,23 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
 
     it('CASUALTY (PM 5654994284): a missing, later or cross-journey setup is not the take\'s entered count', () => {
       const missing = validEvidence();
-      missing.telemetryReadback.events = missing.telemetryReadback.events.filter((event) => event.uuid !== 'setup-6');
+      missing.telemetryReadback.events = missing.telemetryReadback.events.filter((event) => event.uuid !== 'setup-4');
       expect(problemsOf(missing)).toEqual([
-        'candidateEvidence[5] must link a decoded setup_submitted in its native journey before its session_started',
+        'candidateEvidence[3] must link a decoded setup_submitted in its native journey before its session_started',
       ]);
 
       const crossJourney = validEvidence();
-      eventByUuid(crossJourney, 'setup-6').journeyId = 'native-journey-4';
+      eventByUuid(crossJourney, 'setup-4').journeyId = 'native-journey-3';
       expect(problemsOf(crossJourney)).toEqual([
-        'candidateEvidence[5] must link a decoded setup_submitted in its native journey before its session_started',
+        'candidateEvidence[3] must link a decoded setup_submitted in its native journey before its session_started',
       ]);
 
       const afterStart = validEvidence();
       const { events } = afterStart.telemetryReadback;
-      const setup = events.splice(events.findIndex((event) => event.uuid === 'setup-6'), 1)[0];
+      const setup = events.splice(events.findIndex((event) => event.uuid === 'setup-4'), 1)[0];
       events.push(setup);
       expect(problemsOf(afterStart)).toEqual([
-        'candidateEvidence[5] must link a decoded setup_submitted in its native journey before its session_started',
+        'candidateEvidence[3] must link a decoded setup_submitted in its native journey before its session_started',
       ]);
     });
 
@@ -963,12 +972,12 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       expect(problemsOf(multiple)).toEqual(['candidateEvidence[3] must resolve exactly one finalized stop-seam session (found 2)']);
 
       const absent = validEvidence();
-      LIVE_GEMINI[5].finalizedCoverage = null;
-      expect(problemsOf(absent)).toEqual(['candidateEvidence[5] has no finalized stop-seam readback for its persisted session']);
+      LIVE_GEMINI[3].finalizedCoverage = null;
+      expect(problemsOf(absent)).toEqual(['candidateEvidence[3] has no finalized stop-seam readback for its persisted session']);
 
       const malformed = validEvidence();
-      LIVE_GEMINI[5].finalizedCoverage = { sessions: 'not-a-list' };
-      expect(problemsOf(malformed)).toEqual(['candidateEvidence[5] has no finalized stop-seam readback for its persisted session']);
+      LIVE_GEMINI[3].finalizedCoverage = { sessions: 'not-a-list' };
+      expect(problemsOf(malformed)).toEqual(['candidateEvidence[3] has no finalized stop-seam readback for its persisted session']);
     });
 
     it('CASUALTY (PM 5655220799): a missing, extra or duplicate finalized row fails', () => {
@@ -986,10 +995,10 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       ]);
 
       const duplicate = validEvidence();
-      finalizedOf(5).sessions[0].points[2].sortOrder = 1;
+      finalizedOf(3).sessions[0].points[2].sortOrder = 1;
       expect(problemsOf(duplicate)).toEqual([
-        'candidateEvidence[5] finalized stop-seam sort_order must be contiguous from 0 with no duplicate',
-        'candidateEvidence[5].focusCoverage.points[2] has no finalized stop-seam verdict at position 2',
+        'candidateEvidence[3] finalized stop-seam sort_order must be contiguous from 0 with no duplicate',
+        'candidateEvidence[3].focusCoverage.points[2] has no finalized stop-seam verdict at position 2',
       ]);
     });
 
@@ -1016,8 +1025,8 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       ]);
 
       const absent = validEvidence();
-      delete absent.candidateEvidence[5].focusCoverage;
-      expect(problemsOf(absent)).toEqual(['candidateEvidence[5].focusCoverage is required on an objective (Focus Points) take']);
+      delete absent.candidateEvidence[3].focusCoverage;
+      expect(problemsOf(absent)).toEqual(['candidateEvidence[3].focusCoverage is required on an objective (Focus Points) take']);
     });
   });
 
@@ -1136,4 +1145,32 @@ describe('#1432 PM RETURN `5654016276` — the validator, schema and template fo
     staleLimit.geminiEvidence[0].quota.limit = 20;
     expect(holdProblems(staleLimit)).toMatch(new RegExp(`geminiEvidence\\[0\\]\\.quota\\.limit must be ${LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay}\\b`));
   });
+});
+
+/**
+ * #1477 P1 — the terminal validator must not be able to certify the opposite of the decision.
+ *
+ * `validateSelection` originally checked only that both authorised candidates were present and distinct, so a
+ * packet declaring v2 primary and v4 fallback qualified. The fixture itself did that, positionally, and passed —
+ * which is how the defect stayed invisible.
+ */
+describe('#1477 — the decided primary/fallback roles are pinned, not merely present', () => {
+    it('CASUALTY: a packet that reverses primary and fallback is refused', () => {
+        const reversed = validEvidence();
+        reversed.selection.primary = 'v2:base.en';
+        reversed.selection.fallback = 'v4:distil:q4';
+        const problems = holdProblems(reversed);
+        expect(problems).toMatch(/selection\.primary must be the decided primary v4:distil:q4/);
+        expect(problems).toMatch(/selection\.fallback must be the decided fallback v2:base\.en/);
+    });
+
+    it('CONTROL: the fixture itself declares the decided pairing', () => {
+        // The control that matters: the fixture used to assign roles POSITIONALLY from
+        // COMPARISON_CANDIDATES, whose index 0 is v2 — so it declared v2 primary and v4 fallback and still
+        // passed. That the complete fixture reaches PASS is already asserted by the contract suite above;
+        // what was missing was any check that it declares the decided roles at all.
+        const ok = validEvidence();
+        expect(ok.selection.primary).toBe('v4:distil:q4');
+        expect(ok.selection.fallback).toBe('v2:base.en');
+    });
 });

@@ -66,13 +66,13 @@
     },
     "candidateEvidence": {
       "type": "array",
-      "minItems": 6,
-      "maxItems": 6,
+      "minItems": 4,
+      "maxItems": 4,
       "items": { "$ref": "#/$defs/candidateTake" }
     },
     "geminiEvidence": {
       "type": "array",
-      "minItems": 7,
+      "minItems": 5,
       "items": { "$ref": "#/$defs/geminiObservation" }
     },
     "selection": { "$ref": "#/$defs/selection" }
@@ -82,7 +82,7 @@
     "uuidv4": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "candidate": {
-      "enum": ["v2:base.en", "v4:distil:q4", "moonshine:streaming-medium"]
+      "enum": ["v2:base.en", "v4:distil:q4"]
     },
     "telemetryEvent": {
       "type": "object",

@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for STT runtime and data contracts, baselines, accuracy, and SLOs)
 **Owner:** Engineering / Product Owner (relativityE)
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-16 — candidate roles reconciled to the Product Owner decision: approved target is v4 customer primary on WebGPU-capable devices with v2 as the pre-Start fallback locked for the take, while Production remains v2-only until a separate evidenced promotion. Evidence validation rather than a three-model down-selection; Moonshine deferred until after RWT or MVP.
 **Applies To:** Customer Private STT, the internal deterministic E2E hook, and the inactive Private v4 candidate.
 **Class:** Runtime and data contract.
 **Authority:** STT audio route, lifecycle, attribution, failure behavior, metric validity, and evidence requirements.
@@ -9,11 +9,22 @@
 **Supersedes:** Earlier Browser/Cloud customer-engine maps, sample eligibility, and multi-engine selector requirements in this file.
 **Evidence Sources:** `tests/STT_BENCHMARKS.json`; permanent model-evaluation history at [`evidence/stt/README.md`](./evidence/stt/README.md); current `frontend/src/services/transcription/` implementation and tests; issue #1033 single-producer decision; #1044 v4 HOLD decision; qualification artifacts indexed by `EVIDENCE_INDEX.md`.
 
-<!-- pm-currentization:2026-09-04 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 4 Sep 2026 — v2 is deployed, not selected.** The Production test exercised only `v2:base.en` and failed both product journeys; it did not qualify a primary or fallback. v2, v4, and Moonshine must be comparable on the canonical Production app through controlled runtime configuration between settled takes—never a Preview or `VITE_INTERNAL_BUILD` variant. The explicit first mic intent survives cold acquisition and starts recording exactly once on ready; navigation alone never starts the mic. Model selection weights disfluency preservation and coaching truth, Focus Points usefulness, stability, latency, accuracy, and recovery—not WER alone. Every row requires immutable requested/observed identity and #1259 acquisition/journey receipts.
-
-<!-- /pm-currentization:2026-09-04 -->
+> **Currentized 16 Sep 2026 — APPROVED TARGET and CURRENT STATE are different, and this file states both.**
+>
+> **Approved target (Product Owner decision, for RWT and MVP).** **v4 is the customer primary on WebGPU-capable devices**, because it has the maintained model-release pipeline. **v2 is the pre-Start fallback**: when capability or initialization prevents v4 before recording, v2 is selected and attributed *before* Start and stays **locked for that whole take** — no mid-recording handoff and no v2 retranscription of a failed v4 take. Moonshine is deferred until after RWT or MVP and is excluded.
+>
+> **Current state: Production remains v2-only for ordinary customers.** v4 is **not** the customer default today, and that is enforced in code rather than merely configured: `candidateSelection.ts` refuses a candidate that is not `activationReady`, and separately refuses `acknowledgeNotProductionReady` unless `VITE_INTERNAL_BUILD` is true. So the **configured-default path cannot select v4 in a public build**.
+>
+> **That is a statement about the default path only, and the distinction matters.** Canonical Production has a separate authorized comparison path: `installRuntimeCandidateSwitch()` installs when the build is internal **or** when a signed one-use model-comparison authorization is consumed, and `effectiveCandidate()` then returns the runtime override **without** the activation check — deliberately, because the comparison has to run candidates before one of them can be approved as a default. Precedence is remote-kill > runtime override > config, so the safety kill still outranks the switch. An authorized four-cell comparison therefore runs on canonical Production; it does not need an internal build, and it does not make v4 the customer default.
+>
+> `v4:distil:q4` is registered `activationReady: false`, and it is WebGPU-only by design (WASM real-time factor ~2.2 is unusable), which is why the target is device-conditional rather than universal. The separate normative requirement that Private v4 is OFF unless separately promoted through evidence and Product Owner approval therefore still holds and is **unchanged** by this decision.
+>
+> **What is already observable, and what is not.** Candidate identity is not unobservable. During an authorized comparison `__SS_ACTIVE_CANDIDATE__` reports `requested`, `observed`, `expected`, `matches` and `source` (`config` | `runtime_switch` | `remote_safety_kill`), and the server-owned `session_attribution_authority` row carries durable identity — `engine_class`, `engine`, `engine_version`, `model_id`, `provider`, `resolved_device`, `authority_version` — readable by the owning authenticated user. The real gaps are narrower: ordinary Canary does not yet consume that authoritative row, and no durable receipt yet distinguishes **requested primary** from **effective candidate**, nor records a **fallback cause**, proof that v2 was selected **before Start**, or proof the engine stayed **locked for the take**. #1488 owns authoritative Canary attribution; #1263 owns customer selection, fallback, locking and attribution as ordered subtasks in one PR home.
+>
+> **How the gap closes.** The authorized four-cell v2/v4 comparison supplies the pre-promotion evidence; #1263 then implements the structural primary/fallback policy — capability detection, pre-Start fallback selection, take locking, and requested / effective / observed / fallback-cause attribution — and carries the normative document amendment with it. The final deployed RWT proves both a normal v4 journey and a bounded v2 fallback. **This document records the decision; it does not implement the selector, and nothing here makes v4 live.** The current work validates v4 over v2 on one evidence contract and is not a three-model down-selection.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp STT Contract
 
@@ -130,15 +141,15 @@ An observed run is not a percentile. A planning target is not a measured SLO. Cu
 
 ---
 
-## 8. Private v4 disposition
+## 8. Operator-only comparison candidates
 
-Private v4 is OFF and research-only.
+Private v2, Private v4, and Moonshine are registered comparison candidates. The current RWT compares **v4 (the approved primary, not yet live) against v2 (the pre-Start fallback, and today's only customer default)** only; Moonshine stays registered but is deferred until after RWT or MVP and is not required for current qualification. Candidate control is operator-only, applies only between settled takes, and never creates a customer-visible selector, entitlement, or silent fallback.
 
-- The build kill switch remains authoritative over flags.
-- No flag, allowlist, or deterministic override may expose v4 to a customer while it is OFF.
-- Saved historical v4 evidence remains labeled with its exact producer and cannot be compared without matching corpus, device, and conditions.
-- Promotion requires an explicit Product Owner decision after comparable v2/v4 setup, accuracy, opening/tail, finalization, memory, and failure evidence.
-- Any future device-capability choice occurs before a new recording; it is never a mid-recording switch.
+- The selected candidate is latched before Start and requested/observed identities must match through finalize, save, review, and reopen.
+- A setup, switch, decode, finalization, repetition, or tail-integrity failure is recorded against that candidate; it is never hidden by relabeling, fallback, or transcript cleanup.
+- Moonshine cold acquisition uses progress-sensitive stall handling, and a failed switch may be retried, but those mechanics do not override the unresolved long-form repetition/tail/stability failure.
+- Promotion requires an explicit Product Owner decision after comparable **v2 and v4** setup, accuracy, filler preservation/completeness, opening/tail, finalization, memory, device, recovery, and failure evidence. Moonshine evidence is not required for it, being deferred until after RWT or MVP.
+- A future device-capability choice occurs before a new recording; it is never a mid-recording switch.
 
 ### Comparable benchmark protocol
 
@@ -148,12 +159,14 @@ For each candidate, collect one row per engine on the same corpus, devices, and 
 |---|---|
 | Setup | cold and warm model acquisition plus initialization time |
 | Accuracy | WER/accuracy on the same content-safe fixtures |
+| Filler integrity | annotated positive/negative preservation plus `complete | unobservable | no_speech` |
 | Opening/tail | first-token latency and trailing-word capture |
+| Stability | bounded live rewrites, repetition/loop detection, and long-form integrity |
 | Finalization | post-stop duration and real-time factor |
 | Memory | peak/steady JS heap and GPU memory where exposed |
-| Failure | startup/finalization failure rate and device coverage |
+| Failure | startup/finalization failure rate, truthful retry, and device coverage |
 
-Until those proofs and approval exist, Private v2 remains the only customer producer.
+Until those proofs and approval exist, the checked-in default is not a measured winner.
 
 ---
 

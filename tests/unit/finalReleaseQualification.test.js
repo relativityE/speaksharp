@@ -53,6 +53,63 @@ describe('Q-08 automated review qualification', () => {
     expect(result.reasons).toContain('no_substantive_implementation');
   });
 
+
+  it('qualifies canonical product-release authorities as documentation, never implementation', () => {
+    const changedFiles = ['product_release/RELEASE_STATUS.md', 'product_release/ROADMAP.md'];
+    const result = evaluateReviewQualification(complete({ changedFiles }));
+    expect(result).toMatchObject({
+      qualified: true,
+      reasons: [],
+      reviewScope: 'canonical_product_release_documentation',
+      substantiveFiles: [],
+      documentationFiles: changedFiles,
+    });
+    expect(changedFiles.every((path) => isSubstantiveImplementationFile(path) === false)).toBe(true);
+  });
+
+  it('CASUALTY: archive, evidence, arbitrary root prose, and findings cannot use the canonical-docs lane', () => {
+    for (const path of [
+      'product_release/archive/README.md',
+      'product_release/evidence/README.md',
+      'product_release/UNREGISTERED.md',
+      'product_release/RELEASE_STATUS.md ',
+      ' product_release/RELEASE_STATUS.md',
+      'README.md',
+      'docs/findings/final-release-qualification.md',
+    ]) {
+      const result = evaluateReviewQualification(complete({ changedFiles: [path] }));
+      expect({ path, qualified: result.qualified, reasons: result.reasons }).toEqual({
+        path,
+        qualified: false,
+        reasons: ['no_substantive_implementation'],
+      });
+    }
+  });
+
+  it('CONTROL: canonical docs plus executable control code remain an implementation review', () => {
+    const result = evaluateReviewQualification(complete({
+      changedFiles: ['product_release/RELEASE_STATUS.md', 'scripts/review-qualification.mjs'],
+    }));
+    expect(result).toMatchObject({
+      qualified: true,
+      reviewScope: 'implementation',
+      substantiveFiles: ['scripts/review-qualification.mjs'],
+      documentationFiles: ['product_release/RELEASE_STATUS.md'],
+    });
+  });
+
+  it('CASUALTY: the canonical-docs lane still rejects a stale head, incomplete review, or finding', () => {
+    const changedFiles = ['product_release/RELEASE_STATUS.md'];
+    const stale = evaluateReviewQualification(complete({ changedFiles, reviewedSha: OTHER_SHA }));
+    const incomplete = evaluateReviewQualification(complete({ changedFiles, reviewStatus: 'pending' }));
+    const finding = evaluateReviewQualification(complete({ changedFiles, findingCount: 1 }));
+
+    expect(stale.reasons).toContain('reviewed_sha_is_not_current_head');
+    expect(incomplete.reasons).toContain('review_not_completed:pending');
+    expect(finding.reasons).toContain('open_findings:1');
+    expect([stale, incomplete, finding].every(({ qualified }) => qualified === false)).toBe(true);
+  });
+
   it('CASUALTY: zero findings without an explicitly completed review is not green', () => {
     for (const reviewStatus of [undefined, 'pending', 'failed', 'in_progress']) {
       const result = evaluateReviewQualification(complete({ reviewStatus }));

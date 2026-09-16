@@ -1,8 +1,8 @@
 **Status:** Authoritative (SSOT for personal session-over-session Progress and the single next practice action)
 **Owner:** Product Owner (relativityE)
 
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — ownership now routes to #1471/#1476 progress integrity, #1473 automatic review, #1474 presentation, and #1472 filler completeness.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
 **Class:** Product requirement / decision.
 **Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the two-suggestion Session review, selection of one next practice action, and what must never be claimed.
@@ -12,11 +12,10 @@
 **Supersedes:** the planned canonical destination formerly named `COACHING_SCORE.md` (never created) and the Personal-Progress direction in `SPEAKSHARP_SESSION_PROGRESS.operational.md` (interim source; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` extraction mapping; the code paths cited inline; #1045 Product-Owner decisions.
 
-<!-- pm-currentization:2026-09-04 -->
+<!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 4 Sep 2026 — visible Practice Loop is presently unqualified.** The 4 Sep Production test did not surface the expected AI review. For each eligible completed session, the approved Session-page output is exactly one concise **What went well** suggestion and one **What to improve** suggestion — two suggestions total — derived from the authoritative final transcript and valid metrics. Generation, rendering, selection, linked retry, and improvement verdict are distinct states. #1259 observes those states without coaching text; #1386 owns the user-visible loop and effectiveness proof.
-
-<!-- /pm-currentization:2026-09-04 -->
+> **Currentized 15 Sep 2026 — the contract is not yet release-qualified.** Each eligible saved session still requires exactly one **What went well** and one **What to improve** suggestion. #1473 owns automatic generation, structured configuration/provider/quota terminals, and truthful retry; #1474 owns the dominant G10 rendering footprint. #1471 and #1476 own durable single-tab and cross-tab progress settlement. #1472 owns the persisted filler evidence state `complete | unobservable | no_speech`; an empty object or zero without affirmative completeness contributes nothing and must never become a flattering zero, clean-delivery claim, or perfect clarity.
+<!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Progress and Next Action (v1)
 
