@@ -11,7 +11,8 @@
  *   - the auth record's creation time and PRIOR last sign-in time (`getUserById`);
  *   - the profile's entitlement shape and trial timestamps, and the server-time effective tier
  *     (`effective_subscription_tier`, canonical 5-argument overload, the only RPC used);
- *   - row COUNTS of every table that references the user (`head: true`), for retirement preflight.
+ *   - row COUNTS (`head: true`) of the tables on a hand-maintained dependency list. This is PARTIAL
+ *     observability, not a complete inventory, and it never authorizes deletion (see DELETION_CLEARANCE).
  *
  * Output is masked and content-free: masked identity, a short content-safe digest, minute-rounded timestamps,
  * enums and counts. No email, token, Stripe identifier or row content is ever emitted.
@@ -40,7 +41,11 @@ export const VERDICT_STATEMENTS = Object.freeze({
 /**
  * Every table that references the user, with its ON DELETE rule, from the repository schema at main@734d045a
  * (renames applied: custom_vocabulary → user_filler_words, guided_* → objective_*). CASCADE rows go with the
- * account; SET NULL rows survive as residue; a RESTRICT/NO ACTION row would block retirement.
+ * account; SET NULL rows would survive as residue; a RESTRICT/NO ACTION row is a positive obstruction.
+ *
+ * This list is HAND-MAINTAINED and its completeness is not mechanically proven against the schema. It is
+ * recorded for observation only: an unlisted reference cannot be counted, so no combination of these counts
+ * can establish that an identity is safe to delete (#1483 P1-2).
  */
 export const DEPENDENTS = Object.freeze([
     ['active_recording_lease', 'user_id', 'CASCADE'],
@@ -116,15 +121,35 @@ async function countDependents(adminClient, userId) {
     return counts;
 }
 
-function retirementPreflight(counts) {
-    let residue = false;
-    for (const [table, , rule] of DEPENDENTS) {
+/**
+ * Deletion clearance is NEVER granted by this diagnostic (#1483 P1-2).
+ *
+ * `DEPENDENTS` is a hand-maintained list. Nothing here proves it is the COMPLETE set of references to the
+ * identity, and an unlisted table with a RESTRICT rule — or an unlisted CASCADE that would silently destroy
+ * data — cannot be observed by counting the tables we happen to know about. So however clean the counts look,
+ * they are partial observability, not evidence that an identity is safe to delete. Clearance stays
+ * `UNKNOWN_NOT_AUTHORIZED` until a schema/migration-derived FK inventory proves the complete set and its delete
+ * rules; that proof is deliberately NOT built here. `BLOCKED_OBSERVED` is still worth reporting, because a
+ * positive obstruction found in a partial view is real evidence of an obstruction.
+ */
+export const DELETION_CLEARANCE = Object.freeze({
+    UNKNOWN: 'UNKNOWN_NOT_AUTHORIZED',
+    BLOCKED: 'BLOCKED_OBSERVED',
+});
+
+// `dependents` is injectable so the obstruction path can be proven directly: no rule in the real list is
+// RESTRICT today, so a test that hunted for one in DEPENDENTS could only assert conditionally — and a
+// conditional assertion silently proves nothing.
+export function dependencyObservation(counts, dependents = DEPENDENTS) {
+    const unreadable = dependents.filter(([table]) => counts[table] === 'unreadable').map(([table]) => table);
+    for (const [table, , rule] of dependents) {
         const n = counts[table];
-        if (n === 'unreadable') return 'UNKNOWN';
-        if (n > 0 && rule !== 'CASCADE' && rule !== 'SET NULL') return 'BLOCKED';
-        if (n > 0 && rule === 'SET NULL') residue = true;
+        if (typeof n === 'number' && n > 0 && rule !== 'CASCADE' && rule !== 'SET NULL') {
+            // A positive obstruction in a partial view is still an obstruction.
+            return { deletionClearance: DELETION_CLEARANCE.BLOCKED, inventoryCompleteness: 'unproven', unreadableTables: unreadable, blockedBy: table };
+        }
     }
-    return residue ? 'RESIDUE_ONLY' : 'CLEAN';
+    return { deletionClearance: DELETION_CLEARANCE.UNKNOWN, inventoryCompleteness: 'unproven', unreadableTables: unreadable, blockedBy: null };
 }
 
 /**
@@ -170,7 +195,7 @@ export async function inspectCanaryIdentity({ adminClient, email, purpose, label
     const foundation = await verifyCanaryFoundation(adminClient, userId, purpose);
     const profile = foundation.snapshot;
     const dependents = await countDependents(adminClient, userId);
-    const withDependents = { ...report, dependentRowCounts: dependents, retirementPreflight: retirementPreflight(dependents) };
+    const withDependents = { ...report, dependentRowCounts: dependents, ...dependencyObservation(dependents) };
 
     // The helper's read-failure reasons are unreadable state, not a judgment about the identity.
     if (/^profile_readback_error/.test(foundation.reason ?? '')) {

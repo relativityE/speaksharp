@@ -106,12 +106,31 @@ jobs:
           # Export for use in this workflow run
           echo "SOAK_TEST_PASSWORD=$NEW_PASSWORD" >> $GITHUB_ENV
 
-      - name: Run test user admin action
+      # #1483 P1-1 least privilege. The strictly read-only canary inspection never authenticates, so it must not
+      # be handed credentials it cannot legitimately use. It runs in its OWN step with the minimum environment:
+      # the Supabase URL, the service-role credential, the two canary email IDENTIFIERS, and the two selectors.
+      # No anon key, no password of any kind, no reviewer identity, no create input, no soak variable.
+      - name: Run canary identity inspection (strictly read-only)
+        if: ${{ github.event.inputs.action == 'verify' && github.event.inputs.verify_target == 'canaries' }}
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Public anon key: used ONLY to verify that a canary's supplied password authenticates (read-only
-          # sign-in). Never used to mutate an account.
+          CANARY_TRIAL_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
+          CANARY_PAID_EMAIL: ${{ vars.CANARY_PAID_EMAIL }}
+          ACTION: ${{ github.event.inputs.action }}
+          VERIFY_TARGET: ${{ github.event.inputs.verify_target }}
+        run: pnpm verify:test-users
+
+      - name: Run test user admin action
+        # The broad step cannot execute for the canary-verification case; that case is served only by the
+        # least-privilege step above.
+        if: ${{ !(github.event.inputs.action == 'verify' && github.event.inputs.verify_target == 'canaries') }}
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Public anon key: used by the CREATE path to confirm a provisioned canary's password authenticates,
+          # and by reviewer verification. Never used to mutate an account, and never provided to the read-only
+          # canary inspection step above, which performs no authentication at all.
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
           ACTION: ${{ github.event.inputs.action }}

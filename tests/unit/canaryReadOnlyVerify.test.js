@@ -1,9 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
+  DELETION_CLEARANCE,
   DEPENDENTS,
   VERDICTS,
   assertRedacted,
+  dependencyObservation,
   formatCanaryLine,
   inspectCanaryIdentity,
   runCanaryInspection,
@@ -177,21 +179,66 @@ describe('canary read-only inspection — redaction, no writes, no authenticatio
   });
 });
 
-describe('canary read-only inspection — FK-dependent row counts', () => {
-  it('reads every dependent table as a COUNT only (head: true), never row contents', async () => {
+describe('canary read-only inspection — dependency observation (PARTIAL, never deletion clearance)', () => {
+  it('reads each LISTED dependent table as a COUNT only (head: true), never row contents', async () => {
     const admin = makeAdmin({ users: [authUser('u1', TRIAL_EMAIL)], profiles: { u1: activeTrial('u1') }, counts: { sessions: 3 } });
     const report = await inspectTrial(admin);
     const countReads = admin.calls.selects.filter((s) => s.table !== 'user_profiles');
     expect(countReads.map((s) => s.table).sort()).toEqual(DEPENDENTS.map(([t]) => t).sort());
     expect(countReads.every((s) => s.columns === '*' && s.options?.head === true && s.options?.count === 'exact')).toBe(true);
-    expect([report.dependentRowCounts.sessions, report.retirementPreflight]).toEqual([3, 'CLEAN']);
+    expect(report.dependentRowCounts.sessions).toBe(3);
   });
 
-  it('SET NULL residue and unreadable tables are reported, not hidden', async () => {
-    const residue = await inspectTrial(makeAdmin({ users: [authUser('u1', TRIAL_EMAIL)], profiles: { u1: activeTrial('u1') }, counts: { trial_entitlements: 1 } }));
+  it('unreadable tables are named, not hidden', async () => {
     const unknown = await inspectTrial(makeAdmin({ users: [authUser('u1', TRIAL_EMAIL)], profiles: { u1: activeTrial('u1') }, unreadable: ['user_issue_reports'] }));
-    expect(residue.retirementPreflight).toBe('RESIDUE_ONLY');
-    expect([unknown.dependentRowCounts.user_issue_reports, unknown.retirementPreflight]).toEqual(['unreadable', 'UNKNOWN']);
+    expect(unknown.dependentRowCounts.user_issue_reports).toBe('unreadable');
+    expect(unknown.unreadableTables).toEqual(['user_issue_reports']);
+  });
+
+  // #1483 P1-2. DEPENDENTS is hand-maintained and its completeness is NOT proven against the schema, so an
+  // unlisted reference cannot be counted. No combination of these counts may authorize deletion, and the report
+  // must never speak deletion-safe language. Clearance stays UNKNOWN_NOT_AUTHORIZED until a schema/migration
+  // derived FK inventory proves the complete set and its delete rules — which this diagnostic deliberately
+  // does not build.
+  it('CASUALTY: no count pattern can authorize deletion — nonzero, all-zero, or fully readable', async () => {
+    const withRows = await inspectTrial(makeAdmin({ users: [authUser('u1', TRIAL_EMAIL)], profiles: { u1: activeTrial('u1') }, counts: { sessions: 3, trial_entitlements: 1 } }));
+    const allZero = await inspectTrial(makeAdmin({ users: [authUser('u1', TRIAL_EMAIL)], profiles: { u1: activeTrial('u1') } }));
+    const unreadable = await inspectTrial(makeAdmin({ users: [authUser('u1', TRIAL_EMAIL)], profiles: { u1: activeTrial('u1') }, unreadable: ['sessions'] }));
+
+    for (const report of [withRows, allZero, unreadable]) {
+      expect(report.deletionClearance).toBe(DELETION_CLEARANCE.UNKNOWN);
+      expect(report.inventoryCompleteness).toBe('unproven');
+      expect(report.blockedBy).toBeNull();
+      // The absence of observed obstructions is NOT clearance: an all-zero, fully readable view says the same
+      // thing as an unreadable one, because the list itself is not proven complete.
+      expect(report.deletionClearance).not.toBe('CLEAN');
+    }
+    // The emitted record carries no deletion-safe vocabulary at all.
+    const emitted = JSON.stringify([withRows, allZero, unreadable]) + [withRows, allZero, unreadable].map(formatCanaryLine).join('\n');
+    for (const banned of ['CLEAN', 'RESIDUE_ONLY', 'safe to delete', 'retirement', 'deletable']) {
+      expect(emitted, `report must not claim ${banned}`).not.toContain(banned);
+    }
+  });
+
+  it('no rule in the real dependency list is RESTRICT today — so the obstruction path needs injection to prove', () => {
+    // Stated as a fact rather than used as a branch: a test that conditionally asserts proves nothing when the
+    // condition is false, which is exactly what vitest/no-conditional-expect exists to catch.
+    expect(DEPENDENTS.filter(([, , rule]) => rule !== 'CASCADE' && rule !== 'SET NULL')).toEqual([]);
+  });
+
+  it('a positive obstruction in the partial view IS reported as observed', () => {
+    // A RESTRICT-ruled table with rows is real evidence of an obstruction even in an incomplete inventory, so
+    // this path must stay live even while the real list contains no such rule.
+    const synthetic = [['synthetic_restrict_table', 'user_id', 'RESTRICT']];
+    const blocked = dependencyObservation({ synthetic_restrict_table: 2 }, synthetic);
+    expect(blocked.deletionClearance).toBe(DELETION_CLEARANCE.BLOCKED);
+    expect(blocked.blockedBy).toBe('synthetic_restrict_table');
+    // Still never clearance: an obstruction found in a partial view does not make the rest of the view complete.
+    expect(blocked.inventoryCompleteness).toBe('unproven');
+
+    // Zero rows under the same RESTRICT rule is not an obstruction, and is still not clearance.
+    const quiet = dependencyObservation({ synthetic_restrict_table: 0 }, synthetic);
+    expect([quiet.deletionClearance, quiet.blockedBy]).toEqual([DELETION_CLEARANCE.UNKNOWN, null]);
   });
 });
 

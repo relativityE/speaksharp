@@ -94,6 +94,55 @@ describe('Admin - Test Users workflow contract', () => {
     expect(raw).toContain('node scripts/setup-test-users.mjs');
   });
 
+  // #1483 P1-1 least privilege. The strictly read-only canary inspection never authenticates, so handing it
+  // passwords or the anon key grants capability it cannot legitimately use. It must run in its OWN conditioned
+  // step with the minimum environment, and the broad admin step must be unable to serve that case. These
+  // assertions read the PARSED steps, not the raw text, so a step that merely mentions the right words cannot
+  // pass while the actual environment is wrong.
+  it('CASUALTY: the canary verify path runs in its own step with ONLY the allowed environment', () => {
+    const steps = wf.jobs['test-user-admin'].steps;
+    // Select the dedicated step by EXACT NAME. Keying on the presence of `canaries` or `verify:test-users` would
+    // also match the broad step — it serves verify_target=reviewers and mentions `canaries` only to NEGATE that
+    // case — so such a filter could pass vacuously against a wrong workflow.
+    const CANARY_STEP = 'Run canary identity inspection (strictly read-only)';
+    const canarySteps = steps.filter((s) => s.name === CANARY_STEP);
+    // 1. Exactly one such step exists.
+    expect(canarySteps).toHaveLength(1);
+    const [canary] = canarySteps;
+    // No OTHER step may run for the canary case (a positive canary condition that is not a negation).
+    const otherCanaryRunners = steps.filter((s) => s.name !== CANARY_STEP && /canaries/.test(s.if ?? '') && !/\$\{\{\s*!/.test(s.if ?? ''));
+    expect(otherCanaryRunners.map((s) => s.name)).toEqual([]);
+
+    // 2. Its condition requires BOTH the verify action and the canaries target.
+    expect(canary.if).toMatch(/action\s*==\s*'verify'/);
+    expect(canary.if).toMatch(/verify_target\s*==\s*'canaries'/);
+
+    // 3. Its environment is exactly the allowed set — no more, no fewer.
+    expect(Object.keys(canary.env ?? {}).sort()).toEqual([
+      'ACTION', 'CANARY_PAID_EMAIL', 'CANARY_TRIAL_EMAIL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL', 'VERIFY_TARGET',
+    ]);
+
+    // 4. No credential, password or anon-key variable reaches it — by name or by referenced secret.
+    const canaryEnv = JSON.stringify(canary.env ?? {});
+    for (const banned of ['PASSWORD', 'ANON_KEY', 'SOAK', 'GH_PAT', 'GH_TOKEN', 'PRO_TEST', 'FREE_TEST', 'CREATE_']) {
+      expect(canaryEnv, `canary verify step must not receive ${banned}`).not.toContain(banned);
+    }
+
+    // 5. The broad admin step cannot execute for the canary case — but MUST still serve everything else.
+    const broad = steps.find((s) => s.name === 'Run test user admin action');
+    expect(broad, 'broad admin step missing').toBeTruthy();
+    expect(broad.if, 'broad step must exclude the canary-verification case').toMatch(/!\s*\(.*action\s*==\s*'verify'.*verify_target\s*==\s*'canaries'.*\)/s);
+    // It is the step that legitimately holds the wider credential set, which is why it must be excluded here.
+    expect(JSON.stringify(broad.env ?? {})).toContain('SUPABASE_ANON_KEY');
+    // Reviewer verification still routes through it: the exclusion is narrowed to the canaries target only, so a
+    // future edit that excluded ALL verify traffic would break reviewer verification while this test still passed.
+    expect(broad.if, 'exclusion must be scoped to the canaries target, not to verify as a whole').toContain("verify_target == 'canaries'");
+    expect(broad.run, 'broad step must keep serving the reviewer verify branch').toMatch(/elif \[ "\$ACTION" = "verify" \]; then\s*\n\s*pnpm verify:test-users/);
+
+    // 6. The canary step runs ONLY the read-only verifier — no setup script, no create path, no extra command.
+    expect(canary.run.trim()).toBe('pnpm verify:test-users');
+  });
+
   it('verify_target selects the reviewers check (default) or the read-only canary inspection', () => {
     expect(inputs.verify_target.options).toEqual(['reviewers', 'canaries']);
     expect(inputs.verify_target.default).toBe('reviewers');
