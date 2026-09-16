@@ -150,4 +150,4 @@ duplicate — for the parked enterprise/team and demand-validation workstreams, 
 - Do not resume Production RWT until the exact deployed candidate is PM-qualified and the Product Owner authorizes the named stop.
 - Do not treat the partial Stop B or the descriptive v2/v4 observations as the comparable evidence that confirms v4 over v2.
 - Do not treat CI, a transport 200, a generated artifact, or an installed observer as proof of received/user-visible behavior.
-- Do not let the queued #1477 gate/docs lane or post-MVP debt displace the current product merge token.
+- Do not let post-MVP debt displace the current product merge token. **#1477 is not held behind it.** `main`'s recorded baseline is 26 commits behind the mainline against the currency guard's threshold of 25, so the guard fails on `main` and on every branch cut from it, and only #1477 currentizes the baseline. It therefore takes the token first and the product lanes requalify after it merges — the same sequence the Now section and the register row above state. Holding it back would freeze the only lane that can repair the guard, which is the opposite of what a stop condition is for.
