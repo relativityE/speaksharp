@@ -145,13 +145,13 @@ There is **no `version.json` endpoint** and no `__BUILD_ID__` JS define (removed
 
 ## 14a. Enterprise readiness — structural implications (no buildout)
 
-Requirements and triggers are owned by `PRODUCT_REQUIREMENTS.md` §10a; this records only what they would mean structurally, so the current design is not quietly foreclosed.
+Requirements and triggers are owned by `PRODUCT_REQUIREMENTS.md` §10 (Product boundaries), which states that future enterprise capabilities require a new explicit product decision and are not implied by historical code or documentation; this records only what they would mean structurally, so the current design is not quietly foreclosed.
 
 - **Isolation today is per-user row-level security.** That is the deliberate design and the current privacy guarantee. An organization model would layer *membership* on top of it — it must not replace or weaken per-user RLS.
 - **Deletion must reach derived evidence.** Deleting a session has to remove or orphan-proof everything derived from it (transcript, delivery measurements, progress evaluation records, generated feedback). A deletion that leaves derived rows behind is not a deletion. *(Gap: no user-facing deletion path exists today → `ROADMAP.md`.)*
 - **Auditability requires an append-only record.** Access and change logging cannot be reconstructed from mutable rows after the fact; it would need its own immutable record with a stated retention window.
 - **Exports must reuse the stored evaluation, not recompute.** Any org-level export has to read the same persisted result the product displays, per the one-deterministic-truth rule in `PROGRESS_AND_NEXT_ACTION.md` §8a.
-- **No tenant-PARTITIONED infrastructure is planned**, but logical isolation is required if the organization model ships. Separate per-customer databases/deployments and per-tenant models are **Declined**; **on-prem/self-hosted is classified Later**, not declined (`PRODUCT_REQUIREMENTS.md` §10a). **Org-scoped data must still be isolated between organizations** — membership and org settings would be enforced in the same row-level-security layer that already isolates users, never by a separate partitioning scheme. Reversing the decline is a new decision, not an incremental change.
+- **No tenant-PARTITIONED infrastructure is planned**, but logical isolation is required if the organization model ships. Separate per-customer databases/deployments and per-tenant models are **Declined**; **on-prem/self-hosted is classified Later**, not declined (`ROADMAP.md`, “Later — explicitly post-MVP”, which is the authority for Later and Declined work). **Org-scoped data must still be isolated between organizations** — membership and org settings would be enforced in the same row-level-security layer that already isolates users, never by a separate partitioning scheme. Reversing the decline is a new decision, not an incremental change.
 
 ## 15. Current limitations & open ADRs
 

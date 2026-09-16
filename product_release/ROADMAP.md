@@ -81,9 +81,37 @@ All 24 current MVP/pre-GO issues and roadmap-owned gaps have an owner and closur
 
 ## Later — explicitly post-MVP
 
+Accepted work, deferred. Nothing in this section is declined, and nothing is dropped for being post-MVP: each item names the durable owner that holds its detail, so deferral never becomes deletion.
+
+### Retained engineering debt
+
 | Issues | Reason |
 |---|---|
 | #1275, #1312, #1322, #1340, #1398, #1462 | Dependency/runtime runway, CI optimization, retired remnants, generated-type maintenance, proof-selector hardening, and future v4 research are retained debt, not current RWT blockers unless they reproduce a user-facing P0/P1. |
+
+### Accepted product and business workstreams
+
+| Workstream | Durable owner | Standing |
+|---|---|---|
+| **Enterprise and team capabilities** — organization accounts and administration; SSO/SAML and SCIM; role-based access and organization isolation; audit logs; organization-configurable retention/deletion; procurement/security documentation; support/SLA and incident-response commitments; cohort reports and content-free exports; organization policy controls | **#1307**, the consolidated parking lot (preserves the selected ideas from closed #1048 and #1075). The durable architectural constraints live in `ARCHITECTURE.md` §14. | Accepted and parked. Build nothing until #1307's activation gate is met: released and stable MVP, a concrete request, an explicit Product Owner choice, a new scoped issue, and resolved privacy/security/retention/trademark implications. |
+| **On-prem / self-hosted deployment** | This file is the classification authority; `ARCHITECTURE.md` §14 states the boundary it sits against. | Accepted as **Later**, explicitly **not declined**. Separate per-customer databases/deployments and per-tenant models are Declined below; on-prem/self-hosted is not. |
+| **Demand validation and market discovery** | **#1307** — the three current strengths recorded there are positioning hypotheses to validate, not feature requirements. | Accepted, sequenced strictly after the product is release-qualified. Competitive analysis must not change current requirements, acceptance criteria, gates, sequencing, or scope. |
+| **Financial and pricing validation** | `work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-09-05.md` and the workbook it records, held as a point-in-time artifact. | Accepted as an **unvalidated planning forecast**. It is not evidence, not a product promise, and authorizes no pricing or entitlement change. |
+
+### Declined
+
+Recorded here because this file is the authority for Declined work. Reversing any of these is a new Product Owner decision, not an incremental change.
+
+Each row is phrased as a negation because the product-contract guard scans Markdown line by line: a row that merely names a declined capability reads to the guard as asserting it.
+
+| Declined | Stated in |
+|---|---|
+| No separate per-customer databases or deployments, and no per-tenant models | `ARCHITECTURE.md` §14 |
+| No avatars, and no body-language, facial, gesture, posture or video analysis | `PRODUCT_REQUIREMENTS.md` §10 |
+| No continuous or verbose coaching while the user speaks | `PRODUCT_REQUIREMENTS.md` §10 |
+| No customer-visible Browser, Cloud, Native, provider, model-variant or engine-choice entitlement | `PRODUCT_REQUIREMENTS.md` §10 |
+| No daily or monthly accumulated recording-minute gate for active-trial or paid users | `PRODUCT_REQUIREMENTS.md` §10 |
+| No fabricated or unattributed testimonials | `PRODUCT_REQUIREMENTS.md` §10 |
 
 ## Closed or consolidated — do not reopen as duplicate lanes
 
@@ -101,7 +129,7 @@ A closed issue may remain as provenance. New evidence goes to the current owner 
 - Complete product free for 30 days, then $10/month; no accumulated-minute commercial quota.
 - Canonical Production URL only for PO model qualification.
 - One STT engine per take; requested and observed identities must match.
-- Moonshine remains in the comparison until a Product Owner decision explicitly removes it.
+- Moonshine is **deferred until after RWT or MVP** by Product Owner decision and is not part of current RWT qualification. The raw long-form failure evidence stands and is preserved; deferring the candidate does not retract the observation.
 - No output deduplication/sanitization may hide a repetition loop.
 - Exactly one **What went well** and one **What to improve** suggestion per eligible saved session.
 - Newest-one transcript retention is the approved target; #1452 must close before activation.
