@@ -4,11 +4,14 @@
  * Every required surface is captured at the responsive bands the checklist names, with reduced motion emulated, and
  * checked in a real browser for:
  *   - WCAG colour contrast (axe `color-contrast`, `link-in-text-block`) — these FAIL the test, because contrast is
- *     exactly what a colour migration can break;
+ *     exactly what a colour migration can break. Contrast is analysed AT EVERY BAND, not only at the desktop
+ *     viewport: a responsive layout restacks, re-grounds and re-scales text, so a pair that passes at 1280px is
+ *     not evidence for 320px. (#1475, carried from the PR #1481 review.)
  *   - horizontal overflow at every band, including 640px (200% zoom of a 1280px window) and 320px (400% reflow);
  *   - a visible keyboard focus indicator.
- * Every other axe finding is written to `axe-<surface>.json` beside the screenshots for PM inspection rather than
- * failing here: those rules are not colour decisions and predate this PR.
+ * Every other axe finding is written to `axe-<surface>-<band>.json` beside the screenshots for PM inspection rather
+ * than failing here: those rules are not colour decisions and predate this PR. The band suffix is what keeps four
+ * analyses per surface on disk instead of three of them overwriting the fourth.
  *
  * States the CI e2e build cannot render, recorded rather than faked:
  *   - payments ENABLED: checkout surfaces need `VITE_PAYMENTS_ENABLED=true` AND a live Stripe key at build time;
@@ -45,29 +48,33 @@ async function settle(page: Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
-async function checkColourAndRecord(page: Page, surface: string): Promise<void> {
-  await settle(page);
+async function analyseColour(page: Page, surface: string, band: string): Promise<void> {
   const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   fs.mkdirSync(SHOTS, { recursive: true });
   fs.writeFileSync(
-    `${SHOTS}/axe-${surface}.json`,
+    `${SHOTS}/axe-${surface}-${band}.json`,
     JSON.stringify(
       result.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.length, targets: v.nodes.slice(0, 5).map((n) => n.target) })),
       null,
       2,
     ),
   );
-  // Soft: one run must report EVERY colour defect on every surface, not stop at the first failing surface.
+  // Soft: one run must report EVERY colour defect on every surface AT EVERY BAND, not stop at the first failure.
   const colour = result.violations
     .filter((v) => COLOUR_RULES.has(v.id))
     .flatMap((v) => v.nodes.map((n) => ({ rule: v.id, html: n.html.slice(0, 160), summary: n.failureSummary?.split('\n').slice(1).join(' ').trim() })));
-  expect.soft(colour, `${surface}: colour violations\n${JSON.stringify(colour, null, 2)}`).toEqual([]);
+  expect.soft(colour, `${surface} @ ${band}: colour violations\n${JSON.stringify(colour, null, 2)}`).toEqual([]);
 }
 
-async function captureBands(page: Page, surface: string): Promise<void> {
+/**
+ * One pass per band: resize, settle, analyse contrast, assert no horizontal overflow, screenshot. Contrast and
+ * overflow are measured against the SAME rendered layout, so a contrast finding is always attributable to a band.
+ */
+async function evidence(page: Page, surface: string): Promise<void> {
   for (const band of BANDS) {
     await page.setViewportSize({ width: band.width, height: band.height });
     await settle(page);
+    await analyseColour(page, surface, band.name);
     const widths = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
       document: document.documentElement.scrollWidth,
@@ -76,11 +83,6 @@ async function captureBands(page: Page, surface: string): Promise<void> {
     await page.screenshot({ path: `${SHOTS}/${surface}-${band.name}.png`, fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-}
-
-async function evidence(page: Page, surface: string): Promise<void> {
-  await checkColourAndRecord(page, surface);
-  await captureBands(page, surface);
 }
 
 test.describe('#1480 theme matrix — public, auth, legal, error and internal surfaces', () => {
@@ -149,7 +151,7 @@ test.describe('#1480 theme matrix — public, auth, legal, error and internal su
 
 test.describe('#1480 theme matrix — authenticated product surfaces', () => {
   test('Practice home, Share Feedback and Analytics', async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
 
@@ -166,7 +168,7 @@ test.describe('#1480 theme matrix — authenticated product surfaces', () => {
   });
 
   test('Open Mic session: before, during, and after with the review-unavailable state', async ({ page }) => {
-    test.setTimeout(150_000);
+    test.setTimeout(240_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
@@ -175,8 +177,10 @@ test.describe('#1480 theme matrix — authenticated product surfaces', () => {
     await startRecording(page);
     await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
     await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toBeVisible({ timeout: 15_000 });
-    await checkColourAndRecord(page, 'open-mic-during');
-    await page.screenshot({ path: `${SHOTS}/open-mic-during-desktop-1280.png`, fullPage: true });
+    // The mid-recording state gets the same per-band treatment as every other surface. Resizing here is safe: it
+    // does not reload the page or reset the recorder, and the state is already asserted settled above. Narrow-width
+    // contrast on the live recording surface is covered by no other surface, which is exactly why it is measured.
+    await evidence(page, 'open-mic-during');
     await page.waitForTimeout(5_200); // clears the sub-5s no-persist guard
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
@@ -190,7 +194,7 @@ test.describe('#1480 theme matrix — authenticated product surfaces', () => {
   });
 
   test('Focus Points: setup dialog, then session before, during and after', async ({ page }) => {
-    test.setTimeout(150_000);
+    test.setTimeout(270_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/practice');
@@ -212,8 +216,8 @@ test.describe('#1480 theme matrix — authenticated product surfaces', () => {
     await startRecording(page);
     await simulateTranscription(page, 'First I will name the price clearly. Then I state the guarantee we offer.', true);
     await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
-    await checkColourAndRecord(page, 'focus-points-during');
-    await page.screenshot({ path: `${SHOTS}/focus-points-during-desktop-1280.png`, fullPage: true });
+    // Per-band as above: the Focus Points rail is the surface most likely to reflow badly at 320px.
+    await evidence(page, 'focus-points-during');
     await page.waitForTimeout(5_200);
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
