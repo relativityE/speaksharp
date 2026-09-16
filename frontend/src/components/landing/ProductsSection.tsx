@@ -6,6 +6,9 @@ import { PRODUCT_NAMES } from '@/constants/productNames';
  * verbatim; Focus Points keeps the #1377 detection language locked by the public copy contract (ruling E on #1475).
  * The Focus Points card is distinguished by content, not hue (no product purple on this page).
  *
+ * The section title is present as a visually hidden `h2`: the cards are `h3`s, and the approved design shows no
+ * visible section title, so the heading exists for hierarchy rather than for layout.
+ *
  * Each card keeps ONE entry control on the page's existing handler — content-free practice telemetry, then account
  * access that preserves the product intent. That control is a deliberate deviation from Appendix A (ruling A1):
  * these are the tested #1061 signed-out entry journeys. Its visible label is its accessible name.
@@ -42,6 +45,13 @@ export const ProductsSection = ({
             aria-label="Products"
             className="w-full border-b border-neutral-border-soft bg-neutral-page px-5 py-11 md:px-7 lg:px-[34px]"
         >
+            {/*
+              * The approved design gives this section no visible title, but the product cards are `h3`s, so without
+              * a level-two heading the document jumps h1 -> h3 and assistive technology loses the level the cards
+              * belong to. Visually hidden keeps the approved visual design exactly while restoring the hierarchy.
+              * `aria-label` stays: it is what names this region.
+              */}
+            <h2 className="sr-only">Products</h2>
             <div className="flex flex-wrap items-stretch gap-4">
                 {products.map(({ title, description, Icon, signature, testid, onClick }) => (
                     <article

@@ -292,3 +292,54 @@ describe('#1487 P1 casualty — the signed-out paid CTA reaches signup and makes
         expect(funnel.clicked).toHaveBeenCalledWith({ source: 'pricing_pro_card', plan: 'pro' });
     });
 });
+
+/**
+ * #1487 P2 casualty — heading hierarchy on the signed-out landing page.
+ *
+ * The Products section is drawn without a visible title, and its product cards are `h3`s. With no level-two
+ * heading the document jumped h1 -> h3, so assistive technology could not place the cards in the outline. The
+ * fix is a visually hidden `h2`, which is why these assertions check the heading TREE and not the pixels.
+ */
+describe('#1487 P2 casualty — signed-out landing heading hierarchy', () => {
+    const outline = () =>
+        Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) => ({
+            level: Number(h.tagName.slice(1)),
+            text: (h.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40),
+        }));
+
+    it('has exactly one h1 and it is the first heading', () => {
+        render(<PracticePage />);
+        const headings = outline();
+        expect(headings.filter((h) => h.level === 1)).toHaveLength(1);
+        expect(headings[0].level, `first heading was h${headings[0]?.level}: ${JSON.stringify(headings)}`).toBe(1);
+    });
+
+    it('skips no heading level anywhere on the page', () => {
+        render(<PracticePage />);
+        const headings = outline();
+        const skips = headings
+            .map((h, i) => ({ from: headings[i - 1]?.level ?? h.level, to: h.level, text: h.text }))
+            .filter((step) => step.to > step.from + 1);
+        expect(skips, `heading levels skip a level\noutline: ${JSON.stringify(headings, null, 2)}`).toEqual([]);
+    });
+
+    it('gives the Products section a level-two heading before its product h3s', () => {
+        render(<PracticePage />);
+        const products = region(/^products$/i);
+        const headings = Array.from(products.querySelectorAll('h1,h2,h3,h4,h5,h6'));
+        expect(headings.length).toBeGreaterThan(0);
+        // The section's own heading comes first, and it is h2 — not an h3 sitting directly under the page h1.
+        expect(headings[0].tagName).toBe('H2');
+        expect(within(products).getAllByRole('heading', { level: 3 }).length).toBe(2);
+    });
+
+    it('keeps that heading out of the visual design while leaving it in the accessibility tree', () => {
+        render(<PracticePage />);
+        const h2 = region(/^products$/i).querySelector('h2');
+        expect(h2).not.toBeNull();
+        // Visually hidden, NOT display:none or aria-hidden: those would remove it from the outline it exists to fix.
+        expect(h2!.className).toContain('sr-only');
+        expect(h2!.getAttribute('aria-hidden')).toBeNull();
+        expect(h2!.textContent).toBe('Products');
+    });
+});
