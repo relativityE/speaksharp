@@ -58,7 +58,8 @@ describe('#1222 S10 — session overhaul regression', () => {
         rerender(<SessionDuringState {...duringProps} />);
         expect(order()).toEqual(['A', 'B', 'C', 'D']);
         rerender(<SessionAfterState {...afterProps} />);
-        expect(order()).toEqual(['A', 'B', 'C', 'D']);
+        // #1474 G10: after promotes the review into the primary column ahead of metrics and transcript.
+        expect(order()).toEqual(['A', 'D', 'C', 'B']);
         rerender(<FocusPointsDuringState {...duringProps} points={points} />);
         expect(order()).toEqual(['A', 'B', 'C', 'D']); // shared shell, only slot D content differs
     });

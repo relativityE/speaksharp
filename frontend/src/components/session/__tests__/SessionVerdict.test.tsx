@@ -2,7 +2,8 @@ import { render, screen, fireEvent } from '../../../../tests/support/test-utils'
 import { describe, it, expect, vi } from 'vitest';
 import { SessionVerdict } from '../SessionVerdict';
 
-// #1222 slot D (after) — exactly: one verdict line, one FIX THIS NEXT TIME box, two actions.
+// #1222 slot D (after), restructured by #1474 (G10): one insight line, optional supporting excerpts with
+// timestamps, one prominent `Try this next run` prescription, then the primary and secondary actions.
 describe('SessionVerdict (#1222 slot D after)', () => {
     const base = {
         verdictLine: 'Your cleanest session yet.',
@@ -14,7 +15,7 @@ describe('SessionVerdict (#1222 slot D after)', () => {
     it('renders the one verdict line, the fix box, and the two actions', () => {
         render(<SessionVerdict {...base} />);
         expect(screen.getByTestId('verdict-line')).toHaveTextContent('Your cleanest session yet.');
-        expect(screen.getByTestId('verdict-fix')).toHaveTextContent(/Fix this next time/i);
+        expect(screen.getByTestId('verdict-fix')).toHaveTextContent(/Try this next run/i);
         expect(screen.getByTestId('verdict-fix')).toHaveTextContent(/4 of your 5 fillers/);
         expect(screen.getByTestId('verdict-practice-again')).toBeInTheDocument();
         expect(screen.getByTestId('verdict-see-all')).toBeInTheDocument();
@@ -55,7 +56,7 @@ describe('SessionVerdict (#1222 slot D after)', () => {
         expect(screen.queryByTestId('verdict-line'), 'no fabricated verdict line').toBeNull();
         expect(screen.queryByTestId('verdict-fix'), 'no fabricated fix box').toBeNull();
         expect(screen.queryByText(/Session review not requested/i)).toBeNull();
-        expect(screen.queryByText(/Fix this next time/i)).toBeNull();
+        expect(screen.queryByText(/Try this next run/i)).toBeNull();
 
         // The ACTIONS are not coaching and must survive: this is the only desktop control that starts
         // the next take.
@@ -75,5 +76,65 @@ describe('SessionVerdict (#1222 slot D after)', () => {
         );
         expect(screen.getByTestId('verdict-line')).toHaveTextContent('Your cleanest session yet.');
         expect(screen.getByTestId('verdict-fix')).toHaveTextContent(/Pause instead of/);
+    });
+
+    // ---- #1474 G10 ----
+
+    it('G10: renders supporting transcript excerpts with their timestamps when the review supplies them', () => {
+        render(
+            <SessionVerdict
+                {...base}
+                excerpts={[
+                    { at: '0:12', text: 'um, so what I wanted to cover today' },
+                    { at: '1:48', text: 'um, and the last point is pricing' },
+                ]}
+            />,
+        );
+        const list = screen.getByTestId('verdict-excerpts');
+        expect(list).toHaveAccessibleName('Supporting transcript excerpts');
+        const spans = screen.getAllByTestId('verdict-excerpt');
+        expect(spans).toHaveLength(2);
+        expect(spans[0]).toHaveTextContent('0:12');
+        expect(spans[0]).toHaveTextContent('um, so what I wanted to cover today');
+        expect(spans[1]).toHaveTextContent('1:48');
+    });
+
+    it('G10 CASUALTY: never invents an excerpt section when the review supplies none', () => {
+        // An empty frame would read as "we found nothing to quote", which is a different claim from
+        // "no excerpts were supplied". Absent means absent.
+        render(<SessionVerdict {...base} />);
+        expect(screen.queryByTestId('verdict-excerpts')).toBeNull();
+
+        render(<SessionVerdict {...base} excerpts={[]} />);
+        expect(screen.queryByTestId('verdict-excerpts')).toBeNull();
+    });
+
+    it('G10 CASUALTY: drops a blank excerpt rather than rendering an empty quote row', () => {
+        render(<SessionVerdict {...base} excerpts={[{ at: '0:03', text: '   ' }, { at: '0:09', text: 'real words' }]} />);
+        const spans = screen.getAllByTestId('verdict-excerpt');
+        expect(spans).toHaveLength(1);
+        expect(spans[0]).toHaveTextContent('real words');
+    });
+
+    it('G10: both actions carry a visible focus treatment, on the dark surface', () => {
+        // The dark-ink surface is exactly where a removed focus ring becomes invisible, so this is asserted
+        // rather than assumed.
+        render(<SessionVerdict {...base} />);
+        for (const id of ['verdict-practice-again', 'verdict-see-all']) {
+            const el = screen.getByTestId(id);
+            expect(el.className).toContain('focus-visible:ring-2');
+            expect(el.className).toContain('focus-visible:ring-signature');
+        }
+    });
+
+    it('G10: the prescription is the brand accent and the insight reads on ink, via role tokens only', () => {
+        render(<SessionVerdict {...base} excerpts={[{ at: '0:12', text: 'um' }]} />);
+        expect(screen.getByTestId('verdict-fix').className).toContain('border-signature');
+        expect(screen.getByTestId('verdict-practice-again').className).toContain('bg-signature');
+        expect(screen.getByTestId('verdict-excerpt').className).toContain('bg-ink-raised');
+        // No raw colour values anywhere in the rendered classes — the token authority owns the palette.
+        const html = document.body.innerHTML;
+        expect(html).not.toMatch(/#[0-9a-f]{6}\b/i);
+        expect(html).not.toMatch(/rgb\(/i);
     });
 });

@@ -10,9 +10,14 @@ import { practiceFocusLabel, type PracticeFocus } from '@/constants/practiceFocu
  *   • during → one live tip, 8s minimum hold (S5).
  *   • after  → the verdict + one fix + two actions (S6).
  *
- * Purple is the coaching/insight role (spec §2). This slice renders the before placeholder; the `during`
- * and `after` bodies are filled in by later slices via `liveTip` / `verdict` props (kept optional so this
- * component's identity is stable across states).
+ * Purple is the coaching/insight role (spec §2). The `during` and `after` bodies arrive via `liveTip` /
+ * `verdict` props, kept optional so this component's identity is stable across states.
+ *
+ * #1474 (G10): in the AFTER state this card is the page's dominant result, and the PO capture establishes
+ * that hierarchy with a dark-ink surface and a brand-accent action. So `after` renders on `bg-ink` with an
+ * `ink-hairline` edge and a signature-accent eyebrow, while `before` and `during` keep the light card they
+ * have always had — the card that sits beside a live transcript should not shout. Every value is an
+ * ink-role or signature-role token; the token authority owns the palette.
  */
 export interface CoachingCardProps {
     sessionState: SessionState;
@@ -39,8 +44,14 @@ export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTi
     const focusLabel = practiceFocusLabel(practiceFocus);
     return (
         <div
-            className="flex h-full flex-col rounded-xl border border-neutral-border bg-white p-4"
-            style={{ borderTop: `3px solid ${EYEBROW}` }}
+            className={
+                sessionState === 'after'
+                    // G10: the dominant post-save surface. Dark ink carries the hierarchy; a signature top
+                    // edge marks it as the result rather than another neutral panel.
+                    ? 'flex h-full flex-col rounded-xl border border-ink-hairline border-t-[3px] border-t-signature bg-ink p-5'
+                    : 'flex h-full flex-col rounded-xl border border-neutral-border bg-white p-4'
+            }
+            style={sessionState === 'after' ? undefined : { borderTop: `3px solid ${EYEBROW}` }}
             data-testid="coaching-card"
             data-coaching-state={sessionState}
         >
@@ -78,7 +89,11 @@ export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTi
 
             {sessionState === 'after' && (
                 <div className="min-h-0 flex-1" data-testid="coaching-verdict">
-                    <Label text="Your session" />
+                    {/* On ink, the eyebrow takes an ink-role colour rather than the light-surface heading. */}
+                    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-muted">
+                        <span aria-hidden="true">◎</span>
+                        Your session
+                    </p>
                     <div className="mt-2">{verdict}</div>
                 </div>
             )}

@@ -2,7 +2,10 @@ import { render, screen } from '../../../../tests/support/test-utils';
 import { describe, it, expect } from 'vitest';
 import { SessionShell, type SessionState } from '../SessionShell';
 
-// #1222 §1 — the governing rule: the four slots never move/reorder/remount across states; only content changes.
+// #1222 §1 as amended for #1474 (G10): a slot keeps STABLE LANDMARK IDENTITY in every state and slots never
+// reorder WITHIN a state. The original rule forbade any movement between states; G10 supersedes that for the
+// `after` state only, where the Practice Loop review must be the dominant result and its acceptance requires
+// coaching to precede the transcript and secondary metrics in keyboard and screen-reader order.
 describe('SessionShell (#1222 §1 — fixed slots)', () => {
     const renderState = (sessionState: SessionState) =>
         render(
@@ -29,10 +32,16 @@ describe('SessionShell (#1222 §1 — fixed slots)', () => {
         expect(slots).toEqual(['A', 'B', 'C', 'D']);
     });
 
-    it('slot wrappers hold identical identity + order across before/during/after (only content changes)', () => {
+    it('keeps every slot present with stable identity in all three states, and reorders only for after', () => {
         const { rerender } = renderState('before');
         const orderFor = () => screen.getAllByTestId(/^session-slot-/).map((el) => el.getAttribute('data-slot'));
+        const identity = () => screen.getAllByTestId(/^session-slot-/)
+            .map((el) => `${el.getAttribute('data-slot')}:${el.getAttribute('aria-label')}`)
+            .sort();
+        const LANDMARKS = ['A:Recorder', 'B:Transcript', 'C:Progress', 'D:Coaching'];
+
         expect(orderFor()).toEqual(['A', 'B', 'C', 'D']);
+        expect(identity()).toEqual(LANDMARKS);
 
         rerender(
             <SessionShell sessionState="during"
@@ -40,13 +49,33 @@ describe('SessionShell (#1222 §1 — fixed slots)', () => {
         );
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
         expect(orderFor()).toEqual(['A', 'B', 'C', 'D']);
+        expect(identity()).toEqual(LANDMARKS);
 
         rerender(
             <SessionShell sessionState="after"
                 slotA={<div>a</div>} slotB={<div>b</div>} slotC={<div>c</div>} slotD={<div>d</div>} />,
         );
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
-        expect(orderFor()).toEqual(['A', 'B', 'C', 'D']);
+        // #1474 G10: the review takes the wide primary column and precedes metrics and transcript.
+        expect(orderFor()).toEqual(['A', 'D', 'C', 'B']);
+        // Identity is unchanged — the same four landmarks, none renamed, none dropped. That is the amended rule.
+        expect(identity()).toEqual(LANDMARKS);
+    });
+
+    it('#1474 G10: in after, coaching precedes BOTH secondary metrics and the transcript in DOM order', () => {
+        renderState('after');
+        const order = screen.getAllByTestId(/^session-slot-/).map((el) => el.getAttribute('data-slot'));
+        // DOM order drives keyboard order and screen-reader traversal, which is what G10's acceptance names.
+        expect(order.indexOf('D')).toBeLessThan(order.indexOf('C'));
+        expect(order.indexOf('D')).toBeLessThan(order.indexOf('B'));
+    });
+
+    it('#1474 G10: in after, coaching fills the primary column and the transcript fills the rail', () => {
+        renderState('after');
+        expect(screen.getByTestId('session-slot-d')).toHaveStyle({ flex: '1 1 auto' });
+        expect(screen.getByTestId('session-slot-b')).toHaveStyle({ flex: '1 1 auto' });
+        expect(screen.getByTestId('session-slot-a')).toHaveStyle({ flex: '0 0 auto' });
+        expect(screen.getByTestId('session-slot-c')).toHaveStyle({ flex: '0 0 auto' });
     });
 
     // #1255 — the responsive contract: ONE stacked column on phones, the 1.55fr/1fr two-column grid from
