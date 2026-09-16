@@ -185,13 +185,13 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         renderHome({ streak: { state: 'active', count: 2, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
         const chip = screen.getByTestId('home-streak-chip');
         expect(chip).toHaveAttribute('data-streak-state', 'active');
-        // jsdom serialises the inline-style hexes to rgb(); assert the exact resolved colours.
+        // #1480: the chip is the signature family, read from the shared roles (never literals).
         const style = chip.getAttribute('style') ?? '';
-        expect(style).toContain('rgb(253, 243, 226)');           // #fdf3e2 fill
-        expect(style).toMatch(/1px solid rgb\(240, 220, 184\)/); // #f0dcb8 actual 1px border
-        expect(style).toContain('rgb(138, 85, 16)');             // #8a5510 text
-        // waveform bars use the dedicated amber #d98a1f
-        const bar = chip.querySelector('span[style*="rgb(217, 138, 31)"]');
+        expect(style).toContain('var(--brand-signature-ground)');                   // fill
+        expect(style).toMatch(/1px solid var\(--brand-signature-border\)/);         // actual 1px border
+        expect(style).toContain('var(--brand-signature-text)');                     // text
+        // waveform bars use the signature fill
+        const bar = chip.querySelector('span[style*="var(--brand-signature)"]');
         expect(bar).not.toBeNull();
     });
 
@@ -347,18 +347,20 @@ describe('AuthenticatedHome — the layout rules actually exist in practice.css'
 
     it('both band gradients use stops that clear AA against white eyebrow text', () => {
         // The bands carry 11px bold WHITE eyebrows, so BOTH stops must clear 4.5:1 against white.
-        // The rejected light stops were #17a99b (2.89:1) and #9d7cf0 (3.19:1); the shipped ramps end
-        // on #0d7d74 (4.99:1) and #7b5ce0 (4.71:1). Assert the declarations, not the whole file —
-        // the rejected values still appear in the explanatory comment and in the ANONYMOUS card vars.
+        // #1480: Open Mic is ink (ink 14:1, ink-raised 13:1) and Focus Points is the corrected Focus purple
+        // (focus-strong 8.9:1, focus 6.6:1). The retired teal/violet ramps are gone.
         const teal = css.match(/--ss-home-teal-band:\s*([^;]+);/);
         const violet = css.match(/--ss-home-violet-band:\s*([^;]+);/);
-        expect(teal?.[1]).toBe('linear-gradient(135deg, #0a5f58 0%, #0d7d74 100%)');
-        expect(violet?.[1]).toBe('linear-gradient(135deg, #5c3fc4 0%, #7b5ce0 100%)');
+        expect(teal?.[1]).toBe('linear-gradient(135deg, var(--brand-ink) 0%, var(--brand-ink-raised) 100%)');
+        expect(violet?.[1]).toBe('linear-gradient(135deg, var(--brand-focus-strong) 0%, var(--brand-focus) 100%)');
     });
 
-    it('the amber eyebrow uses the AA-corrected token, not the decorative amber', () => {
-        // #C96608 is 3.88:1 on white and stays for non-text use (rule, waveform bar); text uses
-        // #B25A05 at 4.82:1.
-        expect(css).toMatch(/--ss-home-amber-eyebrow:\s*#B25A05;/i);
+    it('the warm eyebrow uses signature-text, not the decorative signature fill', () => {
+        expect(css).toMatch(/--ss-home-amber-eyebrow:\s*var\(--brand-signature-text\);/);
+    });
+
+    it('#1480: the practice palette holds no colour values of its own', () => {
+        // Three- or six-digit colours only; issue references such as #1047 in comments are not colours.
+        expect(css).not.toMatch(/#(?:[0-9a-f]{3}){1,2}\b/i);
     });
 });

@@ -18,16 +18,16 @@ const Toaster = ({ ...props }: ToasterProps) => {
         classNames: {
           toast:
             "group toast surface-shadow group-[.toaster]:bg-white group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:rounded-xl group-[.toaster]:px-4 group-[.toaster]:py-3 group-[.toaster]:text-sm group-[.toaster]:font-medium",
-          description: "group-[.toast]:!text-slate-600 group-[.toast]:!opacity-100 group-[.toast]:text-[13px] group-[.toast]:font-normal group-[.toast]:leading-snug group-[.toast]:line-clamp-2",
+          description: "group-[.toast]:!text-neutral-secondary group-[.toast]:!opacity-100 group-[.toast]:text-[13px] group-[.toast]:font-normal group-[.toast]:leading-snug group-[.toast]:line-clamp-2",
           title: "group-[.toast]:text-sm group-[.toast]:font-semibold group-[.toast]:text-foreground group-[.toast]:leading-tight",
           actionButton:
             "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:
             "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
-          error: "group-[.toaster]:bg-red-50 group-[.toaster]:text-red-900 group-[.toaster]:border-red-200",
-          success: "group-[.toaster]:bg-emerald-50 group-[.toaster]:text-emerald-900 group-[.toaster]:border-emerald-200",
+          error: "group-[.toaster]:bg-state-error-ground group-[.toaster]:text-state-error group-[.toaster]:border-state-error-border",
+          success: "group-[.toaster]:bg-state-success-ground group-[.toaster]:text-status group-[.toaster]:border-state-success-border",
           info: "group-[.toaster]:bg-white group-[.toaster]:text-foreground group-[.toaster]:border-border",
-          warning: "group-[.toaster]:bg-amber-50 group-[.toaster]:text-amber-900 group-[.toaster]:border-amber-200",
+          warning: "group-[.toaster]:bg-neutral-band group-[.toaster]:text-neutral-heading group-[.toaster]:border-neutral-border",
           loading: "group-[.toaster]:bg-white group-[.toaster]:text-foreground group-[.toaster]:border-primary/60",
         },
       }}

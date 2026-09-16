@@ -37,10 +37,10 @@ interface IssueReportDialogProps {
 }
 
 const TYPE_OPTIONS: Array<{ value: FeedbackType; label: string; selectedClass: string }> = [
-  { value: 'broke', label: 'Something broke', selectedClass: 'border-[#d98a1f] bg-[#fdf3e2]' },
-  { value: 'confused', label: 'Something confused me', selectedClass: 'border-[#d98a1f] bg-[#fdf3e2]' },
-  { value: 'idea', label: 'I have an idea', selectedClass: 'border-[#6d28d9] bg-[#f5f0ff]' },
-  { value: 'praise', label: 'This worked well', selectedClass: 'border-[#0d7d74] bg-[#eaf5f3]' },
+  { value: 'broke', label: 'Something broke', selectedClass: 'border-signature bg-signature-ground' },
+  { value: 'confused', label: 'Something confused me', selectedClass: 'border-signature bg-signature-ground' },
+  { value: 'idea', label: 'I have an idea', selectedClass: 'border-neutral-heading bg-neutral-band' },
+  { value: 'praise', label: 'This worked well', selectedClass: 'border-status bg-state-success-ground' },
 ];
 
 const BODY_COPY: Record<FeedbackType, { label: string; placeholder: string; helper: string }> = {
@@ -486,7 +486,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
                     tabIndex={isRadioTabStop(index, typeIndex) ? 0 : -1}
                     onClick={() => selectType(option.value)}
                     onKeyDown={(event) => handleTypeKeyDown(event, index)}
-                    className={`min-h-12 rounded-xl border p-3 text-left text-sm font-extrabold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? `border-2 ${option.selectedClass}` : 'border-[#dbe2ec] bg-white'}`}
+                    className={`min-h-12 rounded-xl border p-3 text-left text-sm font-extrabold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? `border-2 ${option.selectedClass}` : 'border-neutral-border bg-white'}`}
                   >
                     {option.label}
                   </button>
@@ -498,14 +498,14 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           <label className="block space-y-2 text-sm font-extrabold">
             {bodyCopy?.label ?? 'What would you like us to know?'}
             <textarea
-              className="min-h-[118px] w-full resize-y rounded-xl border border-[#e6ebf2] bg-[#f7f9fc] px-4 py-3 text-sm font-normal ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="min-h-[118px] w-full resize-y rounded-xl border border-neutral-border-soft bg-neutral-band px-4 py-3 text-sm font-normal ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               value={body}
               onChange={(event) => { bodyEditedRef.current = true; setBody(event.target.value); }}
               placeholder={bodyCopy?.placeholder}
               maxLength={5000}
               data-testid="issue-report-description"
             />
-            {bodyCopy?.helper && <span className="block text-xs font-semibold text-[#8b95a5]">{bodyCopy.helper}</span>}
+            {bodyCopy?.helper && <span className="block text-xs font-semibold text-muted-foreground">{bodyCopy.helper}</span>}
           </label>
 
           {/*
@@ -547,7 +547,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
                           data-testid={`feedback-severity-${option.value}`}
                           onClick={() => setSeverity(option.value)}
                           onKeyDown={(event) => handleSeverityKeyDown(event, index)}
-                          className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? 'border-2 border-[#d98a1f] bg-[#fdf3e2]' : 'border-[#dbe2ec] bg-white'}`}
+                          className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? 'border-2 border-signature bg-signature-ground' : 'border-neutral-border bg-white'}`}
                         >
                           {option.label}
                         </button>
@@ -561,7 +561,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
 
           {error && <p role="alert" className="text-sm font-semibold text-destructive">{error}</p>}
 
-          <div className="border-t border-[#eef1f6] pt-4 text-xs font-semibold text-[#8b95a5]" data-testid="issue-report-page-context">
+          <div className="border-t border-neutral-border-soft pt-4 text-xs font-semibold text-muted-foreground" data-testid="issue-report-page-context">
             {/*
               #1416 item 4 — PM-owned wording, exact.
 
@@ -573,7 +573,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
               The detail stays behind "What's included" so the default form remains short. The long
               introductory privacy block and the audio checkbox are deliberately NOT restored.
             */}
-            Sent from <strong className="font-extrabold text-[#414b5c]">{pageContext.pageLabel}</strong> · transcript and audio aren&rsquo;t attached automatically.{' '}
+            Sent from <strong className="font-extrabold text-foreground">{pageContext.pageLabel}</strong> · transcript and audio aren&rsquo;t attached automatically.{' '}
             <button type="button" onClick={() => setShowDisclosure((value) => !value)} className="font-bold underline underline-offset-2">What&apos;s included</button>
             {showDisclosure && (
               <p className="mt-2 leading-relaxed" data-testid="issue-report-disclosure">

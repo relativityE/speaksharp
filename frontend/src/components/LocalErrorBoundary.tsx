@@ -83,21 +83,21 @@ export class LocalErrorBoundary extends Component<Props, State> {
             }
 
             return (
-                <div className="p-4 rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-900/30">
+                <div className="p-4 rounded-lg border border-state-error-border bg-state-error-ground">
                     <div className="flex items-start gap-3">
-                        <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5" />
+                        <AlertCircle className="h-5 w-5 text-state-error mt-0.5" />
                         <div className="flex-1 space-y-2">
-                            <h3 className="font-medium text-red-900 dark:text-red-200">
+                            <h3 className="font-medium text-state-error">
                                 {this.props.componentName ? `${this.props.componentName} needs a refresh` : 'Something went wrong'}
                             </h3>
-                            <p className="text-sm text-red-800 dark:text-red-300">
+                            <p className="text-sm text-neutral-body">
                                 This part of the page hit a temporary problem. Try again, or refresh the page if it persists.
                             </p>
                             <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={this.handleReset}
-                                className="mt-2 text-red-700 border-red-200 hover:bg-red-100 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-900/30"
+                                className="mt-2 text-state-error border-state-error-border hover:bg-state-error-ground"
                             >
                                 <RefreshCw className="mr-2 h-3 w-3" />
                                 Try Again

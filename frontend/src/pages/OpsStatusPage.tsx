@@ -34,8 +34,8 @@ type OpsPayload = {
 const STATUS_STYLES: Record<OpsStatus, string> = {
   pass: 'border-success/30 bg-success/10 text-success',
   fail: 'border-destructive/35 bg-destructive/10 text-destructive',
-  warn: 'border-primary/35 bg-primary/10 text-primary',
-  skip: 'border-slate-400/40 bg-slate-100 text-slate-700',
+  warn: 'border-primary/35 bg-primary/10 text-signature-text',
+  skip: 'border-neutral-border bg-neutral-band text-neutral-secondary',
 };
 
 const ORDER: Record<OpsStatus, number> = {
@@ -98,7 +98,7 @@ export const OpsStatusPage: React.FC = () => {
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">Admin Ops</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-foreground">Admin Ops</p>
             <h1 className="mt-2 text-3xl font-extrabold text-foreground md:text-4xl">
               Software API Status
             </h1>
@@ -183,7 +183,7 @@ const OpsCheckCard: React.FC<{ check: OpsCheck }> = ({ check }) => (
             href={check.drilldownUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+            className="inline-flex items-center gap-1 font-semibold text-foreground hover:underline"
           >
             Drill down
             <ExternalLink className="h-3.5 w-3.5" />

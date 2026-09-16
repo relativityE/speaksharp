@@ -20,13 +20,13 @@ export interface RecorderBarProps {
 
 export const RecorderBar: React.FC<RecorderBarProps> = ({ elapsedSeconds, amplitudes, recordedCount, deviceLabel, onStop }) => {
     return (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#dbe2ec] bg-white px-4 py-3 sm:gap-4" data-testid="recorder-bar">
-            <span className="flex items-center gap-1.5 whitespace-nowrap text-[13px] font-extrabold text-[#a8321f]">
-                <span className="inline-block h-2 w-2 rounded-full bg-[#d13c25]" aria-hidden="true" />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-neutral-border bg-white px-4 py-3 sm:gap-4" data-testid="recorder-bar">
+            <span className="flex items-center gap-1.5 whitespace-nowrap text-[13px] font-extrabold text-record-text">
+                <span className="inline-block h-2 w-2 rounded-full bg-record" aria-hidden="true" />
                 RECORDING
             </span>
 
-            <span className="text-[22px] font-extrabold leading-none [font-variant-numeric:tabular-nums] text-[#1f2733] sm:text-[30px]" data-testid="recorder-timer">
+            <span className="text-[22px] font-extrabold leading-none [font-variant-numeric:tabular-nums] text-neutral-body sm:text-[30px]" data-testid="recorder-timer">
                 {formatTimer(elapsedSeconds)}
             </span>
 
@@ -39,7 +39,7 @@ export const RecorderBar: React.FC<RecorderBarProps> = ({ elapsedSeconds, amplit
             </div>
 
             {deviceLabel && (
-                <span className="whitespace-nowrap text-[12px] text-[#414b5c]" data-testid="recorder-device">{deviceLabel}</span>
+                <span className="whitespace-nowrap text-[12px] text-neutral-secondary" data-testid="recorder-device">{deviceLabel}</span>
             )}
 
             <button
@@ -47,7 +47,7 @@ export const RecorderBar: React.FC<RecorderBarProps> = ({ elapsedSeconds, amplit
                 onClick={onStop}
                 data-testid="recorder-stop"
                 aria-label="Stop recording"
-                className="grid h-[58px] w-[58px] shrink-0 place-items-center rounded-full bg-[#d13c25] text-white shadow-sm transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d13c25] focus-visible:ring-offset-2"
+                className="grid h-[58px] w-[58px] shrink-0 place-items-center rounded-full bg-record text-white shadow-sm transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-record focus-visible:ring-offset-2"
             >
                 <span aria-hidden="true" className="h-[18px] w-[18px] rounded-[3px] bg-white" />
             </button>

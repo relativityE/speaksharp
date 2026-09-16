@@ -11,7 +11,7 @@ export const SessionStatus: React.FC = () => {
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <Radio className="w-5 h-5 text-primary" />
+                    <Radio className="w-5 h-5 text-signature-text" />
                     Live Session
                 </CardTitle>
             </CardHeader>

@@ -28,7 +28,7 @@ export const AuthAwareRoot: React.FC<AuthAwareRootProps> = ({ children }) => {
   if (loading) {
     return (
       <div className="flex h-[50vh] w-full items-center justify-center" data-testid="root-auth-loading">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-8 w-8 animate-spin text-signature-text" />
       </div>
     );
   }

@@ -7,7 +7,6 @@
   },
   "include": [
     "playwright.config.ts",
-    "tailwind.config.ts",
     "tests/global-setup.ts",
     "tests/global-teardown.ts"
   ]

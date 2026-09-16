@@ -21,7 +21,7 @@ type FromLocation = { pathname?: string; search?: string } | null | undefined;
 function GateLoader() {
   return (
     <div className="flex h-[50vh] w-full items-center justify-center" data-testid="practice-gate-loading">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <Loader2 className="h-8 w-8 animate-spin text-signature-text" />
     </div>
   );
 }

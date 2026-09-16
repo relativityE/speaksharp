@@ -60,7 +60,9 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
     return (
         <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
-            <p className="mb-4 text-sm font-medium text-foreground/70 sm:text-base">{description}</p>
+            {/* Solid role, not foreground/70: this copy sits on the surface-session ground, where the blended
+                value measures 3.93:1 (CI run 35033614218). surface-session-text measures 7.11:1 there. */}
+            <p className="mb-4 text-sm font-medium text-muted-foreground sm:text-base">{description}</p>
 
             {/* Plan Banner — upgrade CTA only when payments are live (no dead/no-op button) */}
             {showUpgrade && (
@@ -69,7 +71,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
                 >
                     <div className="flex items-center gap-3">
                         <div className="rounded-lg bg-primary/15 p-2">
-                            <Mic className="w-5 h-5 text-primary" />
+                            <Mic className="w-5 h-5 text-signature-text" />
                         </div>
                         <div className="text-left">
                             <span className="font-bold block text-base">Turn practice into progress</span>

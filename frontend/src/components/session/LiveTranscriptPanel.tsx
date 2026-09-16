@@ -321,7 +321,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                     <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
                 </div>
                 {showPrivateFeedback && (
-                    <div className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary">
+                    <div className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-signature-text">
                         <WaveformMeter level={micLevel} isProcessing={hasSpeechActivity && !hasTranscript && !hasInterimTranscript} />
                         <span>{privateStatus}</span>
                     </div>
@@ -345,7 +345,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         data-transcript-trust="draft"
                         aria-label="Draft transcript notice"
                     >
-                        <span className="font-semibold text-primary">Draft transcript</span>
+                        <span className="font-semibold text-signature-text">Draft transcript</span>
                         {/* Real whitespace text node so extracted/AT text reads
                             "Draft transcript Text may change…" not glued "transcriptText". */}
                         {' '}
@@ -365,8 +365,8 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                     </>
                                 ) : (
                                     <>
-                                        <FileText className="h-3 w-3 text-accent" />
-                                        <span className="text-[10px] font-semibold text-accent">Chapter {idx + 1}: Legacy transcript</span>
+                                        <FileText className="h-3 w-3 text-signature-text" />
+                                        <span className="text-[10px] font-semibold text-signature-text">Chapter {idx + 1}: Legacy transcript</span>
                                     </>
                                 )}
                             </div>
@@ -382,7 +382,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 {history.length > 0 && hasTranscript && (
                     <div className="flex items-center gap-4 my-6 select-none pointer-events-none">
                         <div className="flex-1 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
-                        <span className="text-[10px] font-semibold text-primary/80">Engine Handoff</span>
+                        <span className="text-[10px] font-semibold text-signature-text">Engine Handoff</span>
                         <div className="flex-1 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
                     </div>
                 )}
@@ -395,7 +395,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                 {hasSpeechActivity && <span className="absolute inset-0 rounded-full border border-primary/30 animate-ping" />}
                                 <WaveformMeter level={micLevel} isProcessing={hasSpeechActivity} />
                             </div>
-                            <p className={hasSpeechActivity ? 'text-primary font-medium' : 'animate-pulse'}>
+                            <p className={hasSpeechActivity ? 'text-signature-text font-medium' : 'animate-pulse'}>
                                 {listeningEmptyText}
                             </p>
                         </div>
@@ -418,7 +418,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             aria-label="Live draft stabilizing"
                         >
                             {lastGoodLiveDraft}
-                            <p className="mt-2 text-xs font-medium text-primary/80 animate-pulse">Stabilizing live draft…</p>
+                            <p className="mt-2 text-xs font-medium text-signature-text animate-pulse">Stabilizing live draft…</p>
                         </div>
                     ) : (
                         <div
@@ -426,7 +426,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             data-testid="live-transcript-loop-withheld"
                             data-transcript-loop-withheld="true"
                         >
-                            <p className="text-sm font-semibold text-primary">{finalizingBannerText}</p>
+                            <p className="text-sm font-semibold text-signature-text">{finalizingBannerText}</p>
                             <p className="max-w-sm text-xs text-foreground/60">{finalizingEmptyDescription}</p>
                         </div>
                     )
@@ -497,7 +497,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         <style>{`@keyframes ssFinalizeFill{from{width:0%}to{width:95%}}`}</style>
                         {/* Honest, bounded progress so the wait reads as "polishing", never "hung" or "lost". */}
                         <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
-                            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-signature-text">
                                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                                 <span data-testid="live-transcript-finalizing-title">
                                     {finalizingEmptyTitle}{finalizeEstimateSeconds ? ` — ~${finalizeEstimateSeconds}s` : ''}

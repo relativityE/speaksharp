@@ -26,9 +26,9 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
 
     const Icon = delta > 0 ? ArrowUp : delta < 0 ? ArrowDown : Minus;
     const colorClass = isImprovement
-        ? 'text-success'
+        ? 'text-status'
         : isRegression
-            ? 'text-red-500'
+            ? 'text-regression'
             : 'text-muted-foreground';
 
     return (

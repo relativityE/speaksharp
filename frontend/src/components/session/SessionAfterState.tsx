@@ -67,7 +67,7 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                     footer={fillerFooter ?? (
                         <span className="flex items-center justify-between">
                             <span data-testid="after-stats">{transcript.stats}</span>
-                            <button type="button" className="font-bold text-[#0d7d74] hover:underline" data-testid="after-add-fillers">
+                            <button type="button" className="font-bold text-signature-text hover:underline" data-testid="after-add-fillers">
                                 Add your filler words
                             </button>
                         </span>

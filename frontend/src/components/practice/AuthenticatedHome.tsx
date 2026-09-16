@@ -72,7 +72,7 @@ function StreakWaveform() {
     return (
         <span aria-hidden="true" className="flex items-end gap-[2px]">
             {[6, 11, 8, 13].map((h, i) => (
-                <span key={i} style={{ width: 3, height: h, borderRadius: 1.5, background: '#d98a1f' }} />
+                <span key={i} style={{ width: 3, height: h, borderRadius: 1.5, background: 'var(--brand-signature)' }} />
             ))}
         </span>
     );
@@ -375,7 +375,7 @@ export function AuthenticatedHome({
                             data-testid="home-streak-chip"
                             data-streak-state={streak?.state ?? 'active'}
                             className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] font-bold"
-                            style={{ background: '#fdf3e2', border: '1px solid #f0dcb8', color: '#8a5510' }}
+                            style={{ background: 'var(--brand-signature-ground)', border: '1px solid var(--brand-signature-border)', color: 'var(--brand-signature-text)' }}
                         >
                             <StreakWaveform />
                             {streakText}

@@ -5,7 +5,7 @@ import React from 'react';
  *
  * Hard rule: bars are `flex: 1; min-width: 1px` with a 1px gap (thin enough that all ~72 bars fit a 320px track without clipping) — **never a fixed width**, or the track
  * won't fill and the playhead will disagree with the audio. ~72 bars. Recorded audio is orange
- * (`#d98a1f`); the un-recorded tail is `#e0e6ee`.
+ * (`signature`); the un-recorded tail is `neutral-border`.
  *
  * Two modes:
  *   • during  → `recordedCount` bars are orange (growing left→right), the rest are the grey tail.
@@ -27,8 +27,8 @@ export interface WaveformProps {
     'data-testid'?: string;
 }
 
-const ORANGE = '#d98a1f';
-const TAIL = '#e0e6ee';
+const ORANGE = 'var(--brand-signature)';
+const TAIL = 'var(--brand-neutral-border)';
 const TRACK_HEIGHT = 40;
 // #4: height is a separate function of the level, in PX (not a % that floors into flat mush).
 // height = 4 + level*30, clamped. A filler bar in the after-state is a HEIGHT override — full height,
@@ -107,7 +107,7 @@ export const Waveform: React.FC<WaveformProps> = ({
                         bottom: 0,
                         left: `${Math.max(0, Math.min(1, playedFraction)) * 100}%`,
                         width: 2,
-                        backgroundColor: '#241503',
+                        backgroundColor: 'var(--brand-ink)',
                     }}
                 />
             )}

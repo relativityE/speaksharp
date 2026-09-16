@@ -1,21 +1,27 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 
 function log(msg) {
   console.log(`[TAILWIND VALIDATION] ${msg}`);
 }
 
-// 1. Check for tailwind.config.ts
-const configPath = path.resolve(process.cwd(), 'tailwind.config.ts');
+// The only Tailwind config. Vite runs from `frontend/`, so this is the file its PostCSS pipeline loads.
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const frontendDir = path.join(repoRoot, 'frontend');
+const configPath = path.join(frontendDir, 'tailwind.config.js');
+
+// 1. Check for frontend/tailwind.config.js
 if (!fs.existsSync(configPath)) {
-  log('❌ tailwind.config.ts not found. Please ensure it exists in the project root.');
+  log('❌ frontend/tailwind.config.js not found.');
   process.exit(1);
 }
-log('✅ tailwind.config.ts found.');
+log('✅ frontend/tailwind.config.js found.');
 
 // 2. Check Tailwind + PostCSS versions
-const pkgJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8'));
+const pkgJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf-8'));
 const tailwindVersion = pkgJson.dependencies?.tailwindcss || pkgJson.devDependencies?.tailwindcss;
 if (!tailwindVersion) {
   log('❌ tailwindcss not installed. Run `pnpm add -D tailwindcss`.');
@@ -25,30 +31,35 @@ log(`✅ tailwindcss installed (${tailwindVersion})`);
 
 // 3. Clear Vite/PostCSS cache
 log('Clearing Vite and PostCSS caches...');
-execSync('rm -rf node_modules/.vite', { stdio: 'inherit' });
-execSync('rm -rf node_modules/.cache', { stdio: 'inherit' });
+execSync('rm -rf node_modules/.vite node_modules/.cache', { cwd: frontendDir, stdio: 'inherit' });
 
-// 4. Create minimal test CSS
+// 4. Create minimal test CSS. The probe class must not share a utility's name, or `@apply` is circular.
+// `bg-signature` exists only in the shared-token config, so compiling it proves that config was loaded.
 const testCss = `
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-.bg-background { @apply bg-background; }
+.validation-probe { @apply bg-background bg-signature; }
 `;
-fs.writeFileSync('test-tailwind.css', testCss);
+const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tailwind-validation-'));
+const inputPath = path.join(workDir, 'test-tailwind.css');
+fs.writeFileSync(inputPath, testCss);
 log('✅ test-tailwind.css created');
 
-// 5. Try compiling CSS via Tailwind CLI
+// 5. Try compiling CSS via Tailwind CLI against the surviving config
 try {
   log('Compiling test-tailwind.css...');
-  execSync('npx tailwindcss -i ./test-tailwind.css -o ./dist/test.css --minify', { stdio: 'inherit' });
-  log('✅ Tailwind compiled successfully! bg-background is valid.');
+  execSync(`npx tailwindcss -c "${configPath}" -i "${inputPath}" -o "${path.join(workDir, 'test.css')}" --minify`, {
+    cwd: frontendDir,
+    stdio: 'inherit',
+  });
+  log('✅ Tailwind compiled successfully! bg-background and bg-signature are valid.');
 } catch (err) {
-  log('❌ Tailwind compilation failed. Check tailwind.config.ts and CSS variable setup.');
+  log('❌ Tailwind compilation failed. Check frontend/tailwind.config.js and CSS variable setup.');
   process.exit(1);
+} finally {
+  // 6. Remove temporary files
+  fs.rmSync(workDir, { recursive: true, force: true });
 }
-
-// 6. Optional: Remove test file after check
-fs.unlinkSync('test-tailwind.css');
 log('✅ Temporary test CSS removed. Tailwind validation complete.');
