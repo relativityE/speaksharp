@@ -51,18 +51,18 @@ function fmtClock(seconds: number): string {
 const Marker: React.FC<{ kind: 'pending' | 'covered' | 'partial' | 'next' | 'missed'; index: number }> = ({ kind, index }) => {
     const base = 'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[12px] font-extrabold';
     if (kind === 'covered') {
-        return <span className={`${base} bg-[#1f9d6b] text-white`} aria-hidden="true">✓</span>;
+        return <span className={`${base} bg-[hsl(var(--success))] text-[hsl(var(--success-foreground))]`} aria-hidden="true">✓</span>;
     }
     if (kind === 'missed') {
-        return <span className={`${base} border-2 border-[#d98a1f] text-[#8a5510]`} aria-hidden="true">✕</span>;
+        return <span className={`${base} border-2 border-[hsl(var(--verdict-partial))] text-[hsl(var(--verdict-partial-foreground))]`} aria-hidden="true">✕</span>;
     }
     if (kind === 'partial') {
-        return <span className={`${base} border-2 border-[#d98a1f] text-[#8a5510]`} aria-hidden="true">≈</span>;
+        return <span className={`${base} border-2 border-[hsl(var(--verdict-partial))] text-[hsl(var(--verdict-partial-foreground))]`} aria-hidden="true">≈</span>;
     }
     if (kind === 'next') {
         return <span className={`${base} border-2 border-[#6d28d9] text-[#6d28d9]`} aria-hidden="true">{index + 1}</span>;
     }
-    return <span className={`${base} border-2 border-[#d3dbe6] text-[#8b95a5]`} aria-hidden="true">{index + 1}</span>;
+    return <span className={`${base} border-2 border-[#d3dbe6] text-[hsl(var(--session-muted-text))]`} aria-hidden="true">{index + 1}</span>;
 };
 
 export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
@@ -100,12 +100,21 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                 )}
             </div>
 
+            {isAfter && !coveragePending && (
+                <p
+                    data-testid="focus-points-detection-note"
+                    className="mt-2 text-[13px] leading-snug text-[hsl(var(--session-secondary-text))]"
+                >
+                    We look for your point’s words in what you said. If you covered it differently, we may not spot it.
+                </p>
+            )}
+
             {/* §3: the topic is a header, never a point — no marker, no numeral, never checked for coverage.
                 It sits above the list with a divider so it reads as context, not an item to cover. */}
             {topicLabel !== '' && (
                 <div data-testid="focus-points-topic" className="border-b border-[#eef1f6] pb-[14px]">
-                    <div className="mb-1 mt-3 text-[17px] font-extrabold tracking-[-0.02em] text-[#1f2733]">{topicLabel}</div>
-                    <div className="text-[12px] font-bold uppercase tracking-[0.04em] text-[#8b95a5]">Your topic</div>
+                    <div className="mb-1 mt-3 text-[17px] font-extrabold tracking-[-0.02em] text-foreground">{topicLabel}</div>
+                    <div className="text-[12px] font-bold uppercase tracking-[0.04em] text-[hsl(var(--session-muted-text))]">Your topic</div>
                 </div>
             )}
 
@@ -123,17 +132,17 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                             ? 'rounded-lg border border-[#f0dcb8] bg-[#fdf3e2] px-3 py-2'
                             : '';
                     // 'Detected', not 'Covered': the matcher reports what it FOUND. 'Still to cover' stays — that is an
-    // instruction about what to do next, not an assertion about what the speaker did.
-    const statusWord = isPartial ? 'Partly detected' : row.covered ? 'Detected' : isMissed ? 'Not detected' : isNext ? 'Still to cover' : 'Pending';
+                    // instruction about what to do next, not an assertion about what the speaker did.
+                    const statusWord = isPartial ? 'Partly detected' : row.covered ? 'Detected' : isMissed ? 'Not detected' : isNext ? 'Still to cover' : 'Pending';
                     return (
                         <li key={i} data-testid={`focus-point-${i}`} data-status={isPartial ? 'partial' : row.covered ? 'covered' : isMissed ? 'missing' : 'pending'} className={`flex items-start gap-[11px] ${rowTint}`}>
                             <Marker kind={kind} index={i} />
                             <div className="min-w-0 flex-1">
-                                <p className={`text-[15px] leading-snug ${row.covered && !isPartial ? 'text-[#8b95a5] line-through' : isPartial || isMissed ? 'font-extrabold text-[#2b3446]' : 'text-[#2b3446]'}`}>
+                                <p className={`text-[15px] leading-snug ${row.covered && !isPartial ? 'text-[hsl(var(--session-muted-text))] line-through' : isPartial || isMissed ? 'font-extrabold text-foreground' : 'text-foreground'}`}>
                                     {row.label}
                                 </p>
                                 {row.covered && row.coveredAtSec != null && (
-                                    <p className={`mt-0.5 text-[12px] font-semibold ${isPartial ? 'text-[#8a5510]' : 'text-[#146b4a]'}`} data-testid={`focus-point-${i}-covered-at`}>
+                                    <p className={`mt-0.5 text-[12px] font-semibold ${isPartial ? 'text-[hsl(var(--verdict-partial-foreground))]' : 'text-[hsl(var(--success))]'}`} data-testid={`focus-point-${i}-covered-at`}>
                                         {isAfter && row.quote ? <span className="italic text-[#4b5563]">&ldquo;…{row.quote.trim()}&rdquo;</span> : null}
                                         {isAfter && row.quote ? ' · ' : ''}{isPartial ? 'Partly detected' : 'Detected'} at {fmtClock(row.coveredAtSec)}
                                     </p>
@@ -144,7 +153,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                     "Not detected" (a paraphrase may have covered it) — never a "Missed"
                                     accusation — and the feedback is an ACTION for the retry, not a made-up cause. */}
                                 {isMissed && (
-                                    <p className="mt-1 text-[13px] leading-snug text-[#8a5510]" data-testid={`focus-point-${i}-not-detected`}>
+                                    <p className="mt-1 text-[13px] leading-snug text-[hsl(var(--verdict-partial-foreground))]" data-testid={`focus-point-${i}-not-detected`}>
                                         We couldn’t detect this point in the transcript. You may have covered it in different words.
                                     </p>
                                 )}

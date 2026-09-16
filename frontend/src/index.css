@@ -112,6 +112,12 @@ All colors MUST be HSL.
     /* Warm tile behind the collapsed filler row's glyph (warm = evidence, matching the filler chips). */
     --session-warm-tile: 36 88% 92%;
     --session-warm-tile-text: 30 84% 30%;
+    /* Shared session-result roles. Coverage, pace and delivery must project one palette rather than
+       carrying independent hex values that can drift while describing the same verdict. */
+    --session-secondary-text: 218 17% 31%;
+    --session-muted-text: 217 13% 60%;
+    --verdict-partial: 35 75% 49%;
+    --verdict-partial-foreground: 34 79% 30%;
     --shadow-session-help: 0 6px 16px -6px hsl(164 74% 17% / 0.45), 0 2px 5px -2px hsl(164 74% 17% / 0.32);
   }
 
@@ -181,6 +187,10 @@ All colors MUST be HSL.
     --session-green-soft-text: 160 55% 78%;
     --session-warm-tile: 32 40% 20%;
     --session-warm-tile-text: 36 85% 72%;
+    --session-secondary-text: 215 18% 72%;
+    --session-muted-text: 215 18% 72%;
+    --verdict-partial: 36 85% 72%;
+    --verdict-partial-foreground: 36 85% 72%;
     --shadow-session-help: 0 6px 16px -6px hsl(164 60% 26% / 0.55), 0 2px 5px -2px hsl(164 60% 26% / 0.4);
     --nav-avatar-bg: 218 20% 26%;
     --nav-avatar-fg: 214 30% 88%;

@@ -34,6 +34,19 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         expect(screen.getByText('What we detected')).toBeInTheDocument();
     });
 
+    it('explains the keyword-matcher limit when presenting a completed verdict', () => {
+        const { rerender } = render(<FocusPointsRail rows={rows} topic="T" sessionState="before" />);
+        expect(screen.queryByTestId('focus-points-detection-note')).not.toBeInTheDocument();
+
+        rerender(<FocusPointsRail rows={rows} topic="T" sessionState="after" />);
+        expect(screen.getByTestId('focus-points-detection-note')).toHaveTextContent(
+            'We look for your point’s words in what you said. If you covered it differently, we may not spot it.',
+        );
+
+        rerender(<FocusPointsRail rows={rows} topic="T" sessionState="after" coveragePending />);
+        expect(screen.queryByTestId('focus-points-detection-note')).not.toBeInTheDocument();
+    });
+
     it('after: a missed point states the real cause (last-covered timestamp) then the forward move — no fabricated waste', () => {
         const afterRows: FocusCoverageRow[] = [
             { label: 'What is it?', status: 'covered', covered: true, coveredAtSec: 21, quote: 'the small calls' },
@@ -86,7 +99,7 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
 
         const evidence = screen.getByTestId('focus-point-0-covered-at');
         expect(evidence).toHaveTextContent('Partly detected at 0:12');
-        expect(evidence).toHaveClass('text-[#8a5510]');
+        expect(evidence).toHaveClass('text-[hsl(var(--verdict-partial-foreground))]');
         expect(evidence).not.toHaveTextContent(/^Detected at/);
     });
 });
