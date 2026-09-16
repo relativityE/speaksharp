@@ -231,9 +231,26 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     'moonshine:streaming-medium': {
         id: 'moonshine:streaming-medium',
         activationReady: false,
-        notReadyReason: 'real-runtime windowed E/F comparison-readiness passed; public-default '
-            + 'qualification awaits the PO-authorized human comparison and down-selection',
-        comparisonReady: true,
+        notReadyReason: 'deterministic long-audio repetition loop on the real runtime; see '
+            + 'comparisonNotReadyReason. Windowed E/F comparison-readiness passed, but that probe does not '
+            + 'exercise the 95 s path where the loop appears',
+        // PM decision (16 Sep, #1263): `comparisonReady` states whether the signed Production comparison path is
+        // known-good. A reproducible raw-output repetition loop is incompatible with `true`, and qualifying it in
+        // prose alone would permit exactly the Production comparison row PM has prohibited. Moonshine REMAINS a
+        // registered comparison candidate and stays in #1304's three-candidate table — displayed as NOT
+        // COMPARISON READY with this reason, never as removed or rejected.
+        comparisonReady: false,
+        comparisonNotReadyReason: 'real-runtime long-audio probe fails deterministically on 95.4 s of audio in '
+            + 'BOTH configurations (default and speculative-decoding-off): raw unsanitized output contains a '
+            + 'repeated span (finalLoopReason "repeated_span"), 10 of 19 live snapshots already show the loop, '
+            + 'and emitted words exceed the 278-word reference (292 default / 321 speculative-off). Settled live '
+            + 'text is also rewritten by a later pass, breaking the stable-prefix contract at word 57 after 30 s '
+            + 'fed. Evidence: product_release/evidence/retained/moonshine-longaudio-1263-{default,'
+            + 'speculative-off}.manifest.json, both verdict "fail", rowDisposition "repetition_loop". Opening and '
+            + 'tail preservation PASS in those same runs (openingKept/tailKept true) after the Stop-drain fix, so '
+            + 'tail behaviour is NOT part of this blocker. Restoring true requires RED->GREEN proof for '
+            + 'repetition, stable prefix and immediate-Stop tail preservation, with RWT-07/RWT-08 preserved, '
+            + 'exact-head review and CI, and PM acceptance.',
         engine: 'moonshine-streaming',
         runtime: { package: '@moonshine-ai/moonshine-wasm', version: '0.1.5' },
         model: {

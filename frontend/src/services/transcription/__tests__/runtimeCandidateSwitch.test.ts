@@ -64,9 +64,11 @@ describe('the in-page model switch', () => {
     });
 
     it('CASUALTY: the FULL comparison runs in one page — v2 → distil → moonshine → v2', async () => {
-        // The sequence the human test actually performs. Moonshine was refused here until it was
-        // registered on the real provider path; the refusal is now lifted, so the whole slate is
-        // reachable without a reload.
+        // The sequence the human test actually performs on the INTERNAL comparison path, which may run a
+        // candidate that is not approved as a production default — that is what the internal instrument is for.
+        // This says nothing about canonical Production: there, Moonshine is refused while its long-audio
+        // repetition blocker stands (PM decision 16 Sep, #1263), proven by the refusal casualty below. Do not
+        // read this hop sequence as evidence that a Production Moonshine comparison row is reachable.
         const e = executor(); registerSwitchExecutor(e);
         const hops: Array<{ id: string; outcome: unknown; running: string }> = [];
         for (const id of ['v4:distil:q4', 'moonshine:streaming-medium', 'v2:base.en'] as const) {
@@ -152,14 +154,48 @@ describe('the in-page model switch', () => {
         expect(control.attempt_id).not.toBe('first-positive-control-take');
     });
 
-    it('CASUALTY: canonical Production can run Moonshine after its real-runtime E/F preflight', async () => {
+    // PM decision (16 Sep, #1263): the REAL registry now marks moonshine:streaming-medium
+    // `comparisonReady: false` because its real-runtime long-audio probe fails deterministically with a raw
+    // repetition loop. So canonical Production must REFUSE it, and no Production Moonshine comparison row is
+    // authorized while that stands. This test previously asserted the opposite; the assertion is inverted
+    // because the POLICY changed, not to make a failure go away — the windowed E/F preflight it was named for
+    // does not exercise the 95 s path where the loop appears.
+    it('CASUALTY: canonical Production refuses Moonshine while its long-audio blocker stands', async () => {
         vi.stubEnv('VITE_INTERNAL_BUILD', '');
+        // Authorization is still granted — the refusal is the readiness gate, not a missing authorization, so a
+        // spent authorization can never be mistaken for the reason.
         expect((await authorizeProduction({
             candidateId: 'moonshine:streaming-medium',
             nonce: 'moonshine-preflight-123456',
         })).accepted).toBe(true);
-        registerSwitchExecutor(executor());
+        const e = executor(); registerSwitchExecutor(e);
         const out = await switchCandidate('moonshine:streaming-medium', CANDIDATES, 'open_mic');
+        expect(out).toMatchObject({ ok: false, code: 'candidate_not_comparison_ready' });
+        // It is refused BEFORE any teardown, so a refused arm never disturbs the running engine.
+        expect(e.teardown).not.toHaveBeenCalled();
+        expect(runtimeCandidateOverride()).toBeNull();
+    });
+
+    // The positive path must stay proven, or this gate could silently refuse everything forever and no test
+    // would notice. A synthetic comparison-ready Moonshine still switches cleanly, so when #1263 supplies
+    // RED->GREEN proof for repetition, stable prefix and immediate-Stop tail preservation and PM restores the
+    // flag, the capability returns with no further change here.
+    it('CASUALTY: a comparison-ready Moonshine still switches — the gate is the flag, not the engine', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
+        expect((await authorizeProduction({
+            candidateId: 'moonshine:streaming-medium',
+            nonce: 'moonshine-ready-123456',
+        })).accepted).toBe(true);
+        const ready = {
+            ...CANDIDATES,
+            'moonshine:streaming-medium': {
+                ...CANDIDATES['moonshine:streaming-medium'],
+                comparisonReady: true,
+                comparisonNotReadyReason: undefined,
+            },
+        } as typeof CANDIDATES;
+        registerSwitchExecutor(executor());
+        const out = await switchCandidate('moonshine:streaming-medium', ready, 'open_mic');
         expect(out).toEqual({ ok: true, candidate: 'moonshine:streaming-medium' });
         expect(runtimeCandidateOverride()).toBe('moonshine:streaming-medium');
     });
