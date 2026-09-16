@@ -160,11 +160,11 @@ Preparation is separate from execution:
    exactly one `https://speaksharp-public.vercel.app` tab and sign in manually through the normal product path.
    Never expose the debugging endpoint off-device.
 
-For each of the three registered candidates, perform one Open Mic take and one Focus Points take. The
+For each of the **two authorised candidates** — v4 (provisional primary) and v2 (fallback) — perform one Open Mic take and one Focus Points take. Moonshine is deferred until after RWT or MVP: it is not dispatchable and must not be attempted, because `rc-gates.yml` no longer offers its cells. The
 Focus Points count is user-selected within the MVP's 1–7 range; the comparison does not prescribe four or
 any other count. Every point the user enters and substantively speaks must remain present, in order, and be
 evaluated. Generate one lowercase UUIDv4 as the evidence-document id and reuse that id for exactly these
-six rows; a later comparison packet requires a new id. Immediately before each take:
+**four rows**; a later comparison packet requires a new id. Immediately before each take:
 
 1. Dispatch the authorization for that exact cell against the reviewed candidate head:
    `gh workflow run rc-gates.yml --ref <candidate-branch> -f gate=comparison-authorization -f comparison_cell=<candidate-id>/<open_mic|focus_points> -f comparison_release_sha=<40-char-sha> -f comparison_evidence_document_id=<uuidv4>`,
@@ -191,7 +191,7 @@ to inspect payloads, so its receipt is stamped `evidenceKind: privacy_diagnostic
 comparison row or supply journey, performance or model-quality evidence.
 
 The first successful authorized switch for the evidence document automatically emits the governed
-`telemetry_positive_control`; the other five switches do not. Set the packet's `positiveControlNonce`
+`telemetry_positive_control`; the **other three** switches do not. Set the packet's `positiveControlNonce`
 to the evidence-document UUID reported by the control receipt. For each candidate row, copy
 `comparisonNonce` from that row's control receipt, then copy `journeyId`, `attemptId`, and `attemptSeq`
 from the trusted readback's `session_started` event carrying that `comparisonNonce`. Those three values are
@@ -208,13 +208,16 @@ proves the exact saved session without putting the raw database session ID in Po
 binds that persisted ID independently. A missing binding HOLDs the row; it never degrades or scores a model.
 
 Run `corepack pnpm human-test:validate-downselection -- /absolute/evidence/model-downselection.json --telemetry-authority /absolute/trusted/posthog-readback.json --gemini-authority /absolute/trusted/gemini-session-readback.json` only
-after all six candidate/journey cells and the locked Gemini evidence are present. It reads every receipt's
+after **all four** candidate/journey cells and the locked Gemini evidence are present. It reads every receipt's
 authorization attempt and its jobs back from GitHub and refuses a missing run record, an attempt that is not the
 owner-dispatched and owner-triggered, successful `comparison-authorization` job at the exact release, a run reused
 by another row (including through a rerun attempt), or any candidate, journey, release, origin, document, nonce, or
 session-binding mismatch. The validator must remain
-`HOLD` until a separate Product Owner-authored approval artifact names distinct primary, fallback, and
-sits-out roles and cites the exact completed packet digest. The validation command requires authenticated
+`HOLD` until a separate Product Owner-authored approval artifact names **distinct primary and fallback
+roles** and cites the exact completed packet digest. It carries **no sits-out role**: the authorised matrix has
+two candidates, so nobody sits out, and the validator requires `sitsOut` to be null. A deferred candidate is
+not a sitting-out candidate — sitting out means it ran the comparison and lost, while deferred means it never
+entered — so naming Moonshine there is refused rather than recorded. The validation command requires authenticated
 GitHub CLI read access (or `GH_BIN` pointing to it), plus the separately downloaded artifacts from the
 trusted default-branch readback job. It compares the retained approval to the live comment and both inline
 evidence sections to those independent authorities;

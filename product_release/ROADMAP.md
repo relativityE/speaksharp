@@ -120,9 +120,16 @@ The 15 Sep backlog sweep closed 20 stale/duplicate items:
 
 - verified complete: #1316, #1404, #1451, #1453, #1457, #1458;
 - consolidated: #1450/#1455 → #1476; #1417/#1454/#1456 → #1472; #1459 → #1254; #1470 → #1475;
-- superseded/not selected: #1268, #1295, #1307, #1386, #1389, #1415, #1460.
+- superseded/not selected: #1268, #1295, #1386, #1389, #1415, #1460.
 
-A closed issue may remain as provenance. New evidence goes to the current owner above rather than reopening a duplicate.
+**#1307 is deliberately not in that list.** It is closed, but closed as the consolidated **parking lot**, and it is
+the durable owner named in the accepted-Later table above for enterprise/team capabilities and demand validation.
+Classifying it as "superseded/not selected" alongside a section that says not to reopen would read as a rejection of
+accepted work and leave those workstreams with nowhere to send new evidence. Its disposition is: **accepted, parked,
+owner of record**, releasable only through its own activation gate.
+
+A closed issue may remain as provenance. New evidence goes to the current owner above rather than reopening a
+duplicate — for the parked enterprise/team and demand-validation workstreams, that owner is #1307.
 
 ## Fixed decisions
 
