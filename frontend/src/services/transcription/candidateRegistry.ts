@@ -246,9 +246,11 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
             + 'and emitted words exceed the 278-word reference (292 default / 321 speculative-off). Settled live '
             + 'text is also rewritten by a later pass, breaking the stable-prefix contract at word 57 after 30 s '
             + 'fed. Evidence: product_release/evidence/retained/moonshine-longaudio-1263-{default,'
-            + 'speculative-off}.manifest.json, both verdict "fail", rowDisposition "repetition_loop". Opening and '
-            + 'tail preservation PASS in those same runs (openingKept/tailKept true) after the Stop-drain fix, so '
-            + 'tail behaviour is NOT part of this blocker. Restoring true requires RED->GREEN proof for '
+            + 'speculative-off}.manifest.json, both verdict "fail", rowDisposition "repetition_loop". Tail '
+            + 'behaviour is path-dependent and both halves are part of this blocker: the DRAINED Stop preserves '
+            + 'opening and tail in those same runs (openingKept/tailKept true, after the Stop-drain fix), while '
+            + 'an ABRUPT Stop still loses the last word — recorded in RELEASE_STATUS.md alongside an 18-word '
+            + 'live rewrite across three runs. Restoring true requires RED->GREEN proof for '
             + 'repetition, stable prefix and immediate-Stop tail preservation, with RWT-07/RWT-08 preserved, '
             + 'exact-head review and CI, and PM acceptance.',
         engine: 'moonshine-streaming',
