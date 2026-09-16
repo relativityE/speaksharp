@@ -1,14 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import { trackConversionCtaClicked, trackConversionCtaViewed } from '@/services/conversionFunnel';
-import { startProCheckout } from '@/services/proCheckout';
 import { offerDisclosureChips, PAID_CONTINUATION_UNAVAILABLE } from '@/components/pricing/offerDisclosure';
 import { PRICING_HEADING, PRICING_TIERS, pricingIntro, type PricingTier } from '@/components/pricing/pricingTiers';
-import { toast } from '@/lib/toast';
-import logger from '@/lib/logger';
 import { LANDING_SIGNUP_ROUTE } from './landingOffer';
 
 const TRIAL_SIGNUP_HREF = `${LANDING_SIGNUP_ROUTE}?${new URLSearchParams({
@@ -16,6 +12,16 @@ const TRIAL_SIGNUP_HREF = `${LANDING_SIGNUP_ROUTE}?${new URLSearchParams({
     utm_medium: 'pricing_free_card',
     utm_campaign: 'start_free',
 }).toString()}`;
+
+/**
+ * Where the paid card sends a SIGNED-OUT visitor. This page is signed-out only, so its paid control must not
+ * start checkout: `stripe-checkout` is an authenticated Edge Function and an anonymous invoke fails, which is
+ * an error where the user expected checkout. It routes to signup instead and carries `/pricing` as the
+ * post-auth return destination through the repository's existing `location.state.from` deep-link, which
+ * `postAuthRouting` already guards against open-redirect. The visitor signs up, lands back on Pricing, and
+ * starts checkout there as an authenticated user.
+ */
+const PRO_SIGNUP_RETURN = { from: { pathname: '/pricing' } } as const;
 
 const PRICE_TOKEN = '$10/month';
 
@@ -66,29 +72,20 @@ const PriceCard = ({ tier, signature, children }: { tier: PricingTier; signature
  * paid card's geometry is identical in both payment states; only its control and the third chip change. With
  * payments disabled the price is still shown, the trial stays actionable, and the paid slot is a non-focusable
  * notice that emits no conversion, checkout or Stripe event.
+ *
+ * This surface is SIGNED-OUT ONLY, so neither payment state starts checkout from here. With payments enabled the
+ * paid control is a signup link carrying `/pricing` as its post-auth return destination; it emits the
+ * `pricing_pro_card` click, and deliberately emits no `checkout_started` and makes no `stripe-checkout` call,
+ * because that Edge Function is authenticated and an anonymous invoke would surface an error to the visitor.
  */
 export const LandingPricingSection = () => {
     const paymentsEnabled = arePaymentsEnabled();
-    const [isStartingCheckout, setIsStartingCheckout] = useState(false);
     const [trial, pro] = PRICING_TIERS;
 
     useEffect(() => {
         trackConversionCtaViewed({ source: 'pricing_free_card', plan: 'free' });
         if (paymentsEnabled) trackConversionCtaViewed({ source: 'pricing_pro_card', plan: 'pro' });
     }, [paymentsEnabled]);
-
-    const handleContinue = async () => {
-        if (!paymentsEnabled || isStartingCheckout) return;
-        setIsStartingCheckout(true);
-        trackConversionCtaClicked({ source: 'pricing_pro_card', plan: 'pro' });
-        try {
-            await startProCheckout('pricing_pro_card');
-        } catch (err: unknown) {
-            logger.error({ err }, 'Error creating Stripe checkout session from the landing pricing section:');
-            toast.error('Unable to start checkout. Please try again or contact support if it continues.');
-            setIsStartingCheckout(false);
-        }
-    };
 
     return (
         <section
@@ -116,14 +113,15 @@ export const LandingPricingSection = () => {
                 </PriceCard>
                 <PriceCard tier={pro} signature>
                     {paymentsEnabled ? (
-                        <Button
-                            type="button"
-                            onClick={() => { void handleContinue(); }}
-                            disabled={isStartingCheckout}
-                            className="box-border h-[52px] w-full rounded-[11px] bg-signature text-base font-extrabold text-ink hover:bg-signature hover:brightness-95 focus-visible:ring-2 focus-visible:ring-signature-text focus-visible:ring-offset-2"
+                        <Link
+                            to={LANDING_SIGNUP_ROUTE}
+                            state={PRO_SIGNUP_RETURN}
+                            data-testid="landing-pro-continue"
+                            onClick={() => trackConversionCtaClicked({ source: 'pricing_pro_card', plan: 'pro' })}
+                            className="box-border flex h-[52px] w-full items-center justify-center rounded-[11px] bg-signature text-base font-extrabold text-ink hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature-text focus-visible:ring-offset-2"
                         >
-                            {isStartingCheckout ? 'Starting checkout...' : pro.cta}
-                        </Button>
+                            {pro.cta}
+                        </Link>
                     ) : (
                         <div
                             data-testid="landing-pro-unavailable"

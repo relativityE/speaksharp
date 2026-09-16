@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { render as rtlRender } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { render, screen, within, fireEvent } from '../../../../tests/support/test-utils';
 import PracticePage from '@/pages/PracticePage';
+import { LandingPricingSection } from '../LandingPricingSection';
 
 // #1475 — the approved G12 Rev 2 unauthenticated homepage (issue comment 5685070470). Signed-out `/` renders
 // PracticePage's anonymous state (App.tsx), so that is the page under test. These are the Rev 2 acceptance checks a
@@ -24,6 +27,9 @@ vi.mock('@/services/conversionFunnel', async (importOriginal) => {
         trackLandingPreviewClicked: funnel.preview,
     };
 });
+
+const proCheckout = vi.hoisted(() => ({ start: vi.fn() }));
+vi.mock('@/services/proCheckout', () => ({ startProCheckout: proCheckout.start }));
 
 const browserSupport = vi.fn(() => ({ isSupported: true, error: null as string | null }));
 vi.mock('@/hooks/useBrowserSupport', () => ({ useBrowserSupport: () => browserSupport() }));
@@ -202,11 +208,15 @@ describe('#1475 G12 Rev 2 — pricing (both payment states)', () => {
         expect(funnel.checkout).not.toHaveBeenCalled();
     });
 
-    it('payments ENABLED: the paid control is an enabled button and its view is governed', () => {
+    it('payments ENABLED: the paid control is a signup link, not a checkout button, and its view is governed', () => {
         paymentsEnabled.mockReturnValue(true);
         render(<PracticePage />);
-        const button = within(region(/^pricing$/i)).getByRole('button', { name: 'Continue for $10/month' });
-        expect(button).toBeEnabled();
+        const pricing = region(/^pricing$/i);
+        // This page is signed-out only. A checkout button here would invoke an authenticated Edge Function as an
+        // anonymous visitor, which is the #1487 P1: an error where the visitor expected checkout.
+        expect(within(pricing).queryByRole('button', { name: 'Continue for $10/month' })).toBeNull();
+        const cta = within(pricing).getByRole('link', { name: 'Continue for $10/month' });
+        expect(cta.getAttribute('href')).toBe('/auth/signup');
         expect(viewedSources()).toContain('pricing_pro_card');
     });
 
@@ -234,5 +244,51 @@ describe('#1475 G12 Rev 2 — shell preserved (ruling A1 default)', () => {
         browserSupport.mockReturnValue({ isSupported: false, error: 'Microphone access is not available in this browser.' });
         render(<PracticePage />);
         expect(norm(screen.getByTestId('practice-root'))).toContain('Microphone access is not available in this browser.');
+    });
+});
+
+/**
+ * #1487 P1 casualty. The landing page is signed-out only, but its paid control called `startProCheckout`, which
+ * emits `checkout_started` and invokes the AUTHENTICATED `stripe-checkout` Edge Function. An anonymous visitor
+ * therefore got an error where they expected checkout. These assertions fail if that path is ever restored.
+ *
+ * Rendered with a real router rather than the shared helper, because the point is the navigation OUTCOME: the
+ * post-auth return destination travels in `location.state`, which no `href` assertion can observe.
+ */
+describe('#1487 P1 casualty — the signed-out paid CTA reaches signup and makes no Stripe request', () => {
+    const StateEcho = () => {
+        const location = useLocation();
+        return <pre data-testid="signup-state">{JSON.stringify(location.state)}</pre>;
+    };
+
+    const clickPaidCta = () => {
+        paymentsEnabled.mockReturnValue(true);
+        rtlRender(
+            <MemoryRouter initialEntries={['/']}>
+                <Routes>
+                    <Route path="/" element={<LandingPricingSection />} />
+                    <Route path="/auth/signup" element={<StateEcho />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+        fireEvent.click(screen.getByTestId('landing-pro-continue'));
+    };
+
+    it('lands on signup carrying /pricing as the post-auth return destination', () => {
+        clickPaidCta();
+        // Actually navigated: the signup route rendered.
+        const echoed = screen.getByTestId('signup-state').textContent ?? '';
+        expect(JSON.parse(echoed)).toEqual({ from: { pathname: '/pricing' } });
+    });
+
+    it('makes no Stripe request and emits no checkout_started while signed out', () => {
+        clickPaidCta();
+        expect(proCheckout.start).not.toHaveBeenCalled();
+        expect(funnel.checkout).not.toHaveBeenCalled();
+    });
+
+    it('still attributes the click to pricing_pro_card', () => {
+        clickPaidCta();
+        expect(funnel.clicked).toHaveBeenCalledWith({ source: 'pricing_pro_card', plan: 'pro' });
     });
 });
