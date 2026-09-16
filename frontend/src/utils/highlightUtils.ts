@@ -8,23 +8,14 @@ export interface HighlightToken {
 }
 
 /**
- * HSL token palette for deterministic assignment.
- * Optimized for dark mode readability.
+ * The filler-word identity series, read from the token authority rather than hardcoded here.
+ *
+ * These are categorical, not semantic: a filler word gets a stable colour from a deterministic hash so the
+ * same word reads the same everywhere it appears. The twelve values are unchanged — they now live once in
+ * `index.css` as `--brand-filler-series-*`, so the palette has a single owner and the theme can move without
+ * editing this module. Each entry is a `var()` reference, valid anywhere a CSS colour is accepted.
  */
-const COLOR_PALETTE = [
-    '#F87171', // Red 400
-    '#FB923C', // Orange 400
-    '#FACC15', // Yellow 400
-    '#65A30D', // Lime 600
-    '#15803D', // Green 700
-    '#047857', // Emerald 700
-    '#22D3EE', // Cyan 400
-    '#60A5FA', // Blue 400
-    '#818CF8', // Indigo 400
-    '#A78BFA', // Violet 400
-    '#E879F9', // Fuchsia 400
-    '#FB7185', // Rose 400
-];
+const COLOR_PALETTE = Array.from({ length: 12 }, (_, i) => `var(--brand-filler-series-${i + 1})`);
 
 const WORD_COLOR_CACHE = new Map<string, string>();
 const MAX_WORD_COLOR_CACHE_SIZE = 200;

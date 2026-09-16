@@ -95,8 +95,8 @@ describe('useSessionMetrics', () => {
                     transcript: 'one two three four five six seven eight nine ten',
                     chunks: [],
                     fillerData: {
-                        um: { count: 1, color: '#FCA5A5' },
-                        uh: { count: 1, color: '#BFDBFE' }
+                        um: { count: 1, color: 'var(--brand-filler-fill-2)' },
+                        uh: { count: 1, color: 'var(--brand-filler-fill-1)' }
                     },
                     elapsedTime: 60
                 })
@@ -113,8 +113,8 @@ describe('useSessionMetrics', () => {
                     transcript: 'one two three four five six seven eight nine ten',
                     chunks: [],
                     fillerData: {
-                        um: { count: 3, color: '#FCA5A5' },
-                        uh: { count: 2, color: '#BFDBFE' }
+                        um: { count: 3, color: 'var(--brand-filler-fill-2)' },
+                        uh: { count: 2, color: 'var(--brand-filler-fill-1)' }
                     },
                     elapsedTime: 60
                 })
@@ -147,9 +147,9 @@ describe('useSessionMetrics', () => {
                     transcript: 'test',
                     chunks: [],
                     fillerData: {
-                        um: { count: 3, color: '#FCA5A5' },
-                        uh: { count: 2, color: '#BFDBFE' },
-                        like: { count: 5, color: '#FDE68A' } // discourse marker — NOT in the default headline
+                        um: { count: 3, color: 'var(--brand-filler-fill-2)' },
+                        uh: { count: 2, color: 'var(--brand-filler-fill-1)' },
+                        like: { count: 5, color: 'var(--brand-filler-fill-3)' } // discourse marker — NOT in the default headline
                     },
                     elapsedTime: 60
                 })
