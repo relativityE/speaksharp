@@ -24,7 +24,12 @@ export const BrowserWarning: React.FC<BrowserWarningProps> = ({ isSupported, sup
     <Alert variant="warning" size="md" className="mb-8 max-w-md mx-auto">
       <AlertTriangle className="h-5 w-5" />
       <div>
-        <h5 className="font-bold">Browser Compatibility</h5>
+        {/* Deliberately NOT a heading (#1487 P2). This alert renders wherever a page needs it, including
+            before that page's h1, so any heading level here corrupts the document outline: on the signed-out
+            homepage an h5 made the outline start at level 5 and then jump backwards to the hero h1. The
+            wrapping Alert already carries role="alert", so screen readers still announce the whole region;
+            the bold line is a label, not a section. */}
+        <p className="font-bold">Browser Compatibility</p>
         <p className="text-sm">
           {reason}
         </p>

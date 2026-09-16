@@ -245,6 +245,44 @@ describe('#1475 G12 Rev 2 — shell preserved (ruling A1 default)', () => {
         render(<PracticePage />);
         expect(norm(screen.getByTestId('practice-root'))).toContain('Microphone access is not available in this browser.');
     });
+
+    /**
+     * #1487 P2 casualty — the unsupported-browser branch must not corrupt the heading outline.
+     *
+     * The warning block is inserted BEFORE `LandingHero`, and `BrowserWarning` used to title itself with an
+     * `h5`. The outline therefore began at level 5 and then jumped backwards to the hero's `h1`. The earlier
+     * heading-hierarchy casualty missed it because it only ever rendered the supported-browser branch, so
+     * this one renders the failing branch explicitly and asserts the ORDER, not just the warning text.
+     */
+    it('P2 CASUALTY: the unsupported-browser branch still starts at h1 and skips no level', () => {
+        browserSupport.mockReturnValue({ isSupported: false, error: 'Microphone access is not available in this browser.' });
+        render(<PracticePage />);
+
+        const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) => ({
+            level: Number(h.tagName.slice(1)),
+            text: (h.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40),
+        }));
+
+        expect(headings.length).toBeGreaterThan(0);
+        expect(headings[0].level, `outline must open at h1: ${JSON.stringify(headings)}`).toBe(1);
+        expect(headings.filter((h) => h.level === 1)).toHaveLength(1);
+
+        const skips = headings
+            .map((h, i) => ({ from: headings[i - 1]?.level ?? h.level, to: h.level, text: h.text }))
+            .filter((step) => step.to > step.from + 1);
+        expect(skips, `unsupported-browser outline skips a level\n${JSON.stringify(headings, null, 2)}`).toEqual([]);
+    });
+
+    it('P2 CASUALTY: the browser warning contributes no heading at all, and stays announced', () => {
+        browserSupport.mockReturnValue({ isSupported: false, error: 'Microphone access is not available in this browser.' });
+        render(<PracticePage />);
+        const alert = screen.getByRole('alert');
+        expect(alert).toHaveTextContent('Browser Compatibility');
+        // No heading inside the alert at any level: it is a notice, not a section of the document.
+        expect(alert.querySelector('h1,h2,h3,h4,h5,h6')).toBeNull();
+        // Removing the heading must not cost the announcement — role="alert" is what carries it.
+        expect(alert).toHaveTextContent('Microphone access is not available in this browser.');
+    });
 });
 
 /**
