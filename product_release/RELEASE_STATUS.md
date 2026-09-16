@@ -3,19 +3,21 @@
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-15 — GitHub `main`, the #1468 post-merge deployment receipt, open PRs, exact-head #1469 checks, the 29-issue backlog, and current RWT evidence were reconciled.
+**Last Verified:** 2026-09-16 — reconciled to `main@f7179031`, which is `main` after PR #1469 (Focus Points attribution authority) and PR #1483 (read-only canary identity inspection) both merged. Open PRs, the backlog, and current RWT evidence were re-read at the same time.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
 **Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`), or documentation structure (→ `README.md`).
 **Supersedes:** any conflicting current-status claim in `product_release/archive/`, dated evidence, work items, or older root-file text.
-**Evidence Sources:** GitHub `main`; Production `window.__APP_RELEASE__`; PR #1468 closure receipt; PR #1469 exact-head checks; issues #1263, #1390, #1399, and #1471–#1476.
+**Evidence Sources:** GitHub `main`; Production `window.__APP_RELEASE__`; PR #1469 and PR #1483 merge receipts; issues #1258, #1263, #1304, #1390, #1399, and #1471–#1476.
+
+> **`baseline` and `deployed-release` deliberately differ, and that is not an oversight.** The baseline is `main`'s current tip, `f7179031a230e1d3d346b05020d0d207ad9de0c4`. The deployed release is recorded as `734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3` because that is the **last value actually read** from `window.__APP_RELEASE__` on the canonical Production app. It has **not** been re-read since PR #1483 merged. Per the criterion below, the deployed release is a read and is never inferred from a merge or a moving `main` pointer, so this file records the last read rather than assuming the merge deployed. #1483 changed only `scripts/**`, `.github/workflows/**` and tests, so no bundle file moved and no product-behaviour change is expected — but "expected" is not "verified", and the next read settles it.
 
 <!-- CURRENCY-BLOCK
 # Machine-readable state parsed by tests/config/documentationContract.test.ts.
-baseline: 8e638c844d101312b507e84fd9559467f6eb0c82
-deployed-release: 8e638c844d101312b507e84fd9559467f6eb0c82
-verified-on: 2026-09-15
+baseline: f7179031a230e1d3d346b05020d0d207ad9de0c4
+deployed-release: 734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3
+verified-on: 2026-09-16
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
@@ -30,7 +32,10 @@ lane-telemetry: open
 lane-retention-copy: open
 lane-billing: off-critical-path
 lane-1258-journey: returned
-lane-1469: open
+lane-1469: merged
+lane-1483: merged
+lane-1481: open
+lane-canary-rotation: open
 lane-practice-loop: open
 lane-moonshine: returned
 -->
@@ -41,12 +46,12 @@ lane-moonshine: returned
 
 | Identity | Current value | Evidence boundary |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `8e638c844d101312b507e84fd9559467f6eb0c82` (#1468), read 2026-09-15 | Re-read GitHub before every exact-pair decision. |
-| **Deployed product release (verified)** | `window.__APP_RELEASE__ = 8e638c844d101312b507e84fd9559467f6eb0c82`, reported from the canonical Production app after #1468 | A deployment receipt is point-in-time evidence; re-read before any RWT. |
+| **Repository `main` (moving branch pointer)** | `f7179031a230e1d3d346b05020d0d207ad9de0c4` (after #1483), read 2026-09-16 | Re-read GitHub before every exact-pair decision. |
+| **Deployed product release (last READ, not current)** | `window.__APP_RELEASE__ = 734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3`, read from the canonical Production app on 2026-09-15 after #1469 | **Stale by one merge and deliberately not updated by inference.** #1483 has merged since; Production has not been re-read. #1483 touched only `scripts/**`, `.github/workflows/**` and tests, so no bundle file moved, but that is an expectation and not a read. Re-read before any RWT or deployment claim. |
 | **Next release-candidate line** | `v0.9.0-rc` | The version step reflects the significance of the current product/release-control update. This is the release line, not an exact tag name or tag authorization. Before tagging, inventory the existing `v0.9.0-rc*` tags, select the next unused monotonically increasing identifier, align `package.json`, and qualify that exact integrated `main` under explicit Product Owner authorization. |
-| **Next merge candidate** | PR #1469, head `33ced29f4352b8f65244c3b34771fcf1d8140435` into base `8e638c844d101312b507e84fd9559467f6eb0c82` | Exact-head CI and automatic reviews were running at this review; no PM acceptance or PO merge authorization is implied. |
-| **Next product lane** | PR #1467 after #1469 | Restack and exact-head evidence are required after `main` moves. |
-| **Queued gate/docs implementation** | PR #1477 | Frozen behind #1469 because it changes review-qualification code. After #1469 closes, restack/currentize once and repeat exact-head reviews and CI. |
+| **Next merge candidate** | PR #1481, head `ee4f6d643382cf0aa88b0e9a5dd7b4e04b0e0d61` into base `f7179031a230e1d3d346b05020d0d207ad9de0c4` | Restacked onto current `main`; exact-head automatic reviews were running at this revision. No PM acceptance or PO merge authorization is implied. |
+| **Next product lane** | PR #1467 after #1481 | Restack and exact-head evidence are required after `main` moves. |
+| **Queued gate/docs implementation** | PR #1477 | #1469 and #1483 have both merged, so the freeze condition is discharged. Restacked and currentized once onto `f7179031`; exact-head reviews and CI follow. Its gate change stays limited to the 14 canonical `product_release/*.md` paths — PNG and test-only qualification are explicitly out of scope and tracked as a P2 on #1399. |
 
 The repository currency guard verifies committed-file consistency and ancestry only; it **cannot read a moving GitHub branch or Production deployment**. Those facts must be re-read externally at every decision point.
 
@@ -60,7 +65,7 @@ The repository currency guard verifies committed-file consistency and ancestry o
 
 ## Release-blocking closure work
 
-1. **Close current PRs serially:** qualify/accept/authorize #1469, then restack and close #1467.
+1. **Close current PRs serially:** #1469 and #1483 are merged. #1481 is restacked onto `f7179031` and awaiting exact-head reviews, then PM acceptance and an exact Product Owner head/base authorization; then restack and close #1467.
 2. **Progress integrity:** #1471 must treat empty `{}` as unobservable unless completeness is affirmative; #1476 must prevent cross-tab queue loss.
 3. **Practice Loop availability:** #1473 owns automatic 1+1 review generation, structured cause handling, and truthful retry. The observed Production failure reached a `42501` profile-read denial before the quota path; a quota-exhaustion explanation is refuted for those requests.
 4. **Filler truth:** #1472 owns persisted `complete | unobservable | no_speech` semantics across Session, Analytics, PDF, Progress, recovery, and telemetry.
@@ -95,6 +100,32 @@ No Production RWT, migration, Edge/config change, credential/account repair, pay
 - Repair or recreate the missing managed reviewer identities only through the approved credential path and only under exact-action Product Owner authorization.
 - Read the Production grant matrix and sanitized Edge failure code for #1473. Do not infer a grant from browser symptoms, and do not expose credentials or row content.
 - Repair the canary trial fixture: current failures stop at test-user provisioning before any product journey executes.
+
+## Criterion: what counts as a product-behavior release
+
+This section was removed by an earlier revision of this currentization and is restored, because without it the release-track posture below has no stated rule and a later reader must guess.
+
+A commit changes product behavior **iff it modifies a file that reaches the shipped bundle or a deployed Edge function**. Concretely:
+
+- under `frontend/src/`, **and**
+- **not** in a `__tests__/` directory, and not a `*.test.*` / `*.spec.*` file, and
+- not under `frontend/src/e2e/` (harness-only contracts);
+- **or** under `backend/supabase/functions/`, excluding that tree's own `*.test.ts` files.
+
+Everything else — `tests/**`, `scripts/**`, docs — deploys without changing runtime behavior.
+
+> **Worked example, because "touches `frontend/src`" is NOT the criterion.** `5f378898` (#1357) modifies exactly one file under `frontend/src/`: `components/session/__tests__/benchmarkHarnessSurface.test.tsx`. It is a test file, so it does not reach the bundle and #1357 is not a product-behavior release. A future reader applying "touches `frontend/src`" mechanically would get the opposite answer — which is why the rule is stated rather than implied.
+
+Four distinctions the rule depends on, stated so they cannot be collapsed:
+
+1. **Deployed frontend runtime *or* Edge-function behaviour counts.** The original rule named only the frontend bundle. An Edge function is deployed product surface, so a change there is product behaviour even though no bundle file moved.
+2. **A migration changes Production product behaviour only when it is separately applied, never when its file merges.** `backend/supabase/migrations/**` is a *database* change tracked separately. Merging the file and applying it to Production are two events, and only the second alters behaviour. #1469's migration merged on `734d045a` and remains unapplied; that is the current live example.
+3. **Tests, evidence, canonical documents and non-runtime scripts never become product behaviour by PR title.** A PR titled `fix(...)` that touches only `tests/**` deploys nothing. The classification follows the files, not the subject line.
+4. **Deployment verification follows the actual affected runtime surface, never title inference.** A frontend change is verified by reading `window.__APP_RELEASE__` on the canonical Production app; an Edge change is verified against that function; a migration is verified by its applied state. Choosing the check from the PR title rather than the changed files is how an unverified deployment gets recorded as verified.
+
+**Deployed release identity is READ, never inferred.** The Production release is read from `window.__APP_RELEASE__` on the canonical Production app. It is never inferred from a merge, a deployment trigger, or a moving `main` pointer — those establish that a deployment was *attempted*, not which build is serving users.
+
+**No claim is made here about relative engine accuracy, in either direction.** Vendor figures are reference-only and must not be compared against our own corpus results — differing corpora and decode paths make such a comparison an artifact rather than a measurement. The #1304 lane exists to produce a defensible ranking; until it does, there is none.
 
 ## Non-active paths
 

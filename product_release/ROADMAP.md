@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for unfinished and deferred product/release work)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-15 — reconciled to `main@8e638c84`, the five open PRs, the 29 open issues, the 20 immediate closures/consolidations, and incomplete RWT evidence.
+**Last Verified:** 2026-09-16 — reconciled to `main@f7179031`, which is `main` after PR #1469 and PR #1483 merged; the open PRs, the open issues, and incomplete RWT evidence were re-read at the same time.
 **Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -11,14 +11,14 @@
 
 # SpeakSharp Roadmap
 
-> **Baseline `8e638c844d101312b507e84fd9559467f6eb0c82`** (`main`, 2026-09-15, #1468). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a read of Production, never inferred from this pointer.
+> **Baseline `f7179031a230e1d3d346b05020d0d207ad9de0c4`** (`main`, 2026-09-16, after #1483). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer — the two values currently differ because Production has not been re-read since #1483 merged.
 
 This file is the live backlog authority. The former `BACKLOG.md` is archived and must not be restored as a fifteenth canonical document. Completion belongs in issue/PR/git history; current deployment facts belong in `RELEASE_STATUS.md`.
 
 <!-- CURRENCY-BLOCK
-baseline: 8e638c844d101312b507e84fd9559467f6eb0c82
-deployed-release: 8e638c844d101312b507e84fd9559467f6eb0c82
-verified-on: 2026-09-15
+baseline: f7179031a230e1d3d346b05020d0d207ad9de0c4
+deployed-release: 734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3
+verified-on: 2026-09-16
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
@@ -33,7 +33,10 @@ lane-telemetry: open
 lane-retention-copy: open
 lane-billing: off-critical-path
 lane-1258-journey: returned
-lane-1469: open
+lane-1469: merged
+lane-1483: merged
+lane-1481: open
+lane-canary-rotation: open
 lane-practice-loop: open
 lane-moonshine: returned
 -->
