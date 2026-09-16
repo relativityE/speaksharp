@@ -71,9 +71,10 @@ describe('SessionAfterState (#1222 after)', () => {
     });
 });
 
-// The governing rule across the FULL journey: four slots keep identity + order in all three states.
-describe('before → during → after (#1222 §1 — slots never move across the whole journey)', () => {
-    it('holds slot order A,B,C,D through every state change', () => {
+// The governing rule across the FULL journey, as amended for #1474: four slots keep identity in all three
+// states; order is A,B,C,D for before/during and A,D,C,B for after, where G10 promotes the review.
+describe('before → during → after (#1222 §1 as amended by #1474 — identity always, order per state)', () => {
+    it('holds A,B,C,D through before/during and promotes the review to A,D,C,B in after', () => {
         const beforeProps = {
             mic: { onStart: vi.fn() },
             transcript: { offerDismissed: false, onDismissOffer: vi.fn(), onRestoreOffer: vi.fn(), onTakePrompt: vi.fn(), onReadSample: vi.fn() },
@@ -92,6 +93,10 @@ describe('before → during → after (#1222 §1 — slots never move across the
         expect(order()).toEqual(['A', 'B', 'C', 'D']);
         rerender(<SessionAfterState {...afterProps} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
-        expect(order()).toEqual(['A', 'B', 'C', 'D']);
+        expect(order()).toEqual(['A', 'D', 'C', 'B']);
+        // Identity survives the promotion: the same four landmarks, none renamed or dropped.
+        for (const name of ['Recorder', 'Transcript', 'Progress', 'Coaching']) {
+            expect(screen.getByRole('region', { name })).toBeInTheDocument();
+        }
     });
 });
