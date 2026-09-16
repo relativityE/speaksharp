@@ -11,13 +11,13 @@
 
 # SpeakSharp Roadmap
 
-> **Baseline `28b66bc422ad90b2f785ae4f03f7858196fbcbe3`** (`main`, 2026-09-16, after #1489 / issue #1474). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer — the two values differ because Production has not been re-read since #1469, and #1483, #1481 and #1489 have merged since. #1481 and #1489 both moved bundle files, so the live product is expected to differ visibly from the recorded read until it is re-read.
+> **Baseline `28b66bc422ad90b2f785ae4f03f7858196fbcbe3`** (`main`, 2026-09-16, after #1489 / issue #1474). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer. The two values currently agree because Production was read at 2026-09-16T17:48:10Z after the #1489 deploy propagated — agreement is the observed result of that read, not a conclusion drawn from the merge. They diverge again the moment `main` advances, until a new read is taken.
 
 This file is the live backlog authority. The former `BACKLOG.md` is archived and must not be restored as a fifteenth canonical document. Completion belongs in issue/PR/git history; current deployment facts belong in `RELEASE_STATUS.md`.
 
 <!-- CURRENCY-BLOCK
 baseline: 28b66bc422ad90b2f785ae4f03f7858196fbcbe3
-deployed-release: 734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3
+deployed-release: 28b66bc422ad90b2f785ae4f03f7858196fbcbe3
 verified-on: 2026-09-16
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
