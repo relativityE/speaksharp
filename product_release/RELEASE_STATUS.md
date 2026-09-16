@@ -3,7 +3,7 @@
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-16 — reconciled to `main@30e3b62e`, which is `main` after PR #1469 (Focus Points attribution authority), PR #1483 (read-only canary identity inspection) and PR #1481 (shared site theme authority and all-page migration) have all merged. Open PRs, the backlog, and current RWT evidence were re-read at the same time.
+**Last Verified:** 2026-09-16 — reconciled to `main@28b66bc4`, which is `main` after PR #1469 (Focus Points attribution authority), PR #1483 (read-only canary identity inspection), PR #1481 (shared site theme authority and all-page migration) and PR #1489 (issue #1474, the G10 Practice Loop hierarchy) have all merged. Open PRs, the backlog, and current RWT evidence were re-read at the same time.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
@@ -11,11 +11,11 @@
 **Supersedes:** any conflicting current-status claim in `product_release/archive/`, dated evidence, work items, or older root-file text.
 **Evidence Sources:** GitHub `main`; Production `window.__APP_RELEASE__`; PR #1469, PR #1483 and PR #1481 merge receipts; issues #1258, #1263, #1304, #1390, #1399, and #1471–#1476.
 
-> **`baseline` and `deployed-release` deliberately differ, and that is not an oversight.** The baseline is `main`'s current tip, `30e3b62e82448c5eec0f1ada25823b3203f823ce`. The deployed release is recorded as `734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3` because that is the **last value actually read** from `window.__APP_RELEASE__` on the canonical Production app, on 2026-09-15 after #1469. Two merges have landed since and it has **not** been re-read. Per the criterion below, the deployed release is a read and is never inferred from a merge or a moving `main` pointer, so this file records the last read rather than assuming the merges deployed. **The gap is now materially larger, and differently shaped.** #1483 changed only `scripts/**`, `.github/workflows/**` and tests, so no bundle file moved. #1481 is not of that kind: it migrated colour across `frontend/src/**`, so bundle files certainly moved and a visible change on every surface is expected. The recorded value is therefore stale by a change a user would see, and only a Production read settles what is live.
+> **`baseline` and `deployed-release` deliberately differ, and that is not an oversight.** The baseline is `main`'s current tip, `28b66bc422ad90b2f785ae4f03f7858196fbcbe3`. The deployed release is recorded as `734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3` because that is the **last value actually read** from `window.__APP_RELEASE__` on the canonical Production app, on 2026-09-15 after #1469. **Three** merges have landed since and it has **not** been re-read. Per the criterion below, the deployed release is a read and is never inferred from a merge or a moving `main` pointer, so this file records the last read rather than assuming the merges deployed. **The gap is now materially larger, and differently shaped.** #1483 changed only `scripts/**`, `.github/workflows/**` and tests, so no bundle file moved. #1481 and #1489 are not of that kind: #1481 migrated colour across `frontend/src/**` and #1489 restructured the completed-session surface, so bundle files certainly moved and a visible change is expected — on every surface for the first, and on the post-save review for the second. The recorded value is therefore stale by a change a user would see, and only a Production read settles what is live.
 
 <!-- CURRENCY-BLOCK
 # Machine-readable state parsed by tests/config/documentationContract.test.ts.
-baseline: 30e3b62e82448c5eec0f1ada25823b3203f823ce
+baseline: 28b66bc422ad90b2f785ae4f03f7858196fbcbe3
 deployed-release: 734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3
 verified-on: 2026-09-16
 release-blocker: production-journey-recovery
@@ -35,6 +35,7 @@ lane-1258-journey: returned
 lane-1469: merged
 lane-1483: merged
 lane-1481: merged
+lane-1474: merged
 lane-1475: open
 lane-canary-rotation: open
 lane-practice-loop: open
@@ -47,12 +48,12 @@ lane-moonshine: returned
 
 | Identity | Current value | Evidence boundary |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `30e3b62e82448c5eec0f1ada25823b3203f823ce` (after #1481), read 2026-09-16 | Re-read GitHub before every exact-pair decision. |
+| **Repository `main` (moving branch pointer)** | `28b66bc422ad90b2f785ae4f03f7858196fbcbe3` (after #1489 / issue #1474), read 2026-09-16 | Re-read GitHub before every exact-pair decision. |
 | **Deployed product release (last READ, not current)** | `window.__APP_RELEASE__ = 734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3`, read from the canonical Production app on 2026-09-15 after #1469 | **Stale by two merges and deliberately not updated by inference.** #1483 and then #1481 have merged; Production has not been re-read. #1483 touched only `scripts/**`, `.github/workflows/**` and tests, so no bundle file moved. #1481 migrated colour across `frontend/src/**`, so bundles moved and a visible change on every surface is expected — an expectation, not a read. Re-read before any RWT, deployment or go/no-go claim. |
 | **Next release-candidate line** | `v0.9.0-rc` | The version step reflects the significance of the current product/release-control update. This is the release line, not an exact tag name or tag authorization. Before tagging, inventory the existing `v0.9.0-rc*` tags, select the next unused monotonically increasing identifier, align `package.json`, and qualify that exact integrated `main` under explicit Product Owner authorization. |
-| **Next merge candidate** | PR #1487 (issue #1475), head `55788adca7d2b7fac87e6dbc97cc0d000a942787` into base `30e3b62e82448c5eec0f1ada25823b3203f823ce` | Restacked onto current `main` and frozen after an exact-head P1 fix; exact-head automatic reviews were running at this revision. No PM acceptance or PO merge authorization is implied. |
+| **Next merge candidate** | PR #1487 (issue #1475), head `797e2ea39fdf17d8f17c02cc55f734bdf0f5a0b5` into base `28b66bc422ad90b2f785ae4f03f7858196fbcbe3` | Restacked once onto current `main` and frozen. This head also folds in the filler-series token migration, so the reviews on its predecessor do not qualify it. No PM acceptance or PO merge authorization is implied. |
 | **Next product lane** | PR #1467 | Its token dependency is discharged: `brand-neutral-secondary` existed only on #1481's branch and is now on `main`. Restack and exact-head evidence are still required after `main` moves. |
-| **Queued gate/docs implementation** | PR #1477 | **Frozen behind the active product PR, which is PR #1487.** #1469, #1483 and #1481 having merged does not discharge the freeze — it serialises this lane behind whichever product PR holds the merge token, so it does not become the next merge candidate by predecessors closing. Restacked and currentized once onto `30e3b62e`; exact-head reviews and CI follow. Its gate change stays limited to the 14 canonical `product_release/*.md` paths — PNG and test-only qualification are explicitly out of scope and tracked as a P2 on #1399. |
+| **Queued gate/docs implementation** | PR #1477 | **Frozen behind the active product PR, which is PR #1487.** #1469, #1483 and #1481 having merged does not discharge the freeze — it serialises this lane behind whichever product PR holds the merge token, so it does not become the next merge candidate by predecessors closing. Restacked and currentized once onto `28b66bc4`; exact-head reviews and CI follow. Its gate change stays limited to the 14 canonical `product_release/*.md` paths — PNG and test-only qualification are explicitly out of scope and tracked as a P2 on #1399. |
 
 The repository currency guard verifies committed-file consistency and ancestry only; it **cannot read a moving GitHub branch or Production deployment**. Those facts must be re-read externally at every decision point.
 
@@ -66,7 +67,7 @@ The repository currency guard verifies committed-file consistency and ancestry o
 
 ## Release-blocking closure work
 
-1. **Close current PRs serially:** #1469, #1483 and #1481 are merged; #1481 landed as `30e3b62e82448c5eec0f1ada25823b3203f823ce`. PR #1487 (issue #1475) is open at head `55788adca7d2b7fac87e6dbc97cc0d000a942787`, awaiting exact-head reviews, then PM acceptance and an exact Product Owner head/base authorization; then restack and close #1467.
+1. **Close current PRs serially:** #1469, #1483, #1481 and #1489 (issue #1474) are merged; #1489 landed as `28b66bc422ad90b2f785ae4f03f7858196fbcbe3`. PR #1487 (issue #1475) is open at head `797e2ea39fdf17d8f17c02cc55f734bdf0f5a0b5`, awaiting exact-head reviews, then PM acceptance and an exact Product Owner head/base authorization; then restack and close #1467.
 2. **Progress integrity:** #1471 must treat empty `{}` as unobservable unless completeness is affirmative; #1476 must prevent cross-tab queue loss.
 3. **Practice Loop availability:** #1473 owns automatic 1+1 review generation, structured cause handling, and truthful retry. The observed Production failure reached a `42501` profile-read denial before the quota path; a quota-exhaustion explanation is refuted for those requests.
 4. **Filler truth:** #1472 owns persisted `complete | unobservable | no_speech` semantics across Session, Analytics, PDF, Progress, recovery, and telemetry.
