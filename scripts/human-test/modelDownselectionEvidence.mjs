@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AUTHORIZED_CANDIDATES, RECORD_KEYS, authorizationShapeProblems, checkRunAuthority } from './modelComparisonRunAuthority.mjs';
+import { AUTHORIZED_CANDIDATES, DECIDED_FALLBACK, DECIDED_PRIMARY, RECORD_KEYS, authorizationShapeProblems, checkRunAuthority } from './modelComparisonRunAuthority.mjs';
 import { controlReceiptProblems } from './preTakeControl.mjs';
 
 export const MODEL_DOWNSELECTION_SCHEMA_VERSION = 'speaksharp.model-downselection.v1';
@@ -810,6 +810,18 @@ function validateSelection(selection, packetDigest, baseDir, approvalResolver, p
   }
   if (selection.sitsOut !== null) {
     problems.push('selection.sitsOut must be null: the authorised matrix has no third candidate, and a deferred candidate never sat out');
+  }
+  /**
+   * The ROLES are pinned, not merely the membership. Presence-and-distinctness alone accepted a packet
+   * declaring v2 primary and v4 fallback — the reverse of the standing decision — so the terminal validator
+   * could have certified the opposite of the conclusion it exists to confirm. The comparison measures
+   * whether the decided pairing holds; it does not get to re-decide which candidate leads.
+   */
+  if (selection.primary !== DECIDED_PRIMARY) {
+    problems.push(`selection.primary must be the decided primary ${DECIDED_PRIMARY}, not ${selection.primary}`);
+  }
+  if (selection.fallback !== DECIDED_FALLBACK) {
+    problems.push(`selection.fallback must be the decided fallback ${DECIDED_FALLBACK}, not ${selection.fallback}`);
   }
   const approval = loadVerifiedJson(
     selection.approvalArtifact, selection.approvalSha256, baseDir, 'selection.approvalArtifact', problems,

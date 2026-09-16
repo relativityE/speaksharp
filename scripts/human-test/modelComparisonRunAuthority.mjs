@@ -43,6 +43,15 @@ export const DIAGNOSTIC_JOB_NAME = 'Gate 3 - DAST / Running App';
  * it authorises nothing.
  */
 export const AUTHORIZED_CANDIDATES = Object.freeze(['v2:base.en', 'v4:distil:q4']);
+/**
+ * WHICH ROLE each authorised candidate holds, not merely which are present.
+ *
+ * The decision is v4 provisional primary against v2 fallback. Checking only that both are present and
+ * distinct lets a packet declare the OPPOSITE roles and still qualify, which would let terminal evidence
+ * certify the reverse of the decision it exists to confirm.
+ */
+export const DECIDED_PRIMARY = 'v4:distil:q4';
+export const DECIDED_FALLBACK = 'v2:base.en';
 /** Deferred: parseable as history, never dispatchable. */
 const HISTORICAL_ONLY_CANDIDATES = Object.freeze(['moonshine:streaming-medium']);
 const JOURNEYS = Object.freeze(['open_mic', 'focus_points']);

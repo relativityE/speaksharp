@@ -213,7 +213,9 @@ function validEvidence() {
     selection: {
       // #1477 P1: the authorised matrix is two candidates, so `sitsOut` is null. A deferred candidate is
       // not a sitting-out candidate — it never entered this comparison.
-      status: 'selected', primary: COMPARISON_CANDIDATES[0], fallback: COMPARISON_CANDIDATES[1],
+      // The DECIDED roles, named rather than positional: COMPARISON_CANDIDATES[0] is v2, so the previous
+      // positional form declared v2 primary and v4 fallback — the reverse of the decision — and passed.
+      status: 'selected', primary: 'v4:distil:q4', fallback: 'v2:base.en',
       sitsOut: null, approvalArtifact: null, approvalSha256: null,
     },
   };
@@ -1143,4 +1145,32 @@ describe('#1432 PM RETURN `5654016276` — the validator, schema and template fo
     staleLimit.geminiEvidence[0].quota.limit = 20;
     expect(holdProblems(staleLimit)).toMatch(new RegExp(`geminiEvidence\\[0\\]\\.quota\\.limit must be ${LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay}\\b`));
   });
+});
+
+/**
+ * #1477 P1 — the terminal validator must not be able to certify the opposite of the decision.
+ *
+ * `validateSelection` originally checked only that both authorised candidates were present and distinct, so a
+ * packet declaring v2 primary and v4 fallback qualified. The fixture itself did that, positionally, and passed —
+ * which is how the defect stayed invisible.
+ */
+describe('#1477 — the decided primary/fallback roles are pinned, not merely present', () => {
+    it('CASUALTY: a packet that reverses primary and fallback is refused', () => {
+        const reversed = validEvidence();
+        reversed.selection.primary = 'v2:base.en';
+        reversed.selection.fallback = 'v4:distil:q4';
+        const problems = holdProblems(reversed);
+        expect(problems).toMatch(/selection\.primary must be the decided primary v4:distil:q4/);
+        expect(problems).toMatch(/selection\.fallback must be the decided fallback v2:base\.en/);
+    });
+
+    it('CONTROL: the fixture itself declares the decided pairing', () => {
+        // The control that matters: the fixture used to assign roles POSITIONALLY from
+        // COMPARISON_CANDIDATES, whose index 0 is v2 — so it declared v2 primary and v4 fallback and still
+        // passed. That the complete fixture reaches PASS is already asserted by the contract suite above;
+        // what was missing was any check that it declares the decided roles at all.
+        const ok = validEvidence();
+        expect(ok.selection.primary).toBe('v4:distil:q4');
+        expect(ok.selection.fallback).toBe('v2:base.en');
+    });
 });
