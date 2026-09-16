@@ -4,7 +4,7 @@ import React from 'react';
  * #1222 slot B — the transcript body, rendered as the `children` of the single slot-B `TranscriptCard`
  * (so the card never remounts across states, spec §1). Text is 19px/1.75 in a `min-height:420px` body.
  *
- * during (§4): fillers highlight the INSTANT they land (background `#fdf3e2`, 2px `#d98a1f` bottom border,
+ * during (§4): fillers highlight the INSTANT they land (background `signature-ground`, 2px `signature` bottom border,
  * 3px radius); a 2px orange caret marks the live insertion point.
  * after  (§5): the SAME body, now seekable — clicking a highlighted filler jumps playback to it. Pass
  * `onFillerSeek` to turn fillers into seek buttons and drop the caret.
@@ -52,16 +52,16 @@ export interface LiveTranscriptProps {
 }
 
 const fillerStyle: React.CSSProperties = {
-    backgroundColor: '#fdf3e2',
-    borderBottom: '2px solid #d98a1f',
+    backgroundColor: 'var(--brand-signature-ground)',
+    borderBottom: '2px solid var(--brand-signature)',
     borderRadius: 3,
     padding: '0 2px',
-    color: '#241503',
+    color: 'var(--brand-ink)',
 };
 
 const coverageStyle = (mode: 'during' | 'after'): React.CSSProperties => ({
-    backgroundColor: mode === 'during' ? '#f5f0ff' : '#e7f4ed',
-    borderBottom: `2px solid ${mode === 'during' ? '#6d28d9' : '#1f9d6b'}`,
+    backgroundColor: mode === 'during' ? 'var(--brand-focus-ground)' : 'var(--brand-success-ground)',
+    borderBottom: `2px solid ${mode === 'during' ? 'var(--brand-focus)' : 'var(--brand-progress-bar)'}`,
     borderRadius: 3,
     padding: '0 2px',
 });
@@ -72,7 +72,7 @@ export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCare
     return (
         <div
             data-testid={testId}
-            style={{ minHeight: 420, fontSize: 19, lineHeight: 1.75, color: '#1f2733' }}
+            style={{ minHeight: 420, fontSize: 19, lineHeight: 1.75, color: 'var(--brand-neutral-body)' }}
         >
             {tokens.map((t, i) => (
                 <React.Fragment key={i}>
@@ -85,7 +85,7 @@ export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCare
                                 data-testid="live-filler"
                                 onClick={() => onFillerSeek?.(t, i)}
                                 aria-label={`Play from "${t.text}"`}
-                                style={{ ...fillerStyle, cursor: 'pointer', border: 0, borderBottom: '2px solid #d98a1f', font: 'inherit' }}
+                                style={{ ...fillerStyle, cursor: 'pointer', border: 0, borderBottom: '2px solid var(--brand-signature)', font: 'inherit' }}
                             >
                                 {t.text}
                             </button>
@@ -96,7 +96,7 @@ export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCare
                         // #1231 R1: the live-updating tail renders muted (settling) → solid once locked in.
                         <span
                             data-testid={t.interim ? 'live-interim' : undefined}
-                            style={t.interim ? { color: '#8a94a6' } : undefined}
+                            style={t.interim ? { color: 'var(--brand-neutral-muted)' } : undefined}
                         >
                             {t.text}
                         </span>
@@ -107,7 +107,7 @@ export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCare
                 <span
                     aria-hidden="true"
                     data-testid="live-caret"
-                    style={{ display: 'inline-block', width: 2, height: '1.1em', verticalAlign: 'text-bottom', backgroundColor: '#d98a1f' }}
+                    style={{ display: 'inline-block', width: 2, height: '1.1em', verticalAlign: 'text-bottom', backgroundColor: 'var(--brand-signature)' }}
                 />
             )}
         </div>

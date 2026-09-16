@@ -120,7 +120,7 @@ describe('#1430 fix-forward `3991325303` — executable control files are substa
       'frontend/vitest.config.mjs',
       'tsconfig.json',
       'playwright.config.ts',
-      'frontend/tailwind.config.ts',
+      'frontend/tailwind.config.js',
     ]) {
       expect({ path, substantive: isSubstantiveImplementationFile(path) }).toEqual({ path, substantive: true });
     }

@@ -35,7 +35,7 @@ function fmtClock(seconds: number): string {
 }
 
 export const CoverageThisRun: React.FC<CoverageThisRunProps> = ({ covered, total, sessionState, elapsedSeconds }) => {
-    const numberColor = covered > 0 ? '#146b4a' : '#8b95a5';
+    const numberColor = covered > 0 ? 'var(--brand-status)' : 'var(--brand-neutral-muted)';
     const secondLine = sessionState === 'after' && elapsedSeconds != null ? `in ${fmtClock(elapsedSeconds)}` : 'so far';
 
     return (
@@ -44,14 +44,14 @@ export const CoverageThisRun: React.FC<CoverageThisRunProps> = ({ covered, total
             aria-label="Coverage this run"
             className="flex flex-col rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5"
         >
-            <p className="text-[12px] font-extrabold uppercase tracking-wide text-[#414b5c]">Coverage this run</p>
+            <p className="text-[12px] font-extrabold uppercase tracking-wide text-neutral-secondary">Coverage this run</p>
 
             <div className="mt-2 flex items-baseline gap-3">
                 <p className="leading-none" data-testid="coverage-this-run-count">
                     <span className="text-[40px] font-extrabold" style={{ color: numberColor }}>{covered}</span>
-                    <span className="text-[26px] font-extrabold" style={{ color: '#8b95a5' }}>/{total}</span>
+                    <span className="text-[26px] font-extrabold" style={{ color: 'var(--brand-neutral-muted)' }}>/{total}</span>
                 </p>
-                <p className="text-[14px] font-bold leading-tight text-[#414b5c]">
+                <p className="text-[14px] font-bold leading-tight text-neutral-secondary">
                     points detected<br />{secondLine}
                 </p>
             </div>
@@ -63,7 +63,7 @@ export const CoverageThisRun: React.FC<CoverageThisRunProps> = ({ covered, total
                     // In the after state, a point whose language was never DETECTED reads as an amber pip.
                     // It does not claim the speaker missed the point — only that the matcher did not find it.
                     const isMissed = sessionState === 'after' && !isCovered;
-                    const bg = isCovered ? '#1f9d6b' : isMissed ? '#d98a1f' : '#dfe5ee';
+                    const bg = isCovered ? 'var(--brand-progress-bar)' : isMissed ? 'var(--brand-signature)' : 'var(--brand-neutral-border)';
                     return <span key={i} className="h-2 flex-1 rounded-full" style={{ backgroundColor: bg }} aria-hidden="true" />;
                 })}
             </div>

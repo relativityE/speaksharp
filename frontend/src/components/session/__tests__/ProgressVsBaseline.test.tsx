@@ -21,7 +21,7 @@ describe('ProgressVsBaseline (#1222 slot C)', () => {
         render(<ProgressVsBaseline result={result} sessionState="after" />);
         const delta = screen.getByTestId('progress-delta');
         expect(delta.textContent).toMatch(/^\+\d/); // positive sign
-        expect(delta).toHaveStyle({ color: '#146b4a' }); // green
+        expect(delta.style.color).toBe('var(--brand-status)'); // progress green beside a measured improvement
         expect(screen.getByText(/fewer/)).toBeInTheDocument();
         expect(screen.getByTestId('progress-vs-baseline')).toHaveAttribute('data-progress-state', 'improved');
         expect(screen.getByTestId('progress-current')).toHaveTextContent('Today 2.4/min');
@@ -35,7 +35,7 @@ describe('ProgressVsBaseline (#1222 slot C)', () => {
         render(<ProgressVsBaseline result={result} sessionState="after" />);
         const delta = screen.getByTestId('progress-delta');
         expect(delta.textContent).toMatch(/^−\d/); // minus sign
-        expect(delta).toHaveStyle({ color: '#a8321f' });
+        expect(delta.style.color).toBe('var(--brand-regression)');
         expect(screen.getByText(/more/)).toBeInTheDocument();
     });
 

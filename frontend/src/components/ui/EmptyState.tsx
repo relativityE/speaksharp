@@ -40,7 +40,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             <div className={cn("flex items-center justify-center rounded-full bg-primary/10 animate-pulse-ring", compact ? "mb-4 h-12 w-12" : "mb-6 h-20 w-20")}>
                 {icon || (
                     <svg
-                        className={cn("text-primary", compact ? "h-6 w-6" : "h-10 w-10")}
+                        className={cn("text-signature-text", compact ? "h-6 w-6" : "h-10 w-10")}
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -75,7 +75,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                     {secondaryAction.href ? (
                         <Link
                             to={secondaryAction.href}
-                            className="text-primary hover:underline"
+                            className="text-signature-text hover:underline"
                             data-testid={secondaryAction.testId}
                         >
                             {secondaryAction.label}
@@ -83,7 +83,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                     ) : (
                         <button
                             onClick={secondaryAction.onClick}
-                            className="text-primary hover:underline cursor-pointer bg-transparent border-none p-0"
+                            className="text-signature-text hover:underline cursor-pointer bg-transparent border-none p-0"
                             data-testid={secondaryAction.testId}
                         >
                             {secondaryAction.label}

@@ -186,7 +186,7 @@ export default function SignInPage() {
                                         type="button"
                                         onClick={() => { void handleForgotPassword(); }}
                                         disabled={isSendingReset}
-                                        className="px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"
+                                        className="px-0 font-normal text-xs text-muted-foreground hover:text-signature-text h-auto"
                                         data-testid="forgot-password-button"
                                     >
                                         {isSendingReset ? 'Sending...' : 'Forgot Password? Reset'}

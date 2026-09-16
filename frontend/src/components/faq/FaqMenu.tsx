@@ -50,9 +50,9 @@ export function FaqMenu() {
                 align="end"
                 data-testid="faq-panel"
                 aria-label="Frequently asked questions"
-                className="max-h-[70vh] w-[min(92vw,28rem)] overflow-y-auto border-[#dbe2ec] bg-card p-0 shadow-lg"
+                className="max-h-[70vh] w-[min(92vw,28rem)] overflow-y-auto border-neutral-border bg-card p-0 shadow-lg"
             >
-                <div className="border-b border-[#dbe2ec] px-4 py-3">
+                <div className="border-b border-neutral-border px-4 py-3">
                     <h2 className="text-sm font-bold tracking-tight text-foreground">
                         Frequently asked questions
                     </h2>
@@ -74,7 +74,7 @@ export function FaqMenu() {
                             >
                                 {section.title}
                             </h3>
-                            <div className="divide-y divide-[#dbe2ec] rounded-lg border border-[#dbe2ec] bg-white">
+                            <div className="divide-y divide-neutral-border rounded-lg border border-neutral-border bg-white">
                                 {section.items.map((item) => {
                                     const isOpen = openItems.has(item.id);
                                     const answerId = `faq-answer-${item.id}`;

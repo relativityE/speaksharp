@@ -39,20 +39,21 @@ import {
   trackFreeformPracticeStarted,
 } from '@/services/practiceTelemetry';
 
-// Exact brand-teal ramp (spec): brand teal #0d7d74 for CTA fills / tagline / glyphs / border; header band is
-// the two-stop 135° gradient #0d7d74→#17a99b (blue-leaning, NOT emerald/mint and NOT the dark CTA teal
-// #0a5f58); icon/pill tint #e6f4f2. The waveform/transcript art reads WHITE on the dark teal band.
+// #1480: these cards render on the signed-out landing, where Focus purple is barred and teal is retired. Both
+// cards are ink-banded (the Focus card one step lighter so the two stay distinguishable), their art reads white
+// on the band, and both CTAs are the signature action with ink text.
 const FREEFORM_VARS: React.CSSProperties = {
-  ['--ss-card' as string]: '#0d7d74', ['--ss-card-btn' as string]: '#0d7d74',
-  ['--ss-card-soft' as string]: '#e6f4f2', ['--ss-card-panel' as string]: 'linear-gradient(135deg, #0d7d74 0%, #17a99b 100%)',
-  ['--ss-card-border' as string]: '#0d7d74', ['--ss-card-warm' as string]: '#f4c77b',
+  ['--ss-card' as string]: 'var(--brand-ink)', ['--ss-card-btn' as string]: 'var(--brand-neutral-heading)',
+  ['--ss-card-soft' as string]: 'var(--brand-neutral-band)', ['--ss-card-panel' as string]: 'linear-gradient(135deg, var(--brand-ink) 0%, var(--brand-ink-raised) 100%)',
+  ['--ss-card-border' as string]: 'var(--brand-ink)', ['--ss-card-warm' as string]: 'var(--brand-signature)',
+  ['--ss-card-cta' as string]: 'var(--brand-signature)', ['--ss-card-cta-ink' as string]: 'var(--brand-ink)',
   ['--ss-art-ink' as string]: 'rgba(255,255,255,0.9)',
 };
-// Objective violet — same 135° angle + light/dark relationship, violet tokens.
 const OBJECTIVE_VARS: React.CSSProperties = {
-  ['--ss-card' as string]: '#7b5ce0', ['--ss-card-btn' as string]: '#6a4fd0',
-  ['--ss-card-soft' as string]: '#f0ecfb', ['--ss-card-panel' as string]: 'linear-gradient(135deg, #7b5ce0 0%, #9d7cf0 100%)',
-  ['--ss-card-border' as string]: '#ded8f5', ['--ss-card-warm' as string]: 'var(--ss-coral)',
+  ['--ss-card' as string]: 'var(--brand-ink-hairline)', ['--ss-card-btn' as string]: 'var(--brand-neutral-heading)',
+  ['--ss-card-soft' as string]: 'var(--brand-neutral-band)', ['--ss-card-panel' as string]: 'linear-gradient(135deg, var(--brand-ink-raised) 0%, var(--brand-ink-hairline) 100%)',
+  ['--ss-card-border' as string]: 'var(--brand-neutral-border-strong)', ['--ss-card-warm' as string]: 'var(--brand-signature)',
+  ['--ss-card-cta' as string]: 'var(--brand-signature)', ['--ss-card-cta-ink' as string]: 'var(--brand-ink)',
 };
 
 const FREEFORM_BULLETS: Bullet[] = [
@@ -84,7 +85,7 @@ function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSo
           {cornerBadge && (
             <span
               data-testid="objective-soon-badge"
-              style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,0.94)', color: '#6a4fd0', fontSize: 11, fontWeight: 800, padding: '5px 11px', borderRadius: 999, letterSpacing: '0.05em' }}
+              style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,0.94)', color: 'var(--brand-neutral-heading)', fontSize: 11, fontWeight: 800, padding: '5px 11px', borderRadius: 999, letterSpacing: '0.05em' }}
             >{cornerBadge}</span>
           )}
         </div>
@@ -93,7 +94,7 @@ function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSo
           <p className="mt-1 text-[15px] font-bold text-[color:var(--ss-card-btn)]">{promise}</p>
           <ul className="mt-3.5 space-y-2.5">
             {bullets.map((b) => (
-              <li key={b.text} className="flex items-start gap-2.5 text-[15px] text-[color:var(--ss-body-slate,#3d4757)]">
+              <li key={b.text} className="flex items-start gap-2.5 text-[15px] text-[color:var(--ss-body-slate)]">
                 <span aria-hidden className="mt-px grid h-6 w-6 shrink-0 place-items-center rounded-[6px] bg-[color:var(--ss-card-soft)] text-[color:var(--ss-card-btn)]"><b.Icon size={14} /></span>
                 <span>{b.text}</span>
               </li>
@@ -115,17 +116,17 @@ function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSo
 /** Complete-product trial strip (anonymous only). The trial and paid product have the same Private-only
  * Practice Loop; the only retained runtime ceiling is the ten-minute per-recording technical cap. */
 function CompleteTrialStrip({ onStart }: { onStart: () => void }) {
-  // DARK SLATE — deliberately NOT teal/violet: a neutral, system-level offer that gives the page its third
-  // value step and (with the -mt overlap) kills the hard hero/page seam. Orange CTA uses near-black text
-  // (never white on orange). The private-trial offer belongs to Freeform; the CTA routes to Freeform.
+  // INK band — a neutral, system-level offer that gives the page its third value step and (with the -mt
+  // overlap) kills the hard hero/page seam. The signature CTA uses ink text (never white on yellow). The
+  // private-trial offer belongs to Freeform; the CTA routes to Freeform.
   return (
     <div
       data-testid="freeform-trial-strip"
       className="relative z-10 -mt-[26px] flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
-      style={{ background: '#1d4a45', boxShadow: '0 16px 34px -18px rgba(29,74,69,0.6)' }}
+      style={{ background: 'var(--brand-ink)', boxShadow: '0 16px 34px -18px rgba(28,35,51,0.6)' }}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide" style={{ background: '#f4c77b', color: '#6b3f08' }}>Free trial</span>
+        <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide" style={{ background: 'var(--brand-signature-ground)', color: 'var(--brand-signature-text)' }}>Free trial</span>
         <span className="text-[17px] font-bold text-white">The complete Private Practice Loop is free for 30 days.</span>
       </div>
       <button
@@ -134,7 +135,7 @@ function CompleteTrialStrip({ onStart }: { onStart: () => void }) {
         data-testid="freeform-trial-start"
         aria-label="Start your 30-day trial"
         className="ss-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold shadow-sm"
-        style={{ background: '#d98a1f', color: '#241503' }}
+        style={{ background: 'var(--brand-signature)', color: 'var(--brand-ink)' }}
       >
         Start your session<ArrowRight size={15} aria-hidden />
       </button>
@@ -282,18 +283,19 @@ export default function PracticePage() {
                   <h1 className="font-extrabold" style={{ fontSize: 'clamp(38px, 8.5vw, 54px)', lineHeight: 1.02, fontWeight: 800, letterSpacing: '-0.035em' }}>
                     <span className="text-[color:var(--ss-text)]">Private Practice.</span>
                     <br />
-                    <span style={{ color: '#0a5f58' }}>Public Impact.</span>
+                    <span style={{ color: 'var(--brand-ink)' }}>Public Impact.</span>
                   </h1>
-                  <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--ss-amber)' }} />
-                  <p className="mt-4 text-[19px] font-semibold leading-[1.5]" style={{ color: '#14181f', maxWidth: '470px' }}>Practice important speaking moments in private. Get focused feedback and track your improvement before the moment matters.</p>
+                  <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--brand-ink)' }} />
+                  <p className="mt-4 text-[19px] font-semibold leading-[1.5]" style={{ color: 'var(--brand-neutral-body)', maxWidth: '470px' }}>Practice important speaking moments in private. Get focused feedback and track your improvement before the moment matters.</p>
                   <div className="mt-6">
-                    {/* Teal CTA on the orange field — complementary contrast (Rule 2). White text on teal. */}
+                    {/* On the yellow wash the primary action is the ink button with white text (a yellow
+                        button would vanish into the field). */}
                     <button
                       type="button"
                       onClick={() => navigate('/auth/signup')}
                       data-testid="practice-hero-start-free"
-                      className="ss-ring inline-flex items-center gap-2 rounded-[11px] px-7 py-3.5 text-[17px] font-bold text-white shadow-[0_14px_28px_-12px_rgba(10,95,88,0.85)]"
-                      style={{ background: '#0a5f58' }}
+                      className="ss-ring inline-flex items-center gap-2 rounded-[11px] px-7 py-3.5 text-[17px] font-bold text-white shadow-[0_14px_28px_-12px_rgba(28,35,51,0.85)]"
+                      style={{ background: 'var(--brand-ink)' }}
                     >
                       Start free<ArrowRight className="size-5" aria-hidden />
                     </button>
@@ -306,14 +308,14 @@ export default function PracticePage() {
             </div>
           </div>
 
-        {/* ANONYMOUS: a compact Freeform FREE TRIAL strip (shared Freeform teal token) directly above
+        {/* ANONYMOUS: a compact Freeform FREE TRIAL strip (ink band) directly above
             the two product cards. The strip carries the trial promo; each product card owns its decision
             + action. No four-card support section. */}
         <div className="mx-auto mt-0 max-w-[1120px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] sm:px-10 md:pb-12 md:[padding-bottom:3rem]">
           <CompleteTrialStrip onStart={startCompleteTrial} />
           <div className="mb-6 mt-11 flex flex-col items-center text-center" data-testid="practice-support-heading">
-            {/* Filled pill eyebrow (Rule 6) — small teal text on light grey would disappear. */}
-            <span className="inline-flex items-center rounded-full px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.1em] text-white" style={{ background: '#0a5f58' }}>How it helps</span>
+            {/* Filled ink pill eyebrow (Rule 6) — small text on light grey would disappear. */}
+            <span className="inline-flex items-center rounded-full px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.1em] text-white" style={{ background: 'var(--brand-ink)' }}>How it helps</span>
             <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[32px]">Choose the support your moment needs.</h2>
           </div>
           {productGrid}

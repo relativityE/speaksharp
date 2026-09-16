@@ -19,11 +19,11 @@ export interface ProgressVsBaselineProps {
     mode?: 'filler' | 'aggregate';
 }
 
-const GREEN = '#146b4a';
-const GREEN_BAR = '#1f9d6b';
-const GREEN_MUTED_BAR = '#b7d8c8';
-const REGRESS = '#a8321f';
-const TRACK = '#e0e6ee';
+const GREEN = 'var(--brand-status)';
+const GREEN_BAR = 'var(--brand-progress-bar)';
+const GREEN_MUTED_BAR = 'var(--brand-neutral-border-strong)';
+const REGRESS = 'var(--brand-regression)';
+const TRACK = 'var(--brand-neutral-border)';
 
 // The right-hand footer label differs per state; the number does not move, only its meaning.
 const CURRENT_LABEL: Record<ProgressVsBaselineProps['sessionState'], string> = {
@@ -50,7 +50,7 @@ function renderContext(context: string): React.ReactNode {
     return (
         <>
             {match[1]}
-            <span className="font-extrabold tabular-nums text-[#0f1722]" data-testid="progress-baseline-session">{match[2]}</span>
+            <span className="font-extrabold tabular-nums text-neutral-body" data-testid="progress-baseline-session">{match[2]}</span>
         </>
     );
 }
@@ -68,21 +68,21 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
 
     return (
         <div
-            className="rounded-xl border border-[#dbe2ec] bg-white p-4"
+            className="rounded-xl border border-neutral-border bg-white p-4"
             data-testid="progress-vs-baseline"
             data-progress-state={isBaseline ? 'baseline' : tooShort ? 'too-short' : direction}
             role="group"
             aria-label="Progress versus baseline"
         >
             <div className="flex items-start justify-between gap-2">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-[#414b5c]">{headerLabel}</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-secondary">{headerLabel}</p>
                 {/* #1222 G1: unobtrusive help affordance top-right — explains what the percentage means. */}
                 <button
                     type="button"
                     data-testid="progress-help"
                     aria-label="How progress is measured"
                     title="Session progress: your % change vs your previous session."
-                    className="-mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[#c5cfdd] text-[10px] font-bold leading-none text-[#414b5c] hover:bg-[#eef2f7]"
+                    className="-mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-neutral-border-strong text-[10px] font-bold leading-none text-neutral-secondary hover:bg-neutral-border-soft"
                 >
                     ?
                 </button>
@@ -90,15 +90,15 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
 
             {isBaseline ? (
                 <div className="mt-2" data-testid="progress-baseline-set">
-                    <p className="text-[20px] font-extrabold text-[#1f2733]">{isAgg ? 'Baseline signal set' : 'Baseline set'}</p>
-                    <p className="mt-1 text-[13px] text-[#414b5c]">
+                    <p className="text-[20px] font-extrabold text-neutral-body">{isAgg ? 'Baseline signal set' : 'Baseline set'}</p>
+                    <p className="mt-1 text-[13px] text-neutral-secondary">
                         {baselineRate}{unit} — we&apos;ll compare each session with the one before.
                     </p>
                 </div>
             ) : tooShort ? (
                 <div className="mt-2" data-testid="progress-too-short">
-                    <p className="text-[40px] font-extrabold leading-none text-[#232c3a]">—</p>
-                    <p className="mt-1 text-[13px] text-[#414b5c]">too short to compare</p>
+                    <p className="text-[40px] font-extrabold leading-none text-neutral-body">—</p>
+                    <p className="mt-1 text-[13px] text-neutral-secondary">too short to compare</p>
                 </div>
             ) : (
                 <>
@@ -110,7 +110,7 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
                         >
                             {(deltaPercent ?? 0) >= 0 ? '+' : '−'}{Math.abs(deltaPercent ?? 0)}%
                         </span>
-                        <span className="text-[13px] font-bold leading-snug text-[#1f2733]">
+                        <span className="text-[13px] font-bold leading-snug text-neutral-body">
                             {deltaNoun}
                             <br />
                             {renderContext(DELTA_CONTEXT[sessionState])}
@@ -136,7 +136,7 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
                         })}
                     </div>
 
-                    <div className="mt-2 flex items-center justify-between text-[12px] text-[#414b5c]">
+                    <div className="mt-2 flex items-center justify-between text-[12px] text-neutral-secondary">
                         <span>{baselineLabel} {baselineRate}{unit}</span>
                         <span data-testid="progress-current">{CURRENT_LABEL[sessionState]} {currentRate}{unit}</span>
                     </div>

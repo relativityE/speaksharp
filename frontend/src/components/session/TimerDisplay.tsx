@@ -33,7 +33,7 @@ export const TimerDisplay: React.FC<TimerDisplayProps> = ({ isListening, classNa
                 {formattedTime}
             </span>
             {isTooShort && (
-                <div className="flex items-center justify-center gap-2 mt-4 text-amber-500 font-medium animate-pulse" data-testid="min-duration-warning">
+                <div className="flex items-center justify-center gap-2 mt-4 text-signature-text font-medium animate-pulse" data-testid="min-duration-warning">
                     <AlertCircle className="h-4 w-4" />
                     <span>Minimum duration: {MIN_SESSION_DURATION_SECONDS}s</span>
                 </div>

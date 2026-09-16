@@ -21,15 +21,15 @@ export interface LiveTipData {
 export const LiveTip: React.FC<{ tip: LiveTipData }> = ({ tip }) => {
     return (
         <div data-testid="live-tip" data-tip-id={tip.id}>
-            <p className="text-[20px] font-extrabold leading-tight text-[#1f2733]" data-testid="live-tip-headline">
+            <p className="text-[20px] font-extrabold leading-tight text-neutral-body" data-testid="live-tip-headline">
                 {tip.headline}
             </p>
-            <p className="mt-1.5 text-[14px] leading-relaxed text-[#414b5c]" data-testid="live-tip-evidence">
+            <p className="mt-1.5 text-[14px] leading-relaxed text-neutral-secondary" data-testid="live-tip-evidence">
                 {tip.evidence}
             </p>
             {tip.goingRight && (
                 <p
-                    className="mt-3 rounded-lg bg-[#e7f5ee] px-3 py-2 text-[13px] font-semibold text-[#146b4a]"
+                    className="mt-3 rounded-lg bg-state-success-ground px-3 py-2 text-[13px] font-semibold text-status"
                     data-testid="live-tip-going-right"
                 >
                     {tip.goingRight}

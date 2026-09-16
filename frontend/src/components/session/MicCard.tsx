@@ -49,8 +49,8 @@ export interface MicCardProps {
 }
 
 const MicGlyph: React.FC = () => (
-    // Real microphone: capsule body + protective arc + stand + base. Drawn in #241503 (orange-fill text rule).
-    <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#241503" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    // Real microphone: capsule body + protective arc + stand + base. Drawn in ink (orange-fill text rule).
+    <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="var(--brand-ink)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <rect x="9" y="2" width="6" height="11" rx="3" />
         <path d="M5 10a7 7 0 0 0 14 0" />
         <line x1="12" y1="17" x2="12" y2="21" />
@@ -86,14 +86,14 @@ export const MicCard: React.FC<MicCardProps> = ({
     // must keep its own copy.
     const isBlockedFromStart = !!blockedReason && !modelError;
     const status = isBlockedFromStart
-        ? { dot: '#d98a1f', text: '#a8571f', label: 'Finishing your last session' }
+        ? { dot: 'var(--brand-signature)', text: 'var(--brand-signature-text)', label: 'Finishing your last session' }
         : downloadRequired
-        ? { dot: '#d98a1f', text: '#a8571f', label: 'One-time download needed' }
+        ? { dot: 'var(--brand-signature)', text: 'var(--brand-signature-text)', label: 'One-time download needed' }
         : loading
-            ? { dot: '#d98a1f', text: '#a8571f', label: pct != null ? `Downloading private transcription… ${pct}%` : 'Downloading private transcription…' }
+            ? { dot: 'var(--brand-signature)', text: 'var(--brand-signature-text)', label: pct != null ? `Downloading private transcription… ${pct}%` : 'Downloading private transcription…' }
             : modelError
-                ? { dot: '#a8321f', text: '#a8321f', label: 'Private transcription needs another try' }
-                : { dot: '#146b4a', text: '#146b4a', label: 'Mic ready on this device' };
+                ? { dot: 'var(--brand-error)', text: 'var(--brand-error)', label: 'Private transcription needs another try' }
+                : { dot: 'var(--brand-status)', text: 'var(--brand-status)', label: 'Mic ready on this device' };
 
     // Primary action: download when required, RETRY after a setup failure, otherwise start. The mic is GREYED
     // OUT + disabled for the whole download (loading), then re-enabled to record once the model is ready.
@@ -167,7 +167,7 @@ export const MicCard: React.FC<MicCardProps> = ({
         : loading ? (pct != null ? `${pct}% downloaded — the mic unlocks when it’s ready` : 'the mic unlocks when it’s ready') : 'Space bar works too · aim for 60 seconds';
 
     return (
-        <div className="rounded-xl border border-[#dbe2ec] bg-white p-4" data-testid="mic-card" data-model-status={privateModelStatus}>
+        <div className="rounded-xl border border-neutral-border bg-white p-4" data-testid="mic-card" data-model-status={privateModelStatus}>
             <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-[13px] font-extrabold" style={{ color: status.text }} data-testid="mic-status">
                     <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: status.dot }} aria-hidden="true" />
@@ -179,7 +179,7 @@ export const MicCard: React.FC<MicCardProps> = ({
                         data-testid="mic-device-select"
                         value={selectedDeviceId ?? deviceList[0].deviceId}
                         onChange={(e) => onSelectDevice?.(e.target.value)}
-                        className="rounded-lg border border-[#dbe2ec] bg-white px-2 py-1 text-[13px] font-semibold text-[#232c3a]"
+                        className="rounded-lg border border-neutral-border bg-white px-2 py-1 text-[13px] font-semibold text-neutral-body"
                     >
                         {deviceList.map((d) => (
                             <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
@@ -201,22 +201,22 @@ export const MicCard: React.FC<MicCardProps> = ({
                 className="mt-3 flex w-full items-center gap-4 rounded-lg text-left disabled:opacity-60"
             >
                 <span
-                    className="relative flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-[#d98a1f]"
+                    className="relative flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-signature"
                     aria-hidden="true"
                 >
                     <MicGlyph />
                     {loading && pct != null && (
-                        <span className="absolute -bottom-1 rounded-full bg-[#241503] px-1.5 py-0.5 text-[10px] font-bold text-white" data-testid="mic-progress">{pct}%</span>
+                        <span className="absolute -bottom-1 rounded-full bg-ink px-1.5 py-0.5 text-[10px] font-bold text-white" data-testid="mic-progress">{pct}%</span>
                     )}
                 </span>
                 <span>
-                    <span className="block text-[17px] font-extrabold text-[#1f2733]">{primaryTitle}</span>
-                    <span className="block text-[13px] text-[#414b5c]">{primarySub}</span>
+                    <span className="block text-[17px] font-extrabold text-neutral-body">{primaryTitle}</span>
+                    <span className="block text-[13px] text-neutral-secondary">{primarySub}</span>
                 </span>
             </button>
 
             {error && (
-                <p className="mt-3 rounded-lg bg-[#fdecea] px-3 py-2 text-[13px] font-semibold text-[#a8321f]" role="alert" data-testid="mic-error">
+                <p className="mt-3 rounded-lg bg-state-error-ground px-3 py-2 text-[13px] font-semibold text-state-error" role="alert" data-testid="mic-error">
                     {error}
                 </p>
             )}

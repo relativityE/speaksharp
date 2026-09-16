@@ -28,7 +28,7 @@ export const SideNav: React.FC = () => {
             </SheetTrigger>
             <SheetContent side="left">
                 <SheetHeader>
-                    <SheetTitle className="text-xl font-bold text-primary">SpeakSharp</SheetTitle>
+                    <SheetTitle className="text-xl font-bold text-signature-text">SpeakSharp</SheetTitle>
                 </SheetHeader>
                 <nav className="mt-8 flex flex-col gap-4">
                     <NavLink to="/" className={getNavLinkClass} end>

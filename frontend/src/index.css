@@ -8,111 +8,164 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* Light page background: slightly deeper/less-bright so white cards separate more clearly. */
-    --background: 215 24% 76%;
-    --foreground: 222 47% 11%;
+    /*
+     * #1480: the shadcn channel tokens below are the SAME colours as the `--brand-*` roles further down, written
+     * as HSL channels so Tailwind opacity modifiers (`bg-primary/10`) keep working. They carry no colour choice
+     * of their own: tests/config/themeTokenAuthority.test.ts converts each one back to hex and fails if it
+     * drifts from its role. Mapping (PM-accepted checkpoint map, #1480 comment 5685490234):
+     *   background = surface-session · foreground/card/popover text = neutral-body · primary = signature (fills;
+     *   text uses signature-text) · primary-foreground = ink · secondary/muted/accent = neutral-band ·
+     *   accent-foreground = neutral-heading · muted-foreground = surface-session-text (muted copy sits on the
+     *   session surface; neutral-secondary is 4.45:1 there) · destructive = error · success = status · border = neutral-border ·
+     *   border-strong/input = neutral-border-strong · ring = signature-text · charts = metric roles.
+     */
+    --background: 218.7 23.7% 74.3%;
+    --foreground: 216 24.4% 16.1%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 216 24.4% 16.1%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 216 24.4% 16.1%;
 
-    --primary: 36 92% 40%;
-    --primary-foreground: 221 39% 11%;
+    --primary: 40.4 100% 56.1%;
+    --primary-foreground: 221.7 29.1% 15.5%;
 
-    --secondary: 210 17% 96%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 216 45.5% 97.8%;
+    --secondary-foreground: 216 24.4% 16.1%;
 
-    --muted: 214 20% 95%;
-    --muted-foreground: 217 19% 27%;
+    --muted: 216 45.5% 97.8%;
+    /* surface-session-text, not neutral-secondary: muted copy sits directly on the #aeb9cd surface on most routes,
+       where neutral-secondary measures 4.45:1 (theme matrix, #1481 CI run 35031211720). */
+    --muted-foreground: 216.5 24.7% 18.2%;
 
-    --accent: 176 77% 26%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 216 45.5% 97.8%;
+    --accent-foreground: 221.7 29.1% 15.5%;
 
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 4.2 76.5% 40%;
+    --destructive-foreground: 0 0% 100%;
 
-    --success: 160 84% 30%;
+    --success: 157.2 68.5% 24.9%;
     --success-foreground: 0 0% 100%;
 
-    --border: 214 21% 77%;
-    --border-strong: 215 16% 65%;
-    --input: 215 20% 78%;
-    --ring: 36 92% 40%;
+    --border: 215.3 30.9% 89.2%;
+    --border-strong: 215 27.9% 83.1%;
+    --input: 215 27.9% 83.1%;
+    --ring: 33.9 79.2% 30.2%;
 
     --radius: 0.75rem;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 221 39% 11%;
-    --sidebar-primary: 36 92% 40%;
-    --sidebar-primary-foreground: 221 39% 11%;
-    --sidebar-accent: 210 17% 95%;
-    --sidebar-accent-foreground: 221 39% 11%;
-    --sidebar-border: 215 18% 87%;
-    --sidebar-ring: 36 92% 40%;
+    --sidebar-foreground: 216 24.4% 16.1%;
+    --sidebar-primary: 40.4 100% 56.1%;
+    --sidebar-primary-foreground: 221.7 29.1% 15.5%;
+    --sidebar-accent: 216 45.5% 97.8%;
+    --sidebar-accent-foreground: 221.7 29.1% 15.5%;
+    --sidebar-border: 215.3 30.9% 89.2%;
+    --sidebar-ring: 33.9 79.2% 30.2%;
 
-    --chart-1: 36 92% 40%;
-    --chart-2: 176 77% 26%;
-    --chart-3: 160 84% 30%;
-    --chart-4: 220 9% 46%;
-    --chart-5: 0 72% 51%;
+    /* Metric palette: fillers, clarity, progress, pace, error. */
+    --chart-1: 40.4 100% 56.1%;
+    --chart-2: 263.4 70% 50.4%;
+    --chart-3: 157.2 68.5% 24.9%;
+    --chart-4: 219.3 20% 28.4%;
+    --chart-5: 4.2 76.5% 40%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(36 92% 40%), hsl(32 95% 34%));
-    --gradient-secondary: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 17% 96%));
-    --gradient-hero: linear-gradient(135deg, hsl(36 92% 40%), hsl(32 95% 34%));
-    --gradient-subtle: linear-gradient(180deg, hsl(215 24% 88%) 0%, hsl(215 24% 88%) 100%);
+    --gradient-primary: linear-gradient(135deg, var(--brand-signature), var(--brand-signature));
+    --gradient-secondary: linear-gradient(135deg, var(--brand-neutral-page), var(--brand-neutral-band));
+    --gradient-hero: linear-gradient(135deg, var(--brand-signature), var(--brand-signature));
+    --gradient-subtle: linear-gradient(180deg, var(--brand-neutral-band) 0%, var(--brand-neutral-band) 100%);
 
     --shadow-elegant: 0 12px 28px -16px rgba(15, 23, 42, 0.25);
     --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.08);
     --shadow-card-primary: 0 2px 4px rgba(15, 23, 42, 0.08), 0 16px 40px rgba(15, 23, 42, 0.12);
-    --shadow-cta: 0 4px 12px rgba(180, 92, 5, 0.26), 0 8px 18px rgba(180, 92, 5, 0.20);
+    /* Warm lift under signature buttons, from signature-text. */
+    --shadow-cta: 0 4px 12px rgba(138, 85, 16, 0.22), 0 8px 18px rgba(138, 85, 16, 0.16);
 
     /*
-     * Primary-nav active-page tint. Deliberately NOT the solid brand teal (--accent):
-     * a solid teal pill competes with the page's primary CTA. This is a quiet tint with
-     * a dark-teal label.
-     *
-     * Darkened deliberately: at 92% lightness the tint was ~1.14:1 against the white header
-     * and the two label colours differed by ~1.19:1, so the state read as hue alone — weak
-     * for deuteranopia/protanopia and on dim or sunlit displays. The tint is now ~1.5:1
-     * against white and the labels ~1.6:1 apart, while active text keeps ~7:1 on the pill.
+     * Primary-nav active page: signature-border pill with signature-text label (4.6:1). The pill is ~1.4:1
+     * against the white header, so the state never reads as hue alone; `aria-current="page"` is the
+     * programmatic signal. Inactive labels neutral-secondary, hover neutral-heading.
      */
-    --nav-active-bg: 176 42% 78%;
-    --nav-active-fg: 176 80% 16%;
-    --nav-item-fg: 217 19% 40%;
-    --nav-item-fg-hover: 222 47% 11%;
+    --nav-active-bg: 38.6 65.1% 83.1%;
+    --nav-active-fg: 33.9 79.2% 30.2%;
+    --nav-item-fg: 217.8 17.2% 30.8%;
+    --nav-item-fg-hover: 221.7 29.1% 15.5%;
 
     /*
      * Account avatar. Deliberately NOT the active-nav tint: the avatar is permanently present, and
      * painting it in the "you are here" colour would dilute the active-page signal to a colour that
-     * appears twice in the bar. A neutral slate chip instead — identity, not navigation state.
+     * appears twice in the bar. A neutral chip instead — identity, not navigation state.
      */
-    --nav-avatar-bg: 218 27% 92%;
-    --nav-avatar-fg: 222 32% 28%;
+    --nav-avatar-bg: 215 31.6% 92.5%;
+    --nav-avatar-fg: 217.8 17.2% 30.8%;
 
     --header-height: 4rem;
     --bottom-nav-height: 5rem;
     --toast-offset-top: calc(var(--header-height) + 0.75rem);
     --toast-offset-bottom: 1.5rem;
 
-    /* #1047 Practice Session surface tokens. The Session page uses the shadcn system (index.css),
-       NOT the `.practice-root` warm palette in practice.css — so these live here with the rest of the
-       app-shell tokens and are consumed as hsl(var(--…)); components carry no raw hex. */
-    /* Brand dark green — the filled "How Rough Drafts works" island. It must NOT be another
-       white rounded rectangle: as a white ghost button above a white status bar it read as a second
-       status row rather than as an action. */
-    --session-green-deep: 164 74% 17%;
-    --session-green-deep-hover: 164 74% 13%;
-    --session-green-deep-foreground: 0 0% 100%;
-    /* Receding ambient-status tint for the demoted "Mic ready" bar. */
-    --session-green-soft: 160 44% 94%;
-    --session-green-soft-border: 160 32% 74%;
-    --session-green-soft-text: 164 74% 17%;
+    /* #1047 Practice Session surface tokens, consumed as hsl(var(--…)). The green "How it works" island and
+       the green ambient-status tint were retired by #1480 (ink button; success-state set). */
     /* Warm tile behind the collapsed filler row's glyph (warm = evidence, matching the filler chips). */
-    --session-warm-tile: 36 88% 92%;
-    --session-warm-tile-text: 30 84% 30%;
-    --shadow-session-help: 0 6px 16px -6px hsl(164 74% 17% / 0.45), 0 2px 5px -2px hsl(164 74% 17% / 0.32);
+    --session-warm-tile: 37.8 87.1% 93.9%;
+    --session-warm-tile-text: 33.9 79.2% 30.2%;
+
+    /* #1480 — THE ONE THEME AUTHORITY for the approved SpeakSharp colour roles (Landing Rev 2 §1). Pages and
+       components consume these through the Tailwind role colours (`signature`, `ink`, `money`, `status`,
+       `neutral-*`), never through copied hex values or page-specific palettes. `#8b95a5` is retired (3.03:1);
+       teal is retired. tests/config/themeTokenAuthority.test.ts guards this block and ratchets old literals down.
+       - signature: the only colour that means act (primary CTAs, highlights); `-text` is its on-white text form.
+       - ink: the one dark ground; `-text` / `-muted` are the text colours on it.
+       - money: prices only; `-on-ink` is the price colour on the ink ground.
+       - status: confirmation/shield marks only.
+       - neutral: page, bands, borders and text. */
+    --brand-signature: #ffb61f;
+    --brand-signature-text: #8a5510;
+    --brand-signature-ground: #fdf3e2;
+    --brand-signature-border: #f0dcb8;
+    --brand-ink: #1c2333;
+    --brand-ink-raised: #262f42;
+    --brand-ink-hairline: #3a4457;
+    --brand-ink-text: #eef1f7;
+    --brand-ink-muted: #9aa6bd;
+    --brand-money: #5b21b6;
+    --brand-money-soft: #6d28d9;
+    --brand-money-on-ink: #c4b5fd;
+    --brand-status: #146b4a;
+    --brand-neutral-page: #ffffff;
+    --brand-neutral-band: #f7f9fc;
+    --brand-neutral-border: #dbe2ec;
+    --brand-neutral-border-soft: #e6ebf2;
+    --brand-neutral-border-strong: #c8d2e0;
+    --brand-neutral-heading: #1c2333;
+    --brand-neutral-body: #1f2733;
+    --brand-neutral-secondary: #414b5c;
+    --brand-neutral-muted: #6b7688;
+    /* Designer rulings 15 Sep (#1480 comment 5685636195). Record red is reserved for the stop control and
+       RECORDING. Progress green marks a genuine improvement on a number or arrow only — never a series colour.
+       System states: error has its own red; success reuses status text; warnings take no hue. Route surfaces are
+       per-route (landing uses neutral-page; the session page sits on its own surface). */
+    --brand-record: #d92d20;
+    --brand-record-text: #a1261c;
+    --brand-progress-bar: #1f9d6b;
+    --brand-regression: #a8321f;
+    --brand-error: #b42318;
+    --brand-error-ground: #fef3f2;
+    --brand-error-border: #fda29b;
+    --brand-success-ground: #ecfdf3;
+    --brand-success-border: #a6f4c5;
+    --brand-surface-session: #aeb9cd;
+    --brand-surface-session-text: #232c3a;
+    --brand-metric-clarity: #6d28d9;
+    /* Focus Points identity — app routes only (Designer ruling, #1480 comment 5685776478). Never on the landing
+       route (purple is prices-only there) and never a second action colour: signature still owns the actions, and
+       at most one purple element per card. Replaces the retired #7b5ce0 (3.9:1) and #6a4fd0. */
+    --brand-focus: #6d28d9;
+    --brand-focus-strong: #5b21b6;
+    --brand-focus-ground: #f5f0ff;
+    --brand-focus-border: #e6dcfb;
+    --shadow-session-help: 0 6px 16px -6px rgba(28, 35, 51, 0.45), 0 2px 5px -2px rgba(28, 35, 51, 0.32);
   }
 
   .dark {
@@ -251,27 +304,28 @@ All colors MUST be HSL.
   box-shadow: var(--shadow-cta);
 }
 
-/* #1047: the soft dark-green lift under the "How Rough Drafts works" island. */
+/* #1047: the soft ink lift under the "How … works" island. */
 .session-help-shadow {
   box-shadow: var(--shadow-session-help);
 }
 
+/* Gradient text is signature-text only: signature yellow itself is not legible as text on white. */
 .text-gradient-brand {
   @apply bg-clip-text text-transparent;
-  background-image: linear-gradient(135deg, hsl(40 90% 60%) 0%, hsl(30 90% 55%) 50%, hsl(20 85% 50%) 100%);
+  background-image: linear-gradient(135deg, var(--brand-signature-text) 0%, var(--brand-signature-text) 100%);
 }
 
 .glow-primary {
-  box-shadow: 0 10px 28px -18px hsl(36 92% 40% / 0.55);
+  box-shadow: 0 10px 28px -18px hsl(var(--primary) / 0.55);
 }
 
 .glow-secondary {
-  box-shadow: 0 10px 28px -18px hsl(176 77% 26% / 0.28);
+  box-shadow: 0 10px 28px -18px hsl(var(--foreground) / 0.28);
 }
 
 .text-gradient-hero {
   @apply bg-clip-text text-transparent;
-  background-image: linear-gradient(135deg, hsl(32 95% 36%), hsl(24 90% 38%), hsl(18 84% 34%));
+  background-image: linear-gradient(135deg, var(--brand-signature-text), var(--brand-signature-text));
 }
 
 .dark .text-gradient-hero {
@@ -280,13 +334,13 @@ All colors MUST be HSL.
 
 .text-gradient-warm {
   @apply bg-clip-text text-transparent;
-  background-image: linear-gradient(135deg, hsl(40 85% 55%), hsl(25 90% 55%));
+  background-image: linear-gradient(135deg, var(--brand-signature-text), var(--brand-signature-text));
 }
 
 .bg-gradient-radial {
   background-image:
-    radial-gradient(at 78% 8%, hsl(36 92% 40% / 0.10) 0%, rgba(0, 0, 0, 0) 34%),
-    radial-gradient(at 12% 74%, hsl(176 77% 26% / 0.055) 0%, rgba(0, 0, 0, 0) 42%),
+    radial-gradient(at 78% 8%, hsl(var(--primary) / 0.10) 0%, rgba(0, 0, 0, 0) 34%),
+    radial-gradient(at 12% 74%, hsl(var(--foreground) / 0.04) 0%, rgba(0, 0, 0, 0) 42%),
     linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--background)) 100%);
 }
 

@@ -34,9 +34,9 @@ export interface CoverageRailPoint {
 const STATUS_STYLE: Record<CoverageStatus, { dot: string; text: string; word: string }> = {
     // covered → progress green; partial → mic-amber; missing → regression red. Text tints subtly so the
     // row itself reads its state, but the dot + word carry the meaning (never colour alone).
-    covered: { dot: 'bg-[#146b4a]', text: 'text-foreground', word: 'Detected' },
-    partial: { dot: 'bg-[#d98a1f]', text: 'text-foreground', word: 'Partly detected' },
-    missing: { dot: 'bg-[#a8321f]/70', text: 'text-foreground/70', word: 'Not detected' },
+    covered: { dot: 'bg-status', text: 'text-foreground', word: 'Detected' },
+    partial: { dot: 'bg-signature', text: 'text-foreground', word: 'Partly detected' },
+    missing: { dot: 'bg-regression opacity-70', text: 'text-foreground/70', word: 'Not detected' },
 };
 
 export function CoverageRail({
@@ -55,7 +55,7 @@ export function CoverageRail({
             className={`rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 ${className}`}
         >
             <div className="flex items-baseline justify-between">
-                <h3 className="text-[13px] font-extrabold uppercase tracking-wide text-[#6d28d9]">Focus Points</h3>
+                <h3 className="text-[13px] font-extrabold uppercase tracking-wide text-focus-points">Focus Points</h3>
                 {points.length > 0 && (
                     <span data-testid="coverage-rail-summary" className="text-[13px] font-bold text-foreground/70">
                         {covered}/{points.length} detected

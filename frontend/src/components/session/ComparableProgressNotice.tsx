@@ -14,13 +14,13 @@ export const ComparableProgressNotice: React.FC<{ sessionState: 'before' | 'duri
 
     return (
         <section
-            className="rounded-xl border border-[#dbe2ec] bg-white p-4"
+            className="rounded-xl border border-neutral-border bg-white p-4"
             data-testid="comparable-progress-notice"
             aria-label="Comparable progress"
         >
-            <p className="text-[11px] font-bold uppercase tracking-wide text-[#414b5c]">Comparable progress</p>
-            <p className="mt-2 text-[16px] font-bold text-[#1f2733]">No universal score</p>
-            <p className="mt-1 text-[13px] text-[#414b5c]">{message}</p>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-secondary">Comparable progress</p>
+            <p className="mt-2 text-[16px] font-bold text-neutral-body">No universal score</p>
+            <p className="mt-1 text-[13px] text-neutral-secondary">{message}</p>
         </section>
     );
 };

@@ -41,7 +41,7 @@ export const PlaybackScrubber: React.FC<PlaybackScrubberProps> = ({
     const played = durationSeconds > 0 ? positionSeconds / durationSeconds : 0;
 
     return (
-        <div className="rounded-xl border border-[#dbe2ec] bg-white px-4 py-3" data-testid="playback-scrubber">
+        <div className="rounded-xl border border-neutral-border bg-white px-4 py-3" data-testid="playback-scrubber">
             <div className="flex items-center gap-3">
                 {audioAvailable && (
                     <button
@@ -49,14 +49,14 @@ export const PlaybackScrubber: React.FC<PlaybackScrubberProps> = ({
                         onClick={onTogglePlay}
                         data-testid="scrubber-play"
                         aria-label={playing ? 'Pause' : 'Play'}
-                        className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#d98a1f] text-[16px] text-[#241503]"
+                        className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-signature text-[16px] text-ink"
                     >
                         <span aria-hidden="true">{playing ? '❚❚' : '▶'}</span>
                     </button>
                 )}
 
                 {audioAvailable && (
-                    <span className="text-[13px] font-semibold [font-variant-numeric:tabular-nums] text-[#1f2733]" data-testid="scrubber-time">
+                    <span className="text-[13px] font-semibold [font-variant-numeric:tabular-nums] text-neutral-body" data-testid="scrubber-time">
                         {formatTimer(positionSeconds)} / {formatTimer(durationSeconds)}
                     </span>
                 )}
@@ -73,8 +73,8 @@ export const PlaybackScrubber: React.FC<PlaybackScrubberProps> = ({
             </div>
 
             {(fillerBars?.length ?? 0) > 0 && (
-                <p className="mt-2 flex items-center gap-1.5 text-[12px] text-[#414b5c]" data-testid="scrubber-legend">
-                    <span aria-hidden="true" style={{ color: '#d98a1f' }}>▮</span> marks a filler
+                <p className="mt-2 flex items-center gap-1.5 text-[12px] text-neutral-secondary" data-testid="scrubber-legend">
+                    <span aria-hidden="true" style={{ color: 'var(--brand-signature)' }}>▮</span> marks a filler
                 </p>
             )}
         </div>

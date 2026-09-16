@@ -44,7 +44,7 @@ export const GoalsSection: React.FC = () => {
     if (loading) {
         return (
             <Card data-testid="goals-section">
-                <CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-primary" />Current Goals</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-signature-text" />Current Goals</CardTitle></CardHeader>
                 <CardContent className="space-y-6">
                     <div className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-2 w-full" /></div>
                     <div className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-2 w-full" /></div>
@@ -56,7 +56,7 @@ export const GoalsSection: React.FC = () => {
     if (error) {
         return (
             <Card>
-                <CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-primary" />Current Goals</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-signature-text" />Current Goals</CardTitle></CardHeader>
                 <CardContent>
                     <p className="text-destructive">Could not load goals.</p>
                 </CardContent>
@@ -100,7 +100,7 @@ export const GoalsSection: React.FC = () => {
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
                     <div className="p-2 bg-primary/10 rounded-lg">
-                        <Target className="h-5 w-5 text-primary" />
+                        <Target className="h-5 w-5 text-signature-text" />
                     </div>
                     <CardTitle className="text-lg font-semibold text-foreground">Current Goals</CardTitle>
                 </div>

@@ -95,14 +95,15 @@ describe('FillerWordAnalysis Integration', () => {
 
             const cards = screen.getAllByTestId('filler-word-card');
 
-            // Highest count should have 'high' severity color (red)
-            expect(cards[0].className).toContain('bg-red-300');
+            // #1480: severity stays ordinal inside the one fillers hue (no red/yellow/green ramp).
+            // Highest count: 'high' severity
+            expect(cards[0].className).toContain('bg-signature-border');
 
-            // 2nd-3rd should have 'medium' severity (yellow)
-            expect(cards[1].className).toContain('bg-yellow-300');
+            // 2nd-3rd: 'medium' severity
+            expect(cards[1].className).toContain('bg-signature-ground');
 
-            // Lower counts should have 'low' or 'default' severity
-            expect(cards[2].className).toMatch(/bg-(yellow|green)-300/);
+            // Lower counts: 'medium', 'low' or 'default' severity
+            expect(cards[2].className).toMatch(/bg-(signature-ground|neutral-band)/);
         });
 
         it('shows zero counts for words not detected', () => {

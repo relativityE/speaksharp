@@ -44,7 +44,7 @@ export const ReviewTranscriptNotice: React.FC<ReviewTranscriptNoticeProps> = ({ 
             data-testid="review-transcript-notice"
             data-outcome={outcome}
             role="status"
-            className="rounded-lg border border-[#e3e8f0] bg-[#f7f9fc] p-3 text-[14px] font-semibold text-[#1f2733]"
+            className="rounded-lg border border-neutral-border bg-neutral-band p-3 text-[14px] font-semibold text-neutral-body"
         >
             <p>{copy}</p>
             {view.kind === 'unavailable' && !isFinalizing && onRetry && (
@@ -52,7 +52,7 @@ export const ReviewTranscriptNotice: React.FC<ReviewTranscriptNoticeProps> = ({ 
                     type="button"
                     onClick={onRetry}
                     data-testid="review-transcript-retry"
-                    className="mt-2 text-[13px] font-bold text-[#0d7d74] hover:underline"
+                    className="mt-2 text-[13px] font-bold text-signature-text hover:underline"
                 >
                     Try again
                 </button>

@@ -56,17 +56,17 @@ export const WeeklyActivityChart: React.FC = () => {
             <div ref={chartContainer.ref} className="h-[220px] w-full">
                 {chartContainer.isReady ? (
                     <BarChart width={chartContainer.size.width} height={chartContainer.size.height} data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--brand-neutral-border-soft)" />
                             <XAxis
                                 dataKey="day"
-                                stroke="hsl(var(--muted-foreground))"
+                                stroke="var(--brand-neutral-secondary)"
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}
                                 tickMargin={10}
                             />
                             <YAxis
-                                stroke="hsl(var(--muted-foreground))"
+                                stroke="var(--brand-neutral-secondary)"
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}
@@ -84,10 +84,10 @@ export const WeeklyActivityChart: React.FC = () => {
                             />
                             <Bar
                                 dataKey="sessions"
-                                fill="hsl(var(--primary))"
+                                fill="var(--brand-signature)"
                                 radius={[6, 6, 0, 0]}
                                 barSize={32}
-                                activeBar={{ fill: 'hsl(var(--primary))', opacity: 0.8 }}
+                                activeBar={{ fill: 'var(--brand-signature)', opacity: 0.8 }}
                             />
                     </BarChart>
                 ) : (

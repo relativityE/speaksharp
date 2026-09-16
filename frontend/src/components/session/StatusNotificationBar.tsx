@@ -44,82 +44,82 @@ interface StatusNotificationBarProps {
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string; iconClass: string }> = {
     idle: {
         icon: Info,
-        bgClass: 'bg-card border-[hsl(var(--border-strong))] surface-shadow',
+        bgClass: 'bg-card border-neutral-border-strong surface-shadow',
         textClass: 'text-foreground',
         iconClass: 'text-muted-foreground',
     },
     initializing: {
         icon: Loader2,
-        bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
+        bgClass: 'bg-neutral-band border-neutral-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-primary',
+        iconClass: 'text-neutral-heading',
     },
     downloading: {
         icon: Loader2,
-        bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
+        bgClass: 'bg-neutral-band border-neutral-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-primary',
+        iconClass: 'text-neutral-heading',
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-card border-[hsl(var(--border-strong))] surface-shadow',
+        bgClass: 'bg-card border-neutral-border-strong surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-success',
+        iconClass: 'text-status',
     },
     // #891 immediate-start gate: mic warming after Record — "Starting…", not yet "Speak now".
     warming: {
         icon: Loader2,
-        bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
+        bgClass: 'bg-neutral-band border-neutral-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-primary',
+        iconClass: 'text-neutral-heading',
     },
     recording: {
         icon: Info,
-        bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
+        bgClass: 'bg-neutral-band border-neutral-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-primary',
+        iconClass: 'text-neutral-heading',
     },
     paused: {
         icon: Info,
-        bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
+        bgClass: 'bg-neutral-band border-neutral-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-primary',
+        iconClass: 'text-neutral-heading',
     },
     fallback: {
         icon: AlertTriangle,
-        bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
+        bgClass: 'bg-neutral-band border-neutral-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-primary',
+        iconClass: 'text-neutral-heading',
     },
     error: {
         icon: AlertCircle,
-        bgClass: 'bg-red-50 border-red-300 surface-shadow',
+        bgClass: 'bg-state-error-ground border-state-error-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-destructive',
+        iconClass: 'text-state-error',
     },
     'download-required': {
         icon: AlertCircle,
-        bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
+        bgClass: 'bg-neutral-band border-neutral-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-primary',
+        iconClass: 'text-neutral-heading',
     },
     'init-failed': {
         icon: AlertCircle,
-        bgClass: 'bg-red-50 border-red-300 surface-shadow',
+        bgClass: 'bg-state-error-ground border-state-error-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-destructive',
+        iconClass: 'text-state-error',
     },
     warning: {
         icon: AlertTriangle,
-        bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
+        bgClass: 'bg-neutral-band border-neutral-border surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-primary',
+        iconClass: 'text-neutral-heading',
     },
     info: {
         icon: Info,
-        bgClass: 'bg-card border-[hsl(var(--border-strong))] surface-shadow',
+        bgClass: 'bg-card border-neutral-border-strong surface-shadow',
         textClass: 'text-foreground',
-        iconClass: 'text-primary',
+        iconClass: 'text-neutral-heading',
     },
 };
 
@@ -137,7 +137,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     // #1047: AMBIENT status must RECEDE. At rest this bar said "Mic ready" as a full-width white card
     // with a shadow — identical surface treatment to the recorder card itself, so a passive
     // acknowledgement carried the same visual weight as the thing you actually came here to use.
-    // Only the two at-rest states are demoted: a tinted pale wash, a hairline border, dark-green
+    // Only the two at-rest states are demoted: the success-state ground and border, status-green
     // 14px/700 text and NO shadow. Every attention-worthy state (warming/recording/downloading/
     // warning/error/init-failed) keeps its existing prominence untouched.
     //
@@ -159,7 +159,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     // without unmounting. Phases:
     //   'pulsing'    — motion users only, ~6.5s bounded pulse (never indefinite).
     //   'persistent' — after the pulse (or IMMEDIATELY for reduced-motion): a static, non-animated,
-    //                  visibly-actionable green emphasis that STAYS until the user clicks or the page
+    //                  visibly-actionable signature emphasis that STAYS until the user clicks or the page
     //                  unmounts (leaving the session). This is what keeps Analytics discoverable.
     //   'idle'       — no cue (before a finalized session, or after the user has clicked Analytics).
     const cueKey = analyticsAction?.cueKey;
@@ -175,7 +175,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     React.useEffect(() => {
         clearPulseTimer();
         if (cueKey === undefined || cueKey === null) { setCuePhase('idle'); return; }
-        // Reduced motion: never pulse — show the persistent static green emphasis immediately.
+        // Reduced motion: never pulse — show the persistent static emphasis immediately.
         if (prefersReducedMotion) { setCuePhase('persistent'); return; }
         setCuePhase('pulsing');
         pulseTimerRef.current = setTimeout(() => {
@@ -248,7 +248,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             // renders next (the unresolved-recovery banner, in SessionPage's case).
             className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full border transition-all duration-300 ${
                 isQuiet
-                    ? 'rounded-[10px] px-[18px] py-[12px] bg-[hsl(var(--session-green-soft))] border-[hsl(var(--session-green-soft-border))]'
+                    ? 'rounded-[10px] px-[18px] py-[12px] bg-state-success-ground border-state-success-border'
                     : `rounded-xl px-4 ${isProminent ? 'py-4' : 'py-3'} ${config.bgClass}`
             } ${className}`}
             role="status"
@@ -267,21 +267,21 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         <span className="text-xl leading-none" role="img" aria-label="status-icon">{emoji}</span>
                     ) : isQuiet ? (
                         // Small circular check — a quiet acknowledgement, not an alert.
-                        <CheckCircle2 className="h-4 w-4 text-[hsl(var(--session-green-soft-text))]" aria-hidden="true" />
+                        <CheckCircle2 className="h-4 w-4 text-status" aria-hidden="true" />
                     ) : (
                         <Icon className={`h-5 w-5 ${config.iconClass} ${isAnimated ? 'animate-spin' : ''}`} />
                     )}
 
                     {/* Private transcription indicator (padlock) */}
                     {activeEngine === 'private' && (
-                        <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 surface-shadow border border-[hsl(var(--border-strong))]" title="Private transcription: on-device processing">
-                            <Lock className="h-2 w-2 text-success fill-success/20" />
+                        <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 surface-shadow border border-neutral-border-strong" title="Private transcription: on-device processing">
+                            <Lock className="h-2 w-2 text-status fill-state-success-ground" />
                         </div>
                     )}
                 </div>
                 <div className="flex min-w-0 flex-col">
                     <span className={isQuiet
-                        ? 'text-[14px] font-bold leading-snug text-[hsl(var(--session-green-soft-text))]'
+                        ? 'text-[14px] font-bold leading-snug text-status'
                         : `${isProminent ? 'text-sm' : 'text-[13px]'} font-semibold leading-snug ${config.textClass}`
                     } data-testid="status-message-text">
                         {displayMessage}
@@ -302,9 +302,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             {analyticsAction && (
                 <div className="flex w-full items-center gap-3 sm:w-auto">
 
-                    {/* Existing /analytics destination; bounded then PERSISTENT success-green cue; no new button.
-                        - pulsing (motion only): bounded ~6.5s pulse over the green emphasis.
-                        - persistent: static, non-animated success-green emphasis (subtle bg + ring) that
+                    {/* Existing /analytics destination; bounded then PERSISTENT signature cue; no new button.
+                        - pulsing (motion only): bounded ~6.5s pulse over the signature emphasis.
+                        - persistent: static, non-animated signature emphasis (ground + ring) that
                           stays actionable until the user clicks Analytics or leaves the session page.
                         - reduced-motion: skips the pulse and shows the persistent static emphasis at once. */}
                     {analyticsAction && (
@@ -318,14 +318,13 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                             data-testid="post-save-review-session-link"
                             data-cue-active={cueActive}
                             data-cue-phase={cuePhase}
-                            // Accessible success-green: emerald-800 (light) / emerald-300 (dark) both measure
-                            // >=4.5:1 against the pale-green pill background (the prior --success green was only
-                            // ~3.7:1 at 13px). Subtle green bg + ring retained; visual weight unchanged (font-bold).
-                            className={`ml-auto inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-bold text-emerald-800 dark:text-emerald-300 underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:ml-0 ${
+                            // #1480: links are never green. signature-text on the signature-ground pill is 5.6:1
+                            // at 13px; visual weight unchanged (font-bold).
+                            className={`ml-auto inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-bold text-signature-text underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:ml-0 ${
                                 cuePhase === 'pulsing'
-                                    ? 'bg-[hsl(var(--success)/0.1)] ring-1 ring-[hsl(var(--success)/0.4)] motion-safe:animate-pulse motion-reduce:animate-none'
+                                    ? 'bg-signature-ground ring-1 ring-signature-border motion-safe:animate-pulse motion-reduce:animate-none'
                                     : cuePhase === 'persistent'
-                                        ? 'bg-[hsl(var(--success)/0.1)] ring-1 ring-[hsl(var(--success)/0.4)]'
+                                        ? 'bg-signature-ground ring-1 ring-signature-border'
                                         : ''
                             }`}
                         >

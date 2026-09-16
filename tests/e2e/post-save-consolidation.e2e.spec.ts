@@ -79,16 +79,17 @@ test.describe('Post-save consolidation', () => {
     // No "Next: Analytics" toast overlay; the recording-card pill does not duplicate the saved message.
     await assertSingleSavedSurface(page);
 
-    // Analytics cue: bounded PULSE on settle, then a PERSISTENT static green emphasis (never reverts to plain).
+    // Analytics cue: bounded PULSE on settle, then a PERSISTENT static emphasis (never reverts to plain).
+    // #1480: signature text on the signature ground; links are never green.
     const analyticsCue = page.getByTestId('post-save-review-session-link');
     await expect(analyticsCue).toHaveAttribute('data-cue-phase', 'pulsing');
     await expect(analyticsCue).toHaveAttribute('data-cue-active', 'true');
     await expect(analyticsCue).toHaveClass(/font-bold/);
-    await expect(analyticsCue).toHaveClass(/text-emerald-800/);
+    await expect(analyticsCue).toHaveClass(/text-signature-text/);
     await page.waitForTimeout(7000);
     await expect(analyticsCue).toHaveAttribute('data-cue-phase', 'persistent');
     await expect(analyticsCue).toHaveAttribute('data-cue-active', 'true');
-    await expect(analyticsCue).toHaveClass(/bg-\[hsl\(var\(--success/);
+    await expect(analyticsCue).toHaveClass(/bg-signature-ground/);
     const persistAnim = await analyticsCue.evaluate((el) => getComputedStyle(el).animationName);
     expect(persistAnim === 'none' || persistAnim === '' || persistAnim == null).toBeTruthy();
 
@@ -204,7 +205,7 @@ test.describe('Post-save consolidation', () => {
     await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
   });
 
-  test('Reduced motion: the Analytics cue never pulses — it shows the persistent static green emphasis immediately', async ({ page }) => {
+  test('Reduced motion: the Analytics cue never pulses — it shows the persistent static emphasis immediately', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
@@ -213,7 +214,7 @@ test.describe('Post-save consolidation', () => {
     // No pulsing phase at all — straight to persistent static emphasis.
     await expect(analytics).toHaveAttribute('data-cue-phase', 'persistent');
     await expect(analytics).toHaveAttribute('data-cue-active', 'true');
-    await expect(analytics).toHaveClass(/bg-\[hsl\(var\(--success/);
+    await expect(analytics).toHaveClass(/bg-signature-ground/);
     const anim = await analytics.evaluate((el) => getComputedStyle(el).animationName);
     expect(anim === 'none' || anim === '' || anim == null).toBeTruthy(); // pulse suppressed under reduced-motion
     // And still a single saved surface (no toast) under reduced motion.

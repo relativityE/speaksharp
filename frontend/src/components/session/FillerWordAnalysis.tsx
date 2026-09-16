@@ -27,10 +27,10 @@ interface FillerWordAnalysisProps {
 // --- Constants ---
 
 const SEVERITY_PALETTE: Record<string, string> = {
-  high: 'bg-red-300',
-  medium: 'bg-yellow-300',
-  low: 'bg-green-300',
-  default: 'bg-indigo-200',
+  high: 'bg-signature-border',
+  medium: 'bg-signature-ground',
+  low: 'bg-neutral-band',
+  default: 'bg-neutral-band',
 };
 
 // --- Sub-components ---
@@ -38,10 +38,10 @@ const SEVERITY_PALETTE: Record<string, string> = {
 const FillerWordCard: React.FC<FillerWordCardProps> = ({ word, count, colorClass, progress }) => (
   <div className={`p-2 rounded-lg text-left ${colorClass}`} data-testid="filler-word-card">
     <div className="flex justify-between items-center mb-1">
-      <span className="text-xs font-semibold text-gray-800 capitalize">{word}</span>
-      <span className="text-base font-bold text-gray-900">{count}</span>
+      <span className="text-xs font-semibold text-neutral-body capitalize">{word}</span>
+      <span className="text-base font-bold text-neutral-heading">{count}</span>
     </div>
-    <Progress value={progress} className="h-1 [&>*]:bg-gray-600" />
+    <Progress value={progress} className="h-1 [&>*]:bg-neutral-secondary" />
   </div>
 );
 

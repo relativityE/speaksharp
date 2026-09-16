@@ -9,7 +9,7 @@ import React from 'react';
  * The two actions are a **matched pair of equal weight** — two branches of the same choice — so one is
  * never a button and the other a link:
  *   • `Give me a prompt` — teal fill, white text.
- *   • `Read a sample`    — `#f5f0ff` fill, `#ddd0fa` border, `#5b21b6` text (the purple insight path).
+ *   • `Read a sample`    — white fill, `neutral-border-strong` border, `neutral-heading` text (the secondary action).
  */
 export interface PromptOfferProps {
     /** Take a generated speaking prompt (stays visible through recording). */
@@ -21,8 +21,8 @@ export interface PromptOfferProps {
 export const PromptOffer: React.FC<PromptOfferProps> = ({ onPrompt, onSample }) => {
     return (
         <div className="mx-auto max-w-md text-center" data-testid="prompt-offer">
-            <p className="text-[18px] font-extrabold text-[#1f2733]">Not sure what to say?</p>
-            <p className="mt-1.5 text-[14px] leading-relaxed text-[#414b5c]">
+            <p className="text-[18px] font-extrabold text-neutral-body">Not sure what to say?</p>
+            <p className="mt-1.5 text-[14px] leading-relaxed text-neutral-secondary">
                 Take a prompt — it stays right here while you speak. Nothing on this panel is saved or scored.
             </p>
 
@@ -32,7 +32,7 @@ export const PromptOffer: React.FC<PromptOfferProps> = ({ onPrompt, onSample }) 
                     type="button"
                     onClick={onPrompt}
                     data-testid="prompt-offer-give"
-                    className="rounded-lg bg-[#0d7d74] px-4 py-2 text-[14px] font-bold text-white transition-colors hover:bg-[#0a5f58]"
+                    className="rounded-lg bg-signature px-4 py-2 text-[14px] font-bold text-ink transition-colors hover:brightness-95"
                 >
                     Give me a prompt
                 </button>
@@ -40,13 +40,13 @@ export const PromptOffer: React.FC<PromptOfferProps> = ({ onPrompt, onSample }) 
                     type="button"
                     onClick={onSample}
                     data-testid="prompt-offer-sample"
-                    className="rounded-lg border border-[#ddd0fa] bg-[#f5f0ff] px-4 py-2 text-[14px] font-bold text-[#5b21b6] transition-colors hover:bg-[#ece2ff]"
+                    className="rounded-lg border border-neutral-border-strong bg-white px-4 py-2 text-[14px] font-bold text-neutral-heading transition-colors hover:bg-neutral-band"
                 >
                     Read a sample
                 </button>
             </div>
 
-            <p className="mt-3 text-[12px] text-[#414b5c]">
+            <p className="mt-3 text-[12px] text-neutral-secondary">
                 Or just press the mic — your words appear here.
             </p>
         </div>
