@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for STT runtime and data contracts, baselines, accuracy, and SLOs)
 **Owner:** Engineering / Product Owner (relativityE)
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-15 — the real Moonshine long-form failure, current candidate roles, and no-downselection rule were reconciled.
+**Last Verified:** 2026-09-16 — candidate roles reconciled to the current Product Owner decision: v4 provisional primary, v2 fallback, evidence validation rather than a three-model down-selection, and Moonshine deferred until after RWT or MVP.
 **Applies To:** Customer Private STT, the internal deterministic E2E hook, and the inactive Private v4 candidate.
 **Class:** Runtime and data contract.
 **Authority:** STT audio route, lifecycle, attribution, failure behavior, metric validity, and evidence requirements.
@@ -11,7 +11,7 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 15 Sep 2026 — no model is selected.** v2, v4, and Moonshine are registered operator-only comparison candidates on the canonical Production surface; none is a customer-visible selector. The prior RWT is incomplete and existing v2/v4 observations are descriptive. #1263's local acquisition and failed-switch corrections pass their focused tests, but a real ~95-second Moonshine probe reproduced a raw repeated 25-word span in 3/3 runs, abrupt-stop tail loss, and an 18-word live rewrite. Moonshine is therefore not RWT-ready. Do not deduplicate model output, and do not downselect until #1304/#1390 contain comparable v2/v4/Moonshine rows with one corpus, identity, word-count, filler-completeness, WER, latency, stability, and release contract.
+> **Currentized 16 Sep 2026 — v4 is the provisional primary and v2 is the fallback.** That is the current Product Owner decision: v4 leads because it has the maintained model-release pipeline, and v2 is retained as the fallback. The current work **validates v4 over v2 on one evidence contract; it is not a three-model down-selection.** "Provisional primary" is the selection under validation, not a customer-facing change: candidate control stays operator-only, neither model is a customer-visible selector, and the separate rule that Private v4 is OFF for customers unless separately promoted is unchanged by this decision. The prior RWT is incomplete and existing v2/v4 observations are descriptive, so the comparable rows in #1304/#1390 still have to arrive — one corpus, identity, word-count, filler-completeness, WER, latency, stability, and release contract — before the standing choice is confirmed. **Moonshine is deferred until after RWT or MVP and is not a prerequisite for the current RWT.** #1263's local acquisition and failed-switch corrections pass their focused tests, and a real ~95-second Moonshine probe reproduced a raw repeated 25-word span in 3/3 runs, abrupt-stop tail loss, and an 18-word live rewrite — which is why it is deferred rather than carried as a blocker. Never deduplicate or sanitize model output to manufacture a pass.
 <!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp STT Contract
@@ -131,12 +131,12 @@ An observed run is not a percentile. A planning target is not a measured SLO. Cu
 
 ## 8. Operator-only comparison candidates
 
-Private v2, Private v4, and Moonshine are registered comparison candidates. Candidate control is operator-only, applies only between settled takes, and never creates a customer-visible selector, entitlement, or silent fallback.
+Private v2, Private v4, and Moonshine are registered comparison candidates. The current RWT compares **v4 (provisional primary) against v2 (fallback)** only; Moonshine stays registered but is deferred until after RWT or MVP and is not required for current qualification. Candidate control is operator-only, applies only between settled takes, and never creates a customer-visible selector, entitlement, or silent fallback.
 
 - The selected candidate is latched before Start and requested/observed identities must match through finalize, save, review, and reopen.
 - A setup, switch, decode, finalization, repetition, or tail-integrity failure is recorded against that candidate; it is never hidden by relabeling, fallback, or transcript cleanup.
 - Moonshine cold acquisition uses progress-sensitive stall handling, and a failed switch may be retried, but those mechanics do not override the unresolved long-form repetition/tail/stability failure.
-- Promotion requires an explicit Product Owner decision after comparable v2/v4/Moonshine setup, accuracy, filler preservation/completeness, opening/tail, finalization, memory, device, recovery, and failure evidence.
+- Promotion requires an explicit Product Owner decision after comparable **v2 and v4** setup, accuracy, filler preservation/completeness, opening/tail, finalization, memory, device, recovery, and failure evidence. Moonshine evidence is not required for it, being deferred until after RWT or MVP.
 - A future device-capability choice occurs before a new recording; it is never a mid-recording switch.
 
 ### Comparable benchmark protocol

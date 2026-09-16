@@ -11,7 +11,7 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Currentized 15 Sep 2026.** The architecture remains one canonical Production surface and one engine per take. #1416, #1463, and #1466 shipped bounded navigation/feedback, progress-debt, and Practice Loop placement foundations. The remaining owners are #1471/#1476 for durable progress/reconciliation, #1473 for automatic review and structured failure handling, #1472 for filler-evidence completeness, #1263/#1304/#1390 for comparable v2/v4/Moonshine authority, and #1474 for the full G10 presentation. Newest-one retention remains the approved target, not a claim of Production activation; #1452 must close before activation. Historical newest-two migrations remain immutable provenance.
+> **Currentized 15 Sep 2026.** The architecture remains one canonical Production surface and one engine per take. #1416, #1463, and #1466 shipped bounded navigation/feedback, progress-debt, and Practice Loop placement foundations. The remaining owners are #1471/#1476 for durable progress/reconciliation, #1473 for automatic review and structured failure handling, #1472 for filler-evidence completeness, #1304/#1390 for comparable **v2/v4** authority, with #1263 Moonshine deferred until after RWT or MVP, and #1474 for the full G10 presentation. Newest-one retention remains the approved target, not a claim of Production activation; #1452 must close before activation. Historical newest-two migrations remain immutable provenance.
 <!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Architecture (v1)

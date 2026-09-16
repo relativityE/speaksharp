@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for release-gate definitions, release workflow, freshness rules, and recovery)
 **Owner:** Engineering / Quality (relativityE)
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-15 — the closure-first lane, exact-action authorities, incomplete RWT, and current three-candidate entry gates were reconciled.
+**Last Verified:** 2026-09-16 — the closure-first lane, two working lanes against one merge token, exact-action authorities, incomplete RWT, and the current **two-candidate** entry gates (v4 provisional primary against v2 fallback) were reconciled.
 **Applies To:** The SpeakSharp controlled-tester release process — the five RC gates, evidence freshness, the release workflow & commands, and emergency recovery/rollback.
 **Class:** Acceptance criterion / procedure.
 **Authority:** The source for the definition of each RC gate (what "green" means), the gate evidence rules, evidence freshness & same-SHA rules, the release workflow/commands and observability readback, and the forward-fix/rollback/recovery playbook.
@@ -11,7 +11,7 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 15 Sep 2026.** Use one merge token, one active coding lane, and exact-head review evidence. The prior RWT remains incomplete and paused. Resume only when PM qualifies an exact deployed candidate and the Product Owner authorizes the named stop. Every qualifying model row must include v2, v4, and Moonshine on the same evidence contract; a real Moonshine repetition failure is HOLD, not something to sanitize. Merge, deployment, database migration, Edge/config change, credential repair, payment action, and Production RWT remain separate exact-action authorizations.
+> **Currentized 16 Sep 2026.** Use **one merge token**, **two working lanes** (Dev implementation and PM review/selected implementation), and exact-head review evidence. Review or CI waiting does not block unrelated executable work; only the merge token is serialized. The prior RWT remains incomplete and paused. Resume only when PM qualifies an exact deployed candidate and the Product Owner authorizes the named stop. Every qualifying model row must include **v2 and v4** on the same evidence contract, validating v4 as provisional primary against v2 as fallback; **Moonshine is deferred until after RWT or MVP and is not required for the current RWT**, and its repetition failure is never something to sanitize. Merge, deployment, database migration, Edge/config change, credential repair, payment action, and Production RWT remain separate exact-action authorizations.
 <!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Release Process (v1)

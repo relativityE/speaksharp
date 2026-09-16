@@ -70,8 +70,8 @@ The repository currency guard verifies committed-file consistency and ancestry o
 2. **Progress integrity:** #1471 must treat empty `{}` as unobservable unless completeness is affirmative; #1476 must prevent cross-tab queue loss.
 3. **Practice Loop availability:** #1473 owns automatic 1+1 review generation, structured cause handling, and truthful retry. The observed Production failure reached a `42501` profile-read denial before the quota path; a quota-exhaustion explanation is refuted for those requests.
 4. **Filler truth:** #1472 owns persisted `complete | unobservable | no_speech` semantics across Session, Analytics, PDF, Progress, recovery, and telemetry.
-5. **Moonshine readiness:** #1263 has local fixes for slow acquisition and failed-switch retry, but the real ~95-second probe reproduced an unsanitized repeated 25-word span in all three runs, plus abrupt-stop tail loss and an 18-word live rewrite. Moonshine remains a P1 RWT blocker; do not deduplicate or sanitize model output to manufacture a pass.
-6. **Comparable downselection:** #1304/#1390 require like-for-like v2, v4, and Moonshine rows with the same corpus, canonical model identity, word-count authority, filler-completeness state, WER, latency, stability, and requested/observed release identity. During internal comparison, v4 may report an honest `unobservable` cache result while its asset pins are unshipped test material. If v4 is selected, measurable cache-versus-network acquisition plus download duration or a directly measured no-download outcome becomes a **pre-MVP blocker**. The selected model must report candidate/model identity, total setup time, cache result, and download/no-download evidence.
+5. **Moonshine deferral:** #1263 has local fixes for slow acquisition and failed-switch retry, but the real ~95-second probe reproduced an unsanitized repeated 25-word span in all three runs, plus abrupt-stop tail loss and an 18-word live rewrite. Moonshine is therefore **deferred until after RWT or MVP and is not a prerequisite for the current RWT**: it does not gate a stop, qualification, or release. The integrity findings stand and are the reason for the deferral; never deduplicate or sanitize model output to manufacture a pass.
+6. **Comparable v4-over-v2 validation:** the current decision is **v4 provisional primary** (it has the maintained model-release pipeline) with **v2 as fallback**. #1304/#1390 must supply like-for-like **v2 and v4** rows on the same corpus, canonical model identity, word-count authority, filler-completeness state, WER, latency, stability, and requested/observed release identity. That evidence confirms the standing choice; it is **not** a three-model down-selection, and Moonshine rows are not required for it. During internal comparison, v4 may report an honest `unobservable` cache result while its asset pins are unshipped test material. Because v4 is the provisional primary, measurable cache-versus-network acquisition plus download duration or a directly measured no-download outcome is a **pre-MVP blocker**. The primary must report candidate/model identity, total setup time, cache result, and download/no-download evidence.
 7. **Product presentation:** #1474 owns the complete G10 during/after Practice Loop hierarchy and theme. #1475 owns the approved G12 landing page and the exact “30 days free, no card. Then $10/month. Cancel any time.” offer.
 8. **Final evidence:** #1259 and #1382/#1383/#1384 own received-event reliability, clean baseline, SLOs, dashboard/alert, and cleanup proof. #1258 remains the final deployed two-product, real-device PO GO/HOLD.
 
@@ -81,12 +81,12 @@ Other pre-GO owners remain active where their condition is reached: #1254 final 
 
 The prior RWT is **incomplete**:
 
-- Stop B is partial; the authorized v4 observation is descriptive, not a downselection row.
+- Stop B is partial; the authorized v4 observation is descriptive, and is not yet the comparable row that validates v4 against v2.
 - The official v2 Stop B cell did not run.
 - Stop A and RWT-02/03/04 did not run.
 - Stop C still needs #1469, #1467, #1473, a deployed exact release, and working managed test identities.
-- Stop D cannot begin while Moonshine fails long-form integrity.
-- No model may be selected until v2, v4, and Moonshine satisfy one comparable evidence contract.
+- Stop D does not depend on Moonshine, which is deferred until after RWT or MVP. Its long-form integrity findings are the reason for that deferral, not a gate on this RWT.
+- v4 stands as the provisional primary and v2 as the fallback. That standing choice is confirmed — not reopened — once v2 and v4 satisfy one comparable evidence contract; Moonshine is not part of that contract.
 - A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 No Production RWT, migration, Edge/config change, credential/account repair, payment activation, deployment, or merge is authorized by this document.

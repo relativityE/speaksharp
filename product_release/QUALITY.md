@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for quality evidence taxonomy, engineering test protocol, general SLOs, and the RC test inventory)
 **Owner:** Engineering / Quality (relativityE)
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-15 — the incomplete RWT, exact-head review discipline, received-event boundary, and comparable v2/v4/Moonshine evidence requirements were reconciled.
+**Last Verified:** 2026-09-16 — the incomplete RWT, exact-head review discipline, received-event boundary, and comparable **v2/v4** evidence requirements were reconciled, with Moonshine deferred until after RWT or MVP.
 **Applies To:** The SpeakSharp beta platform — how software quality is measured, what evidence closes it, and which tests count for a controlled tester release.
 **Class:** Procedure / SLO.
 **Authority:** The source for the evidence chain, quality evidence sources & targets, general (non-STT) service-level objectives, the RC test inventory and gate map, engineering acceptance criteria, the manual hardware-validation protocol, and interpretation/closure rules.
@@ -11,7 +11,7 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. Release evidence must compare v2, v4, and Moonshine under one corpus/identity/word-count/filler-completeness/WER contract. Moonshine's repeated long-form span, abrupt-stop tail loss, and live rewrite are failures to investigate at the model-driving boundary; output cleanup is not evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
+> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. Release evidence must compare **v2 and v4** under one corpus/identity/word-count/filler-completeness/WER contract, validating v4 as provisional primary against v2 as fallback. **Moonshine is deferred until after RWT or MVP and is not required for current release evidence.** Its repeated long-form span, abrupt-stop tail loss, and live rewrite are the reason for that deferral and remain failures to investigate at the model-driving boundary whenever it is picked up; output cleanup is never evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
 <!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Quality (v1)

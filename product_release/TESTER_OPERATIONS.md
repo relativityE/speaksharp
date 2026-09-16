@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for internal tester administration and evidence handling)
 **Owner:** Product Operations / Quality
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-15 — the three-candidate procedure, managed-account read-only verification path, filler completeness, and Moonshine long-form entry checks were reconciled.
+**Last Verified:** 2026-09-16 — the two-candidate procedure (v4 provisional primary against v2 fallback, Moonshine deferred until after RWT or MVP), managed-account read-only verification path, and filler completeness were reconciled.
 **Applies To:** Internal release operators, invited testers, synthetic qualification accounts, and evidence handling.
 **Class:** Procedure.
 **Authority:** Tester preparation, scope verification, real-device execution, cleanup, and evidence recording.
@@ -26,7 +26,7 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. A qualifying matrix must run v2, v4, and Moonshine with requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
+> **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. A qualifying matrix must run **v4 (provisional primary) and v2 (fallback)** with requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Moonshine is deferred until after RWT or MVP and is not a required row in the current matrix. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
 <!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Tester Operations
@@ -137,7 +137,7 @@ Private v4 is OFF. Operators must not target, expose, or activate it for custome
 - Any benchmark or future promotion requires separate Product Owner authorization and the comparison protocol in `STT.md`.
 - A flag cleanup or production targeting change is a production mutation and requires explicit authorization.
 
-### 6.1 Authorized three-candidate Production comparison
+### 6.1 Authorized two-candidate Production comparison
 
 This procedure is available only during a Product Owner-authorized comparison window. It exercises the
 canonical Production deployment; a pull-request Preview, local build, URL flag, browser-storage value, or

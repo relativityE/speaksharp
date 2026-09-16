@@ -11,7 +11,7 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Currentized 15 Sep 2026.** The evidence tree was inventoried without rewriting dated or retained artifacts. The partial RWT, #1468 managed-identity verification, and #1263 Moonshine long-form runs currently live as issue/PR decision evidence; they are not silently promoted into permanent files or model-selection rows. The Moonshine probe is a P1 failure observation, not a downselection result. Current pass/fail and deployed identity remain in `RELEASE_STATUS.md`.
+> **Currentized 15 Sep 2026.** The evidence tree was inventoried without rewriting dated or retained artifacts. The partial RWT, #1468 managed-identity verification, and #1263 Moonshine long-form runs currently live as issue/PR decision evidence; they are not silently promoted into permanent files or model-selection rows. The Moonshine probe is a failure observation and the basis for deferring Moonshine until after RWT or MVP; it is not a comparison row and not a current RWT prerequisite. Current pass/fail and deployed identity remain in `RELEASE_STATUS.md`.
 <!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Evidence Index

@@ -46,7 +46,7 @@ The currency guard checks internal consistency and recent ancestry; it cannot re
 
 ## Now — closure-first path back to RWT
 
-Keep one merge token and one active coding lane. PR #1477 now contains a bounded review-qualification implementation and is frozen behind the current merge-token holder, PR #1469. It may not proceed as a parallel implementation lane or merge until #1469 closes; then it must restack/currentize once and repeat exact-head reviews and CI.
+Keep **one merge token**, and run **two working lanes**: Dev implementation and PM review/selected implementation. Review or CI waiting does not halt unrelated executable work; only the merge token is serialized. PR #1477 contains a bounded review-qualification implementation. Its freeze condition is discharged — #1469, #1483 and #1481 have all merged — and it has restacked/currentized once onto the resulting `main`, which is what that rule requires whenever `main` advances.
 
 | Order | Outcome | Owner | Smallest closure evidence |
 |---|---|---|---|
@@ -55,13 +55,13 @@ Keep one merge token and one active coding lane. PR #1477 now contains a bounded
 | 3 | Make progress saves truthful and cross-tab safe | #1471 → #1476 | Empty `{}` never means verified zero; two-tab queue casualties prove no loss, overwrite, duplication, or indefinite Start hold. |
 | 4 | Restore the automatic Practice Loop review | #1473 | One automatic request, one valid 1+1 review or cause-matched terminal, truthful retry, received telemetry, and separate authorized Production grant/Edge checks. |
 | 5 | Stop false filler/clarity claims | #1472 | Persisted `complete | unobservable | no_speech` state shared by Session, Analytics, PDF, Progress, recovery, and telemetry. |
-| 6 | Make Moonshine genuinely RWT-ready | #1263 | Keep acquisition/switch fixes; investigate and eliminate the real long-form loop at the model-driving boundary without output sanitization; prove tail and live-stability contracts. |
-| 7 | Produce comparable model rows and decision | #1304 + #1390 | Same corpus, identity, word-count, filler completeness, WER, latency, stability, and v2/v4/Moonshine journey evidence; then an explicit PO primary/fallback choice. |
+| 6 | Make Moonshine RWT-ready — **deferred until after RWT or MVP** | #1263 | Not a current RWT prerequisite. Keep the acquisition/switch fixes; when it is picked up, investigate and eliminate the real long-form loop at the model-driving boundary without output sanitization, and prove tail and live-stability contracts. |
+| 7 | Produce comparable rows that validate the standing choice | #1304 + #1390 | Same corpus, identity, word-count, filler completeness, WER, latency, stability, and **v2/v4** journey evidence. It confirms the standing choice of v4 as provisional primary and v2 as fallback; it is not a three-model down-selection, and Moonshine rows are not required. |
 | 8 | Complete the approved core UI | #1474 | G10 during/after Practice Loop hierarchy/theme, with loading/success/failure in the same dominant footprint. |
 | 9 | Complete the approved landing page | #1475 | G12 landing layout/theme and full 30-day/$10 offer, without shipping claims ahead of #1471/#1473. |
 | 10 | Close observability and final journey gates | #1259 + #1382/#1383/#1384 → #1258 | Received events, clean baseline, SLO/alert/cleanup proof, Dev runs both products, then PO repeats on the exact deployed release. |
 
-The `onnxruntime-web` int8/q8 failure was the upstream QDQ regression #28306/#28326, not a model verdict. The 459-word preflight exposed corpus/runtime defects before the 600-utterance selection run. Those lessons remain binding, but historical rows do not qualify the current v2/v4/Moonshine comparison.
+The `onnxruntime-web` int8/q8 failure was the upstream QDQ regression #28306/#28326, not a model verdict. The 459-word preflight exposed corpus/runtime defects before the 600-utterance selection run. Those lessons remain binding, but historical rows do not qualify the current **v2/v4** comparison.
 
 ## Active MVP and pre-GO issue register
 
@@ -72,8 +72,8 @@ All 24 current MVP/pre-GO issues and roadmap-owned gaps have an owner and closur
 | Final product/copy/journey | #1254, #1258, #1360, #1407 | Active; close owning fixes before the final exact-release journey and copy scan. |
 | Observability/operations | #1259, #1382, #1383, #1384 | Active; received evidence and cleanup are required, not producer calls. |
 | Security/CI truth | #1261, #1313, #1315, #1385 | Active pre-GO controls; keep separate from product-feature PRs. |
-| STT comparison | #1263, #1304, #1390 | Active; Moonshine is mandatory and currently blocked on long-form integrity. |
-| Documentation/review gate | #1318 / PR #1477 | Queued implementation behind #1469; canonical-authority currentization plus the bounded documentation-review qualification. Archives and dated evidence remain immutable. |
+| STT comparison | #1304, #1390 | Active; validates **v4 (provisional primary) against v2 (fallback)**. #1263 Moonshine is deferred until after RWT or MVP and is not required here. |
+| Documentation/review gate | #1318 / PR #1477 | Active; its freeze behind #1469 is discharged now that #1469, #1483 and #1481 have merged. Canonical-authority currentization plus the bounded documentation-review qualification. Archives and dated evidence remain immutable. |
 | Retention safety | #1452 | Must close before newest-one retention is activated; it does not authorize activation. |
 | Account deletion | Roadmap-owned pre-GO gap | Product Owner owns disposition; Dev may author a bounded corrective issue/PR. Choose one deletion authority, make account erasure unblockable, cover unfinished `session_delivery_measurements` rows and the non-cascading `user_id` dependency, define cleanup/SLA ownership, and prove the real migrations in tests. Production migration remains separately authorized. |
 | Progress/review/filler | #1471, #1472, #1473, #1476 | Active release blockers with separate owners. |
@@ -110,6 +110,6 @@ A closed issue may remain as provenance. New evidence goes to the current owner 
 ## Stop conditions
 
 - Do not resume Production RWT until the exact deployed candidate is PM-qualified and the Product Owner authorizes the named stop.
-- Do not downselect STT from the partial Stop B or descriptive v2/v4 observations.
+- Do not treat the partial Stop B or the descriptive v2/v4 observations as the comparable evidence that confirms v4 over v2.
 - Do not treat CI, a transport 200, a generated artifact, or an installed observer as proof of received/user-visible behavior.
 - Do not let the queued #1477 gate/docs lane or post-MVP debt displace the current product merge token.
