@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for STT runtime and data contracts, baselines, accuracy, and SLOs)
 **Owner:** Engineering / Product Owner (relativityE)
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-16 — candidate roles reconciled to the current Product Owner decision: v4 provisional primary, v2 fallback, evidence validation rather than a three-model down-selection, and Moonshine deferred until after RWT or MVP.
+**Last Verified:** 2026-09-16 — candidate roles reconciled to the Product Owner decision: approved target is v4 customer primary on WebGPU-capable devices with v2 as the pre-Start fallback locked for the take, while Production remains v2-only until a separate evidenced promotion. Evidence validation rather than a three-model down-selection; Moonshine deferred until after RWT or MVP.
 **Applies To:** Customer Private STT, the internal deterministic E2E hook, and the inactive Private v4 candidate.
 **Class:** Runtime and data contract.
 **Authority:** STT audio route, lifecycle, attribution, failure behavior, metric validity, and evidence requirements.
@@ -11,7 +11,13 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 16 Sep 2026 — v4 is the provisional primary and v2 is the fallback.** That is the current Product Owner decision: v4 leads because it has the maintained model-release pipeline, and v2 is retained as the fallback. The current work **validates v4 over v2 on one evidence contract; it is not a three-model down-selection.** "Provisional primary" is the selection under validation, not a customer-facing change: candidate control stays operator-only, neither model is a customer-visible selector, and the separate rule that Private v4 is OFF for customers unless separately promoted is unchanged by this decision. The prior RWT is incomplete and existing v2/v4 observations are descriptive, so the comparable rows in #1304/#1390 still have to arrive — one corpus, identity, word-count, filler-completeness, WER, latency, stability, and release contract — before the standing choice is confirmed. **Moonshine is deferred until after RWT or MVP and is not a prerequisite for the current RWT.** #1263's local acquisition and failed-switch corrections pass their focused tests, and a real ~95-second Moonshine probe reproduced a raw repeated 25-word span in 3/3 runs, abrupt-stop tail loss, and an 18-word live rewrite — which is why it is deferred rather than carried as a blocker. Never deduplicate or sanitize model output to manufacture a pass.
+> **Currentized 16 Sep 2026 — APPROVED TARGET and CURRENT STATE are different, and this file states both.**
+>
+> **Approved target (Product Owner decision, for RWT and MVP).** **v4 is the customer primary on WebGPU-capable devices**, because it has the maintained model-release pipeline. **v2 is the pre-Start fallback**: when capability or initialization prevents v4 before recording, v2 is selected and attributed *before* Start and stays **locked for that whole take** — no mid-recording handoff and no v2 retranscription of a failed v4 take. Moonshine is deferred until after RWT or MVP and is excluded.
+>
+> **Current state: Production remains v2-only.** v4 is **not** the customer default today, and this is enforced in code, not merely configured. `candidateSelection.ts` refuses a candidate that is not `activationReady`, and separately refuses `acknowledgeNotProductionReady` unless `VITE_INTERNAL_BUILD` is true — so a **public build cannot run v4 by any configuration path**. `v4:distil:q4` is registered `activationReady: false`, and it is WebGPU-only by design (WASM real-time factor ~2.2 is unusable), which is why the target is device-conditional rather than universal. The separate normative requirement that Private v4 is OFF unless separately promoted through evidence and Product Owner approval therefore still holds and is **unchanged** by this decision.
+>
+> **How the gap closes.** The authorized four-cell v2/v4 comparison supplies the pre-promotion evidence; #1263 then implements the structural primary/fallback policy — capability detection, pre-Start fallback selection, take locking, and requested / effective / observed / fallback-cause attribution — and carries the normative document amendment with it. The final deployed RWT proves both a normal v4 journey and a bounded v2 fallback. **This document records the decision; it does not implement the selector, and nothing here makes v4 live.** The current work validates v4 over v2 on one evidence contract and is not a three-model down-selection.
 <!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp STT Contract
@@ -131,7 +137,7 @@ An observed run is not a percentile. A planning target is not a measured SLO. Cu
 
 ## 8. Operator-only comparison candidates
 
-Private v2, Private v4, and Moonshine are registered comparison candidates. The current RWT compares **v4 (provisional primary) against v2 (fallback)** only; Moonshine stays registered but is deferred until after RWT or MVP and is not required for current qualification. Candidate control is operator-only, applies only between settled takes, and never creates a customer-visible selector, entitlement, or silent fallback.
+Private v2, Private v4, and Moonshine are registered comparison candidates. The current RWT compares **v4 (the approved primary, not yet live) against v2 (the pre-Start fallback, and today's only customer default)** only; Moonshine stays registered but is deferred until after RWT or MVP and is not required for current qualification. Candidate control is operator-only, applies only between settled takes, and never creates a customer-visible selector, entitlement, or silent fallback.
 
 - The selected candidate is latched before Start and requested/observed identities must match through finalize, save, review, and reopen.
 - A setup, switch, decode, finalization, repetition, or tail-integrity failure is recorded against that candidate; it is never hidden by relabeling, fallback, or transcript cleanup.
