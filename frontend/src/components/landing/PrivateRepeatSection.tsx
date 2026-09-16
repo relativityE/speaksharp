@@ -12,29 +12,29 @@ const LOOP_STEPS = ['Speak', 'Feedback', 'Practice again'] as const;
 export const PrivateRepeatSection = () => (
     <section
         aria-label="Private, and built to repeat"
-        className="w-full bg-landing-page px-5 pb-12 pt-[42px] md:px-7 lg:px-[34px]"
+        className="w-full bg-neutral-page px-5 pb-12 pt-[42px] md:px-7 lg:px-[34px]"
     >
-        <h2 className="mb-6 text-xs font-extrabold uppercase tracking-[0.1em] text-landing-secondary">
+        <h2 className="mb-6 text-xs font-extrabold uppercase tracking-[0.1em] text-neutral-secondary">
             Private, and built to repeat
         </h2>
         <div className="flex flex-wrap items-start gap-[30px]">
             <div className="min-w-0 flex-[1_1_220px]">
-                <h3 className="mb-[9px] text-[22px] font-extrabold tracking-[-0.03em] text-landing-heading md:text-[26px]">
+                <h3 className="mb-[9px] text-[22px] font-extrabold tracking-[-0.03em] text-neutral-heading md:text-[26px]">
                     Never uploaded
                 </h3>
-                <p className="text-[17px] font-medium leading-[1.6] text-landing-body">
+                <p className="text-[17px] font-medium leading-[1.6] text-neutral-body">
                     Your practice audio stays on your device. There is no recording to leak or delete.
                 </p>
             </div>
             <div
                 role="region"
                 aria-label="The Practice Loop"
-                className="min-w-0 flex-[1.25_1_270px] rounded-[14px] bg-landing-ink px-6 pb-6 pt-[22px]"
+                className="min-w-0 flex-[1.25_1_270px] rounded-[14px] bg-ink px-6 pb-6 pt-[22px]"
             >
-                <h3 className="mb-[9px] text-[22px] font-extrabold tracking-[-0.03em] text-landing-signature md:text-[26px]">
+                <h3 className="mb-[9px] text-[22px] font-extrabold tracking-[-0.03em] text-signature md:text-[26px]">
                     The Practice Loop
                 </h3>
-                <p className="mb-[18px] text-[17px] font-medium leading-[1.6] text-landing-ink-text">
+                <p className="mb-[18px] text-[17px] font-medium leading-[1.6] text-ink-text">
                     Every run ends with one thing to change — then you run it again. Same loop in Open Mic and Focus Points.
                 </p>
                 <ol className="flex flex-wrap items-center gap-[10px]">
@@ -43,14 +43,14 @@ export const PrivateRepeatSection = () => (
                             <span
                                 className={`inline-flex items-center rounded-lg px-[13px] py-2 text-[13px] font-extrabold ${
                                     index === LOOP_STEPS.length - 1
-                                        ? 'bg-landing-signature text-landing-ink'
-                                        : 'border border-landing-ink-hairline bg-landing-ink-raised text-landing-ink-text'
+                                        ? 'bg-signature text-ink'
+                                        : 'border border-ink-hairline bg-ink-raised text-ink-text'
                                 }`}
                             >
                                 {step}
                             </span>
                             {index < LOOP_STEPS.length - 1 && (
-                                <ArrowRight className="size-[14px] shrink-0 text-landing-signature" aria-hidden="true" />
+                                <ArrowRight className="size-[14px] shrink-0 text-signature" aria-hidden="true" />
                             )}
                         </li>
                     ))}

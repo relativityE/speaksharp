@@ -26,7 +26,7 @@ const PricedIntro = ({ text }: { text: string }) => {
     return (
         <>
             {text.slice(0, at)}
-            <strong className="font-extrabold text-landing-money">{PRICE_TOKEN}</strong>
+            <strong className="font-extrabold text-money">{PRICE_TOKEN}</strong>
             {text.slice(at + PRICE_TOKEN.length)}
         </>
     );
@@ -35,21 +35,21 @@ const PricedIntro = ({ text }: { text: string }) => {
 /** One lifecycle card. `bottomPadding` offsets the 2px signature border so both 52px controls share a baseline. */
 const PriceCard = ({ tier, signature, children }: { tier: PricingTier; signature: boolean; children: ReactNode }) => (
     <article
-        className={`flex min-w-0 flex-[1_1_320px] flex-col rounded-[14px] bg-landing-page px-7 pt-7 ${
-            signature ? 'border-2 border-landing-signature pb-[29px]' : 'border border-landing-border pb-[30px]'
+        className={`flex min-w-0 flex-[1_1_320px] flex-col rounded-[14px] bg-neutral-page px-7 pt-7 ${
+            signature ? 'border-2 border-signature pb-[29px]' : 'border border-neutral-border pb-[30px]'
         }`}
     >
-        <h3 className="mb-1.5 text-[22px] font-extrabold tracking-[-0.02em] text-landing-heading">{tier.name}</h3>
-        <p className="mb-4 text-base font-semibold text-landing-body">{tier.priceDescription}</p>
+        <h3 className="mb-1.5 text-[22px] font-extrabold tracking-[-0.02em] text-neutral-heading">{tier.name}</h3>
+        <p className="mb-4 text-base font-semibold text-neutral-body">{tier.priceDescription}</p>
         <p className="mb-[26px] flex items-baseline gap-2">
-            <span className="text-[42px] font-extrabold leading-none tracking-[-0.04em] text-landing-money md:text-[50px]">{tier.price}</span>
-            {tier.plan === 'pro' && <span className="text-xl font-bold text-landing-money-soft">/month</span>}
+            <span className="text-[42px] font-extrabold leading-none tracking-[-0.04em] text-money md:text-[50px]">{tier.price}</span>
+            {tier.plan === 'pro' && <span className="text-xl font-bold text-money-soft">/month</span>}
         </p>
         <ul className="mb-7 flex flex-col gap-3">
             {tier.features.map((feature) => (
-                <li key={feature} className="flex items-start gap-2.5 text-base font-semibold leading-normal text-landing-body">
+                <li key={feature} className="flex items-start gap-2.5 text-base font-semibold leading-normal text-neutral-body">
                     <CheckCircle2
-                        className={`mt-[3px] size-4 shrink-0 ${signature ? 'text-landing-signature-text' : 'text-landing-muted'}`}
+                        className={`mt-[3px] size-4 shrink-0 ${signature ? 'text-signature-text' : 'text-neutral-muted'}`}
                         aria-hidden="true"
                     />
                     <span>{feature}</span>
@@ -94,13 +94,13 @@ export const LandingPricingSection = () => {
         <section
             aria-label="Pricing"
             data-signup-decision
-            className="w-full border-t border-landing-border-soft bg-landing-band px-5 pb-[50px] pt-[46px] md:px-7 lg:px-[34px]"
+            className="w-full border-t border-neutral-border-soft bg-neutral-band px-5 pb-[50px] pt-[46px] md:px-7 lg:px-[34px]"
         >
             <div className="mx-auto mb-8 max-w-[680px] text-center">
-                <h2 className="mb-[13px] text-[32px] font-extrabold tracking-[-0.035em] text-landing-heading [text-wrap:balance] lg:text-[38px]">
+                <h2 className="mb-[13px] text-[32px] font-extrabold tracking-[-0.035em] text-neutral-heading [text-wrap:balance] lg:text-[38px]">
                     {PRICING_HEADING}
                 </h2>
-                <p className="text-[17px] font-semibold leading-[1.55] text-landing-body md:text-[19px]">
+                <p className="text-[17px] font-semibold leading-[1.55] text-neutral-body md:text-[19px]">
                     <PricedIntro text={pricingIntro(paymentsEnabled)} />
                 </p>
             </div>
@@ -109,7 +109,7 @@ export const LandingPricingSection = () => {
                     <Link
                         to={TRIAL_SIGNUP_HREF}
                         onClick={() => trackConversionCtaClicked({ source: 'pricing_free_card', plan: 'free' })}
-                        className="box-border flex h-[52px] w-full items-center justify-center rounded-[11px] border border-landing-border-strong bg-landing-page text-base font-extrabold text-landing-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-landing-signature-text focus-visible:ring-offset-2"
+                        className="box-border flex h-[52px] w-full items-center justify-center rounded-[11px] border border-neutral-border-strong bg-neutral-page text-base font-extrabold text-neutral-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature-text focus-visible:ring-offset-2"
                     >
                         {trial.cta}
                     </Link>
@@ -120,14 +120,14 @@ export const LandingPricingSection = () => {
                             type="button"
                             onClick={() => { void handleContinue(); }}
                             disabled={isStartingCheckout}
-                            className="box-border h-[52px] w-full rounded-[11px] bg-landing-signature text-base font-extrabold text-landing-ink hover:bg-landing-signature hover:brightness-95 focus-visible:ring-2 focus-visible:ring-landing-signature-text focus-visible:ring-offset-2"
+                            className="box-border h-[52px] w-full rounded-[11px] bg-signature text-base font-extrabold text-ink hover:bg-signature hover:brightness-95 focus-visible:ring-2 focus-visible:ring-signature-text focus-visible:ring-offset-2"
                         >
                             {isStartingCheckout ? 'Starting checkout...' : pro.cta}
                         </Button>
                     ) : (
                         <div
                             data-testid="landing-pro-unavailable"
-                            className="box-border flex h-[52px] w-full items-center justify-center rounded-[11px] border border-landing-border bg-landing-band px-3 text-center text-[15px] font-bold text-landing-secondary"
+                            className="box-border flex h-[52px] w-full items-center justify-center rounded-[11px] border border-neutral-border bg-neutral-band px-3 text-center text-[15px] font-bold text-neutral-secondary"
                         >
                             {PAID_CONTINUATION_UNAVAILABLE.title}
                         </div>
@@ -139,9 +139,9 @@ export const LandingPricingSection = () => {
                     <li
                         key={label}
                         data-testid="offer-disclosure-chip"
-                        className="inline-flex items-center gap-2 rounded-full border border-landing-border bg-landing-page px-[17px] py-2.5 text-[15px] font-semibold text-landing-body"
+                        className="inline-flex items-center gap-2 rounded-full border border-neutral-border bg-neutral-page px-[17px] py-2.5 text-[15px] font-semibold text-neutral-body"
                     >
-                        <ShieldCheck className="size-[15px] shrink-0 text-landing-status" aria-hidden="true" />
+                        <ShieldCheck className="size-[15px] shrink-0 text-status" aria-hidden="true" />
                         {label}
                     </li>
                 ))}

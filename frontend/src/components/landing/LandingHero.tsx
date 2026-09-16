@@ -24,19 +24,19 @@ export const LandingHero = () => {
     return (
         <section
             aria-label="Hero"
-            className="w-full bg-landing-ink px-5 pt-[calc(var(--header-height)+56px)] md:px-7 lg:px-[34px]"
+            className="w-full bg-ink px-5 pt-[calc(var(--header-height)+56px)] md:px-7 lg:px-[34px]"
         >
             <div className="max-w-[760px]" data-signup-decision>
-                <p className="mb-[26px] inline-flex items-center gap-2 rounded-full border border-landing-ink-hairline bg-landing-ink-raised px-[15px] py-2">
-                    <Star className="size-[13px] fill-landing-signature text-landing-signature" aria-hidden="true" />
-                    <span className="text-[13px] font-extrabold tracking-[0.03em] text-landing-ink-text">{HERO_BADGE}</span>
+                <p className="mb-[26px] inline-flex items-center gap-2 rounded-full border border-ink-hairline bg-ink-raised px-[15px] py-2">
+                    <Star className="size-[13px] fill-signature text-signature" aria-hidden="true" />
+                    <span className="text-[13px] font-extrabold tracking-[0.03em] text-ink-text">{HERO_BADGE}</span>
                 </p>
                 <h1 className="mb-[22px] text-4xl font-extrabold leading-[1.08] tracking-[-0.042em] text-white [text-wrap:balance] md:text-[46px] md:leading-[1.03] lg:text-[62px]">
                     {TAGLINE_LEAD}{' '}
                     <br />
-                    <span className="text-landing-signature">{TAGLINE_ACCENT}</span>
+                    <span className="text-signature">{TAGLINE_ACCENT}</span>
                 </h1>
-                <p className="mb-8 max-w-[540px] text-lg font-medium leading-normal text-landing-ink-text md:text-[21px]">
+                <p className="mb-8 max-w-[540px] text-lg font-medium leading-normal text-ink-text md:text-[21px]">
                     {HERO_LINE}
                 </p>
                 <div className="mb-[22px] flex flex-wrap items-center gap-4">
@@ -44,7 +44,7 @@ export const LandingHero = () => {
                         to={LANDING_SIGNUP_ROUTE}
                         data-testid="practice-hero-start-free"
                         onClick={() => trackConversionCtaClicked({ source: 'hero_primary' })}
-                        className="inline-flex h-[58px] w-full max-w-[420px] items-center justify-center gap-[11px] whitespace-nowrap rounded-xl bg-landing-signature px-7 text-[17px] font-extrabold text-landing-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-landing-signature focus-visible:ring-offset-2 focus-visible:ring-offset-landing-ink md:w-auto"
+                        className="inline-flex h-[58px] w-full max-w-[420px] items-center justify-center gap-[11px] whitespace-nowrap rounded-xl bg-signature px-7 text-[17px] font-extrabold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2 focus-visible:ring-offset-ink md:w-auto"
                     >
                         <Mic className="size-[21px]" aria-hidden="true" />
                         Try it out!
@@ -52,7 +52,7 @@ export const LandingHero = () => {
                 </div>
                 <div className="pb-2">
                     <p className="text-lg font-extrabold text-white">{HERO_TERMS_TRIAL}</p>
-                    <p className="mt-1 text-lg font-bold text-landing-money-on-ink">{HERO_TERMS_PRICE}</p>
+                    <p className="mt-1 text-lg font-bold text-money-on-ink">{HERO_TERMS_PRICE}</p>
                 </div>
             </div>
             <div className="-mx-5 mt-[34px] md:-mx-7 lg:-mx-[34px]">

@@ -40,33 +40,33 @@ export const ProductsSection = ({
     return (
         <section
             aria-label="Products"
-            className="w-full border-b border-landing-border-soft bg-landing-page px-5 py-11 md:px-7 lg:px-[34px]"
+            className="w-full border-b border-neutral-border-soft bg-neutral-page px-5 py-11 md:px-7 lg:px-[34px]"
         >
             <div className="flex flex-wrap items-stretch gap-4">
                 {products.map(({ title, description, Icon, signature, testid, onClick }) => (
                     <article
                         key={testid}
                         data-testid={`${testid}-card`}
-                        className={`flex min-w-0 flex-[1_1_320px] flex-col rounded-[14px] border border-t-[3px] border-landing-border px-7 pb-7 pt-[26px] ${
-                            signature ? 'border-t-landing-signature' : 'border-t-landing-border-strong'
+                        className={`flex min-w-0 flex-[1_1_320px] flex-col rounded-[14px] border border-t-[3px] border-neutral-border px-7 pb-7 pt-[26px] ${
+                            signature ? 'border-t-signature' : 'border-t-neutral-border-strong'
                         }`}
                     >
                         <div className="mb-[15px] flex items-center gap-3">
                             <span
                                 className={`flex size-[42px] shrink-0 items-center justify-center rounded-[10px] ${
-                                    signature ? 'bg-landing-signature-ground text-landing-signature-text' : 'bg-landing-band text-landing-secondary'
+                                    signature ? 'bg-signature-ground text-signature-text' : 'bg-neutral-band text-neutral-secondary'
                                 }`}
                             >
                                 <Icon className="size-[21px]" aria-hidden="true" />
                             </span>
-                            <h3 className="text-[22px] font-extrabold tracking-[-0.025em] text-landing-heading">{title}</h3>
+                            <h3 className="text-[22px] font-extrabold tracking-[-0.025em] text-neutral-heading">{title}</h3>
                         </div>
-                        <p className="text-[17px] font-medium leading-[1.6] text-landing-body">{description}</p>
+                        <p className="text-[17px] font-medium leading-[1.6] text-neutral-body">{description}</p>
                         <button
                             type="button"
                             onClick={onClick}
                             data-testid={testid}
-                            className="mt-5 inline-flex min-h-[44px] items-center justify-center self-start whitespace-nowrap rounded-[11px] border border-landing-border-strong bg-landing-page px-5 text-base font-extrabold text-landing-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-landing-signature-text focus-visible:ring-offset-2"
+                            className="mt-5 inline-flex min-h-[44px] items-center justify-center self-start whitespace-nowrap rounded-[11px] border border-neutral-border-strong bg-neutral-page px-5 text-base font-extrabold text-neutral-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature-text focus-visible:ring-offset-2"
                         >
                             {`Start ${title}`}
                         </button>

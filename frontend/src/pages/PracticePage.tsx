@@ -146,7 +146,7 @@ export default function PracticePage() {
   return (
     // App.tsx owns the single <main id="main-content"> landmark and the global Navigation; this is a plain
     // content container for the #1475 G12 Rev 2 homepage, closed by the shell footer (ruling A1 on #1475).
-    <div className="practice-root min-h-screen bg-landing-page font-sans antialiased" data-testid="practice-root">
+    <div className="practice-root min-h-screen bg-neutral-page font-sans antialiased" data-testid="practice-root">
       {!browserSupported && browserSupportError && (
         <div className="px-5 pb-2 pt-[calc(var(--header-height)+1rem)] md:px-7 lg:px-[34px]">
           <BrowserWarning isSupported={browserSupported} supportError={browserSupportError} />

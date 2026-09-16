@@ -55,7 +55,7 @@ export const HeroWaveform = ({ className = '' }: { className?: string }) => {
             {heights.map((height, index) => (
                 <span
                     key={index}
-                    className={`block w-[2px] shrink-0 rounded-[1px] ${index < highlighted ? 'bg-landing-signature' : 'bg-landing-ink-hairline'}`}
+                    className={`block w-[2px] shrink-0 rounded-[1px] ${index < highlighted ? 'bg-signature' : 'bg-ink-hairline'}`}
                     style={{ height: `${height}px` }}
                 />
             ))}

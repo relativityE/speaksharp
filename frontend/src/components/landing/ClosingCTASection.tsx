@@ -17,18 +17,18 @@ export const ClosingCTASection = () => {
         <section
             aria-label="Call to Action"
             data-signup-decision
-            className="w-full bg-landing-ink px-5 pb-[52px] pt-12 text-center md:px-7 lg:px-[34px]"
+            className="w-full bg-ink px-5 pb-[52px] pt-12 text-center md:px-7 lg:px-[34px]"
         >
             <h2 className="mb-[14px] text-[30px] font-extrabold leading-[1.15] tracking-[-0.035em] text-white [text-wrap:balance] lg:text-[36px]">
-                Ready to practice before it <span className="text-landing-signature">matters?</span>
+                Ready to practice before it <span className="text-signature">matters?</span>
             </h2>
-            <p className="mx-auto mb-7 max-w-[580px] text-[17px] font-medium leading-[1.55] text-landing-ink-text md:text-[19px]">
+            <p className="mx-auto mb-7 max-w-[580px] text-[17px] font-medium leading-[1.55] text-ink-text md:text-[19px]">
                 {CLOSING_OFFER}
             </p>
             <Link
                 to={LANDING_SIGNUP_ROUTE}
                 onClick={() => trackConversionCtaClicked({ source: 'landing_cta' })}
-                className="mx-auto inline-flex h-[58px] w-full max-w-[420px] items-center justify-center gap-[11px] whitespace-nowrap rounded-xl bg-landing-signature px-8 text-[17px] font-extrabold text-landing-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-landing-signature focus-visible:ring-offset-2 focus-visible:ring-offset-landing-ink md:w-auto"
+                className="mx-auto inline-flex h-[58px] w-full max-w-[420px] items-center justify-center gap-[11px] whitespace-nowrap rounded-xl bg-signature px-8 text-[17px] font-extrabold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2 focus-visible:ring-offset-ink md:w-auto"
             >
                 <Mic className="size-[21px]" aria-hidden="true" />
                 Try it out!
