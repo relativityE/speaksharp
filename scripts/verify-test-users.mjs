@@ -2,9 +2,12 @@
 /**
  * Read-only live test-user verifier.
  *
- * Confirms configured reviewer/test accounts have both:
+ * VERIFY_TARGET=reviewers (default): confirms configured reviewer/test accounts have both
  * - a Supabase auth user
  * - a public.user_profiles row with the expected subscription_status
+ *
+ * VERIFY_TARGET=canaries: strictly read-only canary identity inspection (scripts/lib/canaryReadOnlyVerify.mjs).
+ * It never authenticates as a canary, so credential viability is not tested.
  *
  * This script intentionally performs no writes.
  */
@@ -12,11 +15,13 @@
 import { createClient } from '@supabase/supabase-js';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { formatCanaryLine, runCanaryInspection } from './lib/canaryReadOnlyVerify.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const VERIFY_TARGET = (process.env.VERIFY_TARGET || 'reviewers').trim();
 
 function firstEnv(names) {
   for (const name of names) {
@@ -125,6 +130,27 @@ async function main() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error('FAIL verifier config: missing SUPABASE_URL/VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
     process.exit(1);
+  }
+
+  if (!['reviewers', 'canaries'].includes(VERIFY_TARGET)) {
+    console.error(`FAIL verifier config: unknown VERIFY_TARGET '${VERIFY_TARGET}' (expected reviewers or canaries)`);
+    process.exit(1);
+  }
+
+  if (VERIFY_TARGET === 'canaries') {
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { results, allEligible } = await runCanaryInspection({ adminClient, env: process.env });
+    console.log('Canary identity inspection (read-only; credential viability is not tested)');
+    for (const result of results) {
+      console.log(formatCanaryLine(result));
+    }
+    console.log(JSON.stringify({ checkedAt: new Date().toISOString(), target: 'canaries', results }, null, 2));
+    if (!allEligible) {
+      process.exit(1);
+    }
+    return;
   }
 
   const candidates = configuredCandidates();

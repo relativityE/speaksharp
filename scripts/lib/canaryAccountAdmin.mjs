@@ -128,35 +128,18 @@ export async function strictLookup(adminClient, email) {
 }
 
 /**
- * Read back the accepted new-account DB foundation and fail closed on anything ambiguous — proving the
- * identity is safe for its purpose WITHOUT the caller ever writing entitlement. Server time is the SOLE
- * authority for "active" (via effective_subscription_tier, which uses now()); the runner clock is never the
- * authority. `expectedUserId` binds the readback to the authenticated identity.
+ * The foundation RULES, as a pure function of ONE already-read profile snapshot plus the server-authoritative
+ * effective tier for that same snapshot. Extracted so a caller that must report the state it judged can judge
+ * exactly the snapshot it reports: a caller which read the profile itself would otherwise have to call
+ * `verifyCanaryFoundation`, which re-reads, and a mid-flight entitlement change could then pair one read's
+ * verdict with another read's reported facts (Codex P2 on #1483). Reads nothing; performs no I/O.
+ *
+ * `verifyCanaryFoundation` below is the read-then-judge path and remains the only caller that does the reads.
  */
-export async function verifyCanaryFoundation(adminClient, userId, purpose) {
+export function judgeCanaryFoundationSnapshot(data, { purpose, effectiveTier: effTier }) {
     const verifyMode = PURPOSES[purpose]?.verify ?? 'trial';
-    const { data, error } = await adminClient
-        .from('user_profiles')
-        .select('id, subscription_status, subscription_id, stripe_subscription_id, stripe_customer_id, trial_started_at, trial_expires_at, commercial_trial_granted_at')
-        .eq('id', userId)
-        .maybeSingle();
-    if (error) return { ok: false, reason: `profile_readback_error_[${classifyError(error).category}]` };
-    if (!data) return { ok: false, reason: 'profile_missing_after_foundation' };
 
     if (isSyntheticSub(data.stripe_subscription_id)) return { ok: false, reason: 'synthetic_subscription_present' };
-
-    // Server-authoritative effective tier (uses now() inside the SECDEF function — NOT the runner clock).
-    // #1294: pass the immutable commercial grant marker to hit the CANONICAL 5-arg overload. The legacy
-    // 4-arg overload fails closed for trials, so a freshly-created active trial reads non-'pro' and blocks as
-    // `trial_not_active_server_time` even though its window is valid — the 5-arg overload resolves it to 'pro'.
-    const { data: effTier, error: tierErr } = await adminClient.rpc('effective_subscription_tier', {
-        p_subscription_status: data.subscription_status,
-        p_trial_expires_at: data.trial_expires_at,
-        p_stripe_subscription_id: data.stripe_subscription_id,
-        p_subscription_id: data.subscription_id,
-        p_commercial_trial_granted_at: data.commercial_trial_granted_at,
-    });
-    if (tierErr) return { ok: false, reason: `tier_rpc_error_[${classifyError(tierErr).category}]` };
 
     if (verifyMode === 'trial') {
         // Immutable commercial marker + start + expiry all present and internally consistent.
@@ -192,6 +175,43 @@ export async function verifyCanaryFoundation(adminClient, userId, purpose) {
     if (hasCustomer !== hasSub) return { ok: false, reason: 'paid_partial_billing_identity' };
     if (hasSub && isSyntheticSub(data.stripe_subscription_id)) return { ok: false, reason: 'synthetic_subscription_present' };
     return { ok: true, facts: { paid_synthetic: false, paid_established_here: false, billing_bound: hasCustomer && hasSub } };
+}
+
+/**
+ * Read back the accepted new-account DB foundation and fail closed on anything ambiguous — proving the
+ * identity is safe for its purpose WITHOUT the caller ever writing entitlement. Server time is the SOLE
+ * authority for "active" (via effective_subscription_tier, which uses now()); the runner clock is never the
+ * authority. `userId` binds the readback to the authenticated identity.
+ *
+ * The reads live here; the rules live in `judgeCanaryFoundationSnapshot` above, so both this path and any
+ * caller holding its own snapshot judge by exactly the same rules with no duplicated constants.
+ */
+export async function verifyCanaryFoundation(adminClient, userId, purpose) {
+    const { data, error } = await adminClient
+        .from('user_profiles')
+        .select('id, subscription_status, subscription_id, stripe_subscription_id, stripe_customer_id, trial_started_at, trial_expires_at, commercial_trial_granted_at')
+        .eq('id', userId)
+        .maybeSingle();
+    if (error) return { ok: false, reason: `profile_readback_error_[${classifyError(error).category}]`, snapshot: null, effectiveTier: null };
+    if (!data) return { ok: false, reason: 'profile_missing_after_foundation', snapshot: null, effectiveTier: null };
+
+    // Server-authoritative effective tier (uses now() inside the SECDEF function — NOT the runner clock).
+    // #1294: pass the immutable commercial grant marker to hit the CANONICAL 5-arg overload. The legacy
+    // 4-arg overload fails closed for trials, so a freshly-created active trial reads non-'pro' and blocks as
+    // `trial_not_active_server_time` even though its window is valid — the 5-arg overload resolves it to 'pro'.
+    const { data: effTier, error: tierErr } = await adminClient.rpc('effective_subscription_tier', {
+        p_subscription_status: data.subscription_status,
+        p_trial_expires_at: data.trial_expires_at,
+        p_stripe_subscription_id: data.stripe_subscription_id,
+        p_subscription_id: data.subscription_id,
+        p_commercial_trial_granted_at: data.commercial_trial_granted_at,
+    });
+    if (tierErr) return { ok: false, reason: `tier_rpc_error_[${classifyError(tierErr).category}]`, snapshot: data, effectiveTier: null };
+
+    // Return the snapshot and the server-authoritative tier this verdict was actually computed from, so a caller
+    // that must REPORT the identity state reports exactly what was validated instead of reading it again. Purely
+    // additive: existing callers read only `ok`/`reason`/`facts`.
+    return { ...judgeCanaryFoundationSnapshot(data, { purpose, effectiveTier: effTier }), snapshot: data, effectiveTier: effTier ?? null };
 }
 
 /**
