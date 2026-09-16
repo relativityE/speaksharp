@@ -10,11 +10,15 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+// One source of truth for which candidates a NEW required packet may name (#1477 P1). Moonshine is
+// deferred until after RWT or MVP, so it is absent here; historical Moonshine cells still PARSE through
+// `parseComparisonCell`, which is deliberately a wider set.
+import { AUTHORIZED_CANDIDATES } from './modelComparisonRunAuthority.mjs';
 
 const SHA40 = /^[0-9a-f]{40}$/;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const TOKEN = /^[A-Za-z0-9._:-]{1,128}$/;
-const CANDIDATES = new Set(['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium']);
+const CANDIDATES = new Set(AUTHORIZED_CANDIDATES);
 const JOURNEYS = new Set(['open_mic', 'focus_points']);
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
@@ -37,8 +41,10 @@ export function comparisonRows(evidence) {
   const evidenceDocumentId = evidence?.evidenceDocumentId;
   if (!SHA40.test(releaseSha ?? '')) throw new Error('evidence releaseSha is invalid');
   if (!UUID_V4.test(evidenceDocumentId ?? '')) throw new Error('evidenceDocumentId must be a lowercase UUIDv4');
-  if (!Array.isArray(evidence?.candidateEvidence) || evidence.candidateEvidence.length !== 6) {
-    throw new Error('candidateEvidence must contain exactly six rows');
+  // Four: two authorised candidates across two journeys. Was six while Moonshine was still required.
+  const requiredRows = CANDIDATES.size * JOURNEYS.size;
+  if (!Array.isArray(evidence?.candidateEvidence) || evidence.candidateEvidence.length !== requiredRows) {
+    throw new Error(`candidateEvidence must contain exactly ${requiredRows} rows`);
   }
   const cells = new Set();
   const nonces = new Set();

@@ -9,7 +9,10 @@ import {
 } from '../../scripts/human-test/collect-model-downselection-authority.mjs';
 
 const RELEASE = 'a'.repeat(40);
-const CANDIDATES = ['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'];
+// #1477 P1: the authorised matrix is v4 provisional primary against v2 fallback. Moonshine is deferred.
+const CANDIDATES = ['v2:base.en', 'v4:distil:q4'];
+// Derived, never hardcoded: these assertions went stale the moment the matrix changed from six cells to four.
+const ROW_INDEXES = Array.from({ length: CANDIDATES.length * 2 }, (_, i) => i + 1);
 const JOURNEYS = ['open_mic', 'focus_points'];
 const EVIDENCE_DOCUMENT_ID = '11111111-1111-4111-8111-111111111111';
 /** The deployed Edge Gemini contract the server-owned receipt records (#1432 PM RETURN `5654016276`). */
@@ -67,10 +70,10 @@ describe('#1432 trusted model-downselection authority collector', () => {
     expect(operations).not.toContain('VITE_MODEL_COMPARISON_PUBLIC_KEY');
   });
 
-  it('builds one bounded PostHog query from six unique signed rows', () => {
+  it('builds one bounded PostHog query from four unique signed rows', () => {
     const query = postHogReadbackQuery(packet());
     expect(query).toContain(`properties.release_sha = '${RELEASE}'`);
-    for (let index = 1; index <= 6; index += 1) expect(query).toContain(`'comparison-nonce-${index}'`);
+    for (const index of ROW_INDEXES) expect(query).toContain(`'comparison-nonce-${index}'`);
     expect(query).toContain('properties.comparison_evidence_document_id');
     expect(query).toContain('properties.comparison_session_binding_sha256');
     expect(query).not.toMatch(/transcript|what_worked|what_to_try_next|distinct_id/i);
@@ -84,7 +87,7 @@ describe('#1432 trusted model-downselection authority collector', () => {
       'evaluator_version', 'points_supplied', 'points_evaluated', 'covered_threshold', 'partial_threshold',
       'point_position', 'verdict', 'match_ratio', 'keyword_count', 'latched', 'step', 'points_entered',
     ]) expect(query).toMatch(new RegExp(`^\\s*properties\\.${column},?$`, 'm'));
-    const nonceList = [1, 2, 3, 4, 5, 6].map((index) => `'comparison-nonce-${index}'`).join(', ');
+    const nonceList = ROW_INDEXES.map((index) => `'comparison-nonce-${index}'`).join(', ');
     expect(query).toContain([
       "OR (event IN ('coverage_evaluation', 'coverage_point')",
       '      AND properties.attempt_id IN (',
@@ -101,7 +104,7 @@ describe('#1432 trusted model-downselection authority collector', () => {
 
   it('CASUALTY (PM 5654994284): the entered count is selected only through the journeys of nonce-selected take events', () => {
     const query = postHogReadbackQuery(packet());
-    const nonceList = [1, 2, 3, 4, 5, 6].map((index) => `'comparison-nonce-${index}'`).join(', ');
+    const nonceList = ROW_INDEXES.map((index) => `'comparison-nonce-${index}'`).join(', ');
     expect(query).toContain([
       "OR (event = 'journey_step'",
       "      AND properties.step = 'setup_submitted'",
@@ -318,7 +321,7 @@ describe('#1432 trusted model-downselection authority collector', () => {
     expect(authority.telemetry).toMatchObject({
       schemaVersion: 'speaksharp.posthog-readback-authority.v1', releaseSha: RELEASE,
     });
-    expect(authority.gemini.observations).toHaveLength(6);
+    expect(authority.gemini.observations).toHaveLength(ROW_INDEXES.length);
     expect(authority.gemini.observations[0]).toMatchObject({
       provider: 'google_gemini', model: EDGE_CONTRACT.model, providerRequestMade: true,
       quota: { scope: 'user_utc_day', utcDate: '2026-09-10', limit: EDGE_CONTRACT.uncachedGenerationCapPerUtcDay, requestNumber: 1 },

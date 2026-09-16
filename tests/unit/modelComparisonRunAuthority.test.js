@@ -4,9 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  AUTHORIZATION_FILE_NAME, AUTHORIZATION_JOB_NAME, AUTHORIZATION_WORKFLOW_PATH, DIAGNOSTIC_JOB_NAME, COMPARISON_CELLS, RUN_AUTHORIZATION_VERSION, PRODUCTION_ORIGIN,
-  authorizationArtifactName, checkRunAuthority, ghRunArtifactFetcher, githubApiGetter, loadRunAuthority, mintRunAuthorization,
-  parseComparisonCell, verifyRunAuthorization,
+  AUTHORIZATION_FILE_NAME, AUTHORIZATION_JOB_NAME, AUTHORIZATION_WORKFLOW_PATH, COMPARISON_CELLS, DIAGNOSTIC_JOB_NAME, HISTORICAL_COMPARISON_CELLS, PRODUCTION_ORIGIN, RUN_AUTHORIZATION_VERSION, authorizationArtifactName, checkRunAuthority, ghRunArtifactFetcher, githubApiGetter, isDispatchableComparisonCell, loadRunAuthority, mintRunAuthorization, parseComparisonCell, verifyRunAuthorization,
 } from '../../scripts/human-test/modelComparisonRunAuthority.mjs';
 
 const REPO = 'relativityE/speaksharp';
@@ -59,13 +57,52 @@ describe('#1432 PM decisions 5651830241 / 5651842972 — minting one cell\'s aut
     expect(JSON.stringify(artifact)).not.toMatch(/expires|ttl|key|signature|secret|token/i);
   });
 
-  it('the dispatch vocabulary is exactly the six candidate/journey cells', () => {
+  it('the dispatch vocabulary is exactly the four authorised candidate/journey cells', () => {
     expect(COMPARISON_CELLS).toEqual([
       'v2:base.en/open_mic', 'v2:base.en/focus_points', 'v4:distil:q4/open_mic', 'v4:distil:q4/focus_points',
-      'moonshine:streaming-medium/open_mic', 'moonshine:streaming-medium/focus_points',
     ]);
-    expect(parseComparisonCell('moonshine:streaming-medium/focus_points')).toEqual({ candidateId: 'moonshine:streaming-medium', journey: 'focus_points' });
     expect(parseComparisonCell('v2:base.en')).toBeNull();
+  });
+
+  /**
+   * #1477 P1 — TWO HALVES, AND BOTH MUST HOLD.
+   *
+   * The Product Owner deferred Moonshine until after RWT or MVP, so it must never be newly dispatchable or
+   * newly required. But its raw long-form failure observation is the REASON for that deferral, so a parser
+   * that rejected its cells would destroy the evidence behind the decision. These casualties fail if either
+   * half regresses — if Moonshine becomes dispatchable again, or if its history stops reading.
+   */
+  it('CASUALTY: a deferred candidate can never be newly dispatched or required', () => {
+    for (const journey of ['open_mic', 'focus_points']) {
+      const cell = `moonshine:streaming-medium/${journey}`;
+      expect(COMPARISON_CELLS, `${cell} must not be dispatchable`).not.toContain(cell);
+      expect(isDispatchableComparisonCell(cell)).toBe(false);
+    }
+    // Every dispatchable cell names an authorised candidate, so the matrix cannot grow by accident.
+    expect(COMPARISON_CELLS).toHaveLength(4);
+    for (const cell of COMPARISON_CELLS) {
+      expect(cell.startsWith('v2:base.en/') || cell.startsWith('v4:distil:q4/')).toBe(true);
+      expect(isDispatchableComparisonCell(cell)).toBe(true);
+    }
+    // The workflow dropdown is covered by the dispatch-input test below, which pins it to
+    // ['none', ...COMPARISON_CELLS] — so it now enforces these four cells and excludes anything deferred.
+  });
+
+  it('CASUALTY: historical deferred-candidate evidence still parses, and parsing authorises nothing', () => {
+    for (const journey of ['open_mic', 'focus_points']) {
+      const cell = `moonshine:streaming-medium/${journey}`;
+      // Still readable: the deferral must not erase the observation that caused it.
+      expect(parseComparisonCell(cell), `${cell} must remain parseable as history`).toEqual({
+        candidateId: 'moonshine:streaming-medium',
+        journey,
+      });
+      expect(HISTORICAL_COMPARISON_CELLS).toContain(cell);
+      // ...and being readable grants nothing.
+      expect(isDispatchableComparisonCell(cell)).toBe(false);
+    }
+    // The parseable set is strictly wider than the dispatchable one, never equal.
+    expect(HISTORICAL_COMPARISON_CELLS.length).toBeGreaterThan(COMPARISON_CELLS.length);
+    for (const cell of COMPARISON_CELLS) expect(HISTORICAL_COMPARISON_CELLS).toContain(cell);
   });
 
   it('CONTROL: a rerun is a distinct attempt and mints a distinct nonce', () => {

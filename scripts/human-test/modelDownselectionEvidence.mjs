@@ -9,16 +9,17 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { RECORD_KEYS, authorizationShapeProblems, checkRunAuthority } from './modelComparisonRunAuthority.mjs';
+import { AUTHORIZED_CANDIDATES, RECORD_KEYS, authorizationShapeProblems, checkRunAuthority } from './modelComparisonRunAuthority.mjs';
 import { controlReceiptProblems } from './preTakeControl.mjs';
 
 export const MODEL_DOWNSELECTION_SCHEMA_VERSION = 'speaksharp.model-downselection.v1';
 export const PRODUCTION_ORIGIN = 'https://speaksharp-public.vercel.app';
-export const COMPARISON_CANDIDATES = Object.freeze([
-  'v2:base.en',
-  'v4:distil:q4',
-  'moonshine:streaming-medium',
-]);
+/**
+ * The candidates a REQUIRED packet must carry (#1477 P1): v4 provisional primary, v2 fallback. Moonshine is
+ * deferred until after RWT or MVP, so it is not required and not dispatchable. Its existing cells remain
+ * parseable through `parseComparisonCell`; see `HISTORICAL_COMPARISON_CELLS`.
+ */
+export const COMPARISON_CANDIDATES = Object.freeze([...AUTHORIZED_CANDIDATES]);
 export const REQUIRED_JOURNEYS = Object.freeze(['open_mic', 'focus_points']);
 
 /**
@@ -500,7 +501,7 @@ function validateCandidateEvidence(rows, events, releaseSha, evidenceDocumentId,
     ];
     const hasCoverage = isObject(row) && Object.hasOwn(row, 'focusCoverage');
     if (!exactKeys(row, hasCoverage ? [...keys, 'focusCoverage'] : keys, path, problems)) continue;
-    if (!CANDIDATE_SET.has(row.candidateId)) problems.push(`${path}.candidateId is not in the three-model slate`);
+    if (!CANDIDATE_SET.has(row.candidateId)) problems.push(`${path}.candidateId is not in the authorised candidate slate`);
     if (!JOURNEY_SET.has(row.journey)) problems.push(`${path}.journey is not required`);
     expectEqual(row.releaseSha, releaseSha, `${path}.releaseSha`, problems);
     const key = takeKey(row.candidateId, row.journey);
@@ -790,15 +791,25 @@ function validateSelection(selection, packetDigest, baseDir, approvalResolver, p
     return;
   }
   expectEqual(selection.status, 'selected', 'selection.status', problems);
-  const roles = [selection.primary, selection.fallback, selection.sitsOut];
+  /**
+   * #1477 P1 — the authorised matrix is two candidates, so there is no third to sit out.
+   *
+   * `sitsOut` must be null. A DEFERRED candidate is not a sitting-out candidate: sitting out means it ran
+   * the comparison and lost, while deferred means it was never in this comparison at all. Recording
+   * Moonshine as `sitsOut` would assert the first and re-enter it into a matrix it is excluded from.
+   */
+  const roles = [selection.primary, selection.fallback];
   if (roles.some((candidate) => !CANDIDATE_SET.has(candidate))) {
-    problems.push('selection roles must use the three comparison candidates');
+    problems.push('selection roles must use the authorised comparison candidates');
   }
-  if (new Set(roles).size !== COMPARISON_CANDIDATES.length) {
-    problems.push('selection primary, fallback, and sitsOut must be distinct');
+  if (new Set(roles).size !== roles.length) {
+    problems.push('selection primary and fallback must be distinct');
   }
   for (const candidate of COMPARISON_CANDIDATES) {
     if (!roles.includes(candidate)) problems.push(`selection omits ${candidate}`);
+  }
+  if (selection.sitsOut !== null) {
+    problems.push('selection.sitsOut must be null: the authorised matrix has no third candidate, and a deferred candidate never sat out');
   }
   const approval = loadVerifiedJson(
     selection.approvalArtifact, selection.approvalSha256, baseDir, 'selection.approvalArtifact', problems,
@@ -835,12 +846,13 @@ function validateSelection(selection, packetDigest, baseDir, approvalResolver, p
   }
   if (!isIsoInstant(approval.created_at)) problems.push('selection approval created_at must be an ISO instant');
   const body = typeof approval.body === 'string' ? approval.body : '';
+  // No `sits_out` line: with a two-candidate authorised matrix the approval states primary and fallback,
+  // and asking a human to write `sits_out: null` would invite writing a deferred candidate there instead.
   const requiredLines = [
     'SPEAKSHARP_MODEL_DOWNSELECTION_APPROVAL',
     `packet_sha256: ${packetDigest}`,
     `primary: ${selection.primary}`,
     `fallback: ${selection.fallback}`,
-    `sits_out: ${selection.sitsOut}`,
   ];
   for (const line of requiredLines) if (!body.split(/\r?\n/).includes(line)) {
     problems.push(`selection approval is missing exact line ${JSON.stringify(line)}`);

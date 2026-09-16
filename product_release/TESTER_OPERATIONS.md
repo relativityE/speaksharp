@@ -232,7 +232,7 @@ candidate head with `gate=gate-3-dast`, `diagnostic_dast_spec=tests/live/practic
 Gate 3 job mints the nonce in its own run attempt before the spec starts, and the spec live-reads that
 in-progress attempt before navigating. Missing, stale or inconsistent run or release metadata HOLDs with a named
 reason before any product step. The job keeps its deliberate terminal rejection: the diagnostic creates and
-qualifies no six-cell evidence, and it never replaces a Product Owner spoken cell.
+qualifies no four-cell evidence, and it never replaces a Product Owner spoken cell.
 
 ---
 

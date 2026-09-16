@@ -46,7 +46,7 @@ The currency guard checks internal consistency and recent ancestry; it cannot re
 
 ## Now — closure-first path back to RWT
 
-Keep **one merge token**, and run **two working lanes**: Dev implementation and PM review/selected implementation. Review or CI waiting does not halt unrelated executable work; only the merge token is serialized. PR #1477 contains a bounded review-qualification implementation. Its freeze condition is discharged — #1469, #1483 and #1481 have all merged — and it has restacked/currentized once onto the resulting `main`, which is what that rule requires whenever `main` advances.
+Keep **one merge token**, and run **two working lanes**: Dev implementation and PM review/selected implementation. Review or CI waiting does not halt unrelated executable work; only the merge token is serialized. PR #1477 contains a bounded review-qualification implementation and is **frozen behind the active product PR**, which is now PR #1487. Predecessors merging does not release it: the freeze follows the merge token, not a fixed list of PRs. It restacks/currentizes once each time `main` advances, which is what that rule requires.
 
 | Order | Outcome | Owner | Smallest closure evidence |
 |---|---|---|---|
@@ -73,7 +73,7 @@ All 24 current MVP/pre-GO issues and roadmap-owned gaps have an owner and closur
 | Observability/operations | #1259, #1382, #1383, #1384 | Active; received evidence and cleanup are required, not producer calls. |
 | Security/CI truth | #1261, #1313, #1315, #1385 | Active pre-GO controls; keep separate from product-feature PRs. |
 | STT comparison | #1304, #1390 | Active; validates **v4 (provisional primary) against v2 (fallback)**. #1263 Moonshine is deferred until after RWT or MVP and is not required here. |
-| Documentation/review gate | #1318 / PR #1477 | Active; its freeze behind #1469 is discharged now that #1469, #1483 and #1481 have merged. Canonical-authority currentization plus the bounded documentation-review qualification. Archives and dated evidence remain immutable. |
+| Documentation/review gate | #1318 / PR #1477 | **Frozen behind the active product PR.** #1469, #1483 and #1481 having merged does NOT discharge the freeze: the rule serialises this lane behind whichever product PR currently holds the merge token, and that is now PR #1487. This PR waits for #1487 to close, then restacks once. Canonical-authority currentization plus the bounded documentation-review qualification. Archives and dated evidence remain immutable. |
 | Retention safety | #1452 | Must close before newest-one retention is activated; it does not authorize activation. |
 | Account deletion | Roadmap-owned pre-GO gap | Product Owner owns disposition; Dev may author a bounded corrective issue/PR. Choose one deletion authority, make account erasure unblockable, cover unfinished `session_delivery_measurements` rows and the non-cascading `user_id` dependency, define cleanup/SLA ownership, and prove the real migrations in tests. Production migration remains separately authorized. |
 | Progress/review/filler | #1471, #1472, #1473, #1476 | Active release blockers with separate owners. |

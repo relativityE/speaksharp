@@ -30,10 +30,29 @@ export const AUTHORIZATION_JOB_NAME = 'Model Comparison Authorization';
 /** The job the nonqualifying #1437 diagnostic executes in. */
 export const DIAGNOSTIC_JOB_NAME = 'Gate 3 - DAST / Running App';
 
-const CANDIDATES = Object.freeze(['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium']);
+/**
+ * #1477 P1 — TWO SETS, AND THEY ARE NOT THE SAME SET.
+ *
+ * The Product Owner decision is v4 provisional primary against v2 fallback, with Moonshine DEFERRED until
+ * after RWT or MVP. So the matrix a new dispatch may name is the four v2/v4 cells. Moonshine is not one of
+ * them and must never become newly dispatchable or newly required.
+ *
+ * But existing Moonshine evidence has to keep parsing: its raw long-form failure observation is the reason
+ * for the deferral, and a parser that rejected those cells would quietly destroy the evidence behind the
+ * decision. Historical parseability is therefore a strictly WIDER set than dispatch authority, and being in
+ * it authorises nothing.
+ */
+export const AUTHORIZED_CANDIDATES = Object.freeze(['v2:base.en', 'v4:distil:q4']);
+/** Deferred: parseable as history, never dispatchable. */
+const HISTORICAL_ONLY_CANDIDATES = Object.freeze(['moonshine:streaming-medium']);
 const JOURNEYS = Object.freeze(['open_mic', 'focus_points']);
-/** The six closed `candidate/journey` values a dispatch may name. */
-export const COMPARISON_CELLS = Object.freeze(CANDIDATES.flatMap((candidate) => JOURNEYS.map((journey) => `${candidate}/${journey}`)));
+const cellsFor = (candidates) => candidates.flatMap((candidate) => JOURNEYS.map((journey) => `${candidate}/${journey}`));
+/** The four closed `candidate/journey` values a dispatch may name. */
+export const COMPARISON_CELLS = Object.freeze(cellsFor(AUTHORIZED_CANDIDATES));
+/** Every cell that PARSES, including deferred-candidate cells carried by existing evidence. */
+export const HISTORICAL_COMPARISON_CELLS = Object.freeze([...COMPARISON_CELLS, ...cellsFor(HISTORICAL_ONLY_CANDIDATES)]);
+/** True only for a cell a NEW dispatch may name. Parseability is never sufficient. */
+export const isDispatchableComparisonCell = (cell) => COMPARISON_CELLS.includes(cell);
 const SHA40 = /^[0-9a-f]{40}$/;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const LOGIN = /^[A-Za-z0-9-]{1,39}$/;
@@ -58,9 +77,14 @@ const workflowRefFor = (ref) => `${MODEL_COMPARISON_REPOSITORY}/${AUTHORIZATION_
 /** Artifact name for one run attempt; a rerun uploads under its own attempt. */
 export const authorizationArtifactName = (runAttempt) => `model-comparison-authorization-attempt-${runAttempt}`;
 
-/** Split one closed comparison cell into its candidate and journey, or null. */
+/**
+ * Split one known comparison cell into its candidate and journey, or null.
+ *
+ * Deliberately parses the HISTORICAL set, so evidence naming a deferred candidate still reads. Callers that
+ * are authorising work must additionally require `isDispatchableComparisonCell`.
+ */
 export function parseComparisonCell(cell) {
-  if (!COMPARISON_CELLS.includes(cell)) return null;
+  if (!HISTORICAL_COMPARISON_CELLS.includes(cell)) return null;
   const separator = cell.lastIndexOf('/');
   return { candidateId: cell.slice(0, separator), journey: cell.slice(separator + 1) };
 }
@@ -84,7 +108,11 @@ export function mintRunAuthorization({
   if (!SHA40.test(releaseSha ?? '')) throw new Error('release must be a full lowercase git SHA');
   if (releaseSha !== sha) throw new Error('release must be the exact commit this run executes');
   const parsed = parseComparisonCell(cell);
-  if (!parsed) throw new Error('comparison cell must be one of the six candidate/journey cells');
+  if (!parsed) throw new Error('comparison cell must be a known candidate/journey cell');
+  // Parseable is not dispatchable: a deferred candidate reads as history and is refused here.
+  if (!isDispatchableComparisonCell(cell)) {
+    throw new Error(`comparison cell ${cell} is not authorized for dispatch: its candidate is deferred until after RWT or MVP`);
+  }
   if (!UUID_V4.test(evidenceDocumentId ?? '')) throw new Error('evidence document must be a lowercase UUIDv4');
   if (!/^[0-9a-f]{24}$/.test(randomHex ?? '')) throw new Error('nonce entropy must be 24 lowercase hex characters');
   return {
@@ -121,7 +149,9 @@ export function authorizationShapeProblems(value, keys = AUTHORIZATION_KEYS) {
   if (!LOGIN.test(value.actor ?? '')) problems.push('authorization actor is invalid');
   if (!SHA40.test(value.releaseSha ?? '')) problems.push('authorization releaseSha is invalid');
   else if (value.releaseSha !== value.workflowSha) problems.push('authorization release is not the revision its run executed');
-  if (!CANDIDATES.includes(value.candidateId)) problems.push('authorization candidate is not in the comparison slate');
+  // Authorised, not merely parseable: a stored authorization for a deferred candidate is not valid input
+  // to a required packet. Historical cells still parse via `parseComparisonCell`.
+  if (!AUTHORIZED_CANDIDATES.includes(value.candidateId)) problems.push('authorization candidate is not in the authorised comparison slate');
   if (!JOURNEYS.includes(value.journey)) problems.push('authorization journey is invalid');
   if (!UUID_V4.test(value.evidenceDocumentId ?? '')) problems.push('authorization evidenceDocumentId is invalid');
   const nonce = RUN_NONCE.exec(value.nonce ?? '');
