@@ -23,6 +23,9 @@ describe('flawless-launch product-contract guard (#1290)', () => {
       'secrets.CANARY_PAID_EMAIL',
       'secrets.FREE_TEST_EMAIL',
       'secrets.PRO_TEST_EMAIL',
+      // #1492 — the fifth email. The cutover moved four and this one kept reading Secrets while sitting
+      // outside this very list, so the one email on the wrong source was also the one nothing could see.
+      'secrets.CHECKOUT_TEST_EMAIL',
       `secrets.${RETIRED_CANARY_PW}`,
       `${RETIRED_CANARY_PW}:`,
     ];
@@ -33,6 +36,7 @@ describe('flawless-launch product-contract guard (#1290)', () => {
     }
     expect(hits, `forbidden email-Secret / retired-token refs in workflows:\n${hits.join('\n')}`).toEqual([]);
   });
+
 
   it('keeps both canary identities protected and fail-closed behind migration readiness', () => {
     const workflow = readFileSync('.github/workflows/canary.yml', 'utf8');
