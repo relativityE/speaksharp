@@ -3,16 +3,16 @@ import { SessionShell } from './SessionShell';
 import { PlaybackScrubber, type PlaybackScrubberProps } from './PlaybackScrubber';
 import { TranscriptCard } from './TranscriptCard';
 import { LiveTranscript, type TranscriptToken } from './LiveTranscript';
-import { ProgressVsBaseline } from './ProgressVsBaseline';
 import { CoachingCard } from './CoachingCard';
-import { SessionVerdict, type SessionVerdictProps } from './SessionVerdict';
-import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 
 /**
- * #1222 — the **after** (Review) state through the same fixed shell (spec §5). Not a new page — the same
- * layout resolving:
- *   A = playback scrubber (the bar resolved) · B = seekable transcript + stats strip · C = final progress
- *   · D = verdict + one fix + two actions.
+ * The **after** state on the shared slot map. Not a new page — the same layout resolving
+ * (Design Correction Brief G1):
+ *   A = the run's static shape · B = the Practice Loop review and its actions, on ink, directly under the
+ *   recorder · C = the transcript as reference · D = rail.
+ *
+ * Because B was already full width in `before` and `during`, the review grows into the slot the coaching
+ * line occupied. Nothing swaps columns — the previous shell had to, because it had no full-width slot.
  */
 export interface SessionAfterStateProps {
     scrubber: PlaybackScrubberProps;
@@ -26,20 +26,16 @@ export interface SessionAfterStateProps {
         /** #1046 Focus Points — highlight `covered` tokens as coverage (green) instead of fillers. */
         coverageMode?: 'during' | 'after';
     };
-    progress: ProgressVsBaselineResult;
-    /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
-    progressMode?: 'filler' | 'aggregate';
-    verdict: SessionVerdictProps;
+    /** Slot B content: the Practice Loop review and its actions. */
+    review: React.ReactNode;
+    /** Slot D content. */
+    rail: React.ReactNode;
     /**
-     * #1416 F-05 — shown in slot B instead of a transcript when the retained authority says there is
+     * #1416 F-05 — shown in the transcript slot (C) instead of a transcript when the retained authority says there is
      * nothing readable yet. It sits WITH the transcript rather than replacing the slot, so the reason
      * appears where the words would have been.
      */
     slotBNotice?: React.ReactNode;
-    /** #1222 S8 — Focus Points swaps slot D (verdict → resolved coverage rail); defaults to the verdict. */
-    slotDContent?: React.ReactNode;
-    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → Coverage & pace). */
-    slotCContent?: React.ReactNode;
     /** #1231 R1 — post-Stop decode still running → finalizing banner on the transcript card. */
     finalizing?: boolean;
     /** #891 — finalize-time estimate (s) for the "Finalizing… ~Ns" countdown in the banner. */
@@ -48,12 +44,13 @@ export interface SessionAfterStateProps {
     fillerFooter?: React.ReactNode;
 }
 
-export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent, slotCContent, slotBNotice, finalizing, finalizeEstimateSeconds, fillerFooter }) => {
+export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, review, rail, slotBNotice, finalizing, finalizeEstimateSeconds, fillerFooter }) => {
     return (
         <SessionShell
             sessionState="after"
             slotA={<PlaybackScrubber {...scrubber} />}
-            slotB={
+            slotB={<CoachingCard sessionState="after" verdict={review} />}
+            slotC={
                 <TranscriptCard
                     offerDismissed
                     onDismissOffer={() => {}}
@@ -79,8 +76,7 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                     )}
                 </TranscriptCard>
             }
-            slotC={slotCContent ?? <ProgressVsBaseline result={progress} sessionState="after" mode={progressMode} />}
-            slotD={slotDContent ?? <CoachingCard sessionState="after" verdict={<SessionVerdict {...verdict} />} />}
+            slotD={rail}
         />
     );
 };

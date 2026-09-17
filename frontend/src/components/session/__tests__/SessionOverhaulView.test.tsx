@@ -26,7 +26,40 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
         expect(screen.getByTestId('mic-card')).toBeInTheDocument();
         expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
-        expect(screen.getByTestId('comparable-progress-notice')).toHaveTextContent('No universal score');
+    });
+
+    it('CASUALTY S-5: before carries no disclaimer card — a first session gets one plain baseline line', () => {
+        render(<SessionOverhaulView {...base} history={[]} />);
+        expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
+        expect(screen.queryByText(/no universal score/i)).toBeNull();
+        const line = screen.getByTestId('open-mic-baseline-line');
+        expect(line).toHaveTextContent('First session — this run becomes your baseline.');
+        expect(screen.getByTestId('session-slot-d')).toContainElement(line);
+        // No heading, no chrome: the line is the whole rail.
+        expect(screen.getByTestId('session-slot-d').querySelector('h1,h2,h3,h4,section')).toBeNull();
+    });
+
+    it('S-5: a returning user gets a plain progress link, never an invented number', () => {
+        const onSeeAllSessions = vi.fn();
+        render(
+            <SessionOverhaulView
+                {...base}
+                onSeeAllSessions={onSeeAllSessions}
+                history={[{ id: 's1', user_id: 'user-1', created_at: '2026-09-01T00:00:00Z', duration: 90 }]}
+            />,
+        );
+        expect(screen.queryByTestId('open-mic-baseline-line')).toBeNull();
+        const link = screen.getByRole('button', { name: 'See your progress' });
+        expect(screen.getByTestId('session-slot-d')).toHaveTextContent(/^See your progress$/);
+        fireEvent.click(link);
+        expect(onSeeAllSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('CASUALTY S-4: the filler-words settings strip is gone; its link lives in the transcript header', () => {
+        render(<SessionOverhaulView {...base} />);
+        expect(screen.queryByTestId('custom-words-bar')).toBeNull();
+        expect(screen.queryByText(/tracking common hesitation sounds/i)).toBeNull();
+        expect(screen.getByTestId('transcript-card')).toContainElement(screen.getByTestId('add-custom-word-button'));
     });
 
     it('listening runtime → during state (recorder bar + live transcript)', () => {
@@ -166,20 +199,21 @@ describe('SessionOverhaulView filler consistency (#1314 C3)', () => {
 describe('SessionOverhaulView Focus Points (#1046)', () => {
     const POINTS = ['Name the price', 'State the guarantee'];
 
-    // #1255: Focus Points `before` renders the fixed Slot C (guide-only Coverage & pace), like Open Mic.
-    it('objective before (no guide) → Slot C Coverage & pace = 0/N points covered, NO pace half; rail present', () => {
+    // F-1 / F-2: the rail (slot D) states the plan above the points, and scores nothing before the run.
+    it('objective before (no guide) → the rail states the plan above the points; no 0/N, no pace half', () => {
         render(<SessionOverhaulView {...base} objectivePoints={POINTS} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
-        expect(screen.getByTestId('session-slot-c')).toContainElement(screen.getByTestId('coverage-pace'));
-        // Dominant numerator 0, smaller denominator /2 as SEPARATE elements.
-        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('0');
-        expect(screen.getByTestId('coverage-pace-total')).toHaveTextContent('/2');
-        expect(screen.getByTestId('coverage-pace-covered').className).toContain('text-[40px]');
-        expect(screen.getByTestId('coverage-pace-total').className).toContain('text-[26px]');
-        // No guide → no pace half at all; and NEVER a measured/current pace, projection, bar, or nudge.
-        for (const id of ['coverage-pace-guide', 'coverage-pace-planned', 'coverage-pace-perpoint', 'coverage-pace-projection', 'coverage-pace-bar', 'coverage-pace-nudge']) {
+        const rail = screen.getByTestId('session-slot-d');
+        expect(rail).toContainElement(screen.getByTestId('coverage-pace'));
+        expect(rail).toContainElement(screen.getByTestId('focus-points-rail'));
+        const children = Array.from(rail.children).map((el) => el.getAttribute('data-testid'));
+        expect(children).toEqual(['coverage-pace', 'focus-points-rail']);
+        expect(screen.getByTestId('coverage-pace-plan')).toHaveTextContent(/^2 points$/);
+        for (const id of ['coverage-pace-count', 'coverage-pace-covered', 'coverage-pace-guide', 'coverage-pace-planned', 'coverage-pace-perpoint', 'coverage-pace-projection', 'coverage-pace-bar', 'coverage-pace-nudge']) {
             expect(screen.queryByTestId(id)).toBeNull();
         }
+        // F-1: the coaching band exists for Focus Points too, in slot B.
+        expect(screen.getByTestId('session-slot-b')).toHaveTextContent('Tips appear as you speak.');
         expect(screen.queryByText(/current pace|at this pace/i)).toBeNull();
         expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
         expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Name the price');
@@ -188,18 +222,15 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByText(/of 2 points covered/i)).toBeNull();
     });
 
-    it('objective before WITH a pace guide → guide value + "pace guide" + planned total; never a measured pace/projection', () => {
-        render(<SessionOverhaulView {...base} objectivePoints={POINTS} objectivePaceGuideSecPerPoint={60} />);
+    it('objective before WITH a pace guide → the guide is stated once, in the plan; Edit pace reopens the editor', () => {
+        const onEditPoints = vi.fn();
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} objectivePaceGuideSecPerPoint={60} onEditPoints={onEditPoints} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
-        const guide = screen.getByTestId('coverage-pace-guide');
-        expect(guide).toHaveTextContent('1:00');
-        expect(guide).toHaveTextContent('/point');
-        expect(guide).toHaveTextContent(/pace guide/i);
-        expect(guide).not.toHaveTextContent(/current pace/i);
-        expect(screen.getByTestId('coverage-pace-planned')).toHaveTextContent('2:00 guide'); // 60s guide × 2 points
-        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('0');
-        // No measured pace, projection, progress bar, countdown, over-guide, or nudge before recording.
-        for (const id of ['coverage-pace-perpoint', 'coverage-pace-projection', 'coverage-pace-bar', 'coverage-pace-nudge']) {
+        expect(screen.getByTestId('coverage-pace-plan')).toHaveTextContent('2 points · about 2:00 at 1:00 per point');
+        fireEvent.click(screen.getByTestId('coverage-pace-edit'));
+        expect(onEditPoints).toHaveBeenCalledTimes(1);
+        // No count, measured pace, projection, progress bar, countdown, over-guide, or nudge before recording.
+        for (const id of ['coverage-pace-count', 'coverage-pace-guide', 'coverage-pace-planned', 'coverage-pace-perpoint', 'coverage-pace-projection', 'coverage-pace-bar', 'coverage-pace-nudge']) {
             expect(screen.queryByTestId(id)).toBeNull();
         }
         expect(screen.queryByText(/current pace|at this pace|actual|remaining|left\b/i)).toBeNull();
@@ -308,7 +339,7 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
              * `coverageTerminallyUnavailable` required `kind === 'available'`, and
              * `coverageMayBecomeAvailable` requires `kind === 'unavailable'`. For these two terminal
              * kinds BOTH were false, so slot C fell through to `undefined` and `SessionAfterState`
-             * rendered the generic Open Mic `ProgressVsBaseline` card — a different product's summary
+             * rendered the generic Open Mic progress card — a different product's summary
              * presented as this Focus Points take's result.
              *
              * The existing `available` test above could not catch it: that kind satisfied the old
@@ -526,23 +557,21 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
 // #1264 — optional Open Mic Practice Focus. The chooser lives in the before-state coaching slot (Open Mic
 // only), the chosen intention shows as a non-scoring reminder while recording, and it never appears on a
 // Focus Points session (which owns slot D with its rail).
-describe('SessionOverhaulView Practice Focus (#1264)', () => {
-    it('Open Mic before → the focus chooser is present and selecting calls onSelectFocus', () => {
-        const onSelectFocus = vi.fn();
-        render(<SessionOverhaulView {...base} onSelectFocus={onSelectFocus} practiceFocus={null} />);
+describe('SessionOverhaulView — practice-focus chips removed (S-4)', () => {
+    it('CASUALTY: Open Mic before offers no focus chooser, even when a handler is wired', () => {
+        render(<SessionOverhaulView {...base} onSelectFocus={vi.fn()} practiceFocus={null} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
-        expect(screen.getByTestId('practice-focus-chooser')).toBeInTheDocument();
-        fireEvent.click(screen.getByTestId('practice-focus-reduce_fillers'));
-        expect(onSelectFocus).toHaveBeenCalledWith('reduce_fillers');
+        expect(screen.queryByTestId('practice-focus-chooser')).toBeNull();
+        expect(screen.queryByText(/practice focus/i)).toBeNull();
     });
 
-    it('Open Mic during → the chosen focus shows as a non-scoring reminder', () => {
+    it('CASUALTY: Open Mic during shows no focus reminder, even when a focus is set', () => {
         render(<SessionOverhaulView {...base} isListening transcriptContent="so hello there" elapsedTime={30} practiceFocus="steady_pace" />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
-        expect(screen.getByTestId('practice-focus-reminder')).toHaveTextContent(/Steady pace/i);
+        expect(screen.queryByTestId('practice-focus-reminder')).toBeNull();
     });
 
-    it('Focus Points before → NO focus chooser (slot D is the points rail, not coaching)', () => {
+    it('Focus Points before → no focus chooser either', () => {
         render(<SessionOverhaulView {...base} objectivePoints={['Name the price']} onSelectFocus={vi.fn()} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
         expect(screen.queryByTestId('practice-focus-chooser')).toBeNull();

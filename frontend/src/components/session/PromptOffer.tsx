@@ -8,8 +8,12 @@ import React from 'react';
  *
  * The two actions are a **matched pair of equal weight** — two branches of the same choice — so one is
  * never a button and the other a link:
- *   • `Give me a prompt` — teal fill, white text.
- *   • `Read a sample`    — white fill, `neutral-border-strong` border, `neutral-heading` text (the secondary action).
+ *   • `Give me a prompt` — signature fill, ink text (the one yellow action in this state).
+ *   • `Read a sample`    — white fill, `neutral-border-strong` border, `neutral-heading` text.
+ *
+ * Design Correction Brief G3: the sentence that used to sit under the heading ("Take a prompt — it stays
+ * right here while you speak. Nothing on this panel is saved or scored.") described the panel's own
+ * mechanics to a user about to watch them happen. It is deleted, not shortened.
  */
 export interface PromptOfferProps {
     /** Take a generated speaking prompt (stays visible through recording). */
@@ -22,9 +26,6 @@ export const PromptOffer: React.FC<PromptOfferProps> = ({ onPrompt, onSample }) 
     return (
         <div className="mx-auto max-w-md text-center" data-testid="prompt-offer">
             <p className="text-[18px] font-extrabold text-neutral-body">Not sure what to say?</p>
-            <p className="mt-1.5 text-[14px] leading-relaxed text-neutral-secondary">
-                Take a prompt — it stays right here while you speak. Nothing on this panel is saved or scored.
-            </p>
 
             {/* Matched pair: equal weight, side by side. */}
             <div className="mt-4 flex justify-center gap-3">

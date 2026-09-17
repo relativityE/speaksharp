@@ -61,6 +61,17 @@ export function fmtDuration(seconds: number): string {
 }
 
 /**
+ * The Focus Points plan, said once (Design Correction Brief F-2 / F-3):
+ * `3 points · about 3:00 at 1:00 per point`, or `3 points` when no guide is set.
+ * Before a run this replaces the `0/3` scoreboard — a plan, never a score.
+ */
+export function coveragePlanSentence(total: number, guideSecPerPoint: number | null): string {
+    const points = `${total} ${total === 1 ? 'point' : 'points'}`;
+    if (guideSecPerPoint == null || !(guideSecPerPoint > 0)) return points;
+    return `${points} · about ${fmtDuration(guideSecPerPoint * total)} at ${fmtDuration(guideSecPerPoint)} per point`;
+}
+
+/**
  * Is a PACE nudge warranted right now (before timing gates)? Only when a guide is set, the running average
  * is meaningfully over it (beyond the ~10% tolerance), AND at least one point remains. Never once the last
  * point is covered — overrunning then costs the user nothing.

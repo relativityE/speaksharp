@@ -1,92 +1,77 @@
 import React from 'react';
 
 /**
- * #1222 — the session-page shell: ONE page, THREE states, FOUR fixed slots.
+ * Design Correction Brief G1 / S-1 / F-1 — ONE page, THREE states, FOUR fixed slots, and ONE slot map shared
+ * by Open Mic and Focus Points.
  *
- * The governing rule (spec §1, as amended for #1474): **a slot keeps stable landmark identity, and slots
- * never reorder WITHIN a state.** Every slot keeps its `data-slot`, `data-testid` and `aria-label` in all
- * three states, so a user who looks away re-finds a surface by its landmark rather than by its position.
+ *     ┌─────────────────────────────────────────────┐  A  full width — recorder
+ *     ├─────────────────────────────────────────────┤  B  full width, INK — coaching → Practice Loop review
+ *     ├───────────────────────────┬─────────────────┤
+ *     │ C  flex: 1; min-width: 0  │ D  310px        │  C transcript · D rail
+ *     └───────────────────────────┴─────────────────┘
  *
- * The original wording forbade any movement between states. #1474 (G10) supersedes that for the **after**
- * state only: the Practice Loop review must be the dominant result once a session is saved, and its
- * acceptance requires coaching to precede the transcript and secondary metrics in keyboard and
- * screen-reader order. Position is what determines both, so the after state deliberately re-arranges which
- * column each slot occupies. Nothing is renamed, nothing is removed, and before/during are untouched.
+ * **Slots never move between states. They only change size and content.** The previous shell started its
+ * two-column split at the top, with the recorder at half width and coaching in the rail, and so had no
+ * full-width place for the Practice Loop review to land in `after`. It worked around that by swapping
+ * columns in `after` only (#1474) — a page that visibly reorganised itself at the moment the user most
+ * needed to find their result. With A and B full width, the review simply grows into B where the coaching
+ * line already was, and nothing reorders in any state.
  *
- * Arrangement per state:
- *   before / during — primary column: A (recorder, sizes to content) then B (transcript, fills).
- *                     rail: C (progress, sizes to content) then D (coaching, fills).
- *   after           — primary column: A (compact saved/audio summary) then D (coaching, fills and dominates).
- *                     rail: C (this-run metrics) then B (transcript reference, fills).
+ * **Slot B's ink ground belongs to the shell, not to its content.** It is the ink role from first paint in
+ * every state (S-2), so a component placed in B cannot forget it, and a white B — the "everything blends"
+ * failure the palette change was made to fix — is structurally impossible.
  *
- * Layout: one stacked column on phones; `grid-template-columns: 1.55fr 1fr` from the md breakpoint. The
- * primary column is the wide one in every state, so moving coaching into it in the after state is what makes
- * the review dominant. On phones the single column follows DOM order, so coaching still precedes metrics and
- * transcript without any horizontal dependence.
+ * The rail does not stretch to the transcript (`items-start`), so a long transcript never leaves D with a
+ * column of dead space. Below the `md` breakpoint the row stacks, C before D, following DOM order.
  */
 export type SessionState = 'before' | 'during' | 'after';
 
 export interface SessionShellProps {
     sessionState: SessionState;
-    /** Slot A — mic card / recorder bar / playback scrubber. Sizes to content in every state. */
+    /** Slot A — the mic card / recorder bar / the mic returned with the run's static shape. Full width. */
     slotA: React.ReactNode;
-    /** Slot B — transcript (empty+prompt / live / seekable). Fills its column. */
+    /** Slot B — live coaching, then the Practice Loop review. Full width, on ink the shell provides. */
     slotB: React.ReactNode;
-    /** Slot C — Progress vs baseline / this-run metrics. Sizes to content. */
+    /** Slot C — the transcript. `flex: 1; min-width: 0`. */
     slotC: React.ReactNode;
-    /** Slot D — coaching placeholder / one live tip / the Practice Loop review. Fills its column. */
+    /** Slot D — the rail: Open Mic progress / this-run counts; Focus Points coverage & points. 310px. */
     slotD: React.ReactNode;
     className?: string;
 }
 
-/** Stable landmark identity per slot — never varies by state. That stability IS the amended §1 rule. */
-const SLOTS = {
+/** Stable landmark identity per slot — never varies by state or product. */
+const SESSION_SLOTS = {
     A: { testid: 'session-slot-a', label: 'Recorder' },
-    B: { testid: 'session-slot-b', label: 'Transcript' },
-    C: { testid: 'session-slot-c', label: 'Progress' },
-    D: { testid: 'session-slot-d', label: 'Coaching' },
+    B: { testid: 'session-slot-b', label: 'Coaching' },
+    C: { testid: 'session-slot-c', label: 'Transcript' },
+    D: { testid: 'session-slot-d', label: 'This run' },
 } as const;
 
-type SlotKey = keyof typeof SLOTS;
+type SlotKey = keyof typeof SESSION_SLOTS;
 
-const Slot = ({ slot, fills, children }: { slot: SlotKey; fills: boolean; children: React.ReactNode }) => (
+const Slot = ({ slot, className, children }: { slot: SlotKey; className?: string; children: React.ReactNode }) => (
     <section
         data-slot={slot}
-        data-testid={SLOTS[slot].testid}
-        aria-label={SLOTS[slot].label}
-        style={fills ? { flex: '1 1 auto', minHeight: 0 } : { flex: '0 0 auto' }}
+        data-testid={SESSION_SLOTS[slot].testid}
+        aria-label={SESSION_SLOTS[slot].label}
+        className={className}
     >
         {children}
     </section>
 );
 
-export const SessionShell: React.FC<SessionShellProps> = ({ sessionState, slotA, slotB, slotC, slotD, className }) => {
-    const isAfter = sessionState === 'after';
-    const column = { display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 } as const;
-
-    // #1255: Focus Points and Open Mic both render slot C in every state — the fixed-slot contract has no
-    // per-product exception. The guard remains only so a genuinely content-less slot degrades cleanly.
-    const hasSlotC = slotC != null && slotC !== false;
-
-    return (
-        <div
-            data-testid="session-shell"
-            data-session-state={sessionState}
-            className={`grid grid-cols-1 items-stretch gap-[22px] md:grid-cols-[1.55fr_1fr] ${className ?? ''}`}
-        >
-            <div style={column}>
-                <Slot slot="A" fills={false}>{slotA}</Slot>
-                {isAfter
-                    /* G10: the review owns the wide column and comes before metrics and transcript. */
-                    ? <Slot slot="D" fills>{slotD}</Slot>
-                    : <Slot slot="B" fills>{slotB}</Slot>}
-            </div>
-            <div style={column}>
-                {hasSlotC && <Slot slot="C" fills={false}>{slotC}</Slot>}
-                {isAfter
-                    ? <Slot slot="B" fills>{slotB}</Slot>
-                    : <Slot slot="D" fills>{slotD}</Slot>}
-            </div>
+export const SessionShell: React.FC<SessionShellProps> = ({ sessionState, slotA, slotB, slotC, slotD, className }) => (
+    <div
+        data-testid="session-shell"
+        data-session-state={sessionState}
+        className={`flex flex-col gap-[14px] ${className ?? ''}`}
+    >
+        <Slot slot="A" className="w-full min-w-0">{slotA}</Slot>
+        {/* S-2: ink in every state, owned here. Flat fill only — no gradient, opacity or overlay (G2). */}
+        <Slot slot="B" className="w-full min-w-0 rounded-[14px] bg-ink px-5 py-4 text-ink-text md:px-6">{slotB}</Slot>
+        <div data-testid="session-shell-row" className="flex flex-col gap-[14px] md:flex-row md:items-start">
+            <Slot slot="C" className="min-w-0 md:flex-1">{slotC}</Slot>
+            <Slot slot="D" className="flex min-w-0 flex-col gap-[14px] md:w-[310px] md:shrink-0">{slotD}</Slot>
         </div>
-    );
-};
+    </div>
+);

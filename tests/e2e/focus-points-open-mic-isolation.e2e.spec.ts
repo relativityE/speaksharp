@@ -123,7 +123,8 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     // BEFORE (Focus Points): the plan rail is present — this is genuinely a Focus Points session.
     await page.waitForURL('**/session');
     await expect(page.getByTestId('focus-points-rail')).toBeVisible();
-    await expect(page.getByTestId('coverage-pace-total')).toHaveText(`/${POINT_LABELS.length}`);
+    // Before a run the card states the plan, not a 0/N score (Design Correction Brief G4).
+    await expect(page.getByTestId('coverage-pace-plan')).toHaveText(new RegExp(`^${POINT_LABELS.length} points\\b`));
 
     // RECORD → SAVE → REVIEW. EVERY entered point is spoken, so every one must be detected. There is
     // no case in which a point the user entered is allowed to go missing.
