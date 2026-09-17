@@ -464,7 +464,7 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             enctype = 'multipart/form-data';
             rows: Array<[string, string]> = [['audio', '-_'.repeat(129)]];
             submit() { submitCalls += 1; }
-            requestSubmit(_submitter?: unknown) { requestSubmitCalls += 1; }
+            requestSubmit(submitter?: unknown) { void submitter; requestSubmitCalls += 1; }
         }
         class FakeFormData {
             private readonly rows: Array<[string, string]>;
