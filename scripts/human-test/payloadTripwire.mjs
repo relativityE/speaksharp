@@ -44,8 +44,6 @@ export const PAYLOAD_TRIPWIRE = `(() => {
   let relaySequence = 0;
   let emitChain = Promise.resolve();
   const relayStates = new Map();
-  const pendingRelayDrains = new Map();
-  const pendingTerminations = new Set();
   let relayDrainFailure = null;
   let relay = null;
   if ((isDocument || isWorker) && typeof BroadcastChannel === 'function') {
@@ -68,24 +66,6 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     return pending;
   };
 
-  const requestRelayDrain = () => {
-    if (!isDocument || !relay) return Promise.resolve();
-    const expected = new Set(relayStates.keys());
-    if (expected.size === 0) return Promise.resolve();
-    const drainId = 'drain-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingRelayDrains.delete(drainId);
-        reject(new Error('payload relay drain timed out'));
-      }, 5000);
-      pendingRelayDrains.set(drainId, {
-        expected,
-        resolve: () => { clearTimeout(timer); resolve(); },
-      });
-      relay.postMessage({ marker: relayMarker, type: 'drain_request', drainId });
-    });
-  };
-
   if (isDocument && relay) {
     relay.addEventListener('message', (event) => {
       try {
@@ -95,47 +75,33 @@ export const PAYLOAD_TRIPWIRE = `(() => {
         relayStates.set(data.workerId, state);
         if (data.type === 'record' && Number.isInteger(data.sequence) && data.sequence > 0) {
           state.received = Math.max(state.received, data.sequence);
-          void emitRecord({ ...data.record, __ssSource: 'worker' });
+          void emitRecord({ ...data.record, __ssSource: 'worker' }).then(() => {
+            state.acknowledged = Math.max(state.acknowledged, data.sequence);
+          });
           return;
         }
-        if (data.type === 'drain_ack' && Number.isInteger(data.sequence) && data.sequence >= 0) {
-          void emitChain.then(() => {
-            state.acknowledged = Math.max(state.acknowledged, data.sequence);
-            if (typeof data.drainId !== 'string') return;
-            const pending = pendingRelayDrains.get(data.drainId);
-            if (!pending) return;
-            pending.expected.delete(data.workerId);
-            if (pending.expected.size === 0) {
-              pendingRelayDrains.delete(data.drainId);
-              pending.resolve();
-            }
-          });
+        if (data.type === 'worker_ready') {
+          state.acknowledged = Math.max(state.acknowledged, 0);
         }
       } catch (e) { void e; }
     });
 
-    // The Private engine terminates its worker during a successful Stop. Hold that teardown just long
-    // enough for every already-posted record to cross BroadcastChannel, reach the Playwright binding,
-    // and be acknowledged by sequence. The wrapper is test instrumentation installed before app code;
-    // it does not change production runtime bytes.
-    if (typeof Worker === 'function' && Worker.prototype && typeof Worker.prototype.terminate === 'function') {
-      const terminate = Worker.prototype.terminate;
-      Worker.prototype.terminate = function () {
-        const target = this;
-        const barrier = requestRelayDrain();
-        pendingTerminations.add(barrier);
-        void barrier.catch((error) => {
-          relayDrainFailure = error instanceof Error ? error.message : 'payload relay drain failed';
-        }).finally(() => {
-          pendingTerminations.delete(barrier);
-          terminate.call(target);
-        });
-      };
-    }
-
     w.__SS_TRIPWIRE_DRAIN__ = async (expectedWorkers) => {
-      await Promise.all(Array.from(pendingTerminations));
-      await emitChain;
+      // Worker.terminate() remains untouched and synchronous, matching the deployed lifecycle. Records
+      // are posted as they are observed, before teardown. Wait only for the document-side relay queue
+      // and exposed binding to become quiet; never keep the Private-STT worker alive for the proof.
+      let previousReceived = -1;
+      let quietPasses = 0;
+      for (let attempt = 0; attempt < 10 && quietPasses < 2; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        await emitChain;
+        const received = Array.from(relayStates.values())
+          .reduce((sum, state) => sum + state.received, 0);
+        if (received === previousReceived) quietPasses += 1;
+        else quietPasses = 0;
+        previousReceived = received;
+      }
+      if (quietPasses < 2) throw new Error('payload relay did not become quiet');
       if (relayDrainFailure) throw new Error(relayDrainFailure);
       if (relayStates.size < Number(expectedWorkers || 0)) {
         throw new Error('payload relay worker registration incomplete');
@@ -152,21 +118,7 @@ export const PAYLOAD_TRIPWIRE = `(() => {
   }
 
   if (isWorker && relay) {
-    relay.addEventListener('message', (event) => {
-      try {
-        const data = event && event.data;
-        if (data && data.marker === relayMarker && data.type === 'drain_request') {
-          relay.postMessage({
-            marker: relayMarker,
-            type: 'drain_ack',
-            drainId: data.drainId,
-            workerId,
-            sequence: relaySequence,
-          });
-        }
-      } catch (e) { void e; }
-    });
-    relay.postMessage({ marker: relayMarker, type: 'drain_ack', workerId, sequence: 0 });
+    relay.postMessage({ marker: relayMarker, type: 'worker_ready', workerId });
   }
 
   const isNumericSampleArray = (value) => Array.isArray(value)

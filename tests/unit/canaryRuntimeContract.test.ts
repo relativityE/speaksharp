@@ -228,8 +228,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             .toBeLessThan(smoke.indexOf("page.getByTestId('verdict-see-all').click()"));
         expect(smoke).not.toContain('page.waitForTimeout(100)');
         expect(smoke).toContain('__SS_TRIPWIRE_DRAIN__');
-        expect(PAYLOAD_TRIPWIRE).toContain("type: 'drain_request'");
-        expect(PAYLOAD_TRIPWIRE).toContain("type: 'drain_ack'");
+        expect(PAYLOAD_TRIPWIRE).toContain("type: 'worker_ready'");
+        expect(PAYLOAD_TRIPWIRE).not.toContain("type: 'drain_request'");
         expect(PAYLOAD_TRIPWIRE).toContain("type: 'record', workerId, sequence: relaySequence, record");
         expect(PAYLOAD_TRIPWIRE).toContain("__ssSource: 'worker'");
     });
@@ -244,7 +244,7 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         expect(durableWait).toContain("projection.includes('duration')");
     });
 
-    it('CASUALTY: worker termination waits for the sequenced relay and pending binding', async () => {
+    it('CASUALTY: worker termination stays synchronous while drain waits for the streamed binding', async () => {
         type Listener = (event: { data: unknown }) => void;
         class FakeBroadcastChannel {
             static channels = new Set<FakeBroadcastChannel>();
@@ -292,23 +292,10 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             new Function(PAYLOAD_TRIPWIRE)();
 
             const workerRelay = new FakeBroadcastChannel('__speaksharp_canary_payload_v1__');
-            workerRelay.addEventListener('message', ({ data }) => {
-                const message = data as { type?: string; drainId?: string };
-                if (message.type === 'drain_request') {
-                    workerRelay.postMessage({
-                        marker: '__speaksharp_canary_payload_v1__',
-                        type: 'drain_ack',
-                        drainId: message.drainId,
-                        workerId: 'worker-1',
-                        sequence: 1,
-                    });
-                }
-            });
             workerRelay.postMessage({
                 marker: '__speaksharp_canary_payload_v1__',
-                type: 'drain_ack',
+                type: 'worker_ready',
                 workerId: 'worker-1',
-                sequence: 0,
             });
             await new Promise((resolve) => setTimeout(resolve, 0));
             workerRelay.postMessage({
@@ -320,9 +307,10 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             });
 
             new scope.Worker().terminate();
+            expect(terminateCalls).toBe(1);
             const drainPromise = scope.__SS_TRIPWIRE_DRAIN__?.(1);
             await new Promise((resolve) => setTimeout(resolve, 0));
-            expect(terminateCalls).toBe(0);
+            expect(terminateCalls).toBe(1);
 
             resolveBinding();
             await expect(drainPromise).resolves.toMatchObject({ workers: 1, received: 1, acknowledged: 1 });

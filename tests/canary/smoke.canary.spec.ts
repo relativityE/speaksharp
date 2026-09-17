@@ -416,9 +416,9 @@ test.describe('Production Smoke Canary @canary', () => {
         // Seal payload evidence only AFTER stop/finalization/save reaches that required terminal. The
         // Stop button's callback is intentionally void while persistence continues asynchronously, so
         // auditing immediately after click() misses any egress during STOPPING or save. Worker records
-        // stream to the document while the engine is alive. The injected terminate barrier waits for a
-        // worker sequence acknowledgement, and this final drain also waits for every exposed-binding
-        // promise. An elapsed delay cannot prove either queue is empty under a busy CI browser.
+        // stream to the document while the engine is alive. Worker teardown remains synchronous, and
+        // this final document-side drain waits for every already-streamed exposed-binding promise.
+        // An elapsed delay cannot prove the binding queue is empty under a busy CI browser.
         const payloadDrain = await page.evaluate(async (expectedWorkers) => {
             const drain = (globalThis as typeof globalThis & {
                 __SS_TRIPWIRE_DRAIN__?: (expected: number) => Promise<{
