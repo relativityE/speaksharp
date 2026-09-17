@@ -27,7 +27,14 @@ import type { PracticeSession } from '@/types/session';
  * `sessionService.getRecentReviewable` selects (#1042 PR4): never transcript, scores, WPM or engine
  * data. Home deliberately does not widen that read, which is exactly why some tiles have no source.
  */
-export type RecentSession = Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'>;
+export type RecentSession = Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'> & {
+    /**
+     * Brief H-4 — the fix sentence from this session's cached review, verbatim, or `null` when there is no
+     * contract-valid review to quote. `readLastSessionFix` derives it in the service, so Home never handles
+     * the raw payload and nothing persists it.
+     */
+    fix?: string | null;
+};
 
 /** The four distinguishable situations. They must never render identically. */
 export type EvidenceState = 'loading' | 'failed' | 'empty' | 'present';

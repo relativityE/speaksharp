@@ -1,12 +1,19 @@
 /**
- * #1047 — the authenticated Home surface.
+ * Design Correction Brief H-1…H-5 — the authenticated Home surface.
  *
- * The assertions that matter here are not cosmetic. This surface prints numbers next to labels like
- * "Filler words", and a user reads those as facts about their own speaking. So the suite pins:
- *   - the two choices are legible (title + CTA per card);
- *   - a missing or invalid value renders an em-dash, and NEVER a `0`, a `0:00` or a `+8%`;
- *   - Objective (unlaunched) shows nothing that could be mistaken for personalised results;
- *   - decorative graphics are hidden from assistive tech.
+ * The assertions that matter here are not cosmetic. Each one pins a rule whose breach is what the
+ * brief was commissioned to fix:
+ *   - **H-1** both product CTAs are the same signature fill at the same size; no outlined twin, because
+ *     an outline beside a fill reads as "secondary or unavailable";
+ *   - **H-2** the two cards are ONE component with two content sets — they may differ in exactly two
+ *     rendered colours (top rule, eyebrow) and in nothing else;
+ *   - **H-3** slot C carries no numbers and no em-dash placeholders: a card must not promise data this
+ *     page has no source for;
+ *   - **H-4** the resume band is slot B, full width on ink, above the cards — and ABSENT (not empty, not
+ *     disabled) when there is nothing to resume;
+ *   - **H-5** yellow is the action colour: the card CTAs count as one use, the resume CTA is the other.
+ * Plus the surviving evidence rules: loading / failed / empty / present stay four distinct renderings,
+ * and no missing value ever degrades to a `0`.
  */
 
 import * as React from 'react';
@@ -44,8 +51,9 @@ function renderHome(overrides: Partial<React.ComponentProps<typeof Authenticated
 }
 
 const surface = () => screen.getByTestId('practice-welcome-authed');
+const cards = () => [screen.getByTestId('practice-card-freeform-card'), screen.getByTestId('practice-card-objective-card')];
 
-describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
+describe('AuthenticatedHome — the page asks one question and offers two answers', () => {
     it('asks "what would you like to do?" and offers exactly two answers', () => {
         renderHome();
         expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/what would you like to do\?/i);
@@ -64,20 +72,16 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
         expect(screen.queryByTestId('practice-support-heading')).not.toBeInTheDocument();
     });
 
-    it('the WHAT TO EXPECT eyebrow is the shared connective tissue — present on BOTH cards', () => {
+    it('each card is eyebrow · title · ONE sentence · CTA', () => {
         renderHome();
-        for (const testid of ['practice-card-freeform-card', 'practice-card-objective-card']) {
-            expect(within(screen.getByTestId(testid)).getByText(/what to expect/i)).toBeInTheDocument();
+        expect(screen.getByTestId('practice-card-freeform-sentence'))
+            .toHaveTextContent('Just speak. Your transcript, fillers and pace, live.');
+        expect(screen.getByTestId('practice-card-objective-sentence'))
+            .toHaveTextContent('Name the points that must land, then check which ones did.');
+        for (const card of cards()) {
+            // Exactly one sentence-bearing paragraph per card: no second paragraph of body copy.
+            expect(card.querySelectorAll('p')).toHaveLength(1);
         }
-        expect(within(screen.getByTestId('practice-card-freeform-card')).getByText('in ~5 min')).toBeInTheDocument();
-        expect(within(screen.getByTestId('practice-card-objective-card')).getByText('every session')).toBeInTheDocument();
-    });
-
-    it('Focus Points is ACTIVATED (#1046 slice 5b) — no "SOON" pill on the Objective card', () => {
-        renderHome();
-        // The pre-launch badge is gone now that the card opens the real capture flow.
-        expect(screen.queryByTestId('objective-soon-badge')).not.toBeInTheDocument();
-        expect(within(screen.getByTestId('practice-card-objective-card')).queryByText('SOON')).not.toBeInTheDocument();
     });
 
     it('routes each choice to its own handler', () => {
@@ -91,48 +95,168 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
     });
 });
 
-describe('AuthenticatedHome — evidence, never fabrication', () => {
-    it('never invents a "vs. previous session" comparison or a last-session filler count', () => {
-        renderHome();
-        const card = screen.getByTestId('practice-card-freeform-card');
-        const vsTile = screen.getByTestId('practice-card-freeform-tile-2');
-        expect(vsTile).toHaveTextContent(/vs\. previous session/i);
-        expect(vsTile).toHaveTextContent('—');
-        expect(vsTile).toHaveAttribute('data-evidence', 'none');
-
-        const fillerTile = screen.getByTestId('practice-card-freeform-tile-1');
-        expect(fillerTile).toHaveTextContent(/filler words/i);
-        expect(fillerTile).toHaveTextContent('—');
-
-        // The specific fabrications this page previously invited.
-        const text = card.textContent ?? '';
-        expect(text).not.toMatch(/\+\d+%/);
-        expect(text).not.toMatch(/\b12 filler\b/i);
-        // A missing value must never degrade to a zero: no bare 0 anywhere in the tile row.
-        expect(screen.getByTestId('practice-card-freeform-tiles').textContent ?? '').not.toMatch(/\b0\b/);
+describe('H-1 / H-2 — the two products are peers', () => {
+    it('CASUALTY H-1: both CTAs carry the identical signature treatment, and no outlined button exists', () => {
+        const { container } = renderHome();
+        const freeform = screen.getByTestId('practice-card-freeform');
+        const objective = screen.getByTestId('practice-card-objective');
+        expect(freeform.className).toBe(objective.className);
+        for (const cta of [freeform, objective]) {
+            expect(cta.className).toContain('ss-home-cta-solid');
+            expect(cta.className).not.toContain('outline');
+        }
+        // The outlined variant is gone from the page entirely — it is what made Focus Points read as
+        // secondary or unavailable.
+        expect(container.querySelector('.ss-home-cta-outline')).toBeNull();
     });
 
-    it('Objective shows no personalised numbers at all — em-dashes under real labels', () => {
+    it('CASUALTY H-2: the cards differ in exactly two colours — the top rule and the eyebrow', () => {
         renderHome();
-        const tiles = screen.getByTestId('practice-card-objective-tiles');
-        // #1254: the tile label is 'Detected' — the matcher reports what it FOUND, not what the
-        // speaker covered.
-        expect(tiles).toHaveTextContent(/detected/i);
-        expect(tiles).toHaveTextContent(/not detected/i);
-        expect(tiles).toHaveTextContent(/retry specific points/i);
-        // No digits whatsoever: nothing that could read as "8/10" or "2 missed".
-        expect(tiles.textContent ?? '').not.toMatch(/\d/);
-        for (const i of [0, 1, 2]) {
-            expect(screen.getByTestId(`practice-card-objective-tile-${i}`)).toHaveAttribute('data-evidence', 'none');
+        const [openMic, focus] = cards();
+        // Same component, same classes: any layout/surface divergence would be a second difference.
+        expect(openMic.className).toBe(focus.className);
+        expect(openMic).toHaveAttribute('data-identity', 'open-mic');
+        expect(focus).toHaveAttribute('data-identity', 'focus-points');
+
+        // Difference 1 — the 3px top rule, from the shared theme roles (never a literal).
+        expect(openMic.getAttribute('style')).toMatch(/border-top:\s*3px solid var\(--brand-ink\)/);
+        expect(focus.getAttribute('style')).toMatch(/border-top:\s*3px solid var\(--brand-focus-strong\)/);
+
+        // Difference 2 — the eyebrow, in that same colour.
+        expect(screen.getByTestId('practice-card-freeform-eyebrow').getAttribute('style')).toContain('var(--brand-ink)');
+        expect(screen.getByTestId('practice-card-objective-eyebrow').getAttribute('style')).toContain('var(--brand-focus-strong)');
+
+        // And nothing else: no saturated header band survives on either card (the purple flood).
+        for (const card of cards()) {
+            expect(card.querySelector('.ss-home-band-teal, .ss-home-band-violet')).toBeNull();
+            expect(card.className).not.toMatch(/ss-home-card--(teal|violet)/);
         }
     });
 
-    it('an unavailable tile keeps its row and its label — it is not hidden', () => {
+    it('CASUALTY H-5: yellow is spent only on the CTAs — two card CTAs plus the resume CTA', () => {
+        const { container } = renderHome();
+        const solid = Array.from(container.querySelectorAll('.ss-home-cta-solid'));
+        expect(solid).toHaveLength(3);
+        expect(solid.map((el) => el.getAttribute('data-testid')).sort())
+            .toEqual(['home-resume-cta', 'practice-card-freeform', 'practice-card-objective']);
+        // The streak chip is the signature FAMILY (ground + text), not a signature fill competing
+        // with an action, so it does not spend the budget.
+        expect(screen.getByTestId('home-streak-chip').getAttribute('style')).toContain('var(--brand-signature-ground)');
+    });
+});
+
+describe('H-3 — slot C promises no data', () => {
+    it('CASUALTY: the WHAT TO EXPECT row, its tiles and its captions are gone', () => {
         renderHome();
-        expect(screen.getByTestId('practice-card-freeform-tiles').children).toHaveLength(3);
-        expect(screen.getByTestId('practice-card-objective-tiles').children).toHaveLength(3);
+        expect(screen.queryByText(/what to expect/i)).toBeNull();
+        expect(screen.queryByText('in ~5 min')).toBeNull();
+        expect(screen.queryByText('every session')).toBeNull();
+        expect(screen.queryByTestId('practice-card-freeform-tiles')).toBeNull();
+        expect(screen.queryByTestId('practice-card-objective-tiles')).toBeNull();
+        expect(screen.queryByTestId('practice-card-freeform-tile-0')).toBeNull();
+        // The labels that promised numbers this page cannot source.
+        expect(screen.queryByText(/filler words/i)).toBeNull();
+        expect(screen.queryByText(/vs\. previous session/i)).toBeNull();
     });
 
+    it('CASUALTY: no number and no placeholder anywhere in the cards', () => {
+        renderHome();
+        for (const card of cards()) {
+            const text = card.textContent ?? '';
+            expect(text).not.toMatch(/\d/);        // no digits at all: nothing reads as "8/10" or "0"
+            expect(text).not.toContain('—');       // no em-dash placeholder
+            expect(text).not.toMatch(/\+\d+%/);
+            expect(text).not.toMatch(/not enough data/i);
+        }
+    });
+
+    it('Focus Points is activated — no "SOON" pill', () => {
+        renderHome();
+        expect(screen.queryByTestId('objective-soon-badge')).toBeNull();
+        expect(within(screen.getByTestId('practice-card-objective-card')).queryByText('SOON')).toBeNull();
+    });
+});
+
+describe('H-4 — the resume band is slot B', () => {
+    it('renders above the cards, full width, on the flat ink ground', () => {
+        renderHome();
+        const band = screen.getByTestId('home-resume-band');
+        expect(band.className).toContain('bg-ink');
+        // G2: a ground is a flat fill — no gradient, opacity or overlay.
+        expect(band.className).not.toMatch(/gradient|opacity|bg-opacity|\/\d{2}\b/);
+        expect(within(band).getByTestId('home-resume-eyebrow')).toHaveTextContent(/from your last session/i);
+        expect(within(band).getByTestId('home-resume-eyebrow').className).toContain('text-signature');
+        // DOM order is the layout order: the band precedes the card grid.
+        const grid = screen.getByTestId('practice-card-freeform-card').closest('.ss-home-grid')!;
+        expect(band.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('quotes the fix VERBATIM from the last review — the same sentence the session page showed', () => {
+        const fix = "Pause instead of filling the gap. You used 'um' 11 times.";
+        renderHome({ lastSession: { ...SESSION, fix } });
+        const headline = screen.getByTestId('home-resume-headline');
+        expect(headline).toHaveTextContent(fix);
+        expect(headline).toHaveAttribute('data-source', 'review-fix');
+        // It is the lesson, not a restatement of it.
+        expect(headline.textContent).not.toMatch(/ready to pick up/i);
+    });
+
+    it('CASUALTY: with no contract-valid review, the band falls back to the run and never apologises', () => {
+        // fix null covers all three real causes: the review failed, is still being made, or the row is a
+        // partial write. None of them may produce a band that announces an unavailable review.
+        renderHome({ lastSession: { ...SESSION, fix: null } });
+        const headline = screen.getByTestId('home-resume-headline');
+        expect(headline).toHaveAttribute('data-source', 'run-facts');
+        expect(headline).toHaveTextContent('Your last run is ready to pick up.');
+        expect(screen.getByTestId('home-resume-cta')).toBeEnabled();
+        expect(screen.getByTestId('home-resume-band').textContent ?? '').not.toMatch(/unavailable|couldn.t|failed/i);
+    });
+
+    it('states the run it can describe, and offers the review plus progress', () => {
+        const { props } = renderHome();
+        const band = screen.getByTestId('home-resume-band');
+        expect(within(band).getByTestId('home-resume-headline')).toHaveTextContent('Your last run is ready to pick up.');
+        // The meta line is the persisted date · duration — earned facts, never invented ones.
+        expect(within(band).getByTestId('home-resume-meta')).toHaveTextContent('5:05');
+        fireEvent.click(within(band).getByTestId('home-resume-cta'));
+        expect(props.onReviewLastSession).toHaveBeenCalledTimes(1);
+        fireEvent.click(within(band).getByTestId('home-resume-progress'));
+        expect(props.onViewAnalytics).toHaveBeenCalledTimes(1);
+    });
+
+    it('CASUALTY: it never announces that a review is unavailable', () => {
+        renderHome();
+        const band = screen.getByTestId('home-resume-band');
+        expect(band.textContent ?? '').not.toMatch(/unavailable|couldn.t|no review|not enough data/i);
+    });
+
+    it('CASUALTY: absent from the DOM on a first session — not empty, not disabled', () => {
+        renderHome({ lastSession: null });
+        expect(screen.queryByTestId('home-resume-band')).toBeNull();
+        // The first-session page is a greeting and two cards, and that is a complete page.
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/pick how you want to practise/i);
+        expect(screen.getByTestId('practice-card-freeform')).toBeInTheDocument();
+        expect(screen.getByTestId('home-first-run')).toHaveTextContent('Your audio never leaves this browser.');
+    });
+
+    it('CASUALTY: absent while the read is in flight and after it failed — neither knows if anything can be resumed', () => {
+        const { unmount } = renderHome({ recentLoading: true, lastSession: null });
+        expect(screen.queryByTestId('home-resume-band')).toBeNull();
+        unmount();
+        renderHome({ recentFailed: true, lastSession: null });
+        expect(screen.queryByTestId('home-resume-band')).toBeNull();
+    });
+
+    it('a session that cannot describe itself still gets a band, with no meta line and no dash', () => {
+        renderHome({ lastSession: { id: 'x', created_at: 'nope', duration: null } as unknown as RecentSession });
+        const band = screen.getByTestId('home-resume-band');
+        expect(within(band).queryByTestId('home-resume-meta')).toBeNull();
+        expect(band.textContent ?? '').not.toContain('—');
+        expect(within(band).getByTestId('home-resume-cta')).toBeEnabled();
+    });
+});
+
+describe('AuthenticatedHome — evidence, never fabrication', () => {
     /*
      * The streak is server-authoritative (get_practice_streak, #1098). The chip appears ONLY for an
      * active streak of >=2 qualifying days; every other value renders NO chip (no skeleton, no
@@ -143,40 +267,34 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
             ({ state, count, lastQualifyingDate: null, timezone: 'UTC' });
         expect(streakLabel(mk('active', 2))).toBe('2-day streak');
         expect(streakLabel(mk('active', 9))).toBe('9-day streak');
-        // everything below the threshold — and every non-active state — is null (chip hidden)
         expect(streakLabel(mk('active', 1))).toBeNull();
         expect(streakLabel(mk('active', 0))).toBeNull();
         expect(streakLabel(mk('none', 0))).toBeNull();
         expect(streakLabel(mk('unavailable', 0))).toBeNull();
         expect(streakLabel(null)).toBeNull();
         expect(streakLabel(undefined)).toBeNull();
-        // never a fabricated fractional/non-integer count
         expect(streakLabel(mk('active', 2.5))).toBeNull();
     });
 
     it('streak chip: rendered for an active >=2-day streak, hidden for every other state', () => {
-        // count 2 and count N both render exact text
         renderHome({ streak: { state: 'active', count: 2, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
         expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('2-day streak');
         cleanup();
         renderHome({ streak: { state: 'active', count: 12, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
         expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('12-day streak');
 
-        // every hidden state — chip is ABSENT (not empty, not a placeholder)
         const hidden: Array<Partial<React.ComponentProps<typeof AuthenticatedHome>>> = [
-            { streak: null, streakLoading: true },                                                                              // loading
-            { streak: null, streakLoading: false },                                                                            // null/unavailable read
-            { streak: { state: 'unavailable', count: 0, lastQualifyingDate: null, timezone: null } as PracticeStreak },        // unavailable
-            { streak: { state: 'none', count: 0, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak },              // none/zero
-            { streak: { state: 'active', count: 1, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak },            // one-day (below threshold)
+            { streak: null, streakLoading: true },
+            { streak: null, streakLoading: false },
+            { streak: { state: 'unavailable', count: 0, lastQualifyingDate: null, timezone: null } as PracticeStreak },
+            { streak: { state: 'none', count: 0, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak },
+            { streak: { state: 'active', count: 1, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak },
         ];
         for (const override of hidden) {
             cleanup();
             renderHome(override);
             expect(screen.queryByTestId('home-streak-chip')).toBeNull();
-            // nothing anywhere claims a lapsed/absent streak
             expect(screen.queryByText(/Streak unavailable|Start your streak|0-day|1-day/)).toBeNull();
-            // and the continuity cluster still leads with Last session → Analytics
             expect(screen.getByTestId('home-last-session')).toBeInTheDocument();
         }
     });
@@ -185,27 +303,12 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         renderHome({ streak: { state: 'active', count: 2, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
         const chip = screen.getByTestId('home-streak-chip');
         expect(chip).toHaveAttribute('data-streak-state', 'active');
-        // #1480: the chip is the signature family, read from the shared roles (never literals).
         const style = chip.getAttribute('style') ?? '';
-        expect(style).toContain('var(--brand-signature-ground)');                   // fill
-        expect(style).toMatch(/1px solid var\(--brand-signature-border\)/);         // actual 1px border
-        expect(style).toContain('var(--brand-signature-text)');                     // text
-        // waveform bars use the signature fill
+        expect(style).toContain('var(--brand-signature-ground)');
+        expect(style).toMatch(/1px solid var\(--brand-signature-border\)/);
+        expect(style).toContain('var(--brand-signature-text)');
         const bar = chip.querySelector('span[style*="var(--brand-signature)"]');
         expect(bar).not.toBeNull();
-    });
-
-    it('"Live" blends in: categorical STATUS typography, not the 27px metric value class', () => {
-        renderHome();
-        const live = screen.getByText('Live');
-        // the value carries the status kind, at the quiet 14px weight — NOT the large metric type
-        expect(live).toHaveAttribute('data-value-kind', 'status');
-        expect(live.className).toContain('text-[14px]');
-        expect(live.className).not.toContain('text-[27px]');
-        // a genuinely-missing value keeps the large metric slot (so an absent number reads as blank)
-        const missing = screen.getAllByText('—')[0];
-        expect(missing).toHaveAttribute('data-value-kind', 'missing');
-        expect(missing.className).toContain('text-[27px]');
     });
 
     it('last session: composed from persisted columns only; a null duration never becomes 0:00', () => {
@@ -217,17 +320,10 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         expect(noDuration.text).not.toMatch(/0:00/);
         expect(noDuration.text).not.toMatch(/\b0\b/);
 
-        // A corrupt timestamp with no duration: the session exists and is reviewable, but cannot
-        // describe itself — the ONLY case that legitimately renders the compact em-dash.
         const undescribable = lastSessionView({ id: 'x', created_at: 'nope', duration: null } as unknown as RecentSession, { loading: false, failed: false });
         expect(undescribable).toMatchObject({ state: 'present', text: '—', compact: true, canReview: true });
     });
 
-    /*
-     * The regression this replaces: failure and emptiness both returned an em-dash with a disabled
-     * button, so `recentFailed` was behaviourally dead and the old test would have passed with the
-     * prop deleted. These assert the four states are mutually DISTINGUISHABLE.
-     */
     it('loading / failed / empty / present are four distinct renderings', () => {
         const read = () => ({
             text: screen.getByTestId('home-last-session-secondary').textContent,
@@ -249,7 +345,6 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         const seen = [loading, failed, empty, present];
         expect(new Set(seen.map((s) => s.state)).size).toBe(4);
         expect(new Set(seen.map((s) => s.text)).size).toBe(4);
-        // Specifically: mid-flight and failure must not claim an absence.
         expect(loading.text).not.toContain('—');
         expect(failed.text).not.toContain('—');
         expect(empty.text).not.toContain('—');
@@ -260,73 +355,42 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         const err = screen.getByTestId('home-history-error');
         expect(err).toHaveTextContent(/couldn.t load your recent practice/i);
         expect(err).toHaveAttribute('role', 'status');
-        // The first-run guidance must NOT appear: we do not know that they have no sessions.
-        expect(screen.queryByTestId('home-first-run')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('home-first-run')).toBeNull();
         expect(screen.getByTestId('home-last-session')).toBeDisabled();
         fireEvent.click(screen.getByTestId('home-last-session'));
         expect(props.onReviewLastSession).not.toHaveBeenCalled();
         unmount();
 
-        // And the converse: a genuine empty result explains itself and shows no error.
         renderHome({ lastSession: null });
-        expect(screen.getByTestId('home-first-run')).toHaveTextContent(/start your first practice/i);
-        expect(screen.queryByTestId('home-history-error')).not.toBeInTheDocument();
+        expect(screen.getByTestId('home-first-run')).toBeInTheDocument();
+        expect(screen.queryByTestId('home-history-error')).toBeNull();
     });
 
     it('while the read is in flight, nothing claims an absence', () => {
         renderHome({ recentLoading: true, lastSession: null });
         expect(screen.getByTestId('home-last-session')).toHaveAttribute('aria-busy', 'true');
-        expect(screen.queryByTestId('home-first-run')).not.toBeInTheDocument();
-        expect(screen.queryByTestId('home-history-error')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('home-first-run')).toBeNull();
+        expect(screen.queryByTestId('home-history-error')).toBeNull();
     });
 });
 
-describe('AuthenticatedHome — accessibility & layout', () => {
+describe('AuthenticatedHome — accessibility', () => {
     it('decorative graphics are hidden from assistive tech', () => {
         const { container } = renderHome();
-        // Both product cards now carry the decorative band waveform (#1046 5b: the Objective card's SOON
-        // pill is gone, so it shows the same motif as Freeform). Every instance must be aria-hidden.
-        const motifs = screen.getAllByTestId('home-band-motif');
-        expect(motifs.length).toBeGreaterThanOrEqual(2);
-        for (const motif of motifs) expect(motif).toHaveAttribute('aria-hidden', 'true');
-        // Every SVG-ish glyph square is aria-hidden; no decorative node is exposed.
         for (const icon of Array.from(container.querySelectorAll('svg'))) {
-            const hiddenAncestor = icon.closest('[aria-hidden="true"]');
-            expect(hiddenAncestor).not.toBeNull();
+            expect(icon.closest('[aria-hidden="true"]')).not.toBeNull();
         }
     });
 
-    it('every em-dash is announced as missing data rather than read as a stray dash', () => {
-        const { unmount } = renderHome();
-        expect(within(screen.getByTestId('practice-card-objective-tile-0')).getByText('Not enough data')).toBeInTheDocument();
-        unmount();
-
-        // The one last-session case that legitimately shows a dash carries the same sentence, so a
-        // screen reader never hears "Last session, dash".
+    it('the one legitimate em-dash is announced as missing data, not read as a stray dash', () => {
         renderHome({ lastSession: { id: 'x', created_at: 'nope', duration: null } as unknown as RecentSession });
         expect(within(screen.getByTestId('home-last-session-secondary')).getByText('Not enough data')).toBeInTheDocument();
-    });
-
-    /*
-     * Tile labels are the only meaning-carrier when the value is an em-dash, so a clipped
-     * "Vs. last t…" over a dash is unreadable. jsdom applies no CSS, so this asserts the class
-     * CONTRACT rather than measured geometry; the rendered narrow-viewport proof is the e2e spec.
-     */
-    it('outcome-tile labels are allowed to wrap — never truncated', () => {
-        const { container } = renderHome();
-        const labels = Array.from(container.querySelectorAll('[data-testid$="-tiles"] > div > span:last-child'));
-        expect(labels.length).toBe(6);
-        for (const label of labels) {
-            expect(label.className).not.toMatch(/truncate/);
-            expect(label.className).not.toMatch(/whitespace-nowrap/);
-        }
     });
 });
 
 /*
  * jsdom applies no stylesheet, so asserting "the grid is single-column" against the DOM proves
- * nothing — the previous versions of these two tests passed whether or not the rules existed. The
- * rules live in ONE central file, so read that file and assert the declarations themselves.
+ * nothing. The rules live in ONE central file, so read that file and assert the declarations.
  */
 describe('AuthenticatedHome — the layout rules actually exist in practice.css', () => {
     const css = readFileSync(resolve(__dirname, '../../../styles/practice.css'), 'utf8');
@@ -345,22 +409,19 @@ describe('AuthenticatedHome — the layout rules actually exist in practice.css'
         expect(css).toMatch(/\.ss-home-anchor\s*\{[^}]*scroll-margin-top:\s*calc\(var\(--header-height/);
     });
 
-    it('both band gradients use stops that clear AA against white eyebrow text', () => {
-        // The bands carry 11px bold WHITE eyebrows, so BOTH stops must clear 4.5:1 against white.
-        // #1480: Open Mic is ink (ink 14:1, ink-raised 13:1) and Focus Points is the corrected Focus purple
-        // (focus-strong 8.9:1, focus 6.6:1). The retired teal/violet ramps are gone.
-        const teal = css.match(/--ss-home-teal-band:\s*([^;]+);/);
-        const violet = css.match(/--ss-home-violet-band:\s*([^;]+);/);
-        expect(teal?.[1]).toBe('linear-gradient(135deg, var(--brand-ink) 0%, var(--brand-ink-raised) 100%)');
-        expect(violet?.[1]).toBe('linear-gradient(135deg, var(--brand-focus-strong) 0%, var(--brand-focus) 100%)');
+    it('CASUALTY: the flood-era rules are gone, not merely unused', () => {
+        // Header-band gradients, per-card border colours and the outlined CTA are what H-1/H-2 removed.
+        // Leaving them in the sheet invites the next card to pick them up again.
+        for (const dead of [
+            '--ss-home-teal-band', '--ss-home-violet-band', '--ss-home-teal-border', '--ss-home-violet-border',
+            'ss-home-card--teal', 'ss-home-card--violet', 'ss-home-band-teal', 'ss-home-band-violet',
+            'ss-home-cta-outline',
+        ]) {
+            expect(css).not.toContain(dead);
+        }
     });
 
-    it('the warm eyebrow uses signature-text, not the decorative signature fill', () => {
-        expect(css).toMatch(/--ss-home-amber-eyebrow:\s*var\(--brand-signature-text\);/);
-    });
-
-    it('#1480: the practice palette holds no colour values of its own', () => {
-        // Three- or six-digit colours only; issue references such as #1047 in comments are not colours.
+    it('the practice palette holds no colour values of its own', () => {
         expect(css).not.toMatch(/#(?:[0-9a-f]{3}){1,2}\b/i);
     });
 });

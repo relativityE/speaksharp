@@ -25,6 +25,7 @@
 
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
+import { readLastSessionFix } from '@/components/practice/lastSessionFix';
 import type { PostgrestError } from '@supabase/supabase-js';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -66,11 +67,15 @@ export const sessionService = {
      */
     async getRecentReviewable(
         userId: string,
-    ): Promise<Array<Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'>>> {
+    ): Promise<Array<Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'> & { fix: string | null }>> {
         const supabase = getClient();
+        // Brief H-4: `ai_suggestions` is read for ONE purpose — the fix sentence the resume band quotes.
+        // It is the review `get-ai-suggestions` already cached on this row; nothing here writes it, and the
+        // prose is reduced to a plain string (or null) before it leaves this method, so the typed session
+        // model and the #1306 client-persistence rule are untouched.
         const { data, error } = await supabase
             .from('sessions')
-            .select('id, created_at, duration, status')
+            .select('id, created_at, duration, status, ai_suggestions')
             .eq('user_id', userId)
             .or('status.is.null,status.eq.completed')
             .order('created_at', { ascending: false })
@@ -81,7 +86,10 @@ export const sessionService = {
             throw error;
         }
 
-        return (data ?? []) as Array<Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'>>;
+        return (data ?? []).map((row) => {
+            const { ai_suggestions, ...session } = row as Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'> & { ai_suggestions?: unknown };
+            return { ...session, fix: readLastSessionFix(ai_suggestions) };
+        });
     },
 
     /**
