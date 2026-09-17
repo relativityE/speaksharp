@@ -433,18 +433,22 @@ export const PAYLOAD_TRIPWIRE = `(() => {
         note('form', url, method, body, mime);
       } catch (e) { void e; }
     };
+    // Browser-initiated submits (button click, Enter, button.click()) do not call the form methods
+    // above. Capture the native submit event before navigation. requestSubmit() is covered here too;
+    // observing it in both places would duplicate the same payload record.
+    if (typeof document.addEventListener === 'function') {
+      document.addEventListener('submit', (event) => {
+        const form = event && event.target;
+        if (!(form instanceof NativeForm)) return;
+        observeForm(form, event.submitter);
+      }, true);
+    }
+    // submit() deliberately emits no submit event, so it still needs a direct wrapper.
     if (typeof NativeForm.prototype.submit === 'function') {
       const submit = NativeForm.prototype.submit;
       NativeForm.prototype.submit = function () {
         observeForm(this);
         return submit.apply(this, arguments);
-      };
-    }
-    if (typeof NativeForm.prototype.requestSubmit === 'function') {
-      const requestSubmit = NativeForm.prototype.requestSubmit;
-      NativeForm.prototype.requestSubmit = function (submitter) {
-        observeForm(this, submitter);
-        return requestSubmit.apply(this, arguments);
       };
     }
   }

@@ -462,13 +462,17 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
     it('CASUALTY: native submit and requestSubmit cannot bypass audio-shaped FormData inspection', () => {
         let submitCalls = 0;
         let requestSubmitCalls = 0;
+        let submitListener: ((event: { target: unknown; submitter?: unknown }) => void) | null = null;
         class FakeHTMLFormElement {
             action = 'https://speaksharp-public.vercel.app/api/upload';
             method = 'post';
             enctype = 'multipart/form-data';
             rows: Array<[string, string]> = [['audio', '-_'.repeat(129)]];
             submit() { submitCalls += 1; }
-            requestSubmit(submitter?: unknown) { void submitter; requestSubmitCalls += 1; }
+            requestSubmit(submitter?: unknown) {
+                requestSubmitCalls += 1;
+                if (submitListener) submitListener({ target: this, submitter });
+            }
         }
         class FakeFormData {
             private readonly rows: Array<[string, string]>;
@@ -504,6 +508,10 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
                 value: {
                     location: 'https://speaksharp-public.vercel.app/session',
                     documentElement: { getAttribute: () => 'RECORDING' },
+                    addEventListener: (
+                        type: string,
+                        listener: (event: { target: unknown; submitter?: unknown }) => void,
+                    ) => { if (type === 'submit') submitListener = listener; },
                 },
             });
 
@@ -515,10 +523,12 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
                 formMethod: 'post',
                 formEnctype: 'multipart/form-data',
             });
+            if (!submitListener) throw new Error('submit listener was not installed');
+            submitListener({ target: form });
 
             expect(submitCalls).toBe(1);
             expect(requestSubmitCalls).toBe(1);
-            expect(records.map((record) => record.kind)).toEqual(['audio', 'audio']);
+            expect(records.map((record) => record.kind)).toEqual(['audio', 'audio', 'audio']);
             expect(records.map((record) => record.transport)).toEqual(['form', 'form']);
             expect(JSON.stringify(records)).not.toContain('-_');
         } finally {
