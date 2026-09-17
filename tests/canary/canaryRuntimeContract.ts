@@ -213,6 +213,8 @@ export type EgressObservation = {
     hasQuery: boolean;
     /** Shape-only result computed before redaction. Query contents are never retained in evidence. */
     queryContainsEncodedAudio: boolean;
+    /** Shape-only result computed before redaction. Path contents are never retained in evidence. */
+    pathContainsEncodedAudio: boolean;
 };
 
 /** A WebSocket or EventSource opened during the take. Later frames are invisible to request checks. */
@@ -280,6 +282,29 @@ export function canaryQueryContainsEncodedAudio(rawUrl: unknown, appUrl: string)
     }
 }
 
+/**
+ * Inspect path SEGMENT SHAPES before URL redaction, retaining only the boolean verdict. Paths are
+ * decoded one segment at a time so an encoded slash cannot make payload content enter evidence.
+ */
+export function canaryPathContainsEncodedAudio(rawUrl: unknown, appUrl: string): boolean {
+    if (typeof rawUrl !== 'string' || rawUrl.length === 0) return false;
+    try {
+        const parsed = new URL(rawUrl, appUrl);
+        let combined = '';
+        for (const rawSegment of parsed.pathname.split('/')) {
+            if (rawSegment.length === 0) continue;
+            let segment = rawSegment;
+            try { segment = decodeURIComponent(rawSegment); } catch { /* inspect the encoded form */ }
+            if (isEncodedAudioQueryValue(segment)) return true;
+            if (combined.length + segment.length <= 1_000_000) combined += segment;
+        }
+        // Splitting one encoded value across path segments must not evade the classifier.
+        return isEncodedAudioQueryValue(combined);
+    } catch {
+        return false;
+    }
+}
+
 function classifyOrigin(origin: string, policy: CanaryEgressPolicy): 'first-party' | 'telemetry' | 'model' | 'unknown' {
     if (policy.firstParty.includes(origin)) return 'first-party';
     if (policy.governedTelemetry.includes(origin)) return 'telemetry';
@@ -303,6 +328,9 @@ export function judgeCanaryEgress(
         if (o.origin === '') return { ok: false, category: 'unparseable_egress_url', url: o.redacted };
         if (o.hasQuery && o.queryContainsEncodedAudio) {
             return { ok: false, category: 'encoded_audio_query', url: o.redacted };
+        }
+        if (o.pathContainsEncodedAudio) {
+            return { ok: false, category: 'encoded_audio_path', url: o.redacted };
         }
         const cls = classifyOrigin(o.origin, policy);
         // Unknown destinations are prohibited OUTRIGHT — bodyless included. A query string is a

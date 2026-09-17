@@ -254,13 +254,14 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     if (typeof FormData !== 'undefined' && body instanceof FormData) {
       let audio = false; let bytes = 0;
       try {
-        for (const [, v] of body.entries()) {
+        for (const [key, v] of body.entries()) {
+          const namedAudio = isAudioField(key);
           if (typeof Blob !== 'undefined' && v instanceof Blob) {
             bytes += v.size;
-            if (/^(audio|video)\\//.test(v.type || '')) audio = true;
+            if ((namedAudio && v.size > 0) || /^(audio|video)\\//.test(v.type || '')) audio = true;
           } else if (typeof v === 'string') {
             bytes += v.length;
-            if (isEncodedAudioText(v)) audio = true;
+            if ((namedAudio && v.trim().length > 0) || isEncodedAudioText(v)) audio = true;
           }
         }
       } catch (e) { void e; }

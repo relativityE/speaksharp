@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { PAYLOAD_TRIPWIRE } from '../../scripts/human-test/payloadTripwire.mjs';
 import {
+    canaryPathContainsEncodedAudio,
     canaryQueryContainsEncodedAudio,
     classifyCanaryStartResponse,
     classifyCanaryUsageEntitlement,
@@ -416,14 +417,25 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             await scope.fetch('https://eu.posthog.com/e/', {
                 method: 'POST', body: new URLSearchParams({ event: 'session_saved', distinct_id: 'canary' }),
             });
+            const labeledTextForm = new FormData();
+            labeledTextForm.append('audio', 'D'.repeat(511));
+            await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
+                method: 'POST', body: labeledTextForm,
+            });
+            const labeledBlobForm = new FormData();
+            labeledBlobForm.append('audio', new Blob(['opaque bytes'], { type: 'application/octet-stream' }));
+            await scope.fetch('https://abcproject.supabase.co/functions/v1/proxy', {
+                method: 'POST', body: labeledBlobForm,
+            });
 
             expect(records.map((record) => record.kind)).toEqual([
                 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'text',
-                'encoded_audio', 'form',
+                'encoded_audio', 'form', 'audio', 'audio',
             ]);
             expect(JSON.stringify(records)).not.toContain('AAAA');
             expect(JSON.stringify(records)).not.toContain('BBBB');
             expect(JSON.stringify(records)).not.toContain('CCCC');
+            expect(JSON.stringify(records)).not.toContain('DDDD');
         } finally {
             scope.fetch = originalFetch;
             if (originalDocument === undefined) delete scope.document;
@@ -459,6 +471,23 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         )).toBe(false);
     });
 
+    it('CASUALTY: approved-origin path values are classified before redaction without retaining content', () => {
+        const pcm = 'A'.repeat(512);
+        const appUrl = 'https://speaksharp-public.vercel.app/session';
+        expect(canaryPathContainsEncodedAudio(
+            `https://speaksharp-public.vercel.app/api/${encodeURIComponent(pcm)}`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryPathContainsEncodedAudio(
+            `https://eu.posthog.com/e/${encodeURIComponent(pcm)}`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryPathContainsEncodedAudio(
+            'https://abcproject.supabase.co/rest/v1/sessions',
+            appUrl,
+        )).toBe(false);
+    });
+
     it('CASUALTY: path contents are never copied into canary evidence', () => {
         const secretPath = 'private transcript words that must not enter CI';
         const safe = sanitizeCanaryPayloadUrl(
@@ -477,7 +506,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
     };
     const obs = (over = {}) => ({
         redacted: 'https://speaksharp-public.vercel.app/x', origin: 'https://speaksharp-public.vercel.app',
-        bodyBytes: 0, resourceType: 'fetch', hasQuery: false, queryContainsEncodedAudio: false, ...over,
+        bodyBytes: 0, resourceType: 'fetch', hasQuery: false,
+        queryContainsEncodedAudio: false, pathContainsEncodedAudio: false, ...over,
     });
 
     it('CASUALTY: binary/multipart to a third party FAILS — postData() would have reported no body', () => {
@@ -513,6 +543,21 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
                 hasQuery: true,
                 queryContainsEncodedAudio: true,
             })], [], POLICY)).toEqual({ ok: false, category: 'encoded_audio_query', url: origin });
+        }
+    });
+
+    it('CASUALTY: encoded audio in a path FAILS at every approved origin', () => {
+        for (const origin of [
+            'https://speaksharp-public.vercel.app',
+            'https://abcproject.supabase.co',
+            'https://eu.posthog.com',
+        ]) {
+            expect(judgeCanaryEgress([obs({
+                redacted: origin,
+                origin,
+                bodyBytes: 0,
+                pathContainsEncodedAudio: true,
+            })], [], POLICY)).toEqual({ ok: false, category: 'encoded_audio_path', url: origin });
         }
     });
 

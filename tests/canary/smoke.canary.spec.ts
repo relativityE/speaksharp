@@ -5,6 +5,7 @@ import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
 import {
     classifyCanaryStartResponse,
     classifyCanaryUsageEntitlement,
+    canaryPathContainsEncodedAudio,
     canaryQueryContainsEncodedAudio,
     judgeCanaryEgress,
     judgeDurableSession,
@@ -291,6 +292,7 @@ test.describe('Production Smoke Canary @canary', () => {
             origin: string;
             hasQuery: boolean;
             queryContainsEncodedAudio: boolean;
+            pathContainsEncodedAudio: boolean;
         } => {
             try {
                 const p = new URL(u, page.url());
@@ -299,11 +301,13 @@ test.describe('Production Smoke Canary @canary', () => {
                     origin: p.origin,
                     hasQuery: p.search.length > 0,
                     queryContainsEncodedAudio: canaryQueryContainsEncodedAudio(u, page.url()),
+                    pathContainsEncodedAudio: canaryPathContainsEncodedAudio(u, page.url()),
                 };
             }
             catch {
                 return {
-                    redacted: '<unparseable>', origin: '', hasQuery: false, queryContainsEncodedAudio: false,
+                    redacted: '<unparseable>', origin: '', hasQuery: false,
+                    queryContainsEncodedAudio: false, pathContainsEncodedAudio: false,
                 };
             }
         };
@@ -311,7 +315,9 @@ test.describe('Production Smoke Canary @canary', () => {
         const channelObservations: ChannelObservation[] = [];
         let createSessionRpcCount = 0;
         page.on('request', (request) => {
-            const { redacted, origin, hasQuery, queryContainsEncodedAudio } = redact(request.url());
+            const {
+                redacted, origin, hasQuery, queryContainsEncodedAudio, pathContainsEncodedAudio,
+            } = redact(request.url());
             if (request.method() === 'POST'
                 && request.url().includes('/rest/v1/rpc/create_session_and_update_usage')) {
                 createSessionRpcCount += 1;
@@ -322,7 +328,8 @@ test.describe('Production Smoke Canary @canary', () => {
             let bodyBytes: number | null = null;
             try { bodyBytes = request.postDataBuffer()?.byteLength ?? 0; } catch { bodyBytes = null; }
             egressObservations.push({
-                redacted, origin, bodyBytes, resourceType: request.resourceType(), hasQuery, queryContainsEncodedAudio,
+                redacted, origin, bodyBytes, resourceType: request.resourceType(), hasQuery,
+                queryContainsEncodedAudio, pathContainsEncodedAudio,
             });
         });
         page.on('websocket', (ws) => {
