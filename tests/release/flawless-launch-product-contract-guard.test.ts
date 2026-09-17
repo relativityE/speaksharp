@@ -34,6 +34,39 @@ describe('flawless-launch product-contract guard (#1290)', () => {
     expect(hits, `forbidden email-Secret / retired-token refs in workflows:\n${hits.join('\n')}`).toEqual([]);
   });
 
+  /**
+   * #1294 sourcing split — THE FIFTH EMAIL. The list above names four test-account emails, and
+   * `CHECKOUT_TEST_EMAIL` is not one of them, so nothing here ever covered it: its siblings moved to
+   * Variables and had their email Secrets deleted, while this one kept reading `secrets.` unguarded.
+   *
+   * It cannot simply join the forbidden list. The Secret still exists and is the only configured source, so
+   * banning it outright would break the paid checkout proof immediately. What must hold instead is that the
+   * VARIABLE is consulted — every workflow that supplies this identifier reads `vars.CHECKOUT_TEST_EMAIL`,
+   * with the Secret allowed only as a trailing fallback.
+   *
+   * The failure this prevents is silent, which is why it is worth a test. `stripe-checkout-readiness`
+   * resolves CHECKOUT_TEST_EMAIL first and otherwise falls back to FREE/PRO, so an empty value does not
+   * fail the gate — it quietly authenticates the live-mode checkout proof as the FREE reviewer, leaving
+   * live-mode Stripe customer state on a Free account and dropping that identity from the billing-freeze
+   * audit. A green gate would be asserting something it never tested.
+   */
+  it('every workflow supplying CHECKOUT_TEST_EMAIL consults the Variable, not the Secret alone', () => {
+    const WF_DIR = '.github/workflows';
+    const offenders: string[] = [];
+    for (const f of readdirSync(WF_DIR).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))) {
+      const text = readFileSync(`${WF_DIR}/${f}`, 'utf8');
+      for (const line of text.split('\n')) {
+        // Only the lines that SUPPLY the value, not prose mentioning the name.
+        if (!/^\s*CHECKOUT_TEST_EMAIL\s*:/.test(line)) continue;
+        if (!line.includes('vars.CHECKOUT_TEST_EMAIL')) offenders.push(`${f}: ${line.trim()}`);
+      }
+    }
+    expect(
+      offenders,
+      `CHECKOUT_TEST_EMAIL must resolve from vars.* (Secret permitted only as a trailing fallback):\n${offenders.join('\n')}`,
+    ).toEqual([]);
+  });
+
   it('keeps both canary identities protected and fail-closed behind migration readiness', () => {
     const workflow = readFileSync('.github/workflows/canary.yml', 'utf8');
 
