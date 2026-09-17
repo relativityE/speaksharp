@@ -529,7 +529,7 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             expect(submitCalls).toBe(1);
             expect(requestSubmitCalls).toBe(1);
             expect(records.map((record) => record.kind)).toEqual(['audio', 'audio', 'audio']);
-            expect(records.map((record) => record.transport)).toEqual(['form', 'form']);
+            expect(records.map((record) => record.transport)).toEqual(['form', 'form', 'form']);
             expect(JSON.stringify(records)).not.toContain('-_');
         } finally {
             restore('HTMLFormElement', originalForm);
