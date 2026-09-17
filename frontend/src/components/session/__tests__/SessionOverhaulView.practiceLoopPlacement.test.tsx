@@ -132,26 +132,19 @@ describe('#1466 Practice Loop placement — before and during are unchanged', ()
     });
 });
 
-// #1466 PM RETURN 5673020845 (Codex P1 4010908720) — placement first in the DOM is not enough for a user who stopped
-// while scrolled down: browsers keep that lower viewport while the band is inserted above it. After the session
-// settles, the view reveals the band ONCE per completed take, and ONLY when its heading/current state is outside the
-// viewport; a user who can already see it is never moved, and later review-state transitions never jump the page.
-// jsdom has no layout, so each test states where the band sits (viewport-relative top) and spies on the page scroll.
+// #1466 PM RETURN 5673020845 (Codex P1 4010908720) — a user who stopped while scrolled down keeps that lower
+// viewport. After the session settles, the view returns the page to its top ONCE per completed take, where the saved
+// confirmation and the review sit together; a top-of-page user is never moved, and later review-state transitions
+// never jump the page. jsdom has no layout, so each test states the page's scroll position and spies on the scroll.
 describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
-    const withLayout = (bandTop: number | null) => {
+    const withLayout = (scrollY: number) => {
         const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
-        const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-            const id = this.getAttribute('data-testid');
-            const isBand = id === 'open-mic-practice-loop-review' || id === 'focus-practice-loop-review';
-            const top = isBand && bandTop !== null ? bandTop : 0;
-            return { top, bottom: top + 220, left: 0, right: 375, width: 375, height: 220, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
-        });
-        const height = vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(812);
-        return { scrollTo, restore: () => { scrollTo.mockRestore(); rect.mockRestore(); height.mockRestore(); } };
+        const position = vi.spyOn(window, 'scrollY', 'get').mockReturnValue(scrollY);
+        return { scrollTo, restore: () => { scrollTo.mockRestore(); position.mockRestore(); } };
     };
 
-    it('CASUALTY: a band above the viewport at completion is revealed exactly once', () => {
-        const layout = withLayout(-900);
+    it('CASUALTY: a page scrolled down at completion returns to its top exactly once', () => {
+        const layout = withLayout(900);
         try {
             render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
             expect(layout.scrollTo).toHaveBeenCalledTimes(1);
@@ -159,16 +152,18 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
         } finally { layout.restore(); }
     });
 
-    it('CASUALTY: a band below the viewport at completion is revealed exactly once', () => {
-        const layout = withLayout(1400);
+    it('CASUALTY: scrolled only far enough to hide the saved confirmation — the review may be visible — still returns to the top', () => {
+        // The recorder sits between the confirmation and slot B, so a visible review heading does not mean a visible
+        // confirmation. Deciding on the heading alone left the confirmation off screen (CI, desktop, #1493).
+        const layout = withLayout(120);
         try {
             render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
             expect(layout.scrollTo).toHaveBeenCalledTimes(1);
         } finally { layout.restore(); }
     });
 
-    it('CONTROL: a band already in view never moves the page', () => {
-        const layout = withLayout(260);
+    it('CONTROL: a top-of-page user is never moved', () => {
+        const layout = withLayout(0);
         try {
             const view = render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
             view.rerender(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[1][1]} />);
@@ -177,7 +172,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CASUALTY: loading → rendered → failed transitions do not jump the page again', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             const view = render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
             view.rerender(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[1][1]} />);
@@ -187,7 +182,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CASUALTY: nothing moves while the transcript is still finalizing; the reveal waits for the settled result', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             const view = render(<SessionOverhaulView {...base} isFinalizing transcriptContent="so hello" practiceLoopReview={REVIEW_STATES[0][1]} />);
             expect(layout.scrollTo).not.toHaveBeenCalled();
@@ -197,7 +192,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CASUALTY: the next completed take may reveal once more — once per take, not once per page', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             const view = render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[1][1]} />);
             view.rerender(<SessionOverhaulView {...base} isListening transcriptContent="again" elapsedTime={10} practiceLoopReview={REVIEW_STATES[1][1]} />);
@@ -207,7 +202,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CASUALTY: Focus Points follows the same reveal', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             render(
                 <SessionOverhaulView
@@ -224,7 +219,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CONTROL: no reveal before or during recording', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             const view = render(<SessionOverhaulView {...base} practiceLoopReview={REVIEW_STATES[1][1]} />);
             view.rerender(<SessionOverhaulView {...base} isListening transcriptContent="so hello" elapsedTime={20} practiceLoopReview={REVIEW_STATES[1][1]} />);

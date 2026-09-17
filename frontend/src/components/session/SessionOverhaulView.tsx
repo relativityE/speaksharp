@@ -266,15 +266,16 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     /**
      * #1466 PM RETURN 5673020845 (Codex P1 4010908720) — A BURIED RESULT IS BROUGHT INTO VIEW, ONCE.
      *
-     * The band is first in the DOM, which puts it at eye level for a user at the top of the page. It does not help
-     * one who scrolled down through the stacked recording UI and stopped there: browsers keep that lower viewport
-     * while the band is inserted above it, so the centerpiece result stays out of sight.
+     * The review sits in slot B, directly under the recorder, so a user at the top of the page sees the saved
+     * confirmation and the review together (proven at scrollY 0 on desktop and mobile). One who scrolled down
+     * through the recording UI and stopped there does not: browsers keep that lower viewport.
      *
-     * Once the take has settled (not while the transcript is still finalizing), the band is measured one time. If
-     * its heading/current state is inside the visible area — below the fixed header, above the phone's fixed action
-     * bar — nothing moves. Otherwise the page returns to its top, where the saved confirmation and the band sit
-     * together (proven at scrollY 0 on desktop and mobile). The flag resets only when the view leaves `after`, so
-     * loading → rendered → failed transitions and rerenders never jump the page again; the next take may reveal once.
+     * Once the take has settled (not while the transcript is still finalizing), a page that is not at its top
+     * returns there, one time. The page's position is the test, not whether the review heading is visible: with
+     * the recorder between the confirmation and slot B, the heading can be on screen while the confirmation has
+     * scrolled away, and the contract is both. A top-of-page user is never moved. The flag resets only when the
+     * view leaves `after`, so loading → rendered → failed transitions and rerenders never jump the page again;
+     * the next take may reveal once.
      */
     const practiceLoopBandRef = React.useRef<HTMLDivElement | null>(null);
     const practiceLoopRevealedRef = React.useRef(false);
@@ -283,26 +284,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             practiceLoopRevealedRef.current = false;
             return;
         }
-        const band = practiceLoopBandRef.current;
-        if (!reviewSettled || !band || practiceLoopRevealedRef.current) return;
+        if (!reviewSettled || !practiceLoopBandRef.current || practiceLoopRevealedRef.current) return;
         practiceLoopRevealedRef.current = true;
-
-        const root = window.getComputedStyle(document.documentElement);
-        const remPx = parseFloat(root.fontSize) || 16;
-        const lengthPx = (value: string, fallbackPx: number) => {
-            const v = value.trim();
-            if (v.endsWith('rem')) return (parseFloat(v) || 0) * remPx;
-            if (v.endsWith('px')) return parseFloat(v) || 0;
-            return fallbackPx;
-        };
-        const headerPx = lengthPx(root.getPropertyValue('--header-height'), 64);
-        const wide = typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 768px)').matches;
-        const bottomBarPx = wide ? 0 : lengthPx(root.getPropertyValue('--bottom-nav-height'), 80);
-        const rect = band.getBoundingClientRect();
-        // The heading and the one-line current state occupy the top of the band; the full review may extend below.
-        const headingBlockPx = Math.min(rect.height, 96);
-        const headingInView = rect.top >= headerPx && rect.top + headingBlockPx <= window.innerHeight - bottomBarPx;
-        if (headingInView) return;
+        if (window.scrollY <= 0) return;
         window.scrollTo({ top: 0, behavior: 'auto' });
     }, [inAfter, reviewSettled, practiceLoopReview]);
 

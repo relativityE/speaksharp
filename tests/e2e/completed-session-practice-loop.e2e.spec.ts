@@ -15,6 +15,7 @@ import {
   programmaticLoginWithRoutes,
   startRecording,
   stopRecording,
+  waitForModelReady,
 } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
@@ -31,6 +32,26 @@ async function recordAndStop(page: Page) {
   // Clears the sub-5s no-persist guard, so this is a genuinely completed session rather than a discard.
   await page.waitForTimeout(5_200);
   await stopRecording(page);
+  await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
+}
+
+/**
+ * A take recorded by a user who never leaves the top of the page. Start and Stop are dispatched rather than clicked:
+ * Playwright's click scrolls its target into view, and while the page is still settling it retries with forced scroll
+ * alignments — which once left this "top-of-page" user at scrollY 33 before Stop (CI, #1493). The premise is asserted,
+ * not assumed.
+ */
+async function recordAndStopFromTop(page: Page) {
+  await waitForModelReady(page);
+  const start = page.getByTestId('mic-start');
+  await expect(start).toBeEnabled();
+  await start.dispatchEvent('click');
+  await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
+  await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
+  await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(5_200);
+  expect(await page.evaluate(() => window.scrollY), 'precondition: the user is at the top of the page at Stop').toBe(0);
+  await page.getByTestId('recorder-stop').dispatchEvent('click');
   await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 }
 
@@ -74,7 +95,7 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await programmaticLoginWithRoutes(page, { userType: 'pro' });
       await navigateToRoute(page, '/session');
-      await recordAndStop(page);
+      await recordAndStopFromTop(page);
       await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15_000 });
 
       const card = page.getByTestId('ai-suggestions-card');
