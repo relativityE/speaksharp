@@ -225,17 +225,17 @@ jobs:
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
           PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-          # stripe-checkout-readiness resolves CHECKOUT_TEST_EMAIL FIRST (then FREE/PRO).
-          # Expose it so the paid checkout proof authenticates as the dedicated checkout-live-proof
-          # user (clean live-mode customer) instead of silently falling back to FREE_TEST_EMAIL.
+          # stripe-checkout-readiness consumes CHECKOUT_TEST_EMAIL/CHECKOUT_TEST_PASSWORD as ONE atomic
+          # pair and fails closed when either is absent. There is no FREE/PRO fallback any more: the old
+          # chains could run this gate as the wrong role, or assemble a mixed pair from two identities,
+          # and a missing credential skipped the gate so it reported green having proven nothing.
           #
-          # #1294 sourcing split, completed: this email is an IDENTIFIER, so the Variable is authoritative.
-          # It was the one test-account email the cutover missed — its siblings moved to Variables and their
-          # email Secrets were deleted, while this one still read Secrets and no guard covered it. The Secret
-          # is kept as a transitional fallback ONLY so this proof cannot break before the Variable is
-          # configured; deleting the Secret without setting the Variable is what would silently degrade this
-          # gate onto FREE_TEST_EMAIL, contaminating a Free account with live-mode customer state.
-          CHECKOUT_TEST_EMAIL: ${{ vars.CHECKOUT_TEST_EMAIL || secrets.CHECKOUT_TEST_EMAIL }}
+          # #1294 sourcing split, completed: this email is an IDENTIFIER, so the Variable is the ONLY source.
+          # It was the one test-account email the cutover missed. The Secret is no longer read here, and the
+          # forbidden-token guard now covers the name, so the old source cannot return. If the Variable is
+          # unset this gate FAILS rather than substituting the Free reviewer — the spec consumes the
+          # dedicated checkout pair atomically and fails closed.
+          CHECKOUT_TEST_EMAIL: ${{ vars.CHECKOUT_TEST_EMAIL }}
           CHECKOUT_TEST_PASSWORD: ${{ secrets.CHECKOUT_TEST_PASSWORD }}
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
