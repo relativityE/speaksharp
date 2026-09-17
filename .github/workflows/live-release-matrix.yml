@@ -114,8 +114,11 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
-          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          # #1492 — the spec consumes ONLY the dedicated checkout pair and fails closed without it. This
+          # job used to pass the PRO reviewer, which the spec no longer reads, so the proof could never run.
+          # Email is an identifier (Variable); password is a credential (Secret).
+          CHECKOUT_TEST_EMAIL: ${{ vars.CHECKOUT_TEST_EMAIL }}
+          CHECKOUT_TEST_PASSWORD: ${{ secrets.CHECKOUT_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-checkout-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
       - name: Upload Stripe Checkout Artifacts

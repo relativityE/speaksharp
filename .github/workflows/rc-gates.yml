@@ -282,6 +282,10 @@ jobs:
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
           PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          # #1492 — this step can run ANY live spec, including stripe-checkout-readiness, which now accepts
+          # only the dedicated checkout pair. FREE/PRO stay for the other specs this path can select.
+          CHECKOUT_TEST_EMAIL: ${{ vars.CHECKOUT_TEST_EMAIL }}
+          CHECKOUT_TEST_PASSWORD: ${{ secrets.CHECKOUT_TEST_PASSWORD }}
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           DIAGNOSTIC_DAST_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}

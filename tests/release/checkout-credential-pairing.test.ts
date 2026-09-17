@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { resolveCheckoutCredentials } from '../helpers/checkoutCredentials';
 
@@ -103,6 +103,68 @@ describe('#1492 — checkout credentials are one atomic pair', () => {
                 expect(line, `${file} must not read the email from Secrets`).not.toContain('secrets.CHECKOUT_TEST_EMAIL');
             }
         }
+    });
+
+    /**
+     * #1492 Codex P1 on `70b3a32d` — EVERY STEP THAT CAN LAUNCH THE SPEC MUST SUPPLY THE PAIR.
+     *
+     * Making the spec atomic was necessary and not sufficient. `live-release-matrix.yml` still passed only
+     * the PRO reviewer to its dedicated checkout job, and the `rc-gates.yml` diagnostic single-spec step
+     * passed no checkout pair at all. The spec now ignores those names, so both entry points would fail
+     * closed before authenticating — the proof could not run from either.
+     *
+     * The step list is DISCOVERED, not hand-maintained: a step launches the spec when its (comment-stripped)
+     * text names the spec file, the paid Gate 3 scripts that run it, or the diagnostic spec variable. A
+     * future launcher is therefore held to the same rule without anyone remembering to add it here.
+     */
+    const LAUNCHES_CHECKOUT = /stripe-checkout-readiness\.live\.spec\.ts|rc:gate:3:dast:paid|rc:dast:live:paid|\$DIAGNOSTIC_DAST_SPEC/;
+    const EXACT_EMAIL = /^\s*CHECKOUT_TEST_EMAIL:\s*\$\{\{\s*vars\.CHECKOUT_TEST_EMAIL\s*\}\}\s*$/m;
+    const EXACT_PASSWORD = /^\s*CHECKOUT_TEST_PASSWORD:\s*\$\{\{\s*secrets\.CHECKOUT_TEST_PASSWORD\s*\}\}\s*$/m;
+    const launchers = (() => {
+        const found: { file: string; name: string; text: string }[] = [];
+        for (const f of readdirSync('.github/workflows').filter((n) => /\.ya?ml$/.test(n))) {
+            const raw = readFileSync(`.github/workflows/${f}`, 'utf8');
+            // Each chunk after the first begins at a `- name:` step boundary.
+            for (const chunk of raw.split(/\n(?=\s*- name:)/).slice(1)) {
+                const text = chunk.split('\n').filter((line) => !line.trim().startsWith('#')).join('\n');
+                if (!LAUNCHES_CHECKOUT.test(text)) continue;
+                const name = /- name:\s*(.+)/.exec(text)?.[1]?.trim() ?? '<unnamed>';
+                found.push({ file: f, name, text });
+            }
+        }
+        return found;
+    })();
+
+    it('the discovery is not vacuous — every known checkout entry point is found', () => {
+        const ids = launchers.map((l) => `${l.file} :: ${l.name}`);
+        for (const expected of [
+            'live-release-matrix.yml :: Run Stripe Checkout Readiness Proof',
+            'rc-gates.yml :: Run DAST Live Gate — PAID Stripe readiness (paid-launch scope only)',
+            'rc-gates.yml :: Run DAST Live Gate (DIAGNOSTIC single spec — NOT a Gate 3 pass)',
+        ]) {
+            expect(ids).toContain(expected);
+        }
+    });
+
+    it('CASUALTY: every step that can launch the checkout spec supplies the exact dedicated pair', () => {
+        const missing = launchers
+            .filter((l) => !EXACT_EMAIL.test(l.text) || !EXACT_PASSWORD.test(l.text))
+            .map((l) => `${l.file} :: ${l.name}`);
+        expect(missing).toEqual([]);
+    });
+
+    it('CASUALTY: no launching step sources the pair from the wrong store', () => {
+        const wrong = launchers
+            .filter((l) => /secrets\.CHECKOUT_TEST_EMAIL|vars\.CHECKOUT_TEST_PASSWORD/.test(l.text))
+            .map((l) => `${l.file} :: ${l.name}`);
+        expect(wrong).toEqual([]);
+    });
+
+    it('CASUALTY: the dedicated checkout job offers no Free, Pro or legacy identity to substitute', () => {
+        // The diagnostic step legitimately carries FREE/PRO for the OTHER specs it can select; the
+        // spec refuses them itself. The matrix job exists only for checkout, so it carries nothing else.
+        const job = launchers.find((l) => l.file === 'live-release-matrix.yml');
+        expect(job?.text ?? '').not.toMatch(/(FREE|PRO)_TEST_(EMAIL|PASSWORD)|E2E_(FREE|PRO)_(EMAIL|PASSWORD)/);
     });
 
     it('both workflows still supply the password from Secrets — only the EMAIL moved', () => {
