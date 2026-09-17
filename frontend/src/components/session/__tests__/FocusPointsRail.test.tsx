@@ -142,3 +142,37 @@ describe('FocusPointsRail — every configured point renders in the configured o
         expect(screen.queryByTestId('focus-point-0-not-detected')).toBeNull();
     });
 });
+
+/**
+ * #1467 — the detector's limit is stated to the USER, not only to engineers.
+ *
+ * The conservative-keyword-matcher caveat is documented four times in the codebase, every one of them a
+ * code comment. A speaker who covered a point in different words saw "Not detected" with nothing to tell
+ * them the limitation was the matcher's rather than their delivery. This casualty fails if that sentence
+ * disappears, and if it ever appears before a verdict exists.
+ */
+describe('FocusPointsRail — the matcher limit is explained on the completed verdict (#1467)', () => {
+    const NOTE = 'focus-points-detection-note';
+
+    it('CASUALTY: states the limit when a verdict is presented, and never before one exists', () => {
+        const { rerender } = render(<FocusPointsRail rows={rows} topic="T" sessionState="before" />);
+        expect(screen.queryByTestId(NOTE), 'no verdict yet, so nothing to qualify').not.toBeInTheDocument();
+
+        rerender(<FocusPointsRail rows={rows} topic="T" sessionState="during" nextIndex={0} />);
+        expect(screen.queryByTestId(NOTE), 'mid-take is not a verdict either').not.toBeInTheDocument();
+
+        rerender(<FocusPointsRail rows={rows} topic="T" sessionState="after" />);
+        const note = screen.getByTestId(NOTE);
+        // The claim is about the DETECTOR, never about the speaker: it says we may not spot it, not that
+        // they failed to say it. That distinction is the whole point of the sentence.
+        expect(note).toHaveTextContent('We look for your point’s words in what you said.');
+        expect(note).toHaveTextContent('If you covered it differently, we may not spot it.');
+    });
+
+    it('CASUALTY: a pending verdict is not a verdict — the note stays hidden', () => {
+        // `coveragePending` means the coverage result has not settled. Explaining a verdict that is not yet
+        // presented would attach the caveat to a result the user cannot see.
+        render(<FocusPointsRail rows={rows} topic="T" sessionState="after" coveragePending />);
+        expect(screen.queryByTestId(NOTE)).not.toBeInTheDocument();
+    });
+});

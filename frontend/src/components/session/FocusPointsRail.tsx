@@ -100,6 +100,26 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                 )}
             </div>
 
+            {/*
+              * #1467 — tell the USER what the detector can and cannot do, on the completed verdict only.
+              *
+              * The limitation is documented four times in this codebase and every one of them speaks to
+              * engineers: the header comments in this file and in CoverageRail, CoverageThisRun and
+              * CoveragePace all describe a conservative LOCAL KEYWORD MATCHER. Nothing said it to the person
+              * reading "Not detected", who had no way to tell whether the miss was theirs or the matcher's.
+              *
+              * Shown only when a verdict is actually being presented (`isAfter && !coveragePending`), because
+              * before or during a take there is no verdict for it to qualify.
+              */}
+            {isAfter && !coveragePending && (
+                <p
+                    data-testid="focus-points-detection-note"
+                    className="mt-2 text-[13px] leading-snug text-neutral-secondary"
+                >
+                    We look for your point&rsquo;s words in what you said. If you covered it differently, we may not spot it.
+                </p>
+            )}
+
             {/* §3: the topic is a header, never a point — no marker, no numeral, never checked for coverage.
                 It sits above the list with a divider so it reads as context, not an item to cover. */}
             {topicLabel !== '' && (
