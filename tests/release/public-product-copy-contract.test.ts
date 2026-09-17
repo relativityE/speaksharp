@@ -6,8 +6,11 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8'
 
 const surfaces = {
   signup: read('frontend/src/pages/AuthPage.tsx'),
-  practice: read('frontend/src/pages/PracticePage.tsx'),
-  pricing: read('frontend/src/pages/PricingPage.tsx'),
+  // #1475: the signed-out homepage composes its product entries from ProductsSection, so the approved Focus
+  // Points detection language is checked across both files.
+  practice: read('frontend/src/pages/PracticePage.tsx') + read('frontend/src/components/landing/ProductsSection.tsx'),
+  // #1475: the Pricing page renders its tier, heading and intro copy from the shared pricingTiers module.
+  pricing: read('frontend/src/pages/PricingPage.tsx') + read('frontend/src/components/pricing/pricingTiers.ts'),
   analytics: read('frontend/src/pages/AnalyticsPage.tsx'),
   legal: read('frontend/src/pages/LegalPage.tsx'),
   testerGuide: read('product_release/TESTER_GUIDE.md'),

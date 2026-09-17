@@ -52,7 +52,16 @@ const userWordRegexCache = new Map<string, RegExp>();
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const FILLER_WORD_COLORS: string[] = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
+/**
+ * The filler-data fill series, read from the token authority rather than hardcoded here.
+ *
+ * Pastel fills, deliberately a different series from the saturated `--brand-filler-series-*` used for word
+ * TEXT: these sit behind content and those sit on it. The seven values are unchanged and now live once in
+ * `index.css`. One of them also happened to duplicate the `--brand-money-on-ink` role value exactly, so the
+ * literal read as a role copy to the token ratchet while meaning something unrelated here; going through a
+ * named series removes that coincidence.
+ */
+const FILLER_WORD_COLORS: string[] = Array.from({ length: 7 }, (_, i) => `var(--brand-filler-fill-${i + 1})`);
 let cachedPatterns: FillerPatterns | null = null;
 let cachedUserWordsKey: string = '';
 

@@ -44,19 +44,22 @@ async function settle(page: Page) {
 }
 
 test.describe('#1061 one canonical auth-aware page', () => {
-  test('anonymous `/`: hero + Free Trial strip + product cards; NO continuity; Coming Soon!', async ({ page }) => {
+  test('anonymous `/`: #1475 G12 hero with the complete offer + product cards + pricing; NO continuity', async ({ page }) => {
     await bootAnonymous(page);
 
     await page.setViewportSize(DESKTOP);
     await enterAnonLanding(page);
     await expect(page.getByTestId('practice-hero-start-free')).toBeVisible();
-    // Freeform FREE TRIAL strip (the four support cards are removed); product cards own their CTAs.
-    await expect(page.getByTestId('freeform-trial-strip')).toBeVisible();
-    await expect(page.getByTestId('freeform-trial-strip')).toContainText(/free trial/i);
+    // #1475: the retired trial strip is replaced by the complete offer at every signup decision point.
+    await expect(page.getByTestId('freeform-trial-strip')).toHaveCount(0);
+    await expect(page.getByRole('region', { name: /^hero$/i })).toContainText('30 days free, no card.');
+    await expect(page.getByRole('region', { name: /^hero$/i })).toContainText('Then $10/month. Cancel any time.');
+    await expect(page.getByRole('region', { name: /call to action/i })).toContainText(/free for 30 days\. Then \$10\/month\./);
+    await expect(page.getByRole('region', { name: /pricing/i })).toBeVisible();
     await expect(page.getByTestId('support-freeform-explain')).toHaveCount(0);
     // Focus Points is activated (#1046 5b): no SOON badge, a real start CTA; never "Planned"; no continuity for anon.
     await expect(page.getByTestId('objective-soon-badge')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /start focus points/i })).toContainText(/start your session/i);
+    await expect(page.getByRole('button', { name: /start focus points/i })).toContainText(/start focus points/i);
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await expect(page.getByTestId('home-last-session')).toHaveCount(0);
     await settle(page);
