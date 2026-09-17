@@ -117,23 +117,31 @@ test.describe('#1042 PR4 — Practice Home continuity (returning state)', () => 
   });
 
   /*
-   * #1047: the outcome-tile LABEL is the only meaning-carrier whenever the value is an em-dash, so a
-   * clipped "Vs. last t…" over a dash is unreadable. At 320px each of the three tiles is ~75px wide.
-   * jsdom cannot measure this, so the rendered proof lives here: no label may be horizontally clipped,
-   * and the page itself must not scroll sideways.
+   * Brief H-3 deleted the outcome tiles, so the old proof (three ~75px tile labels per card at 320px)
+   * has no subject. What still needs measuring at the narrowest supported width is the text that
+   * replaced them: each card's ONE sentence and the resume band's quoted fix, neither of which may be
+   * horizontally clipped, and the page must not scroll sideways. jsdom cannot measure this.
    */
-  test('narrowest supported viewport: tile labels are never clipped and the page never scrolls sideways', async ({ page }) => {
+  test('narrowest supported viewport: card and band text is never clipped and the page never scrolls sideways', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await page.setViewportSize(NARROW);
     await enterReturningPractice(page);
     await settle(page);
 
-    const labels = page.locator('[data-testid$="-tiles"] > div > span:last-child');
-    await expect(labels).toHaveCount(6);
-    for (let i = 0; i < 6; i += 1) {
-      const clipped = await labels.nth(i).evaluate((el) => el.scrollWidth > el.clientWidth + 1);
-      const text = await labels.nth(i).innerText();
-      expect(clipped, `tile label "${text}" is clipped at ${NARROW.width}px`).toBe(false);
+    // The card sentences, plus the resume band's headline and meta when a session is there to resume.
+    const measured = page.locator([
+      '[data-testid="practice-card-freeform-sentence"]',
+      '[data-testid="practice-card-objective-sentence"]',
+      '[data-testid="home-resume-headline"]',
+      '[data-testid="home-resume-meta"]',
+    ].join(', '));
+    // At least the two card sentences always render; the band's two lines render for a returning user.
+    const count = await measured.count();
+    expect(count, 'both card sentences must render at 320px').toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < count; i += 1) {
+      const clipped = await measured.nth(i).evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+      const text = await measured.nth(i).innerText();
+      expect(clipped, `"${text}" is clipped at ${NARROW.width}px`).toBe(false);
     }
 
     const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);

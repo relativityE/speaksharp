@@ -113,7 +113,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       // it is not the em-dash placeholder, which would be a claim we had looked and found nothing
       // displayable, and not the failure state.
       expect(screen.getByTestId('home-last-session-secondary')).toHaveTextContent('No sessions yet');
-      expect(screen.getByTestId('home-first-run')).toHaveTextContent(/start your first practice/i);
+      expect(screen.getByTestId('home-first-run')).toHaveTextContent(/your audio never leaves this browser/i);
       expect(screen.queryByTestId('home-history-error')).not.toBeInTheDocument();
       expect(screen.getByTestId('home-last-session')).toBeDisabled();
       fireEvent.click(screen.getByTestId('home-last-session'));
