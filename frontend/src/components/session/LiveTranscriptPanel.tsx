@@ -4,7 +4,7 @@ import { TEST_IDS } from '@/constants/testIds';
 import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
 import { splitSettledActiveTranscript, hasSevereRepetitionLoop, collapseRepeatedFinalForDisplay } from './liveTranscriptUtils';
 
-import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
+import { parseTranscriptForHighlighting, fillerHighlightBackground } from '@/utils/highlightUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
@@ -448,7 +448,21 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                 return (
                                     <span
                                         key={token.id}
-                                        style={{ color: token.color, backgroundColor: `${token.color}15` }}
+                                        /*
+                                         * #1487 P2 — THE ALPHA CANNOT BE CONCATENATED ONTO A CSS VARIABLE.
+                                         *
+                                         * `token.color` used to be a raw hex, so appending `15` produced a valid
+                                         * 8-digit colour. It is now `var(--brand-filler-series-N)` from the token
+                                         * authority, and `var(--brand-filler-series-1)15` is not a colour at all —
+                                         * the browser discards the declaration silently and the highlight loses the
+                                         * translucent wash behind the word, keeping only the border and text colour.
+                                         * `color-mix` composes alpha against a variable; `0x15` is 8.2% of 255, so 8%
+                                         * preserves the wash the hex suffix used to produce.
+                                         */
+                                        style={{
+                                            color: token.color,
+                                            backgroundColor: fillerHighlightBackground(token.color ?? 'currentColor'),
+                                        }}
                                         className="px-1.5 py-0.5 rounded font-bold transition-all border border-current"
                                     >
                                         {token.transcript}
