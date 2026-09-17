@@ -41,15 +41,30 @@ export const PAYLOAD_TRIPWIRE = `(() => {
   const workerId = isWorker
     ? 'worker-' + Date.now() + '-' + Math.random().toString(36).slice(2)
     : null;
-  let relaySequence = 0;
   let emitChain = Promise.resolve();
   const relayStates = new Map();
+  const receivedSequences = new Set();
+  const acknowledgedSequences = new Set();
   let relayDrainFailure = null;
   let relay = null;
   if ((isDocument || isWorker) && typeof BroadcastChannel === 'function') {
     try { relay = new BroadcastChannel(relayMarker); } catch (e) { void e; }
   }
-  w.__SS_TRIPWIRE_RELAY_READY__ = isDocument || (isWorker && relay !== null);
+
+  // Production is cross-origin isolated (COOP + COEP), so a shared atomic counter can identify the
+  // exact final sequence without delaying Worker.terminate(). Each worker increments before posting a
+  // metadata record; after synchronous teardown the counter is immutable and the document can wait for
+  // every numbered record and binding acknowledgement explicitly.
+  let relayCounter = null;
+  if (isDocument && relay && typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object') {
+    try { relayCounter = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)); }
+    catch (error) { relayDrainFailure = error instanceof Error ? error.message : 'payload counter unavailable'; }
+  }
+  let resolveRelayReady = () => {};
+  w.__SS_TRIPWIRE_READY_PROMISE__ = isWorker
+    ? new Promise((resolve) => { resolveRelayReady = resolve; })
+    : Promise.resolve();
+  w.__SS_TRIPWIRE_RELAY_READY__ = isDocument ? relay !== null && relayCounter !== null : false;
 
   const emitRecord = (record) => {
     if (typeof w.__SS_TRIPWIRE_EMIT__ !== 'function') return Promise.resolve();
@@ -71,53 +86,112 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       try {
         const data = event && event.data;
         if (!data || data.marker !== relayMarker || typeof data.workerId !== 'string') return;
-        const state = relayStates.get(data.workerId) || { received: 0, acknowledged: 0 };
+        const state = relayStates.get(data.workerId) || { counterReady: false };
         relayStates.set(data.workerId, state);
-        if (data.type === 'record' && Number.isInteger(data.sequence) && data.sequence > 0) {
-          state.received = Math.max(state.received, data.sequence);
-          void emitRecord({ ...data.record, __ssSource: 'worker' }).then(() => {
-            state.acknowledged = Math.max(state.acknowledged, data.sequence);
+        if (data.type === 'worker_ready') {
+          if (!relayCounter) {
+            relayDrainFailure = 'payload shared counter unavailable';
+            relay.postMessage({ marker: relayMarker, type: 'counter_unavailable', workerId: data.workerId });
+            return;
+          }
+          relay.postMessage({
+            marker: relayMarker,
+            type: 'counter_offer',
+            workerId: data.workerId,
+            counter: relayCounter.buffer,
           });
           return;
         }
-        if (data.type === 'worker_ready') {
-          state.acknowledged = Math.max(state.acknowledged, 0);
+        if (data.type === 'counter_ready') {
+          state.counterReady = true;
+          return;
+        }
+        if (data.type === 'relay_failure') {
+          relayDrainFailure = 'worker payload relay emitted without a shared counter';
+          return;
+        }
+        if (data.type === 'record' && Number.isInteger(data.sequence) && data.sequence > 0) {
+          receivedSequences.add(data.sequence);
+          void emitRecord({ ...data.record, __ssSource: 'worker' }).then(() => {
+            acknowledgedSequences.add(data.sequence);
+          });
         }
       } catch (e) { void e; }
     });
 
+    let terminatedWorkers = 0;
+    const terminatedWorkerRefs = new WeakSet();
+    if (typeof Worker === 'function' && Worker.prototype && typeof Worker.prototype.terminate === 'function') {
+      const terminate = Worker.prototype.terminate;
+      Worker.prototype.terminate = function (...args) {
+        // Observe teardown without postponing it: the native call completes before any bookkeeping.
+        const result = terminate.apply(this, args);
+        if (!terminatedWorkerRefs.has(this)) {
+          terminatedWorkerRefs.add(this);
+          terminatedWorkers += 1;
+        }
+        return result;
+      };
+    }
+
     w.__SS_TRIPWIRE_DRAIN__ = async (expectedWorkers) => {
-      // Worker.terminate() remains untouched and synchronous, matching the deployed lifecycle. Records
-      // are posted as they are observed, before teardown. Wait only for the document-side relay queue
-      // and exposed binding to become quiet; never keep the Private-STT worker alive for the proof.
-      let previousReceived = -1;
-      let quietPasses = 0;
-      for (let attempt = 0; attempt < 10 && quietPasses < 2; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-        await emitChain;
-        const received = Array.from(relayStates.values())
-          .reduce((sum, state) => sum + state.received, 0);
-        if (received === previousReceived) quietPasses += 1;
-        else quietPasses = 0;
-        previousReceived = received;
-      }
-      if (quietPasses < 2) throw new Error('payload relay did not become quiet');
+      const expectedWorkerCount = Number(expectedWorkers || 0);
       if (relayDrainFailure) throw new Error(relayDrainFailure);
-      if (relayStates.size < Number(expectedWorkers || 0)) {
+      if (!relayCounter) throw new Error('payload shared counter unavailable');
+      if (relayStates.size < expectedWorkerCount) {
         throw new Error('payload relay worker registration incomplete');
       }
-      const unacknowledged = Array.from(relayStates.values())
-        .some((state) => state.acknowledged < state.received);
-      if (unacknowledged) throw new Error('payload relay sequence unacknowledged');
+      if (Array.from(relayStates.values()).some((state) => state.counterReady !== true)) {
+        throw new Error('payload relay counter handshake incomplete');
+      }
+      if (terminatedWorkers < expectedWorkerCount) {
+        throw new Error('payload worker teardown incomplete');
+      }
+
+      // Native termination has completed, so no worker can increment again. This is the authoritative
+      // final sequence, not an elapsed-time guess. Wait until every numbered record has crossed the
+      // BroadcastChannel and its metadata-only binding promise has acknowledged.
+      const finalSequence = Atomics.load(relayCounter, 0);
+      const deadline = Date.now() + 5000;
+      while (receivedSequences.size < finalSequence || acknowledgedSequences.size < finalSequence) {
+        if (Date.now() >= deadline) throw new Error('payload final sequence was not acknowledged');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        await emitChain;
+      }
+      for (let sequence = 1; sequence <= finalSequence; sequence += 1) {
+        if (!receivedSequences.has(sequence) || !acknowledgedSequences.has(sequence)) {
+          throw new Error('payload relay sequence gap');
+        }
+      }
+      if (relayDrainFailure) throw new Error(relayDrainFailure);
       return {
         workers: relayStates.size,
-        received: Array.from(relayStates.values()).reduce((sum, state) => sum + state.received, 0),
-        acknowledged: Array.from(relayStates.values()).reduce((sum, state) => sum + state.acknowledged, 0),
+        received: receivedSequences.size,
+        acknowledged: acknowledgedSequences.size,
       };
     };
   }
 
   if (isWorker && relay) {
+    relay.addEventListener('message', (event) => {
+      try {
+        const data = event && event.data;
+        if (!data || data.marker !== relayMarker || data.workerId !== workerId) return;
+        if (data.type === 'counter_unavailable') {
+          w.__SS_TRIPWIRE_RELAY_READY__ = false;
+          resolveRelayReady(false);
+          return;
+        }
+        if (data.type !== 'counter_offer' || !(data.counter instanceof SharedArrayBuffer)) return;
+        relayCounter = new Int32Array(data.counter);
+        w.__SS_TRIPWIRE_RELAY_READY__ = true;
+        relay.postMessage({ marker: relayMarker, type: 'counter_ready', workerId });
+        resolveRelayReady(true);
+      } catch (error) {
+        w.__SS_TRIPWIRE_RELAY_READY__ = false;
+        resolveRelayReady(false);
+      }
+    });
     relay.postMessage({ marker: relayMarker, type: 'worker_ready', workerId });
   }
 
@@ -283,9 +357,12 @@ export const PAYLOAD_TRIPWIRE = `(() => {
         try { void emitRecord({ ...record, __ssSource: 'main' }); } catch (e) { void e; }
       } else if (isWorker && relay) {
         try {
-          relaySequence += 1;
-          relay.postMessage({ marker: relayMarker, type: 'record', workerId, sequence: relaySequence, record });
-          relay.postMessage({ marker: relayMarker, type: 'drain_ack', workerId, sequence: relaySequence });
+          if (!relayCounter) {
+            relay.postMessage({ marker: relayMarker, type: 'relay_failure', workerId });
+            return;
+          }
+          const sequence = Atomics.add(relayCounter, 0, 1) + 1;
+          relay.postMessage({ marker: relayMarker, type: 'record', workerId, sequence, record });
         } catch (e) { void e; }
       }
     } catch (e) { void e; }

@@ -187,7 +187,9 @@ test.describe('Production Smoke Canary @canary', () => {
             if (workerInstallations.has(worker)) return;
             if (recordingStartedAt !== null) lateWorkerCount += 1;
             workerInstallations.set(worker, worker.evaluate(PAYLOAD_TRIPWIRE)
-                .then(() => worker.evaluate<boolean>('globalThis.__SS_TRIPWIRE_RELAY_READY__ === true'))
+                .then(() => worker.evaluate<boolean>(
+                    'globalThis.__SS_TRIPWIRE_READY_PROMISE__.then(() => globalThis.__SS_TRIPWIRE_RELAY_READY__ === true)',
+                ))
                 .catch(() => false));
         };
         page.on('worker', installWorker);
@@ -416,9 +418,9 @@ test.describe('Production Smoke Canary @canary', () => {
         // Seal payload evidence only AFTER stop/finalization/save reaches that required terminal. The
         // Stop button's callback is intentionally void while persistence continues asynchronously, so
         // auditing immediately after click() misses any egress during STOPPING or save. Worker records
-        // stream to the document while the engine is alive. Worker teardown remains synchronous, and
-        // this final document-side drain waits for every already-streamed exposed-binding promise.
-        // An elapsed delay cannot prove the binding queue is empty under a busy CI browser.
+        // stream to the document while the engine is alive. Worker teardown remains synchronous; its
+        // shared atomic counter freezes the exact final sequence. This document-side drain requires
+        // every numbered record and exposed-binding acknowledgement, never an elapsed-time guess.
         const payloadDrain = await page.evaluate(async (expectedWorkers) => {
             const drain = (globalThis as typeof globalThis & {
                 __SS_TRIPWIRE_DRAIN__?: (expected: number) => Promise<{

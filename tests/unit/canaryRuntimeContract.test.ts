@@ -229,8 +229,11 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         expect(smoke).not.toContain('page.waitForTimeout(100)');
         expect(smoke).toContain('__SS_TRIPWIRE_DRAIN__');
         expect(PAYLOAD_TRIPWIRE).toContain("type: 'worker_ready'");
+        expect(PAYLOAD_TRIPWIRE).toContain("type: 'counter_offer'");
+        expect(PAYLOAD_TRIPWIRE).toContain('Atomics.add(relayCounter, 0, 1) + 1');
         expect(PAYLOAD_TRIPWIRE).not.toContain("type: 'drain_request'");
-        expect(PAYLOAD_TRIPWIRE).toContain("type: 'record', workerId, sequence: relaySequence, record");
+        expect(PAYLOAD_TRIPWIRE).not.toContain('payload relay did not become quiet');
+        expect(PAYLOAD_TRIPWIRE).toContain("type: 'record', workerId, sequence, record");
         expect(PAYLOAD_TRIPWIRE).toContain("__ssSource: 'worker'");
     });
 
@@ -292,17 +295,32 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             new Function(PAYLOAD_TRIPWIRE)();
 
             const workerRelay = new FakeBroadcastChannel('__speaksharp_canary_payload_v1__');
+            let sharedCounter: Int32Array | null = null;
+            workerRelay.addEventListener('message', ({ data }) => {
+                const message = data as {
+                    type?: string; workerId?: string; counter?: SharedArrayBuffer;
+                };
+                if (message.type !== 'counter_offer' || message.workerId !== 'worker-1' || !message.counter) return;
+                sharedCounter = new Int32Array(message.counter);
+                workerRelay.postMessage({
+                    marker: '__speaksharp_canary_payload_v1__',
+                    type: 'counter_ready',
+                    workerId: 'worker-1',
+                });
+            });
             workerRelay.postMessage({
                 marker: '__speaksharp_canary_payload_v1__',
                 type: 'worker_ready',
                 workerId: 'worker-1',
             });
             await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(sharedCounter).not.toBeNull();
+            const sequence = Atomics.add(sharedCounter as Int32Array, 0, 1) + 1;
             workerRelay.postMessage({
                 marker: '__speaksharp_canary_payload_v1__',
                 type: 'record',
                 workerId: 'worker-1',
-                sequence: 1,
+                sequence,
                 record: { kind: 'audio', bytes: 512 },
             });
 
