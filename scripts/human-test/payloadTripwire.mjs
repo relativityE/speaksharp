@@ -225,8 +225,7 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     if (!value || typeof value !== 'object') return false;
     if (Array.isArray(value)) {
       if (audioContext && isNumericSampleArray(value)) return true;
-      return value.some((entry) => entry && typeof entry === 'object'
-        && containsEncodedAudio(entry, depth + 1, budget, audioContext));
+      return value.some((entry) => containsEncodedAudio(entry, depth + 1, budget, audioContext));
     }
     for (const [key, nested] of Object.entries(value)) {
       const nestedAudioContext = audioContext || isAudioField(key);

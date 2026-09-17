@@ -414,6 +414,9 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
                 method: 'POST', body: JSON.stringify({ audio: '-_'.repeat(129) }),
             });
+            await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
+                method: 'POST', body: JSON.stringify({ audio: ['-_'.repeat(129)] }),
+            });
             await scope.fetch('https://eu.posthog.com/e/', {
                 method: 'POST', body: JSON.stringify({ properties: { samples: Array.from({ length: 64 }, (_, index) => index / 64) } }),
             });
@@ -439,12 +442,13 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
 
             expect(records.map((record) => record.kind)).toEqual([
                 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio',
-                'text', 'encoded_audio', 'form', 'audio', 'audio',
+                'encoded_audio', 'text', 'encoded_audio', 'form', 'audio', 'audio',
             ]);
             expect(JSON.stringify(records)).not.toContain('AAAA');
             expect(JSON.stringify(records)).not.toContain('BBBB');
             expect(JSON.stringify(records)).not.toContain('CCCC');
             expect(JSON.stringify(records)).not.toContain('DDDD');
+            expect(JSON.stringify(records)).not.toContain('-_');
         } finally {
             scope.fetch = originalFetch;
             if (originalDocument === undefined) delete scope.document;
