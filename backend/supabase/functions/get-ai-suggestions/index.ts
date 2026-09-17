@@ -50,6 +50,20 @@ export const countWords = (value: string): number => value.trim().split(/\s+/).f
 
 export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
 
+/**
+ * #1486 — THE PROVIDER RETRY LIVES HERE, BEHIND THE ONE QUOTA CONSUMPTION.
+ *
+ * Quota is consumed once, above, before the provider is ever called. A retry that re-enters this function
+ * therefore charges the user a second time for a single generation action, and if the first attempt spent
+ * their last slot the retry answers 429 — reporting a limit they never reached for what was a provider
+ * outage. Retrying INSIDE the one consumption is the only place a second provider attempt costs nothing.
+ *
+ * Two attempts, and only for a failure another attempt could actually change: a transport error, or a 5xx
+ * the provider itself served. A 4xx is our request and will be refused identically. A 200 whose body fails
+ * `parseSuggestions` is a contract violation, not a blip, and is answered rather than re-asked.
+ */
+export const AI_PROVIDER_ATTEMPTS = 2;
+
 const MAX_TRANSCRIPT_CHARS = 8000;
 // #1424 A1. Lowered from 20 with #1422's P2-4 in view: the review now fires automatically at post-save
 // readiness rather than on a click, so the ceiling is reached by ordinary use rather than by deliberate
@@ -177,6 +191,21 @@ export async function handler(
         return new Response(JSON.stringify({ error: 'Authentication failed' }), {
           headers: { ...responseHeaders, 'Content-Type': 'application/json' },
           status: 401,
+        });
+      }
+      // #1473 — 42501: the caller's role lacks the privilege to read its own profile. That is a SERVICE CONFIGURATION
+      // failure, not the user's account and not a transient outage, so it gets one closed, allowlisted code the client
+      // can act on. The body names no table, role or database detail, and nothing past this point (quota, provider,
+      // persistence) runs. Only this code maps here: PGRST116 stays authentication, and anything else — including a
+      // forged-token PGRST301 — stays the generic fail-closed 500.
+      if (profileError.code === '42501') {
+        console.error('Profile read refused: service configuration (42501).');
+        return new Response(JSON.stringify({
+          error: 'AI coaching is unavailable right now.',
+          code: 'service_configuration',
+        }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 503,
         });
       }
       console.error('Profile fetch error:', profileError);
@@ -319,33 +348,43 @@ export async function handler(
     let suggestions: AISuggestions | null = null;
     let observedProviderModel: string | null = null;
 
-    try {
-      const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: GEMINI_GENERATION_CONFIG,
-        }),
-      });
+    for (let providerAttempt = 1; providerAttempt <= AI_PROVIDER_ATTEMPTS; providerAttempt += 1) {
+      // Only a transport error or a provider 5xx earns the second attempt. Set where the failure is known.
+      let providerFailureIsRetryable = false;
+      try {
+        const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: GEMINI_GENERATION_CONFIG,
+          }),
+        });
 
-      if (!geminiResponse.ok) {
-        const errorBody = await geminiResponse.text();
-        console.error('Gemini API request failed:', errorBody);
-      } else {
-        const responseData = await geminiResponse.json();
-        const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
-        observedProviderModel = typeof responseData?.modelVersion === 'string'
-          && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
-          ? responseData.modelVersion
-          : null;
-        suggestions = typeof rawText === 'string'
-          // The model's FRESH answer — the one place the budget is enforced.
-          ? parseSuggestions(rawText, { enforceWordBudget: true })
-          : null;
+        if (!geminiResponse.ok) {
+          const errorBody = await geminiResponse.text();
+          console.error('Gemini API request failed:', errorBody);
+          providerFailureIsRetryable = geminiResponse.status >= 500;
+        } else {
+          const responseData = await geminiResponse.json();
+          const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+          observedProviderModel = typeof responseData?.modelVersion === 'string'
+            && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
+            ? responseData.modelVersion
+            : null;
+          suggestions = typeof rawText === 'string'
+            // The model's FRESH answer — the one place the budget is enforced.
+            ? parseSuggestions(rawText, { enforceWordBudget: true })
+            : null;
+        }
+      } catch (error) {
+        console.error('Gemini API request failed:', error);
+        providerFailureIsRetryable = true;
       }
-    } catch (error) {
-      console.error('Gemini API request failed:', error);
+
+      // A complete answer ends the loop. So does a failure a second ask cannot change.
+      if (suggestions && observedProviderModel) break;
+      if (!providerFailureIsRetryable) break;
     }
 
     if (!suggestions || !observedProviderModel) {

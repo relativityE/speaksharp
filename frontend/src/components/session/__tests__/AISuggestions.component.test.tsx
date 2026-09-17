@@ -28,6 +28,9 @@ const mockSupabaseClient = {
 describe('AISuggestions Integration', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        // `clearAllMocks` keeps queued `mockResolvedValueOnce` answers; an answer one case queues but never consumes
+        // (for example a retry the component under test does not make) must not reach the next case's request.
+        mockSupabaseClient.functions.invoke.mockReset();
         vi.mocked(getSupabaseClient).mockReturnValue(mockSupabaseClient as unknown as ReturnType<typeof getSupabaseClient>);
     });
 
@@ -122,6 +125,210 @@ describe('AISuggestions Integration', () => {
         });
     });
 
+    describe('#1473 — closed service_configuration code and failure-aware retry', () => {
+        const okResponse = {
+            data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'State the ask first.' } },
+            error: null,
+        };
+        /** A FunctionsHttpError whose `context` is a Response-like object with a readable JSON body. */
+        const httpErrorWithBody = (status: number, body: () => Promise<unknown>) => {
+            const err = new Error('Edge Function returned a non-2xx status code') as Error & { name: string; context: unknown };
+            err.name = 'FunctionsHttpError';
+            err.context = { status, clone: () => ({ json: body }) };
+            return { data: null, error: err };
+        };
+        /**
+         * #1486 — the ONLY failure that still earns an automatic retry: a transport error, with no status,
+         * so the request reached no verdict and therefore carries no quota receipt to charge twice. The
+         * provider/5xx class (`unavailable`) is terminal now, and is driven by `httpErrorWithBody` below.
+         */
+        const transportFailure = () => {
+            const err = new Error('network down') as Error & { name: string };
+            err.name = 'FunctionsFetchError';
+            return { data: null, error: err };
+        };
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        const card = () => screen.getByTestId('ai-suggestions-card');
+        // `vi.clearAllMocks()` keeps queued `mockResolvedValueOnce` answers. A case that queues an answer the component
+        // under test never consumes would otherwise hand it to the NEXT case's first request.
+        beforeEach(() => { mockSupabaseClient.functions.invoke.mockReset(); });
+
+        it('CASUALTY: a 503 carrying service_configuration is terminal — one request, its own copy, one terminal report', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(
+                httpErrorWithBody(503, async () => ({ error: 'AI coaching is unavailable right now.', code: 'service_configuration' })),
+            );
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-config" retryBackoffMs={10} />);
+
+            expect(await screen.findByText(/service setup problem on our side/i)).toBeInTheDocument();
+            expect(screen.getByText(/your session is saved/i)).toBeInTheDocument();
+            await sleep(60);
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(screen.queryByTestId('ai-suggestions-auto-retry')).toBeNull();
+            expect(card()).toHaveAttribute('data-review-state', 'error');
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('service_configuration');
+        });
+
+        it.each([
+            ['malformed JSON', async () => { throw new SyntaxError('Unexpected token'); }],
+            ['an unknown code', async () => ({ code: 'database_role_missing' })],
+            ['no code', async () => ({ error: 'AI coaching is unavailable right now.' })],
+        // #1486 — these prove the CLASSIFICATION fallback. The reason is still `unavailable`; what changed is that
+        // `unavailable` no longer re-enters the edge function, so the fallback now settles on its first answer.
+        ])('CONTROL: a 503 with %s falls back to the status classification and is not retried from here', async (_label, body) => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(httpErrorWithBody(503, body as () => Promise<unknown>));
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-fallback" retryBackoffMs={10} />);
+
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
+            await sleep(60);
+            expect(mockSupabaseClient.functions.invoke, 'one charged request, not two').toHaveBeenCalledTimes(1);
+            expect(screen.queryByText(/service setup problem/i)).toBeNull();
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable');
+        });
+
+        it('CONTROL: the closed code is ignored on any status other than 503', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(httpErrorWithBody(401, async () => ({ code: 'service_configuration' })));
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-401-code" retryBackoffMs={10} />);
+
+            expect(await screen.findByText(/cannot request a new review/i)).toBeInTheDocument();
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('access_denied');
+        });
+
+        it('CASUALTY: a recoverable failure shows the failure, waits, retries ONCE, then settles as one terminal failure', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(transportFailure());
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-recoverable" retryBackoffMs={40} />);
+
+            expect(await screen.findByTestId('ai-suggestions-auto-retry')).toBeInTheDocument();
+            expect(card(), 'a scheduled retry is still in motion').toHaveAttribute('data-review-state', 'loading');
+            expect(screen.queryByText(/creating your session review/i), 'no attempt is claimed while waiting').toBeNull();
+            expect(trackPracticeLoopReviewFailed, 'the first recoverable failure is not yet an outcome').not.toHaveBeenCalled();
+
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2));
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
+            await sleep(80);
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2);
+            expect(screen.queryByTestId('ai-suggestions-auto-retry')).toBeNull();
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('network');
+        });
+
+        it('CASUALTY: a recoverable failure that succeeds on its retry renders the review and reports no failure', async () => {
+            mockSupabaseClient.functions.invoke
+                .mockResolvedValueOnce(transportFailure())
+                .mockResolvedValueOnce(okResponse);
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-recovers" retryBackoffMs={10} />);
+
+            expect(await screen.findByText('Clear opening.')).toBeInTheDocument();
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2);
+            expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalled();
+        });
+
+        it.each([401, 403, 429, 404, 409])('CONTROL: terminal status %i is never retried automatically', async (status) => {
+            const err = new Error('terminal') as Error & { name: string; context: { status: number } };
+            err.name = 'FunctionsHttpError';
+            err.context = { status };
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: err });
+            render(<AISuggestions transcript="Hello world" canReview sessionId={`s-terminal-${status}`} retryBackoffMs={10} />);
+
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
+            await sleep(60);
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
+        });
+
+        /**
+         * #1486 — A PROVIDER FAILURE IS NOT RETRIED HERE, BECAUSE HERE IS WHERE IT COSTS A SECOND SLOT.
+         *
+         * The edge function consumes quota before it calls the provider, so re-entering it charges the user twice
+         * for one generation action. Worse, if the first attempt spent their last slot the retry returns 429, which
+         * this component maps to `rate_limited` and shows as a limit the user never reached — the outage disappears
+         * behind a false claim about their account. The provider retry lives inside the edge function now.
+         */
+        it('CASUALTY: a provider 502 is asked ONCE from here, and never becomes a false rate-limit', async () => {
+            // Attempt 1 is the provider outage. Attempt 2, if it ever happened, would be the exhausted-quota 429
+            // — the exact false claim this casualty exists to forbid.
+            mockSupabaseClient.functions.invoke
+                .mockResolvedValueOnce(httpErrorWithBody(502, async () => ({ error: 'AI coaching could not be generated. Please try again.' })))
+                .mockResolvedValue(httpErrorWithBody(429, async () => ({ error: 'Daily AI coaching limit reached. Try again tomorrow.' })));
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-502-once" retryBackoffMs={10} />);
+
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
+            await sleep(60);
+
+            expect(mockSupabaseClient.functions.invoke, 'one user action, one charged request').toHaveBeenCalledTimes(1);
+            expect(screen.queryByTestId('ai-suggestions-auto-retry'), 'nothing is scheduled').toBeNull();
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed, 'reported as the outage it was').toHaveBeenCalledWith('unavailable');
+            expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalledWith('rate_limited');
+            expect(screen.queryByText(/temporarily limited/i), 'never a limit the user did not reach').toBeNull();
+            expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+        });
+
+        /**
+         * #1486 Codex P1 — THE COMPONENT IS TESTED THE WAY THE APP RENDERS IT.
+         *
+         * `main.tsx` wraps the app in `StrictMode`, whose replay runs effects as setup -> cleanup -> setup.
+         * Every other casualty in this file renders `AISuggestions` bare, so none of them ever executed that
+         * replay — which is exactly how a cleanup that invalidated the in-flight request could discard a
+         * SUCCESSFUL response and leave the card empty while the whole suite stayed green. The bug was only
+         * ever visible to someone running the real app.
+         *
+         * Wrapping the render in `StrictMode` is the point of this casualty: it reproduces the replay, and
+         * then asserts the plain thing the user cares about — the review that the provider returned is on
+         * screen, and it cost exactly one request.
+         */
+        it('P1 CASUALTY: the automatic review survives the StrictMode effect replay', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(okResponse);
+            render(
+                <React.StrictMode>
+                    <AISuggestions transcript="Hello world" canReview sessionId="s-strictmode" retryBackoffMs={10} />
+                </React.StrictMode>,
+            );
+
+            expect(await screen.findByText('Clear opening.')).toBeInTheDocument();
+            expect(await screen.findByText('State the ask first.')).toBeInTheDocument();
+            // The state vocabulary is loading | error | ready | empty; a rendered valid review is 'ready'.
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'ready'));
+            // The replay must not cost the user a second generation, and must not lose the first one.
+            expect(mockSupabaseClient.functions.invoke, 'one automatic request, replay included').toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalled();
+        });
+
+        it('CASUALTY: leaving during the backoff cancels the automatic retry', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(transportFailure());
+            const { unmount } = render(<AISuggestions transcript="Hello world" canReview sessionId="s-leave" retryBackoffMs={40} />);
+
+            expect(await screen.findByTestId('ai-suggestions-auto-retry')).toBeInTheDocument();
+            unmount();
+            await sleep(120);
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalled();
+        });
+
+        it('CASUALTY: the manual action is unavailable while a retry is scheduled, and one press starts ONE new lifecycle', async () => {
+            const err = new Error('limited') as Error & { name: string; context: { status: number } };
+            err.name = 'FunctionsHttpError';
+            err.context = { status: 429 };
+            mockSupabaseClient.functions.invoke
+                .mockResolvedValueOnce(transportFailure())
+                .mockResolvedValue({ data: null, error: err });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-manual" retryBackoffMs={40} />);
+
+            expect(await screen.findByTestId('ai-suggestions-auto-retry')).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /retry review/i }), 'no manual press while a retry is scheduled').toBeDisabled();
+
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2);
+            const button = screen.getByRole('button', { name: /retry review/i });
+            await userEvent.click(button);
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
+            await sleep(80);
+            expect(mockSupabaseClient.functions.invoke, 'one press, one request: a terminal 429 is not retried').toHaveBeenCalledTimes(3);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(2);
+        });
+    });
+
     describe('#1416 P2-4 — the first review fires itself', () => {
         const ok = {
             data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'a strength', what_to_try_next: 'an improvement' } },
@@ -186,15 +393,19 @@ describe('AISuggestions Integration', () => {
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
         });
 
-        it('does not auto-retry after a failure — the button owns retry', async () => {
-            // A self-retrying request against a failing provider is a loop the user cannot escape,
-            // and it bills on every pass.
-            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: { message: 'boom' } });
-            render(<AISuggestions transcript="Hello world" canReview sessionId="s-fail" />);
+        // #1473 (PM 5682363888) replaces "never auto-retry": a RECOVERABLE failure gets exactly ONE automatic retry after
+        // a bounded backoff, and never more — a self-retrying request against a failing provider stays impossible.
+        it('a recoverable failure is retried automatically at most once, never looped', async () => {
+            // #1486 — a transport failure is the recoverable class now: no response, so no quota slot to charge
+            // twice. A provider/5xx answer is terminal here and is covered by its own casualty.
+            const transport = new Error('boom') as Error & { name: string };
+            transport.name = 'FunctionsFetchError';
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: transport });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-fail" retryBackoffMs={10} />);
 
-            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2));
             await new Promise((r) => setTimeout(r, 80));
-            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2);
         });
 
         it('does not re-request a session that already carries a stored review', async () => {
@@ -577,14 +788,21 @@ describe('AISuggestions Integration', () => {
             // the one being fixed.
             const user = userEvent.setup();
 
-            mockSupabaseClient.functions.invoke.mockResolvedValueOnce({
+            // #1486: a 500 is the provider class, which is TERMINAL here — the edge function has already retried the
+            // provider behind its single quota consumption, so this lifecycle settles on one answer. The manual
+            // action belongs to the lifecycle once it has settled as a failure, which is now immediately.
+            const failure = {
                 data: null,
                 error: { message: 'Edge Function returned a non-2xx status code', context: { status: 500 } },
-            });
+            };
+            mockSupabaseClient.functions.invoke.mockReset();
+            mockSupabaseClient.functions.invoke.mockResolvedValueOnce(failure);
 
-            render(<AISuggestions transcript="Hello world" sessionId="session-retry" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-retry" retryBackoffMs={10} />);
 
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             const retry = await screen.findByRole('button', { name: /retry review/i });
+            await waitFor(() => expect(retry).toBeEnabled());
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: {
@@ -618,6 +836,9 @@ describe('AISuggestions Integration', () => {
 describe('#1422 — superseded review requests are silent', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        // `clearAllMocks` keeps queued `mockResolvedValueOnce` answers; an answer one case queues but never consumes
+        // (for example a retry the component under test does not make) must not reach the next case's request.
+        mockSupabaseClient.functions.invoke.mockReset();
         vi.mocked(getSupabaseClient).mockReturnValue(mockSupabaseClient as unknown as ReturnType<typeof getSupabaseClient>);
     });
     afterEach(cleanup);

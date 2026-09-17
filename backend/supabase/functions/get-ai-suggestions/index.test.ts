@@ -23,6 +23,8 @@ const suggestionB = {
 
 interface MockOptions {
   profile?: 'pro' | 'free' | 'unauthenticated';
+  /** Overrides the profile read's error, e.g. a lost table privilege (42501) or a forged-token rejection. */
+  profileError?: unknown;
   entitlement?: Record<string, unknown>;
   entitlementError?: unknown;
   userId?: string | null;
@@ -52,6 +54,11 @@ const savedSession = (overrides: Record<string, unknown> = {}) => ({
 
 let fetchCount = 0;
 let fetchStatus = 200;
+/**
+ * #1486 — consumed one per provider call, so a single handler invocation can be given a FIRST answer and a
+ * SECOND one. Without this the harness cannot tell a retry that recovered from a retry that never happened.
+ */
+let fetchStatusQueue: number[] = [];
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
 let lastPrompt = '';
@@ -80,7 +87,8 @@ globalThis.fetch = async (url, init) => {
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
-  if (fetchStatus !== 200) return new Response('upstream unavailable', { status: fetchStatus });
+  const thisStatus = fetchStatusQueue.length > 0 ? Number(fetchStatusQueue.shift()) : fetchStatus;
+  if (thisStatus !== 200) return new Response('upstream unavailable', { status: thisStatus });
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
     : geminiText;
@@ -101,6 +109,9 @@ function mockSupabase(options: MockOptions = {}) {
     authorityRpcCount: 0,
     authorityArgs: null as Record<string, unknown> | null,
     quotaArgs: null as Record<string, unknown> | null,
+    // #1486 — counted on its own. `rpcCount` also counts other rpc traffic, so it cannot answer
+    // "how many slots did this one generation action spend?".
+    quotaCount: 0,
   };
   const profile = options.profile ?? 'pro';
   const userId = options.userId === undefined ? 'pro-user' : options.userId;
@@ -142,7 +153,10 @@ function mockSupabase(options: MockOptions = {}) {
         });
       }
       state.rpcCount++;
-      if (name === 'consume_ai_suggestion_quota') state.quotaArgs = args ?? {};
+      if (name === 'consume_ai_suggestion_quota') {
+        state.quotaArgs = args ?? {};
+        state.quotaCount++;
+      }
       return Promise.resolve({
         data: options.quota ?? { allowed: true, remaining: 19, limit: 20, used: 1 },
         error: options.quotaError ?? null,
@@ -154,6 +168,7 @@ function mockSupabase(options: MockOptions = {}) {
           eq: (_column: string, _value: unknown) => query,
           single: () => {
             if (table === 'user_profiles') {
+              if (options.profileError) return Promise.resolve({ data: null, error: options.profileError });
               return profile === 'unauthenticated'
                 ? Promise.resolve({ data: null, error: { code: 'PGRST116' } })
                 : Promise.resolve({ data: { subscription_status: profile }, error: null });
@@ -199,6 +214,7 @@ function request(body: Record<string, unknown> = { sessionId: 'session-a' }) {
 function resetProvider() {
   fetchCount = 0;
   fetchStatus = 200;
+  fetchStatusQueue = [];
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
   lastPrompt = '';
@@ -235,6 +251,51 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const mock = mockSupabase({ entitlementError: { message: 'database unavailable' } });
     assertEquals((await handler(request(), mock.create)).status, 503);
     assertEquals(fetchCount, 0);
+  });
+
+  // #1473 — a profile read denied by a missing table privilege is a SERVICE CONFIGURATION failure, not the user's
+  // account and not a transient outage. It must say so with one closed code, expose no database/table/role text,
+  // and spend no quota and no provider call.
+  await t.step('CASUALTY: a profile-read 42501 returns 503 with only the closed code service_configuration', async () => {
+    resetProvider();
+    const mock = mockSupabase({
+      profileError: { code: '42501', message: 'permission denied for table user_profiles', details: null, hint: null },
+    });
+    const response = await handler(request(), mock.create);
+    const body = await response.json() as Record<string, unknown>;
+    assertEquals(response.status, 503);
+    assertEquals(body.code, 'service_configuration');
+    const serialized = JSON.stringify(body).toLowerCase();
+    for (const leaked of ['user_profiles', 'permission', 'denied', 'table', '42501', 'role']) {
+      assertEquals(serialized.includes(leaked), false, `response body must not expose "${leaked}"`);
+    }
+    assertEquals(fetchCount, 0, 'no provider call on a pre-provider trust failure');
+    assertEquals(outboundRequests.length, 0, 'no outbound request of any kind');
+    assertEquals(mock.state.rpcCount, 0, 'no quota consumed');
+    assertEquals(mock.state.authorityRpcCount, 0, 'no authority write');
+  });
+
+  await t.step('CONTROL: PGRST116 stays the authentication path (401) and never carries the configuration code', async () => {
+    resetProvider();
+    const mock = mockSupabase({ profileError: { code: 'PGRST116', message: 'No rows returned' } });
+    const response = await handler(request(), mock.create);
+    const body = await response.json() as Record<string, unknown>;
+    assertEquals(response.status, 401);
+    assertNotEquals(body.code, 'service_configuration');
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.rpcCount, 0);
+  });
+
+  await t.step('CONTROL: a forged-token rejection (PGRST301) stays fail-closed and never carries the configuration code', async () => {
+    resetProvider();
+    const mock = mockSupabase({ profileError: { code: 'PGRST301', message: 'JWSError JWSInvalidSignature' } });
+    const response = await handler(request(), mock.create);
+    const body = await response.json() as Record<string, unknown>;
+    assertNotEquals(response.status, 200);
+    assertNotEquals(response.status, 503);
+    assertNotEquals(body.code, 'service_configuration');
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.rpcCount, 0);
   });
 
   await t.step('requires a saved session id and ignores caller evidence', async () => {
@@ -494,6 +555,60 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(fetchCount, 0);
     const body = JSON.parse(await response.text());
     assertEquals(body.limit, AI_SUGGESTION_DAILY_LIMIT);
+  });
+
+  /**
+   * #1486 — ONE GENERATION ACTION SPENDS AT MOST ONE SLOT.
+   *
+   * Quota is consumed before the provider is called, so any retry that re-enters this function charges the user
+   * twice for one action. These prove the second provider attempt happens INSIDE the single consumption, that it
+   * is bounded, and that it is spent only on a failure another ask could change.
+   */
+  await t.step('CASUALTY: a provider 5xx that recovers on the internal retry spends exactly ONE quota slot', async () => {
+    resetProvider();
+    // First ask fails the way a flaky provider fails; the second succeeds.
+    fetchStatusQueue = [503, 200];
+    const mock = mockSupabase({ session: savedSession() });
+    const response = await handler(request(), mock.create);
+
+    assertEquals(response.status, 200, 'the user gets their review rather than an outage');
+    assertEquals(fetchCount, 2, 'the provider was asked twice');
+    assertEquals(mock.state.quotaCount, 1, 'but the user was charged once');
+  });
+
+  await t.step('CASUALTY: a provider 5xx that fails twice is one 502 and one charge, never a rate-limit', async () => {
+    resetProvider();
+    fetchStatusQueue = [502, 500];
+    const mock = mockSupabase({ session: savedSession() });
+    const response = await handler(request(), mock.create);
+
+    assertEquals(response.status, 502, 'a provider outage is reported AS a provider outage');
+    assertNotEquals(response.status, 429, 'never a limit the user did not reach');
+    assertEquals(fetchCount, 2, 'bounded: two attempts, not a loop');
+    assertEquals(mock.state.quotaCount, 1, 'exhausting the retry still costs exactly one slot');
+  });
+
+  await t.step('CONTROL: a provider 4xx is not retried — a second identical ask cannot change it', async () => {
+    resetProvider();
+    fetchStatus = 400;
+    const mock = mockSupabase({ session: savedSession() });
+    const response = await handler(request(), mock.create);
+
+    assertEquals(response.status, 502);
+    assertEquals(fetchCount, 1, 'our own malformed request is asked once');
+    assertEquals(mock.state.quotaCount, 1);
+  });
+
+  await t.step('CONTROL: a 200 whose body violates the contract is not retried', async () => {
+    resetProvider();
+    // A well-formed 200 the parser must refuse. Re-asking cannot make a contract violation into an answer.
+    geminiText = 'not json at all';
+    const mock = mockSupabase({ session: savedSession() });
+    const response = await handler(request(), mock.create);
+
+    assertEquals(response.status, 502);
+    assertEquals(fetchCount, 1, 'a contract violation is answered, not re-asked');
+    assertEquals(mock.state.quotaCount, 1);
   });
 
   await t.step('coaching a user ALREADY received stays readable after the budget lands', async () => {

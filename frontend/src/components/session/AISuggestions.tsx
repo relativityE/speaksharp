@@ -29,6 +29,8 @@ interface AISuggestionsProps {
   canReview?: boolean;
   sessionId?: string;
   initialSuggestions?: AISuggestionsData;
+  /** #1473 — delay before the single automatic retry of a recoverable failure. Product uses the default. */
+  retryBackoffMs?: number;
 }
 
 interface SafeSuggestionError {
@@ -88,9 +90,72 @@ const isTransportFailure = (err: unknown): boolean => {
  *
  * The status is what the server decided. The mapping below is taken from the function's own responses.
  */
-const getSafeAiSuggestionError = (err: unknown): SafeSuggestionError => {
+/** #1473 — the ONLY closed code the edge function may send, and the only one this client acts on. */
+const SERVICE_CONFIGURATION_CODE = 'service_configuration';
+
+/**
+ * #1473 — read the allowlisted closed code from the edge function's JSON body, DEFENSIVELY.
+ *
+ * `FunctionsHttpError.context` is the `Response`. It is CLONED before reading, so nothing else that inspects the
+ * response finds a consumed body. Only the exact allowlisted value is returned: a missing, malformed or unknown body
+ * yields null, and the caller falls back to the status classification it has always used.
+ */
+const readClosedCode = async (err: unknown): Promise<typeof SERVICE_CONFIGURATION_CODE | null> => {
+  const ctx = (err as { context?: unknown } | null)?.context as { clone?: unknown } | undefined;
+  if (!ctx || typeof ctx.clone !== 'function') return null;
+  try {
+    const body: unknown = await (ctx.clone as () => { json: () => Promise<unknown> })().json();
+    return (body as { code?: unknown } | null)?.code === SERVICE_CONFIGURATION_CODE ? SERVICE_CONFIGURATION_CODE : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * #1473 — failures another automatic attempt cannot change. They are terminal: the user sees the saved-session
+ * assurance and one manual action.
+ *
+ * #1486 — `unavailable` IS TERMINAL, AND THAT IS A QUOTA RULE, NOT A PESSIMISM.
+ *
+ * `unavailable` is the provider/5xx answer, and the edge function consumes a quota slot BEFORE it calls the
+ * provider. Re-entering the whole function therefore spends a second slot on one generation action, and if the
+ * first attempt took the user's last slot the retry comes back 429 — which this file maps to `rate_limited` and
+ * reports as a limit the user never reached, hiding the outage that actually happened. The provider retry now
+ * lives inside the edge function, behind that single consumption (`AI_PROVIDER_ATTEMPTS`), so a provider blip is
+ * still absorbed and costs nothing; by the time the client sees `unavailable` the provider has already been asked
+ * twice and a third ask can only charge again.
+ *
+ * `network` stays recoverable. It is the one failure with no response at all, so it carries no quota receipt to
+ * double, and it is usually the client's own connection rather than anything we did.
+ *
+ * `invalid_response` is terminal too. The edge function answers 200 only after it has persisted and read back the
+ * exact review, so a malformed 200 is a contract violation, not a provider or network blip. Another attempt re-reads
+ * the same stored value.
+ */
+const TERMINAL_REASONS: ReadonlySet<PracticeLoopReviewFailureReason> = new Set<PracticeLoopReviewFailureReason>([
+  'service_configuration', 'access_denied', 'rate_limited', 'not_found', 'transcript_unavailable', 'invalid_response',
+  'unavailable',
+]);
+
+/** #1473 — the bounded backoff before the single automatic retry of a recoverable failure. */
+export const AI_REVIEW_AUTO_RETRY_BACKOFF_MS = 2500;
+
+const UNAVAILABLE_MESSAGE = 'The review is unavailable right now. Your session is saved, and you can try again.';
+
+const getSafeAiSuggestionError = (
+  err: unknown,
+  closedCode: typeof SERVICE_CONFIGURATION_CODE | null = null,
+): SafeSuggestionError => {
   if (isTransportFailure(err) && errorStatus(err) === null) {
     return { reason: 'network', message: 'The review could not connect. Check your connection and try again.' };
+  }
+
+  // #1473 — the server's closed code, honoured only on the status the edge function sends it with.
+  if (closedCode === SERVICE_CONFIGURATION_CODE && errorStatus(err) === 503) {
+    return {
+      reason: 'service_configuration',
+      message: 'The review is unavailable because of a service setup problem on our side. Your session is saved, and you can check again later.',
+    };
   }
 
   switch (errorStatus(err)) {
@@ -100,7 +165,7 @@ const getSafeAiSuggestionError = (err: unknown): SafeSuggestionError => {
       return { reason: 'access_denied', message: 'Your account cannot request a new review right now. Your saved session is unchanged.' };
     // 429 daily coaching limit reached.
     case 429:
-      return { reason: 'rate_limited', message: 'Review requests are temporarily limited. Please try again later.' };
+      return { reason: 'rate_limited', message: 'Review requests are temporarily limited. Your session is saved; please try again later.' };
     // 409 the saved session has no available transcript. The ONLY status that licenses a claim about
     // their stored data, which is why it must never be inferred from prose.
     case 409:
@@ -111,11 +176,13 @@ const getSafeAiSuggestionError = (err: unknown): SafeSuggestionError => {
     // 400 bad request, 500/502/503 upstream or provider trouble, and anything unrecognised. All of them
     // mean "not now", and none of them licenses a claim about the user's account or their data.
     default:
-      return { reason: 'unavailable', message: 'The review is unavailable right now. Your session is saved, and you can try again.' };
+      return { reason: 'unavailable', message: UNAVAILABLE_MESSAGE };
   }
 };
 
-const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canReview, sessionId, initialSuggestions }) => {
+const AISuggestions: React.FC<AISuggestionsProps> = ({
+  transcript = '', canReview, sessionId, initialSuggestions, retryBackoffMs = AI_REVIEW_AUTO_RETRY_BACKOFF_MS,
+}) => {
   const activeSessionRef = useRef(sessionId);
   const requestGenerationRef = useRef(0);
   if (activeSessionRef.current !== sessionId) {
@@ -127,14 +194,16 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
     suggestions: parseAISuggestions(initialSuggestions),
     isLoading: false,
     error: null as string | null,
+    /** #1473 — a recoverable failure is showing and ONE automatic retry is scheduled; no attempt is in flight. */
+    retrying: false,
   }));
 
   // A route change can reuse this component instance. Render the new session's persisted value
   // immediately and invalidate every request captured for the previous session.
   const currentView = view.sessionId === sessionId
     ? view
-    : { sessionId, suggestions: parseAISuggestions(initialSuggestions), isLoading: false, error: null };
-  const { suggestions, isLoading, error } = currentView;
+    : { sessionId, suggestions: parseAISuggestions(initialSuggestions), isLoading: false, error: null, retrying: false };
+  const { suggestions, isLoading, error, retrying } = currentView;
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
   const reviewCardRef = useRef<HTMLDivElement>(null);
   const renderedReceiptRef = useRef<string | null>(null);
@@ -145,6 +214,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
       suggestions: parseAISuggestions(initialSuggestions),
       isLoading: false,
       error: null,
+      retrying: false,
     });
   }, [sessionId, initialSuggestions]);
 
@@ -261,83 +331,116 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
   // now, and a self-retrying request against a failing provider is a loop the user cannot escape.
   const autoRequestedRef = useRef<string | null>(null);
 
+  /** #1473 — the single scheduled automatic retry, so leaving the page or starting a new lifecycle can cancel it. */
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * #1486 Codex P1 — LEAVING IS A MOUNT FACT, NOT A GENERATION BUMP.
+   *
+   * This cleanup used to do `requestGenerationRef.current += 1`, and that is wrong under the `StrictMode`
+   * wrapper `main.tsx` applies in development and test builds. StrictMode replays effects as
+   * setup -> cleanup -> setup, so the cleanup ran immediately after the first mount. The bump marked the
+   * one automatic request stale, while `autoRequestedRef` still recorded the session — so the replayed
+   * setup returned early instead of starting a replacement, and the successful response was discarded
+   * against a generation that no longer matched. The review card stayed empty for every developer and
+   * every test that renders this component the way the app does.
+   *
+   * A mounted flag is the honest expression of what the guard actually needs to know. StrictMode's replay
+   * sets it back to true, so the in-flight request survives a replay it was never meant to be cancelled by.
+   * A real unmount leaves it false forever, which is what #1473 wanted: nothing fires, reports or renders
+   * after the user has moved on. Session transitions keep invalidating by generation, above, where a
+   * transition genuinely is a new lifecycle.
+   */
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, []);
+
   const fetchSuggestions = useCallback(async () => {
     if (!reviewReady || !sessionId) return;
     const requestSessionId = sessionId;
     const requestGeneration = requestGenerationRef.current + 1;
     requestGenerationRef.current = requestGeneration;
+    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
     const isCurrentRequest = () =>
-      activeSessionRef.current === requestSessionId
+      mountedRef.current
+      && activeSessionRef.current === requestSessionId
       && requestGenerationRef.current === requestGeneration;
 
-    setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null });
     trackPracticeLoopReviewRequested();
 
-    try {
-      const supabase = getSupabaseClient();
-      if (!supabase) throw new Error("Supabase client not available");
-      const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
-        // The edge function loads transcript and measurements from this authenticated saved session.
-        // Never send caller-owned evidence that could be swapped between session ids.
-        body: { sessionId: sessionId || null },
-      });
-
-      if (invokeError) {
-        throw invokeError;
-      }
-
-      // The function itself might return an error in its body
-      if (data?.error) {
-        throw new Error(data.error);
-      }
-
-      const persistedSuggestions = parseAISuggestions(data?.suggestions);
-      if (!persistedSuggestions) {
-        /**
-         * #1422 — A SUPERSEDED REQUEST REPORTS NOTHING.
-         *
-         * This emitted before `isCurrentRequest()` was consulted, so a late malformed answer for
-         * session A — already discarded by the UI, correctly — still counted as a review failure after
-         * the user had moved to session B. The funnel then showed failures nobody experienced, which is
-         * the same class of untruth as a silently missing event: a number that cannot be acted on.
-         *
-         * The throw is unconditional either way; only the REPORTING is scoped. `telemetryRecorded` is
-         * set only when something was actually recorded, so the catch below does not double-count and
-         * does not fall back to emitting for a request that is no longer current.
-         */
-        const current = isCurrentRequest();
-        if (current) trackPracticeLoopReviewFailed('invalid_response');
-        throw Object.assign(new Error('INVALID_REVIEW_RESPONSE'), { telemetryRecorded: current });
-      }
-
-      if (isCurrentRequest()) {
-        // Success from this endpoint means the exact result was persisted and read back server-side.
-        trackPracticeLoopReviewCompleted();
-        trackPracticeLoopReviewPersisted();
-        setView({ sessionId: requestSessionId, suggestions: persistedSuggestions, isLoading: false, error: null });
-      }
-    } catch (err: unknown) {
-      logger.error({ err }, "Error fetching AI suggestions:");
-      if (isCurrentRequest()) {
-        const safeError = getSafeAiSuggestionError(err);
-        if (!(typeof err === 'object' && err !== null && 'telemetryRecorded' in err)) {
-          trackPracticeLoopReviewFailed(safeError.reason);
-        }
-        setView({
-          sessionId: requestSessionId,
-          suggestions: null,
-          isLoading: false,
-          error: safeError.message,
+    /**
+     * #1473 — ONE BOUNDED LIFECYCLE PER REQUEST (the automatic first request, or one manual press).
+     *
+     * At most two attempts. A TERMINAL failure (service configuration, access, quota, not found, no transcript, an
+     * invalid response) ends the lifecycle at once: another attempt cannot change it, and a self-retrying request
+     * against it is a loop the user cannot escape. A RECOVERABLE failure (network, provider/5xx) gets exactly one
+     * automatic retry after a bounded backoff; while it waits, the failure stays visible and no attempt is claimed
+     * to be active. Exhaustion is terminal. Exactly one terminal outcome is reported per lifecycle.
+     *
+     * #1422 — A SUPERSEDED REQUEST REPORTS NOTHING AND RENDERS NOTHING: every outcome is checked against the current
+     * request first, so a late answer for session A never counts or shows after the user moved to session B.
+     */
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null, retrying: false });
+      let failure: SafeSuggestionError;
+      try {
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase client not available");
+        const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
+          // The edge function loads transcript and measurements from this authenticated saved session.
+          // Never send caller-owned evidence that could be swapped between session ids.
+          body: { sessionId: sessionId || null },
         });
+
+        if (invokeError) {
+          throw invokeError;
+        }
+
+        // The function itself might return an error in its body
+        if (data?.error) {
+          throw new Error(data.error);
+        }
+
+        const persistedSuggestions = parseAISuggestions(data?.suggestions);
+        if (persistedSuggestions) {
+          if (isCurrentRequest()) {
+            // Success from this endpoint means the exact result was persisted and read back server-side.
+            trackPracticeLoopReviewCompleted();
+            trackPracticeLoopReviewPersisted();
+            setView({ sessionId: requestSessionId, suggestions: persistedSuggestions, isLoading: false, error: null, retrying: false });
+          }
+          return;
+        }
+        failure = { reason: 'invalid_response', message: UNAVAILABLE_MESSAGE };
+      } catch (err: unknown) {
+        logger.error({ err }, "Error fetching AI suggestions:");
+        failure = getSafeAiSuggestionError(err, await readClosedCode(err));
       }
-    } finally {
-      if (isCurrentRequest()) {
-        setView((current) => current.sessionId === requestSessionId
-          ? { ...current, isLoading: false }
-          : current);
+
+      if (!isCurrentRequest()) return;
+
+      if (attempt === 1 && !TERMINAL_REASONS.has(failure.reason)) {
+        setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: true });
+        const proceed = await new Promise<boolean>((resolve) => {
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            resolve(isCurrentRequest());
+          }, retryBackoffMs);
+        });
+        if (!proceed) return;
+        continue;
       }
+
+      trackPracticeLoopReviewFailed(failure.reason);
+      setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: false });
+      return;
     }
-  }, [reviewReady, sessionId]);
+  }, [reviewReady, sessionId, retryBackoffMs]);
 
   useEffect(() => {
     if (!reviewReady || !sessionId) return;
@@ -358,7 +461,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
    * still loading" are otherwise indistinguishable from outside, and the previous test worked around
    * that by asserting fabricated verdict prose that was always present.
    */
-  const reviewState = isLoading ? 'loading' : (error ? 'error' : (suggestions ? 'ready' : 'empty'));
+  // #1473 — a scheduled automatic retry is still in motion, so it reads as `loading` to the journey lane.
+  const reviewState = (isLoading || retrying) ? 'loading' : (error ? 'error' : (suggestions ? 'ready' : 'empty'));
 
   return (
     <Card ref={reviewCardRef} data-testid="ai-suggestions-card" data-review-state={reviewState}>
@@ -388,7 +492,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
         {(error || !suggestions) && (
           <Button
             onClick={() => { void fetchSuggestions(); }}
-            disabled={isLoading || !reviewReady}
+            disabled={isLoading || retrying || !reviewReady}
             size="sm"
             className="w-full sm:w-auto"
           >
@@ -411,6 +515,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
             <div>
               <h5 className="font-bold">Review unavailable</h5>
               <p className="text-sm">{error}</p>
+              {retrying && (
+                <p className="mt-1 text-sm" data-testid="ai-suggestions-auto-retry">Trying once more in a moment.</p>
+              )}
             </div>
           </Alert>
         )}
