@@ -333,11 +333,31 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
   /** #1473 — the single scheduled automatic retry, so leaving the page or starting a new lifecycle can cancel it. */
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    // Leaving cancels a pending automatic retry and invalidates any request in flight: nothing fires, reports or
-    // renders after the user has moved on.
-    requestGenerationRef.current += 1;
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+
+  /**
+   * #1486 Codex P1 — LEAVING IS A MOUNT FACT, NOT A GENERATION BUMP.
+   *
+   * This cleanup used to do `requestGenerationRef.current += 1`, and that is wrong under the `StrictMode`
+   * wrapper `main.tsx` applies in development and test builds. StrictMode replays effects as
+   * setup -> cleanup -> setup, so the cleanup ran immediately after the first mount. The bump marked the
+   * one automatic request stale, while `autoRequestedRef` still recorded the session — so the replayed
+   * setup returned early instead of starting a replacement, and the successful response was discarded
+   * against a generation that no longer matched. The review card stayed empty for every developer and
+   * every test that renders this component the way the app does.
+   *
+   * A mounted flag is the honest expression of what the guard actually needs to know. StrictMode's replay
+   * sets it back to true, so the in-flight request survives a replay it was never meant to be cancelled by.
+   * A real unmount leaves it false forever, which is what #1473 wanted: nothing fires, reports or renders
+   * after the user has moved on. Session transitions keep invalidating by generation, above, where a
+   * transition genuinely is a new lifecycle.
+   */
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
   }, []);
 
   const fetchSuggestions = useCallback(async () => {
@@ -347,7 +367,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     requestGenerationRef.current = requestGeneration;
     if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
     const isCurrentRequest = () =>
-      activeSessionRef.current === requestSessionId
+      mountedRef.current
+      && activeSessionRef.current === requestSessionId
       && requestGenerationRef.current === requestGeneration;
 
     trackPracticeLoopReviewRequested();

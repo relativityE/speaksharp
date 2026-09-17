@@ -265,6 +265,36 @@ describe('AISuggestions Integration', () => {
             expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
         });
 
+        /**
+         * #1486 Codex P1 — THE COMPONENT IS TESTED THE WAY THE APP RENDERS IT.
+         *
+         * `main.tsx` wraps the app in `StrictMode`, whose replay runs effects as setup -> cleanup -> setup.
+         * Every other casualty in this file renders `AISuggestions` bare, so none of them ever executed that
+         * replay — which is exactly how a cleanup that invalidated the in-flight request could discard a
+         * SUCCESSFUL response and leave the card empty while the whole suite stayed green. The bug was only
+         * ever visible to someone running the real app.
+         *
+         * Wrapping the render in `StrictMode` is the point of this casualty: it reproduces the replay, and
+         * then asserts the plain thing the user cares about — the review that the provider returned is on
+         * screen, and it cost exactly one request.
+         */
+        it('P1 CASUALTY: the automatic review survives the StrictMode effect replay', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(okResponse);
+            render(
+                <React.StrictMode>
+                    <AISuggestions transcript="Hello world" canReview sessionId="s-strictmode" retryBackoffMs={10} />
+                </React.StrictMode>,
+            );
+
+            expect(await screen.findByText('Clear opening.')).toBeInTheDocument();
+            expect(await screen.findByText('State the ask first.')).toBeInTheDocument();
+            // The state vocabulary is loading | error | ready | empty; a rendered valid review is 'ready'.
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'ready'));
+            // The replay must not cost the user a second generation, and must not lose the first one.
+            expect(mockSupabaseClient.functions.invoke, 'one automatic request, replay included').toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalled();
+        });
+
         it('CASUALTY: leaving during the backoff cancels the automatic retry', async () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue(transportFailure());
             const { unmount } = render(<AISuggestions transcript="Hello world" canReview sessionId="s-leave" retryBackoffMs={40} />);
