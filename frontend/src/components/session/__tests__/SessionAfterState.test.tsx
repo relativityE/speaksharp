@@ -3,12 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { SessionAfterState } from '../SessionAfterState';
 import { SessionBeforeState } from '../SessionBeforeState';
 import { SessionDuringState } from '../SessionDuringState';
-import { computeProgressVsBaseline } from '@/utils/progressVsBaseline';
-
-const progress = computeProgressVsBaseline([
-    { fillerCount: 34, durationSeconds: 600 },
-    { fillerCount: 24, durationSeconds: 600 },
-]);
+import { SessionVerdict } from '../SessionVerdict';
 
 const afterProps = {
     scrubber: {
@@ -21,26 +16,30 @@ const afterProps = {
         stats: '5 fillers · 142 wpm · 2:04 spoken',
         onFillerSeek: vi.fn(),
     },
-    progress,
-    verdict: {
-        verdictLine: 'Your cleanest session yet.',
-        fix: "You opened three sentences with 'um'.",
-        onPracticeAgain: vi.fn(), onSeeAllSessions: vi.fn(),
-    },
+    review: (
+        <SessionVerdict
+            verdictLine="Your cleanest session yet."
+            fix="You opened three sentences with 'um'."
+            onPracticeAgain={vi.fn()}
+            onSeeAllSessions={vi.fn()}
+        />
+    ),
+    rail: <div data-testid="rail-content">rail</div>,
 };
 
-describe('SessionAfterState (#1222 after)', () => {
-    it('maps scrubber, seekable transcript, final progress and verdict into the four slots', () => {
+describe('SessionAfterState — the shared slot map', () => {
+    it('maps the run shape, the review, the transcript and the rail into A, B, C, D', () => {
         render(<SessionAfterState {...afterProps} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('session-slot-a')).toContainElement(screen.getByTestId('playback-scrubber'));
         // The AFTER state's slot B renders the transcript the SERVER retained, not the ephemeral working
         // memory the DURING state shows, so it carries its own identity — otherwise a leak of working memory
         // and a correctly restored review are indistinguishable to the suite.
-        expect(screen.getByTestId('session-slot-b')).toContainElement(screen.getByTestId('review-transcript'));
+        expect(screen.getByTestId('session-slot-c')).toContainElement(screen.getByTestId('review-transcript'));
         expect(screen.queryByTestId('live-transcript')).toBeNull();
-        expect(screen.getByTestId('session-slot-c')).toContainElement(screen.getByTestId('progress-vs-baseline'));
-        expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('session-verdict'));
+        // S-12: the review sits in slot B, full width, directly under the recorder, on ink.
+        expect(screen.getByTestId('session-slot-b')).toContainElement(screen.getByTestId('session-verdict'));
+        expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('rail-content'));
     });
 
     it('only makes highlighted fillers interactive when a real navigation callback exists', () => {
@@ -64,39 +63,40 @@ describe('SessionAfterState (#1222 after)', () => {
         expect(screen.getByTestId('live-filler').tagName).toBe('MARK');
     });
 
-    it('shows the stats strip and the final progress delta', () => {
+    it('shows the stats strip', () => {
         render(<SessionAfterState {...afterProps} />);
         expect(screen.getByTestId('after-stats')).toHaveTextContent('5 fillers · 142 wpm · 2:04 spoken');
-        expect(screen.getByTestId('progress-delta')).toBeInTheDocument();
     });
 });
 
-// The governing rule across the FULL journey, as amended for #1474: four slots keep identity in all three
-// states; order is A,B,C,D for before/during and A,D,C,B for after, where G10 promotes the review.
-describe('before → during → after (#1222 §1 as amended by #1474 — identity always, order per state)', () => {
-    it('holds A,B,C,D through before/during and promotes the review to A,D,C,B in after', () => {
+// G1 across the FULL journey: four slots, one order, in every state. The previous shell promoted the
+// review by swapping columns in `after` (A, D, C, B); the shared map needs no swap because B is already
+// full width under the recorder.
+describe('before → during → after (G1 — slots never move)', () => {
+    it('CASUALTY: holds A, B, C, D and the same landmarks in all three states', () => {
         const beforeProps = {
             mic: { onStart: vi.fn() },
-            transcript: { offerDismissed: false, onDismissOffer: vi.fn(), onRestoreOffer: vi.fn(), onTakePrompt: vi.fn(), onReadSample: vi.fn() },
-            progress,
+            transcript: { offerDismissed: false, onRestoreOffer: vi.fn(), onTakePrompt: vi.fn(), onReadSample: vi.fn() },
+            rail: <div>rail</div>,
         };
         const duringProps = {
             recorder: { elapsedSeconds: 30, amplitudes: [0.4, 0.6], recordedCount: 1, onStop: vi.fn() },
             transcript: { tokens: [{ text: 'hi' }], words: 20, fillersPerMin: 1 },
-            progress,
+            rail: <div>rail</div>,
         };
         const order = () => screen.getAllByTestId(/^session-slot-/).map((el) => el.getAttribute('data-slot'));
+        const landmarks = () => screen.getAllByTestId(/^session-slot-/).map((el) => el.getAttribute('aria-label'));
+        const LANDMARKS = ['Recorder', 'Coaching', 'Transcript', 'This run'];
 
         const { rerender } = render(<SessionBeforeState {...beforeProps} />);
         expect(order()).toEqual(['A', 'B', 'C', 'D']);
+        expect(landmarks()).toEqual(LANDMARKS);
         rerender(<SessionDuringState {...duringProps} />);
         expect(order()).toEqual(['A', 'B', 'C', 'D']);
+        expect(landmarks()).toEqual(LANDMARKS);
         rerender(<SessionAfterState {...afterProps} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
-        expect(order()).toEqual(['A', 'D', 'C', 'B']);
-        // Identity survives the promotion: the same four landmarks, none renamed or dropped.
-        for (const name of ['Recorder', 'Transcript', 'Progress', 'Coaching']) {
-            expect(screen.getByRole('region', { name })).toBeInTheDocument();
-        }
+        expect(order()).toEqual(['A', 'B', 'C', 'D']);
+        expect(landmarks()).toEqual(LANDMARKS);
     });
 });

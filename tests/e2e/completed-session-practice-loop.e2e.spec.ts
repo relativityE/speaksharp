@@ -104,7 +104,8 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
       expect(cardBox && cardBox.y < viewport.height, 'review state begins inside the first viewport').toBe(true);
 
       // Ahead of the transcript detail, in layout and reading order.
-      const transcriptBox = await page.getByTestId('session-slot-b').boundingBox();
+      // The transcript is slot C on the shared slot map; the review is slot B, directly under the recorder.
+      const transcriptBox = await page.getByTestId('session-slot-c').boundingBox();
       expect(cardBox && transcriptBox && cardBox.y < transcriptBox.y, 'review band sits above the transcript').toBe(true);
 
       // The saved confirmation is still visible, not scrolled away.

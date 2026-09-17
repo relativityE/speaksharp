@@ -6,9 +6,12 @@ import { emitJourneyStep } from '@/services/telemetry/journeyStep';
  * there is NO engine selector here. The only control is an OS **microphone input-device** picker.
  *
  * Two rows (spec §3):
- *   1. `● Mic ready on this device` (green) left; the input-device picker right.
- *   2. a 76px orange circle with a **real microphone glyph** (capsule body, arc, stand, base — never a
- *      dot/emoji) + "Press to start speaking" / "Space bar works too · aim for 60 seconds".
+ *   1. `● Mic ready on this device` left; the input-device picker right. Readiness is not progress, so the
+ *      text is neutral and only the dot carries the progress hue (Design Correction Brief S-7).
+ *   2. a 76px signature circle with a **real microphone glyph** (capsule body, arc, stand, base — never a
+ *      dot/emoji) + "Start recording" / "Space bar works too". One instruction under the button: the old
+ *      "aim for 60 seconds" duration target is gone (S-6) — pace belongs to Focus Points, where the user
+ *      set one, and there it contradicted the user's own guide.
  *
  * A click that fails mic permission must NOT change the layout — the error renders in this card and the
  * page stays in `before` (spec §4). This component is presentational; the container owns permission state.
@@ -93,7 +96,7 @@ export const MicCard: React.FC<MicCardProps> = ({
             ? { dot: 'var(--brand-signature)', text: 'var(--brand-signature-text)', label: pct != null ? `Downloading private transcription… ${pct}%` : 'Downloading private transcription…' }
             : modelError
                 ? { dot: 'var(--brand-error)', text: 'var(--brand-error)', label: 'Private transcription needs another try' }
-                : { dot: 'var(--brand-status)', text: 'var(--brand-status)', label: 'Mic ready on this device' };
+                : { dot: 'var(--brand-progress-bar)', text: 'var(--brand-neutral-secondary)', label: 'Mic ready on this device' };
 
     // Primary action: download when required, RETRY after a setup failure, otherwise start. The mic is GREYED
     // OUT + disabled for the whole download (loading), then re-enabled to record once the model is ready.
@@ -164,7 +167,7 @@ export const MicCard: React.FC<MicCardProps> = ({
         // recording follows automatically — so no part of what the press does is a surprise.
         ? 'One-time model download to this device, then recording starts automatically'
         : modelError ? 'Setup didn’t finish — retry. Your audio stays on your machine.'
-        : loading ? (pct != null ? `${pct}% downloaded — the mic unlocks when it’s ready` : 'the mic unlocks when it’s ready') : 'Space bar works too · aim for 60 seconds';
+        : loading ? (pct != null ? `${pct}% downloaded — the mic unlocks when it’s ready` : 'the mic unlocks when it’s ready') : 'Space bar works too';
 
     return (
         <div className="rounded-xl border border-neutral-border bg-white p-4" data-testid="mic-card" data-model-status={privateModelStatus}>

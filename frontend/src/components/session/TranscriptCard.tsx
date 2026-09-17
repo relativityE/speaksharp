@@ -15,10 +15,14 @@ import { PromptOffer } from './PromptOffer';
  *   4. dismissed + empty   → the plain empty state; the header carries `Need a prompt?` to recover it.
  */
 export interface TranscriptCardProps {
-    /** Whether the prompt offer has been dismissed for this user (from usePromptOfferDismissed). */
+    /** Whether the prompt offer has been dismissed for this user (a persisted choice from before the
+     *  panel stopped being dismissible). Such a user keeps the `Need a prompt?` recovery link. */
     offerDismissed: boolean;
-    /** Dismiss the offer (`✕`) — persists per user. */
-    onDismissOffer: () => void;
+    /**
+     * @deprecated Design Correction Brief S-4: the transcript is the product and is not dismissible, so no
+     * `✕` renders. Kept on the interface only so existing callers compile; it is never invoked.
+     */
+    onDismissOffer?: () => void;
     /** Recover the offer (`Need a prompt?`). */
     onRestoreOffer: () => void;
     /** Take a generated prompt. */
@@ -62,6 +66,8 @@ export interface TranscriptCardProps {
     finalizeEstimateSeconds?: number | null;
     /** Transcript content for the live/after states; when present it wins over the offer. */
     children?: React.ReactNode;
+    /** A text-link action in the header (S-4: `Add your filler words` moved here from its own strip). */
+    headerAction?: React.ReactNode;
 }
 
 const OrangeTick: React.FC = () => (
@@ -72,7 +78,6 @@ const OrangeTick: React.FC = () => (
 
 export const TranscriptCard: React.FC<TranscriptCardProps> = ({
     offerDismissed,
-    onDismissOffer,
     onRestoreOffer,
     onTakePrompt,
     onReadSample,
@@ -88,6 +93,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
     finalizeEstimateSeconds,
     hidePromptOffer,
     children,
+    headerAction,
 }) => {
     // #891 — live countdown for the "Finalizing…" wait. Seed from the estimate when finalizing begins, then
     // tick down once a second (floored at 1s so it never shows 0 or negative while the decode is still going).
@@ -116,7 +122,8 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
             data-testid="transcript-card"
             data-transcript-state={hasContent ? 'content' : hasChosenPrompt ? 'prompt' : showingOffer ? 'offer' : 'empty'}
         >
-            {/* Header — orange tick + title left; recovery link + dismiss right. Present in every state. */}
+            {/* Header — tick + title left; recovery link and header action right. Present in every state.
+                S-4: no `✕` — the transcript is the product, not a dismissible panel. */}
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <OrangeTick />
@@ -138,17 +145,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                             Need a prompt?
                         </button>
                     )}
-                    {showingOffer && (
-                        <button
-                            type="button"
-                            onClick={onDismissOffer}
-                            data-testid="transcript-dismiss-offer"
-                            aria-label="Dismiss prompt offer"
-                            className="text-[16px] leading-none text-neutral-secondary hover:text-neutral-body"
-                        >
-                            ✕
-                        </button>
-                    )}
+                    {headerAction}
                 </div>
             </div>
 
@@ -210,12 +207,12 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                     ) : showingOffer ? (
                         <PromptOffer onPrompt={onTakePrompt} onSample={onReadSample} />
                     ) : hidePromptOffer ? (
-                        // #1046 Focus Points empty state: two quiet lines that point at the rail, no buttons.
-                        // The points list is NOT duplicated here — the rail already holds it (spec §4).
-                        <div className="max-w-md text-center" data-testid="transcript-plain-empty">
-                            <p className="text-[13px] text-neutral-secondary">Your words appear here as you speak.</p>
-                            <p className="mt-1 text-[13px] text-neutral-secondary">Each point on the right ticks green the moment you cover it.</p>
-                        </div>
+                        // Focus Points empty state: ONE line (Design Correction Brief F-4). The second line
+                        // ("Each point on the right ticks green…") narrated what the user was about to watch
+                        // happen. The points list is not duplicated here — the rail already holds it.
+                        <p className="max-w-md text-center text-[13px] text-neutral-secondary" data-testid="transcript-plain-empty">
+                            Your words appear here as you speak.
+                        </p>
                     ) : (
                         <p className="text-[13px] text-neutral-secondary" data-testid="transcript-plain-empty">
                             Your words appear here as you speak.

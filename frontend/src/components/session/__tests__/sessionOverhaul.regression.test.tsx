@@ -3,69 +3,71 @@ import { describe, it, expect, vi } from 'vitest';
 import { SessionBeforeState } from '../SessionBeforeState';
 import { SessionDuringState } from '../SessionDuringState';
 import { SessionAfterState } from '../SessionAfterState';
-import { FocusPointsDuringState } from '../SessionFocusPoints';
-import { computeProgressVsBaseline } from '@/utils/progressVsBaseline';
+import { CoverageRail } from '../CoverageRail';
+import { SessionVerdict } from '../SessionVerdict';
 import type { CoverageRailPoint } from '../CoverageRail';
 
 /**
- * #1222 S10 — regression pass over the whole overhaul (spec build-order #7).
+ * Regression pass over the session slot map (Design Correction Brief Phase 6).
  *
- * jsdom does no real layout, so the responsive contract is asserted through the CSS CLASS contract that
- * produces the layout: the shell stacks (`grid-cols-1`) on phones and becomes the `1.55fr 1fr` two-column
- * grid from the `md` breakpoint (`md:grid-cols-[1.55fr_1fr]`), plus per-slot flex (A/C size to content,
- * B/D fill). Live pixel checks at phone/desktop widths are the Playwright job
+ * jsdom does no real layout, so the responsive contract is asserted through the structure and classes that
+ * produce it: A and B full-width blocks, then a row that stacks on phones and becomes C (flex 1) beside a
+ * 310px D from `md`. Pixel checks at phone and desktop widths are the Playwright job
  * (`tests/e2e/session-shell-responsive.e2e.spec.ts`).
  */
-const progress = computeProgressVsBaseline([
-    { fillerCount: 34, durationSeconds: 600 },
-    { fillerCount: 24, durationSeconds: 600 },
-]);
 
 const beforeProps = {
     mic: { onStart: vi.fn() },
-    transcript: { offerDismissed: false, onDismissOffer: vi.fn(), onRestoreOffer: vi.fn(), onTakePrompt: vi.fn(), onReadSample: vi.fn() },
-    progress,
+    transcript: { offerDismissed: false, onRestoreOffer: vi.fn(), onTakePrompt: vi.fn(), onReadSample: vi.fn() },
+    rail: <div>rail</div>,
 };
 const duringProps = {
     recorder: { elapsedSeconds: 30, amplitudes: [0.4, 0.6, 0.8], recordedCount: 2, onStop: vi.fn() },
     transcript: { tokens: [{ text: 'So' }, { text: 'um', filler: true }], words: 40, fillersPerMin: 2 },
-    progress,
+    rail: <div>rail</div>,
 };
 const afterProps = {
     scrubber: { playing: false, onTogglePlay: vi.fn(), positionSeconds: 10, durationSeconds: 124, amplitudes: [0.4, 0.6, 0.8], fillerBars: [1], onSeek: vi.fn() },
     transcript: { tokens: [{ text: 'So' }, { text: 'um', filler: true }], headerMeta: 'x', stats: 'y', onFillerSeek: vi.fn() },
-    progress,
-    verdict: { verdictLine: 'Clean.', fix: 'Pause more.', onPracticeAgain: vi.fn(), onSeeAllSessions: vi.fn() },
+    review: <SessionVerdict verdictLine="Clean." fix="Pause more." onPracticeAgain={vi.fn()} onSeeAllSessions={vi.fn()} />,
+    rail: <div>rail</div>,
 };
 const points: CoverageRailPoint[] = [{ id: '1', label: 'a', status: 'covered' }];
 
 describe('#1222 S10 — session overhaul regression', () => {
-    it('the shell layout contract is responsive (stacked on phones, 1.55fr 1fr from md; A/C size, B/D fill)', () => {
+    it('the shell layout contract: A and B full width, then C beside a 310px D from md', () => {
         render(<SessionBeforeState {...beforeProps} />);
-        const shell = screen.getByTestId('session-shell');
-        // #1255: one stacked column on phones, the 1.55fr/1fr two-column grid from the md breakpoint up.
-        expect(shell).toHaveClass('grid', 'grid-cols-1', 'md:grid-cols-[1.55fr_1fr]');
-        expect(screen.getByTestId('session-slot-a')).toHaveStyle({ flex: '0 0 auto' }); // sizes to content
-        expect(screen.getByTestId('session-slot-b')).toHaveStyle({ flex: '1 1 auto' }); // fills
-        expect(screen.getByTestId('session-slot-c')).toHaveStyle({ flex: '0 0 auto' });
-        expect(screen.getByTestId('session-slot-d')).toHaveStyle({ flex: '1 1 auto' });
+        expect(screen.getByTestId('session-shell')).toHaveClass('flex', 'flex-col');
+        expect(screen.getByTestId('session-slot-a')).toHaveClass('w-full');
+        expect(screen.getByTestId('session-slot-b')).toHaveClass('w-full', 'bg-ink');
+        expect(screen.getByTestId('session-shell-row')).toHaveClass('md:flex-row', 'md:items-start');
+        expect(screen.getByTestId('session-slot-c')).toHaveClass('md:flex-1', 'min-w-0');
+        expect(screen.getByTestId('session-slot-d')).toHaveClass('md:w-[310px]', 'md:shrink-0');
     });
 
-    it('the four slots keep identity + order across before → during → after AND Focus Points', () => {
+    it('the four slots keep identity and order across before → during → after AND Focus Points', () => {
         const order = () => screen.getAllByTestId(/^session-slot-/).map((el) => el.getAttribute('data-slot'));
         const { rerender } = render(<SessionBeforeState {...beforeProps} />);
         expect(order()).toEqual(['A', 'B', 'C', 'D']);
         rerender(<SessionDuringState {...duringProps} />);
         expect(order()).toEqual(['A', 'B', 'C', 'D']);
         rerender(<SessionAfterState {...afterProps} />);
-        // #1474 G10: after promotes the review into the primary column ahead of metrics and transcript.
-        expect(order()).toEqual(['A', 'D', 'C', 'B']);
-        rerender(<FocusPointsDuringState {...duringProps} points={points} />);
-        expect(order()).toEqual(['A', 'B', 'C', 'D']); // shared shell, only slot D content differs
+        expect(order()).toEqual(['A', 'B', 'C', 'D']);
+        rerender(<SessionDuringState {...duringProps} rail={<CoverageRail points={points} />} />);
+        expect(order()).toEqual(['A', 'B', 'C', 'D']);
+    });
+
+    it('F-1 parity: Open Mic and Focus Points differ only inside the slots, never in the slots themselves', () => {
+        const shape = () => screen.getAllByTestId(/^session-slot-/).map((el) =>
+            `${el.getAttribute('data-slot')}:${el.getAttribute('aria-label')}:${el.className}`);
+        const { rerender } = render(<SessionDuringState {...duringProps} liveTip={<span>tip</span>} />);
+        const openMic = shape();
+        rerender(<SessionDuringState {...duringProps} nudge="Good moment to bring in point 2." rail={<CoverageRail points={points} />} />);
+        expect(shape()).toEqual(openMic);
     });
 
     it('every slot keeps a stable accessible landmark in all three states', () => {
-        const names = ['Recorder', 'Transcript', 'Progress', 'Coaching'];
+        const names = ['Recorder', 'Coaching', 'Transcript', 'This run'];
         for (const Comp of [
             <SessionBeforeState key="b" {...beforeProps} />,
             <SessionDuringState key="d" {...duringProps} />,

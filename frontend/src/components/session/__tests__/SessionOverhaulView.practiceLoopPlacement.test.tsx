@@ -5,9 +5,12 @@ import type { SttStatus } from '@/types/transcription';
 
 // #1466 PM acceptance lock (P1, PO evidence on 576c4712): after a completed session the Practice Loop must be
 // at eye level — ahead of transcript detail and secondary session actions — in every review state, on phones
-// as well as desktop, and in keyboard / screen-reader order. The shell stacks to one column on phones, so
-// "ahead" is DOM order: a band rendered after `session-shell` is last on every breakpoint and for every
-// assistive technology, which is exactly where the PO found it. A scroll does not change that order.
+// as well as desktop, and in keyboard / screen-reader order. "Ahead" is DOM order.
+//
+// Design Correction Brief S-12 changes the mechanism, not the requirement. #1466 met it with a band rendered
+// ABOVE the whole shell, because the old shell had no full-width slot under the recorder. The shared slot map
+// has one: slot B, directly under the recorder and ahead of the transcript (C) and the rail (D) in every
+// state. The review now lives there, so these locks assert B's position instead of the band's.
 
 const base: SessionOverhaulViewProps = {
     authUserId: 'user-1',
@@ -35,13 +38,14 @@ const REVIEW_STATES = [
 ] as const;
 
 describe('#1466 Practice Loop placement — Open Mic after state', () => {
-    it.each(REVIEW_STATES)('CASUALTY: the %s review band precedes the session shell', (_state, review) => {
+    it.each(REVIEW_STATES)('CASUALTY: the %s review sits in slot B, ahead of the transcript and the rail', (_state, review) => {
         render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={review} />);
-        const shell = screen.getByTestId('session-shell');
-        expect(shell).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         const band = screen.getByTestId('open-mic-practice-loop-review');
         expect(band).toContainElement(screen.getByTestId('review-probe'));
-        expect(precedes(band, shell)).toBe(true);
+        expect(screen.getByTestId('session-slot-b')).toContainElement(band);
+        expect(precedes(band, screen.getByTestId('session-slot-c'))).toBe(true);
+        expect(precedes(band, screen.getByTestId('session-slot-d'))).toBe(true);
     });
 
     it('CASUALTY: the review band precedes the transcript and the secondary Practice-this-again action', () => {
@@ -54,7 +58,7 @@ describe('#1466 Practice Loop placement — Open Mic after state', () => {
             />,
         );
         const band = screen.getByTestId('open-mic-practice-loop-review');
-        expect(precedes(band, screen.getByTestId('session-slot-b'))).toBe(true);
+        expect(precedes(band, screen.getByTestId('review-transcript'))).toBe(true);
         expect(precedes(band, screen.getByTestId('verdict-practice-again'))).toBe(true);
     });
 
@@ -66,15 +70,22 @@ describe('#1466 Practice Loop placement — Open Mic after state', () => {
         expect(tabbable.indexOf(retry)).toBeLessThan(tabbable.indexOf(screen.getByTestId('verdict-practice-again')));
     });
 
-    it('CONTROL (#1422 P1): the review never evicts the verdict — Practice this again stays in slot D', () => {
+    it('CONTROL (#1422 P1): the review never evicts the verdict — Practice this again sits under it in slot B', () => {
         render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[1][1]} />);
-        expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('verdict-practice-again'));
-        expect(screen.getByTestId('session-slot-d')).not.toContainElement(screen.getByTestId('review-probe'));
+        const b = screen.getByTestId('session-slot-b');
+        expect(b).toContainElement(screen.getByTestId('verdict-practice-again'));
+        expect(b).toContainElement(screen.getByTestId('review-probe'));
+        expect(precedes(screen.getByTestId('review-probe'), screen.getByTestId('verdict-practice-again'))).toBe(true);
+    });
+
+    it('CONTROL (#1422 P1): with no review yet, Practice this again is still reachable in slot B', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={undefined} />);
+        expect(screen.getByTestId('session-slot-b')).toContainElement(screen.getByTestId('verdict-practice-again'));
     });
 });
 
 describe('#1466 Practice Loop placement — Focus Points after state', () => {
-    it.each(REVIEW_STATES)('CASUALTY: the %s review band precedes the session shell', (_state, review) => {
+    it.each(REVIEW_STATES)('CASUALTY: the %s review sits in slot B, exactly as Open Mic (F-1)', (_state, review) => {
         render(
             <SessionOverhaulView
                 {...base}
@@ -85,10 +96,11 @@ describe('#1466 Practice Loop placement — Focus Points after state', () => {
                 practiceLoopReview={review}
             />,
         );
-        const shell = screen.getByTestId('session-shell');
-        expect(shell).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         const band = screen.getByTestId('focus-practice-loop-review');
-        expect(precedes(band, shell)).toBe(true);
+        expect(screen.getByTestId('session-slot-b')).toContainElement(band);
+        expect(precedes(band, screen.getByTestId('session-slot-c'))).toBe(true);
+        expect(precedes(band, screen.getByTestId('session-slot-d'))).toBe(true);
     });
 
     it('CONTROL: the resolved coverage rail stays in slot D', () => {

@@ -11,11 +11,15 @@ const rows: FocusCoverageRow[] = [
 
 // #1046 G6/G7 — the topic is a header above the points (never a point), and the card is "Points to cover".
 describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
-    it('renders the topic above the points, unnumbered, with a YOUR TOPIC caption', () => {
+    it('F-5: the eyebrow sits above the topic, the topic is the largest text, and no caption follows it', () => {
         render(<FocusPointsRail rows={rows} topic="Micro-Decisions" sessionState="before" />);
         const topic = screen.getByTestId('focus-points-topic');
-        expect(topic).toHaveTextContent('Micro-Decisions');
-        expect(topic).toHaveTextContent(/your topic/i);
+        expect(topic).toHaveTextContent(/^Micro-Decisions$/);
+        // The old `Your topic` caption rendered BENEATH its value, so the topic read as the first list item.
+        expect(screen.queryByText(/your topic/i)).toBeNull();
+        const eyebrow = screen.getByText('Points to cover');
+        expect(eyebrow.compareDocumentPosition(topic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(topic.querySelector('div')!.className).toContain('text-[20px]');
         // The topic is NOT one of the numbered points — the list still has exactly the 3 real points.
         expect(screen.getAllByTestId(/^focus-point-\d+$/)).toHaveLength(3);
         expect(screen.getByText('a')).toBeInTheDocument();

@@ -33,14 +33,16 @@ describe('TranscriptCard (#1222 S3)', () => {
         expect(onReadSample).toHaveBeenCalledOnce();
     });
 
-    it('✕ dismisses the offer; when dismissed the plain empty state + recovery link show', () => {
+    it('CASUALTY S-4: the transcript is not dismissible — no ✕ renders, even with a dismiss handler', () => {
         const onDismissOffer = vi.fn();
-        const { rerender } = render(<TranscriptCard {...base} onDismissOffer={onDismissOffer} />);
-        fireEvent.click(screen.getByTestId('transcript-dismiss-offer'));
-        expect(onDismissOffer).toHaveBeenCalledOnce();
+        render(<TranscriptCard {...base} onDismissOffer={onDismissOffer} />);
+        expect(screen.queryByTestId('transcript-dismiss-offer')).toBeNull();
+        expect(screen.getByTestId('transcript-card')).not.toHaveTextContent('✕');
+        expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+    });
 
-        // Parent flips offerDismissed → plain empty state, no offer, recovery link appears.
-        rerender(<TranscriptCard {...base} offerDismissed />);
+    it('a persisted earlier dismissal shows the plain empty state and keeps the recovery link', () => {
+        render(<TranscriptCard {...base} offerDismissed />);
         expect(screen.queryByTestId('prompt-offer')).toBeNull();
         expect(screen.getByTestId('transcript-plain-empty')).toBeInTheDocument();
         expect(screen.getByTestId('transcript-card')).toHaveAttribute('data-transcript-state', 'empty');

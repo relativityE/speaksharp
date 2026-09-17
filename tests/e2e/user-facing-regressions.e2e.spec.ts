@@ -180,7 +180,8 @@ test.describe('User-facing session and analytics regressions', () => {
     expect(startBox!.y + startBox!.height).toBeLessThanOrEqual(844);
     // The responsive shell stacks on phones; the transcript must use the readable full-width column.
     expect(transcriptBox!.width).toBeGreaterThan(300);
-    const progressBox = await page.getByTestId('session-slot-c').boundingBox();
+    // The rail is slot D on the shared slot map; stacked on phones, it follows the transcript.
+    const progressBox = await page.getByTestId('session-slot-d').boundingBox();
     if (progressBox) {
       expect(progressBox.y).toBeGreaterThan(transcriptBox!.y);
     }
