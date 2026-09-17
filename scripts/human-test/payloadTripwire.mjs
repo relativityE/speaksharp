@@ -30,15 +30,226 @@ export const PAYLOAD_TRIPWIRE = `(() => {
   const records = [];
   w.__SS_TRIPWIRE__ = records;
 
+  // A Private-STT worker is deliberately torn down as part of a successful Stop. Reading its retained
+  // Playwright Worker handle after the save therefore races a terminated execution context. Relay each
+  // metadata-only record while the worker is alive; the document forwards it to the already-exposed
+  // Playwright binding, so teardown cannot erase evidence that was observed before the final verdict.
+  const hasDocument = typeof document !== 'undefined';
+  const isDocument = typeof window !== 'undefined' && w === window && hasDocument;
+  const isWorker = typeof WorkerGlobalScope !== 'undefined' && w instanceof WorkerGlobalScope;
+  const relayMarker = '__speaksharp_canary_payload_v1__';
+  const workerId = isWorker
+    ? 'worker-' + Date.now() + '-' + Math.random().toString(36).slice(2)
+    : null;
+  let relaySequence = 0;
+  let emitChain = Promise.resolve();
+  const relayStates = new Map();
+  const pendingRelayDrains = new Map();
+  const pendingTerminations = new Set();
+  let relayDrainFailure = null;
+  let relay = null;
+  if ((isDocument || isWorker) && typeof BroadcastChannel === 'function') {
+    try { relay = new BroadcastChannel(relayMarker); } catch (e) { void e; }
+  }
+  w.__SS_TRIPWIRE_RELAY_READY__ = isDocument || (isWorker && relay !== null);
+
+  const emitRecord = (record) => {
+    if (typeof w.__SS_TRIPWIRE_EMIT__ !== 'function') return Promise.resolve();
+    let emitted;
+    try { emitted = w.__SS_TRIPWIRE_EMIT__(record); }
+    catch (error) {
+      relayDrainFailure = error instanceof Error ? error.message : 'payload binding failed';
+      return Promise.resolve();
+    }
+    const pending = Promise.resolve(emitted).catch((error) => {
+      relayDrainFailure = error instanceof Error ? error.message : 'payload binding failed';
+    });
+    emitChain = Promise.all([emitChain, pending]).then(() => undefined);
+    return pending;
+  };
+
+  const requestRelayDrain = () => {
+    if (!isDocument || !relay) return Promise.resolve();
+    const expected = new Set(relayStates.keys());
+    if (expected.size === 0) return Promise.resolve();
+    const drainId = 'drain-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingRelayDrains.delete(drainId);
+        reject(new Error('payload relay drain timed out'));
+      }, 5000);
+      pendingRelayDrains.set(drainId, {
+        expected,
+        resolve: () => { clearTimeout(timer); resolve(); },
+      });
+      relay.postMessage({ marker: relayMarker, type: 'drain_request', drainId });
+    });
+  };
+
+  if (isDocument && relay) {
+    relay.addEventListener('message', (event) => {
+      try {
+        const data = event && event.data;
+        if (!data || data.marker !== relayMarker || typeof data.workerId !== 'string') return;
+        const state = relayStates.get(data.workerId) || { received: 0, acknowledged: 0 };
+        relayStates.set(data.workerId, state);
+        if (data.type === 'record' && Number.isInteger(data.sequence) && data.sequence > 0) {
+          state.received = Math.max(state.received, data.sequence);
+          void emitRecord({ ...data.record, __ssSource: 'worker' });
+          return;
+        }
+        if (data.type === 'drain_ack' && Number.isInteger(data.sequence) && data.sequence >= 0) {
+          void emitChain.then(() => {
+            state.acknowledged = Math.max(state.acknowledged, data.sequence);
+            if (typeof data.drainId !== 'string') return;
+            const pending = pendingRelayDrains.get(data.drainId);
+            if (!pending) return;
+            pending.expected.delete(data.workerId);
+            if (pending.expected.size === 0) {
+              pendingRelayDrains.delete(data.drainId);
+              pending.resolve();
+            }
+          });
+        }
+      } catch (e) { void e; }
+    });
+
+    // The Private engine terminates its worker during a successful Stop. Hold that teardown just long
+    // enough for every already-posted record to cross BroadcastChannel, reach the Playwright binding,
+    // and be acknowledged by sequence. The wrapper is test instrumentation installed before app code;
+    // it does not change production runtime bytes.
+    if (typeof Worker === 'function' && Worker.prototype && typeof Worker.prototype.terminate === 'function') {
+      const terminate = Worker.prototype.terminate;
+      Worker.prototype.terminate = function () {
+        const target = this;
+        const barrier = requestRelayDrain();
+        pendingTerminations.add(barrier);
+        void barrier.catch((error) => {
+          relayDrainFailure = error instanceof Error ? error.message : 'payload relay drain failed';
+        }).finally(() => {
+          pendingTerminations.delete(barrier);
+          terminate.call(target);
+        });
+      };
+    }
+
+    w.__SS_TRIPWIRE_DRAIN__ = async (expectedWorkers) => {
+      await Promise.all(Array.from(pendingTerminations));
+      await emitChain;
+      if (relayDrainFailure) throw new Error(relayDrainFailure);
+      if (relayStates.size < Number(expectedWorkers || 0)) {
+        throw new Error('payload relay worker registration incomplete');
+      }
+      const unacknowledged = Array.from(relayStates.values())
+        .some((state) => state.acknowledged < state.received);
+      if (unacknowledged) throw new Error('payload relay sequence unacknowledged');
+      return {
+        workers: relayStates.size,
+        received: Array.from(relayStates.values()).reduce((sum, state) => sum + state.received, 0),
+        acknowledged: Array.from(relayStates.values()).reduce((sum, state) => sum + state.acknowledged, 0),
+      };
+    };
+  }
+
+  if (isWorker && relay) {
+    relay.addEventListener('message', (event) => {
+      try {
+        const data = event && event.data;
+        if (data && data.marker === relayMarker && data.type === 'drain_request') {
+          relay.postMessage({
+            marker: relayMarker,
+            type: 'drain_ack',
+            drainId: data.drainId,
+            workerId,
+            sequence: relaySequence,
+          });
+        }
+      } catch (e) { void e; }
+    });
+    relay.postMessage({ marker: relayMarker, type: 'drain_ack', workerId, sequence: 0 });
+  }
+
+  const isNumericSampleArray = (value) => Array.isArray(value)
+    && value.length >= 32
+    && value.every((sample) => typeof sample === 'number' && Number.isFinite(sample));
+
+  const isEncodedAudioText = (value) => {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    // Inspect only the shape in-page; never retain or relay the value. A whole-body audio data URL,
+    // canonical base64 byte string, or numeric JSON sample array is opaque audio-shaped data, not
+    // ordinary transcript/telemetry text. Encoding audio must not authorize its transport.
+    if (/^data:(audio|video)\\/[a-z0-9.+-]+;base64,/i.test(trimmed)) return true;
+    if (trimmed.length >= 256 && trimmed.length % 4 === 0
+      && /^[A-Za-z0-9+/]+={0,2}$/.test(trimmed)) return true;
+    if (trimmed.length >= 64 && trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try { return isNumericSampleArray(JSON.parse(trimmed)); } catch (e) { void e; }
+    }
+    return false;
+  };
+
+  const isAudioField = (key) => /^(audio|audioData|audio_data|audioBytes|audio_bytes|pcm|pcmData|pcm_data|samples|audioSamples|audio_samples)$/i.test(key);
+
+  const containsEncodedAudio = (value, depth, budget, audioContext) => {
+    if (depth > 4 || budget.remaining <= 0) return false;
+    budget.remaining -= 1;
+    if (audioContext && (isEncodedAudioText(value) || isNumericSampleArray(value))) return true;
+    if (!value || typeof value !== 'object') return false;
+    if (Array.isArray(value)) {
+      if (audioContext && isNumericSampleArray(value)) return true;
+      return value.some((entry) => entry && typeof entry === 'object'
+        && containsEncodedAudio(entry, depth + 1, budget, audioContext));
+    }
+    for (const [key, nested] of Object.entries(value)) {
+      const nestedAudioContext = audioContext || isAudioField(key);
+      if (nestedAudioContext && (isEncodedAudioText(nested) || isNumericSampleArray(nested))) return true;
+      if (nested && typeof nested === 'object'
+        && containsEncodedAudio(nested, depth + 1, budget, nestedAudioContext)) return true;
+    }
+    return false;
+  };
+
+  const isEncodedAudioEnvelopeText = (value) => {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    // Bound parsing by bytes, depth, and visited nodes. Only recognized audio-bearing keys are treated
+    // as audio, so ordinary telemetry identifiers or unrelated base64 text do not become false holds.
+    if (trimmed.length < 2 || trimmed.length > 1_000_000
+      || !((trimmed.startsWith('{') && trimmed.endsWith('}'))
+        || (trimmed.startsWith('[') && trimmed.endsWith(']')))) return false;
+    try { return containsEncodedAudio(JSON.parse(trimmed), 0, { remaining: 128 }, false); }
+    catch (e) { void e; return false; }
+  };
+
   const classify = (body) => {
     if (body === null || body === undefined) return { kind: 'empty', mime: null, bytes: 0 };
-    if (typeof body === 'string') return { kind: 'text', mime: null, bytes: body.length };
+    if (typeof body === 'string') {
+      return {
+        kind: (isEncodedAudioText(body) || isEncodedAudioEnvelopeText(body)) ? 'encoded_audio' : 'text',
+        mime: null,
+        bytes: body.length,
+      };
+    }
     if (typeof Blob !== 'undefined' && body instanceof Blob) {
       const mime = body.type || '';
       // A MediaRecorder chunk is a Blob whose type is audio/* or video/* — the direct evidence that
       // captured audio is being handed to a transport.
       const kind = /^(audio|video)\\//.test(mime) ? 'audio' : (mime ? 'blob' : 'binary');
       return { kind, mime: mime || null, bytes: body.size };
+    }
+    if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+      let audio = false; let bytes = 0;
+      try {
+        for (const [key, value] of body.entries()) {
+          bytes += key.length + value.length;
+          if ((isAudioField(key) && value.trim().length > 0) || isEncodedAudioText(value)) audio = true;
+        }
+      } catch (e) { void e; bytes = -1; }
+      return {
+        kind: audio ? 'encoded_audio' : 'form',
+        mime: 'application/x-www-form-urlencoded',
+        bytes,
+      };
     }
     if (typeof FormData !== 'undefined' && body instanceof FormData) {
       let audio = false; let bytes = 0;
@@ -47,6 +258,9 @@ export const PAYLOAD_TRIPWIRE = `(() => {
           if (typeof Blob !== 'undefined' && v instanceof Blob) {
             bytes += v.size;
             if (/^(audio|video)\\//.test(v.type || '')) audio = true;
+          } else if (typeof v === 'string') {
+            bytes += v.length;
+            if (isEncodedAudioText(v)) audio = true;
           }
         }
       } catch (e) { void e; }
@@ -65,10 +279,26 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     if (typeof ReadableStream !== 'undefined' && body instanceof ReadableStream) {
       return { kind: 'opaque_stream', mime: null, bytes: -1 };
     }
+    // A Request owns its body as a stream that cannot be inspected without consuming it. The fetch
+    // wrapper substitutes this marker so classification is complete BEFORE note() publishes the
+    // record through the Playwright binding. Mutating the retained array afterwards is too late: a
+    // binding argument is serialized at invocation and would preserve the earlier JSON verdict.
+    if (body && body.__ss_opaque_request_body === true) {
+      return { kind: 'opaque_stream', mime: null, bytes: -1 };
+    }
+    if (isNumericSampleArray(body)) {
+      let bytes = -1;
+      try { bytes = JSON.stringify(body).length; } catch (e) { void e; }
+      return { kind: 'encoded_audio', mime: 'application/json', bytes };
+    }
     if (typeof body === 'object') {
       let bytes = 0;
       try { bytes = JSON.stringify(body).length; } catch (e) { void e; bytes = -1; }
-      return { kind: 'json', mime: 'application/json', bytes };
+      return {
+        kind: containsEncodedAudio(body, 0, { remaining: 128 }, false) ? 'encoded_audio' : 'json',
+        mime: 'application/json',
+        bytes,
+      };
     }
     return { kind: 'unknown', mime: null, bytes: -1 };
   };
@@ -76,7 +306,7 @@ export const PAYLOAD_TRIPWIRE = `(() => {
   const note = (transport, url, method, body, extraMime) => {
     try {
       const c = classify(body);
-      records.push({
+      const record = {
         // WHEN, so "during the take" can be decided per record rather than for the whole run. Without
         // it a single end-of-run flag applied retroactively to startup traffic.
         t: Date.now(),
@@ -91,7 +321,20 @@ export const PAYLOAD_TRIPWIRE = `(() => {
         // by time, so a worker record reports null rather than failing to record at all.
         runtimeState: (typeof document !== 'undefined' && document.documentElement)
           ? document.documentElement.getAttribute('data-runtime-state') : null,
-      });
+      };
+      records.push(record);
+      // The observer receives metadata only — never payload contents — and redacts the URL before
+      // retaining it. Workers relay while alive because a successful Stop terminates them before the
+      // post-save verdict; the document forwards those records through the Playwright binding.
+      if (hasDocument && typeof w.__SS_TRIPWIRE_EMIT__ === 'function') {
+        try { void emitRecord({ ...record, __ssSource: 'main' }); } catch (e) { void e; }
+      } else if (isWorker && relay) {
+        try {
+          relaySequence += 1;
+          relay.postMessage({ marker: relayMarker, type: 'record', workerId, sequence: relaySequence, record });
+          relay.postMessage({ marker: relayMarker, type: 'drain_ack', workerId, sequence: relaySequence });
+        } catch (e) { void e; }
+      }
     } catch (e) { void e; }
   };
 
@@ -122,9 +365,7 @@ export const PAYLOAD_TRIPWIRE = `(() => {
           }
         }
         if (body && body.__ss_opaque_request_body) {
-          note('fetch', url, method, undefined, mime);
-          records[records.length - 1].kind = 'opaque_stream';
-          records[records.length - 1].bytes = -1;
+          note('fetch', url, method, body, mime);
         } else {
           note('fetch', url, method, body, mime);
         }
