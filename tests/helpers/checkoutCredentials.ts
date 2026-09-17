@@ -58,7 +58,13 @@ export const resolveCheckoutCredentials = (
 
     return {
         ok: true,
+        // The email is an identifier, so surrounding whitespace is configuration noise and is removed.
         email: env.CHECKOUT_TEST_EMAIL!.trim(),
-        password: env.CHECKOUT_TEST_PASSWORD!.trim(),
+        // #1492 — the password is returned EXACTLY as configured. Trimming is used above only to decide
+        // whether a value is present at all; it must never reach the credential itself. A password may
+        // legitimately begin or end with whitespace, and trimming it would authenticate with a different
+        // string than the one set on the account — failing a correctly configured gate for a reason that
+        // reads like a Stripe or Supabase fault.
+        password: env.CHECKOUT_TEST_PASSWORD!,
     };
 };

@@ -54,15 +54,47 @@ describe('#1492 — checkout credentials are one atomic pair', () => {
         expect(wronglyAccepted).toEqual([]);
     });
 
-    it('accepts only the complete dedicated pair, and trims it', () => {
+    it('accepts only the complete dedicated pair, and trims the email only', () => {
         const result = resolveCheckoutCredentials({
             CHECKOUT_TEST_EMAIL: ' checkout@example.test ',
-            CHECKOUT_TEST_PASSWORD: ' pw ',
+            CHECKOUT_TEST_PASSWORD: 'pw',
         });
         expect(result.ok).toBe(true);
         if (!result.ok) return;
+        // The email is an identifier; surrounding whitespace is configuration noise.
         expect(result.email).toBe('checkout@example.test');
         expect(result.password).toBe('pw');
+    });
+
+    /**
+     * #1492 PO cherry-pick — THE PASSWORD IS RETURNED EXACTLY AS CONFIGURED.
+     *
+     * The previous head trimmed the password on the way out, and the test above used to ASSERT that
+     * trimming (`' pw '` became `'pw'`), so the suite pinned the defect instead of catching it. A password
+     * may legitimately begin or end with whitespace; trimming it authenticates with a different string than
+     * the account holds. Trimming is still how absence is detected — it just never reaches the credential.
+     */
+    it('CASUALTY: leading whitespace in the password is preserved', () => {
+        const result = resolveCheckoutCredentials({ CHECKOUT_TEST_EMAIL: 'c@example.test', CHECKOUT_TEST_PASSWORD: '  lead' });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.password).toBe('  lead');
+    });
+
+    it('CASUALTY: trailing whitespace in the password is preserved', () => {
+        const result = resolveCheckoutCredentials({ CHECKOUT_TEST_EMAIL: 'c@example.test', CHECKOUT_TEST_PASSWORD: 'trail\t ' });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.password).toBe('trail\t ');
+    });
+
+    it('CASUALTY: an all-whitespace password is rejected as absent', () => {
+        for (const blank of [' ', '   ', '\t', ' \n\t ']) {
+            const result = resolveCheckoutCredentials({ CHECKOUT_TEST_EMAIL: 'c@example.test', CHECKOUT_TEST_PASSWORD: blank });
+            expect(result.ok).toBe(false);
+            if (result.ok) continue;
+            expect(result.missing).toEqual(['CHECKOUT_TEST_PASSWORD']);
+        }
     });
 
     it('CASUALTY: mixed or fallback sources are unreachable — the spec names no other identity', () => {
