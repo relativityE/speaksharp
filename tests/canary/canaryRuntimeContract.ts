@@ -246,7 +246,8 @@ function isEncodedAudioQueryValue(value: string): boolean {
     const trimmed = value.trim();
     if (trimmed.length === 0) return false;
     if (/^data:(audio|video)\/[a-z0-9.+-]+;base64,/i.test(trimmed)) return true;
-    if (trimmed.length >= 256 && trimmed.length % 4 === 0
+    const unpadded = trimmed.replace(/={1,2}$/, '');
+    if (trimmed.length >= 256 && unpadded.length % 4 !== 1
         && /^[A-Za-z0-9+/_-]+={0,2}$/.test(trimmed)) return true;
     if (trimmed.length >= 64 && trimmed.startsWith('[') && trimmed.endsWith(']')) {
         try {

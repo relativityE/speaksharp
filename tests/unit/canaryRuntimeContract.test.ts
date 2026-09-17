@@ -411,6 +411,9 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
                 method: 'POST', body: JSON.stringify({ audio: 'B'.repeat(512) }),
             });
+            await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
+                method: 'POST', body: JSON.stringify({ audio: '-_'.repeat(129) }),
+            });
             await scope.fetch('https://eu.posthog.com/e/', {
                 method: 'POST', body: JSON.stringify({ properties: { samples: Array.from({ length: 64 }, (_, index) => index / 64) } }),
             });
@@ -435,8 +438,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             });
 
             expect(records.map((record) => record.kind)).toEqual([
-                'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'text',
-                'encoded_audio', 'form', 'audio', 'audio',
+                'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio',
+                'text', 'encoded_audio', 'form', 'audio', 'audio',
             ]);
             expect(JSON.stringify(records)).not.toContain('AAAA');
             expect(JSON.stringify(records)).not.toContain('BBBB');
@@ -446,6 +449,78 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             scope.fetch = originalFetch;
             if (originalDocument === undefined) delete scope.document;
             else scope.document = originalDocument;
+            delete scope.__SS_TRIPWIRE__;
+            delete scope.__SS_TRIPWIRE_EMIT__;
+        }
+    });
+
+
+    it('CASUALTY: native submit and requestSubmit cannot bypass audio-shaped FormData inspection', () => {
+        let submitCalls = 0;
+        let requestSubmitCalls = 0;
+        class FakeHTMLFormElement {
+            action = 'https://speaksharp-public.vercel.app/api/upload';
+            method = 'post';
+            enctype = 'multipart/form-data';
+            rows: Array<[string, string]> = [['audio', '-_'.repeat(129)]];
+            submit() { submitCalls += 1; }
+            requestSubmit(_submitter?: unknown) { requestSubmitCalls += 1; }
+        }
+        class FakeFormData {
+            private readonly rows: Array<[string, string]>;
+            constructor(form?: FakeHTMLFormElement) { this.rows = form?.rows ?? []; }
+            entries() { return this.rows[Symbol.iterator](); }
+        }
+        type TripwireGlobal = typeof globalThis & {
+            __SS_TRIPWIRE__?: unknown[];
+            __SS_TRIPWIRE_EMIT__?: (record: Record<string, unknown>) => void;
+        };
+        const scope = globalThis as TripwireGlobal;
+        const originalForm = Object.getOwnPropertyDescriptor(globalThis, 'HTMLFormElement');
+        const originalFormData = Object.getOwnPropertyDescriptor(globalThis, 'FormData');
+        const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+        const records: Record<string, unknown>[] = [];
+        const restore = (name: string, descriptor: PropertyDescriptor | undefined) => {
+            if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+            else delete (globalThis as unknown as Record<string, unknown>)[name];
+        };
+
+        try {
+            delete scope.__SS_TRIPWIRE__;
+            scope.__SS_TRIPWIRE_EMIT__ = (record) => { records.push(record); };
+            Object.defineProperty(globalThis, 'HTMLFormElement', {
+                configurable: true, writable: true, value: FakeHTMLFormElement,
+            });
+            Object.defineProperty(globalThis, 'FormData', {
+                configurable: true, writable: true, value: FakeFormData,
+            });
+            Object.defineProperty(globalThis, 'document', {
+                configurable: true,
+                writable: true,
+                value: {
+                    location: 'https://speaksharp-public.vercel.app/session',
+                    documentElement: { getAttribute: () => 'RECORDING' },
+                },
+            });
+
+            new Function(PAYLOAD_TRIPWIRE)();
+            const form = new FakeHTMLFormElement();
+            form.submit();
+            form.requestSubmit({
+                formAction: 'https://abcproject.supabase.co/functions/v1/proxy',
+                formMethod: 'post',
+                formEnctype: 'multipart/form-data',
+            });
+
+            expect(submitCalls).toBe(1);
+            expect(requestSubmitCalls).toBe(1);
+            expect(records.map((record) => record.kind)).toEqual(['audio', 'audio']);
+            expect(records.map((record) => record.transport)).toEqual(['form', 'form']);
+            expect(JSON.stringify(records)).not.toContain('-_');
+        } finally {
+            restore('HTMLFormElement', originalForm);
+            restore('FormData', originalFormData);
+            restore('document', originalDocument);
             delete scope.__SS_TRIPWIRE__;
             delete scope.__SS_TRIPWIRE_EMIT__;
         }

@@ -163,6 +163,7 @@ export const PAYLOAD_TRIPWIRE = `(() => {
           throw new Error('payload relay sequence gap');
         }
       }
+      await emitChain;
       if (relayDrainFailure) throw new Error(relayDrainFailure);
       return {
         workers: relayStates.size,
@@ -206,8 +207,9 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     // canonical base64 byte string, or numeric JSON sample array is opaque audio-shaped data, not
     // ordinary transcript/telemetry text. Encoding audio must not authorize its transport.
     if (/^data:(audio|video)\\/[a-z0-9.+-]+;base64,/i.test(trimmed)) return true;
-    if (trimmed.length >= 256 && trimmed.length % 4 === 0
-      && /^[A-Za-z0-9+/]+={0,2}$/.test(trimmed)) return true;
+    const unpadded = trimmed.replace(/={1,2}$/, '');
+    if (trimmed.length >= 256 && unpadded.length % 4 !== 1
+      && /^[A-Za-z0-9+/_-]+={0,2}$/.test(trimmed)) return true;
     if (trimmed.length >= 64 && trimmed.startsWith('[') && trimmed.endsWith(']')) {
       try { return isNumericSampleArray(JSON.parse(trimmed)); } catch (e) { void e; }
     }
@@ -415,6 +417,37 @@ export const PAYLOAD_TRIPWIRE = `(() => {
   if (w.navigator && typeof w.navigator.sendBeacon === 'function') {
     const beacon = w.navigator.sendBeacon.bind(w.navigator);
     w.navigator.sendBeacon = function (url, data) { note('beacon', url, 'POST', data); return beacon(url, data); };
+  }
+
+  // Native form submission bypasses fetch/XHR/beacon entirely. Snapshot only its FormData shape before
+  // navigation (field names, MIME, and byte counts); note() never retains field values.
+  const NativeForm = w.HTMLFormElement;
+  if (hasDocument && NativeForm && NativeForm.prototype && typeof FormData === 'function') {
+    const observeForm = (form, submitter) => {
+      try {
+        let body;
+        try { body = submitter === undefined ? new FormData(form) : new FormData(form, submitter); }
+        catch (e) { void e; body = new FormData(form); }
+        const url = (submitter && submitter.formAction) || form.action || (document && document.location);
+        const method = (submitter && submitter.formMethod) || form.method || 'GET';
+        const mime = (submitter && submitter.formEnctype) || form.enctype || null;
+        note('form', url, method, body, mime);
+      } catch (e) { void e; }
+    };
+    if (typeof NativeForm.prototype.submit === 'function') {
+      const submit = NativeForm.prototype.submit;
+      NativeForm.prototype.submit = function () {
+        observeForm(this);
+        return submit.apply(this, arguments);
+      };
+    }
+    if (typeof NativeForm.prototype.requestSubmit === 'function') {
+      const requestSubmit = NativeForm.prototype.requestSubmit;
+      NativeForm.prototype.requestSubmit = function (submitter) {
+        observeForm(this, submitter);
+        return requestSubmit.apply(this, arguments);
+      };
+    }
   }
 
   const WS = w.WebSocket;
