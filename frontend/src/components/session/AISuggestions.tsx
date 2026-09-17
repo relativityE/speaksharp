@@ -113,8 +113,20 @@ const readClosedCode = async (err: unknown): Promise<typeof SERVICE_CONFIGURATIO
 
 /**
  * #1473 — failures another automatic attempt cannot change. They are terminal: the user sees the saved-session
- * assurance and one manual action. Only network and provider/5xx failures (`network`, `unavailable`) are recoverable
- * and get at most ONE automatic retry.
+ * assurance and one manual action.
+ *
+ * #1486 — `unavailable` IS TERMINAL, AND THAT IS A QUOTA RULE, NOT A PESSIMISM.
+ *
+ * `unavailable` is the provider/5xx answer, and the edge function consumes a quota slot BEFORE it calls the
+ * provider. Re-entering the whole function therefore spends a second slot on one generation action, and if the
+ * first attempt took the user's last slot the retry comes back 429 — which this file maps to `rate_limited` and
+ * reports as a limit the user never reached, hiding the outage that actually happened. The provider retry now
+ * lives inside the edge function, behind that single consumption (`AI_PROVIDER_ATTEMPTS`), so a provider blip is
+ * still absorbed and costs nothing; by the time the client sees `unavailable` the provider has already been asked
+ * twice and a third ask can only charge again.
+ *
+ * `network` stays recoverable. It is the one failure with no response at all, so it carries no quota receipt to
+ * double, and it is usually the client's own connection rather than anything we did.
  *
  * `invalid_response` is terminal too. The edge function answers 200 only after it has persisted and read back the
  * exact review, so a malformed 200 is a contract violation, not a provider or network blip. Another attempt re-reads
@@ -122,6 +134,7 @@ const readClosedCode = async (err: unknown): Promise<typeof SERVICE_CONFIGURATIO
  */
 const TERMINAL_REASONS: ReadonlySet<PracticeLoopReviewFailureReason> = new Set<PracticeLoopReviewFailureReason>([
   'service_configuration', 'access_denied', 'rate_limited', 'not_found', 'transcript_unavailable', 'invalid_response',
+  'unavailable',
 ]);
 
 /** #1473 — the bounded backoff before the single automatic retry of a recoverable failure. */
