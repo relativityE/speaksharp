@@ -175,3 +175,39 @@ describe('#1421 P1 — Focus Points review receipts', () => {
             .toEqual({ chosen: 'view_analytics', delegated: 1 });
     });
 });
+
+// S-11 — the mic returned to slot A in `after` is a restart control, so it must go through the SAME
+// telemetry-wrapped, product-correct handler as the review's own "go again" action.
+describe('S-11 P1 — the after-state mic restarts the same product, and says so', () => {
+    it('CASUALTY: on Focus Points it rebinds the completed brief (onRetryPoints), never raw onStartStop', () => {
+        // Raw onStartStop starts an OPEN MIC take here, because production clears the live brief on save.
+        const onRetryPoints = vi.fn();
+        const onStartStop = vi.fn();
+        renderFocusPointsReview({ onRetryPoints, onStartStop, objectivePoints: null, completedObjectivePoints: POINTS });
+
+        fireEvent.click(screen.getByTestId('run-shape-mic'));
+
+        const selected = last(rows('journey_step').filter((r) => r.step === 'option_selected'));
+        expect({ retry: onRetryPoints.mock.calls.length, raw: onStartStop.mock.calls.length, chosen: selected?.option_selected })
+            .toEqual({ retry: 1, raw: 0, chosen: 'retry_points' });
+    });
+
+    it('CASUALTY: on Open Mic it records option_selected exactly as "Practice again" does', () => {
+        const onStartStop = vi.fn();
+        render(
+            <SessionOverhaulView
+                {...base}
+                onStartStop={onStartStop}
+                showAnalyticsPrompt
+                transcriptContent="so um hello"
+                reviewTranscript={{ kind: 'available', text: 'so um hello' }}
+            />,
+        );
+
+        fireEvent.click(screen.getByTestId('run-shape-mic'));
+
+        const selected = last(rows('journey_step').filter((r) => r.step === 'option_selected'));
+        expect({ delegated: onStartStop.mock.calls.length, chosen: selected?.option_selected })
+            .toEqual({ delegated: 1, chosen: 'practice_next' });
+    });
+});

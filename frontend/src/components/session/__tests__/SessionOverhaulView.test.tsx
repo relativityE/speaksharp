@@ -492,6 +492,31 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
     });
 
+    // S-11 — found in a real browser: Stop can drop `isListening` one render BEFORE `isFinalizing` rises, so
+    // that single render resolves to `before`. A reset there erased the take, and the after shape was either
+    // empty or (previously) padded to a fake flat line.
+    it('CASUALTY: the take survives the one-render `before` flash between Stop and finalizing', () => {
+        const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+            () => ({ width: 400, height: 34, top: 0, left: 0, right: 400, bottom: 34, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
+        );
+        try {
+            const { rerender } = render(<SessionOverhaulView {...base} isListening micLevel={0.2} elapsedTime={1} />);
+            for (const [i, level] of [0.6, 0.9, 0.3, 0.7].entries()) {
+                rerender(<SessionOverhaulView {...base} isListening micLevel={level} elapsedTime={2 + i} />);
+            }
+            // The race: not listening, not yet finalizing → resolves to `before` for exactly one render.
+            rerender(<SessionOverhaulView {...base} isListening={false} micLevel={0} elapsedTime={0} />);
+            rerender(<SessionOverhaulView {...base} isListening={false} isFinalizing micLevel={0} elapsedTime={0} transcriptContent="so um hello" />);
+            expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+            const lines = screen.getAllByTestId('run-shape-waveform-line');
+            expect(lines.length).toBeGreaterThanOrEqual(5);
+            // Real levels, not a padded flat line: the loud 0.9 sample is visibly taller than the floor.
+            expect(Math.max(...lines.map((l) => parseInt(l.style.height, 10)))).toBeGreaterThan(20);
+        } finally {
+            rect.mockRestore();
+        }
+    });
+
     // #1256 P1 — the snapshot-only after-state scores the FINISHED take, whose duration lives in
     // `scoringElapsedSeconds`. The live `elapsedTime` normalizes to 0 once idle, so without this the
     // "<duration> actual" pace line (and per-point timing) rendered 0:00.
@@ -529,6 +554,42 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
             />,
         );
         expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('0:00 actual');
+    });
+
+    // S-11/S-13 P1 — the Open Mic after-state reads the FINISHED take's duration too. The live `elapsedTime`
+    // is 0 by now, so deriving from it showed `00:00` and silently omitted pace and fillers/min.
+    it('CASUALTY: Open Mic after-state duration, pace and fillers/min come from the finished take', () => {
+        const words = Array.from({ length: 240 }, (_, i) => (i % 40 === 0 ? 'um' : 'word')).join(' ');
+        render(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                transcriptContent={words}
+                reviewTranscript={{ kind: 'available', text: words }}
+                finalizedFillerData={{ um: { count: 6 }, total: { count: 6 } } as unknown as FillerCounts}
+                elapsedTime={0}
+                scoringElapsedSeconds={120}
+            />,
+        );
+        expect(screen.getByTestId('run-shape-duration')).toHaveTextContent('02:00');
+        // 240 words over two minutes: a stated rate, not an omitted row.
+        expect(screen.getByTestId('this-run-card-pace')).toHaveTextContent('120');
+        expect(screen.getByTestId('this-run-card-fillers')).toHaveTextContent('6 · 3.0/min');
+    });
+
+    it('CONTROL: with no finished duration the rates are omitted, never shown as a fabricated zero', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                transcriptContent="so um hello"
+                reviewTranscript={{ kind: 'available', text: 'so um hello' }}
+                finalizedFillerData={{ um: { count: 1 }, total: { count: 1 } } as unknown as FillerCounts}
+                elapsedTime={0}
+            />,
+        );
+        expect(screen.queryByTestId('this-run-card-pace')).toBeNull();
+        expect(screen.getByTestId('this-run-card-fillers')).not.toHaveTextContent('/min');
     });
 
     // #1256 P1 — "Retry these points" must route to the rebinding onRetryPoints handler, never the generic

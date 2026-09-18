@@ -120,3 +120,35 @@ describe('Waveform — colour is a separate lookup from height (S-9)', () => {
         expect(container.querySelectorAll('button')).toHaveLength(0);
     });
 });
+
+describe('Waveform — a narrow track shows the WHOLE take (S-9 P1)', () => {
+    let rect: ReturnType<typeof stubTrackWidth>;
+    beforeEach(() => { rect = stubTrackWidth(120); });   // floor(120 / 4) = 30 lines for a 72-level source
+    afterEach(() => { rect.mockRestore(); cleanup(); });
+
+    const quiet = (n: number) => Array.from({ length: n }, () => 0.05);
+
+    it('CASUALTY: the END of the recording survives — the source is resampled, never truncated', () => {
+        const take = quiet(72);
+        take[71] = 1;   // the last moment of the take is loud
+        render(<Waveform amplitudes={take} fillerBars={[]} height={34} />);
+        const lines = screen.getAllByTestId('waveform-line');
+        expect(lines).toHaveLength(30);
+        // Truncation would render only the leading 30 quiet levels and lose this.
+        expect(lines[29].style.height).toBe('34px');
+    });
+
+    it('CASUALTY: a late filler still lands on the shape', () => {
+        render(<Waveform amplitudes={quiet(72)} fillerBars={[70]} height={34} />);
+        const lines = screen.getAllByTestId('waveform-line');
+        expect(lines[29]).toHaveAttribute('data-filler', 'true');
+        expect(lines.filter((l) => l.getAttribute('data-filler') === 'true')).toHaveLength(1);
+    });
+
+    it('during: the recorded boundary scales with the compression', () => {
+        render(<Waveform amplitudes={quiet(72)} recordedCount={36} />);
+        const lines = screen.getAllByTestId('waveform-line');
+        // Half of the source is recorded → half of the 30 lines.
+        expect(lines.filter((l) => l.getAttribute('data-recorded') === 'true')).toHaveLength(15);
+    });
+});

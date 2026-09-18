@@ -38,6 +38,9 @@ import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthorit
 import type { TranscriptView } from '@/lib/storage';
 import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
 
+/** Source envelope resolution: finer than any track needs (a 1920px track holds 480 lines at the 4px pitch). */
+const WAVEFORM_SOURCE_LEVELS = 480;
+
 /**
  * #1222 S11 — the session-overhaul VIEW: maps the live session runtime onto the fixed shell + the three
  * state compositions. Flag-gated OFF (see `sessionOverhaulFlags`), so this renders only when the overhaul
@@ -496,20 +499,29 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     if (isListening) stopControlRenderedRef.current = true;
     if (isListening) {
         // Keep the FULL recording envelope (capped generously) so the after-state waveform can peak-
-        // downsample the WHOLE take to 72 bars — not just the last 72 samples (which showed only the tail).
+        // downsample the WHOLE take to its track — not just the most recent samples (which showed only the tail).
         levelsRef.current = [...levelsRef.current, micLevel].slice(-12000);
-    } else if (sessionState === 'before') {
-        levelsRef.current = [];
     }
-    const { amplitudes, recordedCount } = waveformFromLevels(levelsRef.current);
+    // No reset on `before`. Stop can drop `isListening` one render before `isFinalizing`/`showAnalyticsPrompt`
+    // rise, so that render resolves to `before` — and a reset there erased the take the after-state is about to
+    // draw. Each attempt already starts empty on entry to `during` (above), which is the only reset needed.
+    // The source envelope is resolved finer than any track needs (a 1920px track holds 480 lines at the 4px
+    // pitch); `Waveform` peak-downsamples it to its own measured width, so the density is never capped here.
+    const { amplitudes, recordedCount } = waveformFromLevels(levelsRef.current, WAVEFORM_SOURCE_LEVELS);
+    // `after` draws the whole take and nothing else: only the recorded levels, never the unrecorded tail
+    // stretched out as fake silence.
+    const takeAmplitudes = amplitudes.slice(0, recordedCount);
 
     const tokens = tokensFromTranscript(transcriptSource);
     // during: append the live-updating tail as muted "interim" tokens so re-writes read as intentional.
     const duringTokens = interimTranscript && interimTranscript.trim()
         ? [...tokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
         : tokens;
+    // Filler positions as indices into the take's envelope, placed by where they fall in the transcript.
     const fillerBars = tokens
-        .map((t, i) => (t.filler ? Math.round((i / Math.max(1, tokens.length - 1)) * 71) : -1))
+        .map((t, i) => (t.filler
+            ? Math.round((i / Math.max(1, tokens.length - 1)) * Math.max(0, takeAmplitudes.length - 1))
+            : -1))
         .filter((n) => n >= 0);
 
     // #1046 Focus Points: a brief is active when we were handed declared point labels. This is a distinct
@@ -847,10 +859,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         : (
             <ThisRunCard
                 fillers={reviewFillerCount}
-                fillersPerMinute={reviewFillerCount !== null && elapsedTime > 0
-                    ? (reviewFillerCount / elapsedTime) * 60
+                fillersPerMinute={reviewFillerCount !== null && effElapsed > 0
+                    ? (reviewFillerCount / effElapsed) * 60
                     : null}
-                wordsPerMinute={liveWordsPerMinute(reviewWordCount, elapsedTime)}
+                wordsPerMinute={liveWordsPerMinute(reviewWordCount, effElapsed)}
                 words={reviewWordCount}
             />
         );
@@ -859,20 +871,24 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // shows exactly what the rail shows — never a second computation of the same run.
     const onDeviceCounts = {
         fillers: reviewFillerCount,
-        wordsPerMinute: liveWordsPerMinute(reviewWordCount, elapsedTime),
+        wordsPerMinute: liveWordsPerMinute(reviewWordCount, effElapsed),
     };
 
     return (
         <OnDeviceCountsContext.Provider value={onDeviceCounts}>
             <SessionAfterState
                 runShape={{
-                    durationSeconds: elapsedTime,
-                    amplitudes,
+                    // The FINISHED take's duration: live `elapsedTime` has already normalized to 0 by now.
+                    durationSeconds: effElapsed,
+                    amplitudes: takeAmplitudes,
                     // Focus Points keeps an amplitude-only envelope; Open Mic marks its filler positions.
                     // Neither exposes a transport — there is no audio to play (S-11).
                     fillerBars: isObjective ? [] : fillerBars,
                     showFillerLegend: !isObjective,
-                    onStart: onStartStop,
+                    // The mic starts the next run of the SAME product through its telemetry-wrapped handler:
+                    // Focus Points rebinds the completed brief (raw start would open Open Mic), and Open Mic
+                    // records `option_selected` exactly as its "Practice again" does.
+                    onStart: isObjective ? chooseRetryPoints : choosePracticeAgain,
                 }}
                 transcript={{
                     tokens: renderedReviewTokens,

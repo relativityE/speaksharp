@@ -1,5 +1,5 @@
 import React from 'react';
-import { sampleCountForWidth } from './waveformGeometry';
+import { sampleCountForWidth, downsamplePeaks } from './waveformGeometry';
 
 /**
  * S-9 — the waveform, shared by the `during` recorder bar and the static shape kept in `after`.
@@ -24,13 +24,14 @@ import { sampleCountForWidth } from './waveformGeometry';
  */
 export interface WaveformProps {
     /**
-     * Amplitude levels in 0..1, already downsampled to the peak of each bucket. The component renders the
-     * leading `n` of these for the n lines its own width allows, so a caller may supply a longer buffer.
+     * The source envelope, levels in 0..1, spanning the WHOLE take. When the track holds fewer lines than
+     * there are levels, the component peak-downsamples the entire array to fit — it never truncates, which
+     * would silently drop the end of the recording and any late filler.
      */
     amplitudes: number[];
-    /** during: how many leading lines are recorded (signature). Omit for the `after` resting shape. */
+    /** during: how many leading SOURCE levels are recorded (signature). Omit for the `after` resting shape. */
     recordedCount?: number;
-    /** after: indices sitting on a filler — full height, signature colour, in the otherwise flat shape. */
+    /** after: SOURCE indices sitting on a filler — full height, signature colour, in the otherwise flat shape. */
     fillerBars?: number[];
     /** Track height in px. The spec uses 34 in `during` and 30 for the static `after` shape. */
     height?: number;
@@ -96,14 +97,39 @@ export const Waveform: React.FC<WaveformProps> = ({
     }, []);
 
     const isAfter = typeof recordedCount !== 'number';
-    const fillerSet = React.useMemo(() => new Set(fillerBars ?? []), [fillerBars]);
+    const sourceLength = amplitudes.length;
 
     // The lines this track can hold, capped by the levels we actually have. Never pad with invented levels.
-    const rendered = Math.min(lineCount, amplitudes.length);
+    const rendered = Math.min(lineCount, sourceLength);
+    const compressed = rendered < sourceLength;
+
+    // Fit the WHOLE source to the track: each line is the peak of its bucket, so the end of the take and
+    // any late filler survive a narrow track.
+    const levels = React.useMemo(
+        () => (compressed ? downsamplePeaks(amplitudes, rendered) : amplitudes),
+        [amplitudes, rendered, compressed],
+    );
+
+    // A source index lands in the bucket that contains it — the same bucketing `downsamplePeaks` uses.
+    const lineFor = React.useCallback(
+        (sourceIndex: number) => (compressed
+            ? Math.min(rendered - 1, Math.floor((sourceIndex * rendered) / sourceLength))
+            : sourceIndex),
+        [compressed, rendered, sourceLength],
+    );
+    const fillerSet = React.useMemo(
+        () => new Set((fillerBars ?? []).filter((i) => i >= 0 && i < sourceLength).map(lineFor)),
+        [fillerBars, sourceLength, lineFor],
+    );
+    // A line is recorded when any of its bucket is: round the boundary up, so a partly recorded bucket
+    // reads as recorded rather than the live edge lagging a line behind.
+    const recordedLines = compressed
+        ? Math.ceil(((recordedCount ?? 0) * rendered) / sourceLength)
+        : (recordedCount ?? 0);
 
     const colorFor = (i: number): string => {
         if (isAfter) return fillerSet.has(i) ? SIGNATURE : INACTIVE;
-        return i < (recordedCount ?? 0) ? SIGNATURE : INACTIVE;
+        return i < recordedLines ? SIGNATURE : INACTIVE;
     };
 
     return (
@@ -129,14 +155,14 @@ export const Waveform: React.FC<WaveformProps> = ({
                 <span
                     key={i}
                     data-testid={`${testId}-line`}
-                    data-recorded={isAfter ? undefined : i < (recordedCount ?? 0)}
+                    data-recorded={isAfter ? undefined : i < recordedLines}
                     data-filler={fillerSet.has(i) || undefined}
                     style={{
                         width: 2,
                         flexShrink: 0,
                         // A filler in the static shape is a HEIGHT override — full height — so a marked
                         // filler is unmissable against the flat resting lines.
-                        height: isAfter && fillerSet.has(i) ? height : lineHeightPx(amplitudes[i], height),
+                        height: isAfter && fillerSet.has(i) ? height : lineHeightPx(levels[i], height),
                         borderRadius: 1,
                         backgroundColor: colorFor(i),
                     }}
