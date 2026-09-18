@@ -552,4 +552,3 @@ describe('#1404 Share feedback redesign', () => {
     });
   });
 });
-
