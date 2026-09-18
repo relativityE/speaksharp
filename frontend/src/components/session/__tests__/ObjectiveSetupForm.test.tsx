@@ -243,4 +243,3 @@ describe('#1429 — every entered Focus Point reaches the brief, in order', () =
         });
     });
 });
-
