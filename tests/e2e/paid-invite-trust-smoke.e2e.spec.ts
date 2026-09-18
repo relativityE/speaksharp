@@ -53,7 +53,7 @@ test.describe('Paid invite trust smoke', () => {
     // redesign deliberately removed, and required an absolute "never included" promise that was not
     // true: the feedback box itself is submitted.
     await expect(page.getByTestId('issue-report-page-context'))
-      .toContainText(/transcript and audio aren.t attached automatically/i);
+      .toContainText(/only what you write here — no transcript or audio/i);
     await expect(page.getByTestId('issue-report-disclosure')).toHaveCount(0);
 
     await page.getByRole('button', { name: "What's included" }).click();

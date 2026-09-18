@@ -39,7 +39,7 @@ interface IssueReportDialogProps {
 /**
  * G8 (FEEDBACK_MODAL_SPEC §3, retheme): yellow marks the CHOSEN option — it is not a semantic hue for
  * "broke". `idea` keeps purple because it reads as a Focus Points action elsewhere. The old teal
- * (`praise`) and `#d98a1f` borders predate the ink-and-yellow palette.
+ * (`praise`) and the old amber borders predate the ink-and-yellow palette.
  */
 const SELECTED_CHOICE = 'border-signature bg-signature-ground';
 const TYPE_OPTIONS: Array<{ value: FeedbackType; label: string; selectedClass: string }> = [
@@ -462,7 +462,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
         */
         // G8 §8: the modal surface is white and never inherits the app/overlay surface. The shared
         // `DialogContent` paints `bg-background` (the slate page ground), so it is overridden here.
-        className="top-[6vh] max-h-[88vh] translate-y-0 overflow-y-auto border-0 bg-neutral-page px-[30px] pb-[26px] pt-7 shadow-[0_30px_70px_-28px_rgba(15,20,28,0.55)] sm:max-w-xl sm:rounded-[18px]"
+        className="top-[6vh] max-h-[88vh] translate-y-0 overflow-y-auto border-0 bg-neutral-page px-[30px] pb-[26px] pt-7 sm:max-w-xl sm:rounded-[18px]"
         data-testid="issue-report-dialog"
         onOpenAutoFocus={(event) => {
           // #1416 — focus the RESTORED selection, not the first option.
@@ -574,17 +574,18 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           <div className="flex flex-col gap-[14px] border-t border-neutral-border-soft pt-[18px] sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 text-[12px] font-semibold leading-[1.45] text-neutral-muted sm:max-w-[210px]" data-testid="issue-report-page-context">
             {/*
-              #1416 item 4 — PM-owned wording, exact.
+              #1416 item 4 → FEEDBACK_MODAL_SPEC §7 (Designer + PM, 18 Sep). PM-owned string.
 
-              "no automatic transcript or audio" read as a promise that nothing the user contributes is
-              sent, which is not true: the feedback box itself is submitted. The collapsed line now says
-              what is NOT attached automatically, and the expanded text says plainly that whatever is
-              typed IS included — so the two halves cannot be read as contradicting each other.
+              The bare "no transcript or audio" read as a promise that nothing the user contributes is
+              sent, which is not true: the feedback box itself is submitted. PM's #1416 fix scoped it to
+              what is not attached "automatically"; the spec keeps that meaning but leads with what IS sent,
+              and drops "automatically" because it implies a manual attach path that does not exist (no
+              audio is retained to attach). Never revert to the bare "no transcript or audio".
 
               The detail stays behind "What's included" so the default form remains short. The long
               introductory privacy block and the audio checkbox are deliberately NOT restored.
             */}
-            Sent from <strong className="font-extrabold text-foreground">{pageContext.pageLabel}</strong> · transcript and audio aren&rsquo;t attached automatically.{' '}
+            Sent from <strong className="font-extrabold text-foreground">{pageContext.pageLabel}</strong> · only what you write here &mdash; no transcript or audio.{' '}
             <button type="button" onClick={() => setShowDisclosure((value) => !value)} className="font-extrabold text-neutral-heading underline-offset-2 hover:underline">What&apos;s included</button>
             {showDisclosure && (
               <p className="mt-2 leading-relaxed" data-testid="issue-report-disclosure">
@@ -602,7 +603,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
             </button>
             {/*
               G8 §8: Send is signature yellow with ink text. DISABLED is its own neutral state
-              (`#dbe2ec` / `#6b7688`) — never the brand colour at reduced opacity, which reads as
+              (`neutral-border` fill / `neutral-muted` text) — never the brand colour at reduced opacity, which reads as
               enabled-but-broken. The shared Button's `disabled:opacity-50` is exactly that, so Send
               is a plain button styled from the tokens.
             */}

@@ -171,12 +171,13 @@ describe('#1404 Share feedback redesign', () => {
   it('shows concise provenance first and details only on request', async () => {
     const user = await open('/session');
     const provenance = screen.getByTestId('issue-report-page-context');
-    // #1416 item 4 — "no automatic transcript or audio" read as a promise that nothing the user
-    // contributes is sent. The collapsed line now scopes the claim to what is not attached
-    // AUTOMATICALLY.
+    // #1416 item 4 → spec §7: the bare "no transcript or audio" read as a promise that nothing the user
+    // contributes is sent. The line leads with what IS sent — only what they write — and never returns to
+    // the bare form.
     expect(provenance).toHaveTextContent(
-      'Sent from Session · Speaking · transcript and audio aren’t attached automatically.',
+      'Sent from Session · Speaking · only what you write here — no transcript or audio.',
     );
+    expect(provenance.textContent ?? '').not.toMatch(/·\s*no transcript or audio/);
     expect(screen.queryByTestId('issue-report-disclosure')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: "What's included" }));
