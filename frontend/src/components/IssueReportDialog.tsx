@@ -36,11 +36,17 @@ interface IssueReportDialogProps {
   runtimeState?: string | null;
 }
 
+/**
+ * G8 (FEEDBACK_MODAL_SPEC §3, retheme): yellow marks the CHOSEN option — it is not a semantic hue for
+ * "broke". `idea` keeps purple because it reads as a Focus Points action elsewhere. The old teal
+ * (`praise`) and `#d98a1f` borders predate the ink-and-yellow palette.
+ */
+const SELECTED_CHOICE = 'border-signature bg-signature-ground';
 const TYPE_OPTIONS: Array<{ value: FeedbackType; label: string; selectedClass: string }> = [
-  { value: 'broke', label: 'Something broke', selectedClass: 'border-signature bg-signature-ground' },
-  { value: 'confused', label: 'Something confused me', selectedClass: 'border-signature bg-signature-ground' },
-  { value: 'idea', label: 'I have an idea', selectedClass: 'border-neutral-heading bg-neutral-band' },
-  { value: 'praise', label: 'This worked well', selectedClass: 'border-status bg-state-success-ground' },
+  { value: 'broke', label: 'Something broke', selectedClass: SELECTED_CHOICE },
+  { value: 'confused', label: 'Something confused me', selectedClass: SELECTED_CHOICE },
+  { value: 'idea', label: 'I have an idea', selectedClass: 'border-focus-points bg-focus-points-ground' },
+  { value: 'praise', label: 'This worked well', selectedClass: SELECTED_CHOICE },
 ];
 
 const BODY_COPY: Record<FeedbackType, { label: string; placeholder: string; helper: string }> = {
@@ -454,7 +460,10 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           the top means the reveal only ever adds space below itself — Send moves down and away, never
           under the cursor, and nothing above the new row moves at all.
         */
-        className="top-[6vh] max-h-[88vh] translate-y-0 overflow-y-auto sm:max-w-xl"
+        // G8 §8: the modal surface is white and never inherits the app/overlay surface. The shared
+        // `DialogContent` paints `bg-background` (the slate page ground), so it is overridden here.
+        className="top-[6vh] max-h-[88vh] translate-y-0 overflow-y-auto border-0 bg-neutral-page p-7 sm:max-w-xl sm:rounded-[22px] sm:p-10"
+        data-testid="issue-report-dialog"
         onOpenAutoFocus={(event) => {
           // #1416 — focus the RESTORED selection, not the first option.
           //
@@ -467,7 +476,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           typeRefs.current[typeIndex >= 0 ? typeIndex : 0]?.focus();
         }}
       >
-        <DialogHeader><DialogTitle>Share feedback</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle className="text-[28px] font-extrabold tracking-[-0.02em] text-neutral-heading">Share feedback</DialogTitle></DialogHeader>
 
         <div className="space-y-5">
           <div>
@@ -486,7 +495,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
                     tabIndex={isRadioTabStop(index, typeIndex) ? 0 : -1}
                     onClick={() => selectType(option.value)}
                     onKeyDown={(event) => handleTypeKeyDown(event, index)}
-                    className={`min-h-12 rounded-xl border p-3 text-left text-sm font-extrabold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? `border-2 ${option.selectedClass}` : 'border-neutral-border bg-white'}`}
+                    className={`min-h-[62px] rounded-xl border px-5 py-3 text-left text-[16px] font-extrabold text-neutral-heading transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? `border-2 ${option.selectedClass}` : 'border-neutral-border bg-white'}`}
                   >
                     {option.label}
                   </button>
@@ -547,7 +556,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
                           data-testid={`feedback-severity-${option.value}`}
                           onClick={() => setSeverity(option.value)}
                           onKeyDown={(event) => handleSeverityKeyDown(event, index)}
-                          className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? 'border-2 border-signature bg-signature-ground' : 'border-neutral-border bg-white'}`}
+                          className={`min-h-[56px] rounded-xl border px-3 py-2 text-[16px] font-bold text-neutral-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? `border-2 ${SELECTED_CHOICE}` : 'border-neutral-border bg-white'}`}
                         >
                           {option.label}
                         </button>
@@ -561,7 +570,9 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
 
           {error && <p role="alert" className="text-sm font-semibold text-destructive">{error}</p>}
 
-          <div className="border-t border-neutral-border-soft pt-4 text-xs font-semibold text-muted-foreground" data-testid="issue-report-page-context">
+          {/* G8: one footer row — the page-context line on the left, Cancel + Send on the right. */}
+          <div className="flex flex-col gap-4 border-t border-neutral-border-soft pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 text-[13px] font-semibold leading-snug text-neutral-muted" data-testid="issue-report-page-context">
             {/*
               #1416 item 4 — PM-owned wording, exact.
 
@@ -574,20 +585,38 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
               introductory privacy block and the audio checkbox are deliberately NOT restored.
             */}
             Sent from <strong className="font-extrabold text-foreground">{pageContext.pageLabel}</strong> · transcript and audio aren&rsquo;t attached automatically.{' '}
-            <button type="button" onClick={() => setShowDisclosure((value) => !value)} className="font-bold underline underline-offset-2">What&apos;s included</button>
+            <button type="button" onClick={() => setShowDisclosure((value) => !value)} className="font-extrabold text-neutral-heading underline-offset-2 hover:underline">What&apos;s included</button>
             {showDisclosure && (
               <p className="mt-2 leading-relaxed" data-testid="issue-report-disclosure">
                 We attach an internal account reference, this screen, the app version, and basic browser and operating-system details. We don&rsquo;t automatically attach your email, name, credentials, transcript, or audio. Anything you type in the feedback box is included in your report.
               </p>
             )}
           </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3">
-          <Button type="button" variant="ghost" onClick={cancel}>Cancel</Button>
-          <Button type="button" onClick={() => { void submit(); }} disabled={!canSubmit} data-testid="issue-report-submit">
-            {isSubmitting ? 'Sending…' : 'Send'}
-          </Button>
+          <div className="flex shrink-0 items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={cancel}
+              className="rounded-xl px-4 py-3 text-[16px] font-bold text-neutral-muted hover:text-neutral-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              Cancel
+            </button>
+            {/*
+              G8 §8: Send is signature yellow with ink text. DISABLED is its own neutral state
+              (`#dbe2ec` / `#6b7688`) — never the brand colour at reduced opacity, which reads as
+              enabled-but-broken. The shared Button's `disabled:opacity-50` is exactly that, so Send
+              is a plain button styled from the tokens.
+            */}
+            <button
+              type="button"
+              onClick={() => { void submit(); }}
+              disabled={!canSubmit}
+              data-testid="issue-report-submit"
+              className="rounded-xl bg-signature px-7 py-3 text-[17px] font-extrabold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-border disabled:text-neutral-muted disabled:hover:brightness-100"
+            >
+              {isSubmitting ? 'Sending…' : 'Send'}
+            </button>
+          </div>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

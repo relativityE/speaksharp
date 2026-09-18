@@ -514,4 +514,41 @@ describe('#1404 Share feedback redesign', () => {
       expect(submittedTitle()).toContain('\u{1F600}');
     });
   });
+
+  // G8 retheme (Designer, 18 Sep): the modal was built from a spec that still carried pre-theme colours,
+  // and it inherited the slate page surface. jsdom computes no Tailwind, so each rule is asserted where it
+  // is decided — the classes on the element.
+  describe('G8 retheme — white surface, one selection colour, an honest disabled Send', () => {
+    it('CASUALTY: the modal surface is white, never the inherited slate page ground', async () => {
+      await open();
+      const content = screen.getByRole('dialog');
+      expect(content.className).toContain('bg-neutral-page');
+      // tailwind-merge keeps the last bg-* — the primitive's `bg-background` must not survive.
+      expect(content.className).not.toContain('bg-background');
+    });
+
+    it('CASUALTY: selected broke/confused/praise are signature yellow; idea is Focus Points purple; no teal', async () => {
+      const user = await open();
+      for (const kind of ['broke', 'confused', 'praise'] as const) {
+        await user.click(screen.getByTestId(`feedback-type-${kind}`));
+        const card = screen.getByTestId(`feedback-type-${kind}`);
+        expect(card.className).toContain('border-signature');
+        expect(card.className).toContain('bg-signature-ground');
+        expect(card.className).not.toMatch(/border-status|state-success/);
+      }
+      await user.click(screen.getByTestId('feedback-type-idea'));
+      expect(screen.getByTestId('feedback-type-idea').className).toContain('border-focus-points');
+    });
+
+    it('CASUALTY: disabled Send is its own neutral state, never the brand colour at reduced opacity', async () => {
+      await open();
+      const send = screen.getByTestId('issue-report-submit');
+      expect(send).toBeDisabled();
+      expect(send.className).toContain('disabled:bg-neutral-border');
+      expect(send.className).toContain('disabled:text-neutral-muted');
+      expect(send.className).not.toMatch(/opacity/);
+      expect(send.className).toContain('text-ink');
+    });
+  });
 });
+
