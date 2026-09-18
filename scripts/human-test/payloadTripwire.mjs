@@ -81,6 +81,21 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     return pending;
   };
 
+  const emitChannelRecord = (record) => {
+    if (typeof w.__SS_TRIPWIRE_CHANNEL_EMIT__ !== 'function') return Promise.resolve();
+    let emitted;
+    try { emitted = w.__SS_TRIPWIRE_CHANNEL_EMIT__(record); }
+    catch (error) {
+      relayDrainFailure = error instanceof Error ? error.message : 'channel binding failed';
+      return Promise.resolve();
+    }
+    const pending = Promise.resolve(emitted).catch((error) => {
+      relayDrainFailure = error instanceof Error ? error.message : 'channel binding failed';
+    });
+    emitChain = Promise.all([emitChain, pending]).then(() => undefined);
+    return pending;
+  };
+
   if (isDocument && relay) {
     relay.addEventListener('message', (event) => {
       try {
@@ -110,9 +125,13 @@ export const PAYLOAD_TRIPWIRE = `(() => {
           relayDrainFailure = 'worker payload relay emitted without a shared counter';
           return;
         }
-        if (data.type === 'record' && Number.isInteger(data.sequence) && data.sequence > 0) {
+        if ((data.type === 'record' || data.type === 'channel')
+          && Number.isInteger(data.sequence) && data.sequence > 0) {
           receivedSequences.add(data.sequence);
-          void emitRecord({ ...data.record, __ssSource: 'worker' }).then(() => {
+          const pending = data.type === 'channel'
+            ? emitChannelRecord({ ...data.record, __ssSource: 'worker' })
+            : emitRecord({ ...data.record, __ssSource: 'worker' });
+          void pending.then(() => {
             acknowledgedSequences.add(data.sequence);
           });
         }
@@ -466,7 +485,10 @@ export const PAYLOAD_TRIPWIRE = `(() => {
         const chars = prior && now - prior.at <= 5_000 ? prior.chars + candidateChars : candidateChars;
         shortEncodedSequences.set(sequenceKey, { chars: Math.min(chars, 256), at: now });
         if (chars >= 256) c.kind = 'encoded_audio';
-      } else if (candidateChars === 0) {
+      } else if (candidateChars === 0 && shortEncodedSequences.has(sequenceKey)
+        && now - shortEncodedSequences.get(sequenceKey).at > 5_000) {
+        // An unrelated control frame does not disprove the bounded audio sequence. Only elapsed time
+        // retires it; otherwise keepalives could be interleaved between every chunk to reset the proof.
         shortEncodedSequences.delete(sequenceKey);
       }
       const record = {
@@ -608,8 +630,16 @@ export const PAYLOAD_TRIPWIRE = `(() => {
   if (ES) {
     const Wrapped = function (url, config) {
       try {
-        if (typeof w.__SS_TRIPWIRE_CHANNEL_EMIT__ === 'function') {
-          void w.__SS_TRIPWIRE_CHANNEL_EMIT__({ kind: 'eventsource', url: String(url || '') });
+        const record = { kind: 'eventsource', url: String(url || '') };
+        if (hasDocument) {
+          void emitChannelRecord(record);
+        } else if (isWorker && relay) {
+          if (!relayCounter) {
+            relay.postMessage({ marker: relayMarker, type: 'relay_failure', workerId });
+          } else {
+            const sequence = Atomics.add(relayCounter, 0, 1) + 1;
+            relay.postMessage({ marker: relayMarker, type: 'channel', workerId, sequence, record });
+          }
         }
       } catch (e) { void e; }
       return config === undefined ? new ES(url) : new ES(url, config);

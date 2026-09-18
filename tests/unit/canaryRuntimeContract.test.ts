@@ -279,6 +279,7 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             Worker?: typeof FakeWorker;
             __SS_TRIPWIRE__?: unknown[];
             __SS_TRIPWIRE_EMIT__?: (record: Record<string, unknown>) => Promise<void>;
+            __SS_TRIPWIRE_CHANNEL_EMIT__?: (record: Record<string, unknown>) => Promise<void>;
             __SS_TRIPWIRE_DRAIN__?: (expected: number) => Promise<DrainResult>;
         };
         const scope = globalThis as TripwireGlobal;
@@ -296,6 +297,7 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             scope.BroadcastChannel = FakeBroadcastChannel;
             scope.Worker = FakeWorker;
             scope.__SS_TRIPWIRE_EMIT__ = vi.fn(() => bindingPromise);
+            scope.__SS_TRIPWIRE_CHANNEL_EMIT__ = vi.fn(() => bindingPromise);
             new Function(PAYLOAD_TRIPWIRE)();
 
             const workerRelay = new FakeBroadcastChannel('__speaksharp_canary_payload_v1__');
@@ -327,6 +329,14 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
                 sequence,
                 record: { kind: 'audio', bytes: 512 },
             });
+            const channelSequence = Atomics.add(sharedCounter as Int32Array, 0, 1) + 1;
+            workerRelay.postMessage({
+                marker: '__speaksharp_canary_payload_v1__',
+                type: 'channel',
+                workerId: 'worker-1',
+                sequence: channelSequence,
+                record: { kind: 'eventsource', url: 'https://eu.posthog.com/stream' },
+            });
 
             new scope.Worker().terminate();
             expect(terminateCalls).toBe(1);
@@ -335,10 +345,13 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             expect(terminateCalls).toBe(1);
 
             resolveBinding();
-            await expect(drainPromise).resolves.toMatchObject({ workers: 1, received: 1, acknowledged: 1 });
+            await expect(drainPromise).resolves.toMatchObject({ workers: 1, received: 2, acknowledged: 2 });
             expect(terminateCalls).toBe(1);
             expect(scope.__SS_TRIPWIRE_EMIT__).toHaveBeenCalledWith(expect.objectContaining({
                 kind: 'audio', bytes: 512, __ssSource: 'worker',
+            }));
+            expect(scope.__SS_TRIPWIRE_CHANNEL_EMIT__).toHaveBeenCalledWith(expect.objectContaining({
+                kind: 'eventsource', url: 'https://eu.posthog.com/stream', __ssSource: 'worker',
             }));
         } finally {
             if (originalWindow === undefined) delete scope.window;
@@ -351,6 +364,7 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             else scope.Worker = originalWorker;
             delete scope.__SS_TRIPWIRE__;
             delete scope.__SS_TRIPWIRE_EMIT__;
+            delete scope.__SS_TRIPWIRE_CHANNEL_EMIT__;
             delete scope.__SS_TRIPWIRE_DRAIN__;
             FakeBroadcastChannel.channels.clear();
         }
@@ -605,11 +619,13 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             new Function(PAYLOAD_TRIPWIRE)();
             const socket = new scope.WebSocket('wss://abcproject.supabase.co/realtime');
             socket.send('A'.repeat(128));
+            socket.send('{"type":"keepalive"}');
             socket.send('A'.repeat(128));
+            socket.send('{"type":"keepalive"}');
             socket.send('A'.repeat(128));
 
             expect(records.map((record) => record.kind)).toEqual([
-                'text', 'encoded_audio', 'encoded_audio',
+                'text', 'text', 'encoded_audio', 'text', 'encoded_audio',
             ]);
             expect(auditPayloads(records, {
                 appOrigin: 'https://speaksharp-public.vercel.app',
@@ -667,6 +683,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             __SS_TRIPWIRE__?: unknown[];
             __SS_TRIPWIRE_CHANNEL_EMIT__?: (record: Record<string, unknown>) => void;
             EventSource?: typeof EventSource;
+            document?: { documentElement?: { getAttribute?: (name: string) => string | null } };
+            window?: unknown;
         };
         class FakeEventSource {
             static readonly CONNECTING = 0;
@@ -676,10 +694,14 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         }
         const scope = globalThis as TripwireGlobal;
         const originalEventSource = scope.EventSource;
+        const originalDocument = scope.document;
+        const originalWindow = scope.window;
         const channels: Record<string, unknown>[] = [];
 
         try {
             delete scope.__SS_TRIPWIRE__;
+            scope.document = { documentElement: { getAttribute: () => 'RECORDING' } };
+            scope.window = scope;
             scope.EventSource = FakeEventSource as unknown as typeof EventSource;
             scope.__SS_TRIPWIRE_CHANNEL_EMIT__ = (record) => { channels.push(record); };
 
@@ -693,6 +715,10 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         } finally {
             if (originalEventSource === undefined) delete scope.EventSource;
             else scope.EventSource = originalEventSource;
+            if (originalDocument === undefined) delete scope.document;
+            else scope.document = originalDocument;
+            if (originalWindow === undefined) delete scope.window;
+            else scope.window = originalWindow;
             delete scope.__SS_TRIPWIRE__;
             delete scope.__SS_TRIPWIRE_CHANNEL_EMIT__;
         }
