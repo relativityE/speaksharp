@@ -216,6 +216,17 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     return false;
   };
 
+  const shortEncodedAudioTextLength = (value) => {
+    if (typeof value !== 'string') return 0;
+    const trimmed = value.trim();
+    // Four characters is one complete base64 quantum. Do not impose a larger per-frame floor: an
+    // uploader controls its framing and could otherwise split below that floor forever.
+    if (trimmed.length < 4 || trimmed.length >= 256) return 0;
+    const unpadded = trimmed.replace(/={1,2}$/, '');
+    return unpadded.length % 4 !== 1 && /^[A-Za-z0-9+/_-]+={0,2}$/.test(trimmed)
+      ? trimmed.length : 0;
+  };
+
   const isAudioField = (key) => /^(audio|audioData|audio_data|audioBytes|audio_bytes|pcm|pcmData|pcm_data|samples|audioSamples|audio_samples)$/i.test(key);
 
   const isEncodedAudioChunkArray = (value) => {
@@ -286,15 +297,49 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     catch (e) { void e; return 'opaque'; }
   };
 
+  const countShortEncodedAudioCandidates = (value, depth, budget, audioContext) => {
+    if (depth > 4 || budget.remaining <= 0) return 0;
+    budget.remaining -= 1;
+    if (audioContext && typeof value === 'string') return shortEncodedAudioTextLength(value);
+    if (!value || typeof value !== 'object') return 0;
+    let chars = 0;
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        chars += countShortEncodedAudioCandidates(entry, depth + 1, budget, audioContext);
+      }
+      return chars;
+    }
+    for (const [key, nested] of Object.entries(value)) {
+      chars += countShortEncodedAudioCandidates(
+        nested, depth + 1, budget, audioContext || isAudioField(key),
+      );
+    }
+    return chars;
+  };
+
+  const shortEncodedAudioEnvelopeChars = (value) => {
+    if (typeof value !== 'string') return 0;
+    const trimmed = value.trim();
+    if (trimmed.length < 2 || trimmed.length > 1_000_000
+      || !((trimmed.startsWith('{') && trimmed.endsWith('}'))
+        || (trimmed.startsWith('[') && trimmed.endsWith(']')))) return 0;
+    try {
+      return countShortEncodedAudioCandidates(JSON.parse(trimmed), 0, { remaining: 128 }, false);
+    } catch (e) { void e; return 0; }
+  };
+
   const classify = (body) => {
     if (body === null || body === undefined) return { kind: 'empty', mime: null, bytes: 0 };
     if (typeof body === 'string') {
       const envelope = inspectEncodedAudioEnvelopeText(body);
+      const candidateChars = shortEncodedAudioTextLength(body)
+        || shortEncodedAudioEnvelopeChars(body);
       return {
         kind: isEncodedAudioText(body) || envelope === 'audio'
           ? 'encoded_audio' : envelope === 'opaque' ? 'blob' : 'text',
         mime: null,
         bytes: body.length,
+        candidateChars,
       };
     }
     if (typeof Blob !== 'undefined' && body instanceof Blob) {
@@ -305,7 +350,7 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       return { kind, mime: mime || null, bytes: body.size };
     }
     if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
-      let audio = false; let opaque = false; let bytes = 0;
+      let audio = false; let opaque = false; let bytes = 0; let candidateChars = 0;
       try {
         for (const [key, value] of body.entries()) {
           bytes += key.length + value.length;
@@ -313,16 +358,19 @@ export const PAYLOAD_TRIPWIRE = `(() => {
           if ((isAudioField(key) && value.trim().length > 0)
             || isEncodedAudioText(value) || envelope === 'audio') audio = true;
           else if (envelope === 'opaque') opaque = true;
+          else candidateChars += shortEncodedAudioTextLength(value)
+            || shortEncodedAudioEnvelopeChars(value);
         }
       } catch (e) { void e; bytes = -1; }
       return {
-        kind: audio ? 'encoded_audio' : opaque ? 'blob' : 'form',
+        kind: audio || candidateChars >= 256 ? 'encoded_audio' : opaque ? 'blob' : 'form',
         mime: 'application/x-www-form-urlencoded',
         bytes,
+        candidateChars,
       };
     }
     if (typeof FormData !== 'undefined' && body instanceof FormData) {
-      let audio = false; let opaqueBinary = false; let bytes = 0;
+      let audio = false; let opaqueBinary = false; let bytes = 0; let candidateChars = 0;
       try {
         for (const [key, v] of body.entries()) {
           const namedAudio = isAudioField(key);
@@ -341,10 +389,17 @@ export const PAYLOAD_TRIPWIRE = `(() => {
             if ((namedAudio && v.trim().length > 0)
               || isEncodedAudioText(v) || envelope === 'audio') audio = true;
             else if (envelope === 'opaque') opaqueBinary = true;
+            else candidateChars += shortEncodedAudioTextLength(v)
+              || shortEncodedAudioEnvelopeChars(v);
           }
         }
       } catch (e) { void e; }
-      return { kind: audio ? 'audio' : opaqueBinary ? 'blob' : 'form', mime: 'multipart/form-data', bytes };
+      return {
+        kind: audio || candidateChars >= 256 ? 'audio' : opaqueBinary ? 'blob' : 'form',
+        mime: 'multipart/form-data',
+        bytes,
+        candidateChars,
+      };
     }
     if (ArrayBuffer.isView(body)) {
       // Float32Array is what the capture pipeline holds: raw PCM. Any typed array leaving the page is
@@ -375,22 +430,41 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       let bytes = 0;
       try { bytes = JSON.stringify(body).length; } catch (e) { void e; bytes = -1; }
       const inspected = inspectEncodedAudio(body, 0, { remaining: 128 }, false);
+      const candidateChars = countShortEncodedAudioCandidates(body, 0, { remaining: 128 }, false);
       return {
-        kind: inspected === 'audio' ? 'encoded_audio' : inspected === 'opaque' ? 'blob' : 'json',
+        kind: inspected === 'audio' || candidateChars >= 256
+          ? 'encoded_audio' : inspected === 'opaque' ? 'blob' : 'json',
         mime: 'application/json',
         bytes,
+        candidateChars,
       };
     }
     return { kind: 'unknown', mime: null, bytes: -1 };
   };
 
+  // Audio streaming commonly divides one logical base64 payload across transport frames. Keep only a
+  // bounded numeric count per transport target — never the frame contents — so repeated short chunks
+  // cannot each receive a clean verdict. A gap or ordinary message starts a fresh sequence.
+  const shortEncodedSequences = new Map();
   const note = (transport, url, method, body, extraMime) => {
     try {
       const c = classify(body);
+      const now = Date.now();
+      const sequenceKey = String(transport) + '\\n' + String(method || 'GET').toUpperCase()
+        + '\\n' + String(url || '');
+      const candidateChars = Number(c.candidateChars || 0);
+      if (candidateChars > 0 && c.kind !== 'encoded_audio' && c.kind !== 'audio') {
+        const prior = shortEncodedSequences.get(sequenceKey);
+        const chars = prior && now - prior.at <= 5_000 ? prior.chars + candidateChars : candidateChars;
+        shortEncodedSequences.set(sequenceKey, { chars: Math.min(chars, 256), at: now });
+        if (chars >= 256) c.kind = 'encoded_audio';
+      } else if (candidateChars === 0) {
+        shortEncodedSequences.delete(sequenceKey);
+      }
       const record = {
         // WHEN, so "during the take" can be decided per record rather than for the whole run. Without
         // it a single end-of-run flag applied retroactively to startup traffic.
-        t: Date.now(),
+        t: now,
         transport,
         url: String(url || ''),
         method: String(method || 'GET').toUpperCase(),

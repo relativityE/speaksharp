@@ -577,6 +577,54 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         }
     });
 
+    it('CASUALTY: successive short encoded-audio frames are aggregated per transport target', () => {
+        type TripwireGlobal = typeof globalThis & {
+            __SS_TRIPWIRE__?: unknown[];
+            __SS_TRIPWIRE_EMIT__?: (record: Record<string, unknown>) => void;
+            document?: { documentElement?: { getAttribute?: (name: string) => string | null } };
+            WebSocket?: typeof WebSocket;
+        };
+        class FakeWebSocket {
+            static readonly CONNECTING = 0;
+            static readonly OPEN = 1;
+            static readonly CLOSING = 2;
+            static readonly CLOSED = 3;
+            readonly send = vi.fn();
+        }
+        const scope = globalThis as TripwireGlobal;
+        const originalWebSocket = scope.WebSocket;
+        const originalDocument = scope.document;
+        const records: Record<string, unknown>[] = [];
+
+        try {
+            delete scope.__SS_TRIPWIRE__;
+            scope.__SS_TRIPWIRE_EMIT__ = (record) => { records.push(record); };
+            scope.document = { documentElement: { getAttribute: () => 'RECORDING' } };
+            scope.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+
+            new Function(PAYLOAD_TRIPWIRE)();
+            const socket = new scope.WebSocket('wss://abcproject.supabase.co/realtime');
+            socket.send('A'.repeat(128));
+            socket.send('A'.repeat(128));
+            socket.send('A'.repeat(128));
+
+            expect(records.map((record) => record.kind)).toEqual([
+                'text', 'encoded_audio', 'encoded_audio',
+            ]);
+            expect(auditPayloads(records, {
+                appOrigin: 'https://speaksharp-public.vercel.app',
+            }).map((finding) => finding.category)).toContain('audio_egress');
+            expect(JSON.stringify(records)).not.toContain('AAAA');
+        } finally {
+            if (originalWebSocket === undefined) delete scope.WebSocket;
+            else scope.WebSocket = originalWebSocket;
+            if (originalDocument === undefined) delete scope.document;
+            else scope.document = originalDocument;
+            delete scope.__SS_TRIPWIRE__;
+            delete scope.__SS_TRIPWIRE_EMIT__;
+        }
+    });
+
     it('CASUALTY: JSON-serialized typed arrays under audio keys remain audio samples', async () => {
         type TripwireGlobal = typeof globalThis & {
             __SS_TRIPWIRE__?: unknown[];
