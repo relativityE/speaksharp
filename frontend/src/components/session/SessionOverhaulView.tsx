@@ -11,7 +11,9 @@ import { LiveTip } from './LiveTip';
 import { FillerBreakdown } from './FillerBreakdown';
 import { ComparableProgressNotice } from './ComparableProgressNotice';
 import { getNextPrompt, getNextSample } from '@/services/practice/practiceOnramp';
-import { CustomWordsBar } from './CustomWordsBar';
+import { AddFillerWordsLink } from './AddFillerWordsLink';
+import { OpenMicBaselineLine } from './OpenMicBaselineLine';
+import { SessionVerdict } from './SessionVerdict';
 import { type CoverageRailPoint } from './CoverageRail';
 import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
@@ -19,7 +21,6 @@ import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
 import { applyFinalizedCoverageAuthority, deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusCoverageRow } from '@/utils/focusCoverage';
 import type { PracticeFocus } from '@/constants/practiceFocus';
-import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
 import { liveTipFromMetrics, type TwoTakeaways } from '@/utils/liveCoaching';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
@@ -189,8 +190,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onEditPoints,
     onRetryPoints,
     onNewSet,
-    practiceFocus,
-    onSelectFocus,
+    history,
 }) => {
     const permissionError = sttStatus.type === 'error';
     const sessionState = resolveSessionState({
@@ -266,15 +266,16 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     /**
      * #1466 PM RETURN 5673020845 (Codex P1 4010908720) — A BURIED RESULT IS BROUGHT INTO VIEW, ONCE.
      *
-     * The band is first in the DOM, which puts it at eye level for a user at the top of the page. It does not help
-     * one who scrolled down through the stacked recording UI and stopped there: browsers keep that lower viewport
-     * while the band is inserted above it, so the centerpiece result stays out of sight.
+     * The review sits in slot B, directly under the recorder, so a user at the top of the page sees the saved
+     * confirmation and the review together (proven at scrollY 0 on desktop and mobile). One who scrolled down
+     * through the recording UI and stopped there does not: browsers keep that lower viewport.
      *
-     * Once the take has settled (not while the transcript is still finalizing), the band is measured one time. If
-     * its heading/current state is inside the visible area — below the fixed header, above the phone's fixed action
-     * bar — nothing moves. Otherwise the page returns to its top, where the saved confirmation and the band sit
-     * together (proven at scrollY 0 on desktop and mobile). The flag resets only when the view leaves `after`, so
-     * loading → rendered → failed transitions and rerenders never jump the page again; the next take may reveal once.
+     * Once the take has settled (not while the transcript is still finalizing), a page that is not at its top
+     * returns there, one time. The page's position is the test, not whether the review heading is visible: with
+     * the recorder between the confirmation and slot B, the heading can be on screen while the confirmation has
+     * scrolled away, and the contract is both. A top-of-page user is never moved. The flag resets only when the
+     * view leaves `after`, so loading → rendered → failed transitions and rerenders never jump the page again;
+     * the next take may reveal once.
      */
     const practiceLoopBandRef = React.useRef<HTMLDivElement | null>(null);
     const practiceLoopRevealedRef = React.useRef(false);
@@ -283,26 +284,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             practiceLoopRevealedRef.current = false;
             return;
         }
-        const band = practiceLoopBandRef.current;
-        if (!reviewSettled || !band || practiceLoopRevealedRef.current) return;
+        if (!reviewSettled || !practiceLoopBandRef.current || practiceLoopRevealedRef.current) return;
         practiceLoopRevealedRef.current = true;
-
-        const root = window.getComputedStyle(document.documentElement);
-        const remPx = parseFloat(root.fontSize) || 16;
-        const lengthPx = (value: string, fallbackPx: number) => {
-            const v = value.trim();
-            if (v.endsWith('rem')) return (parseFloat(v) || 0) * remPx;
-            if (v.endsWith('px')) return parseFloat(v) || 0;
-            return fallbackPx;
-        };
-        const headerPx = lengthPx(root.getPropertyValue('--header-height'), 64);
-        const wide = typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 768px)').matches;
-        const bottomBarPx = wide ? 0 : lengthPx(root.getPropertyValue('--bottom-nav-height'), 80);
-        const rect = band.getBoundingClientRect();
-        // The heading and the one-line current state occupy the top of the band; the full review may extend below.
-        const headingBlockPx = Math.min(rect.height, 96);
-        const headingInView = rect.top >= headerPx && rect.top + headingBlockPx <= window.innerHeight - bottomBarPx;
-        if (headingInView) return;
+        if (window.scrollY <= 0) return;
         window.scrollTo({ top: 0, behavior: 'auto' });
     }, [inAfter, reviewSettled, practiceLoopReview]);
 
@@ -525,19 +509,6 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         .map((t, i) => (t.filler ? Math.round((i / Math.max(1, tokens.length - 1)) * 71) : -1))
         .filter((n) => n >= 0);
 
-    // The live shell has session rows, but not the server-owned evaluation/recommendation readback needed
-    // to prove eligibility, cohort compatibility, chronology, and the one durable next action. Keep a
-    // neutral handoff here; the saved review is the single Progress authority.
-    const progress: ProgressVsBaselineResult = {
-        isBaseline: false,
-        tooShort: false,
-        currentRate: null,
-        baselineRate: null,
-        deltaPercent: null,
-        direction: 'flat',
-        trend: [],
-    };
-
     // #1046 Focus Points: a brief is active when we were handed declared point labels. This is a distinct
     // product on the shared shell (spec: "slots are shared; semantics are not"). Slot C becomes coverage,
     // slot D becomes the points, filler chrome is gone, and the transcript highlights mean coverage.
@@ -669,10 +640,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // (`0/N points covered` + the configured guide, no measured pace); during carries the live nudge; after
     // freezes the bar and shows `actual`.
     const objectiveBeforeSlotC = coverage
-        ? <CoveragePace covered={0} total={coverage.total} elapsedSec={0} guideSecPerPoint={guideSecPerPoint} sessionState="before" />
+        ? <CoveragePace covered={0} total={coverage.total} elapsedSec={0} guideSecPerPoint={guideSecPerPoint} sessionState="before" onEditPace={onEditPoints} />
         : undefined;
     const objectiveDuringSlotC = coverage
-        ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
+        ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" />
         : undefined;
     const coverageMayBecomeAvailable = effectiveReview.kind === 'unavailable';
     /**
@@ -682,7 +653,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * `kind === 'unavailable'`. `TranscriptView.kind` is `available | expired | not_captured |
      * unavailable`, so for a Focus Points take whose transcript is terminally `expired` or
      * `not_captured` with no coverage, BOTH predicates were false. `objectiveAfterSlotC` fell through
-     * to `undefined` and `SessionAfterState` rendered the generic Open Mic `ProgressVsBaseline` card —
+     * to `undefined` and `SessionAfterState` rendered the generic Open Mic progress card —
      * a different product's summary presented as this take's result, with the `coverage-unavailable`
      * notice sitting three lines below, unreachable for exactly the two states that need it.
      *
@@ -752,46 +723,41 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const gateNotice = progressGateNotice(progressGate, gateResolvedForViewer);
 
     if (sessionState === 'before') {
+        // Slot D. Focus Points stacks its plan above its points (F-1); Open Mic states its baseline in one
+        // plain line (S-5). A Focus Points brief whose coverage is not derived yet keeps an empty rail.
+        const beforeRail = isObjective
+            ? (objectiveBeforeSlotC || objectivePlanSlotD ? <>{objectiveBeforeSlotC}{objectivePlanSlotD}</> : null)
+            : <OpenMicBaselineLine isFirstSession={(history ?? []).length === 0} onSeeProgress={onSeeAllSessions} />;
         return (
-            <>
-                <SessionBeforeState
-                    slotDContent={objectivePlanSlotD}
-                    // #1264 — the Practice Focus chooser is Open Mic only; Focus Points owns slot D (the rail).
-                    practiceFocus={isObjective ? null : practiceFocus}
-                    onSelectFocus={isObjective ? undefined : onSelectFocus}
-                    mic={{
-                        onStart: onStartStop,
-                        error: permissionError ? sttStatus.message : null,
-                        privateModelStatus,
-                        modelLoadingProgress,
-                        onDownloadModel,
-                        disabled: isButtonDisabled || gateBlocksStart,
-                        blockedReason: gateNotice,
-                    }}
-                    transcript={{
-                        offerDismissed: offer.dismissed,
-                        onDismissOffer: offer.dismiss,
-                        onRestoreOffer: offer.restore,
-                        onTakePrompt: takePrompt,
-                        onReadSample: readSample,
-                        chosenPrompt,
-                        chosenPromptTitle,
-                        chosenPromptAttribution,
-                        onRerollPrompt: reRoll,
-                        // #1046 PO 2026-08-10: Focus Points is its own product — the "Not sure what to say?"
-                        // prompt/sample offer is an Open-Floor concept and doesn't belong here; the speaker's
-                        // "what to say" IS their declared points (shown in slot D).
-                        hidePromptOffer: isObjective,
-                    }}
-                    progress={progress}
-                    slotCContent={isObjective ? objectiveBeforeSlotC : <ComparableProgressNotice sessionState="before" />}
-                />
-                {/* #1222 G1: the custom filler-word manager is a full-width bar BELOW the 2-col shell in the
-                    before-state — "Tracking N filler words" left, "Add your filler words" right.
-                    #1046 PO 2026-08-10: filler-word tracking is an Open-Floor (delivery-polish) concept; a
-                    Focus Points session is judged on point coverage, so the filler card is omitted for it. */}
-                {!isObjective && <CustomWordsBar className="mt-[14px]" />}
-            </>
+            <SessionBeforeState
+                mic={{
+                    onStart: onStartStop,
+                    error: permissionError ? sttStatus.message : null,
+                    privateModelStatus,
+                    modelLoadingProgress,
+                    onDownloadModel,
+                    disabled: isButtonDisabled || gateBlocksStart,
+                    blockedReason: gateNotice,
+                }}
+                transcript={{
+                    offerDismissed: offer.dismissed,
+                    onRestoreOffer: offer.restore,
+                    onTakePrompt: takePrompt,
+                    onReadSample: readSample,
+                    chosenPrompt,
+                    chosenPromptTitle,
+                    chosenPromptAttribution,
+                    onRerollPrompt: reRoll,
+                    // #1046 PO 2026-08-10: Focus Points is its own product — the "Not sure what to say?"
+                    // prompt/sample offer is an Open Mic concept and doesn't belong here; the speaker's
+                    // "what to say" IS their declared points (shown in the rail).
+                    hidePromptOffer: isObjective,
+                    // S-4: the settings strip that sat under the shell is now a header link. Filler words are
+                    // an Open Mic concept, so Focus Points carries no link (#1046).
+                    headerAction: isObjective ? undefined : <AddFillerWordsLink />,
+                }}
+                rail={beforeRail}
+            />
         );
     }
 
@@ -805,7 +771,6 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const showReopenChip = !isObjective && promptAutoHidden;
         return (
             <SessionDuringState
-                practiceFocus={isObjective ? null : practiceFocus}
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
                 transcript={{
                     tokens: isObjective ? fpDuringTokens : duringTokens,
@@ -823,36 +788,57 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     footer: isObjective ? 'Highlighted spans are where a point landed.' : undefined,
                     coverageMode: isObjective ? 'during' : undefined,
                 }}
-                progress={progress}
-                slotCContent={objectiveDuringSlotC ?? <ComparableProgressNotice sessionState="during" />}
+                rail={objectiveDuringSlotC || objectiveDuringSlotD
+                    ? <>{objectiveDuringSlotC}{objectiveDuringSlotD}</>
+                    : <ComparableProgressNotice sessionState="during" />}
+                // Slot B: Open Mic's live tip, or Focus Points' coverage nudge (F-1) — never both.
                 liveTip={isObjective ? undefined : (heldTip ? <LiveTip tip={heldTip} /> : undefined)}
-                slotDContent={objectiveDuringSlotD}
+                nudge={isObjective ? nudge : null}
             />
         );
     }
 
     // after — transcript-only review (no retained audio).
-    return (
+    /*
+     * Slot B — THE PRACTICE LOOP REVIEW, directly under the recorder, on ink (Design Correction Brief S-12).
+     *
+     * #1466 put the review first by rendering it as a band ABOVE the whole shell, because the old shell
+     * had no full-width slot under the recorder for it to occupy. The shared slot map has one, so the
+     * review now grows into the slot the coaching line already held in `before` and `during`, and no
+     * state reorders anything. The wrapper keeps its test identity and its ref.
+     *
+     * #1422 P1 — Open Mic keeps its actions under the review. `Practice this again` is the only desktop
+     * control wired to start the next take (`MobileActionBar` is hidden at `md`), so it must never be
+     * replaced by the review. The handlers are `main`'s telemetry-wrapped `choosePracticeAgain` /
+     * `chooseSeeAllSessions`, which emit `option_selected` before delegating. There is no fabricated
+     * verdict: `verdictLine` and `fix` stay null (#1422). Focus Points' next action is `Retry this set`,
+     * which lives with its points in the rail.
+     */
+    const afterReview = (
         <>
-            {/*
-                #1466 — THE PRACTICE LOOP IS THE PRIMARY RESULT, SO IT COMES FIRST.
-
-                It rendered after the whole shell, which stacks to one column on phones: last on every
-                breakpoint and last for keyboard and screen-reader users. The Product Owner had to scroll
-                past the transcript and secondary cards to reach it — and a failed review sat at the bottom
-                where nobody saw it. Placement is DOM order, not a scroll: loading, rendered and failed
-                states all occupy this one band, directly under the page's saved confirmation. Slot D keeps
-                its verdict and `Practice this again` (#1422 P1).
-            */}
             {practiceLoopReview && (
                 <div
                     ref={practiceLoopBandRef}
-                    className="mb-[14px]"
                     data-testid={isObjective ? 'focus-practice-loop-review' : 'open-mic-practice-loop-review'}
                 >
                     {practiceLoopReview}
                 </div>
             )}
+            {!isObjective && (
+                <div className={practiceLoopReview ? 'mt-4' : undefined}>
+                    <SessionVerdict verdictLine={null} fix={null} onPracticeAgain={choosePracticeAgain} onSeeAllSessions={chooseSeeAllSessions} />
+                </div>
+            )}
+        </>
+    );
+    // Slot D. Focus Points stacks its outcome above its points; Open Mic keeps its interim card until the
+    // during/after rail is rebuilt (S-10, Phase 5).
+    const afterRail = isObjective && (objectiveAfterSlotC || objectiveAfterSlotD)
+        ? <>{objectiveAfterSlotC}{objectiveAfterSlotD}</>
+        : <ComparableProgressNotice sessionState="after" />;
+
+    return (
+        <>
             <SessionAfterState
                 scrubber={{
                     playing: false,
@@ -869,18 +855,18 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     tokens: renderedReviewTokens,
                     // Honest copy: the app retains no audio (transcript-only review), so highlights mark
                     // where each point landed rather than being audio-seek targets.
-                    // §Duplication: the coverage FRACTION appears exactly once, in Slot C — never repeated
+                    // §Duplication: the coverage FRACTION appears exactly once, in the rail — never repeated
                     // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
                         ? (coverage && coverage.coveredQuotes.length > 0
-                            ? `${reviewWordCount} words · green marks where each point landed`
+                            ? `${reviewWordCount} words · highlights mark where each point landed`
                             : `${reviewWordCount} words`)
                         : `${reviewWordCount} words · orange marks fillers`,
                     stats: fillerStatsLine,
                     coverageMode: isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
                 }}
-                progress={progress}
-                slotCContent={isObjective ? objectiveAfterSlotC : <ComparableProgressNotice sessionState="after" />}
+                review={afterReview}
+                rail={afterRail}
                 finalizing={isFinalizing}
                 finalizeEstimateSeconds={finalizeEstimateSeconds}
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
@@ -890,39 +876,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     : undefined}
                 fillerFooter={isObjective
                     ? (coverage && coverage.coveredQuotes.length > 0
-                        ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
+                        ? <span data-testid="coverage-footer">Highlights show where each point landed.</span>
                         : null)
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
-                /**
-                 * #1422 — NO FABRICATED VERDICT. `aiSuggestions` is always `undefined` here because the
-                 * coaching prose this card carried is retired (#1306), and `verdictFromSuggestions` then
-                 * manufactured "Session review not requested." plus a filler-derived fix — rendered
-                 * directly ABOVE the real generated 1+1 review. The screen told the user no review had
-                 * been requested while showing them the review.
-                 *
-                 * The card keeps its ACTIONS, which are not coaching: `Practice this again` is the only
-                 * desktop control wired to start the next take.
-                 */
-                /*
-                 * INTEGRATION with #1421 (`main`): the handlers are `main`'s telemetry-wrapped
-                 * `choosePracticeAgain` / `chooseSeeAllSessions`, which emit `option_selected` BEFORE
-                 * delegating. Passing the raw `onStartStop` / `onSeeAllSessions`, as this branch did before
-                 * the integration, would silently drop the receipt recording WHICH option the user took.
-                 * #1422's change is the absent verdict, not the wiring.
-                 */
-                verdict={{ verdictLine: null, fix: null, onPracticeAgain: choosePracticeAgain, onSeeAllSessions: chooseSeeAllSessions }}
-                /**
-                 * #1422 P1 — AUGMENT slot D, never replace it.
-                 *
-                 * For Open Mic this passed `practiceLoopReview`, which is always an element once a session
-                 * completes — so it replaced the default `CoachingCard`/`SessionVerdict` rather than adding
-                 * to it, and took `Practice this again` with it. That button is the ONLY desktop control
-                 * wired to `onStartStop`; `MobileActionBar` is hidden at the `md` breakpoint, so a desktop
-                 * user finishing a session had no way to start another take from the completed screen at
-                 * all. Focus Points already did the right thing — its review renders BELOW the shell and
-                 * leaves slot D to the rail — so Open Mic now follows the same shape.
-                 */
-                slotDContent={isObjective ? objectiveAfterSlotD : undefined}
             />
             {/*
                 The delivery strip is gated on `coverage` (from #1423): with no retained authority there is

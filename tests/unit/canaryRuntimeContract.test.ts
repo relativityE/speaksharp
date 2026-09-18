@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { PAYLOAD_TRIPWIRE } from '../../scripts/human-test/payloadTripwire.mjs';
 import {
+    auditPayloads,
+    BLOCKING_PAYLOAD_CATEGORIES,
+} from '../../scripts/human-test/observer.mjs';
+import {
     canaryPathContainsEncodedAudio,
     canaryQueryContainsEncodedAudio,
     classifyCanaryStartResponse,
@@ -449,6 +453,74 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             expect(JSON.stringify(records)).not.toContain('CCCC');
             expect(JSON.stringify(records)).not.toContain('DDDD');
             expect(JSON.stringify(records)).not.toContain('-_');
+        } finally {
+            scope.fetch = originalFetch;
+            if (originalDocument === undefined) delete scope.document;
+            else scope.document = originalDocument;
+            delete scope.__SS_TRIPWIRE__;
+            delete scope.__SS_TRIPWIRE_EMIT__;
+        }
+    });
+
+    it('CASUALTY: generic nonempty multipart Blobs stay opaque and block at every destination', async () => {
+        type TripwireGlobal = typeof globalThis & {
+            __SS_TRIPWIRE__?: unknown[];
+            __SS_TRIPWIRE_EMIT__?: (record: Record<string, unknown>) => void;
+            document?: { documentElement?: { getAttribute?: (name: string) => string | null } };
+        };
+        const scope = globalThis as TripwireGlobal;
+        const originalFetch = scope.fetch;
+        const originalDocument = scope.document;
+        const records: Record<string, unknown>[] = [];
+
+        const formWithBlob = (type?: string, content = 'private-pcm-marker') => {
+            const form = new FormData();
+            form.append('file', new Blob([content], type === undefined ? undefined : { type }));
+            return form;
+        };
+
+        try {
+            delete scope.__SS_TRIPWIRE__;
+            scope.__SS_TRIPWIRE_EMIT__ = (record) => { records.push(record); };
+            scope.document = { documentElement: { getAttribute: () => 'RECORDING' } };
+            scope.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+
+            new Function(PAYLOAD_TRIPWIRE)();
+            await scope.fetch('https://speaksharp-public.vercel.app/api/upload', {
+                method: 'POST', body: formWithBlob(),
+            });
+            await scope.fetch('https://abcproject.supabase.co/functions/v1/proxy', {
+                method: 'POST', body: formWithBlob('application/octet-stream'),
+            });
+            await scope.fetch('https://vendor.example/upload', {
+                method: 'POST', body: formWithBlob('text/plain'),
+            });
+
+            const emptyBlobForm = new FormData();
+            emptyBlobForm.append('file', new Blob([]));
+            await scope.fetch('https://speaksharp-public.vercel.app/api/empty', {
+                method: 'POST', body: emptyBlobForm,
+            });
+            const stringOnlyForm = new FormData();
+            stringOnlyForm.append('event', 'session_saved');
+            await scope.fetch('https://speaksharp-public.vercel.app/api/form', {
+                method: 'POST', body: stringOnlyForm,
+            });
+
+            expect(records.map((record) => record.kind)).toEqual([
+                'blob', 'blob', 'blob', 'form', 'form',
+            ]);
+            const findings = auditPayloads(records.slice(0, 3), {
+                appOrigin: 'https://speaksharp-public.vercel.app',
+            });
+            expect(findings.map((finding) => finding.category)).toEqual([
+                'same_origin_binary_during_recording',
+                'unexplained_binary',
+                'unexplained_binary',
+            ]);
+            expect(findings.every((finding) => BLOCKING_PAYLOAD_CATEGORIES.includes(finding.category))).toBe(true);
+            expect(JSON.stringify(records)).not.toContain('private-pcm-marker');
+            expect(JSON.stringify(records)).not.toContain('file');
         } finally {
             scope.fetch = originalFetch;
             if (originalDocument === undefined) delete scope.document;

@@ -279,20 +279,26 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       };
     }
     if (typeof FormData !== 'undefined' && body instanceof FormData) {
-      let audio = false; let bytes = 0;
+      let audio = false; let opaqueBinary = false; let bytes = 0;
       try {
         for (const [key, v] of body.entries()) {
           const namedAudio = isAudioField(key);
           if (typeof Blob !== 'undefined' && v instanceof Blob) {
             bytes += v.size;
-            if ((namedAudio && v.size > 0) || /^(audio|video)\\//.test(v.type || '')) audio = true;
+            if (v.size > 0) {
+              if (namedAudio || /^(audio|video)\\//.test(v.type || '')) audio = true;
+              // Multipart is only a wrapper. A caller-controlled field name or MIME must not turn the
+              // same opaque Blob that fails closed on its own into benign \`form\` traffic. Keep the
+              // aggregate metadata-only: do not retain the field name, MIME, or value.
+              else opaqueBinary = true;
+            }
           } else if (typeof v === 'string') {
             bytes += v.length;
             if ((namedAudio && v.trim().length > 0) || isEncodedAudioText(v)) audio = true;
           }
         }
       } catch (e) { void e; }
-      return { kind: audio ? 'audio' : 'form', mime: 'multipart/form-data', bytes };
+      return { kind: audio ? 'audio' : opaqueBinary ? 'blob' : 'form', mime: 'multipart/form-data', bytes };
     }
     if (ArrayBuffer.isView(body)) {
       // Float32Array is what the capture pipeline holds: raw PCM. Any typed array leaving the page is

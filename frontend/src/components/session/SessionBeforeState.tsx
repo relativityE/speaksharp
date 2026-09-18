@@ -2,47 +2,32 @@ import React from 'react';
 import { SessionShell } from './SessionShell';
 import { MicCard, type MicCardProps } from './MicCard';
 import { TranscriptCard, type TranscriptCardProps } from './TranscriptCard';
-import { ProgressVsBaseline } from './ProgressVsBaseline';
 import { CoachingCard } from './CoachingCard';
-import type { PracticeFocus } from '@/constants/practiceFocus';
-import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 
 /**
- * #1222 — the **before** (Prepare) state composed through the fixed 4-slot shell (spec §3):
- *   A = mic card · B = transcript + prompt offer · C = Slot C card · D = coaching / points rail.
+ * The **before** state on the shared slot map (Design Correction Brief S-1…S-7, F-1…F-6):
+ *   A = mic card · B = one line of live coaching, on ink · C = transcript with the prompt pair · D = rail.
  *
- * #1255 — the fixed-slot contract applies to Focus Points before/during/after just as to Open Mic: Slot C is
- * always present. Open Mic before shows Progress vs baseline (default); Focus Points before supplies its own
- * `slotCContent` (the guide-only Coverage & pace card).
+ * The page's only job here is to get the user talking (S-4), so it asks for at most one decision — the
+ * prompt pair inside the transcript's empty state. The rail is supplied by the container because its
+ * content is product-specific: Open Mic states its baseline in one plain line, Focus Points states its
+ * plan and its points.
  *
- * Presentational only: every interaction is a prop the container (a later integration slice) wires to
- * `useSessionLifecycle`. Keeping the composition here lets the whole before-state render + be tested
- * without the app's live audio/store machinery.
+ * Presentational only: every interaction is a prop the container wires.
  */
 export interface SessionBeforeStateProps {
     mic: MicCardProps;
     transcript: Omit<TranscriptCardProps, 'children'>;
-    progress: ProgressVsBaselineResult;
-    /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
-    progressMode?: 'filler' | 'aggregate';
-    /** #1222 S8 — Focus Points swaps slot D (coaching → capture step); defaults to the coaching card. */
-    slotDContent?: React.ReactNode;
-    /** #1264 — optional Open Mic Practice Focus + its setter (Open Mic only; drives the before chooser). */
-    practiceFocus?: PracticeFocus | null;
-    onSelectFocus?: (focus: PracticeFocus) => void;
-    /** #1222/#1255 — Slot C content; defaults to Progress vs baseline (Open Mic). Focus Points passes its
-     *  guide-only Coverage & pace card here. Slot C is never omitted. */
-    slotCContent?: React.ReactNode;
+    /** Slot D content. */
+    rail: React.ReactNode;
 }
 
-export const SessionBeforeState: React.FC<SessionBeforeStateProps> = ({ mic, transcript, progress, progressMode, slotDContent, slotCContent, practiceFocus, onSelectFocus }) => {
-    return (
-        <SessionShell
-            sessionState="before"
-            slotA={<MicCard {...mic} />}
-            slotB={<TranscriptCard {...transcript} />}
-            slotC={slotCContent ?? <ProgressVsBaseline result={progress} sessionState="before" mode={progressMode} />}
-            slotD={slotDContent ?? <CoachingCard sessionState="before" practiceFocus={practiceFocus} onSelectFocus={onSelectFocus} />}
-        />
-    );
-};
+export const SessionBeforeState: React.FC<SessionBeforeStateProps> = ({ mic, transcript, rail }) => (
+    <SessionShell
+        sessionState="before"
+        slotA={<MicCard {...mic} />}
+        slotB={<CoachingCard sessionState="before" />}
+        slotC={<TranscriptCard {...transcript} />}
+        slotD={rail}
+    />
+);

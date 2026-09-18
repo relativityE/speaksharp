@@ -1,15 +1,36 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { resolveCheckoutCredentials } from '../helpers/checkoutCredentials';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
-const TEST_EMAIL = process.env.CHECKOUT_TEST_EMAIL ?? process.env.FREE_TEST_EMAIL ?? process.env.E2E_FREE_EMAIL ?? process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
-const TEST_PASSWORD = process.env.CHECKOUT_TEST_PASSWORD ?? process.env.FREE_TEST_PASSWORD ?? process.env.E2E_FREE_PASSWORD ?? process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
+
+/**
+ * #1492 — the identity comes from the dedicated checkout pair or this proof fails.
+ *
+ * The previous two independent `??` chains could substitute the Free or Pro reviewer for either half
+ * separately, so this gate could run as the wrong role or assemble a mixed pair, and a missing
+ * credential SKIPPED it — a release gate reporting green having proven nothing. See
+ * `tests/helpers/checkoutCredentials.ts` for why a credential is treated as one atomic pair.
+ *
+ * The remaining `test.skip` covers Supabase CONFIGURATION only, not credentials, and is left as-is
+ * because PM bounded this pass to the credential pair. It is a known remaining skip, not an oversight.
+ */
+const CHECKOUT_CREDENTIALS = resolveCheckoutCredentials();
 
 test('deployed Stripe checkout can create a hosted checkout session', async () => {
   test.skip(
-    !SUPABASE_URL || !SUPABASE_ANON_KEY || !TEST_EMAIL || !TEST_PASSWORD,
-    'SUPABASE_URL, SUPABASE_ANON_KEY, and checkout/free test credentials are required for Stripe checkout readiness.'
+    !SUPABASE_URL || !SUPABASE_ANON_KEY,
+    'SUPABASE_URL and SUPABASE_ANON_KEY are required to reach the deployed project.'
   );
+
+  // Fail closed, never skip: an absent checkout identity is a configuration defect this gate must report.
+  expect(
+    CHECKOUT_CREDENTIALS.ok,
+    CHECKOUT_CREDENTIALS.ok ? '' : CHECKOUT_CREDENTIALS.reason,
+  ).toBe(true);
+  if (!CHECKOUT_CREDENTIALS.ok) return;
+  const TEST_EMAIL = CHECKOUT_CREDENTIALS.email;
+  const TEST_PASSWORD = CHECKOUT_CREDENTIALS.password;
 
   const authContext = await playwrightRequest.newContext({ baseURL: SUPABASE_URL });
   const functionContext = await playwrightRequest.newContext({ baseURL: SUPABASE_URL });

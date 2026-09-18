@@ -4,17 +4,15 @@ import { RecorderBar, type RecorderBarProps } from './RecorderBar';
 import { TranscriptCard } from './TranscriptCard';
 import { LiveTranscript, type TranscriptToken } from './LiveTranscript';
 import { formatLiveMeta } from '@/utils/sessionFormat';
-import { ProgressVsBaseline } from './ProgressVsBaseline';
 import { CoachingCard } from './CoachingCard';
-import type { PracticeFocus } from '@/constants/practiceFocus';
-import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 
 /**
- * #1222 — the **during** (Rehearse) state through the same fixed shell (spec §4):
- *   A = recorder bar (the mic card collapsed) · B = live transcript · C = progress, live · D = one tip.
+ * The **during** state on the shared slot map (Design Correction Brief G1):
+ *   A = recorder bar (the mic card collapsed) · B = one live tip (Open Mic) or the coverage nudge
+ *   (Focus Points), on ink · C = live transcript · D = rail.
  *
- * Same slots, same positions as `before` — only the content and sizes change. The live tip node (slot D)
- * and its 8s-hold behaviour are owned by S5; here slot D accepts a `liveTip` node.
+ * Same slots, same positions as `before` — only the content and sizes change. The tip's 8-second hold is
+ * owned upstream; this state only places what it is given.
  */
 export interface SessionDuringStateProps {
     recorder: RecorderBarProps;
@@ -41,25 +39,22 @@ export interface SessionDuringStateProps {
         showReopenChip?: boolean;
         onReopenPin?: () => void;
     };
-    progress: ProgressVsBaselineResult;
-    /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
-    progressMode?: 'filler' | 'aggregate';
+    /** Slot D content. */
+    rail: React.ReactNode;
+    /** Slot B, Open Mic: the current live tip. */
     liveTip?: React.ReactNode;
-    /** #1222 S8 — Focus Points swaps slot D (coaching → coverage rail); defaults to the coaching card. */
-    slotDContent?: React.ReactNode;
-    /** #1264 — the chosen Open Mic Practice Focus, shown as a non-scoring reminder while recording. */
-    practiceFocus?: PracticeFocus | null;
-    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → Coverage & pace). */
-    slotCContent?: React.ReactNode;
+    /** Slot B, Focus Points: the coverage nudge, or null while silent. */
+    nudge?: string | null;
 }
 
-export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, progress, progressMode, liveTip, slotDContent, slotCContent, practiceFocus }) => {
+export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, rail, liveTip, nudge }) => {
     const isSample = transcript.promptKind === 'sample';
     return (
         <SessionShell
             sessionState="during"
             slotA={<RecorderBar {...recorder} />}
-            slotB={
+            slotB={<CoachingCard sessionState="during" liveTip={liveTip} nudge={nudge} />}
+            slotC={
                 <TranscriptCard
                     // Offer handlers are inert while recording — the offer never shows once content exists.
                     offerDismissed
@@ -122,8 +117,7 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                     <LiveTranscript tokens={transcript.tokens} coverageMode={transcript.coverageMode} />
                 </TranscriptCard>
             }
-            slotC={slotCContent ?? <ProgressVsBaseline result={progress} sessionState="during" mode={progressMode} />}
-            slotD={slotDContent ?? <CoachingCard sessionState="during" liveTip={liveTip} practiceFocus={practiceFocus} />}
+            slotD={rail}
         />
     );
 };

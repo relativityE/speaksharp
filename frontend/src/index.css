@@ -165,6 +165,32 @@ All colors MUST be HSL.
     --brand-focus-strong: #5b21b6;
     --brand-focus-ground: #f5f0ff;
     --brand-focus-border: #e6dcfb;
+
+    /* Filler-word identity series (#1480 follow-up). Two categorical series, not semantic roles: a filler word
+       gets a stable colour from a deterministic hash so the same word reads the same everywhere. They are NOT
+       interchangeable — the `series` set is saturated for word TEXT, the `fill` set is pastel for data FILLS —
+       and the values are carried over unchanged from the two hardcoded arrays they replace, so nothing on
+       screen moves. They live here because this file is the one token authority; a categorical series still
+       belongs to the authority even though it carries no single semantic meaning. */
+    --brand-filler-series-1: #f87171;
+    --brand-filler-series-2: #fb923c;
+    --brand-filler-series-3: #facc15;
+    --brand-filler-series-4: #65a30d;
+    --brand-filler-series-5: #15803d;
+    --brand-filler-series-6: #047857;
+    --brand-filler-series-7: #22d3ee;
+    --brand-filler-series-8: #60a5fa;
+    --brand-filler-series-9: #818cf8;
+    --brand-filler-series-10: #a78bfa;
+    --brand-filler-series-11: #e879f9;
+    --brand-filler-series-12: #fb7185;
+    --brand-filler-fill-1: #bfdbfe;
+    --brand-filler-fill-2: #fca5a5;
+    --brand-filler-fill-3: #fde68a;
+    --brand-filler-fill-4: #86efac;
+    --brand-filler-fill-5: #fdba74;
+    --brand-filler-fill-6: #c4b5fd;
+    --brand-filler-fill-7: #6ee7b7;
     --shadow-session-help: 0 6px 16px -6px rgba(28, 35, 51, 0.45), 0 2px 5px -2px rgba(28, 35, 51, 0.32);
   }
 

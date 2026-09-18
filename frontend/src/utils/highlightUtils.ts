@@ -8,23 +8,32 @@ export interface HighlightToken {
 }
 
 /**
- * HSL token palette for deterministic assignment.
- * Optimized for dark mode readability.
+ * The filler-word identity series, read from the token authority rather than hardcoded here.
+ *
+ * These are categorical, not semantic: a filler word gets a stable colour from a deterministic hash so the
+ * same word reads the same everywhere it appears. The twelve values are unchanged — they now live once in
+ * `index.css` as `--brand-filler-series-*`, so the palette has a single owner and the theme can move without
+ * editing this module. Each entry is a `var()` reference, valid anywhere a CSS colour is accepted.
  */
-const COLOR_PALETTE = [
-    '#F87171', // Red 400
-    '#FB923C', // Orange 400
-    '#FACC15', // Yellow 400
-    '#65A30D', // Lime 600
-    '#15803D', // Green 700
-    '#047857', // Emerald 700
-    '#22D3EE', // Cyan 400
-    '#60A5FA', // Blue 400
-    '#818CF8', // Indigo 400
-    '#A78BFA', // Violet 400
-    '#E879F9', // Fuchsia 400
-    '#FB7185', // Rose 400
-];
+const COLOR_PALETTE = Array.from({ length: 12 }, (_, i) => `var(--brand-filler-series-${i + 1})`);
+
+/**
+ * #1487 P2 — the translucent wash behind a highlighted filler word.
+ *
+ * The palette moved from raw hex to `var(--brand-filler-series-*)`, and the caller used to build its
+ * background by appending a two-digit hex alpha: `` `${color}15` ``. Against a hex that produced a valid
+ * 8-digit colour; against a variable it produces `var(--brand-filler-series-1)15`, which is not a colour.
+ * The browser discards the whole declaration without error, so the wash disappeared and only the text
+ * colour and border survived — a silent visual regression the type system cannot catch, because both
+ * versions are strings.
+ *
+ * `color-mix` is the composable form: it takes the variable unresolved and applies the alpha in CSS.
+ * `0x15` is 21, and 21/255 is 8.2%, so 8% reproduces the previous wash.
+ */
+export const FILLER_HIGHLIGHT_ALPHA_PERCENT = 8;
+
+export const fillerHighlightBackground = (color: string): string =>
+  `color-mix(in srgb, ${color} ${FILLER_HIGHLIGHT_ALPHA_PERCENT}%, transparent)`;
 
 const WORD_COLOR_CACHE = new Map<string, string>();
 const MAX_WORD_COLOR_CACHE_SIZE = 200;

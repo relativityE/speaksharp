@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import {
   MIN_COMPARABLE_SECONDS as MIN_AGG,
@@ -9,26 +9,40 @@ import {
   SILENCE_IDEAL,
   SILENCE_TOLERANCE,
 } from '../../frontend/src/utils/aggregateProgress';
-import { MIN_COMPARABLE_SECONDS as MIN_BASE } from '../../frontend/src/utils/progressVsBaseline';
 import { ANALYTICS_THRESHOLDS } from '../../frontend/src/utils/sessionAnalysis';
-import * as progressUtils from '../../frontend/src/utils/progressVsBaseline';
 
 /**
  * #1265 — the Progress metric definitions must be consistent across surfaces. The comparability floor and
- * the quality-mapping tunables are the single source of truth in aggregateProgress; progressVsBaseline
- * re-exports the floor. The definition matrix in PROGRESS_AND_NEXT_ACTION.md §5a must not drift from those
- * constants. This test ties the doc to the code so a change to one without the other fails CI.
+ * the quality-mapping tunables are the single source of truth in aggregateProgress. The definition matrix
+ * in PROGRESS_AND_NEXT_ACTION.md §5a must not drift from those constants. This test ties the doc to the
+ * code so a change to one without the other fails CI.
+ *
+ * The client-side progress-vs-baseline module and its card were removed with the session redesign (no
+ * surface rendered them: the saved review is the single progress authority), so the floor now has exactly
+ * one definition, and the guards below assert that directly rather than comparing two copies.
  */
+const SRC = path.resolve(__dirname, '../../frontend/src');
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const full = path.join(dir, name);
+    if (statSync(full).isDirectory()) return name === '__tests__' ? [] : sourceFiles(full);
+    return /\.(tsx?|jsx?)$/.test(name) ? [full] : [];
+  });
+}
+const PRODUCTION_SOURCES = sourceFiles(SRC).map((file) => ({ file, text: readFileSync(file, 'utf8') }));
+
 const DOC = readFileSync(
   path.resolve(__dirname, '../../product_release/PROGRESS_AND_NEXT_ACTION.md'),
   'utf8',
 );
 
 describe('#1265 — Progress metric definitions are a single, consistent source', () => {
-  it('the comparability floor is defined ONCE and shared (no drift between surfaces)', () => {
+  it('the comparability floor is defined ONCE (no second surface can drift from it)', () => {
     expect(MIN_AGG).toBe(30);
-    // progressVsBaseline must expose the SAME value it re-exports from aggregateProgress.
-    expect(MIN_BASE).toBe(MIN_AGG);
+    const definitions = PRODUCTION_SOURCES
+      .filter(({ text }) => /\bMIN_COMPARABLE_SECONDS\s*=/.test(text))
+      .map(({ file }) => path.relative(SRC, file));
+    expect(definitions).toEqual(['utils/aggregateProgress.ts']);
   });
 
   it('the definition matrix documents the exact code constants (doc↔code drift guard)', () => {
@@ -86,11 +100,11 @@ describe('#1265 — Progress metric definitions are a single, consistent source'
   // never selecting it as an Open-Mic comparable reference — is a SERVER-side responsibility
   // (loadSessionProgress only READS server-persisted references). #1280 does NOT assert server-side mode
   // isolation; it removes the client mode-blind path only.
-  it('the launch authority exposes NO mode-blind session→comparison mapper', () => {
-    expect((progressUtils as Record<string, unknown>).progressInputsFromSessions).toBeUndefined();
-    expect((progressUtils as Record<string, unknown>).progressFromSessionHistory).toBeUndefined();
-    const src = readFileSync(path.resolve(__dirname, '../../frontend/src/utils/sessionAnalysis.ts'), 'utf8');
-    // No live import path references the removed mapper (a stale comment would be a re-introduction risk).
-    expect(src).not.toContain('progressInputsFromSessions');
+  it('the launch authority exposes NO mode-blind session→comparison mapper, anywhere', () => {
+    // Its former home is gone entirely; no production source may reintroduce either name.
+    const offenders = PRODUCTION_SOURCES
+      .filter(({ text }) => /progressInputsFromSessions|progressFromSessionHistory/.test(text))
+      .map(({ file }) => path.relative(SRC, file));
+    expect(offenders).toEqual([]);
   });
 });

@@ -82,8 +82,9 @@ const BASELINE_RETIRED_FOCUS_VIOLET: Record<string, number> = {
 
 // Includes the Designer-ruling values added on 15 Sep (record, progress bar, regression, error/success states,
 // session surface, clarity), recounted on the same `main@8e638c84` tree.
+// Empty: no file outside the authority copies a role value. Both filler series moved to named tokens
+// (#1480 follow-up), which retired the last entry here.
 const BASELINE_ROLE_LITERALS: Record<string, number> = {
-    'frontend/src/utils/fillerWordUtils.ts': 1,
 };
 
 // Any raw hex literal. Six digits anywhere; three digits only after a quote, bracket, paren or colon, so issue
@@ -115,9 +116,7 @@ const BASELINE_RAW_HEX: Record<string, number> = {
     'frontend/src/utils/__tests__/fillerWordUtils.test.ts': 1,
     'frontend/src/utils/__tests__/finalizedSessionAnalysis.test.ts': 1,
     'frontend/src/utils/__tests__/sessionAnalysis.test.ts': 1,
-    'frontend/src/utils/fillerWordUtils.ts': 1,
     'frontend/src/utils/finalizedSessionAnalysis.ts': 2,
-    'frontend/src/utils/highlightUtils.ts': 12,
 };
 
 const BASELINE_PALETTE_UTILITY: Record<string, number> = {

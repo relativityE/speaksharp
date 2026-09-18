@@ -113,7 +113,7 @@ Every excluded session records a deterministic exclusion reason (`too_short`, `t
 
 ## 5a. Metric definition matrix (#1265)
 
-Every displayed and persisted delivery metric has **one** definition, shared across session review, telemetry, stored data, Progress, and the PDF. The comparability floor and the quality-mapping tunables live in code as the single source of truth (`frontend/src/utils/aggregateProgress.ts`), and `frontend/src/utils/progressVsBaseline.ts` re-exports the floor rather than redefining it. `tests/config/progress-metric-consistency.test.ts` fails if this table drifts from those constants.
+Every displayed and persisted delivery metric has **one** definition, shared across session review, telemetry, stored data, Progress, and the PDF. The comparability floor and the quality-mapping tunables live in code as the single source of truth (`frontend/src/utils/aggregateProgress.ts`), and nothing else in the client defines the floor. `tests/config/progress-metric-consistency.test.ts` fails if this table drifts from those constants or a second definition appears.
 
 | Metric | Unit | Quality mapping (0..1) | Direction | Code constant |
 |---|---|---|---|---|
@@ -258,7 +258,9 @@ Pause rhythm (insufficient measured coverage), message structure and punctuation
 
 - **Personal Progress is built, wired and user-reachable.** Entry `/session` → `SessionPage` →
   `SessionOverhaulView` → `ProgressVsBaseline` in slot C of the before/during/after states. No feature flag and no
-  entitlement gate on that path. Eligibility: `durationSeconds >= 30` **and** a non-null composite quality
+  entitlement gate on that path. *(Superseded 2026-09-17: the live session shell computes no client-side progress
+  and renders no progress card — the saved review is the single progress authority. The unused
+  `ProgressVsBaseline` card and its module were removed with the session slot-map redesign.)* Eligibility: `durationSeconds >= 30` **and** a non-null composite quality
   (`utils/aggregateProgress.ts`). Any remaining "unbuilt" assertion elsewhere is stale.
 - **The next action is persisted but the outcome loop is not closed.** `sessions.next_action_signal` stores the
   prior recommendation, and `AnalyticsDashboard` renders it. Attempt evidence, comparable-session eligibility,

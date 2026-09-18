@@ -1,31 +1,45 @@
-import { render, screen, fireEvent } from '../../../../tests/support/test-utils';
+import { render, screen, fireEvent, within } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import { SessionDuringState } from '../SessionDuringState';
 import { SessionBeforeState } from '../SessionBeforeState';
-import { computeProgressVsBaseline } from '@/utils/progressVsBaseline';
-
-const progress = computeProgressVsBaseline([
-    { fillerCount: 34, durationSeconds: 600 },
-    { fillerCount: 26, durationSeconds: 600 },
-]);
 
 const duringProps = {
     recorder: { elapsedSeconds: 72, amplitudes: [0.5, 0.7, 0.4], recordedCount: 2, onStop: vi.fn() },
     transcript: { tokens: [{ text: 'So' }, { text: 'um', filler: true }], words: 184, fillersPerMin: 2.6 },
-    progress,
+    rail: <div data-testid="rail-content">rail</div>,
 };
 
-describe('SessionDuringState (#1222 during)', () => {
-    it('maps the recorder bar, live transcript, live progress and coaching into the four slots', () => {
+describe('SessionDuringState — the shared slot map', () => {
+    it('maps recorder, coaching, live transcript and rail into A, B, C, D', () => {
         render(<SessionDuringState {...duringProps} liveTip={<span data-testid="tip">Pause instead of um</span>} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
         expect(screen.getByTestId('session-slot-a')).toContainElement(screen.getByTestId('recorder-bar'));
-        expect(screen.getByTestId('session-slot-b')).toContainElement(screen.getByTestId('live-transcript'));
-        expect(screen.getByTestId('session-slot-c')).toContainElement(screen.getByTestId('progress-vs-baseline'));
-        expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('tip'));
+        expect(screen.getByTestId('session-slot-b')).toContainElement(screen.getByTestId('tip'));
+        expect(screen.getByTestId('session-slot-c')).toContainElement(screen.getByTestId('live-transcript'));
+        expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('rail-content'));
     });
 
-    it('slot B header carries live counts and the "not scored until you stop" note', () => {
+    it('F-1: a Focus Points nudge renders in slot B, on ink, where Open Mic coaches', () => {
+        render(<SessionDuringState {...duringProps} nudge="Good moment to bring in point 3." />);
+        const b = screen.getByTestId('session-slot-b');
+        const nudge = within(b).getByTestId('coverage-pace-nudge');
+        expect(nudge).toHaveTextContent('Good moment to bring in point 3.');
+        expect(nudge).toHaveClass('text-ink-text');
+        expect(within(screen.getByTestId('session-slot-d')).queryByTestId('coverage-pace-nudge')).toBeNull();
+    });
+
+    it('a silent band keeps its resting line rather than emptying, so nothing below it moves', () => {
+        render(<SessionDuringState {...duringProps} nudge={null} />);
+        expect(within(screen.getByTestId('session-slot-b')).getByText('Tips appear as you speak.')).toBeInTheDocument();
+    });
+
+    it('never shows a tip and a nudge together — the tip wins', () => {
+        render(<SessionDuringState {...duringProps} liveTip={<span data-testid="tip">tip</span>} nudge="a nudge" />);
+        expect(screen.getByTestId('tip')).toBeInTheDocument();
+        expect(screen.queryByTestId('coverage-pace-nudge')).toBeNull();
+    });
+
+    it('the transcript header carries live counts and the "not scored until you stop" note', () => {
         render(<SessionDuringState {...duringProps} />);
         expect(screen.getByTestId('transcript-header-meta')).toHaveTextContent('184 words · 2.6 fillers/min');
         expect(screen.getByTestId('transcript-footer')).toHaveTextContent(/Nothing is scored until you stop/);
@@ -33,15 +47,15 @@ describe('SessionDuringState (#1222 during)', () => {
 });
 
 // The governing rule at composition level: the four slots keep identity + order from before → during.
-describe('before → during (#1222 §1 — slots never move)', () => {
+describe('before → during (G1 — slots never move)', () => {
     it('keeps slot order A,B,C,D across the state change', () => {
         const beforeProps = {
             mic: { onStart: vi.fn() },
             transcript: {
                 offerDismissed: false,
-                onDismissOffer: vi.fn(), onRestoreOffer: vi.fn(), onTakePrompt: vi.fn(), onReadSample: vi.fn(),
+                onRestoreOffer: vi.fn(), onTakePrompt: vi.fn(), onReadSample: vi.fn(),
             },
-            progress,
+            rail: <div>rail</div>,
         };
         const { rerender } = render(<SessionBeforeState {...beforeProps} />);
         const order = () => screen.getAllByTestId(/^session-slot-/).map((el) => el.getAttribute('data-slot'));

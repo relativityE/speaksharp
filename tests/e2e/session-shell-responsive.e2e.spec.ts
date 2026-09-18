@@ -10,23 +10,22 @@ import {
 } from './helpers';
 
 /**
- * #1255 / PR #1270 — the responsive SessionShell proof.
+ * The session slot map in a real browser — Design Correction Brief G1 / S-1 / S-2 / F-1, acceptance checks
+ * #1 (slot geometry), #4 and #6 (slot B is exact ink), #35 (no overflow).
  *
- * The shell was a FIXED two-column grid at every width, which crushed the transcript and coaching side by
- * side on phones. It is now ONE stacked column below the `md` breakpoint and the 1.55fr/1fr two-column
- * grid from `md` up. This journey proves, in a real browser, that:
+ *     A  full width — recorder
+ *     B  full width, INK — coaching → Practice Loop review
+ *     C (flex 1) | D (310px) — transcript | rail
  *
- *   - no state at any supported width scrolls horizontally (320/375/390 phones, 1024/1280/1440 desktop);
- *   - on phones the four slots stack in reading order mic → transcript → progress → coaching, and the
- *     transcript uses the readable full width (not a crushed 1fr column);
- *   - on desktop the rail sits BESIDE the left column (two-column), not below it.
+ * jsdom cannot lay anything out, so this is where the map is actually proven:
+ *   - A and B each span the shell's full content width, in every state, at 1024/1280/1440;
+ *   - the two-column row starts BELOW B — C and D sit side by side, D is the 310px rail;
+ *   - on phones the four slots stack A → B → C → D and the transcript keeps a readable width;
+ *   - slot B computes to exactly rgb(28, 35, 51), flat, in every state;
+ *   - no state scrolls horizontally at 320/375/390/1024/1280/1440.
  *
- * The Open Mic (freeform) session renders all four slots, so it is the right journey to assert the full
- * mic → transcript → progress → coaching order.
- *
- * #1255 — the fixed-slot contract has no per-product exception: Focus Points renders Slot C in the before-
- * state too (the guide-only Coverage & pace card), not just during/after. The second test below proves the
- * Focus Points before-state carries `coverage-pace` in Slot C and stays responsive at every width.
+ * Open Mic renders all four slots, so it carries the full journey. Focus Points uses the same shell; its test
+ * proves the same geometry and that its rail holds the plan — not a `0/N` score — before a run (F-2).
  */
 
 const PHONE_WIDTHS = [320, 375, 390] as const;
@@ -89,46 +88,57 @@ async function assertNoHorizontalOverflow(page: Page, label: string) {
   ).toBeLessThanOrEqual(1);
 }
 
-/** Sweep every supported width in the current state and assert no width overflows. */
-async function sweepNoOverflow(page: Page, state: string) {
-  for (const w of ALL_WIDTHS) {
-    await settleViewport(page, w);
-    await assertNoHorizontalOverflow(page, `${state}@${w}`);
-  }
-}
+const INK = 'rgb(28, 35, 51)';
 
 /**
- * The layout contract at one width, in the before-state where all four slots are present and stable.
- * Phones: stacked in reading order, transcript full-width. Desktop: rail beside the left column.
+ * The slot-map contract at one width, in whatever state the page is in.
+ * Phones: stacked A → B → C → D. From md: A and B full width, then C beside a 310px D.
  */
-async function assertLayout(page: Page, w: number) {
+async function assertSlotMap(page: Page, w: number, state: string) {
   await settleViewport(page, w);
-  await assertNoHorizontalOverflow(page, `before@${w}`);
+  await assertNoHorizontalOverflow(page, `${state}@${w}`);
 
-  const a = await page.getByTestId('session-slot-a').boundingBox(); // mic
-  const b = await page.getByTestId('session-slot-b').boundingBox(); // transcript
-  const c = await page.getByTestId('session-slot-c').boundingBox(); // progress
-  const d = await page.getByTestId('session-slot-d').boundingBox(); // coaching
-  expect(a && b && c && d, `all four slots present at ${w}`).toBeTruthy();
+  const shell = await page.getByTestId('session-shell').boundingBox();
+  const a = await page.getByTestId('session-slot-a').boundingBox(); // recorder
+  const b = await page.getByTestId('session-slot-b').boundingBox(); // coaching, ink
+  const c = await page.getByTestId('session-slot-c').boundingBox(); // transcript
+  const d = await page.getByTestId('session-slot-d').boundingBox(); // rail
+  expect(shell && a && b && c && d, `shell and all four slots present in ${state}@${w}`).toBeTruthy();
+
+  // Checks #4 / #6 — slot B is flat ink in every state; if it looks blue it is wrong.
+  const ground = await page.getByTestId('session-slot-b').evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { color: cs.backgroundColor, image: cs.backgroundImage, opacity: cs.opacity };
+  });
+  expect(ground.color, `slot B ink in ${state}@${w}`).toBe(INK);
+  expect(ground.image, `slot B has no gradient in ${state}@${w}`).toBe('none');
+  expect(ground.opacity, `slot B is opaque in ${state}@${w}`).toBe('1');
+
+  // A and B are full-width blocks at every width, and B sits directly under A.
+  expect(Math.abs(a!.width - shell!.width), `A full width in ${state}@${w}`).toBeLessThanOrEqual(2);
+  expect(Math.abs(b!.width - shell!.width), `B full width in ${state}@${w}`).toBeLessThanOrEqual(2);
+  expect(b!.y, `B below A in ${state}@${w}`).toBeGreaterThanOrEqual(a!.y + a!.height - 1);
+  // The row — whichever way it is laid out — starts below B.
+  expect(c!.y, `C below B in ${state}@${w}`).toBeGreaterThanOrEqual(b!.y + b!.height - 1);
+  expect(d!.y, `D below B in ${state}@${w}`).toBeGreaterThanOrEqual(b!.y + b!.height - 1);
 
   if (w < MD_BREAKPOINT) {
-    // Stacked: strict top-to-bottom reading order mic → transcript → progress → coaching.
-    expect(a!.y, `mic above transcript @${w}`).toBeLessThan(b!.y);
-    expect(b!.y, `transcript above progress @${w}`).toBeLessThan(c!.y);
-    expect(c!.y, `progress above coaching @${w}`).toBeLessThan(d!.y);
-    // Single column: the rail shares the left column's left edge (full-width, not indented).
-    expect(Math.abs(c!.x - a!.x), `rail shares left edge @${w}`).toBeLessThanOrEqual(2);
-    // Transcript uses the readable full width, not a crushed fraction of it.
-    expect(b!.width, `transcript full-width @${w}`).toBeGreaterThan(w * 0.8);
+    // Stacked: C then D, sharing the left edge; the transcript keeps a readable width.
+    expect(d!.y, `D below C in ${state}@${w}`).toBeGreaterThanOrEqual(c!.y + c!.height - 1);
+    expect(Math.abs(d!.x - a!.x), `D shares the left edge in ${state}@${w}`).toBeLessThanOrEqual(2);
+    expect(c!.width, `transcript full-width in ${state}@${w}`).toBeGreaterThan(w * 0.8);
   } else {
-    // Two-column: the rail begins at/after the left column's right edge and sits beside it (same row).
-    expect(c!.x, `rail right of left column @${w}`).toBeGreaterThan(b!.x + b!.width - 2);
-    expect(Math.abs(c!.y - a!.y), `rail beside left column @${w}`).toBeLessThan(60);
+    // Two columns under B: C starts at the left edge, D is the 310px rail beside it, both on one row.
+    expect(Math.abs(c!.x - a!.x), `C at the left edge in ${state}@${w}`).toBeLessThanOrEqual(2);
+    expect(Math.abs(d!.width - 310), `D is the 310px rail in ${state}@${w}`).toBeLessThanOrEqual(1);
+    expect(d!.x, `D right of C in ${state}@${w}`).toBeGreaterThan(c!.x + c!.width - 2);
+    expect(Math.abs(d!.y - c!.y), `C and D share a row in ${state}@${w}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(d!.x + d!.width - (a!.x + a!.width)), `D ends at A's right edge in ${state}@${w}`).toBeLessThanOrEqual(2);
   }
 }
 
-test.describe('#1255 — SessionShell is responsive across phone and desktop widths', () => {
-  test('before/during/after: no overflow at 320/375/390 + 1024/1280/1440, correct stack order', async ({ page }) => {
+test.describe('G1 — the session slot map holds in a real browser', () => {
+  test('Open Mic before/during/after: slot map and no overflow at every supported width', async ({ page }) => {
     test.setTimeout(120_000);
     mkdirSync(DIR, { recursive: true });
 
@@ -140,7 +150,7 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     await expect(page.getByTestId('mic-start')).toBeVisible();
     await expect(page.locator('[data-testid="session-shell"][data-session-state="before"]')).toBeVisible();
     for (const w of ALL_WIDTHS) {
-      await assertLayout(page, w);
+      await assertSlotMap(page, w, 'before');
     }
     await settleViewport(page, 375);
     await page.screenshot({ path: `${DIR}/before-phone-375.png`, fullPage: true });
@@ -152,7 +162,9 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     await startRecording(page);
     await simulateTranscription(page, 'mobile session transcript stays readable while stacked on a phone', true);
     await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
-    await sweepNoOverflow(page, 'during');
+    for (const w of ALL_WIDTHS) {
+      await assertSlotMap(page, w, 'during');
+    }
 
     // ---- AFTER ---- save, settle, then re-sweep every width.
     await settleViewport(page, 375);
@@ -160,7 +172,9 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
     await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
-    await sweepNoOverflow(page, 'after');
+    for (const w of ALL_WIDTHS) {
+      await assertSlotMap(page, w, 'after');
+    }
 
     // #1255 RETURN — the waveform must not be CLIPPED at 320px (the earlier overflow:hidden fix hid the
     // rightmost bars, which can carry a late filler marker). At the narrowest phone, assert the whole
@@ -179,10 +193,9 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     expect(last!.x + last!.width, 'last bar within track (right)').toBeLessThanOrEqual(track!.x + track!.width + 1);
   });
 
-  // #1255 — Focus Points before-state now fills the SAME fixed Slot C as Open Mic (the guide-only Coverage &
-  // pace card), not a per-product gap. Prove it renders in Slot C, stacks in reading order on phones, sits
-  // beside the left column on desktop, and never overflows — at every supported width.
-  test('Focus Points before: Slot C renders coverage-pace, responsive at 320/375/390 + 1024/1280/1440', async ({ page }) => {
+  // F-1 / F-2 — Focus Points on the SAME map: its coaching band exists in slot B, and its rail states the
+  // plan rather than a zero score before the run.
+  test('Focus Points before: slot map holds and the rail states the plan, not 0/N', async ({ page }) => {
     test.setTimeout(120_000);
     mkdirSync(DIR, { recursive: true });
 
@@ -190,7 +203,6 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     await settleViewport(page, 375);
     await navigateToRoute(page, '/practice');
 
-    // Enter a genuine Focus Points before-state (the plan rail proves it is objective, not Open Mic).
     await page.getByTestId('practice-card-objective').click();
     await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
     await page.getByTestId('objective-goal-select').selectOption('Sales or product pitch');
@@ -199,20 +211,25 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     await page.getByTestId('objective-setup-submit').click();
     await page.waitForURL('**/session');
     await expect(page.locator('[data-testid="session-shell"][data-session-state="before"]')).toBeVisible();
-    await expect(page.getByTestId('focus-points-rail')).toBeVisible();
 
-    // The core #1255 contract: Slot C is PRESENT in the before-state and holds the Coverage & pace card
-    // (guide-only — no measured/current pace, no projection, no bar exist before the first run).
-    const slotC = page.getByTestId('session-slot-c');
-    await expect(slotC).toBeVisible();
-    await expect(slotC.getByTestId('coverage-pace')).toBeVisible();
-    await expect(slotC.getByTestId('coverage-pace-count')).toContainText('/2');
+    // F-1: the coaching band is present in Focus Points too.
+    await expect(page.getByTestId('session-slot-b').getByText('Tips appear as you speak.')).toBeVisible();
+
+    // The rail holds the plan above the points.
+    const rail = page.getByTestId('session-slot-d');
+    await expect(rail.getByTestId('coverage-pace')).toBeVisible();
+    await expect(rail.getByTestId('focus-points-rail')).toBeVisible();
+    await expect(rail.getByTestId('coverage-pace-plan')).toContainText('2 points');
+    // F-2 / G4: no score before a run.
+    await expect(page.getByTestId('coverage-pace-count'), 'no 0/N scoreboard before a run').toHaveCount(0);
     await expect(page.getByTestId('coverage-pace-perpoint'), 'no measured pace before a run').toHaveCount(0);
     await expect(page.getByTestId('coverage-pace-bar'), 'no pace bar before a run').toHaveCount(0);
+    const planTop = (await rail.getByTestId('coverage-pace').boundingBox())!.y;
+    const pointsTop = (await rail.getByTestId('focus-points-rail').boundingBox())!.y;
+    expect(planTop, 'Coverage & pace sits above Points to cover').toBeLessThan(pointsTop);
 
-    // Responsive: no width overflows, and the four slots keep reading order (phone) / two-column (desktop).
     for (const w of ALL_WIDTHS) {
-      await assertLayout(page, w);
+      await assertSlotMap(page, w, 'focus-before');
     }
 
     // Sanitized proof screenshots at one phone (390) and one desktop (1440) width, vs the G5 mockup.

@@ -5,9 +5,12 @@ import type { SttStatus } from '@/types/transcription';
 
 // #1466 PM acceptance lock (P1, PO evidence on 576c4712): after a completed session the Practice Loop must be
 // at eye level — ahead of transcript detail and secondary session actions — in every review state, on phones
-// as well as desktop, and in keyboard / screen-reader order. The shell stacks to one column on phones, so
-// "ahead" is DOM order: a band rendered after `session-shell` is last on every breakpoint and for every
-// assistive technology, which is exactly where the PO found it. A scroll does not change that order.
+// as well as desktop, and in keyboard / screen-reader order. "Ahead" is DOM order.
+//
+// Design Correction Brief S-12 changes the mechanism, not the requirement. #1466 met it with a band rendered
+// ABOVE the whole shell, because the old shell had no full-width slot under the recorder. The shared slot map
+// has one: slot B, directly under the recorder and ahead of the transcript (C) and the rail (D) in every
+// state. The review now lives there, so these locks assert B's position instead of the band's.
 
 const base: SessionOverhaulViewProps = {
     authUserId: 'user-1',
@@ -35,13 +38,14 @@ const REVIEW_STATES = [
 ] as const;
 
 describe('#1466 Practice Loop placement — Open Mic after state', () => {
-    it.each(REVIEW_STATES)('CASUALTY: the %s review band precedes the session shell', (_state, review) => {
+    it.each(REVIEW_STATES)('CASUALTY: the %s review sits in slot B, ahead of the transcript and the rail', (_state, review) => {
         render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={review} />);
-        const shell = screen.getByTestId('session-shell');
-        expect(shell).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         const band = screen.getByTestId('open-mic-practice-loop-review');
         expect(band).toContainElement(screen.getByTestId('review-probe'));
-        expect(precedes(band, shell)).toBe(true);
+        expect(screen.getByTestId('session-slot-b')).toContainElement(band);
+        expect(precedes(band, screen.getByTestId('session-slot-c'))).toBe(true);
+        expect(precedes(band, screen.getByTestId('session-slot-d'))).toBe(true);
     });
 
     it('CASUALTY: the review band precedes the transcript and the secondary Practice-this-again action', () => {
@@ -54,7 +58,7 @@ describe('#1466 Practice Loop placement — Open Mic after state', () => {
             />,
         );
         const band = screen.getByTestId('open-mic-practice-loop-review');
-        expect(precedes(band, screen.getByTestId('session-slot-b'))).toBe(true);
+        expect(precedes(band, screen.getByTestId('review-transcript'))).toBe(true);
         expect(precedes(band, screen.getByTestId('verdict-practice-again'))).toBe(true);
     });
 
@@ -66,15 +70,22 @@ describe('#1466 Practice Loop placement — Open Mic after state', () => {
         expect(tabbable.indexOf(retry)).toBeLessThan(tabbable.indexOf(screen.getByTestId('verdict-practice-again')));
     });
 
-    it('CONTROL (#1422 P1): the review never evicts the verdict — Practice this again stays in slot D', () => {
+    it('CONTROL (#1422 P1): the review never evicts the verdict — Practice this again sits under it in slot B', () => {
         render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[1][1]} />);
-        expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('verdict-practice-again'));
-        expect(screen.getByTestId('session-slot-d')).not.toContainElement(screen.getByTestId('review-probe'));
+        const b = screen.getByTestId('session-slot-b');
+        expect(b).toContainElement(screen.getByTestId('verdict-practice-again'));
+        expect(b).toContainElement(screen.getByTestId('review-probe'));
+        expect(precedes(screen.getByTestId('review-probe'), screen.getByTestId('verdict-practice-again'))).toBe(true);
+    });
+
+    it('CONTROL (#1422 P1): with no review yet, Practice this again is still reachable in slot B', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={undefined} />);
+        expect(screen.getByTestId('session-slot-b')).toContainElement(screen.getByTestId('verdict-practice-again'));
     });
 });
 
 describe('#1466 Practice Loop placement — Focus Points after state', () => {
-    it.each(REVIEW_STATES)('CASUALTY: the %s review band precedes the session shell', (_state, review) => {
+    it.each(REVIEW_STATES)('CASUALTY: the %s review sits in slot B, exactly as Open Mic (F-1)', (_state, review) => {
         render(
             <SessionOverhaulView
                 {...base}
@@ -85,10 +96,11 @@ describe('#1466 Practice Loop placement — Focus Points after state', () => {
                 practiceLoopReview={review}
             />,
         );
-        const shell = screen.getByTestId('session-shell');
-        expect(shell).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         const band = screen.getByTestId('focus-practice-loop-review');
-        expect(precedes(band, shell)).toBe(true);
+        expect(screen.getByTestId('session-slot-b')).toContainElement(band);
+        expect(precedes(band, screen.getByTestId('session-slot-c'))).toBe(true);
+        expect(precedes(band, screen.getByTestId('session-slot-d'))).toBe(true);
     });
 
     it('CONTROL: the resolved coverage rail stays in slot D', () => {
@@ -120,26 +132,19 @@ describe('#1466 Practice Loop placement — before and during are unchanged', ()
     });
 });
 
-// #1466 PM RETURN 5673020845 (Codex P1 4010908720) — placement first in the DOM is not enough for a user who stopped
-// while scrolled down: browsers keep that lower viewport while the band is inserted above it. After the session
-// settles, the view reveals the band ONCE per completed take, and ONLY when its heading/current state is outside the
-// viewport; a user who can already see it is never moved, and later review-state transitions never jump the page.
-// jsdom has no layout, so each test states where the band sits (viewport-relative top) and spies on the page scroll.
+// #1466 PM RETURN 5673020845 (Codex P1 4010908720) — a user who stopped while scrolled down keeps that lower
+// viewport. After the session settles, the view returns the page to its top ONCE per completed take, where the saved
+// confirmation and the review sit together; a top-of-page user is never moved, and later review-state transitions
+// never jump the page. jsdom has no layout, so each test states the page's scroll position and spies on the scroll.
 describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
-    const withLayout = (bandTop: number | null) => {
+    const withLayout = (scrollY: number) => {
         const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
-        const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-            const id = this.getAttribute('data-testid');
-            const isBand = id === 'open-mic-practice-loop-review' || id === 'focus-practice-loop-review';
-            const top = isBand && bandTop !== null ? bandTop : 0;
-            return { top, bottom: top + 220, left: 0, right: 375, width: 375, height: 220, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
-        });
-        const height = vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(812);
-        return { scrollTo, restore: () => { scrollTo.mockRestore(); rect.mockRestore(); height.mockRestore(); } };
+        const position = vi.spyOn(window, 'scrollY', 'get').mockReturnValue(scrollY);
+        return { scrollTo, restore: () => { scrollTo.mockRestore(); position.mockRestore(); } };
     };
 
-    it('CASUALTY: a band above the viewport at completion is revealed exactly once', () => {
-        const layout = withLayout(-900);
+    it('CASUALTY: a page scrolled down at completion returns to its top exactly once', () => {
+        const layout = withLayout(900);
         try {
             render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
             expect(layout.scrollTo).toHaveBeenCalledTimes(1);
@@ -147,16 +152,18 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
         } finally { layout.restore(); }
     });
 
-    it('CASUALTY: a band below the viewport at completion is revealed exactly once', () => {
-        const layout = withLayout(1400);
+    it('CASUALTY: scrolled only far enough to hide the saved confirmation — the review may be visible — still returns to the top', () => {
+        // The recorder sits between the confirmation and slot B, so a visible review heading does not mean a visible
+        // confirmation. Deciding on the heading alone left the confirmation off screen (CI, desktop, #1493).
+        const layout = withLayout(120);
         try {
             render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
             expect(layout.scrollTo).toHaveBeenCalledTimes(1);
         } finally { layout.restore(); }
     });
 
-    it('CONTROL: a band already in view never moves the page', () => {
-        const layout = withLayout(260);
+    it('CONTROL: a top-of-page user is never moved', () => {
+        const layout = withLayout(0);
         try {
             const view = render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
             view.rerender(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[1][1]} />);
@@ -165,7 +172,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CASUALTY: loading → rendered → failed transitions do not jump the page again', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             const view = render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
             view.rerender(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[1][1]} />);
@@ -175,7 +182,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CASUALTY: nothing moves while the transcript is still finalizing; the reveal waits for the settled result', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             const view = render(<SessionOverhaulView {...base} isFinalizing transcriptContent="so hello" practiceLoopReview={REVIEW_STATES[0][1]} />);
             expect(layout.scrollTo).not.toHaveBeenCalled();
@@ -185,7 +192,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CASUALTY: the next completed take may reveal once more — once per take, not once per page', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             const view = render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[1][1]} />);
             view.rerender(<SessionOverhaulView {...base} isListening transcriptContent="again" elapsedTime={10} practiceLoopReview={REVIEW_STATES[1][1]} />);
@@ -195,7 +202,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CASUALTY: Focus Points follows the same reveal', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             render(
                 <SessionOverhaulView
@@ -212,7 +219,7 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
     });
 
     it('CONTROL: no reveal before or during recording', () => {
-        const layout = withLayout(-900);
+        const layout = withLayout(900);
         try {
             const view = render(<SessionOverhaulView {...base} practiceLoopReview={REVIEW_STATES[1][1]} />);
             view.rerender(<SessionOverhaulView {...base} isListening transcriptContent="so hello" elapsedTime={20} practiceLoopReview={REVIEW_STATES[1][1]} />);

@@ -27,7 +27,6 @@ const REPO_ROOT = (() => {
 import { render, screen, cleanup } from '../../../../tests/support/test-utils';
 import { MicCard } from '../MicCard';
 import { SessionDuringState } from '../SessionDuringState';
-import { computeProgressVsBaseline } from '@/utils/progressVsBaseline';
 import {
     PROOF_SESSION_SURFACE, PROOF_SELECTOR_EXEMPTIONS, RETIRED_TRANSCRIPT_IDS,
     RETIRED_COMBINED_CONTROL,
@@ -68,7 +67,6 @@ const code = (src: string): string => src
     .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
     .join('\n');
 
-const progress = computeProgressVsBaseline([{ fillerCount: 34, durationSeconds: 600 }]);
 
 /** Mount the during state and report which of `ids` actually rendered. */
 function renderDuringAndCollect(ids: readonly string[]) {
@@ -76,7 +74,7 @@ function renderDuringAndCollect(ids: readonly string[]) {
         <SessionDuringState
             recorder={{ elapsedSeconds: 60, amplitudes: [0.4], recordedCount: 1, onStop: vi.fn() }}
             transcript={{ tokens: [{ text: 'So' }], words: 12, fillersPerMin: 1.2 }}
-            progress={progress}
+            rail={<div />}
         />,
     );
     const found = new Map(ids.map((id) => [id, screen.queryAllByTestId(id).length]));

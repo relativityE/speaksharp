@@ -104,7 +104,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
               * #1467 — tell the USER what the detector can and cannot do, on the completed verdict only.
               *
               * The limitation is documented four times in this codebase and every one of them speaks to
-              * engineers: the header comments in this file and in CoverageRail, CoverageThisRun and
+              * engineers: the header comments in this file and in CoverageRail and
               * CoveragePace all describe a conservative LOCAL KEYWORD MATCHER. Nothing said it to the person
               * reading "Not detected", who had no way to tell whether the miss was theirs or the matcher's.
               *
@@ -120,12 +120,13 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                 </p>
             )}
 
-            {/* §3: the topic is a header, never a point — no marker, no numeral, never checked for coverage.
-                It sits above the list with a divider so it reads as context, not an item to cover. */}
+            {/* The topic is a header, never a point — no marker, no numeral, never checked for coverage.
+                Design Correction Brief F-5: eyebrow above value, always. It used to render the topic and then
+                a `Your topic` caption BENEATH it, which made the topic read as the first item of the list.
+                The card's own eyebrow already labels it, and as the largest text here it needs no caption. */}
             {topicLabel !== '' && (
                 <div data-testid="focus-points-topic" className="border-b border-neutral-border-soft pb-[14px]">
-                    <div className="mb-1 mt-3 text-[17px] font-extrabold tracking-[-0.02em] text-neutral-body">{topicLabel}</div>
-                    <div className="text-[12px] font-bold uppercase tracking-[0.04em] text-neutral-muted">Your topic</div>
+                    <div className="mt-2 text-[20px] font-extrabold leading-tight tracking-[-0.02em] text-neutral-body">{topicLabel}</div>
                 </div>
             )}
 

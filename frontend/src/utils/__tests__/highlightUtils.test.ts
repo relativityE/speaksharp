@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTranscriptForHighlighting, getWordColor } from '../highlightUtils';
+import { parseTranscriptForHighlighting, getWordColor, fillerHighlightBackground } from '../highlightUtils';
 
 describe('highlightUtils', () => {
     describe('getWordColor', () => {
@@ -59,5 +59,48 @@ describe('highlightUtils', () => {
             expect(userToken).toBeDefined();
             expect(userToken?.type).toBe('filler'); // User words are tagged as filler for highlighting
         });
+    });
+});
+
+
+/**
+ * #1487 P2 casualty — the filler highlight's translucent wash.
+ *
+ * The palette is `var(--brand-filler-series-*)` now, and the old caller built its background by
+ * appending a hex alpha to that string. `var(--brand-filler-series-1)15` is not a colour: the browser
+ * throws the declaration away without an error, the wash vanishes, and nothing in the type system or a
+ * render assertion notices, because an invalid colour is still a perfectly good string.
+ *
+ * These assert the composed value directly, so they hold regardless of whether the test environment's
+ * CSS parser understands `color-mix` — jsdom does not have to accept the value for the contract to be
+ * provable.
+ */
+describe('fillerHighlightBackground (#1487 P2)', () => {
+    it('composes alpha with color-mix so a CSS variable survives', () => {
+        expect(fillerHighlightBackground('var(--brand-filler-series-1)'))
+            .toBe('color-mix(in srgb, var(--brand-filler-series-1) 8%, transparent)');
+    });
+
+    it('CASUALTY: never concatenates an alpha suffix onto the colour', () => {
+        for (const color of ['var(--brand-filler-series-1)', 'var(--brand-filler-series-12)', 'currentColor']) {
+            const background = fillerHighlightBackground(color);
+            // The exact shape of the old bug: the colour followed immediately by hex digits.
+            expect(background, `alpha must not be concatenated onto ${color}`).not.toMatch(/\)\s*[0-9a-fA-F]{2}/);
+            expect(background).not.toBe(`${color}15`);
+            expect(background).toContain(color);
+        }
+    });
+
+    it('every palette entry produces a background that still references its variable', () => {
+        const seen = new Set<string>();
+        for (const word of ['um', 'uh', 'like', 'so', 'actually', 'basically', 'you know', 'right']) {
+            const color = getWordColor(word);
+            expect(color, 'the palette is variable-based').toMatch(/^var\(--brand-filler-series-\d+\)$/);
+            const background = fillerHighlightBackground(color);
+            expect(background).toContain(color);
+            expect(background.startsWith('color-mix(')).toBe(true);
+            seen.add(color);
+        }
+        expect(seen.size, 'distinct words take distinct series slots').toBeGreaterThan(1);
     });
 });

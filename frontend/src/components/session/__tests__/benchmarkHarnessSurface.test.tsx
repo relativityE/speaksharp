@@ -17,7 +17,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '../../../../tests/support/test-utils';
 import { SessionDuringState } from '../SessionDuringState';
 import { SessionOverhaulView } from '../SessionOverhaulView';
-import { computeProgressVsBaseline } from '@/utils/progressVsBaseline';
 import {
     DURING_STATE_LANDMARKS, RETIRED_TRANSCRIPT_IDS, LIVE_TRANSCRIPT, TRANSCRIPT_HEADER_META,
     parseHeaderMetaWords, RETIRED_COMBINED_CONTROL,
@@ -86,17 +85,13 @@ const locatorFor = (selector: string) => ({
     first: () => locatorFor(selector),
 });
 
-const progress = computeProgressVsBaseline([
-    { fillerCount: 34, durationSeconds: 600 },
-    { fillerCount: 26, durationSeconds: 600 },
-]);
 
 const renderDuring = (words: number, tokens: Array<{ text: string; filler?: boolean; interim?: boolean }>) =>
     render(
         <SessionDuringState
             recorder={{ elapsedSeconds: 60, amplitudes: [0.4, 0.6], recordedCount: 2, onStop: vi.fn() }}
             transcript={{ tokens, words, fillersPerMin: 2.6 }}
-            progress={progress}
+            rail={<div />}
         />,
     );
 
