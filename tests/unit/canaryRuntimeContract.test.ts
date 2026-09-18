@@ -577,6 +577,48 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         }
     });
 
+    it('CASUALTY: JSON-serialized typed arrays under audio keys remain audio samples', async () => {
+        type TripwireGlobal = typeof globalThis & {
+            __SS_TRIPWIRE__?: unknown[];
+            __SS_TRIPWIRE_EMIT__?: (record: Record<string, unknown>) => void;
+            document?: { documentElement?: { getAttribute?: (name: string) => string | null } };
+        };
+        const scope = globalThis as TripwireGlobal;
+        const originalFetch = scope.fetch;
+        const originalDocument = scope.document;
+        const records: Record<string, unknown>[] = [];
+        const serialized = JSON.stringify({ audio: new Uint8Array(64).fill(7) });
+
+        try {
+            delete scope.__SS_TRIPWIRE__;
+            scope.__SS_TRIPWIRE_EMIT__ = (record) => { records.push(record); };
+            scope.document = { documentElement: { getAttribute: () => 'RECORDING' } };
+            scope.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+
+            new Function(PAYLOAD_TRIPWIRE)();
+            await scope.fetch('https://speaksharp-public.vercel.app/api/typed', {
+                method: 'POST', body: serialized,
+            });
+            await scope.fetch('https://abcproject.supabase.co/functions/v1/typed', {
+                method: 'POST', body: new URLSearchParams({ payload: serialized }),
+            });
+            const form = new FormData();
+            form.append('payload', serialized);
+            await scope.fetch('https://eu.posthog.com/e/', { method: 'POST', body: form });
+
+            expect(records.map((record) => record.kind)).toEqual([
+                'encoded_audio', 'encoded_audio', 'audio',
+            ]);
+            expect(JSON.stringify(records)).not.toContain('"0"');
+        } finally {
+            scope.fetch = originalFetch;
+            if (originalDocument === undefined) delete scope.document;
+            else scope.document = originalDocument;
+            delete scope.__SS_TRIPWIRE__;
+            delete scope.__SS_TRIPWIRE_EMIT__;
+        }
+    });
+
     it('CASUALTY: JSON-shaped text that cannot be fully parsed is opaque, never certified clean', async () => {
         type TripwireGlobal = typeof globalThis & {
             __SS_TRIPWIRE__?: unknown[];
@@ -782,6 +824,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
 
     it('CASUALTY: approved-origin query values are classified before redaction without retaining content', () => {
         const pcm = 'A'.repeat(512);
+        const envelope = JSON.stringify({ audio: pcm });
+        const typedEnvelope = JSON.stringify({ audio: new Uint8Array(64).fill(7) });
         const appUrl = 'https://speaksharp-public.vercel.app/session';
         expect(canaryQueryContainsEncodedAudio(
             `https://speaksharp-public.vercel.app/api?audio=${pcm}`,
@@ -792,6 +836,22 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             appUrl,
         )).toBe(true);
         expect(canaryQueryContainsEncodedAudio(
+            `https://abcproject.supabase.co/functions/v1/proxy?payload=${encodeURIComponent(envelope)}`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryQueryContainsEncodedAudio(
+            `https://abcproject.supabase.co/functions/v1/proxy?payload=${encodeURIComponent(typedEnvelope)}`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryQueryContainsEncodedAudio(
+            `https://eu.posthog.com/e/?payload=${encodeURIComponent(`${envelope}\n{"event":"saved"}`)}`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryQueryContainsEncodedAudio(
+            `https://eu.posthog.com/e/?payload=${encodeURIComponent(JSON.stringify({ event: 'session_saved' }))}`,
+            appUrl,
+        )).toBe(false);
+        expect(canaryQueryContainsEncodedAudio(
             'https://abcproject.supabase.co/rest/v1/sessions?select=id%2Ctotal_words%2Cduration&limit=20',
             appUrl,
         )).toBe(false);
@@ -799,6 +859,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
 
     it('CASUALTY: approved-origin path values are classified before redaction without retaining content', () => {
         const pcm = 'A'.repeat(512);
+        const envelope = JSON.stringify({ audio: pcm });
+        const typedEnvelope = JSON.stringify({ audio: new Uint8Array(64).fill(7) });
         const appUrl = 'https://speaksharp-public.vercel.app/session';
         expect(canaryPathContainsEncodedAudio(
             `https://speaksharp-public.vercel.app/api/${encodeURIComponent(pcm)}`,
@@ -808,6 +870,18 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             `https://eu.posthog.com/e/${encodeURIComponent(pcm)}`,
             appUrl,
         )).toBe(true);
+        expect(canaryPathContainsEncodedAudio(
+            `https://abcproject.supabase.co/functions/v1/${encodeURIComponent(envelope)}`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryPathContainsEncodedAudio(
+            `https://abcproject.supabase.co/functions/v1/${encodeURIComponent(typedEnvelope)}`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryPathContainsEncodedAudio(
+            `https://eu.posthog.com/e/${encodeURIComponent(JSON.stringify({ event: 'session_saved' }))}`,
+            appUrl,
+        )).toBe(false);
         expect(canaryPathContainsEncodedAudio(
             'https://abcproject.supabase.co/rest/v1/sessions',
             appUrl,

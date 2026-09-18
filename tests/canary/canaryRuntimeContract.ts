@@ -242,24 +242,86 @@ export function sanitizeCanaryPayloadUrl(rawUrl: unknown, appUrl: string): strin
 
 const AUDIO_QUERY_KEY = /^(audio|audioData|audio_data|audioBytes|audio_bytes|pcm|pcmData|pcm_data|samples|audioSamples|audio_samples)$/i;
 
-function isEncodedAudioQueryValue(value: string): boolean {
+type AudioShapeVerdict = 'audio' | 'clean' | 'opaque';
+
+function isNumericSampleArray(value: unknown): boolean {
+    return Array.isArray(value)
+        && value.length >= 32
+        && value.every((sample) => typeof sample === 'number' && Number.isFinite(sample));
+}
+
+function isNumericSampleObject(value: unknown): boolean {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const entries = Object.entries(value);
+    return entries.length >= 32 && entries.every(([key, sample], index) => (
+        key === String(index) && typeof sample === 'number' && Number.isFinite(sample)
+    ));
+}
+
+function isEncodedAudioScalar(value: string): boolean {
     const trimmed = value.trim();
     if (trimmed.length === 0) return false;
     if (/^data:(audio|video)\/[a-z0-9.+-]+;base64,/i.test(trimmed)) return true;
     const unpadded = trimmed.replace(/={1,2}$/, '');
     if (trimmed.length >= 256 && unpadded.length % 4 !== 1
         && /^[A-Za-z0-9+/_-]+={0,2}$/.test(trimmed)) return true;
-    if (trimmed.length >= 64 && trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        try {
-            const parsed = JSON.parse(trimmed);
-            return Array.isArray(parsed)
-                && parsed.length >= 32
-                && parsed.every((sample) => typeof sample === 'number' && Number.isFinite(sample));
-        } catch {
-            return false;
-        }
-    }
     return false;
+}
+
+function isEncodedAudioChunkArray(value: unknown): boolean {
+    if (!Array.isArray(value) || value.length < 2) return false;
+    let encodedChars = 0;
+    for (const chunk of value) {
+        if (typeof chunk !== 'string') return false;
+        const trimmed = chunk.trim();
+        if (!trimmed || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(trimmed)) return false;
+        encodedChars += trimmed.length;
+    }
+    return encodedChars >= 256;
+}
+
+function inspectAudioEnvelope(
+    value: unknown,
+    depth: number,
+    budget: { remaining: number },
+    audioContext: boolean,
+): AudioShapeVerdict {
+    if (depth > 4 || budget.remaining <= 0) return 'opaque';
+    budget.remaining -= 1;
+    if (audioContext && (
+        (typeof value === 'string' && isEncodedAudioScalar(value))
+        || isNumericSampleArray(value)
+        || isNumericSampleObject(value)
+        || isEncodedAudioChunkArray(value)
+    )) return 'audio';
+    if (!value || typeof value !== 'object') return 'clean';
+    let verdict: AudioShapeVerdict = 'clean';
+    for (const [key, nested] of Object.entries(value)) {
+        const result = inspectAudioEnvelope(nested, depth + 1, budget, audioContext || AUDIO_QUERY_KEY.test(key));
+        if (result === 'audio') return 'audio';
+        if (result === 'opaque') verdict = 'opaque';
+    }
+    return verdict;
+}
+
+function inspectAudioEnvelopeText(value: string): AudioShapeVerdict {
+    const trimmed = value.trim();
+    if (trimmed.length < 2 || !(
+        (trimmed.startsWith('{') && trimmed.endsWith('}'))
+        || (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    )) return 'clean';
+    if (trimmed.length > 1_000_000) return 'opaque';
+    try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (isNumericSampleArray(parsed) || isNumericSampleObject(parsed)) return 'audio';
+        return inspectAudioEnvelope(parsed, 0, { remaining: 128 }, false);
+    } catch {
+        return 'opaque';
+    }
+}
+
+function isEncodedAudioQueryValue(value: string): boolean {
+    return isEncodedAudioScalar(value) || inspectAudioEnvelopeText(value) !== 'clean';
 }
 
 /**

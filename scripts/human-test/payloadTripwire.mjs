@@ -232,13 +232,21 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     return encodedChars >= 256;
   };
 
+  const isNumericSampleObject = (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const entries = Object.entries(value);
+    return entries.length >= 32 && entries.every(([key, sample], index) => (
+      key === String(index) && typeof sample === 'number' && Number.isFinite(sample)
+    ));
+  };
+
   const inspectEncodedAudio = (value, depth, budget, audioContext) => {
     // A bounded inspection may conclude AUDIO or CLEAN only when it actually saw enough of the
     // value to justify that verdict. Reaching either bound is OPAQUE, never a clean certificate.
     if (depth > 4 || budget.remaining <= 0) return 'opaque';
     budget.remaining -= 1;
-    if (audioContext && (isEncodedAudioText(value)
-      || isNumericSampleArray(value) || isEncodedAudioChunkArray(value))) return 'audio';
+    if (audioContext && (isEncodedAudioText(value) || isNumericSampleArray(value)
+      || isEncodedAudioChunkArray(value) || isNumericSampleObject(value))) return 'audio';
     if (!value || typeof value !== 'object') return 'clean';
     let verdict = 'clean';
     if (Array.isArray(value)) {
@@ -252,7 +260,8 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     }
     for (const [key, nested] of Object.entries(value)) {
       const nestedAudioContext = audioContext || isAudioField(key);
-      if (nestedAudioContext && (isEncodedAudioText(nested) || isNumericSampleArray(nested))) return 'audio';
+      if (nestedAudioContext && (isEncodedAudioText(nested)
+        || isNumericSampleArray(nested) || isNumericSampleObject(nested))) return 'audio';
       if (nested && typeof nested === 'object') {
         const inspected = inspectEncodedAudio(nested, depth + 1, budget, nestedAudioContext);
         if (inspected === 'audio') return 'audio';
