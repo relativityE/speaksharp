@@ -431,3 +431,56 @@ describe('exact migration gate', () => {
         for (const violation of dependencyViolations) expect(violation).toThrow(/unexpected pending/);
     });
 });
+
+/**
+ * Retention Option A, newest-one — the allowlist entry that makes `20260908120000` SELECTABLE.
+ *
+ * Allowlisting authorizes nothing on its own: the dispatch still requires the exact `main` SHA and the
+ * allowlist-derived phrase, and the phrase is computed from the filename and the file's SHA-256. These pin
+ * the three things a drifted entry would break — the hash matching the checked-in file (so an edited
+ * migration cannot be applied under an old authorization), the classification (so a retention change is
+ * never mistaken for commercial activation), and the ordering rule that keeps the held
+ * commercial-activation entry last.
+ */
+describe('newest-one retention target is allowlisted exactly', () => {
+    const NEWEST_ONE = '20260908120000';
+    const entry = () => EXACT_MIGRATION_ALLOWLIST.find((e) => e.version === NEWEST_ONE);
+
+    it('is present, staged, and named for its version', () => {
+        expect(entry()).toBeDefined();
+        expect(entry().file).toBe('20260908120000_transcript_retention_newest_one.sql');
+        expect(entry().classification).toBe('staged');
+    });
+
+    it('CASUALTY: its recorded hash is the hash of the checked-in migration', () => {
+        // An entry whose hash drifts from its file would let a DIFFERENT migration body be applied under an
+        // authorization the Product Owner granted for this one.
+        const file = resolve(process.cwd(), 'backend/supabase/migrations', entry().file);
+        const real = createHash('sha256').update(readFileSync(file)).digest('hex');
+        expect(entry().sha256).toBe(real);
+    });
+
+    it('CASUALTY: every allowlisted entry still matches its own file, and the held activation stays last', () => {
+        for (const e of EXACT_MIGRATION_ALLOWLIST) {
+            const real = createHash('sha256')
+                .update(readFileSync(resolve(process.cwd(), 'backend/supabase/migrations', e.file)))
+                .digest('hex');
+            expect(e.sha256, `hash for ${e.file}`).toBe(real);
+        }
+        const last = EXACT_MIGRATION_ALLOWLIST[EXACT_MIGRATION_ALLOWLIST.length - 1];
+        expect(last.classification).toBe('commercial-activation');
+        expect(validateExactMigrationAllowlist()).toBeTruthy();
+    });
+
+    it('CASUALTY: the workflow offers it as a dispatch target, or it can never be selected', () => {
+        // The target list is a `choice` in the workflow file: a migration absent from it is unselectable,
+        // which is the interlock this PR exists to open — and only for this one version.
+        const workflow = readFileSync(
+            resolve(process.cwd(), '.github/workflows/apply-exact-allowlisted-migration.yml'), 'utf8',
+        );
+        expect(workflow).toContain(`- '${NEWEST_ONE}'`);
+        for (const e of EXACT_MIGRATION_ALLOWLIST) {
+            expect(workflow, `dispatch option for ${e.version}`).toContain(`- '${e.version}'`);
+        }
+    });
+});

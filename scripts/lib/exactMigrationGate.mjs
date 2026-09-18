@@ -89,6 +89,25 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // Retention Option A, newest-one (PO decision 2026-09-15, PO authorization 2026-09-18). Placed
+        // BEFORE the held commercial-activation entry, which must remain last. Like #1306 and #1416 its
+        // version is chronologically later than that entry's: this array encodes operational prerequisite
+        // order, not chronology.
+        //
+        // Allowlisting only makes the target SELECTABLE. It authorizes nothing: the dispatch still needs the
+        // exact `main` SHA and the allowlist-derived phrase, and the migration remains inert until then.
+        //
+        // WHY IT IS ITS OWN ENTRY. This is forward-only. `20260803000000` and `20260804000000` are applied,
+        // so the newest-two rule is corrected by redefining all five objects together — the policy version
+        // marker, the expiry selector, the mutation (the newest-two one is DROPPED rather than left
+        // reachable), the coordinator and the preflight. A partial application fails loudly instead of
+        // half-applying, which is exactly why the whole set moves under one allowlisted target.
+        version: '20260908120000',
+        file: '20260908120000_transcript_retention_newest_one.sql',
+        sha256: '784e7f67be64017f9fd73871107d7e0735db97010bf6e36c08ce16f4376ff412',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
