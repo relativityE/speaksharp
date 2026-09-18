@@ -7,7 +7,9 @@
  * checks deleted.
  */
 import { describe, it, expect } from 'vitest';
-import { coachingIneligibilityReason, isEligibleForCoaching, MIN_ELIGIBLE_WORDS } from '../sessionEligibility';
+import {
+    coachingIneligibilityReason, isEligibleForCoaching, MIN_ELIGIBLE_WORDS, ATTRIBUTION_AUTHORITY_VERSION,
+} from '../sessionEligibility';
 import { MIN_COMPARABLE_SECONDS } from '../aggregateProgress';
 
 const ELIGIBLE = {
@@ -15,7 +17,7 @@ const ELIGIBLE = {
     durationSeconds: 95,
     totalWords: 180,
     transcriptState: 'available',
-    attributionStatus: 'verified',
+    authorityVersion: ATTRIBUTION_AUTHORITY_VERSION,
 };
 
 describe('coachingIneligibilityReason', () => {
@@ -49,9 +51,29 @@ describe('coachingIneligibilityReason', () => {
         }
     });
 
-    it('CASUALTY: unverified, pending and legacy_unknown attribution are all excluded', () => {
-        for (const attributionStatus of ['unverified', 'pending', 'legacy_unknown', null]) {
-            expect(coachingIneligibilityReason({ ...ELIGIBLE, attributionStatus })).toBe('unverified_attribution');
+    /*
+     * Attribution comes from the AUTHORITY, never from `sessions.attribution_status` — migration
+     * `20260803010000` makes that column advisory and client-writable, and fails closed with
+     * "no attrib_v1 record => unverified". Codex P1 + PM RETURN on #1494: the first version of this gate
+     * read the legacy column, so a stale `verified` row with no authority could have supplied the lesson.
+     */
+    it('CASUALTY: a pending or absent authority verdict is unverified', () => {
+        expect(ATTRIBUTION_AUTHORITY_VERSION).toBe('attrib_v1');
+        for (const authorityVersion of [null, undefined, '']) {
+            expect(coachingIneligibilityReason({ ...ELIGIBLE, authorityVersion })).toBe('unverified_attribution');
+        }
+    });
+
+    it('CASUALTY: the legacy column cannot qualify a session — only the attrib_v1 authority can', () => {
+        // A stale/legacy row reading `verified` with no authority record: the shape the old gate accepted.
+        const stale = { ...ELIGIBLE, authorityVersion: null } as Record<string, unknown>;
+        stale.attributionStatus = 'verified';   // present but advisory — must not be consulted
+        expect(coachingIneligibilityReason(stale)).toBe('unverified_attribution');
+    });
+
+    it('CASUALTY: an unknown or future authority version does not qualify', () => {
+        for (const authorityVersion of ['attrib_v2', 'never_registered', 'verified', 'unattributed']) {
+            expect(coachingIneligibilityReason({ ...ELIGIBLE, authorityVersion })).toBe('unverified_attribution');
         }
     });
 

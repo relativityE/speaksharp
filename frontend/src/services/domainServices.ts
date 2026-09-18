@@ -26,7 +26,7 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
 import { readLastSessionFix } from '@/components/practice/lastSessionFix';
-import { coachingIneligibilityReason } from '@/utils/sessionEligibility';
+import { coachingIneligibilityReason, ATTRIBUTION_AUTHORITY_VERSION } from '@/utils/sessionEligibility';
 import type { PostgrestError } from '@supabase/supabase-js';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -77,13 +77,18 @@ export const sessionService = {
         //
         // The eligibility columns come with it because that cached review is NOT self-qualifying:
         // `get-ai-suggestions` does not apply the PROGRESS_AND_NEXT_ACTION §4 gates before persisting, so a
-        // sub-30s, sub-75-word, transcript-less, unverified or legacy-`null`-status take can carry coaching
-        // text. Quoting that back as the user's lesson would breach the Level-1 rule that a phrase shown to
-        // a user is true of their own recorded practice. `transcript_state` is the presence flag only — the
-        // transcript text itself is never selected here.
+        // sub-30s, sub-75-word, transcript-less or legacy-`null`-status take can carry coaching text. Quoting
+        // that back as the user's lesson would breach the Level-1 rule that a phrase shown to a user is true
+        // of their own recorded practice. `transcript_state` is the presence flag only — the transcript text
+        // itself is never selected here.
+        //
+        // ATTRIBUTION IS NOT IN THIS SELECT. `sessions.attribution_status` is client-writable and migration
+        // `20260803010000` demotes it to advisory, so it is read from the owner-scoped
+        // `get_attribution_authority_v1` verdict below instead — and only when the cheap gates have already
+        // passed and there is cached coaching to qualify, so Home's common path stays one query.
         const { data, error } = await supabase
             .from('sessions')
-            .select('id, created_at, duration, status, total_words, transcript_state, attribution_status, ai_suggestions')
+            .select('id, created_at, duration, status, total_words, transcript_state, ai_suggestions')
             .eq('user_id', userId)
             .or('status.is.null,status.eq.completed')
             .order('created_at', { ascending: false })
@@ -94,26 +99,50 @@ export const sessionService = {
             throw error;
         }
 
-        return (data ?? []).map((row) => {
+        const rows = (data ?? []).map((row) => {
             const {
-                ai_suggestions, total_words, transcript_state, attribution_status, ...session
+                ai_suggestions, total_words, transcript_state, ...session
             } = row as Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'> & {
                 ai_suggestions?: unknown;
                 total_words?: number | null;
                 transcript_state?: string | null;
-                attribution_status?: string | null;
             };
+            return { session, total_words, transcript_state, ai_suggestions };
+        });
+
+        return Promise.all(rows.map(async ({ session, total_words, transcript_state, ai_suggestions }) => {
+            // Cheap gates first, from the row we already hold.
+            const preAuthority = coachingIneligibilityReason({
+                status: session.status,
+                durationSeconds: session.duration,
+                totalWords: total_words,
+                transcriptState: transcript_state,
+                // Withheld deliberately: asking before the authority read would fail closed on every row.
+                authorityVersion: ATTRIBUTION_AUTHORITY_VERSION,
+            });
+            const fixCandidate = preAuthority ? null : readLastSessionFix(ai_suggestions);
+            // No candidate lesson ⇒ nothing to qualify, so the authority is never queried.
+            if (!fixCandidate) return { ...session, fix: null };
+
+            // The owner-scoped, version-checked verdict. It returns null while pending or definitively
+            // unattributed, and an error is an unproven session — both fail closed.
+            const { data: authority, error: authorityError } = await supabase
+                .rpc('get_attribution_authority_v1', { p_session_id: session.id });
+            if (authorityError) {
+                logger.warn({ error: authorityError }, '[sessionService.getRecentReviewable] attribution authority unreadable');
+                return { ...session, fix: null };
+            }
             const ineligible = coachingIneligibilityReason({
                 status: session.status,
                 durationSeconds: session.duration,
                 totalWords: total_words,
                 transcriptState: transcript_state,
-                attributionStatus: attribution_status,
+                authorityVersion: typeof authority === 'string' ? authority : null,
             });
             // An ineligible session still opens — it is the user's run — but it lends no lesson. Home's
             // band falls back to the run's own earned facts.
-            return { ...session, fix: ineligible ? null : readLastSessionFix(ai_suggestions) };
-        });
+            return { ...session, fix: ineligible ? null : fixCandidate };
+        }));
     },
 
     /**
