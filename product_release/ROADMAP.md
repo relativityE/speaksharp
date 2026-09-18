@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for unfinished and deferred product/release work)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-09-18
-**Last Verified:** 2026-09-18 — reconciled to `main@86f7b8e9`, which is `main` after PR #1490 (#1259 received-receipt gaps), PR #1467 (Focus Points detection limit), PR #1486 (#1473 automatic Practice Loop suggestions), PR #1493 (Design Correction Brief shared slot map, S-1–S-7 / F-1–F-6), PR #1487 (#1475 G12 signed-out homepage) and PR #1492 (#1294 checkout email sourcing) merged; the open PRs, the open issues, the Production migration ledger and incomplete RWT evidence were re-read at the same time.
+**Last Verified:** 2026-09-18 — reconciled to `main@61597bdc`, which is `main` after PR #1494 (Home, Design Correction Brief H-1…H-5) and PR #1498 (Session, S-8…S-14), on top of PR #1490 (#1259 received-receipt gaps), PR #1467 (Focus Points detection limit), PR #1486 (#1473 automatic Practice Loop suggestions), PR #1493 (Design Correction Brief shared slot map, S-1–S-7 / F-1–F-6), PR #1487 (#1475 G12 signed-out homepage) and PR #1492 (#1294 checkout email sourcing) merged; the open PRs, the open issues, the Production migration ledger and incomplete RWT evidence were re-read at the same time.
 **Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -11,13 +11,13 @@
 
 # SpeakSharp Roadmap
 
-> **Baseline `86f7b8e9d654523457da8b2640aa419152adceb0`** (`main`, 2026-09-18, after #1492). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer. The two values currently agree because Production was read at 2026-09-18T11:57:15Z after the #1492 deploy propagated — agreement is the observed result of that read, not a conclusion drawn from the merge. They diverge again the moment `main` advances, until a new read is taken.
+> **Baseline `61597bdcd7a6bd587b3579c4deb6462ef0a98adf`** (`main`, 2026-09-18, after #1498). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer. The two values currently agree because Production was read at 2026-09-18T23:03:00Z after the #1498 deploy propagated — agreement is the observed result of that read, not a conclusion drawn from the merge. They diverge again the moment `main` advances, until a new read is taken.
 
 This file is the live backlog authority. The former `BACKLOG.md` is archived and must not be restored as a fifteenth canonical document. Completion belongs in issue/PR/git history; current deployment facts belong in `RELEASE_STATUS.md`.
 
 <!-- CURRENCY-BLOCK
-baseline: 86f7b8e9d654523457da8b2640aa419152adceb0
-deployed-release: 86f7b8e9d654523457da8b2640aa419152adceb0
+baseline: 61597bdcd7a6bd587b3579c4deb6462ef0a98adf
+deployed-release: 61597bdcd7a6bd587b3579c4deb6462ef0a98adf
 verified-on: 2026-09-18
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
@@ -64,7 +64,7 @@ Keep **one merge token** and, as the standing rule, **one active implementation 
 | 5 | Stop false filler/clarity claims | #1472 | Persisted `complete | unobservable | no_speech` state shared by Session, Analytics, PDF, Progress, recovery, and telemetry. |
 | 6 | Make Moonshine RWT-ready — **deferred until after RWT or MVP** | #1263 | Not a current RWT prerequisite. Keep the acquisition/switch fixes; when it is picked up, investigate and eliminate the real long-form loop at the model-driving boundary without output sanitization, and prove tail and live-stability contracts. |
 | 7 | Produce comparable rows that validate the standing choice | #1304 + #1390 | Same corpus, identity, word-count, filler completeness, WER, latency, stability, and **v2/v4** journey evidence. It confirms the standing choice of v4 as the approved primary and v2 as the fallback — a target, not a deployed state — and supplies the pre-promotion evidence #1263 needs; it is not a three-model down-selection, and Moonshine rows are not required. |
-| 8 | Complete the approved core UI | #1474 → Design Correction Brief | G10 hierarchy merged (#1489); the brief continues it: PR #1493 merged (slot map, S-1–S-7, F-1–F-6), PR #1498 open (S-8…S-14), PR #1494 open (Home H-1…H-5). S-12, S-15/S-16 and the "Count look wrong?" opener remain. |
+| 8 | Complete the approved core UI | #1474 → Design Correction Brief | G10 hierarchy merged (#1489); the brief continued it: PR #1493 (slot map), PR #1494 (Home H-1…H-5) and PR #1498 (Session S-8…S-14) are merged and deployed. Open: G7/G8 modal retheme (#1503/#1502), the #1498 P2 follow-up, S-12 (verdict + evidence contract), S-15/S-16, the "Count look wrong?" opener, and the shared dialog surface. |
 | 9 | Complete the approved landing page — **PR #1487 merged** | #1475 | G12 layout/theme and the full 30-day/$10 offer shipped; the issue closes on PO verification. |
 | 10 | Close observability and final journey gates | #1259 + #1382/#1383/#1384 → #1258 | Received events, clean baseline, SLO/alert/cleanup proof, Dev runs both products, then PO repeats on the exact deployed release. |
 
@@ -80,11 +80,11 @@ All 23 current MVP/pre-GO issues and the one roadmap-owned gap (account deletion
 | Observability/operations | #1259, #1382, #1383, #1384 | Active; received evidence and cleanup are required, not producer calls. |
 | Security/CI truth | #1261, #1313, #1315, #1385 | Active pre-GO controls; keep separate from product-feature PRs. |
 | STT comparison | #1304, #1390 | Active; validates **v4 (approved primary, not yet live) against v2 (pre-Start fallback, and today's only customer default)**. #1263 Moonshine is deferred until after RWT or MVP and is not required here. |
-| Documentation/review gate | #1318 | PR #1477 merged 2026-09-16; this currentization restores the baseline to `main@86f7b8e9`. Archives and dated evidence remain immutable. |
+| Documentation/review gate | #1318 | PR #1477 merged 2026-09-16; this currentization restores the baseline to `main@61597bdc`. Archives and dated evidence remain immutable. |
 | Retention safety | #1452 | The newest-one migration was applied on 2026-09-12 and installs the policy **inert**; current activation is unverified (no read-only DB secret), and installation stopped the prior newest-two expiry. #1452 stays open with its must-fix-before-activation priority, re-classified P1/RWT blocker if activation is observed. PR #1497 was closed unmerged as superseded. See `RELEASE_STATUS.md`, *Database migration state*. |
 | Account deletion | Roadmap-owned pre-GO gap | Product Owner owns disposition; Dev may author a bounded corrective issue/PR. Choose one deletion authority, make account erasure unblockable, cover unfinished `session_delivery_measurements` rows and the non-cascading `user_id` dependency, define cleanup/SLA ownership, and prove the real migrations in tests. Production migration remains separately authorized. |
 | Progress/review/filler | #1471, #1472, #1473, #1476 | Active release blockers with separate owners. |
-| Approved UI | #1474, #1475, PR #1494, PR #1498 | Design Correction Brief work; no scope leakage into unrelated PRs. |
+| Approved UI | #1474, #1475, PR #1502, PR #1503 | Design Correction Brief work (Home and Session merged); modal retheme open; no scope leakage into unrelated PRs. |
 | Test identities | #1495 | Separate auth, full-product, paid and trial identity roles; consumer inventory first, and no identity or credential change without exact PO authorization. |
 
 ## Later — explicitly post-MVP
