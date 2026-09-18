@@ -83,13 +83,14 @@ describe('SessionOverhaulView (#1222 S11)', () => {
             />,
         );
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
-        expect(screen.getByTestId('playback-scrubber')).toBeInTheDocument();
-        // Transcript-only: no audio playback affordances.
-        expect(screen.queryByTestId('scrubber-play')).toBeNull();
-        expect(screen.queryByTestId('scrubber-time')).toBeNull();
-        // Open Mic retains the filler legend, but no inert seek/playback control is exposed.
-        expect(screen.getByTestId('scrubber-legend')).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
+        // S-11: slot A is the run's static shape with the mic returned — never a transport.
+        expect(screen.getByTestId('run-shape')).toBeInTheDocument();
+        expect(screen.queryByTestId('playback-scrubber')).toBeNull();
+        // Transcript-only: no audio playback affordances, and the final duration alone (no elapsed/total).
+        expect(screen.queryByRole('button', { name: /play|pause|seek/i })).toBeNull();
+        expect(screen.getByTestId('run-shape').textContent ?? '').not.toMatch(/\d{1,2}:\d{2}\s*\/\s*\d{1,2}:\d{2}/);
+        // Open Mic keeps the filler legend.
+        expect(screen.getByTestId('run-shape-legend')).toBeInTheDocument();
     });
 
     // PO 2026-08-10: the post-Stop FINALIZING window must resolve to `after`, never `before` — otherwise the
@@ -97,7 +98,8 @@ describe('SessionOverhaulView (#1222 S11)', () => {
     it('finalizing (stopped, decode running, analytics not yet shown) resolves to AFTER, not the offer', () => {
         render(<SessionOverhaulView {...base} isFinalizing showAnalyticsPrompt={false} transcriptContent="so um hello" />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
-        expect(screen.getByTestId('playback-scrubber')).toBeInTheDocument();
+        // The captured envelope is kept for the run shape, not wiped.
+        expect(screen.getByTestId('run-shape')).toBeInTheDocument();
         // The before-state prompt offer must NOT appear during finalizing.
         expect(screen.queryByTestId('prompt-offer')).toBeNull();
     });

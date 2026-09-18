@@ -1,5 +1,5 @@
-import { render, screen, fireEvent } from '../../../../tests/support/test-utils';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '../../../../tests/support/test-utils';
+import { describe, it, expect } from 'vitest';
 import { LiveTranscript } from '../LiveTranscript';
 import { formatLiveMeta } from '@/utils/sessionFormat';
 
@@ -44,15 +44,12 @@ describe('LiveTranscript (#1222 slot B during)', () => {
         expect(interim.style.color).toBe('var(--brand-neutral-muted)'); // muted/settling
     });
 
-    it('after: fillers become seek buttons and the caret is dropped', () => {
-        const onFillerSeek = vi.fn();
-        render(<LiveTranscript tokens={tokens} onFillerSeek={onFillerSeek} />);
-        expect(screen.queryByTestId('live-caret')).toBeNull(); // seekable → no live caret
+    it('CASUALTY: fillers are highlights, never seek targets — there is no playback to seek (S-11)', () => {
+        const { container } = render(<LiveTranscript tokens={tokens} showCaret={false} />);
+        expect(screen.queryByTestId('live-caret')).toBeNull();
         const fillers = screen.getAllByTestId('live-filler');
-        expect(fillers[0].tagName).toBe('BUTTON');
-        fireEvent.click(fillers[1]); // "like", index 3
-        expect(onFillerSeek).toHaveBeenCalledOnce();
-        expect(onFillerSeek.mock.calls[0][0]).toMatchObject({ text: 'like' });
-        expect(onFillerSeek.mock.calls[0][1]).toBe(3);
+        expect(fillers.length).toBeGreaterThan(0);
+        for (const f of fillers) expect(f.tagName).toBe('MARK');
+        expect(container.querySelectorAll('button')).toHaveLength(0);
     });
 });

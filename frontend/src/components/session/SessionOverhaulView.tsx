@@ -884,7 +884,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         ? (coverage && coverage.coveredQuotes.length > 0
                             ? `${reviewWordCount} words · highlights mark where each point landed`
                             : `${reviewWordCount} words`)
-                        : `${reviewWordCount} words · orange marks fillers`,
+                        : `${reviewWordCount} words`,
                     stats: fillerStatsLine,
                     coverageMode: isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
                 }}

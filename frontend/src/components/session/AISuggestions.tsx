@@ -1,9 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { OnDeviceCountsContext } from './onDeviceCounts';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert } from '@/components/ui/alert';
-import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../../lib/logger';
 import { emitPracticeLoop } from '@/services/telemetry/practiceLoopTelemetry';
