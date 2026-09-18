@@ -8,7 +8,6 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { usePromptOfferDismissed } from '@/hooks/usePromptOfferDismissed';
 import { useHeldTip } from '@/hooks/useHeldTip';
-import { LiveTip } from './LiveTip';
 import { FillerBreakdown } from './FillerBreakdown';
 import { ThisRunRail } from './ThisRunRail';
 import { OnDeviceCountsContext } from './onDeviceCounts';
@@ -409,6 +408,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // zeroed by the useFillerWords sync), so the review's word count + filler breakdown + headline come from the
     // FINAL snapshot captured at the terminal transition; before/during still read the live values.
     const reviewWordCount = inAfter && typeof finalizedWordCount === 'number' ? finalizedWordCount : wordCount(transcriptSource);
+    // In the post-Stop finalizing window the view is already `after`, but neither the finalized snapshot nor the
+    // retained transcript exists yet, so `reviewWordCount` is a count of the empty string. A count derived from
+    // nothing is withheld (null), never shown as `0 words` for a recording that contains words.
+    const reviewWordsKnown = !inAfter || typeof finalizedWordCount === 'number' || reviewText !== null;
+    const shownReviewWords = reviewWordsKnown ? reviewWordCount : null;
     // #1314 C3: ONE validated snapshot feeds every filler element. The displayed total is derived from the
     // SAME chip map the breakdown renders, so the sentence total and the chips can never disagree. An
     // unavailable snapshot (SQL NULL) makes no numeric claim; `{}` is a measured zero (0, no chips).
@@ -812,8 +816,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                             tip={heldTip?.headline ?? null}
                         />
                     )}
-                // Slot B: Open Mic's live tip, or Focus Points' coverage nudge (F-1) — never both.
-                liveTip={isObjective ? undefined : (heldTip ? <LiveTip tip={heldTip} /> : undefined)}
+                // Slot B carries Focus Points' coverage nudge (F-1). PM ruling (#1498): Open Mic's held live tip has
+                // ONE home, the THIS RUN rail (S-10), so slot B keeps its resting line rather than repeating it.
                 nudge={isObjective ? nudge : null}
             />
         );
@@ -862,8 +866,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 fillersPerMinute={reviewFillerCount !== null && effElapsed > 0
                     ? (reviewFillerCount / effElapsed) * 60
                     : null}
-                wordsPerMinute={liveWordsPerMinute(reviewWordCount, effElapsed)}
-                words={reviewWordCount}
+                wordsPerMinute={shownReviewWords === null ? null : liveWordsPerMinute(shownReviewWords, effElapsed)}
+                words={shownReviewWords}
             />
         );
 
@@ -871,7 +875,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // shows exactly what the rail shows — never a second computation of the same run.
     const onDeviceCounts = {
         fillers: reviewFillerCount,
-        wordsPerMinute: liveWordsPerMinute(reviewWordCount, effElapsed),
+        wordsPerMinute: shownReviewWords === null ? null : liveWordsPerMinute(shownReviewWords, effElapsed),
     };
 
     return (
@@ -900,7 +904,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         ? (coverage && coverage.coveredQuotes.length > 0
                             ? `${reviewWordCount} words · highlights mark where each point landed`
                             : `${reviewWordCount} words`)
-                        : `${reviewWordCount} words`,
+                        : (shownReviewWords === null ? '' : `${shownReviewWords} words`),
                     stats: fillerStatsLine,
                     coverageMode: isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
                 }}

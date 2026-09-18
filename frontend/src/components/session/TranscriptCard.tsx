@@ -107,6 +107,20 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
 }) => {
     const [expanded, setExpanded] = React.useState(false);
     const isCapped = Boolean(capped) && !expanded;
+    // "Read full transcript" is offered only when the cap actually clips something. A short session fits
+    // under 280px, and a button that reveals nothing is a no-op dressed as an action.
+    const contentRef = React.useRef<HTMLDivElement | null>(null);
+    const [overflows, setOverflows] = React.useState(false);
+    React.useLayoutEffect(() => {
+        const node = contentRef.current;
+        if (!node || !isCapped) return;
+        const measure = () => setOverflows(node.scrollHeight > node.clientHeight + 1);
+        measure();
+        if (typeof ResizeObserver !== 'function') return;
+        const observer = new ResizeObserver(measure);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [isCapped, children]);
     // #891 — live countdown for the "Finalizing…" wait. Seed from the estimate when finalizing begins, then
     // tick down once a second (floored at 1s so it never shows 0 or negative while the decode is still going).
     const [finalizeRemaining, setFinalizeRemaining] = React.useState<number | null>(null);
@@ -185,13 +199,14 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
             {hasContent ? (
                 <>
                     <div
+                        ref={contentRef}
                         className={`min-h-0 flex-1 overflow-y-auto${isCapped ? ' max-h-[280px]' : ''}`}
                         data-testid="transcript-content"
                         data-transcript-capped={isCapped ? 'true' : 'false'}
                     >
                         {children}
                     </div>
-                    {capped && !expanded && (
+                    {isCapped && overflows && (
                         <button
                             type="button"
                             onClick={() => setExpanded(true)}

@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '../../../../tests/support/test-utils';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, onTestFinished } from 'vitest';
 import { SessionAfterState } from '../SessionAfterState';
 import { SessionBeforeState } from '../SessionBeforeState';
 import { SessionDuringState } from '../SessionDuringState';
@@ -70,7 +70,25 @@ describe('SessionAfterState — the shared slot map', () => {
      * The cap is CSS ONLY: live specs and the benchmark harness read `transcript-content` by `textContent`,
      * so truncating the text itself would silently change what they measure.
      */
+    /** jsdom has no layout: stub the content box so the cap either clips (overflow) or fits. */
+    function stubContentBox(scrollHeight: number, clientHeight: number) {
+        const sh = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(scrollHeight);
+        const ch = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(clientHeight);
+        return () => { sh.mockRestore(); ch.mockRestore(); };
+    }
+
+    it('CASUALTY S-13: a transcript that fits under the cap offers no "Read full transcript" no-op', () => {
+        const restore = stubContentBox(120, 120);
+        try {
+            render(<SessionAfterState {...afterProps} />);
+            expect(screen.getByTestId('transcript-content')).toHaveAttribute('data-transcript-capped', 'true');
+            expect(screen.queryByTestId('read-full-transcript')).toBeNull();
+        } finally { restore(); }
+    });
+
     it('S-13: the transcript is capped with internal scroll, and lifts in place', () => {
+        const restore = stubContentBox(900, 280);
+        onTestFinished(restore);
         render(<SessionAfterState {...afterProps} />);
         const content = screen.getByTestId('transcript-content');
         expect(content).toHaveAttribute('data-transcript-capped', 'true');

@@ -517,6 +517,27 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         }
     });
 
+    // PM ruling on #1498 (S-10): the held live tip has ONE home — the THIS RUN rail. It was rendered in slot B
+    // as well, so the user read identical advice twice.
+    it('CASUALTY: during Open Mic the live tip appears exactly once, in the THIS RUN rail, never in slot B', () => {
+        const fillerData = { um: { count: 4 }, total: { count: 4 } } as unknown as FillerCounts;
+        render(
+            <SessionOverhaulView
+                {...base}
+                isListening
+                elapsedTime={30}
+                transcriptContent="um so um we um think um the plan works"
+                fillerData={fillerData}
+                metricsFillerCount={4}
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        const railTip = screen.getByTestId('this-run-tip');
+        expect(railTip.textContent?.trim().length).toBeGreaterThan(0);
+        expect(screen.getByTestId('session-slot-b').textContent).not.toContain(railTip.textContent!.trim());
+        expect(screen.queryByTestId('live-tip')).toBeNull();
+    });
+
     // #1256 P1 — the snapshot-only after-state scores the FINISHED take, whose duration lives in
     // `scoringElapsedSeconds`. The live `elapsedTime` normalizes to 0 once idle, so without this the
     // "<duration> actual" pace line (and per-point timing) rendered 0:00.
@@ -575,6 +596,39 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         // 240 words over two minutes: a stated rate, not an omitted row.
         expect(screen.getByTestId('this-run-card-pace')).toHaveTextContent('120');
         expect(screen.getByTestId('this-run-card-fillers')).toHaveTextContent('6 · 3.0/min');
+    });
+
+    it('CASUALTY: during finalizing (no snapshot, no retained transcript) words and pace are withheld, never "0"', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                isFinalizing
+                showAnalyticsPrompt={false}
+                transcriptContent=""
+                elapsedTime={0}
+                scoringElapsedSeconds={90}
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.queryByTestId('this-run-card-words')).toBeNull();
+        expect(screen.queryByTestId('this-run-card-pace')).toBeNull();
+        expect(screen.getByTestId('session-slot-b').textContent + (document.body.textContent ?? '')).not.toMatch(/\b0 words\b/);
+    });
+
+    it('CONTROL: once the finalized snapshot lands, the real word count shows', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                isFinalizing
+                showAnalyticsPrompt={false}
+                transcriptContent=""
+                finalizedWordCount={180}
+                elapsedTime={0}
+                scoringElapsedSeconds={90}
+            />,
+        );
+        expect(screen.getByTestId('this-run-card-words')).toHaveTextContent('180');
+        expect(screen.getByTestId('this-run-card-pace')).toHaveTextContent('120');
     });
 
     it('CONTROL: with no finished duration the rates are omitted, never shown as a fabricated zero', () => {
