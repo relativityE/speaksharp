@@ -190,10 +190,14 @@ test.describe('Production Smoke Canary @canary', () => {
                     redacted: sanitizeCanaryPayloadUrl(rawUrl, page.url()),
                     origin: parsed.origin,
                     kind: 'eventsource',
+                    // No EventSource route is part of the supported take contract.
+                    routeAllowed: false,
                 });
             }
             catch {
-                channelObservations.push({ redacted: '<unparseable>', origin: '', kind: 'eventsource' });
+                channelObservations.push({
+                    redacted: '<unparseable>', origin: '', kind: 'eventsource', routeAllowed: false,
+                });
             }
         });
         await page.addInitScript({ content: PAYLOAD_TRIPWIRE });
@@ -330,6 +334,42 @@ test.describe('Production Smoke Canary @canary', () => {
             }
         };
         const egressObservations: EgressObservation[] = [];
+        const appOriginDuringTake = new URL(page.url()).origin;
+        const configuredSupabaseUrlDuringTake = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
+        expect(configuredSupabaseUrlDuringTake, 'CANARY_CONFIG_INVALID: Supabase URL required before observation')
+            .toBeTruthy();
+        const supabaseOriginDuringTake = new URL(configuredSupabaseUrlDuringTake as string).origin;
+        const telemetryOriginsDuringTake = new Set([
+            process.env.VITE_POSTHOG_HOST,
+            process.env.SENTRY_DSN,
+        ].filter((value): value is string => Boolean(value)).map((value) => new URL(value).origin));
+        const allowedSupabaseRoutes = new Set([
+            'POST /rest/v1/rpc/create_session_and_update_usage',
+            'PATCH /rest/v1/sessions',
+            'POST /functions/v1/attest-session-engine',
+            'POST /functions/v1/get-ai-suggestions',
+        ]);
+        const requestContract = (rawUrl: string, method: string, contentType: string | undefined) => {
+            try {
+                const parsed = new URL(rawUrl, page.url());
+                const route = `${method} ${parsed.pathname}`;
+                const routeAllowed = parsed.origin === supabaseOriginDuringTake
+                    ? allowedSupabaseRoutes.has(route)
+                    : telemetryOriginsDuringTake.has(parsed.origin)
+                        ? method === 'POST' && (/^\/e\/?$/.test(parsed.pathname)
+                            || /^\/batch\/?$/.test(parsed.pathname)
+                            || /^\/api\/\d+\/envelope\/?$/.test(parsed.pathname))
+                        : parsed.origin === appOriginDuringTake
+                            && (method === 'GET' || method === 'HEAD')
+                            && parsed.pathname === '/session';
+                const normalizedType = (contentType ?? '').split(';', 1)[0].trim().toLowerCase();
+                const bodyClassAllowed = method === 'GET' || method === 'HEAD'
+                    || ['application/json', 'text/plain', 'application/x-www-form-urlencoded'].includes(normalizedType);
+                return { routeAllowed, bodyClassAllowed };
+            } catch {
+                return { routeAllowed: false, bodyClassAllowed: false };
+            }
+        };
         let createSessionRpcCount = 0;
         page.on('request', (request) => {
             const {
@@ -344,14 +384,23 @@ test.describe('Production Smoke Canary @canary', () => {
             // state could not be determined and the judge treats that as prohibited.
             let bodyBytes: number | null = null;
             try { bodyBytes = request.postDataBuffer()?.byteLength ?? 0; } catch { bodyBytes = null; }
+            const { routeAllowed, bodyClassAllowed } = requestContract(
+                request.url(), request.method(), request.headers()['content-type'],
+            );
             egressObservations.push({
                 redacted, origin, bodyBytes, resourceType: request.resourceType(), hasQuery,
-                queryContainsEncodedAudio, pathContainsEncodedAudio,
+                queryContainsEncodedAudio, pathContainsEncodedAudio, routeAllowed, bodyClassAllowed,
             });
         });
         page.on('websocket', (ws) => {
             const { redacted, origin } = redact(ws.url());
-            channelObservations.push({ redacted, origin, kind: 'websocket' });
+            let routeAllowed = false;
+            try {
+                const parsed = new URL(ws.url());
+                routeAllowed = parsed.origin === supabaseOriginDuringTake.replace(/^https/, 'wss')
+                    && parsed.pathname === '/realtime/v1/websocket';
+            } catch { /* fail closed */ }
+            channelObservations.push({ redacted, origin, kind: 'websocket', routeAllowed });
         });
 
         // 4. Start Session — the readied recorder control is `mic-start`.
@@ -467,6 +516,9 @@ test.describe('Production Smoke Canary @canary', () => {
             }, null, 2),
         });
         expect(blockingPayloads, 'CANARY_AUDIO_EGRESS: payload tripwire observed prohibited bytes').toEqual([]);
+        // Seal the exact take window before navigation/reload. Later evidence reads must not contaminate it.
+        const sealedEgressObservations = egressObservations.slice();
+        const sealedChannelObservations = channelObservations.slice();
 
         // Exercise the shipped action only after the post-save payload verdict is sealed. This makes
         // /analytics an explicit journey step instead of pretending Save navigates there automatically.
@@ -574,7 +626,7 @@ test.describe('Production Smoke Canary @canary', () => {
             process.env.VITE_POSTHOG_HOST,
             process.env.SENTRY_DSN,
         ].filter((value): value is string => Boolean(value)).map((value) => new URL(value).origin)));
-        const egress = judgeCanaryEgress(egressObservations, channelObservations, {
+        const egress = judgeCanaryEgress(sealedEgressObservations, sealedChannelObservations, {
             firstParty: [appOrigin, supabaseOrigin, supabaseOrigin.replace(/^https/, 'wss')],
             governedTelemetry,
             modelAssets: ['https://huggingface.co', 'https://cdn-lfs.huggingface.co', 'https://cdn-lfs-us-1.huggingface.co'],

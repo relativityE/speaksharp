@@ -363,15 +363,34 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     } catch (e) { void e; return 0; }
   };
 
+  const inspectUrlEncodedText = (value) => {
+    if (typeof value !== 'string' || (!value.includes('=') && !value.includes('&'))) return 'clean';
+    try {
+      let opaque = false; let candidateChars = 0;
+      for (const [key, nested] of new URLSearchParams(value).entries()) {
+        const keyEnvelope = inspectEncodedAudioEnvelopeText(key);
+        const valueEnvelope = inspectEncodedAudioEnvelopeText(nested);
+        if (isEncodedAudioText(key) || isEncodedAudioText(nested)
+          || keyEnvelope === 'audio' || valueEnvelope === 'audio') return 'audio';
+        if (keyEnvelope === 'opaque' || valueEnvelope === 'opaque') opaque = true;
+        candidateChars += shortEncodedAudioTextLength(key) || shortEncodedAudioEnvelopeChars(key);
+        candidateChars += shortEncodedAudioTextLength(nested) || shortEncodedAudioEnvelopeChars(nested);
+      }
+      if (candidateChars >= 256) return 'audio';
+      return opaque ? 'opaque' : 'clean';
+    } catch (e) { void e; return 'opaque'; }
+  };
+
   const classify = (body) => {
     if (body === null || body === undefined) return { kind: 'empty', mime: null, bytes: 0 };
     if (typeof body === 'string') {
       const envelope = inspectEncodedAudioEnvelopeText(body);
+      const encodedForm = inspectUrlEncodedText(body);
       const candidateChars = shortEncodedAudioTextLength(body)
         || shortEncodedAudioEnvelopeChars(body);
       return {
-        kind: isEncodedAudioText(body) || envelope === 'audio'
-          ? 'encoded_audio' : envelope === 'opaque' ? 'blob' : 'text',
+        kind: isEncodedAudioText(body) || envelope === 'audio' || encodedForm === 'audio'
+          ? 'encoded_audio' : envelope === 'opaque' || encodedForm === 'opaque' ? 'blob' : 'text',
         mime: null,
         bytes: body.length,
         candidateChars,
@@ -389,12 +408,16 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       try {
         for (const [key, value] of body.entries()) {
           bytes += key.length + value.length;
+          const keyEnvelope = inspectEncodedAudioEnvelopeText(key);
           const envelope = inspectEncodedAudioEnvelopeText(value);
           if ((isAudioField(key) && value.trim().length > 0)
-            || isEncodedAudioText(value) || envelope === 'audio') audio = true;
-          else if (envelope === 'opaque') opaque = true;
-          else candidateChars += shortEncodedAudioTextLength(value)
-            || shortEncodedAudioEnvelopeChars(value);
+            || isEncodedAudioText(key) || isEncodedAudioText(value)
+            || keyEnvelope === 'audio' || envelope === 'audio') audio = true;
+          else if (keyEnvelope === 'opaque' || envelope === 'opaque') opaque = true;
+          else {
+            candidateChars += shortEncodedAudioTextLength(key) || shortEncodedAudioEnvelopeChars(key);
+            candidateChars += shortEncodedAudioTextLength(value) || shortEncodedAudioEnvelopeChars(value);
+          }
         }
       } catch (e) { void e; bytes = -1; }
       return {

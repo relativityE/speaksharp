@@ -251,6 +251,19 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         expect(durableWait).toContain("projection.includes('duration')");
     });
 
+    it('CASUALTY: seals take egress before navigation and judges only the frozen snapshots', () => {
+        const smoke = readFileSync('tests/canary/smoke.canary.spec.ts', 'utf8');
+        const seal = smoke.indexOf('const sealedEgressObservations = egressObservations.slice()');
+        const navigation = smoke.indexOf("page.getByTestId('verdict-see-all').click()");
+        const reload = smoke.indexOf('await page.reload()');
+        const judge = smoke.indexOf('judgeCanaryEgress(sealedEgressObservations, sealedChannelObservations');
+        expect(seal).toBeGreaterThan(0);
+        expect(seal).toBeLessThan(navigation);
+        expect(seal).toBeLessThan(reload);
+        expect(judge).toBeGreaterThan(reload);
+        expect(smoke).not.toContain('judgeCanaryEgress(egressObservations, channelObservations');
+    });
+
     it('CASUALTY: worker termination stays synchronous while drain waits for the streamed binding', async () => {
         type Listener = (event: { data: unknown }) => void;
         class FakeBroadcastChannel {
@@ -454,6 +467,12 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
                 method: 'POST', body: new URLSearchParams({ event: 'session_saved', distinct_id: 'canary' }),
             });
             await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
+                method: 'POST', body: `${'I'.repeat(512)}=`,
+            });
+            await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
+                method: 'POST', body: new URLSearchParams([[`${'J'.repeat(512)}`, '']]),
+            });
+            await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
                 method: 'POST',
                 body: new URLSearchParams({ payload: JSON.stringify({ audio: 'E'.repeat(512) }) }),
             });
@@ -475,7 +494,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
 
             expect(records.map((record) => record.kind)).toEqual([
                 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio',
-                'encoded_audio', 'text', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'form', 'encoded_audio', 'audio',
+                'encoded_audio', 'text', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'form',
+                'encoded_audio', 'encoded_audio', 'encoded_audio', 'audio',
                 'audio', 'audio',
             ]);
             expect(JSON.stringify(records)).not.toContain('AAAA');
@@ -486,6 +506,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             expect(JSON.stringify(records)).not.toContain('FFFF');
             expect(JSON.stringify(records)).not.toContain('GGGG');
             expect(JSON.stringify(records)).not.toContain('HHHH');
+            expect(JSON.stringify(records)).not.toContain('IIII');
+            expect(JSON.stringify(records)).not.toContain('JJJJ');
             expect(JSON.stringify(records)).not.toContain('-_');
         } finally {
             scope.fetch = originalFetch;
@@ -999,6 +1021,10 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             appUrl,
         )).toBe(true);
         expect(canaryQueryContainsEncodedAudio(
+            `https://abcproject.supabase.co/functions/v1/proxy?payload=${encodeURIComponent(JSON.stringify({ [pcm]: '' }))}`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryQueryContainsEncodedAudio(
             `https://eu.posthog.com/e/?payload=${encodeURIComponent(`${envelope}\n{"event":"saved"}`)}`,
             appUrl,
         )).toBe(true);
@@ -1084,7 +1110,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
     const obs = (over = {}) => ({
         redacted: 'https://speaksharp-public.vercel.app/x', origin: 'https://speaksharp-public.vercel.app',
         bodyBytes: 0, resourceType: 'fetch', hasQuery: false,
-        queryContainsEncodedAudio: false, pathContainsEncodedAudio: false, ...over,
+        queryContainsEncodedAudio: false, pathContainsEncodedAudio: false,
+        routeAllowed: true, bodyClassAllowed: true, ...over,
     });
 
     it('CASUALTY: binary/multipart to a third party FAILS — postData() would have reported no body', () => {
@@ -1098,6 +1125,27 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         expect(judgeCanaryEgress([obs({
             redacted: 'https://attacker.supabase.co/rest/v1/x', origin: 'https://attacker.supabase.co', bodyBytes: 900,
         })], [], POLICY)).toEqual({ ok: false, category: 'undeclared_destination', url: 'https://attacker.supabase.co/rest/v1/x' });
+    });
+
+    it('CASUALTY: an approved origin with an undeclared method/path still FAILS', () => {
+        expect(judgeCanaryEgress([obs({
+            origin: 'https://abcproject.supabase.co',
+            redacted: 'https://abcproject.supabase.co',
+            routeAllowed: false,
+        })], [], POLICY)).toEqual({
+            ok: false, category: 'undeclared_route', url: 'https://abcproject.supabase.co',
+        });
+    });
+
+    it('CASUALTY: an allowed route with a disallowed body class still FAILS', () => {
+        expect(judgeCanaryEgress([obs({
+            origin: 'https://abcproject.supabase.co',
+            redacted: 'https://abcproject.supabase.co',
+            bodyBytes: 256,
+            bodyClassAllowed: false,
+        })], [], POLICY)).toEqual({
+            ok: false, category: 'disallowed_body_class', url: 'https://abcproject.supabase.co',
+        });
     });
 
     it('CASUALTY: query-string exfiltration FAILS with NO body at all', () => {
@@ -1158,10 +1206,10 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
 
     it('CASUALTY: an ungoverned WebSocket FAILS — later frames are invisible to request inspection', () => {
         expect(judgeCanaryEgress([], [{
-            redacted: 'wss://relay.example.com/s', origin: 'wss://relay.example.com', kind: 'websocket',
+            redacted: 'wss://relay.example.com/s', origin: 'wss://relay.example.com', kind: 'websocket', routeAllowed: true,
         }], POLICY)).toEqual({ ok: false, category: 'ungoverned_websocket', url: 'wss://relay.example.com/s' });
         expect(judgeCanaryEgress([], [{
-            redacted: 'https://evil.example.com/stream', origin: 'https://evil.example.com', kind: 'eventsource',
+            redacted: 'https://evil.example.com/stream', origin: 'https://evil.example.com', kind: 'eventsource', routeAllowed: true,
         }], POLICY)).toEqual({ ok: false, category: 'ungoverned_eventsource', url: 'https://evil.example.com/stream' });
     });
 
@@ -1198,7 +1246,7 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         expect(judgeCanaryEgress([
             obs({ redacted: 'https://abcproject.supabase.co/rest/v1/sessions', origin: 'https://abcproject.supabase.co', bodyBytes: 512, hasQuery: true }),
             obs({ redacted: 'https://eu.posthog.com/e/', origin: 'https://eu.posthog.com', bodyBytes: 2048 }),
-        ], [{ redacted: 'wss://abcproject.supabase.co/realtime', origin: 'wss://abcproject.supabase.co', kind: 'websocket' }],
+        ], [{ redacted: 'wss://abcproject.supabase.co/realtime', origin: 'wss://abcproject.supabase.co', kind: 'websocket', routeAllowed: true }],
             { ...POLICY, firstParty: [...POLICY.firstParty, 'wss://abcproject.supabase.co'] },
         )).toEqual({ ok: true, inspected: 2, channels: 1 });
     });

@@ -215,10 +215,20 @@ export type EgressObservation = {
     queryContainsEncodedAudio: boolean;
     /** Shape-only result computed before redaction. Path contents are never retained in evidence. */
     pathContainsEncodedAudio: boolean;
+    /** Evaluated against the checked-in method/path allowlist before URL redaction. */
+    routeAllowed: boolean;
+    /** Shape-only transport/content-type contract; no header or body value is retained. */
+    bodyClassAllowed: boolean;
 };
 
 /** A WebSocket or EventSource opened during the take. Later frames are invisible to request checks. */
-export type ChannelObservation = { redacted: string; origin: string; kind: 'websocket' | 'eventsource' };
+export type ChannelObservation = {
+    redacted: string;
+    origin: string;
+    kind: 'websocket' | 'eventsource';
+    /** Evaluated against the checked-in channel allowlist before URL redaction. */
+    routeAllowed: boolean;
+};
 
 export type EgressVerdict =
     | { ok: true; inspected: number; channels: number }
@@ -297,6 +307,7 @@ function inspectAudioEnvelope(
     if (!value || typeof value !== 'object') return 'clean';
     let verdict: AudioShapeVerdict = 'clean';
     for (const [key, nested] of Object.entries(value)) {
+        if (isEncodedAudioScalar(key)) return 'audio';
         const result = inspectAudioEnvelope(nested, depth + 1, budget, audioContext || AUDIO_QUERY_KEY.test(key));
         if (result === 'audio') return 'audio';
         if (result === 'opaque') verdict = 'opaque';
@@ -386,6 +397,9 @@ export function judgeCanaryEgress(
     // An ungoverned duplex channel defeats request-body inspection entirely: the open is observable,
     // the frames are not. Only first-party origins may open one.
     for (const c of channels) {
+        if (!c.routeAllowed) {
+            return { ok: false, category: `undeclared_${c.kind}_route`, url: c.redacted };
+        }
         if (classifyOrigin(c.origin, policy) !== 'first-party') {
             return { ok: false, category: `ungoverned_${c.kind}`, url: c.redacted };
         }
@@ -398,6 +412,8 @@ export function judgeCanaryEgress(
         if (o.pathContainsEncodedAudio) {
             return { ok: false, category: 'encoded_audio_path', url: o.redacted };
         }
+        if (!o.routeAllowed) return { ok: false, category: 'undeclared_route', url: o.redacted };
+        if (!o.bodyClassAllowed) return { ok: false, category: 'disallowed_body_class', url: o.redacted };
         const cls = classifyOrigin(o.origin, policy);
         // Unknown destinations are prohibited OUTRIGHT — bodyless included. A query string is a
         // complete exfiltration channel and needs no body.
