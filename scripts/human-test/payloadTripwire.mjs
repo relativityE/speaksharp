@@ -218,41 +218,55 @@ export const PAYLOAD_TRIPWIRE = `(() => {
 
   const isAudioField = (key) => /^(audio|audioData|audio_data|audioBytes|audio_bytes|pcm|pcmData|pcm_data|samples|audioSamples|audio_samples)$/i.test(key);
 
-  const containsEncodedAudio = (value, depth, budget, audioContext) => {
-    if (depth > 4 || budget.remaining <= 0) return false;
+  const inspectEncodedAudio = (value, depth, budget, audioContext) => {
+    // A bounded inspection may conclude AUDIO or CLEAN only when it actually saw enough of the
+    // value to justify that verdict. Reaching either bound is OPAQUE, never a clean certificate.
+    if (depth > 4 || budget.remaining <= 0) return 'opaque';
     budget.remaining -= 1;
-    if (audioContext && (isEncodedAudioText(value) || isNumericSampleArray(value))) return true;
-    if (!value || typeof value !== 'object') return false;
+    if (audioContext && (isEncodedAudioText(value) || isNumericSampleArray(value))) return 'audio';
+    if (!value || typeof value !== 'object') return 'clean';
+    let verdict = 'clean';
     if (Array.isArray(value)) {
-      if (audioContext && isNumericSampleArray(value)) return true;
-      return value.some((entry) => containsEncodedAudio(entry, depth + 1, budget, audioContext));
+      if (audioContext && isNumericSampleArray(value)) return 'audio';
+      for (const entry of value) {
+        const nested = inspectEncodedAudio(entry, depth + 1, budget, audioContext);
+        if (nested === 'audio') return 'audio';
+        if (nested === 'opaque') verdict = 'opaque';
+      }
+      return verdict;
     }
     for (const [key, nested] of Object.entries(value)) {
       const nestedAudioContext = audioContext || isAudioField(key);
-      if (nestedAudioContext && (isEncodedAudioText(nested) || isNumericSampleArray(nested))) return true;
-      if (nested && typeof nested === 'object'
-        && containsEncodedAudio(nested, depth + 1, budget, nestedAudioContext)) return true;
+      if (nestedAudioContext && (isEncodedAudioText(nested) || isNumericSampleArray(nested))) return 'audio';
+      if (nested && typeof nested === 'object') {
+        const inspected = inspectEncodedAudio(nested, depth + 1, budget, nestedAudioContext);
+        if (inspected === 'audio') return 'audio';
+        if (inspected === 'opaque') verdict = 'opaque';
+      }
     }
-    return false;
+    return verdict;
   };
 
-  const isEncodedAudioEnvelopeText = (value) => {
-    if (typeof value !== 'string') return false;
+  const inspectEncodedAudioEnvelopeText = (value) => {
+    if (typeof value !== 'string') return 'clean';
     const trimmed = value.trim();
     // Bound parsing by bytes, depth, and visited nodes. Only recognized audio-bearing keys are treated
     // as audio, so ordinary telemetry identifiers or unrelated base64 text do not become false holds.
-    if (trimmed.length < 2 || trimmed.length > 1_000_000
+    if (trimmed.length < 2
       || !((trimmed.startsWith('{') && trimmed.endsWith('}'))
-        || (trimmed.startsWith('[') && trimmed.endsWith(']')))) return false;
-    try { return containsEncodedAudio(JSON.parse(trimmed), 0, { remaining: 128 }, false); }
-    catch (e) { void e; return false; }
+        || (trimmed.startsWith('[') && trimmed.endsWith(']')))) return 'clean';
+    if (trimmed.length > 1_000_000) return 'opaque';
+    try { return inspectEncodedAudio(JSON.parse(trimmed), 0, { remaining: 128 }, false); }
+    catch (e) { void e; return 'clean'; }
   };
 
   const classify = (body) => {
     if (body === null || body === undefined) return { kind: 'empty', mime: null, bytes: 0 };
     if (typeof body === 'string') {
+      const envelope = inspectEncodedAudioEnvelopeText(body);
       return {
-        kind: (isEncodedAudioText(body) || isEncodedAudioEnvelopeText(body)) ? 'encoded_audio' : 'text',
+        kind: isEncodedAudioText(body) || envelope === 'audio'
+          ? 'encoded_audio' : envelope === 'opaque' ? 'blob' : 'text',
         mime: null,
         bytes: body.length,
       };
@@ -265,15 +279,18 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       return { kind, mime: mime || null, bytes: body.size };
     }
     if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
-      let audio = false; let bytes = 0;
+      let audio = false; let opaque = false; let bytes = 0;
       try {
         for (const [key, value] of body.entries()) {
           bytes += key.length + value.length;
-          if ((isAudioField(key) && value.trim().length > 0) || isEncodedAudioText(value)) audio = true;
+          const envelope = inspectEncodedAudioEnvelopeText(value);
+          if ((isAudioField(key) && value.trim().length > 0)
+            || isEncodedAudioText(value) || envelope === 'audio') audio = true;
+          else if (envelope === 'opaque') opaque = true;
         }
       } catch (e) { void e; bytes = -1; }
       return {
-        kind: audio ? 'encoded_audio' : 'form',
+        kind: audio ? 'encoded_audio' : opaque ? 'blob' : 'form',
         mime: 'application/x-www-form-urlencoded',
         bytes,
       };
@@ -294,7 +311,10 @@ export const PAYLOAD_TRIPWIRE = `(() => {
             }
           } else if (typeof v === 'string') {
             bytes += v.length;
-            if ((namedAudio && v.trim().length > 0) || isEncodedAudioText(v)) audio = true;
+            const envelope = inspectEncodedAudioEnvelopeText(v);
+            if ((namedAudio && v.trim().length > 0)
+              || isEncodedAudioText(v) || envelope === 'audio') audio = true;
+            else if (envelope === 'opaque') opaqueBinary = true;
           }
         }
       } catch (e) { void e; }
@@ -328,8 +348,9 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     if (typeof body === 'object') {
       let bytes = 0;
       try { bytes = JSON.stringify(body).length; } catch (e) { void e; bytes = -1; }
+      const inspected = inspectEncodedAudio(body, 0, { remaining: 128 }, false);
       return {
-        kind: containsEncodedAudio(body, 0, { remaining: 128 }, false) ? 'encoded_audio' : 'json',
+        kind: inspected === 'audio' ? 'encoded_audio' : inspected === 'opaque' ? 'blob' : 'json',
         mime: 'application/json',
         bytes,
       };

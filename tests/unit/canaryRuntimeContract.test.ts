@@ -433,10 +433,19 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             await scope.fetch('https://eu.posthog.com/e/', {
                 method: 'POST', body: new URLSearchParams({ event: 'session_saved', distinct_id: 'canary' }),
             });
+            await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
+                method: 'POST',
+                body: new URLSearchParams({ payload: JSON.stringify({ audio: 'E'.repeat(512) }) }),
+            });
             const labeledTextForm = new FormData();
             labeledTextForm.append('audio', 'D'.repeat(511));
             await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
                 method: 'POST', body: labeledTextForm,
+            });
+            const envelopeForm = new FormData();
+            envelopeForm.append('payload', JSON.stringify({ audio: 'F'.repeat(512) }));
+            await scope.fetch('https://abcproject.supabase.co/functions/v1/proxy', {
+                method: 'POST', body: envelopeForm,
             });
             const labeledBlobForm = new FormData();
             labeledBlobForm.append('audio', new Blob(['opaque bytes'], { type: 'application/octet-stream' }));
@@ -446,13 +455,77 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
 
             expect(records.map((record) => record.kind)).toEqual([
                 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio',
-                'encoded_audio', 'text', 'encoded_audio', 'form', 'audio', 'audio',
+                'encoded_audio', 'text', 'encoded_audio', 'form', 'encoded_audio', 'audio',
+                'audio', 'audio',
             ]);
             expect(JSON.stringify(records)).not.toContain('AAAA');
             expect(JSON.stringify(records)).not.toContain('BBBB');
             expect(JSON.stringify(records)).not.toContain('CCCC');
             expect(JSON.stringify(records)).not.toContain('DDDD');
+            expect(JSON.stringify(records)).not.toContain('EEEE');
+            expect(JSON.stringify(records)).not.toContain('FFFF');
             expect(JSON.stringify(records)).not.toContain('-_');
+        } finally {
+            scope.fetch = originalFetch;
+            if (originalDocument === undefined) delete scope.document;
+            else scope.document = originalDocument;
+            delete scope.__SS_TRIPWIRE__;
+            delete scope.__SS_TRIPWIRE_EMIT__;
+        }
+    });
+
+    it('CASUALTY: bounded JSON inspection fails closed instead of certifying unseen content', async () => {
+        type TripwireGlobal = typeof globalThis & {
+            __SS_TRIPWIRE__?: unknown[];
+            __SS_TRIPWIRE_EMIT__?: (record: Record<string, unknown>) => void;
+            document?: { documentElement?: { getAttribute?: (name: string) => string | null } };
+        };
+        const scope = globalThis as TripwireGlobal;
+        const originalFetch = scope.fetch;
+        const originalDocument = scope.document;
+        const records: Record<string, unknown>[] = [];
+        const deep = { a: { b: { c: { d: { e: { audio: 'A'.repeat(512) } } } } } };
+        const wide: Record<string, unknown> = Object.fromEntries(
+            Array.from({ length: 129 }, (_, index) => [`safe_${index}`, {}]),
+        );
+        wide.tail = { audio: 'B'.repeat(512) };
+
+        try {
+            delete scope.__SS_TRIPWIRE__;
+            scope.__SS_TRIPWIRE_EMIT__ = (record) => { records.push(record); };
+            scope.document = { documentElement: { getAttribute: () => 'RECORDING' } };
+            scope.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+
+            new Function(PAYLOAD_TRIPWIRE)();
+            await scope.fetch('https://speaksharp-public.vercel.app/api/deep', {
+                method: 'POST', body: JSON.stringify(deep),
+            });
+            await scope.fetch('https://abcproject.supabase.co/functions/v1/wide', {
+                method: 'POST', body: JSON.stringify(wide),
+            });
+            await scope.fetch('https://speaksharp-public.vercel.app/api/deep-form', {
+                method: 'POST', body: new URLSearchParams({ payload: JSON.stringify(deep) }),
+            });
+            const wideForm = new FormData();
+            wideForm.append('payload', JSON.stringify(wide));
+            await scope.fetch('https://abcproject.supabase.co/functions/v1/wide-form', {
+                method: 'POST', body: wideForm,
+            });
+
+            expect(records.map((record) => record.kind)).toEqual(['blob', 'blob', 'blob', 'blob']);
+            const findings = auditPayloads(records, {
+                appOrigin: 'https://speaksharp-public.vercel.app',
+            });
+            expect(findings.map((finding) => finding.category)).toEqual([
+                'same_origin_binary_during_recording',
+                'unexplained_binary',
+                'same_origin_binary_during_recording',
+                'unexplained_binary',
+            ]);
+            expect(findings.every((finding) => BLOCKING_PAYLOAD_CATEGORIES.includes(finding.category))).toBe(true);
+            expect(JSON.stringify(records)).not.toContain('AAAA');
+            expect(JSON.stringify(records)).not.toContain('BBBB');
+            expect(JSON.stringify(records)).not.toContain('safe_128');
         } finally {
             scope.fetch = originalFetch;
             if (originalDocument === undefined) delete scope.document;
