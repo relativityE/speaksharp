@@ -442,6 +442,12 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
                 method: 'POST', body: JSON.stringify({ event: 'session_saved', distinct_id: 'canary' }),
             });
             await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
+                method: 'POST', body: JSON.stringify({ ['G'.repeat(512)]: '' }),
+            });
+            await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
+                method: 'POST', body: JSON.stringify({ ['H'.repeat(128)]: 'H'.repeat(128) }),
+            });
+            await scope.fetch('https://speaksharp-public.vercel.app/api/proxy', {
                 method: 'POST', body: new URLSearchParams({ audio: 'C'.repeat(512) }),
             });
             await scope.fetch('https://eu.posthog.com/e/', {
@@ -469,7 +475,7 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
 
             expect(records.map((record) => record.kind)).toEqual([
                 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'encoded_audio',
-                'encoded_audio', 'text', 'encoded_audio', 'form', 'encoded_audio', 'audio',
+                'encoded_audio', 'text', 'encoded_audio', 'encoded_audio', 'encoded_audio', 'form', 'encoded_audio', 'audio',
                 'audio', 'audio',
             ]);
             expect(JSON.stringify(records)).not.toContain('AAAA');
@@ -478,6 +484,8 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
             expect(JSON.stringify(records)).not.toContain('DDDD');
             expect(JSON.stringify(records)).not.toContain('EEEE');
             expect(JSON.stringify(records)).not.toContain('FFFF');
+            expect(JSON.stringify(records)).not.toContain('GGGG');
+            expect(JSON.stringify(records)).not.toContain('HHHH');
             expect(JSON.stringify(records)).not.toContain('-_');
         } finally {
             scope.fetch = originalFetch;
@@ -1014,6 +1022,10 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         )).toBe(true);
         expect(canaryQueryContainsEncodedAudio(
             `https://abcproject.supabase.co/functions/v1/proxy?${half}=&${half}=`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryQueryContainsEncodedAudio(
+            `https://abcproject.supabase.co/functions/v1/proxy?${half}=${half}`,
             appUrl,
         )).toBe(true);
         expect(canaryQueryContainsEncodedAudio(

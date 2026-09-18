@@ -332,17 +332,17 @@ export function canaryQueryContainsEncodedAudio(rawUrl: unknown, appUrl: string)
     if (typeof rawUrl !== 'string' || rawUrl.length === 0) return false;
     try {
         const parsed = new URL(rawUrl, appUrl);
-        let combinedNames = '';
-        let combinedValues = '';
+        let combinedQuery = '';
         for (const [key, value] of parsed.searchParams.entries()) {
             if (AUDIO_QUERY_KEY.test(key) && value.trim().length > 0) return true;
             if (isEncodedAudioQueryValue(key)) return true;
             if (isEncodedAudioQueryValue(value)) return true;
-            if (combinedNames.length + key.length <= 1_000_000) combinedNames += key;
-            if (combinedValues.length + value.length <= 1_000_000) combinedValues += value;
+            if (combinedQuery.length + key.length + value.length <= 1_000_000) {
+                combinedQuery += key + value;
+            }
         }
         // Splitting one base64 payload across repeated innocuous names or values must not evade the classifier.
-        return isEncodedAudioQueryValue(combinedNames) || isEncodedAudioQueryValue(combinedValues);
+        return isEncodedAudioQueryValue(combinedQuery);
     } catch {
         return false;
     }

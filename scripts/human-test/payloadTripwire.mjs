@@ -246,6 +246,14 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       ? trimmed.length : 0;
   };
 
+  // Property names and generic JSON values need a modest per-fragment floor so ordinary identifiers
+  // (for example safe_0) cannot add up to an audio verdict. The reviewed evasion uses substantial
+  // base64 chunks split across key/value; audio-labelled fields retain the stricter four-character floor.
+  const shortEncodedAudioPropertyLength = (value) => {
+    const chars = shortEncodedAudioTextLength(value);
+    return chars >= 32 ? chars : 0;
+  };
+
   const isAudioField = (key) => /^(audio|audioData|audio_data|audioBytes|audio_bytes|pcm|pcmData|pcm_data|samples|audioSamples|audio_samples)$/i.test(key);
 
   const isEncodedAudioChunkArray = (value) => {
@@ -288,7 +296,12 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       }
       return verdict;
     }
+    let genericKeyValueChars = 0;
     for (const [key, nested] of Object.entries(value)) {
+      if (isEncodedAudioText(key)) return 'audio';
+      genericKeyValueChars += shortEncodedAudioPropertyLength(key);
+      if (typeof nested === 'string') genericKeyValueChars += shortEncodedAudioPropertyLength(nested);
+      if (genericKeyValueChars >= 256) return 'audio';
       const nestedAudioContext = audioContext || isAudioField(key);
       if (nestedAudioContext && (isEncodedAudioText(nested)
         || isNumericSampleArray(nested) || isNumericSampleObject(nested))) return 'audio';
@@ -328,12 +341,15 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       }
       return chars;
     }
+    let genericKeyValueChars = 0;
     for (const [key, nested] of Object.entries(value)) {
+      genericKeyValueChars += shortEncodedAudioPropertyLength(key);
+      if (typeof nested === 'string') genericKeyValueChars += shortEncodedAudioPropertyLength(nested);
       chars += countShortEncodedAudioCandidates(
         nested, depth + 1, budget, audioContext || isAudioField(key),
       );
     }
-    return chars;
+    return chars + (genericKeyValueChars >= 256 ? genericKeyValueChars : 0);
   };
 
   const shortEncodedAudioEnvelopeChars = (value) => {
