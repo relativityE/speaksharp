@@ -72,7 +72,7 @@ The `onnxruntime-web` int8/q8 failure was the upstream QDQ regression #28306/#28
 
 ## Active MVP and pre-GO issue register
 
-All 24 current MVP/pre-GO issues and roadmap-owned gaps have an owner and closure boundary:
+All 23 current MVP/pre-GO issues and the one roadmap-owned gap (account deletion) have an owner and closure boundary; the Approved UI row also names its two open PRs:
 
 | Area | Issues | Disposition |
 |---|---|---|
@@ -81,7 +81,7 @@ All 24 current MVP/pre-GO issues and roadmap-owned gaps have an owner and closur
 | Security/CI truth | #1261, #1313, #1315, #1385 | Active pre-GO controls; keep separate from product-feature PRs. |
 | STT comparison | #1304, #1390 | Active; validates **v4 (approved primary, not yet live) against v2 (pre-Start fallback, and today's only customer default)**. #1263 Moonshine is deferred until after RWT or MVP and is not required here. |
 | Documentation/review gate | #1318 | PR #1477 merged 2026-09-16; this currentization restores the baseline to `main@86f7b8e9`. Archives and dated evidence remain immutable. |
-| Retention safety | #1452, PR #1497 | #1452 was to close before newest-one retention activation. The 2026-09-18 read-only ledger shows the newest-one migration already applied in Production on 2026-09-12 (see `RELEASE_STATUS.md`, *Database migration state*). PM and the Product Owner own the disposition; PR #1497 is recommended for closure. |
+| Retention safety | #1452 | The newest-one migration was applied on 2026-09-12 and installs the policy **inert**; current activation is unverified (no read-only DB secret), and installation stopped the prior newest-two expiry. #1452 stays open with its must-fix-before-activation priority, re-classified P1/RWT blocker if activation is observed. PR #1497 was closed unmerged as superseded. See `RELEASE_STATUS.md`, *Database migration state*. |
 | Account deletion | Roadmap-owned pre-GO gap | Product Owner owns disposition; Dev may author a bounded corrective issue/PR. Choose one deletion authority, make account erasure unblockable, cover unfinished `session_delivery_measurements` rows and the non-cascading `user_id` dependency, define cleanup/SLA ownership, and prove the real migrations in tests. Production migration remains separately authorized. |
 | Progress/review/filler | #1471, #1472, #1473, #1476 | Active release blockers with separate owners. |
 | Approved UI | #1474, #1475, PR #1494, PR #1498 | Design Correction Brief work; no scope leakage into unrelated PRs. |
@@ -147,7 +147,7 @@ duplicate — for the parked enterprise/team and demand-validation workstreams, 
 - Moonshine is **deferred until after RWT or MVP** by Product Owner decision and is not part of current RWT qualification. The raw long-form failure evidence stands and is preserved; deferring the candidate does not retract the observation.
 - No output deduplication/sanitization may hide a repetition loop.
 - Exactly one **What went well** and one **What to improve** suggestion per eligible saved session.
-- Newest-one transcript retention is the approved target. Its migration is applied in Production (ledger read 2026-09-18); the #1452 ordering gap is open for PM/PO disposition.
+- Newest-one transcript retention is the approved target. Its migration is installed inert in Production (ledger read 2026-09-18); activation still requires #1452 and exact PO authorization, and retention mutation is paused.
 - No Production migration, configuration, credential, account, payment, deployment, RWT, or merge without exact-action authority.
 
 ## Stop conditions
