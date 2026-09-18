@@ -538,6 +538,28 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('live-tip')).toBeNull();
     });
 
+    // #1498 P2 — during post-Stop finalization a new start is gated. The returned mic took the press anyway:
+    // it looked actionable, emitted a choice, and was then silently swallowed by the lifecycle gate.
+    it('CASUALTY: the returned mic is disabled exactly when the start gate blocks a new recording', () => {
+        const onStartStop = vi.fn();
+        render(
+            <SessionOverhaulView
+                {...base}
+                onStartStop={onStartStop}
+                isFinalizing
+                isButtonDisabled
+                showAnalyticsPrompt={false}
+                transcriptContent=""
+                elapsedTime={0}
+                scoringElapsedSeconds={60}
+            />,
+        );
+        const mic = screen.getByTestId('run-shape-mic');
+        expect(mic).toBeDisabled();
+        fireEvent.click(mic);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+
     // #1256 P1 — the snapshot-only after-state scores the FINISHED take, whose duration lives in
     // `scoringElapsedSeconds`. The live `elapsedTime` normalizes to 0 once idle, so without this the
     // "<duration> actual" pace line (and per-point timing) rendered 0:00.

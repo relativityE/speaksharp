@@ -6,7 +6,7 @@
  * their gaps in every narrower one.
  */
 import { describe, it, expect } from 'vitest';
-import { sampleCountForWidth, downsamplePeaks, LINE_PITCH_PX } from '../waveformGeometry';
+import { sampleCountForWidth, downsamplePeaks, bucketForIndex, LINE_PITCH_PX } from '../waveformGeometry';
 
 describe('sampleCountForWidth — density is derived from the track, never hardcoded', () => {
     it('is floor(trackWidth / 4)', () => {
@@ -70,3 +70,22 @@ describe('downsamplePeaks — the PEAK of each bucket, never the mean', () => {
         expect(downsamplePeaks([0.4, 0.5], 0)).toEqual([]);
     });
 });
+
+describe('bucketForIndex — a marker lands on the line whose peak contains it', () => {
+    it('CASUALTY: agrees with downsamplePeaks when the length does not divide evenly (5 → 3)', () => {
+        // downsamplePeaks(5, 3) buckets: [0], [1, 2], [3, 4]. A rounded formula put index 1 on line 0.
+        expect([0, 1, 2, 3, 4].map((i) => bucketForIndex(i, 5, 3))).toEqual([0, 1, 1, 2, 2]);
+    });
+
+    it('matches the downsample partition for every index across awkward ratios', () => {
+        for (const [n, count] of [[72, 30], [480, 119], [101, 7], [13, 5]]) {
+            const levels = Array.from({ length: n }, (_, i) => i);
+            for (let i = 0; i < n; i += 1) {
+                const spike = levels.map((_, j) => (j === i ? 1 : 0));
+                const peaks = downsamplePeaks(spike, count);
+                expect(peaks.indexOf(1)).toBe(bucketForIndex(i, n, count));
+            }
+        }
+    });
+});
+

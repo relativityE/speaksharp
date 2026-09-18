@@ -29,10 +29,16 @@ export interface RunShapeProps {
     onStart: () => void;
     /** Hide the filler legend where fillers are not marked (Focus Points keeps the shape amplitude-only). */
     showFillerLegend?: boolean;
+    /**
+     * True while a new recording cannot start (post-Stop finalization, an unresolved prior session). The
+     * SAME gate the `before` mic uses, so the returned control never looks actionable when a press would be
+     * swallowed — and never emits a choice receipt or rebinds a brief for a start that does not happen.
+     */
+    disabled?: boolean;
 }
 
 export const RunShape: React.FC<RunShapeProps> = ({
-    durationSeconds, amplitudes, fillerBars, onStart, showFillerLegend = true,
+    durationSeconds, amplitudes, fillerBars, onStart, showFillerLegend = true, disabled = false,
 }) => (
     <div
         className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-[14px] border border-neutral-border bg-white px-[22px] py-3.5"
@@ -41,10 +47,11 @@ export const RunShape: React.FC<RunShapeProps> = ({
         <button
             type="button"
             onClick={onStart}
+            disabled={disabled}
             data-testid="run-shape-mic"
-            aria-label="Start recording"
+            aria-label={disabled ? 'Start recording — unavailable while your last session finishes' : 'Start recording'}
             aria-pressed={false}
-            className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-signature focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2"
+            className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-signature disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2"
             // The same halo as `before`, one step tighter (5px against 8px). Derived from the signature
             // role rather than a second literal yellow.
             style={{ boxShadow: '0 0 0 5px color-mix(in srgb, var(--brand-signature) 20%, transparent)' }}
