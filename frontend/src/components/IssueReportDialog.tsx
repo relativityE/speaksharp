@@ -462,7 +462,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
         */
         // G8 §8: the modal surface is white and never inherits the app/overlay surface. The shared
         // `DialogContent` paints `bg-background` (the slate page ground), so it is overridden here.
-        className="top-[6vh] max-h-[88vh] translate-y-0 overflow-y-auto border-0 bg-neutral-page p-7 sm:max-w-xl sm:rounded-[22px] sm:p-10"
+        className="top-[6vh] max-h-[88vh] translate-y-0 overflow-y-auto border-0 bg-neutral-page px-[30px] pb-[26px] pt-7 shadow-[0_30px_70px_-28px_rgba(15,20,28,0.55)] sm:max-w-xl sm:rounded-[18px]"
         data-testid="issue-report-dialog"
         onOpenAutoFocus={(event) => {
           // #1416 — focus the RESTORED selection, not the first option.
@@ -476,12 +476,12 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           typeRefs.current[typeIndex >= 0 ? typeIndex : 0]?.focus();
         }}
       >
-        <DialogHeader><DialogTitle className="text-[28px] font-extrabold tracking-[-0.02em] text-neutral-heading">Share feedback</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle className="text-[24px] font-extrabold tracking-[-0.03em] text-neutral-heading">Share feedback</DialogTitle></DialogHeader>
 
         <div className="space-y-5">
           <div>
             <div id="feedback-type-label" className="mb-2 text-sm font-extrabold">What would you like to share?</div>
-            <div role="radiogroup" aria-labelledby="feedback-type-label" data-testid="issue-report-feedback-kind" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div role="radiogroup" aria-labelledby="feedback-type-label" data-testid="issue-report-feedback-kind" className="grid grid-cols-1 gap-[9px] sm:grid-cols-2">
               {TYPE_OPTIONS.map((option, index) => {
                 const selected = type === option.value;
                 return (
@@ -495,7 +495,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
                     tabIndex={isRadioTabStop(index, typeIndex) ? 0 : -1}
                     onClick={() => selectType(option.value)}
                     onKeyDown={(event) => handleTypeKeyDown(event, index)}
-                    className={`min-h-[62px] rounded-xl border px-5 py-3 text-left text-[16px] font-extrabold text-neutral-heading transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? `border-2 ${option.selectedClass}` : 'border-neutral-border bg-white'}`}
+                    className={`min-h-11 rounded-[11px] border px-[14px] py-[15px] text-left text-[15px] font-extrabold text-neutral-body transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? `border-2 ${option.selectedClass}` : 'border-neutral-border bg-white'}`}
                   >
                     {option.label}
                   </button>
@@ -507,7 +507,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           <label className="block space-y-2 text-sm font-extrabold">
             {bodyCopy?.label ?? 'What would you like us to know?'}
             <textarea
-              className="min-h-[118px] w-full resize-y rounded-xl border border-neutral-border-soft bg-neutral-band px-4 py-3 text-sm font-normal ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="min-h-[118px] w-full resize-y rounded-[11px] border border-neutral-border-soft bg-neutral-band px-[15px] py-[14px] text-[15px] leading-[1.5] font-normal text-neutral-body ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               value={body}
               onChange={(event) => { bodyEditedRef.current = true; setBody(event.target.value); }}
               placeholder={bodyCopy?.placeholder}
@@ -556,7 +556,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
                           data-testid={`feedback-severity-${option.value}`}
                           onClick={() => setSeverity(option.value)}
                           onKeyDown={(event) => handleSeverityKeyDown(event, index)}
-                          className={`min-h-[56px] rounded-xl border px-3 py-2 text-[16px] font-bold text-neutral-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? `border-2 ${SELECTED_CHOICE}` : 'border-neutral-border bg-white'}`}
+                          className={`min-h-11 rounded-[10px] border px-2 py-[11px] text-[14px] text-neutral-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? `border-2 font-extrabold text-neutral-body ${SELECTED_CHOICE}` : 'border-neutral-border bg-white font-bold'}`}
                         >
                           {option.label}
                         </button>
@@ -571,8 +571,8 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           {error && <p role="alert" className="text-sm font-semibold text-destructive">{error}</p>}
 
           {/* G8: one footer row — the page-context line on the left, Cancel + Send on the right. */}
-          <div className="flex flex-col gap-4 border-t border-neutral-border-soft pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 text-[13px] font-semibold leading-snug text-neutral-muted" data-testid="issue-report-page-context">
+          <div className="flex flex-col gap-[14px] border-t border-neutral-border-soft pt-[18px] sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 text-[12px] font-semibold leading-[1.45] text-neutral-muted sm:max-w-[210px]" data-testid="issue-report-page-context">
             {/*
               #1416 item 4 — PM-owned wording, exact.
 
@@ -592,11 +592,11 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
               </p>
             )}
           </div>
-          <div className="flex shrink-0 items-center justify-end gap-3">
+          <div className="flex shrink-0 items-center justify-end gap-[14px]">
             <button
               type="button"
               onClick={cancel}
-              className="rounded-xl px-4 py-3 text-[16px] font-bold text-neutral-muted hover:text-neutral-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="min-h-11 rounded-[11px] px-2 text-[14px] font-bold text-neutral-muted hover:text-neutral-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               Cancel
             </button>
@@ -611,7 +611,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
               onClick={() => { void submit(); }}
               disabled={!canSubmit}
               data-testid="issue-report-submit"
-              className="rounded-xl bg-signature px-7 py-3 text-[17px] font-extrabold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-border disabled:text-neutral-muted disabled:hover:brightness-100"
+              className="min-h-11 rounded-[11px] bg-signature px-[22px] py-[13px] text-[15px] font-extrabold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-border disabled:text-neutral-muted disabled:hover:brightness-100"
             >
               {isSubmitting ? 'Sending…' : 'Send'}
             </button>
