@@ -174,11 +174,27 @@ test.describe('Production Smoke Canary @canary', () => {
         // document. The callback immediately strips query strings and retains metadata only — never a
         // transcript, audio body, or raw URL. Workers are installed and drained separately below.
         const payloadRecords: CanaryPayloadRecord[] = [];
+        const channelObservations: ChannelObservation[] = [];
         let recordingStartedAt: number | null = null;
         let lateWorkerCount = 0;
         await page.exposeBinding('__SS_TRIPWIRE_EMIT__', (_source, raw: unknown) => {
             const source = (raw as { __ssSource?: unknown } | null)?.__ssSource === 'worker' ? 'worker' : 'main';
             payloadRecords.push(sanitizePayloadRecord(raw, source, page.url()));
+        });
+        await page.exposeBinding('__SS_TRIPWIRE_CHANNEL_EMIT__', (_source, raw: unknown) => {
+            const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+            const rawUrl = typeof record.url === 'string' ? record.url : '';
+            try {
+                const parsed = new URL(rawUrl, page.url());
+                channelObservations.push({
+                    redacted: sanitizeCanaryPayloadUrl(rawUrl, page.url()),
+                    origin: parsed.origin,
+                    kind: 'eventsource',
+                });
+            }
+            catch {
+                channelObservations.push({ redacted: '<unparseable>', origin: '', kind: 'eventsource' });
+            }
         });
         await page.addInitScript({ content: PAYLOAD_TRIPWIRE });
 
@@ -314,7 +330,6 @@ test.describe('Production Smoke Canary @canary', () => {
             }
         };
         const egressObservations: EgressObservation[] = [];
-        const channelObservations: ChannelObservation[] = [];
         let createSessionRpcCount = 0;
         page.on('request', (request) => {
             const {

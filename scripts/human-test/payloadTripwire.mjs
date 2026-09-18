@@ -443,15 +443,23 @@ export const PAYLOAD_TRIPWIRE = `(() => {
   };
 
   // Audio streaming commonly divides one logical base64 payload across transport frames. Keep only a
-  // bounded numeric count per transport target — never the frame contents — so repeated short chunks
-  // cannot each receive a clean verdict. A gap or ordinary message starts a fresh sequence.
+  // bounded numeric count per transport/origin — never the frame contents or URL path/query — so repeated
+  // short chunks cannot each receive a clean verdict. Per-part query strings must not split one logical
+  // upload into unrelated sequences. A gap or ordinary message starts a fresh sequence.
   const shortEncodedSequences = new Map();
+  const shortEncodedSequenceKey = (transport, method, url) => {
+    let origin = '<unparseable>';
+    try {
+      const base = w.location && w.location.href ? w.location.href : undefined;
+      origin = new URL(String(url || ''), base).origin;
+    } catch (e) { void e; }
+    return String(transport) + '\\n' + String(method || 'GET').toUpperCase() + '\\n' + origin;
+  };
   const note = (transport, url, method, body, extraMime) => {
     try {
       const c = classify(body);
       const now = Date.now();
-      const sequenceKey = String(transport) + '\\n' + String(method || 'GET').toUpperCase()
-        + '\\n' + String(url || '');
+      const sequenceKey = shortEncodedSequenceKey(transport, method, url);
       const candidateChars = Number(c.candidateChars || 0);
       if (candidateChars > 0 && c.kind !== 'encoded_audio' && c.kind !== 'audio') {
         const prior = shortEncodedSequences.get(sequenceKey);
@@ -591,6 +599,24 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     Wrapped.prototype = WS.prototype;
     ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach((k) => { Wrapped[k] = WS[k]; });
     w.WebSocket = Wrapped;
+  }
+
+  // Playwright exposes WebSocket creation natively, but has no EventSource event. Wrap the constructor
+  // before app code and emit URL metadata immediately, so an approved GET cannot hide a long-lived
+  // channel from the separate channel policy. The receiver redacts before retaining it.
+  const ES = w.EventSource;
+  if (ES) {
+    const Wrapped = function (url, config) {
+      try {
+        if (typeof w.__SS_TRIPWIRE_CHANNEL_EMIT__ === 'function') {
+          void w.__SS_TRIPWIRE_CHANNEL_EMIT__({ kind: 'eventsource', url: String(url || '') });
+        }
+      } catch (e) { void e; }
+      return config === undefined ? new ES(url) : new ES(url, config);
+    };
+    Wrapped.prototype = ES.prototype;
+    ['CONNECTING', 'OPEN', 'CLOSED'].forEach((k) => { Wrapped[k] = ES[k]; });
+    w.EventSource = Wrapped;
   }
 })()`;
 

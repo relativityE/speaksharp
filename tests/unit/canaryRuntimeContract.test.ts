@@ -625,6 +625,79 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         }
     });
 
+    it('CASUALTY: changing per-part query strings cannot split one encoded-audio sequence', async () => {
+        type TripwireGlobal = typeof globalThis & {
+            __SS_TRIPWIRE__?: unknown[];
+            __SS_TRIPWIRE_EMIT__?: (record: Record<string, unknown>) => void;
+            document?: { documentElement?: { getAttribute?: (name: string) => string | null } };
+        };
+        const scope = globalThis as TripwireGlobal;
+        const originalFetch = scope.fetch;
+        const originalDocument = scope.document;
+        const records: Record<string, unknown>[] = [];
+
+        try {
+            delete scope.__SS_TRIPWIRE__;
+            scope.__SS_TRIPWIRE_EMIT__ = (record) => { records.push(record); };
+            scope.document = { documentElement: { getAttribute: () => 'RECORDING' } };
+            scope.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+
+            new Function(PAYLOAD_TRIPWIRE)();
+            for (const part of [1, 2, 3]) {
+                await scope.fetch(`https://speaksharp-public.vercel.app/api/chunk?part=${part}`, {
+                    method: 'POST', body: 'A'.repeat(128),
+                });
+            }
+
+            expect(records.map((record) => record.kind)).toEqual([
+                'text', 'encoded_audio', 'encoded_audio',
+            ]);
+            expect(JSON.stringify(records)).not.toContain('AAAA');
+        } finally {
+            scope.fetch = originalFetch;
+            if (originalDocument === undefined) delete scope.document;
+            else scope.document = originalDocument;
+            delete scope.__SS_TRIPWIRE__;
+            delete scope.__SS_TRIPWIRE_EMIT__;
+        }
+    });
+
+    it('CASUALTY: EventSource is observed before app code and emitted as metadata only', () => {
+        type TripwireGlobal = typeof globalThis & {
+            __SS_TRIPWIRE__?: unknown[];
+            __SS_TRIPWIRE_CHANNEL_EMIT__?: (record: Record<string, unknown>) => void;
+            EventSource?: typeof EventSource;
+        };
+        class FakeEventSource {
+            static readonly CONNECTING = 0;
+            static readonly OPEN = 1;
+            static readonly CLOSED = 2;
+            constructor(readonly url: string) {}
+        }
+        const scope = globalThis as TripwireGlobal;
+        const originalEventSource = scope.EventSource;
+        const channels: Record<string, unknown>[] = [];
+
+        try {
+            delete scope.__SS_TRIPWIRE__;
+            scope.EventSource = FakeEventSource as unknown as typeof EventSource;
+            scope.__SS_TRIPWIRE_CHANNEL_EMIT__ = (record) => { channels.push(record); };
+
+            new Function(PAYLOAD_TRIPWIRE)();
+            new scope.EventSource('https://eu.posthog.com/stream?payload=secret');
+
+            expect(channels).toEqual([{
+                kind: 'eventsource', url: 'https://eu.posthog.com/stream?payload=secret',
+            }]);
+            expect(PAYLOAD_TRIPWIRE).toContain('__SS_TRIPWIRE_CHANNEL_EMIT__');
+        } finally {
+            if (originalEventSource === undefined) delete scope.EventSource;
+            else scope.EventSource = originalEventSource;
+            delete scope.__SS_TRIPWIRE__;
+            delete scope.__SS_TRIPWIRE_CHANNEL_EMIT__;
+        }
+    });
+
     it('CASUALTY: JSON-serialized typed arrays under audio keys remain audio samples', async () => {
         type TripwireGlobal = typeof globalThis & {
             __SS_TRIPWIRE__?: unknown[];
