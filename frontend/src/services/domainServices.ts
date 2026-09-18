@@ -26,6 +26,7 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
 import { readLastSessionFix } from '@/components/practice/lastSessionFix';
+import { coachingIneligibilityReason } from '@/utils/sessionEligibility';
 import type { PostgrestError } from '@supabase/supabase-js';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -73,9 +74,16 @@ export const sessionService = {
         // It is the review `get-ai-suggestions` already cached on this row; nothing here writes it, and the
         // prose is reduced to a plain string (or null) before it leaves this method, so the typed session
         // model and the #1306 client-persistence rule are untouched.
+        //
+        // The eligibility columns come with it because that cached review is NOT self-qualifying:
+        // `get-ai-suggestions` does not apply the PROGRESS_AND_NEXT_ACTION §4 gates before persisting, so a
+        // sub-30s, sub-75-word, transcript-less, unverified or legacy-`null`-status take can carry coaching
+        // text. Quoting that back as the user's lesson would breach the Level-1 rule that a phrase shown to
+        // a user is true of their own recorded practice. `transcript_state` is the presence flag only — the
+        // transcript text itself is never selected here.
         const { data, error } = await supabase
             .from('sessions')
-            .select('id, created_at, duration, status, ai_suggestions')
+            .select('id, created_at, duration, status, total_words, transcript_state, attribution_status, ai_suggestions')
             .eq('user_id', userId)
             .or('status.is.null,status.eq.completed')
             .order('created_at', { ascending: false })
@@ -87,8 +95,24 @@ export const sessionService = {
         }
 
         return (data ?? []).map((row) => {
-            const { ai_suggestions, ...session } = row as Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'> & { ai_suggestions?: unknown };
-            return { ...session, fix: readLastSessionFix(ai_suggestions) };
+            const {
+                ai_suggestions, total_words, transcript_state, attribution_status, ...session
+            } = row as Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'> & {
+                ai_suggestions?: unknown;
+                total_words?: number | null;
+                transcript_state?: string | null;
+                attribution_status?: string | null;
+            };
+            const ineligible = coachingIneligibilityReason({
+                status: session.status,
+                durationSeconds: session.duration,
+                totalWords: total_words,
+                transcriptState: transcript_state,
+                attributionStatus: attribution_status,
+            });
+            // An ineligible session still opens — it is the user's run — but it lends no lesson. Home's
+            // band falls back to the run's own earned facts.
+            return { ...session, fix: ineligible ? null : readLastSessionFix(ai_suggestions) };
         });
     },
 

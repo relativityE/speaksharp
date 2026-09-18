@@ -24,6 +24,14 @@
 const REVIEW_KEYS = ['version', 'what_to_try_next', 'what_worked'] as const;
 
 /**
+ * The ONLY coaching contract version this reader trusts, mirroring the authoritative Edge parser
+ * (`get-ai-suggestions`, which requires exactly this literal). A legacy, corrupted or future-version row
+ * can carry the same three keys with different semantics, so accepting any version would present
+ * untrusted text to the user as their lesson. Fail closed instead.
+ */
+const COACHING_VERSION = 'gemini_coaching_v1';
+
+/**
  * The fix sentence from a persisted review, or `null` when there is no contract-valid review to quote.
  *
  * `raw` is whatever the column held: an object (jsonb), a JSON string (a legacy text column or a
@@ -34,6 +42,7 @@ export function readLastSessionFix(raw: unknown): string | null {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
     const keys = Object.keys(candidate as Record<string, unknown>).sort();
     if (JSON.stringify(keys) !== JSON.stringify([...REVIEW_KEYS])) return null;
+    if ((candidate as Record<string, unknown>).version !== COACHING_VERSION) return null;
     const fix = (candidate as Record<string, unknown>).what_to_try_next;
     const worked = (candidate as Record<string, unknown>).what_worked;
     // Both halves must be present and non-blank: a row carrying only one of them is a partial write,

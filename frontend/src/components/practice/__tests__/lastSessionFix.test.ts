@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { readLastSessionFix } from '../lastSessionFix';
 
 const VALID = {
-    version: 'v1',
+    version: 'gemini_coaching_v1',
     what_worked: 'Your opening was clear and direct.',
     what_to_try_next: "Pause instead of filling the gap. You used 'um' 11 times.",
 };
@@ -32,15 +32,23 @@ describe('readLastSessionFix', () => {
         expect(readLastSessionFix({ ...VALID, what_worked: '' })).toBeNull();
     });
 
+    it('CASUALTY: an unknown contract version is rejected — same literal the Edge parser requires', () => {
+        // A legacy, corrupted or future-version row can carry the same three keys with different
+        // semantics; presenting its text as trusted coaching is the defect (Codex P2 on #1494).
+        for (const version of ['v1', 'gemini_coaching_v2', '', null, 1]) {
+            expect(readLastSessionFix({ ...VALID, version })).toBeNull();
+        }
+    });
+
     it('CASUALTY: an unexpected key set is rejected, so a legacy or extended payload cannot leak through', () => {
-        expect(readLastSessionFix({ version: 'v1', what_to_try_next: 'x', what_worked: 'y', extra: 1 })).toBeNull();
+        expect(readLastSessionFix({ version: 'gemini_coaching_v1', what_to_try_next: 'x', what_worked: 'y', extra: 1 })).toBeNull();
         expect(readLastSessionFix({ what_to_try_next: 'x', what_worked: 'y' })).toBeNull();
         expect(readLastSessionFix({ suggestions: 'Try pausing more' })).toBeNull();
     });
 
     it('CASUALTY: non-string halves are rejected rather than stringified into a lesson', () => {
-        expect(readLastSessionFix({ version: 'v1', what_worked: 'y', what_to_try_next: { text: 'x' } })).toBeNull();
-        expect(readLastSessionFix({ version: 'v1', what_worked: 'y', what_to_try_next: 42 })).toBeNull();
+        expect(readLastSessionFix({ version: 'gemini_coaching_v1', what_worked: 'y', what_to_try_next: { text: 'x' } })).toBeNull();
+        expect(readLastSessionFix({ version: 'gemini_coaching_v1', what_worked: 'y', what_to_try_next: 42 })).toBeNull();
     });
 
     it('CASUALTY: nothing, an array, or unparseable text yields null — never "undefined" as copy', () => {
