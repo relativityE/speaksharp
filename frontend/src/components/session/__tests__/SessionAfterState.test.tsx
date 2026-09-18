@@ -6,15 +6,19 @@ import { SessionDuringState } from '../SessionDuringState';
 import { SessionVerdict } from '../SessionVerdict';
 
 const afterProps = {
-    scrubber: {
-        playing: false, onTogglePlay: vi.fn(), positionSeconds: 0, durationSeconds: 124,
-        amplitudes: Array.from({ length: 10 }, () => 0.5), fillerBars: [3], onSeek: vi.fn(),
+    // S-11: the run's static shape with the mic returned — no transport, because there is no audio.
+    runShape: {
+        durationSeconds: 124,
+        amplitudes: Array.from({ length: 10 }, () => 0.5),
+        fillerBars: [3],
+        onStart: vi.fn(),
     },
     transcript: {
-        tokens: [{ text: 'So' }, { text: 'um', filler: true, seekSeconds: 12 }, { text: 'today' }],
-        headerMeta: '318 words · 2.4 fillers/min · tap a highlight to hear it',
+        tokens: [{ text: 'So' }, { text: 'um', filler: true }, { text: 'today' }],
+        // The banned playback instruction is gone: `RECORDER_SPEC` §4 forbids "tap a highlight to hear it"
+        // and every variant, because there is nothing to hear.
+        headerMeta: '318 words · 2.4 fillers/min',
         stats: '5 fillers · 142 wpm · 2:04 spoken',
-        onFillerSeek: vi.fn(),
     },
     review: (
         <SessionVerdict
@@ -31,7 +35,7 @@ describe('SessionAfterState — the shared slot map', () => {
     it('maps the run shape, the review, the transcript and the rail into A, B, C, D', () => {
         render(<SessionAfterState {...afterProps} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
-        expect(screen.getByTestId('session-slot-a')).toContainElement(screen.getByTestId('playback-scrubber'));
+        expect(screen.getByTestId('session-slot-a')).toContainElement(screen.getByTestId('run-shape'));
         // The AFTER state's slot B renders the transcript the SERVER retained, not the ephemeral working
         // memory the DURING state shows, so it carries its own identity — otherwise a leak of working memory
         // and a correctly restored review are indistinguishable to the suite.
@@ -42,25 +46,46 @@ describe('SessionAfterState — the shared slot map', () => {
         expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('rail-content'));
     });
 
-    it('only makes highlighted fillers interactive when a real navigation callback exists', () => {
-        const onFillerSeek = vi.fn();
-        render(<SessionAfterState {...afterProps} transcript={{ ...afterProps.transcript, onFillerSeek }} />);
-        fireEvent.click(screen.getByTestId('live-filler'));
-        expect(onFillerSeek).toHaveBeenCalledOnce();
-        expect(onFillerSeek.mock.calls[0][0]).toMatchObject({ text: 'um' });
+    /*
+     * S-13 — the highlights are READ-ONLY, and that absence is structural rather than visual. The old
+     * shape passed an `onFillerSeek` callback, so the seek path existed and the privacy claim was one prop
+     * away from being false. The prop is deleted, not defaulted off.
+     */
+    it('CASUALTY: a filler highlight is not interactive — there is no audio to seek to', () => {
+        render(<SessionAfterState {...afterProps} />);
+        const filler = screen.getByTestId('live-filler');
+        expect(filler.tagName).toBe('MARK');
+        expect(filler.closest('button')).toBeNull();
+        expect(screen.queryByRole('button', { name: /seek|play|pause/i })).toBeNull();
     });
 
-    it('keeps transcript and waveform non-interactive when review retains no audio', () => {
-        render(
-            <SessionAfterState
-                {...afterProps}
-                scrubber={{ ...afterProps.scrubber, audioAvailable: false, onSeek: undefined }}
-                transcript={{ ...afterProps.transcript, onFillerSeek: undefined }}
-            />,
-        );
-        expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
-        expect(screen.queryByRole('button', { name: /play|pause/i })).toBeNull();
-        expect(screen.getByTestId('live-filler').tagName).toBe('MARK');
+    it('CASUALTY: no playback promise survives anywhere in the state', () => {
+        const text = render(<SessionAfterState {...afterProps} />).container.textContent ?? '';
+        expect(text).not.toMatch(/hear it|listen back|replay|tap a highlight/i);
+        expect(text).not.toMatch(/\d{1,2}:\d{2}\s*\/\s*\d{1,2}:\d{2}/);
+    });
+
+    /*
+     * S-13 — after the run the transcript is reference, capped so it cannot push the rail's counts off screen.
+     * The cap is CSS ONLY: live specs and the benchmark harness read `transcript-content` by `textContent`,
+     * so truncating the text itself would silently change what they measure.
+     */
+    it('S-13: the transcript is capped with internal scroll, and lifts in place', () => {
+        render(<SessionAfterState {...afterProps} />);
+        const content = screen.getByTestId('transcript-content');
+        expect(content).toHaveAttribute('data-transcript-capped', 'true');
+        expect(content.className).toContain('max-h-[280px]');
+        expect(content.className).toContain('overflow-y-auto');
+        fireEvent.click(screen.getByTestId('read-full-transcript'));
+        expect(screen.getByTestId('transcript-content')).toHaveAttribute('data-transcript-capped', 'false');
+        expect(screen.queryByTestId('read-full-transcript')).toBeNull();
+    });
+
+    it('CASUALTY S-13: the cap never removes words from the DOM', () => {
+        render(<SessionAfterState {...afterProps} />);
+        // Every token is present while capped — the harness reads textContent, not the visible box.
+        const text = screen.getByTestId('transcript-content').textContent ?? '';
+        for (const token of ['So', 'um', 'today']) expect(text).toContain(token);
     });
 
     it('shows the stats strip', () => {

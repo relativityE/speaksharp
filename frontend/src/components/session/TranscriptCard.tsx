@@ -68,6 +68,15 @@ export interface TranscriptCardProps {
     children?: React.ReactNode;
     /** A text-link action in the header (S-4: `Add your filler words` moved here from its own strip). */
     headerAction?: React.ReactNode;
+    /**
+     * S-13 — after the run the transcript is REFERENCE, not the subject. Capped, it cannot push the rail's
+     * counts off screen and re-create the original buried-result bug one level down.
+     *
+     * The cap is CSS ONLY: the whole transcript stays in the DOM. Live specs and the benchmark harness read
+     * `transcript-content` by `textContent`, so truncating the text itself would silently change what they
+     * measure. `Read full transcript` lifts the cap in place.
+     */
+    capped?: boolean;
 }
 
 const OrangeTick: React.FC = () => (
@@ -94,7 +103,10 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
     hidePromptOffer,
     children,
     headerAction,
+    capped,
 }) => {
+    const [expanded, setExpanded] = React.useState(false);
+    const isCapped = Boolean(capped) && !expanded;
     // #891 — live countdown for the "Finalizing…" wait. Seed from the estimate when finalizing begins, then
     // tick down once a second (floored at 1s so it never shows 0 or negative while the decode is still going).
     const [finalizeRemaining, setFinalizeRemaining] = React.useState<number | null>(null);
@@ -171,9 +183,25 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
 
             {/* Body */}
             {hasContent ? (
-                <div className="min-h-0 flex-1 overflow-y-auto" data-testid="transcript-content">
-                    {children}
-                </div>
+                <>
+                    <div
+                        className={`min-h-0 flex-1 overflow-y-auto${isCapped ? ' max-h-[280px]' : ''}`}
+                        data-testid="transcript-content"
+                        data-transcript-capped={isCapped ? 'true' : 'false'}
+                    >
+                        {children}
+                    </div>
+                    {capped && !expanded && (
+                        <button
+                            type="button"
+                            onClick={() => setExpanded(true)}
+                            className="mt-3 self-start text-[14px] font-extrabold text-signature-text underline-offset-2 hover:underline"
+                            data-testid="read-full-transcript"
+                        >
+                            Read full transcript
+                        </button>
+                    )}
+                </>
             ) : (
                 <div
                     className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-border-strong p-6"

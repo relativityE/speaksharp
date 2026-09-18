@@ -27,8 +27,8 @@ const duringProps = {
     rail: <div>rail</div>,
 };
 const afterProps = {
-    scrubber: { playing: false, onTogglePlay: vi.fn(), positionSeconds: 10, durationSeconds: 124, amplitudes: [0.4, 0.6, 0.8], fillerBars: [1], onSeek: vi.fn() },
-    transcript: { tokens: [{ text: 'So' }, { text: 'um', filler: true }], headerMeta: 'x', stats: 'y', onFillerSeek: vi.fn() },
+    runShape: { durationSeconds: 124, amplitudes: [0.4, 0.6, 0.8], fillerBars: [1], onStart: vi.fn() },
+    transcript: { tokens: [{ text: 'So' }, { text: 'um', filler: true }], headerMeta: 'x', stats: 'y' },
     review: <SessionVerdict verdictLine="Clean." fix="Pause more." onPracticeAgain={vi.fn()} onSeeAllSessions={vi.fn()} />,
     rail: <div>rail</div>,
 };
@@ -79,14 +79,37 @@ describe('#1222 S10 — session overhaul regression', () => {
         }
     });
 
-    it('both waveforms fill their track (flex:1, min-width:2px) — recorder bar and scrubber', () => {
+    /*
+     * S-9 — the geometry inverted: hairlines that NEVER grow, so the leftover space falls between them as
+     * gap. `flex: 1; min-width: 2px` was the old rule and it is the "looks fake" render, because the lines
+     * grow to fill and come out wider than their gaps. jsdom has no layout, so the track measures 0 and
+     * renders no lines; the per-line geometry and the width-derived count are proven in `Waveform.test.tsx`
+     * and `waveformGeometry.test.ts`. What this regression pins is that BOTH states use the same track,
+     * centre-mirrored, distributing its spare space rather than setting a gap.
+     */
+    it('both waveform tracks are centre-mirrored and distribute their spare space — recorder bar and run shape', () => {
         const { rerender } = render(<SessionDuringState {...duringProps} />);
-        for (const bar of screen.getAllByTestId('recorder-waveform-bar')) {
-            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '1px' });
-        }
+        const during = screen.getByTestId('recorder-waveform');
+        expect(during.style.alignItems).toBe('center');
+        expect(during.style.justifyContent).toBe('space-between');
+        expect(during.style.gap).toBe('');
         rerender(<SessionAfterState {...afterProps} />);
-        for (const bar of screen.getAllByTestId('scrubber-waveform-bar')) {
-            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '1px' });
+        const after = screen.getByTestId('run-shape-waveform');
+        expect(after.style.alignItems).toBe('center');
+        expect(after.style.justifyContent).toBe('space-between');
+        expect(after.style.gap).toBe('');
+    });
+
+    it('CASUALTY: no state offers a transport — the mic is the only round control', () => {
+        for (const Comp of [
+            <SessionDuringState key="d" {...duringProps} />,
+            <SessionAfterState key="a" {...afterProps} />,
+        ]) {
+            const { unmount } = render(Comp);
+            for (const name of [/play/i, /pause/i, /seek/i, /download/i]) {
+                expect(screen.queryByRole('button', { name })).toBeNull();
+            }
+            unmount();
         }
     });
 

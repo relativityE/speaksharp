@@ -3,13 +3,16 @@ import { SessionBeforeState } from './SessionBeforeState';
 import { SessionDuringState } from './SessionDuringState';
 import { SessionAfterState } from './SessionAfterState';
 import { resolveSessionState } from '@/utils/sessionStateMachine';
+import { liveWordsPerMinute } from '@/utils/sessionFormat';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { usePromptOfferDismissed } from '@/hooks/usePromptOfferDismissed';
 import { useHeldTip } from '@/hooks/useHeldTip';
 import { LiveTip } from './LiveTip';
 import { FillerBreakdown } from './FillerBreakdown';
-import { ComparableProgressNotice } from './ComparableProgressNotice';
+import { ThisRunRail } from './ThisRunRail';
+import { OnDeviceCountsContext } from './onDeviceCounts';
+import { ThisRunCard } from './ThisRunCard';
 import { getNextPrompt, getNextSample } from '@/services/practice/practiceOnramp';
 import { AddFillerWordsLink } from './AddFillerWordsLink';
 import { OpenMicBaselineLine } from './OpenMicBaselineLine';
@@ -771,7 +774,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const showReopenChip = !isObjective && promptAutoHidden;
         return (
             <SessionDuringState
-                recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
+                recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, onStop: onStartStop }}
                 transcript={{
                     tokens: isObjective ? fpDuringTokens : duringTokens,
                     words,
@@ -790,7 +793,13 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 }}
                 rail={objectiveDuringSlotC || objectiveDuringSlotD
                     ? <>{objectiveDuringSlotC}{objectiveDuringSlotD}</>
-                    : <ComparableProgressNotice sessionState="during" />}
+                    : (
+                        <ThisRunRail
+                            fillerCount={metricsFillerCount}
+                            wordsPerMinute={liveWordsPerMinute(words, elapsedTime)}
+                            tip={heldTip?.headline ?? null}
+                        />
+                    )}
                 // Slot B: Open Mic's live tip, or Focus Points' coverage nudge (F-1) — never both.
                 liveTip={isObjective ? undefined : (heldTip ? <LiveTip tip={heldTip} /> : undefined)}
                 nudge={isObjective ? nudge : null}
@@ -835,21 +844,35 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // during/after rail is rebuilt (S-10, Phase 5).
     const afterRail = isObjective && (objectiveAfterSlotC || objectiveAfterSlotD)
         ? <>{objectiveAfterSlotC}{objectiveAfterSlotD}</>
-        : <ComparableProgressNotice sessionState="after" />;
+        : (
+            <ThisRunCard
+                fillers={reviewFillerCount}
+                fillersPerMinute={reviewFillerCount !== null && elapsedTime > 0
+                    ? (reviewFillerCount / elapsedTime) * 60
+                    : null}
+                wordsPerMinute={liveWordsPerMinute(reviewWordCount, elapsedTime)}
+                words={reviewWordCount}
+            />
+        );
+
+    // S-14: the one owner of these numbers publishes them to the review card, so the still-coming state
+    // shows exactly what the rail shows — never a second computation of the same run.
+    const onDeviceCounts = {
+        fillers: reviewFillerCount,
+        wordsPerMinute: liveWordsPerMinute(reviewWordCount, elapsedTime),
+    };
 
     return (
-        <>
+        <OnDeviceCountsContext.Provider value={onDeviceCounts}>
             <SessionAfterState
-                scrubber={{
-                    playing: false,
-                    onTogglePlay: () => {},
-                    positionSeconds: 0,
+                runShape={{
                     durationSeconds: elapsedTime,
                     amplitudes,
-                    // Focus Points review is an amplitude-only envelope. Open Mic may retain static
-                    // filler annotations, but neither mode exposes inert seek controls without audio.
+                    // Focus Points keeps an amplitude-only envelope; Open Mic marks its filler positions.
+                    // Neither exposes a transport — there is no audio to play (S-11).
                     fillerBars: isObjective ? [] : fillerBars,
-                    audioAvailable: false,
+                    showFillerLegend: !isObjective,
+                    onStart: onStartStop,
                 }}
                 transcript={{
                     tokens: renderedReviewTokens,
@@ -892,7 +915,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
                 />
             )}
-        </>
+        </OnDeviceCountsContext.Provider>
     );
 };
 

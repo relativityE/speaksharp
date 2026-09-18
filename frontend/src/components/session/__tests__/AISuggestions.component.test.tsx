@@ -3,6 +3,7 @@ import { render, screen, cleanup, waitFor } from '../../../../tests/support/test
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import AISuggestions from '@/components/session/AISuggestions';
+import { OnDeviceCountsContext } from '@/components/session/onDeviceCounts';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 
 // Mock dependencies
@@ -26,6 +27,9 @@ const mockSupabaseClient = {
 };
 
 describe('AISuggestions Integration', () => {
+    /** The card root, which carries the lifecycle observables (`data-lifecycle`, `data-retry-scheduled`). */
+    const card = () => screen.getByTestId('ai-suggestions-card');
+
     beforeEach(() => {
         vi.clearAllMocks();
         // `clearAllMocks` keeps queued `mockResolvedValueOnce` answers; an answer one case queues but never consumes
@@ -41,6 +45,43 @@ describe('AISuggestions Integration', () => {
         }
     });
 
+    /*
+     * S-14 — while the review is still coming, the ON-DEVICE counts fill the space the verdict will occupy.
+     * They are published by the view (the one owner of those numbers) and never stubbed: an unmeasured
+     * value is omitted, not zeroed or dashed.
+     */
+    describe('S-14 — on-device counts fill the still-coming state', () => {
+        it('renders the published fillers and pace while the review is pending', () => {
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* in flight */ }));
+            render(
+                <OnDeviceCountsContext.Provider value={{ fillers: 6, wordsPerMinute: 122.4 }}>
+                    <AISuggestions transcript="Hello world" canReview sessionId="s-counts" />
+                </OnDeviceCountsContext.Provider>,
+            );
+            expect(card()).toHaveAttribute('data-lifecycle', 'pending');
+            expect(screen.getByTestId('on-device-fillers')).toHaveTextContent('6');
+            expect(screen.getByTestId('on-device-pace')).toHaveTextContent('122');
+        });
+
+        it('CASUALTY: an unmeasured count is omitted — never a zero, never a dash', () => {
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* in flight */ }));
+            render(
+                <OnDeviceCountsContext.Provider value={{ fillers: null, wordsPerMinute: 110 }}>
+                    <AISuggestions transcript="Hello world" canReview sessionId="s-partial" />
+                </OnDeviceCountsContext.Provider>,
+            );
+            expect(screen.queryByTestId('on-device-fillers')).toBeNull();
+            expect(screen.getByTestId('on-device-pace')).toHaveTextContent('110');
+            expect(screen.getByTestId('on-device-counts').textContent ?? '').not.toMatch(/—|\b0 fillers/);
+        });
+
+        it('no counts at all ⇒ no strip, rather than an empty box', () => {
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* in flight */ }));
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-none" />);
+            expect(screen.queryByTestId('on-device-counts')).toBeNull();
+        });
+    });
+
     describe('Initial State', () => {
         it('#1416 P2-4 — a reviewable session is already requesting, not waiting to be asked', () => {
             // There is no call-to-action state any more: the request fires on readiness. Asserting a
@@ -50,14 +91,23 @@ describe('AISuggestions Integration', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             expect(screen.getByText(/Practice Loop review/i)).toBeInTheDocument();
-            expect(screen.getByRole('button', { name: /creating review/i })).toBeInTheDocument();
+            // The contract is "a pending lifecycle is visible", not "a button says this". The card exposes
+            // the lifecycle structurally and the chip is the only progress indicator (S-14: never a spinner
+            // where the verdict goes).
+            expect(card()).toHaveAttribute('data-lifecycle', 'pending');
+            expect(screen.getByTestId('ai-suggestions-retrying')).toBeInTheDocument();
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(/coaching is still coming/i);
         });
 
         it('an unreviewable session neither fires nor offers the control', () => {
             render(<AISuggestions transcript="" sessionId="session-test" />);
 
             expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
-            expect(screen.getByRole('button', { name: /retry review|refresh review/i })).toBeDisabled();
+            // Nothing is in flight and nothing failed, so no retry affordance is offered — and the card
+            // says why instead of showing a dead control.
+            expect(screen.queryByRole('button', { name: /retry review/i })).toBeNull();
+            expect(screen.getByTestId('practice-loop-review-not-ready')).toBeInTheDocument();
+            expect(card()).toHaveAttribute('data-lifecycle', 'idle');
         });
     });
 
@@ -96,8 +146,14 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: err });
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-net" />);
 
-            expect(await screen.findByText(/could not connect/i)).toBeInTheDocument();
+            // The server-classified copy occupies the headline slot; the raw provider prose never reaches
+            // the user.
+            // A network failure is RECOVERABLE, so it first shows "still coming" while its single retry is
+            // scheduled; the classified copy takes the headline once the lifecycle has ENDED.
+            await waitFor(() => expect(card()).toHaveAttribute('data-lifecycle', 'terminal'), { timeout: 3000 });
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(/could not connect/i);
             expect(screen.queryByText(/does not have a transcript available/i)).toBeNull();
+            expect(screen.getByTestId('ai-suggestions-headline').textContent).not.toMatch(/failed to fetch/i);
         });
 
         it('CASUALTY: prose alone cannot grant access_denied', async () => {
@@ -148,7 +204,6 @@ describe('AISuggestions Integration', () => {
             return { data: null, error: err };
         };
         const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-        const card = () => screen.getByTestId('ai-suggestions-card');
         // `vi.clearAllMocks()` keeps queued `mockResolvedValueOnce` answers. A case that queues an answer the component
         // under test never consumes would otherwise hand it to the NEXT case's first request.
         beforeEach(() => { mockSupabaseClient.functions.invoke.mockReset(); });
@@ -159,11 +214,15 @@ describe('AISuggestions Integration', () => {
             );
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-config" retryBackoffMs={10} />);
 
-            expect(await screen.findByText(/service setup problem on our side/i)).toBeInTheDocument();
-            expect(screen.getByText(/your session is saved/i)).toBeInTheDocument();
+            await waitFor(() => expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(/service setup problem on our side/i));
             await sleep(60);
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
-            expect(screen.queryByTestId('ai-suggestions-auto-retry')).toBeNull();
+            // A TERMINAL failure schedules nothing, so the RETRYING chip must not appear: claiming coaching
+            // is on its way when the lifecycle has ended is a false promise (the bug this split fixed).
+            expect(card()).toHaveAttribute('data-retry-scheduled', 'false');
+            expect(card()).toHaveAttribute('data-lifecycle', 'terminal');
+            expect(screen.queryByTestId('ai-suggestions-retrying')).toBeNull();
+            expect(screen.getByTestId('ai-suggestions-headline').textContent).not.toMatch(/still coming/i);
             expect(card()).toHaveAttribute('data-review-state', 'error');
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('service_configuration');
@@ -199,16 +258,20 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue(transportFailure());
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-recoverable" retryBackoffMs={40} />);
 
-            expect(await screen.findByTestId('ai-suggestions-auto-retry')).toBeInTheDocument();
+            await waitFor(() => expect(card()).toHaveAttribute('data-retry-scheduled', 'true'));
             expect(card(), 'a scheduled retry is still in motion').toHaveAttribute('data-review-state', 'loading');
-            expect(screen.queryByText(/creating your session review/i), 'no attempt is claimed while waiting').toBeNull();
+            // While waiting out the backoff the chip is the only indicator; no attempt is CLAIMED to be
+            // active, and the lifecycle still reads pending because one retry is genuinely coming.
+            expect(screen.getByTestId('ai-suggestions-retrying')).toBeInTheDocument();
+            expect(card()).toHaveAttribute('data-lifecycle', 'pending');
             expect(trackPracticeLoopReviewFailed, 'the first recoverable failure is not yet an outcome').not.toHaveBeenCalled();
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2));
             await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
             await sleep(80);
-            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2);
-            expect(screen.queryByTestId('ai-suggestions-auto-retry')).toBeNull();
+            expect(mockSupabaseClient.functions.invoke, 'exactly ONE automatic retry, never a loop').toHaveBeenCalledTimes(2);
+            expect(card(), 'nothing is scheduled once it has settled').toHaveAttribute('data-retry-scheduled', 'false');
+            expect(card()).toHaveAttribute('data-lifecycle', 'terminal');
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('network');
         });
@@ -257,7 +320,7 @@ describe('AISuggestions Integration', () => {
             await sleep(60);
 
             expect(mockSupabaseClient.functions.invoke, 'one user action, one charged request').toHaveBeenCalledTimes(1);
-            expect(screen.queryByTestId('ai-suggestions-auto-retry'), 'nothing is scheduled').toBeNull();
+            expect(card(), 'nothing is scheduled').toHaveAttribute('data-retry-scheduled', 'false');
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
             expect(trackPracticeLoopReviewFailed, 'reported as the outage it was').toHaveBeenCalledWith('unavailable');
             expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalledWith('rate_limited');
@@ -299,7 +362,7 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue(transportFailure());
             const { unmount } = render(<AISuggestions transcript="Hello world" canReview sessionId="s-leave" retryBackoffMs={40} />);
 
-            expect(await screen.findByTestId('ai-suggestions-auto-retry')).toBeInTheDocument();
+            await waitFor(() => expect(card()).toHaveAttribute('data-retry-scheduled', 'true'));
             unmount();
             await sleep(120);
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
@@ -315,8 +378,10 @@ describe('AISuggestions Integration', () => {
                 .mockResolvedValue({ data: null, error: err });
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-manual" retryBackoffMs={40} />);
 
-            expect(await screen.findByTestId('ai-suggestions-auto-retry')).toBeInTheDocument();
-            expect(screen.getByRole('button', { name: /retry review/i }), 'no manual press while a retry is scheduled').toBeDisabled();
+            await waitFor(() => expect(card()).toHaveAttribute('data-retry-scheduled', 'true'));
+            // The manual action is a text link now; one press must still start exactly ONE new lifecycle,
+            // so it stays unavailable while the automatic retry is already scheduled.
+            expect(screen.getByRole('button', { name: /retry review now/i }), 'no manual press while a retry is scheduled').toBeDisabled();
 
             await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2);
@@ -446,10 +511,14 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world this is a test" sessionId="session-test" />);
 
-            // No click: the request is already in flight because the session is reviewable.
-            // Should show loading state
-            expect(screen.getByRole('button', { name: /creating review/i })).toBeInTheDocument();
-            expect(await screen.findByText(/creating your session review/i)).toBeInTheDocument();
+            // No click: the request is already in flight because the session is reviewable. The pending
+            // lifecycle is what is visible — never a spinner where the verdict goes (S-14).
+            expect(card()).toHaveAttribute('data-lifecycle', 'pending');
+            expect(screen.getByTestId('ai-suggestions-retrying')).toBeInTheDocument();
+            // The pending lifecycle is the observable; the old "Creating your session review…" spinner copy
+            // is exactly what S-14 removed from the verdict's place.
+            expect(card()).toHaveAttribute('data-lifecycle', 'pending');
+            expect(screen.getByTestId('ai-suggestions-retrying')).toBeInTheDocument();
         });
 
         it('calls the edge function with only the saved session id', async () => {
@@ -515,9 +584,12 @@ describe('AISuggestions Integration', () => {
             render(<AISuggestions transcript="Hello world um uh" sessionId="session-test" />);
 
 
+            // The pair is rendered as the strength plus the fix in its `TRY THIS NEXT RUN` block; what the
+            // user must be able to read is the SENTENCES, not the old labels.
             await waitFor(() => {
+                expect(screen.getByTestId('ai-suggestions-pair')).toBeInTheDocument();
                 expect(screen.getByText('What went well')).toBeInTheDocument();
-                expect(screen.getByText('What to improve')).toBeInTheDocument();
+                expect(screen.getByText('Try this next run')).toBeInTheDocument();
             });
         });
 
@@ -536,9 +608,12 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            expect(await screen.findByRole('heading', { name: /review unavailable/i })).toBeInTheDocument();
+            // NEVER A DEAD END: the classified copy is the headline and the correction path stays offered.
+            // `Review unavailable` over an empty box is what S-14 deleted.
+            await waitFor(() => expect(card()).toHaveAttribute('data-lifecycle', 'terminal'));
+            expect(screen.getByTestId('ai-suggestions-headline').textContent ?? '').not.toMatch(/review unavailable/i);
             expect(screen.queryByText('A strength.')).not.toBeInTheDocument();
-            expect(screen.getByRole('button', { name: /retry review/i })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /retry review now/i })).toBeInTheDocument();
         });
     });
 
@@ -555,9 +630,13 @@ describe('AISuggestions Integration', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
 
+            // Recoverable ⇒ one scheduled retry first, so wait for the lifecycle to reach TERMINAL before
+            // asserting the classified headline (leaving `pending` is not enough: an inverted branch would
+            // still pass).
+            await waitFor(() => expect(card()).toHaveAttribute('data-lifecycle', 'terminal'), { timeout: 3000 });
             await waitFor(() => {
-                expect(screen.getByRole('heading', { name: /review unavailable/i })).toBeInTheDocument();
-                expect(screen.getByText(/review could not connect/i)).toBeInTheDocument();
+                // The server-classified copy IS the headline, verbatim; the raw provider prose never shows.
+                expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(/review could not connect/i);
                 expect(screen.queryByText(/network error/i)).not.toBeInTheDocument();
             });
         });
@@ -742,9 +821,10 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            // No click: a reviewable session requests on its own (#1416 P2-4), so the control is
-            // already disabled by the automatic request rather than by a press.
-            expect(screen.getByRole('button', { name: /creating review/i })).toBeDisabled();
+            // No click: a reviewable session requests on its own (#1416 P2-4), so the lifecycle is already
+            // pending and no manual affordance is offered to press.
+            expect(card()).toHaveAttribute('data-lifecycle', 'pending');
+            expect(screen.queryByRole('button', { name: /retry review now/i })).toBeNull();
         });
 
         it('CASUALTY: once a review is on screen, NO control is offered to refresh it', async () => {

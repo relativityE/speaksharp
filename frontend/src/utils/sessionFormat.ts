@@ -15,3 +15,19 @@ export function formatTimer(totalSeconds: number): string {
 export function formatLiveMeta(words: number, fillersPerMin: number): string {
     return `${words} words · ${fillersPerMin.toFixed(1)} fillers/min`;
 }
+
+/**
+ * S-10 — words per minute for a run in progress, or `null` when there is not yet enough of a run to state
+ * a rate truthfully.
+ *
+ * A rate over a couple of seconds is arithmetic, not a measurement: three words in two seconds is 90 wpm
+ * and means nothing. Below the floor the rail omits pace entirely rather than showing a number the user has
+ * not earned (G4) — and never an em-dash, which beside a live count reads as a failed measurement.
+ */
+export const MIN_LIVE_PACE_SECONDS = 15;
+
+export function liveWordsPerMinute(words: number, elapsedSeconds: number): number | null {
+    if (!Number.isFinite(words) || !Number.isFinite(elapsedSeconds)) return null;
+    if (elapsedSeconds < MIN_LIVE_PACE_SECONDS || words <= 0) return null;
+    return (words / elapsedSeconds) * 60;
+}

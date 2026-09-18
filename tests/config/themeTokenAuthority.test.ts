@@ -54,6 +54,8 @@ const ROLE_TOKENS: Record<string, string> = {
     '--brand-surface-session': '#aeb9cd',
     '--brand-surface-session-text': '#232c3a',
     '--brand-metric-clarity': '#6d28d9',
+    // A data mark that is no longer live (chart baseline/past runs, the finished run's waveform).
+    '--brand-metric-inactive': '#c8d2e0',
     // Focus Points identity, app routes only (#1480 comment 5685776478).
     '--brand-focus': '#6d28d9',
     '--brand-focus-strong': '#5b21b6',
