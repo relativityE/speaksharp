@@ -1,86 +1,52 @@
 /**
- * PROGRESS_AND_NEXT_ACTION §4 — a session may influence coaching or the next action only when EVERY gate
- * holds. Codex P1 on #1494: the resume band promoted a cached review from the newest row without checking
- * any of them, so a four-second accidental take could have supplied the user's "lesson".
+ * Eligibility reads the AUTHORITATIVE PERSISTED VERDICT (`session_progress_evaluations.eligible`) written
+ * by `record_progress_evaluation`. It does not re-derive PROGRESS_AND_NEXT_ACTION §4.
  *
- * Each gate gets its own casualty, because a single combined assertion would pass with four of the five
- * checks deleted.
+ * Why that matters, and what these pin: three successive reviews found a different gate missing from a
+ * hand-written copy of the rule — the attribution source, then `no_clarity_evidence`, then
+ * `engine_not_comparable`. Each drift is a session the product marks ineligible whose cached coaching Home
+ * would still quote back to the user as their lesson. So the casualties here are about **absence being
+ * fail-closed** and about **never second-guessing the verdict**, not about any particular threshold.
  */
 import { describe, it, expect } from 'vitest';
-import {
-    coachingIneligibilityReason, isEligibleForCoaching, MIN_ELIGIBLE_WORDS, ATTRIBUTION_AUTHORITY_VERSION,
-} from '../sessionEligibility';
-import { MIN_COMPARABLE_SECONDS } from '../aggregateProgress';
+import { coachingIneligibilityReason, isEligibleForCoaching, NOT_EVALUATED } from '../sessionEligibility';
 
-const ELIGIBLE = {
-    status: 'completed',
-    durationSeconds: 95,
-    totalWords: 180,
-    transcriptState: 'available',
-    authorityVersion: ATTRIBUTION_AUTHORITY_VERSION,
-};
-
-describe('coachingIneligibilityReason', () => {
-    it('a session that clears every gate is eligible', () => {
-        expect(coachingIneligibilityReason(ELIGIBLE)).toBeNull();
-        expect(isEligibleForCoaching(ELIGIBLE)).toBe(true);
+describe('coachingIneligibilityReason — the persisted verdict decides', () => {
+    it('an eligible verdict qualifies the session', () => {
+        expect(coachingIneligibilityReason({ eligible: true, exclusion_reasons: [] })).toBeNull();
+        expect(isEligibleForCoaching({ eligible: true, exclusion_reasons: [] })).toBe(true);
     });
 
-    it('uses the §4 thresholds, not the persistence floor or the scoring minimum', () => {
-        expect(MIN_COMPARABLE_SECONDS).toBe(30);
-        expect(MIN_ELIGIBLE_WORDS).toBe(75);
-        // Exactly at both thresholds is eligible; one below either is not.
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, durationSeconds: 30, totalWords: 75 })).toBeNull();
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, durationSeconds: 29.9 })).toBe('too_short');
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, totalWords: 74 })).toBe('too_few_words');
+    it('CASUALTY: no evaluation row means UNPROVEN, never a pass', () => {
+        // The session has not been judged yet. Absence of a verdict is not permission.
+        for (const verdict of [null, undefined, {}, { exclusion_reasons: [] }]) {
+            expect(coachingIneligibilityReason(verdict)).toBe(NOT_EVALUATED);
+        }
+        expect(isEligibleForCoaching(null)).toBe(false);
     });
 
-    it('CASUALTY: a legacy null status is not completed', () => {
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, status: null })).toBe('not_completed');
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, status: 'active' })).toBe('not_completed');
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, status: 'failed' })).toBe('not_completed');
-    });
-
-    it('CASUALTY: a four-second accidental take lends no lesson', () => {
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, durationSeconds: 4 })).toBe('too_short');
-    });
-
-    it('CASUALTY: no readable transcript — expired or never captured — means no coaching beside it', () => {
-        for (const transcriptState of ['expired', 'not_captured', null, undefined, '']) {
-            expect(coachingIneligibilityReason({ ...ELIGIBLE, transcriptState })).toBe('no_transcript');
+    it('CASUALTY: a non-boolean `eligible` is not truthy-coerced', () => {
+        // A malformed row must fail closed rather than pass on a truthy string.
+        for (const eligible of ['true', 1, {}, []] as unknown[]) {
+            expect(coachingIneligibilityReason({ eligible } as { eligible?: boolean | null })).toBe(NOT_EVALUATED);
         }
     });
 
-    /*
-     * Attribution comes from the AUTHORITY, never from `sessions.attribution_status` — migration
-     * `20260803010000` makes that column advisory and client-writable, and fails closed with
-     * "no attrib_v1 record => unverified". Codex P1 + PM RETURN on #1494: the first version of this gate
-     * read the legacy column, so a stale `verified` row with no authority could have supplied the lesson.
-     */
-    it('CASUALTY: a pending or absent authority verdict is unverified', () => {
-        expect(ATTRIBUTION_AUTHORITY_VERSION).toBe('attrib_v1');
-        for (const authorityVersion of [null, undefined, '']) {
-            expect(coachingIneligibilityReason({ ...ELIGIBLE, authorityVersion })).toBe('unverified_attribution');
-        }
+    it('reports the recorded exclusion reason, so each consumer can word its own fallback', () => {
+        expect(coachingIneligibilityReason({ eligible: false, exclusion_reasons: ['too_short'] })).toBe('too_short');
+        // The two gates a hand-written copy kept missing are just reasons here — nothing to re-implement.
+        expect(coachingIneligibilityReason({ eligible: false, exclusion_reasons: ['no_clarity_evidence'] }))
+            .toBe('no_clarity_evidence');
+        expect(coachingIneligibilityReason({ eligible: false, exclusion_reasons: ['engine_not_comparable'] }))
+            .toBe('engine_not_comparable');
+        expect(coachingIneligibilityReason({ eligible: false, exclusion_reasons: ['unverified_attribution'] }))
+            .toBe('unverified_attribution');
     });
 
-    it('CASUALTY: the legacy column cannot qualify a session — only the attrib_v1 authority can', () => {
-        // A stale/legacy row reading `verified` with no authority record: the shape the old gate accepted.
-        const stale = { ...ELIGIBLE, authorityVersion: null } as Record<string, unknown>;
-        stale.attributionStatus = 'verified';   // present but advisory — must not be consulted
-        expect(coachingIneligibilityReason(stale)).toBe('unverified_attribution');
-    });
-
-    it('CASUALTY: an unknown or future authority version does not qualify', () => {
-        for (const authorityVersion of ['attrib_v2', 'never_registered', 'verified', 'unattributed']) {
-            expect(coachingIneligibilityReason({ ...ELIGIBLE, authorityVersion })).toBe('unverified_attribution');
-        }
-    });
-
-    it('fails closed on missing or unparseable numbers rather than reading them as a pass', () => {
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, durationSeconds: null })).toBe('too_short');
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, durationSeconds: Number.NaN })).toBe('too_short');
-        expect(coachingIneligibilityReason({ ...ELIGIBLE, totalWords: undefined })).toBe('too_few_words');
-        expect(coachingIneligibilityReason({})).toBe('not_completed');
+    it('CASUALTY: an excluded session with no recorded reason is still excluded', () => {
+        expect(coachingIneligibilityReason({ eligible: false, exclusion_reasons: [] })).toBe('ineligible');
+        expect(coachingIneligibilityReason({ eligible: false, exclusion_reasons: null })).toBe('ineligible');
+        expect(coachingIneligibilityReason({ eligible: false, exclusion_reasons: ['  '] })).toBe('ineligible');
+        expect(isEligibleForCoaching({ eligible: false, exclusion_reasons: [] })).toBe(false);
     });
 });

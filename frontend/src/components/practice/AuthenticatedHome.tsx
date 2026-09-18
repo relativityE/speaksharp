@@ -318,17 +318,29 @@ export function AuthenticatedHome({
                             {streakText}
                         </span>
                     )}
-                    <HeaderButton
-                        label="Last session"
-                        secondary={last.text}
-                        secondaryCompact={last.compact}
-                        secondaryTone={last.state === 'failed' ? 'var(--ss-home-warn-ink)' : undefined}
-                        state={last.state}
-                        Icon={FileText}
-                        onClick={onReviewLastSession}
-                        testid="home-last-session"
-                        disabled={!last.canReview}
-                    />
+                    {/*
+                        ONE action per destination. When the resume band renders it already leads to this
+                        exact review, and far more prominently — H-4's whole point is that the corner chip
+                        was the page's most valuable element sized as its least. Two controls pointing at
+                        the same place make the user choose between identical options.
+
+                        It stays for every state the band does NOT cover: `loading` (we have not looked
+                        yet), `failed` (we looked and could not see) and `empty` (a genuine first session).
+                        Those keep their own distinguishable renderings.
+                    */}
+                    {!resuming && (
+                        <HeaderButton
+                            label="Last session"
+                            secondary={last.text}
+                            secondaryCompact={last.compact}
+                            secondaryTone={last.state === 'failed' ? 'var(--ss-home-warn-ink)' : undefined}
+                            state={last.state}
+                            Icon={FileText}
+                            onClick={onReviewLastSession}
+                            testid="home-last-session"
+                            disabled={!last.canReview}
+                        />
+                    )}
                     <HeaderButton label="Analytics" Icon={BarChart3} onClick={onViewAnalytics} testid="home-analytics" />
                 </div>
             </div>

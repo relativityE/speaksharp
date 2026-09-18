@@ -1,91 +1,56 @@
 /**
  * Session eligibility — whether a saved session may *influence* coaching or the next action.
  *
- * `product_release/PROGRESS_AND_NEXT_ACTION.md` §4 states two ordered, independent gates. **Metric
- * validity** decides whether a measurement exists. **Eligibility** decides whether a session may
- * influence Progress **or the next action**, and it holds only when ALL of these do:
+ * **This module reads the AUTHORITATIVE PERSISTED VERDICT. It does not re-derive the rules.**
  *
- *   | Status           | `completed`                                        |
- *   | Spoken duration  | ≥ 30 s (`MIN_COMPARABLE_SECONDS`)                  |
- *   | Word count       | ≥ 75                                               |
- *   | Transcript       | present                                            |
- *   | Attribution      | a server-owned `attrib_v1` authority record        |
+ * `product_release/PROGRESS_AND_NEXT_ACTION.md` §4 is the contract, and `record_progress_evaluation` is the
+ * guarded writer that applies it, recording `eligible` plus `exclusion_reasons` on
+ * `session_progress_evaluations` — status, spoken duration, word count, transcript presence, the
+ * server-owned attribution authority, clarity evidence and complete engine/version/model identity, all
+ * judged together at evaluation time.
  *
- * **Attribution comes from the AUTHORITY, never from `sessions.attribution_status`.** Migration
- * `20260803010000_session_attribution_authority.sql` makes that column advisory in as many words —
- * "Consumers gate on `authority_version`, NOT on the client-writable legacy sessions columns" — with no
- * legacy promotion or backfill, and it fails closed: "no attrib_v1 record => unverified". The column is
- * client-writable, so a legacy or client-declared row can read `verified` while no authority exists; gating
- * on it would let an unattributed session supply the user's lesson.
+ * **Why this reads the verdict instead of listing the gates.** Earlier revisions of this file enumerated
+ * the conditions by hand, and every review pass found another one missing: first the attribution source
+ * (it used the client-writable advisory column instead of the `attrib_v1` authority), then
+ * `no_clarity_evidence` and `engine_not_comparable`. A hand-maintained copy of a product rule drifts from
+ * the rule by construction, and each drift is a session the product marks ineligible while Home quotes its
+ * cached coaching back to the user as a lesson. One verdict, one source.
  *
- * That document is a Level-1 user-trust surface: a phrase shown to a user must be true of that user's own
- * recorded practice. A cached coaching sentence from a four-second accidental take is not — which is why
- * `MIN_SESSION_DURATION_SECONDS` (a persistence floor) and `MIN_RELIABLE_SCORING_WORDS` (3 words, whether a
- * metric is computable) are explicitly NOT eligibility. Conflating them is what would let that take move a
- * trend, or become the lesson Home quotes back to the user.
- *
- * Why this lives here rather than in the caller: `get-ai-suggestions` does not enforce these gates before
- * it caches a review on the row, so any reader that promotes that cached text has to apply them itself.
+ * **Fail closed.** No evaluation row means the session has not been judged — not that it passed. An
+ * unreadable row is the same. Both yield no lesson, and the consumer falls back to the run's own facts.
  */
 
-import { MIN_COMPARABLE_SECONDS } from './aggregateProgress';
-
-/**
- * The §4 word gate. Deliberately distinct from `MIN_RELIABLE_SCORING_WORDS` (3), which answers a different
- * question — whether a metric can be computed at all.
- */
-export const MIN_ELIGIBLE_WORDS = 75;
-
-/** The only attribution authority version that qualifies a session (migration `20260803010000`). */
-export const ATTRIBUTION_AUTHORITY_VERSION = 'attrib_v1';
-
-export interface SessionEligibilityInput {
-    /** `sessions.status`. Legacy rows carry `null`, which is not `completed` and therefore not eligible. */
-    status?: string | null;
-    /** `sessions.duration`, in seconds. */
-    durationSeconds?: number | null;
-    /** `sessions.total_words`. */
-    totalWords?: number | null;
-    /** `sessions.transcript_state` — presence only; the text itself is never needed for this decision. */
-    transcriptState?: string | null;
-    /**
-     * The owner-scoped verdict from `get_attribution_authority_v1` — `'attrib_v1'` when this session has a
-     * server-written authority record, and `null` while pending or definitively unattributed. NOT
-     * `sessions.attribution_status`, which the migration demotes to advisory.
-     */
-    authorityVersion?: string | null;
+/** The row `record_progress_evaluation` writes per session, as this reader needs it. */
+export interface PersistedEvaluationVerdict {
+    /** The authoritative §4 decision. */
+    eligible?: boolean | null;
+    /** Why it was excluded, in the canonical vocabulary (`too_short`, `no_clarity_evidence`, …). */
+    exclusion_reasons?: string[] | null;
 }
 
-/** The deterministic reason a session was excluded, in the vocabulary §4 fixes. `null` when eligible. */
-export type IneligibilityReason =
-    | 'not_completed'
-    | 'too_short'
-    | 'too_few_words'
-    | 'no_transcript'
-    | 'unverified_attribution';
+/** Recorded when there is no evaluation row at all — unproven, never a pass. */
+export const NOT_EVALUATED = 'not_evaluated';
 
 /**
- * Why this session may not influence coaching, or `null` when every gate holds.
+ * Why this session may not influence coaching, or `null` when the persisted verdict says it may.
  *
- * Fails closed: a missing or unparseable field is never read as a pass, because the gates exist to keep an
- * unproven session out.
+ * Returns the reason rather than a boolean, because both consumers — the Home resume band and the review
+ * card's verdict guard — need it to word their own fallback.
  */
-export function coachingIneligibilityReason(input: SessionEligibilityInput): IneligibilityReason | null {
-    if (input.status !== 'completed') return 'not_completed';
-    const duration = Number(input.durationSeconds);
-    if (!Number.isFinite(duration) || duration < MIN_COMPARABLE_SECONDS) return 'too_short';
-    const words = Number(input.totalWords);
-    if (!Number.isFinite(words) || words < MIN_ELIGIBLE_WORDS) return 'too_few_words';
-    // Presence is the gate. `expired` and `not_captured` are states in which there is no readable
-    // transcript, so the coaching that was derived from one can no longer be shown beside it.
-    if (input.transcriptState !== 'available') return 'no_transcript';
-    // Fail closed exactly as the migration specifies: anything other than the attrib_v1 authority — a null
-    // pending verdict, a terminal unattributed marker, or an unknown version — is unverified.
-    if (input.authorityVersion !== ATTRIBUTION_AUTHORITY_VERSION) return 'unverified_attribution';
-    return null;
+export function coachingIneligibilityReason(
+    verdict: PersistedEvaluationVerdict | null | undefined,
+): string | null {
+    // Never judged, or unreadable ⇒ unproven ⇒ no lesson. Absence is not a pass.
+    if (!verdict || typeof verdict.eligible !== 'boolean') return NOT_EVALUATED;
+    if (verdict.eligible) return null;
+    const reasons = Array.isArray(verdict.exclusion_reasons)
+        ? verdict.exclusion_reasons.filter((r): r is string => typeof r === 'string' && r.trim() !== '')
+        : [];
+    // An excluded session with no recorded reason is still excluded.
+    return reasons[0] ?? 'ineligible';
 }
 
 /** Convenience predicate over `coachingIneligibilityReason`. */
-export function isEligibleForCoaching(input: SessionEligibilityInput): boolean {
-    return coachingIneligibilityReason(input) === null;
+export function isEligibleForCoaching(verdict: PersistedEvaluationVerdict | null | undefined): boolean {
+    return coachingIneligibilityReason(verdict) === null;
 }

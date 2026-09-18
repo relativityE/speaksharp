@@ -295,7 +295,11 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
             renderHome(override);
             expect(screen.queryByTestId('home-streak-chip')).toBeNull();
             expect(screen.queryByText(/Streak unavailable|Start your streak|0-day|1-day/)).toBeNull();
-            expect(screen.getByTestId('home-last-session')).toBeInTheDocument();
+            // The cluster still leads somewhere. With a session to resume the band owns that action, so the
+            // legacy corner control is deliberately absent (H-4: one action per destination).
+            expect(screen.getByTestId('home-analytics')).toBeInTheDocument();
+            expect(screen.queryByTestId('home-last-session')).toBeNull();
+            expect(screen.getByTestId('home-resume-cta')).toBeInTheDocument();
         }
     });
 
@@ -325,6 +329,10 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
     });
 
     it('loading / failed / empty / present are four distinct renderings', () => {
+        // Still four mutually distinguishable states — but `present` is now distinguished by the resume
+        // band OWNING the action, while the other three keep the corner control with their own wording.
+        // That is the point of H-4: a session to resume is not a chip, and the three states that cannot be
+        // resumed must never be mistaken for one another.
         const read = () => ({
             text: screen.getByTestId('home-last-session-secondary').textContent,
             state: screen.getByTestId('home-last-session').getAttribute('data-state'),
@@ -332,22 +340,26 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
 
         const { unmount: u1 } = renderHome({ recentLoading: true, lastSession: null });
         const loading = read();
+        expect(screen.queryByTestId('home-resume-band'), 'mid-flight: nothing to resume yet').toBeNull();
         u1();
         const { unmount: u2 } = renderHome({ recentFailed: true, lastSession: null });
         const failed = read();
+        expect(screen.queryByTestId('home-resume-band'), 'failed: we cannot know').toBeNull();
         u2();
         const { unmount: u3 } = renderHome({ lastSession: null });
         const empty = read();
+        expect(screen.queryByTestId('home-resume-band'), 'first session: absent, not empty').toBeNull();
         u3();
-        renderHome();
-        const present = read();
 
-        const seen = [loading, failed, empty, present];
-        expect(new Set(seen.map((s) => s.state)).size).toBe(4);
-        expect(new Set(seen.map((s) => s.text)).size).toBe(4);
-        expect(loading.text).not.toContain('—');
-        expect(failed.text).not.toContain('—');
-        expect(empty.text).not.toContain('—');
+        const seen = [loading, failed, empty];
+        expect(new Set(seen.map((s) => s.state)).size).toBe(3);
+        expect(new Set(seen.map((s) => s.text)).size).toBe(3);
+        for (const s of seen) expect(s.text).not.toContain('—');
+
+        // `present` is the fourth, and it reads differently from all three: the band, not the chip.
+        renderHome();
+        expect(screen.getByTestId('home-resume-band')).toBeInTheDocument();
+        expect(screen.queryByTestId('home-last-session'), 'no duplicate action beside the band').toBeNull();
     });
 
     it('a FAILED read gets its own honest region and never masquerades as "no sessions"', () => {
@@ -382,9 +394,23 @@ describe('AuthenticatedHome — accessibility', () => {
         }
     });
 
-    it('the one legitimate em-dash is announced as missing data, not read as a stray dash', () => {
+    it('a session that cannot describe itself shows no dash at all once the band owns the action', () => {
+        // The compact em-dash existed because a corner chip had to say SOMETHING. The band drops its meta
+        // line instead, so there is no dash to announce — which is better than announcing one.
         renderHome({ lastSession: { id: 'x', created_at: 'nope', duration: null } as unknown as RecentSession });
-        expect(within(screen.getByTestId('home-last-session-secondary')).getByText('Not enough data')).toBeInTheDocument();
+        expect(screen.queryByTestId('home-last-session')).toBeNull();
+        const band = screen.getByTestId('home-resume-band');
+        expect(within(band).queryByTestId('home-resume-meta')).toBeNull();
+        expect(band.textContent ?? '').not.toContain('—');
+    });
+
+    it('the states the band does not cover keep the corner control, each saying what it knows', () => {
+        const { unmount } = renderHome({ recentFailed: true, lastSession: null });
+        // Failure says so in words; it never degrades to a dash, which would claim we had looked.
+        expect(screen.getByTestId('home-last-session-secondary').textContent).not.toContain('—');
+        unmount();
+        renderHome({ lastSession: null });
+        expect(screen.getByTestId('home-last-session-secondary').textContent).toBe('No sessions yet');
     });
 });
 
