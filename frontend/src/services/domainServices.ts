@@ -25,6 +25,8 @@
 
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
+import { readLastSessionFix } from '@/components/practice/lastSessionFix';
+import { coachingIneligibilityReason } from '@/utils/sessionEligibility';
 import type { PostgrestError } from '@supabase/supabase-js';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -66,11 +68,22 @@ export const sessionService = {
      */
     async getRecentReviewable(
         userId: string,
-    ): Promise<Array<Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'>>> {
+    ): Promise<Array<Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'> & { fix: string | null }>> {
         const supabase = getClient();
+        // Brief H-4: `ai_suggestions` is read for ONE purpose — the fix sentence the resume band quotes. It
+        // is the review `get-ai-suggestions` already cached on this row; nothing here writes it, and the
+        // prose is reduced to a plain string (or null) before it leaves this method, so the typed session
+        // model and the #1306 client-persistence rule are untouched.
+        //
+        // Eligibility is NOT re-derived here. That cached review is not self-qualifying — the Edge function
+        // does not apply the PROGRESS_AND_NEXT_ACTION §4 gates before persisting — so the decision comes
+        // from the authoritative persisted verdict written by `record_progress_evaluation`
+        // (`session_progress_evaluations.eligible`), which judges status, duration, words, transcript, the
+        // server-owned attribution authority, clarity evidence and engine identity together. Enumerating
+        // those conditions in the client is what drifted three times.
         const { data, error } = await supabase
             .from('sessions')
-            .select('id, created_at, duration, status')
+            .select('id, created_at, duration, status, ai_suggestions')
             .eq('user_id', userId)
             .or('status.is.null,status.eq.completed')
             .order('created_at', { ascending: false })
@@ -81,7 +94,36 @@ export const sessionService = {
             throw error;
         }
 
-        return (data ?? []) as Array<Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'>>;
+        const rows = (data ?? []).map((row) => {
+            const { ai_suggestions, ...session } = row as Pick<
+                PracticeSession, 'id' | 'created_at' | 'duration' | 'status'
+            > & { ai_suggestions?: unknown };
+            return { session, ai_suggestions };
+        });
+
+        return Promise.all(rows.map(async ({ session, ai_suggestions }) => {
+            const fixCandidate = readLastSessionFix(ai_suggestions);
+            // No candidate lesson ⇒ nothing to qualify, so the verdict is never queried.
+            if (!fixCandidate) return { ...session, fix: null };
+
+            // Owner-scoped by RLS (`spe_select_own`). A missing row means the session has not been judged,
+            // and an error means we cannot read the judgement — both are unproven, so both fail closed.
+            const { data: verdict, error: verdictError } = await supabase
+                .from('session_progress_evaluations')
+                .select('eligible, exclusion_reasons')
+                .eq('session_id', session.id)
+                .order('evaluated_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            if (verdictError) {
+                logger.warn({ error: verdictError }, '[sessionService.getRecentReviewable] eligibility verdict unreadable');
+                return { ...session, fix: null };
+            }
+            const ineligible = coachingIneligibilityReason(verdict);
+            // An ineligible session still opens — it is the user's run — but it lends no lesson. Home's
+            // band falls back to the run's own earned facts.
+            return { ...session, fix: ineligible ? null : fixCandidate };
+        }));
     },
 
     /**

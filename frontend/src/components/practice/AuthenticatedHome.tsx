@@ -1,71 +1,61 @@
 /**
- * #1047 — the authenticated Home surface, below the nav bar.
+ * Design Correction Brief H-1…H-5 / `HOME_PAGE_SPEC.md` Rev 1 — the authenticated Home surface.
  *
- * WHY this page looks like this
- * ----------------------------
- * The previous authenticated Home repeated the marketing pitch: a peach hero band, the "Private
- * Practice. Public Impact!" tagline, a "Ready for your next practice?" status card, and two product
- * cards carrying ~60 words of bullet copy each. All of that argues that the product is worth using —
- * to a user who has already signed up and is standing at the door. It made the door harder to find.
+ * THREE SLOTS (G1). Content changes; slots never move.
  *
- * This surface answers exactly two questions and nothing else:
- *   1. "What would you like to do?"  → the H1 IS the question; the two cards are the two answers.
- *   2. "What should I expect from it?" → three OUTCOME TILES per card: the artifacts a session
- *      produces, as a large value + a one-or-two-word label. Not promises, not adjectives.
- * A user should be able to choose by scanning the two colour blocks (teal = Freeform, violet =
- * Objective), which is why each card's TITLE lives inside its coloured header band and not in the
- * white body.
+ *     ┌─────────────────────────────────────────────┐  A  greeting
+ *     ├─────────────────────────────────────────────┤  B  full width, INK — resume the loop
+ *     ├───────────────────────────┬─────────────────┤
+ *     │ C  Open Mic               │ C  Focus Points │  two PEER cards
+ *     └───────────────────────────┴─────────────────┘
  *
- * WHY there are em-dashes
- * -----------------------
- * A number on this page is a claim about the user's own speaking. Home has no truthful source for a
- * last-session filler count, and it deliberately does NOT compute its own "vs. last time" comparison
- * (that belongs to the Progress formula work, which has not shipped). Rather than print a plausible
- * `12` or a fabricated `+8%`, an unavailable tile renders an em-dash under its real label: the row
- * keeps its shape, the label still tells the user what a session produces, and nothing false is
- * asserted. Missing evidence NEVER degrades to `0` — a zero is indistinguishable from a real zero.
- * Validity is decided by the shared #1091 layer (`@/utils/metricValidity`), never ad hoc here.
+ * **For a returning user this page is the top of the Practice Loop; for a first-time user it is a fork in
+ * the road.** It serves whichever user is in front of it and never shows both answers at once, so slot B is
+ * absent — not empty, not disabled — until there is a session to resume.
  *
- * Objective is unavailable, so every Objective tile is an em-dash or a capability label. It shows nothing
- * that could be mistaken for the user's personalised results, and its CTA activates nothing.
+ * What the previous build got wrong, and why each is a rule rather than a restyle:
+ *
+ * - **H-1 CTA asymmetry.** A yellow fill beside a purple *outline* read as "this one is secondary or
+ *   unavailable", when both paths are primary. Purple identifies the product; yellow is the only action
+ *   colour (G2). Both CTAs are now the same signature fill at the same size, and no outlined button
+ *   renders here.
+ * - **H-2 purple flood.** The two products are peers, so they are ONE component with two content sets.
+ *   They differ in exactly two rendered colours — a 3px top rule and the eyebrow — and nothing else.
+ * - **H-3 placeholder metrics.** The `WHAT TO EXPECT` row promised data this page has no source for and
+ *   rendered em-dashes under real labels: a card stating what it cannot show (G4). The row, its icon
+ *   tiles, its `in ~5 min` / `every session` captions and the tinted strip are gone — four rows of chrome
+ *   for one sentence of meaning. Each card is now eyebrow · title · ONE sentence · CTA, with no numbers.
+ * - **H-4 the resume band.** `Last session` was a 12px corner chip: the page's most valuable element sized
+ *   as its least. It is now slot B, full width and on ink, above the cards.
+ * - **H-5 yellow budget.** Yellow means "act", so it is one fill per view plus the logo. The two card CTAs
+ *   count as one use because the cards are peers; the resume CTA is the other.
+ *
+ * WHAT SLOT B SAYS. First choice is the spec's: **the fix, verbatim from that session's review**, so the
+ * lesson is recognisable rather than restated. `getRecentReviewable` reads the review `get-ai-suggestions`
+ * already cached on the session row and `readLastSessionFix` reduces it to that one sentence — a read, not
+ * new persistence, and #1306's client-persistence rule is untouched (see `lastSessionFix.ts`).
+ *
+ * When there is no contract-valid review to quote — it failed, is still being made, or the row is a partial
+ * write — the band still renders, on the run's own earned facts, with the same enabled CTA. That is the
+ * spec's own fallback, and it is deliberately NOT a band announcing that a review is unavailable: that dead
+ * end is what `SESSION_PAGE_SPEC.md` §5b exists to prevent. No number is invented in either shape.
+ *
+ * Still deferred rather than faked: a `Practice this again` that reopens the same product with the same
+ * prompt or point set. Nothing readable here identifies which product the last run was, so the CTA leads to
+ * the run's own review instead of guessing.
  */
 
 import * as React from 'react';
-import {
-    ArrowRight, AlertCircle, BarChart3, FileText, MessageSquare, Music, Sparkles, TrendingUp,
-    Check, Target, Repeat, type LucideIcon,
-} from 'lucide-react';
-import { NOT_ENOUGH_DATA, NOT_ENOUGH_DATA_COMPACT } from '@/utils/metricValidity';
+import { AlertCircle, BarChart3, FileText, type LucideIcon } from 'lucide-react';
+import { NOT_ENOUGH_DATA } from '@/utils/metricValidity';
 import { lastSessionView, streakLabel, type RecentSession, type PracticeStreak } from './homeEvidence';
 import { PRODUCT_NAMES } from '@/constants/productNames';
 
 export type { RecentSession };
 
-type Accent = 'teal' | 'violet';
-
 /* -------------------------------------------------------------------------------------------- */
-/* Decorative motifs — aria-hidden; they carry no information that is not also in text.           */
+/* Decorative motif — aria-hidden; carries no information that is not also in text.                */
 /* -------------------------------------------------------------------------------------------- */
-
-/** Five-bar waveform for the Freeform band. One bar is amber: the warm through-line. */
-function BandWaveform({ warm }: { warm: boolean }) {
-    const bars = [12, 22, 30, 18, 25];
-    return (
-        <span aria-hidden="true" data-testid="home-band-motif" className="flex items-end gap-[3px]">
-            {bars.map((h, i) => (
-                <span
-                    key={i}
-                    style={{
-                        width: 4,
-                        height: h,
-                        borderRadius: 2,
-                        background: warm && i === 2 ? 'var(--ss-home-amber-bar)' : 'rgba(255,255,255,0.85)',
-                    }}
-                />
-            ))}
-        </span>
-    );
-}
 
 /** Four-bar mini waveform inside the streak chip. */
 function StreakWaveform() {
@@ -79,167 +69,128 @@ function StreakWaveform() {
 }
 
 /* -------------------------------------------------------------------------------------------- */
-/* Outcome tile                                                                                   */
+/* Slot C — the two peer product cards                                                            */
 /* -------------------------------------------------------------------------------------------- */
 
 /**
- * How a tile's value should be typeset:
- *   metric  — a genuine numeric measurement, set large (27px extrabold). Reserved for real numbers.
- *   status  — a categorical word (e.g. `Live`): a quiet 13–14px bold that BLENDS into the tile and
- *             never competes with a metric. It occupies the same value-row height so labels align.
- *   missing — the em-dash placeholder for "not enough data", kept at metric size so an absent value
- *             reads as a deliberately blank metric, not as body copy.
+ * ONE component, two content sets (H-2). `identity` selects the only two colours that may differ: the
+ * 3px top rule and the eyebrow. Everything else — surface, border, radius, padding, type scale, CTA fill
+ * and CTA size — is shared, because any further difference makes one product shout and the other recede.
  */
-export type OutcomeValueKind = 'metric' | 'status' | 'missing';
-
-export interface OutcomeTile {
-    /** The artifact name. ONE line — the two cards' tile rows must align. Never repeats the value. */
-    label: string;
-    /** The value text — a metric number, a categorical status word, or the em-dash placeholder. */
-    value: string;
-    /** Chooses the value typography. The renderer keys off THIS, never the literal string. */
-    valueKind: OutcomeValueKind;
-    Icon: LucideIcon;
-    /** `warm` is reserved for Freeform's MIDDLE tile — the amber thread to the marketing hero. */
-    tone: Accent | 'warm';
-}
-
-const TONE_STYLE: Record<Accent | 'warm', { glyphBg: string; glyphInk: string; valueInk: string }> = {
-    teal: { glyphBg: 'var(--ss-home-teal-tint)', glyphInk: 'var(--ss-home-teal-deep)', valueInk: 'var(--ss-home-teal-deep)' },
-    violet: { glyphBg: 'var(--ss-home-violet-tint)', glyphInk: 'var(--ss-home-violet-deep)', valueInk: 'var(--ss-home-violet-deep)' },
-    // Never white-on-orange: the warm tile is a light amber surface with dark brown ink.
-    warm: { glyphBg: 'var(--ss-home-amber-tint)', glyphInk: 'var(--ss-home-amber-ink)', valueInk: 'var(--ss-home-amber-ink)' },
-};
-
-// Value typography by kind. `status` is the quiet, blend-in treatment for a categorical word; it
-// keeps the value row at the metric's `min-h` so all three tile labels stay aligned.
-const VALUE_CLASS: Record<OutcomeValueKind, string> = {
-    metric: 'text-[27px] font-extrabold leading-none tracking-tight',
-    status: 'flex min-h-[27px] items-center text-[14px] font-bold leading-none',
-    missing: 'text-[27px] font-extrabold leading-none tracking-tight',
-};
-
-function OutcomeTileView({ tile, testid }: { tile: OutcomeTile; testid: string }) {
-    const tone = TONE_STYLE[tile.tone];
-    const missing = tile.valueKind === 'missing';
-    return (
-        <div data-testid={testid} data-evidence={missing ? 'none' : 'present'} className="flex min-w-0 flex-col gap-1.5">
-            <span
-                aria-hidden="true"
-                className="grid h-8 w-8 place-items-center rounded-[9px]"
-                style={{ background: tone.glyphBg, color: tone.glyphInk }}
-            >
-                <tile.Icon size={16} />
-            </span>
-            <span
-                data-value-kind={tile.valueKind}
-                className={VALUE_CLASS[tile.valueKind]}
-                style={{ color: missing ? 'var(--ss-text-secondary)' : tone.valueInk }}
-                // Screen readers should not spell out a bare dash; the label carries the meaning and
-                // the visually-hidden phrase says why the number is absent.
-                aria-hidden={missing ? 'true' : undefined}
-            >
-                {tile.value}
-            </span>
-            {missing && <span className="sr-only">{NOT_ENOUGH_DATA}</span>}
-            {/* The label is the ONLY meaning-carrier when the value is an em-dash, so it must never
-                be clipped: at 320-375px a three-tile row leaves ~75-90px per tile and "Vs. last time"
-                over a dash would ellipsise into nonsense. It wraps instead. The CTA still bottom-aligns
-                because it owns `margin-top: auto`, so an uneven label height cannot misalign the two
-                cards' buttons. */}
-            <span className="text-[12px] font-semibold leading-tight text-[color:var(--ss-text-secondary)]">
-                {tile.label}
-            </span>
-        </div>
-    );
-}
-
-/* -------------------------------------------------------------------------------------------- */
-/* Product card                                                                                   */
-/* -------------------------------------------------------------------------------------------- */
-
 function ProductCard({
-    accent, eyebrow, title, soon, expectTrailing, tiles, reassurance, ctaLabel, ctaAria, onCta, testid,
+    identity, eyebrow, title, sentence, ctaLabel, ctaAria, onCta, testid,
 }: {
-    accent: Accent;
+    identity: 'open-mic' | 'focus-points';
     eyebrow: string;
     title: string;
-    soon?: boolean;
-    expectTrailing: string;
-    tiles: OutcomeTile[];
-    reassurance: string;
+    sentence: string;
     ctaLabel: string;
     ctaAria: string;
     onCta: () => void;
     testid: string;
 }) {
-    const teal = accent === 'teal';
+    // Open Mic is the ink identity; Focus Points is the Focus purple. Both come from the shared theme
+    // authority (#1481) — this page holds no colour values of its own.
+    const identityColor = identity === 'open-mic' ? 'var(--brand-ink)' : 'var(--brand-focus-strong)';
     return (
-        <article data-testid={`${testid}-card`} className={`ss-home-card ${teal ? 'ss-home-card--teal' : 'ss-home-card--violet'}`}>
-            {/* The TITLE lives in the coloured band so the choice can be made by scanning colour. */}
-            <div className={`flex items-center justify-between gap-3 px-5 py-4 ${teal ? 'ss-home-band-teal' : 'ss-home-band-violet'}`}>
-                <div className="min-w-0">
-                    {/* Full-opacity white: at 11px bold, 80% white fell to ~2.4:1 on the band's light stop. */}
-                    <span className="block text-[11px] font-extrabold uppercase tracking-[0.13em] text-white">{eyebrow}</span>
-                    <h2 className="mt-0.5 text-[22px] font-extrabold tracking-tight text-white">{title}</h2>
-                </div>
-                {/* The SOON pill is a flex sibling, not absolutely positioned: it can never overlap
-                    the title at a narrow width. */}
-                {soon ? (
-                    <span
-                        data-testid="objective-soon-badge"
-                        className="shrink-0 rounded-full px-3 py-1 text-[11px] font-extrabold tracking-[0.05em]"
-                        style={{ background: 'rgba(255,255,255,0.94)', color: 'var(--ss-home-violet-deep)' }}
-                    >
-                        SOON
-                    </span>
-                ) : (
-                    <BandWaveform warm />
-                )}
-            </div>
-
-            <div className="flex flex-1 flex-col gap-4 p-5">
-                {/* Expectation header. The eyebrow stays AMBER on BOTH cards — it is the connective
-                    tissue between them, not a per-card accent. */}
-                <div className="flex items-center gap-3">
-                    <span className="shrink-0 text-[11px] font-extrabold uppercase tracking-[0.13em]" style={{ color: 'var(--ss-home-amber-eyebrow)' }}>
-                        What to expect
-                    </span>
-                    <span aria-hidden="true" className="h-px flex-1" style={{ background: 'var(--ss-home-amber-rule)' }} />
-                    <span className="shrink-0 text-[12px] font-semibold text-[color:var(--ss-text-secondary)]">{expectTrailing}</span>
-                </div>
-
-                {/* Equal-width columns, so a wrapped label in one tile cannot squeeze its neighbours. */}
-                <div className="grid grid-cols-3 items-start gap-3" data-testid={`${testid}-tiles`}>
-                    {tiles.map((t, i) => (
-                        <OutcomeTileView key={t.label} tile={t} testid={`${testid}-tile-${i}`} />
-                    ))}
-                </div>
-
-                <p
-                    className="rounded-[10px] px-3.5 py-2.5 text-[13px] font-semibold"
-                    style={{
-                        background: teal ? 'var(--ss-home-teal-tint)' : 'var(--ss-home-violet-tint)',
-                        color: teal ? 'var(--ss-home-teal-deep)' : 'var(--ss-home-violet-deep)',
-                    }}
+        <article
+            data-testid={`${testid}-card`}
+            data-identity={identity}
+            className="ss-home-card"
+            // The rule is a border, not a filled band: a saturated header is the H-2 flood.
+            style={{ borderTop: `3px solid ${identityColor}` }}
+        >
+            <div className="flex flex-1 flex-col gap-3 p-[26px] pb-[22px]">
+                <span
+                    data-testid={`${testid}-eyebrow`}
+                    className="text-[12px] font-extrabold uppercase tracking-[0.1em]"
+                    style={{ color: identityColor }}
                 >
-                    {reassurance}
+                    {eyebrow}
+                </span>
+                <h2 className="text-[24px] font-extrabold leading-tight tracking-tight text-[color:var(--ss-text)]">{title}</h2>
+                {/* ONE sentence saying what the product is for. Not a feature list, not a tile grid. */}
+                <p data-testid={`${testid}-sentence`} className="text-[17px] font-medium leading-snug text-[color:var(--ss-text)]">
+                    {sentence}
                 </p>
-
                 <button
                     type="button"
                     onClick={onCta}
                     data-testid={testid}
                     aria-label={ctaAria}
-                    className={`ss-ring ss-home-cta ${teal ? 'ss-home-cta-solid' : 'ss-home-cta-outline'}`}
+                    className="ss-ring ss-home-cta ss-home-cta-solid"
                 >
                     {ctaLabel}
-                    {teal
-                        ? <ArrowRight size={16} aria-hidden="true" />
-                        : <Music size={15} aria-hidden="true" />}
                 </button>
             </div>
         </article>
+    );
+}
+
+/* -------------------------------------------------------------------------------------------- */
+/* Slot B — the resume band                                                                       */
+/* -------------------------------------------------------------------------------------------- */
+
+/**
+ * The loop closing (H-4). Rendered ONLY for a present, reviewable session: a band with nothing to resume
+ * advertises a feature the user cannot use yet, so the first-session page omits the slot entirely.
+ *
+ * `headline` is what this run earned — never a zero, never a placeholder. `meta` may be absent when the
+ * stored row cannot describe itself, in which case the band still leads somewhere.
+ */
+function ResumeBand({
+    fix, meta, onReview, onViewAnalytics,
+}: {
+    /** The verbatim fix from the last review, or null when there is none to quote. */
+    fix: string | null;
+    meta: string | null;
+    onReview: () => void;
+    onViewAnalytics: () => void;
+}) {
+    return (
+        <section
+            data-testid="home-resume-band"
+            aria-label="Resume your practice"
+            // Flat ink fill: no gradient, no overlay, no opacity on a ground (G2).
+            className="mt-6 flex flex-col gap-4 rounded-[14px] bg-ink px-7 py-6 text-ink-text md:flex-row md:items-end md:justify-between"
+        >
+            <div className="min-w-0">
+                <p className="text-[12px] font-extrabold uppercase tracking-[0.1em] text-signature" data-testid="home-resume-eyebrow">
+                    From your last session
+                </p>
+                {/* The lesson itself when we have it; otherwise the run, never an apology for the review. */}
+                <p
+                    className="mt-2 max-w-[720px] text-[22px] font-extrabold leading-snug text-ink-text"
+                    data-testid="home-resume-headline"
+                    data-source={fix ? 'review-fix' : 'run-facts'}
+                >
+                    {fix ?? 'Your last run is ready to pick up.'}
+                </p>
+                {meta && (
+                    <p className="mt-1.5 text-[15px] font-medium text-ink-muted" data-testid="home-resume-meta">
+                        {meta}
+                    </p>
+                )}
+            </div>
+            <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
+                <button
+                    type="button"
+                    onClick={onReview}
+                    data-testid="home-resume-cta"
+                    className="ss-ring ss-home-cta ss-home-cta-solid"
+                >
+                    Pick up where you left off
+                </button>
+                <button
+                    type="button"
+                    onClick={onViewAnalytics}
+                    data-testid="home-resume-progress"
+                    className="ss-ring text-[15px] font-semibold text-ink-muted underline-offset-2 hover:underline"
+                >
+                    See your progress
+                </button>
+            </div>
+        </section>
     );
 }
 
@@ -270,7 +221,7 @@ function HeaderButton({
             className="ss-ring flex items-center gap-2.5 rounded-[11px] border bg-[color:var(--ss-surface)] px-3.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-60"
             style={{ borderColor: 'var(--ss-home-card-border)' }}
         >
-            <Icon size={16} aria-hidden="true" style={{ color: 'var(--ss-home-teal-deep)' }} className="shrink-0" />
+            <Icon size={16} aria-hidden="true" style={{ color: 'var(--ss-text-secondary)' }} className="shrink-0" />
             <span className="flex flex-col leading-tight">
                 <span className="text-[13px] font-bold text-[color:var(--ss-text)]">{label}</span>
                 {secondary && (
@@ -281,7 +232,7 @@ function HeaderButton({
                     >
                         {/* A bare em-dash in a button's accessible name is announced as "dash". The
                             visible glyph is hidden from assistive tech and paired with the full
-                            sentence, exactly as the outcome tiles do. */}
+                            sentence. */}
                         <span aria-hidden={secondaryCompact ? 'true' : undefined}>{secondary}</span>
                         {secondaryCompact && <span className="sr-only">{NOT_ENOUGH_DATA}</span>}
                     </span>
@@ -323,42 +274,29 @@ export function AuthenticatedHome({
     // The chip is shown ONLY for an active >=2-day streak. Loading, unavailable, lapsed, zero and
     // one-day states all resolve to `null` and render no chip (no skeleton, no reserved width).
     const streakText = streakLoading ? null : streakLabel(streak);
-    // Freeform tiles. "Live" is a capability of the shipped product, not a claim about this user.
-    // The other two have no truthful source on Home today, so they say so.
-    const freeformTiles: OutcomeTile[] = [
-        // `Live` is a categorical capability, not a measurement — a quiet `status` value that blends
-        // into the tile rather than the large `metric` typography reserved for real numbers.
-        { label: 'Transcript', value: 'Live', valueKind: 'status', Icon: FileText, tone: 'teal' },
-        // No last-session filler count is available on Home (the recent-session read is deliberately
-        // narrow: id/created_at/duration/status). A plausible number here would be a fabrication.
-        { label: 'Filler words', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: MessageSquare, tone: 'warm' },
-        // Home must NOT invent its own comparison. Until SpeakSharp Progress ships there is no
-        // defensible "vs. last time" figure, so none is shown.
-        { label: 'Vs. previous session', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: TrendingUp, tone: 'teal' },
-    ];
-
-    // Objective has not launched: there are no results to report, and nothing here may look personalised.
-    const objectiveTiles: OutcomeTile[] = [
-        { label: 'Detected', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Check, tone: 'violet' },
-        { label: 'Not detected', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Target, tone: 'violet' },
-        { label: 'Retry specific points', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Repeat, tone: 'violet' },
-    ];
+    // Slot B exists only for a session that is genuinely there and can be opened. `loading`, `failed`
+    // and `empty` each keep their own honest surface below, and none of them renders a band.
+    const resuming = last.state === 'present' && last.canReview;
+    // `last.text` is composed from persisted columns only (date · duration) and is `NOT_ENOUGH_DATA`
+    // when neither is displayable. In the band the dash is dropped rather than shown: under a quoted
+    // lesson it would read as a missing value in the lesson itself.
+    const bandMeta = last.compact ? null : last.text;
 
     return (
         // `ss-home-surface` owns the fixed-header offset (scroll-padding + top padding derived from
         // --header-height) so no descendant needs a magic number to clear the bar.
-        <div data-testid="practice-welcome-authed" className="ss-home-surface mx-auto max-w-[1120px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] sm:px-8 md:pb-12 md:[padding-bottom:3rem]">
-            {/* Greeting ROW — no peach band, no tagline, no status card. The page asks; it does not pitch. */}
+        <div data-testid="practice-welcome-authed" className="ss-home-surface mx-auto max-w-[1100px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] sm:px-8 md:pb-12 md:[padding-bottom:3rem]">
+            {/* SLOT A — greeting. The H1 IS the question; the cards are the answers. */}
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
                     <span className="text-[12px] font-extrabold uppercase tracking-[0.14em] text-[color:var(--ss-text-secondary)]">
-                        Welcome back
+                        {resuming ? 'Welcome back' : 'Welcome'}
                     </span>
                     <h1
                         className="mt-1 font-extrabold text-[color:var(--ss-text)]"
                         style={{ fontSize: 'clamp(30px, 5vw, 42px)', lineHeight: 1.05, letterSpacing: '-0.03em' }}
                     >
-                        What would you like to do?
+                        {resuming ? 'What would you like to do?' : 'Pick how you want to practise.'}
                     </h1>
                 </div>
 
@@ -368,8 +306,7 @@ export function AuthenticatedHome({
                     {/* Shown ONLY for an earned, active streak of two or more qualifying days (server-
                         authoritative `get_practice_streak`, #1098). Loading, unavailable, lapsed, zero
                         and one-day states render NOTHING here — no skeleton, no placeholder, no reserved
-                        width. When absent, the flex cluster naturally leads with Last session → Analytics;
-                        when present, streak → Last session → Analytics. Never `0-day`/`1-day`. */}
+                        width. Never `0-day`/`1-day`. */}
                     {streakText !== null && (
                         <span
                             data-testid="home-streak-chip"
@@ -381,23 +318,46 @@ export function AuthenticatedHome({
                             {streakText}
                         </span>
                     )}
-                    <HeaderButton
-                        label="Last session"
-                        secondary={last.text}
-                        secondaryCompact={last.compact}
-                        secondaryTone={last.state === 'failed' ? 'var(--ss-home-warn-ink)' : undefined}
-                        state={last.state}
-                        Icon={FileText}
-                        onClick={onReviewLastSession}
-                        testid="home-last-session"
-                        disabled={!last.canReview}
-                    />
+                    {/*
+                        ONE action per destination. When the resume band renders it already leads to this
+                        exact review, and far more prominently — H-4's whole point is that the corner chip
+                        was the page's most valuable element sized as its least. Two controls pointing at
+                        the same place make the user choose between identical options.
+
+                        It stays for every state the band does NOT cover: `loading` (we have not looked
+                        yet), `failed` (we looked and could not see) and `empty` (a genuine first session).
+                        Those keep their own distinguishable renderings.
+                    */}
+                    {!resuming && (
+                        <HeaderButton
+                            label="Last session"
+                            secondary={last.text}
+                            secondaryCompact={last.compact}
+                            secondaryTone={last.state === 'failed' ? 'var(--ss-home-warn-ink)' : undefined}
+                            state={last.state}
+                            Icon={FileText}
+                            onClick={onReviewLastSession}
+                            testid="home-last-session"
+                            disabled={!last.canReview}
+                        />
+                    )}
                     <HeaderButton label="Analytics" Icon={BarChart3} onClick={onViewAnalytics} testid="home-analytics" />
                 </div>
             </div>
 
-            {/* A FAILED read gets its own honest region — it must never be shown as emptiness. This
-                restores the distinct error state that the deleted continuity card carried. */}
+            {/* SLOT B — the resume band. Absent on a first session (H-4), and absent while the read is
+                in flight or after it failed: those states have their own surfaces and neither of them
+                knows whether there is anything to resume. */}
+            {resuming && (
+                <ResumeBand
+                    fix={lastSession?.fix ?? null}
+                    meta={bandMeta}
+                    onReview={onReviewLastSession}
+                    onViewAnalytics={onViewAnalytics}
+                />
+            )}
+
+            {/* A FAILED read gets its own honest region — it must never be shown as emptiness. */}
             {last.state === 'failed' && (
                 <p
                     role="status"
@@ -410,45 +370,38 @@ export function AuthenticatedHome({
                 </p>
             )}
 
-            {/* First run — truthful guidance rather than six unexplained placeholders. Only shown when
-                the read SUCCEEDED and genuinely returned nothing. */}
-            {last.state === 'empty' && (
-                <p
-                    data-testid="home-first-run"
-                    className="mt-4 flex items-center gap-2 rounded-[10px] px-3.5 py-2.5 text-[13px] font-semibold"
-                    style={{ background: 'var(--ss-home-teal-tint)', color: 'var(--ss-home-teal-deep)' }}
-                >
-                    <Sparkles size={15} aria-hidden="true" className="shrink-0" />
-                    Start your first practice — your transcript and progress appear here once you finish.
-                </p>
-            )}
-
+            {/* SLOT C — two peers. Same component, two content sets. */}
             <div className="ss-home-grid mt-8">
                 <ProductCard
-                    accent="teal"
+                    identity="open-mic"
                     eyebrow="Speak freely"
                     title={PRODUCT_NAMES.freeform}
-                    expectTrailing="in ~5 min"
-                    tiles={freeformTiles}
-                    reassurance="No agenda or setup — just speak and improve"
-                    ctaLabel={"Start your session"}
-                    ctaAria={"Start your session"}
+                    sentence="Just speak. Your transcript, fillers and pace, live."
+                    ctaLabel="Start your session"
+                    ctaAria="Start your session"
                     onCta={onStartFreeform}
                     testid="practice-card-freeform"
                 />
                 <ProductCard
-                    accent="violet"
+                    identity="focus-points"
                     eyebrow="Hit your points"
                     title={PRODUCT_NAMES.objective}
-                    expectTrailing="every session"
-                    tiles={objectiveTiles}
-                    reassurance="Set your points, rehearse until they land"
+                    sentence="Name the points that must land, then check which ones did."
                     ctaLabel="Set your focus points"
                     ctaAria={`Start ${PRODUCT_NAMES.objective}`}
                     onCta={onStartObjective}
                     testid="practice-card-objective"
                 />
             </div>
+
+            {/* First session only: the differentiator, stated once, at the moment the user is about to
+                grant mic access (spec §6). A returning user has already granted it and does not need
+                to be told again. */}
+            {last.state === 'empty' && (
+                <p data-testid="home-first-run" className="mt-5 text-[15px] font-medium text-[color:var(--ss-text-secondary)]">
+                    Your audio never leaves this browser.
+                </p>
+            )}
         </div>
     );
 }

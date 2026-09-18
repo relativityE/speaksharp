@@ -22,29 +22,12 @@
   --ss-body-slate: var(--brand-neutral-body);
 
   /* ------------------------------------------------------------------------------------------
-   * #1047 authenticated Home. Open Mic = ink identity, Focus Points = the app-only Focus purple, and ONE
-   * signature thread crosses both cards. The historical `teal`/`violet`/`amber` alias names are kept so the
-   * components and their tests did not churn; their values are the shared roles.
+   * Authenticated Home (#1047, Design Correction Brief H-1…H-5). The two product identities are applied
+   * by the component as a 3px top rule and an eyebrow, straight from the shared theme roles
+   * (`--brand-ink`, `--brand-focus-strong`) — the per-card border colours and header-band gradients are
+   * gone with the purple flood and the asymmetric CTAs they produced.
    * ---------------------------------------------------------------------------------------- */
-  --ss-home-teal: var(--brand-ink);
-  --ss-home-teal-deep: var(--brand-neutral-heading);
-  /* Bands carry WHITE 11px bold eyebrows: ink (14:1) and Focus purple (6.6:1) both clear 4.5:1 at every stop. */
-  --ss-home-teal-band: linear-gradient(135deg, var(--brand-ink) 0%, var(--brand-ink-raised) 100%);
-  --ss-home-teal-tint: var(--brand-neutral-band);
-  --ss-home-teal-border: var(--brand-neutral-border);
 
-  --ss-home-violet: var(--brand-focus);
-  --ss-home-violet-deep: var(--brand-focus-strong);
-  --ss-home-violet-band: linear-gradient(135deg, var(--brand-focus-strong) 0%, var(--brand-focus) 100%);
-  --ss-home-violet-tint: var(--brand-focus-ground);
-  --ss-home-violet-border: var(--brand-focus-border);
-
-  /* The signature through-line. Text on the warm ground is signature-text, never white on yellow. */
-  --ss-home-amber-eyebrow: var(--brand-signature-text);
-  --ss-home-amber-ink: var(--brand-signature-text);
-  --ss-home-amber-tint: var(--brand-signature-ground);
-  --ss-home-amber-rule: var(--brand-signature-border);
-  --ss-home-amber-bar: var(--brand-signature);
 
   /* Honest-failure surface: the shared error set. */
   --ss-home-warn-tint: var(--brand-error-ground);
@@ -89,15 +72,9 @@
   .practice-root .ss-home-grid { grid-template-columns: 1fr 1fr; }
 }
 
-/* Accent-matched card edges, so the border belongs to the same identity as the header band. */
-.practice-root .ss-home-card--teal { border-color: var(--ss-home-teal-border); }
-.practice-root .ss-home-card--violet { border-color: var(--ss-home-violet-border); }
-
-.practice-root .ss-home-band-teal { background: var(--ss-home-teal-band); }
-.practice-root .ss-home-band-violet { background: var(--ss-home-violet-band); }
-
 /* CTAs are full-width and pinned to the bottom of the card so both buttons bottom-align
-   regardless of how much copy sits above them. */
+   regardless of how much copy sits above them. Brief H-1: there is ONE card CTA treatment — the
+   signature fill below — because the two products are peers and an outlined twin read as disabled. */
 .practice-root .ss-home-cta {
   margin-top: auto;
   display: flex;
@@ -113,12 +90,6 @@
 /* Signature yellow owns the primary action; ink text on it. */
 .practice-root .ss-home-cta-solid { background: var(--brand-signature); color: var(--brand-ink); }
 .practice-root .ss-home-cta-solid:hover { filter: brightness(0.93); }
-.practice-root .ss-home-cta-outline {
-  background: var(--ss-surface);
-  color: var(--ss-home-violet-deep);
-  border: 1.5px solid var(--ss-home-violet);
-}
-.practice-root .ss-home-cta-outline:hover { background: var(--ss-home-violet-tint); }
 
 /* Same-element compound selector (the class sits ON .practice-root, not a descendant). */
 .practice-root.ss-landing-canvas { background: var(--ss-landing-canvas); }

@@ -97,7 +97,11 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await navigateToRoute(page, '/practice');
     await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId('practice-welcome-authed')).toContainText(/what would you like to do/i);
-    await expect(page.getByTestId('home-last-session-secondary')).toBeVisible();
+    // H-4: a returning user's continuity is the promoted resume band, which owns the review action — the
+    // legacy corner chip is hidden so two controls never point at the same place.
+    await expect(page.getByTestId('home-resume-band')).toBeVisible();
+    await expect(page.getByTestId('home-resume-meta')).toBeVisible();
+    await expect(page.getByTestId('home-last-session')).toHaveCount(0);
     // No anonymous marketing support section after login.
     await expect(page.getByTestId('practice-support')).toHaveCount(0);
     await expect(page.getByTestId('objective-soon-badge')).toHaveCount(0); // Focus Points is activated (#1046 5b)

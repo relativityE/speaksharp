@@ -35,18 +35,23 @@ async function settle(page: Page) {
 async function enterReturningPractice(page: Page) {
   await navigateToRoute(page, '/practice');
   await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-  // Returning state (a session exists): the last-session line carries date + duration, no WPM, and is
-  // NOT the em-dash placeholder that a missing/failed read would produce.
-  const summary = page.getByTestId('home-last-session-secondary');
-  await expect(summary).toBeVisible({ timeout: 30000 });
+  // Returning state (a session exists): H-4 promotes the former corner chip into the full-width resume
+  // band (slot B). Its meta line carries date + duration, no WPM, and is NOT the em-dash placeholder a
+  // missing/failed read would produce.
+  const band = page.getByTestId('home-resume-band');
+  await expect(band).toBeVisible({ timeout: 30000 });
+  const summary = page.getByTestId('home-resume-meta');
+  await expect(summary).toBeVisible();
   await expect(summary).not.toContainText(/WPM/i);
   await expect(summary).not.toHaveText('—');
   // A returning user has an active 3-day streak (>=2), so the chip renders and leads the cluster.
   const streakChip = page.getByTestId('home-streak-chip');
   await expect(streakChip).toBeVisible();
   await expect(streakChip).toHaveText(/3-day streak/);
-  // Both actions exist above the fold; the two-product chooser still renders below.
-  await expect(page.getByTestId('home-last-session')).toBeVisible();
+  // The band owns the review action, so the legacy chip is gone — one action per destination. Analytics
+  // stays in the cluster, and the two-product chooser still renders below.
+  await expect(page.getByTestId('home-resume-cta')).toBeVisible();
+  await expect(page.getByTestId('home-last-session')).toHaveCount(0);
   await expect(page.getByTestId('home-analytics')).toBeVisible();
   await expect(page.getByRole('heading', { name: /^Open Mic$/i })).toBeVisible();
 }
@@ -93,23 +98,27 @@ test.describe('#1042 PR4 — Practice Home continuity (returning state)', () => 
     // fold and tucks the summary under the fixed header — which is exactly what failed CI. The cluster
     // is a small element, so centring it clears both fixed bars, and `.ss-home-anchor` gives it
     // scroll-margin derived from --header-height for the non-centred cases.
-    const block = page.getByTestId('home-continuity-cluster');
-    await block.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    // #1047 greeting row: the question is the header; continuity is the right-hand cluster.
-    const summary = page.getByTestId('home-last-session-secondary');
-    const review = page.getByTestId('home-last-session');
-    const analytics = page.getByTestId('home-analytics');
-    // The complete block is visible: summary + both actions.
+    // H-4: continuity is now TWO surfaces — the resume band (the run's date/duration and the action that
+    // reopens it) and the cluster (Analytics). Each is centred and hit-tested on its own, because a fixed
+    // header or bottom nav can obscure either, and toBeVisible alone does NOT detect occlusion.
+    const band = page.getByTestId('home-resume-band');
+    await band.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    const summary = page.getByTestId('home-resume-meta');
+    const review = page.getByTestId('home-resume-cta');
     await expect(summary).toBeVisible();
     await expect(review).toBeVisible();
+    expect(await isUnobscured(summary), 'The run summary must clear the fixed top header').toBe(true);
+    expect(await isUnobscured(review), 'The resume action must not intersect the fixed bottom nav').toBe(true);
+    // One action per destination: the legacy chip must not reappear beside the band.
+    await expect(page.getByTestId('home-last-session')).toHaveCount(0);
+
+    const block = page.getByTestId('home-continuity-cluster');
+    await block.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    const analytics = page.getByTestId('home-analytics');
     await expect(analytics).toBeVisible();
-    // Nothing in the block is obscured by a fixed bar — the summary clears the top header, and both actions
-    // clear the bottom nav (toBeVisible alone does NOT detect occlusion, so hit-test each).
-    expect(await isUnobscured(summary), 'Summary must clear the fixed top header').toBe(true);
-    expect(await isUnobscured(review), 'Last session action must not intersect the fixed bottom nav').toBe(true);
     expect(await isUnobscured(analytics), 'Analytics action must not intersect the fixed bottom nav').toBe(true);
     await settle(page);
-    await block.screenshot({ path: `${DIR}/02-continuity-returning-mobile.png` });
+    await band.screenshot({ path: `${DIR}/02-continuity-returning-mobile.png` });
 
     expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
     expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
@@ -117,23 +126,31 @@ test.describe('#1042 PR4 — Practice Home continuity (returning state)', () => 
   });
 
   /*
-   * #1047: the outcome-tile LABEL is the only meaning-carrier whenever the value is an em-dash, so a
-   * clipped "Vs. last t…" over a dash is unreadable. At 320px each of the three tiles is ~75px wide.
-   * jsdom cannot measure this, so the rendered proof lives here: no label may be horizontally clipped,
-   * and the page itself must not scroll sideways.
+   * Brief H-3 deleted the outcome tiles, so the old proof (three ~75px tile labels per card at 320px)
+   * has no subject. What still needs measuring at the narrowest supported width is the text that
+   * replaced them: each card's ONE sentence and the resume band's quoted fix, neither of which may be
+   * horizontally clipped, and the page must not scroll sideways. jsdom cannot measure this.
    */
-  test('narrowest supported viewport: tile labels are never clipped and the page never scrolls sideways', async ({ page }) => {
+  test('narrowest supported viewport: card and band text is never clipped and the page never scrolls sideways', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await page.setViewportSize(NARROW);
     await enterReturningPractice(page);
     await settle(page);
 
-    const labels = page.locator('[data-testid$="-tiles"] > div > span:last-child');
-    await expect(labels).toHaveCount(6);
-    for (let i = 0; i < 6; i += 1) {
-      const clipped = await labels.nth(i).evaluate((el) => el.scrollWidth > el.clientWidth + 1);
-      const text = await labels.nth(i).innerText();
-      expect(clipped, `tile label "${text}" is clipped at ${NARROW.width}px`).toBe(false);
+    // The card sentences, plus the resume band's headline and meta when a session is there to resume.
+    const measured = page.locator([
+      '[data-testid="practice-card-freeform-sentence"]',
+      '[data-testid="practice-card-objective-sentence"]',
+      '[data-testid="home-resume-headline"]',
+      '[data-testid="home-resume-meta"]',
+    ].join(', '));
+    // At least the two card sentences always render; the band's two lines render for a returning user.
+    const count = await measured.count();
+    expect(count, 'both card sentences must render at 320px').toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < count; i += 1) {
+      const clipped = await measured.nth(i).evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+      const text = await measured.nth(i).innerText();
+      expect(clipped, `"${text}" is clipped at ${NARROW.width}px`).toBe(false);
     }
 
     const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);

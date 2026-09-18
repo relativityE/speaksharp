@@ -94,14 +94,19 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
-    it('returning user: Last session → /analytics/<id>, Analytics → /analytics', () => {
+    it('returning user: the resume band → /analytics/<id>, Analytics → /analytics', () => {
       mockHistory.mockReturnValue({
         data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }],
         isLoading: false,
       } as unknown as HistoryReturn);
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('home-last-session'));
+      // H-4: for a returning user the resume band OWNS this destination, and the legacy corner chip is
+      // hidden so two controls never point at the same review. The routing contract is unchanged.
+      expect(screen.queryByTestId('home-last-session')).toBeNull();
+      fireEvent.click(screen.getByTestId('home-resume-cta'));
       expect(navigateSpy).toHaveBeenCalledWith('/analytics/sess-9');
+      fireEvent.click(screen.getByTestId('home-resume-progress'));
+      expect(navigateSpy).toHaveBeenCalledWith('/analytics');
       fireEvent.click(screen.getByTestId('home-analytics'));
       expect(navigateSpy).toHaveBeenCalledWith('/analytics');
     });
@@ -113,7 +118,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       // it is not the em-dash placeholder, which would be a claim we had looked and found nothing
       // displayable, and not the failure state.
       expect(screen.getByTestId('home-last-session-secondary')).toHaveTextContent('No sessions yet');
-      expect(screen.getByTestId('home-first-run')).toHaveTextContent(/start your first practice/i);
+      expect(screen.getByTestId('home-first-run')).toHaveTextContent(/your audio never leaves this browser/i);
       expect(screen.queryByTestId('home-history-error')).not.toBeInTheDocument();
       expect(screen.getByTestId('home-last-session')).toBeDisabled();
       fireEvent.click(screen.getByTestId('home-last-session'));
