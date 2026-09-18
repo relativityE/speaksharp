@@ -140,9 +140,9 @@ export function ObjectiveSetupForm({
             result = { ok: false, reason: 'error' };
         }
         if (result.ok && result.briefId && result.projectId) {
-            // #1259 F03 — THE CONTROL SAYS "Start speaking" AND NAVIGATES. `MicCard` uses almost the
-            // same words for the control that actually starts recording, so a user reading this as a
-            // promise arrives at a page that waits for a second click. `cta_id` is a checked-in
+            // #1259 F03 — THIS CONTROL NAVIGATES; IT DOES NOT RECORD. It once read "Start speaking", which
+            // collided with `MicCard`'s control that actually starts recording, so a user arrived at a page
+            // waiting for a second click. It now reads "Head to session" (FOCUS_POINTS_SPEC §0). `cta_id` is a checked-in
             // identifier rather than the visible label: copy will change, and the identity of the
             // control is what has to stay comparable across that change.
             emitJourneyStep({
