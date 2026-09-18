@@ -65,4 +65,3 @@ export function bucketForIndex(sourceIndex: number, sourceLength: number, count:
     while (b > 0 && start(b) > sourceIndex) b -= 1;
     return b;
 }
-

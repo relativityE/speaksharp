@@ -96,4 +96,3 @@ describe('RunShape — the mic returns and the run is a picture (S-11)', () => {
         expect(onStart).not.toHaveBeenCalled();
     });
 });
-

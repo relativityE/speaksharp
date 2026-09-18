@@ -88,4 +88,3 @@ describe('bucketForIndex — a marker lands on the line whose peak contains it',
         }
     });
 });
-
