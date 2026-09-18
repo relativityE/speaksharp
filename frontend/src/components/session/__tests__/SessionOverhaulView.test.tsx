@@ -612,7 +612,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.queryByTestId('this-run-card-words')).toBeNull();
         expect(screen.queryByTestId('this-run-card-pace')).toBeNull();
-        expect(screen.getByTestId('session-slot-b').textContent + (document.body.textContent ?? '')).not.toMatch(/\b0 words\b/);
+        // No surface — card, header meta, stats strip or filler breakdown — prints a count derived from nothing.
+        expect(document.body.textContent ?? '').not.toMatch(/\b0 words\b/);
     });
 
     it('CONTROL: once the finalized snapshot lands, the real word count shows', () => {

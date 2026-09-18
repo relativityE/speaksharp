@@ -419,9 +419,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const reviewFillerSnapshot = selectReviewFillerSnapshot({ inAfter, finalizedFillerData, liveFillerData: fillerData });
     const reviewFillerData = reviewFillerSnapshot.counts;
     const reviewFillerCount = reviewFillerSnapshot.available ? reviewFillerSnapshot.total : null;
-    const fillerStatsLine = reviewFillerCount === null
-        ? `${reviewWordCount} words`
-        : `${reviewFillerCount} fillers · ${reviewWordCount} words`;
+    // Every word-count surface reads the withheld value: an unknown count is omitted, never printed as 0.
+    const wordsPart = shownReviewWords === null ? null : `${shownReviewWords} words`;
+    const fillerStatsLine = [reviewFillerCount === null ? null : `${reviewFillerCount} fillers`, wordsPart]
+        .filter((part): part is string => part !== null)
+        .join(' · ');
 
     const offer = usePromptOfferDismissed(authUserId);
 
@@ -902,9 +904,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
                         ? (coverage && coverage.coveredQuotes.length > 0
-                            ? `${reviewWordCount} words · highlights mark where each point landed`
-                            : `${reviewWordCount} words`)
-                        : (shownReviewWords === null ? '' : `${shownReviewWords} words`),
+                            ? [wordsPart, 'highlights mark where each point landed'].filter(Boolean).join(' · ')
+                            : (wordsPart ?? ''))
+                        : (wordsPart ?? ''),
                     stats: fillerStatsLine,
                     coverageMode: isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
                 }}
