@@ -1,6 +1,6 @@
 import React from 'react';
 import { SessionShell } from './SessionShell';
-import { PlaybackScrubber, type PlaybackScrubberProps } from './PlaybackScrubber';
+import { RunShape, type RunShapeProps } from './RunShape';
 import { TranscriptCard } from './TranscriptCard';
 import { LiveTranscript, type TranscriptToken } from './LiveTranscript';
 import { CoachingCard } from './CoachingCard';
@@ -15,14 +15,20 @@ import { CoachingCard } from './CoachingCard';
  * line occupied. Nothing swaps columns — the previous shell had to, because it had no full-width slot.
  */
 export interface SessionAfterStateProps {
-    scrubber: PlaybackScrubberProps;
+    /**
+     * Slot A: the run as a static shape with the mic returned. S-11 — there is no transport in any state,
+     * so this is `RunShape`, not the retired `PlaybackScrubber`.
+     */
+    runShape: RunShapeProps;
     transcript: {
         tokens: TranscriptToken[];
-        /** e.g. `318 words · 2.4 fillers/min · tap a highlight to hear it`. */
+        /**
+         * e.g. `318 words · 2.4 fillers/min`. **Never a playback instruction** — `RECORDER_SPEC` §4 bans
+         * "tap a highlight to hear it" and every variant, because there is no audio to hear.
+         */
         headerMeta: string;
         /** thin stats strip, e.g. `5 fillers · 142 wpm · 2:04 spoken`. */
         stats: string;
-        onFillerSeek?: (token: TranscriptToken, index: number) => void;
         /** #1046 Focus Points — highlight `covered` tokens as coverage (green) instead of fillers. */
         coverageMode?: 'during' | 'after';
     };
@@ -44,14 +50,16 @@ export interface SessionAfterStateProps {
     fillerFooter?: React.ReactNode;
 }
 
-export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, review, rail, slotBNotice, finalizing, finalizeEstimateSeconds, fillerFooter }) => {
+export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ runShape, transcript, review, rail, slotBNotice, finalizing, finalizeEstimateSeconds, fillerFooter }) => {
     return (
         <SessionShell
             sessionState="after"
-            slotA={<PlaybackScrubber {...scrubber} />}
+            slotA={<RunShape {...runShape} />}
             slotB={<CoachingCard sessionState="after" verdict={review} />}
             slotC={
                 <TranscriptCard
+                    // S-13: reference, not the subject — capped with internal scroll, lifted in place.
+                    capped
                     offerDismissed
                     onDismissOffer={() => {}}
                     onRestoreOffer={() => {}}
@@ -72,7 +80,7 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                 >
                     {slotBNotice}
                     {!slotBNotice && (
-                        <LiveTranscript testId="review-transcript" tokens={transcript.tokens} onFillerSeek={transcript.onFillerSeek} coverageMode={transcript.coverageMode} />
+                        <LiveTranscript testId="review-transcript" tokens={transcript.tokens} coverageMode={transcript.coverageMode} />
                     )}
                 </TranscriptCard>
             }

@@ -176,21 +176,30 @@ test.describe('G1 — the session slot map holds in a real browser', () => {
       await assertSlotMap(page, w, 'after');
     }
 
-    // #1255 RETURN — the waveform must not be CLIPPED at 320px (the earlier overflow:hidden fix hid the
-    // rightmost bars, which can carry a late filler marker). At the narrowest phone, assert the whole
-    // recording is represented: the FIRST and LAST bars sit inside the visible track (no clipping).
+    // #1255 RETURN — the waveform must not be CLIPPED at 320px (a late filler marker sits at the right edge).
+    // S-9/S-11: `after` shows the run as a static shape (`run-shape`, no transport), built from 2px hairlines
+    // whose count is derived from the track width — so at the narrowest phone the FIRST and LAST lines must
+    // both sit inside the visible track, and the lines must be hairlines rather than grown blocks.
     await settleViewport(page, 320);
-    const track = await page.getByTestId('scrubber-waveform').boundingBox();
-    const bars = page.getByTestId('scrubber-waveform-bar');
-    const count = await bars.count();
-    expect(track, 'scrubber waveform present').toBeTruthy();
-    expect(count, 'waveform renders bars').toBeGreaterThan(0);
-    const first = await bars.first().boundingBox();
-    const last = await bars.nth(count - 1).boundingBox();
-    // Left edge of the first bar is not clipped off the left of the track…
-    expect(first!.x, 'first bar within track (left)').toBeGreaterThanOrEqual(track!.x - 1);
-    // …and the right edge of the last bar (a late filler position) is inside the track's right edge.
-    expect(last!.x + last!.width, 'last bar within track (right)').toBeLessThanOrEqual(track!.x + track!.width + 1);
+    const waveform = page.getByTestId('run-shape-waveform');
+    const lines = page.getByTestId('run-shape-waveform-line');
+    // The run must keep real room on the narrowest phone — the legend wraps rather than squeezing it.
+    await expect.poll(async () => (await waveform.boundingBox())?.width ?? 0, { message: 'track keeps its floor width' })
+      .toBeGreaterThanOrEqual(96);
+    // Density is derived from the track, never a hardcoded count: floor(trackWidth / 4). The spec re-measures on
+    // a ~100ms debounced ResizeObserver, so poll until the count has followed the resize.
+    await expect.poll(async () => {
+      const box = await waveform.boundingBox();
+      const n = await lines.count();
+      return n > 0 && box !== null && n <= Math.floor(box.width / 4);
+    }, { message: 'line count follows the track width' }).toBe(true);
+    const track = await waveform.boundingBox();
+    const count = await lines.count();
+    const first = await lines.first().boundingBox();
+    const last = await lines.nth(count - 1).boundingBox();
+    expect(first!.width, 'lines are 2px hairlines, not grown blocks').toBeLessThanOrEqual(2.5);
+    expect(first!.x, 'first line within track (left)').toBeGreaterThanOrEqual(track!.x - 1);
+    expect(last!.x + last!.width, 'last line within track (right)').toBeLessThanOrEqual(track!.x + track!.width + 1);
   });
 
   // F-1 / F-2 — Focus Points on the SAME map: its coaching band exists in slot B, and its rail states the

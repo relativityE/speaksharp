@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert } from '@/components/ui/alert';
-import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
+import { OnDeviceCountsContext } from './onDeviceCounts';
+import { Sparkles } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../../lib/logger';
 import { emitPracticeLoop } from '@/services/telemetry/practiceLoopTelemetry';
@@ -31,6 +29,14 @@ interface AISuggestionsProps {
   initialSuggestions?: AISuggestionsData;
   /** #1473 — delay before the single automatic retry of a recoverable failure. Product uses the default. */
   retryBackoffMs?: number;
+  /**
+   * S-14 — the counts computed ON DEVICE from the transcript. They never depended on the network, which is
+   * the whole point: while the review is still coming, they fill the space the verdict will occupy, so the
+   * slot is never empty. Omit a value that is not measured; a count is never stubbed, zeroed or em-dashed.
+   */
+  onDeviceCounts?: { fillers: number | null; wordsPerMinute: number | null };
+  /** S-12 — `Session 6 · Open Mic`, shown opposite the eyebrow when the review is not still coming. */
+  sessionLabel?: string | null;
 }
 
 interface SafeSuggestionError {
@@ -182,6 +188,7 @@ const getSafeAiSuggestionError = (
 
 const AISuggestions: React.FC<AISuggestionsProps> = ({
   transcript = '', canReview, sessionId, initialSuggestions, retryBackoffMs = AI_REVIEW_AUTO_RETRY_BACKOFF_MS,
+  onDeviceCounts, sessionLabel,
 }) => {
   const activeSessionRef = useRef(sessionId);
   const requestGenerationRef = useRef(0);
@@ -464,112 +471,184 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   // #1473 — a scheduled automatic retry is still in motion, so it reads as `loading` to the journey lane.
   const reviewState = (isLoading || retrying) ? 'loading' : (error ? 'error' : (suggestions ? 'ready' : 'empty'));
 
+  /**
+   * S-12 / S-14 — slot B's content, on the ink ground the shell owns. It carries no card chrome of its
+   * own: a white card inside an ink band is the "everything blends" failure the palette change fixed.
+   *
+   * **The slot is built to grow (S-12b).** The verdict — one 24–26px observation with its consequence —
+   * belongs ABOVE the coaching pair, and it does not exist yet: the persisted contract carries
+   * `what_worked` and `what_to_try_next` and no verdict, no quotes and no offsets. So the verdict slot is
+   * deliberately empty today and the pair is NOT the card's headline element. When the coaching contract
+   * gains a verdict plus quote offsets, S-12 is a content addition here, not a re-layout.
+   *
+   * **The guard is verdict ⇒ quotes, not quotes ⇒ card** (Designer correction, 17 Sep). A synthesised
+   * claim about someone's speech needs their words attached, so a verdict may never render without its
+   * evidence. The shipped pair is a different kind of statement — qualitative, per-session, asserting no
+   * pattern — so it needs no quote-level proof, and gating it behind quotes would delete working coaching
+   * to satisfy a rule about something it is not. With no verdict, the guard is vacuously satisfied.
+   *
+   * **There is no dead end and no spinner where the verdict goes (S-14).** The old card showed
+   * `Review unavailable` over an empty box with a Retry button, which made a recoverable network blip
+   * look like a lost session. The review is a network call; the counts are not — they are computed on
+   * device from the transcript — so while the review is still coming, the counts fill the space and the
+   * chip is the only progress indicator. `Practice this again` lives directly beneath this card and stays
+   * primary and enabled throughout: the loop runs without the review.
+   */
+  /**
+   * TWO failure shapes, because only one of them is still coming (#1422 / #1473).
+   *
+   * `inFlight` — a request is running, or a RECOVERABLE failure is showing with its one automatic retry
+   * scheduled. "Coaching is still coming" is true here, and the chip is the only progress indicator.
+   *
+   * `terminal` — the lifecycle has ENDED (service configuration, access, quota, not found, no transcript,
+   * an invalid response, or exhaustion). Another attempt cannot change it, so claiming coaching is on its
+   * way would be a false promise, and a RETRYING chip would be a lie. The server-classified copy carries
+   * what actually happened, in product language — the raw provider prose never reaches the user — and the
+   * on-device counts still fill the space, so this is not the dead end S-14 deletes either.
+   */
+  const inFlight = isLoading || retrying;
+  const terminal = Boolean(error) && !retrying && !isLoading;
+  const stillComing = inFlight || terminal;
+  const publishedCounts = React.useContext(OnDeviceCountsContext);
+  const counts = onDeviceCounts ?? publishedCounts;
+  const hasCounts = counts != null
+    && (typeof counts.fillers === 'number' || typeof counts.wordsPerMinute === 'number');
+
   return (
-    <Card ref={reviewCardRef} data-testid="ai-suggestions-card" data-review-state={reviewState}>
-      <CardHeader className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-signature-text" />
+    <div
+      ref={reviewCardRef}
+      data-testid="ai-suggestions-card"
+      data-review-state={reviewState}
+      /*
+       * STRUCTURAL observables for the lifecycle rules, so the suite never has to assert on a log line or a
+       * button label. `data-retry-scheduled` is the single automatic retry of a recoverable failure waiting
+       * out its backoff; `data-lifecycle` distinguishes a pending lifecycle from one that has ENDED, which
+       * is the branch that decides whether the RETRYING chip may appear at all.
+       */
+      data-retry-scheduled={retrying ? 'true' : 'false'}
+      data-lifecycle={inFlight ? 'pending' : terminal ? 'terminal' : suggestions ? 'complete' : 'idle'}
+      className="min-w-0"
+    >
+      <div className="mb-4 flex items-center justify-between gap-3.5">
+        <p className="inline-flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-[0.09em] text-signature">
+          <Sparkles className="h-[15px] w-[15px]" aria-hidden="true" />
           Practice Loop review
-        </CardTitle>
-        {/*
-          #1416 P2-4 — the control is a RETRY, not a request. The first review arrives on its own, so
-          "Get my review" would offer the user something they have already been given.
-
-          #1422 — AND IT IS GONE ONCE THERE IS A REVIEW TO READ.
-
-          It used to read "Refresh review" after a success, which promised something the product cannot
-          do. The coaching is generated once and persisted; pressing it re-reads the stored review and
-          renders the identical two phrases. The user is invited to improve what they are looking at,
-          waits, and receives the same words back — which reads as the feature being broken rather than
-          as it working exactly as designed. A control that cannot change its own outcome should not be
-          offered.
-
-          It stays for the two states where pressing it CAN change something: after a failure, and
-          before any review exists. Nothing about the locked Gemini contract moves — the daily
-          generation budget, the two-phrase shape, and cached coaching remaining readable after
-          exhaustion are all untouched. This removes an action, not a capability.
-        */}
-        {(error || !suggestions) && (
-          <Button
-            onClick={() => { void fetchSuggestions(); }}
-            disabled={isLoading || retrying || !reviewReady}
-            size="sm"
-            className="w-full sm:w-auto"
+        </p>
+        {inFlight ? (
+          /* The chip replaces the session meta — the one progress indicator the user needs. Retry is
+             silent and backed off; no error code, no spinner, no disabled primary action. It appears ONLY
+             while something really is in flight or scheduled. */
+          <span
+            className="inline-flex shrink-0 items-center gap-[7px] text-[12px] font-extrabold text-signature"
+            data-testid="ai-suggestions-retrying"
           >
-            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isLoading ? 'Creating review...' : 'Retry review'}
-          </Button>
+            <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-signature" />
+            RETRYING
+          </span>
+        ) : (
+          sessionLabel && (
+            <span className="shrink-0 text-[12px] font-bold text-ink-muted" data-testid="ai-suggestions-session-label">
+              {sessionLabel}
+            </span>
+          )
         )}
-      </CardHeader>
-      <CardContent>
-        {isLoading && (
-          <div className="flex justify-center items-center py-4">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            <p className="ml-2 font-medium text-foreground/70">Creating your session review...</p>
-          </div>
-        )}
+      </div>
 
-        {error && (
-          <Alert variant="error" size="md">
-            <AlertTriangle className="h-5 w-5" />
-            <div>
-              <h5 className="font-bold">Review unavailable</h5>
-              <p className="text-sm">{error}</p>
-              {retrying && (
-                <p className="mt-1 text-sm" data-testid="ai-suggestions-auto-retry">Trying once more in a moment.</p>
+      {/* ── verdict slot (S-12, awaiting the contract that carries a verdict + quote offsets) ── */}
+
+      {stillComing && (
+        <div data-testid="ai-suggestions-still-coming">
+          <h4
+            className="max-w-[560px] text-[24px] font-extrabold leading-[1.3] tracking-[-0.03em] text-ink-text"
+            data-testid="ai-suggestions-headline"
+          >
+            {inFlight
+              ? 'Coaching is still coming. Here\u2019s what we counted on your device in the meantime.'
+              : error}
+          </h4>
+          <p className="mt-2 max-w-[520px] text-[14px] font-semibold leading-relaxed text-ink-muted">
+            {inFlight
+              ? 'Nothing is lost \u2014 your session is saved and the review will appear here when it lands.'
+              : 'Your session is saved, and these counts came from your device \u2014 they never needed the review.'}
+          </p>
+          {/* Two counts, and only counts that exist. A third appears here ONLY when a third metric is
+              genuinely measured on device — never stubbed, zeroed or em-dashed. */}
+          {hasCounts && (
+            <div className="mt-5 flex flex-wrap gap-6 rounded-xl bg-ink-raised px-5 py-[18px]" data-testid="on-device-counts">
+              {typeof counts!.fillers === 'number' && (
+                <div>
+                  <p className="text-[30px] font-extrabold leading-none tracking-[-0.03em] text-signature [font-variant-numeric:tabular-nums]" data-testid="on-device-fillers">
+                    {counts!.fillers}
+                  </p>
+                  <p className="mt-[5px] text-[13px] font-bold text-ink-muted">fillers</p>
+                </div>
+              )}
+              {typeof counts!.wordsPerMinute === 'number' && (
+                <div>
+                  <p className="text-[30px] font-extrabold leading-none tracking-[-0.03em] text-ink-text [font-variant-numeric:tabular-nums]" data-testid="on-device-pace">
+                    {Math.round(counts!.wordsPerMinute)}
+                  </p>
+                  <p className="mt-[5px] text-[13px] font-bold text-ink-muted">words / min</p>
+                </div>
               )}
             </div>
-          </Alert>
-        )}
+          )}
+          {(error || retrying) && (
+            <button
+              type="button"
+              onClick={() => { void fetchSuggestions(); }}
+              disabled={isLoading || retrying || !reviewReady}
+              className="mt-4 text-[14px] font-bold text-ink-muted underline-offset-2 hover:underline disabled:no-underline disabled:opacity-60"
+              data-testid="ai-suggestions-retry"
+            >
+              Retry review now
+            </button>
+          )}
+        </div>
+      )}
 
-        {!suggestions && !isLoading && !error && reviewReady && (
-          <div className="py-4 text-center font-medium text-foreground/70">
-            <p>Request one session-specific strength and one improvement for your next take.</p>
+      {!stillComing && suggestions && (
+        <div className="flex flex-col gap-3" data-testid="ai-suggestions-pair">
+          <div className="rounded-xl bg-ink-raised px-[15px] py-3">
+            {/* Headings, not styled paragraphs: the pair is two labelled sections, and the live Practice
+                Loop journey locates each by its heading role before reading the sentence beneath it. */}
+            <h4 className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-ink-muted">What went well</h4>
+            <p className="mt-1.5 text-[15px] font-semibold leading-snug text-ink-text">{suggestions.what_worked}</p>
           </div>
-        )}
-
-        {!suggestions && !isLoading && !error && !reviewReady && (
-          <div className="py-4 text-center font-medium text-foreground/70" data-testid="practice-loop-review-not-ready">
-            <p>{sessionId
-              ? 'A review needs a completed session with a saved transcript.'
-              : 'Your review will be available after this session finishes saving.'}</p>
+          {/* The fix, in the signature block S-12 reserves for it — the one imperative sentence. */}
+          <div className="rounded-xl bg-signature px-5 py-[18px]">
+            <h4 className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-signature-text">Try this next run</h4>
+            <p className="mt-1.5 text-[16px] font-extrabold leading-[1.48] text-ink">{suggestions.what_to_try_next}</p>
           </div>
-        )}
+        </div>
+      )}
 
-        {suggestions && (
-          <div className="space-y-4">
-            <div className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
-              <h4 className="font-semibold">What went well</h4>
-              <p className="text-sm font-medium text-foreground/70">{suggestions.what_worked}</p>
-            </div>
-            <div className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
-              <h4 className="font-semibold">What to improve</h4>
-              <p className="text-sm font-medium text-foreground/70">{suggestions.what_to_try_next}</p>
-            </div>
-          </div>
-        )}
-
-        {/*
-          Persistent provider disclosure: it must stay visible before AND after generation (including
-          when suggestions are prefilled), so the user can always see where this session's transcript
-          goes.
-
-          #1416 P2-4 — THIS MATTERS MORE NOW THAT THE SEND IS AUTOMATIC. When the request required a
-          press, copy sitting beside the button was read at the moment of the decision. With the
-          first request firing on its own, a user must not learn their transcript went to Google from
-          text attached to a button they never touched. So it is rendered in the card BODY, in the
-          same region as the review and the loading state — present wherever the send is happening,
-          not only where a press used to be. It is a statement, not a gate: the ruling is that no
-          click is required, and adding friction here would reintroduce the thing that was removed.
-        */}
-        <p
-          className="mt-4 text-xs font-medium text-foreground/70"
-          data-testid="ai-suggestions-disclosure"
-        >
-          Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.
+      {!stillComing && !suggestions && !reviewReady && (
+        <p className="text-[15px] font-semibold text-ink-muted" data-testid="practice-loop-review-not-ready">
+          {sessionId
+            ? 'A review needs a completed session with a saved transcript.'
+            : 'Your review will be available after this session finishes saving.'}
         </p>
-      </CardContent>
-    </Card>
+      )}
+
+      {!stillComing && !suggestions && reviewReady && (
+        <p className="text-[15px] font-semibold text-ink-muted" data-testid="ai-suggestions-idle">
+          Your review is on its way.
+        </p>
+      )}
+
+      {/*
+        Persistent provider disclosure: visible before AND after generation (including when suggestions
+        are prefilled), so the user can always see where this session's transcript goes.
+
+        #1416 P2-4 — THIS MATTERS MORE NOW THAT THE SEND IS AUTOMATIC. A user must not learn their
+        transcript went to Google from text attached to a button they never touched, so it sits in the card
+        body, in the same region as the review and its progress state. It is a statement, not a gate.
+      */}
+      <p className="mt-4 text-[12px] font-medium text-ink-muted" data-testid="ai-suggestions-disclosure">
+        Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.
+      </p>
+    </div>
   );
 };
 

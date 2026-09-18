@@ -134,7 +134,9 @@ describe('F-07 completed-session Practice Loop review', () => {
             body: { sessionId: 'session-complete-1' },
         }));
         expect(await screen.findAllByText('What went well')).toHaveLength(1);
-        expect(screen.getAllByText('What to improve')).toHaveLength(1);
+        // The fix sits in the signature `TRY THIS NEXT RUN` block (S-12b). Still exactly one of each: the
+        // 1+1 contract is unchanged, only the fix's label moved to the slot a future verdict will sit above.
+        expect(screen.getAllByText('Try this next run')).toHaveLength(1);
         expect(screen.getByText('Your opening stated the decision clearly.')).toBeInTheDocument();
         expect(screen.queryByText(/Session saved — nice work/i)).not.toBeInTheDocument();
     });

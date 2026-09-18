@@ -513,7 +513,9 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                 return counted;
             };
             const whatWentWell = await visibleNonEmptyPhrase('What went well');
-            const whatToImprove = await visibleNonEmptyPhrase('What to improve');
+            // S-12b: the fix sits in the signature `TRY THIS NEXT RUN` block — the same one-imperative-sentence
+            // slot the review keeps when a verdict arrives. The 1+1 contract is unchanged: one strength, one fix.
+            const whatToImprove = await visibleNonEmptyPhrase('Try this next run');
 
             const savedSessionId = await page.evaluate(
                 () => document.documentElement.getAttribute('data-session-persisted-id'),

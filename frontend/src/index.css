@@ -158,6 +158,11 @@ All colors MUST be HSL.
     --brand-surface-session: #aeb9cd;
     --brand-surface-session-text: #232c3a;
     --brand-metric-clarity: #6d28d9;
+    /* A data mark that is no longer live: the chart's baseline/past-run columns and the finished run's
+       waveform. Same VALUE as neutral-border-strong, deliberately a different NAME — a border token
+       retuned app-wide must not move a data mark, and the palette only stays coherent if the name
+       carries the reason (Designer, 17 Sep). */
+    --brand-metric-inactive: #c8d2e0;
     /* Focus Points identity — app routes only (Designer ruling, #1480 comment 5685776478). Never on the landing
        route (purple is prices-only there) and never a second action colour: signature still owns the actions, and
        at most one purple element per card. Replaces the retired #7b5ce0 (3.9:1) and #6a4fd0. */

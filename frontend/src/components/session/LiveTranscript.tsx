@@ -6,8 +6,8 @@ import React from 'react';
  *
  * during (§4): fillers highlight the INSTANT they land (background `signature-ground`, 2px `signature` bottom border,
  * 3px radius); a 2px orange caret marks the live insertion point.
- * after  (§5): the SAME body, now seekable — clicking a highlighted filler jumps playback to it. Pass
- * `onFillerSeek` to turn fillers into seek buttons and drop the caret.
+ * after  (§5): the SAME body, read-only — there is no playback, so fillers are highlights, never seek
+ * targets. Pass `showCaret={false}` to drop the caret.
  */
 export interface TranscriptToken {
     text: string;
@@ -18,8 +18,6 @@ export interface TranscriptToken {
      * the user sees the "still deciding" edge settle into solid body text; live re-writes read as intended.
      */
     interim?: boolean;
-    /** after: playback position of this filler, seconds — used by onFillerSeek. */
-    seekSeconds?: number;
     /**
      * #1046 Focus Points: this token is inside a covering phrase. Highlighted for COVERAGE, not disfluency
      * — purple during, green after (see `coverageMode`). Orange stays reserved for the mic and fillers, so
@@ -30,10 +28,8 @@ export interface TranscriptToken {
 
 export interface LiveTranscriptProps {
     tokens: TranscriptToken[];
-    /** Show the live insertion caret (during recording). Ignored when seekable. */
+    /** Show the live insertion caret (during recording). */
     showCaret?: boolean;
-    /** after: makes fillers clickable seek targets; receives (token, index). */
-    onFillerSeek?: (token: TranscriptToken, index: number) => void;
     /**
      * #1046 Focus Points: when set, `covered` tokens highlight as coverage (purple `during` / green
      * `after`) instead of fillers being highlighted at all.
@@ -66,9 +62,7 @@ const coverageStyle = (mode: 'during' | 'after'): React.CSSProperties => ({
     padding: '0 2px',
 });
 
-export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCaret = true, onFillerSeek, coverageMode, testId = 'live-transcript' }) => {
-    const seekable = typeof onFillerSeek === 'function';
-
+export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCaret = true, coverageMode, testId = 'live-transcript' }) => {
     return (
         <div
             data-testid={testId}
@@ -79,19 +73,7 @@ export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCare
                     {coverageMode && t.covered ? (
                         <mark data-testid="coverage-span" style={coverageStyle(coverageMode)}>{t.text}</mark>
                     ) : t.filler ? (
-                        seekable ? (
-                            <button
-                                type="button"
-                                data-testid="live-filler"
-                                onClick={() => onFillerSeek?.(t, i)}
-                                aria-label={`Play from "${t.text}"`}
-                                style={{ ...fillerStyle, cursor: 'pointer', border: 0, borderBottom: '2px solid var(--brand-signature)', font: 'inherit' }}
-                            >
-                                {t.text}
-                            </button>
-                        ) : (
-                            <mark data-testid="live-filler" style={fillerStyle}>{t.text}</mark>
-                        )
+                        <mark data-testid="live-filler" style={fillerStyle}>{t.text}</mark>
                     ) : (
                         // #1231 R1: the live-updating tail renders muted (settling) → solid once locked in.
                         <span
@@ -103,7 +85,7 @@ export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCare
                     )}{' '}
                 </React.Fragment>
             ))}
-            {showCaret && !seekable && (
+            {showCaret && (
                 <span
                     aria-hidden="true"
                     data-testid="live-caret"

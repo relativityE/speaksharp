@@ -134,7 +134,8 @@ export default {
                     pace: "var(--brand-ink-hairline)",
                     "pace-on-ink": "var(--brand-ink-muted)",
                     clarity: "var(--brand-metric-clarity)",
-                    baseline: "var(--brand-neutral-border-strong)",
+                    baseline: "var(--brand-metric-inactive)",
+                    inactive: "var(--brand-metric-inactive)",
                 },
                 chart: {
                     grid: "var(--brand-neutral-border-soft)",
