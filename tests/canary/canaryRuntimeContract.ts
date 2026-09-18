@@ -325,21 +325,24 @@ function isEncodedAudioQueryValue(value: string): boolean {
 }
 
 /**
- * Inspect query VALUE SHAPES before URL redaction, but retain only the boolean verdict. This closes the
+ * Inspect query NAME AND VALUE SHAPES before URL redaction, but retain only the boolean verdict. This closes the
  * bodyless approved-origin channel without copying a path, parameter name, or value into CI evidence.
  */
 export function canaryQueryContainsEncodedAudio(rawUrl: unknown, appUrl: string): boolean {
     if (typeof rawUrl !== 'string' || rawUrl.length === 0) return false;
     try {
         const parsed = new URL(rawUrl, appUrl);
-        let combined = '';
+        let combinedNames = '';
+        let combinedValues = '';
         for (const [key, value] of parsed.searchParams.entries()) {
             if (AUDIO_QUERY_KEY.test(key) && value.trim().length > 0) return true;
+            if (isEncodedAudioQueryValue(key)) return true;
             if (isEncodedAudioQueryValue(value)) return true;
-            if (combined.length + value.length <= 1_000_000) combined += value;
+            if (combinedNames.length + key.length <= 1_000_000) combinedNames += key;
+            if (combinedValues.length + value.length <= 1_000_000) combinedValues += value;
         }
-        // Splitting one base64 value across repeated innocuous parameters must not evade the classifier.
-        return isEncodedAudioQueryValue(combined);
+        // Splitting one base64 payload across repeated innocuous names or values must not evade the classifier.
+        return isEncodedAudioQueryValue(combinedNames) || isEncodedAudioQueryValue(combinedValues);
     } catch {
         return false;
     }

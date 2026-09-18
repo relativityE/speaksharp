@@ -1004,6 +1004,24 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         )).toBe(false);
     });
 
+    it('CASUALTY: approved-origin query names are classified before redaction without retaining content', () => {
+        const pcm = 'A'.repeat(512);
+        const half = 'B'.repeat(128);
+        const appUrl = 'https://speaksharp-public.vercel.app/session';
+        expect(canaryQueryContainsEncodedAudio(
+            `https://eu.posthog.com/e/?${pcm}=`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryQueryContainsEncodedAudio(
+            `https://abcproject.supabase.co/functions/v1/proxy?${half}=&${half}=`,
+            appUrl,
+        )).toBe(true);
+        expect(canaryQueryContainsEncodedAudio(
+            'https://abcproject.supabase.co/rest/v1/sessions?select=id&limit=20',
+            appUrl,
+        )).toBe(false);
+    });
+
     it('CASUALTY: approved-origin path values are classified before redaction without retaining content', () => {
         const pcm = 'A'.repeat(512);
         const envelope = JSON.stringify({ audio: pcm });
