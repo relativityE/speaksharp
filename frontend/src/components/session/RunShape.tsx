@@ -35,7 +35,7 @@ export const RunShape: React.FC<RunShapeProps> = ({
     durationSeconds, amplitudes, fillerBars, onStart, showFillerLegend = true,
 }) => (
     <div
-        className="flex items-center gap-5 rounded-[14px] border border-neutral-border bg-white px-[22px] py-3.5"
+        className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-[14px] border border-neutral-border bg-white px-[22px] py-3.5"
         data-testid="run-shape"
     >
         <button
@@ -65,13 +65,16 @@ export const RunShape: React.FC<RunShapeProps> = ({
             {formatTimer(durationSeconds)}
         </span>
 
-        <Waveform
-            amplitudes={amplitudes}
-            fillerBars={fillerBars}
-            height={34}
-            className="flex-1"
-            data-testid="run-shape-waveform"
-        />
+        {/* The track keeps a floor width, so on a phone the row wraps and the legend drops to its own
+            line — rather than the fixed-width neighbours squeezing the run itself down to nothing. */}
+        <div className="min-w-[96px] flex-1" data-testid="run-shape-track">
+            <Waveform
+                amplitudes={amplitudes}
+                fillerBars={fillerBars}
+                height={34}
+                data-testid="run-shape-waveform"
+            />
+        </div>
 
         {showFillerLegend && (
             <span

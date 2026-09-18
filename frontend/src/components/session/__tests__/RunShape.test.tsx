@@ -75,4 +75,14 @@ describe('RunShape — the mic returns and the run is a picture (S-11)', () => {
         render1({ fillerBars: [], showFillerLegend: false });
         expect(screen.queryByTestId('run-shape-legend')).toBeNull();
     });
+
+    it('CASUALTY: on a phone the row wraps and the track keeps a floor width, so the run is never squeezed to nothing', () => {
+        // Found in a real browser at 320px: mic + duration + a nowrap legend took the whole row and the
+        // flex-1 track collapsed to ~0px. jsdom has no layout, so the structural guarantees are asserted.
+        render1();
+        expect(screen.getByTestId('run-shape').className).toContain('flex-wrap');
+        const track = screen.getByTestId('run-shape-track');
+        expect(track.className).toContain('min-w-[96px]');
+        expect(track).toContainElement(screen.getByTestId('run-shape-waveform'));
+    });
 });
