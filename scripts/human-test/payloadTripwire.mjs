@@ -218,12 +218,27 @@ export const PAYLOAD_TRIPWIRE = `(() => {
 
   const isAudioField = (key) => /^(audio|audioData|audio_data|audioBytes|audio_bytes|pcm|pcmData|pcm_data|samples|audioSamples|audio_samples)$/i.test(key);
 
+  const isEncodedAudioChunkArray = (value) => {
+    if (!Array.isArray(value) || value.length < 2) return false;
+    let encodedChars = 0;
+    for (const chunk of value) {
+      if (typeof chunk !== 'string') return false;
+      const trimmed = chunk.trim();
+      if (!trimmed || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(trimmed)) return false;
+      encodedChars += trimmed.length;
+    }
+    // Judge the logical audio field as one payload. Per-chunk thresholds let a caller split an
+    // otherwise recognizable base64 body into arbitrarily small pieces and receive a clean verdict.
+    return encodedChars >= 256;
+  };
+
   const inspectEncodedAudio = (value, depth, budget, audioContext) => {
     // A bounded inspection may conclude AUDIO or CLEAN only when it actually saw enough of the
     // value to justify that verdict. Reaching either bound is OPAQUE, never a clean certificate.
     if (depth > 4 || budget.remaining <= 0) return 'opaque';
     budget.remaining -= 1;
-    if (audioContext && (isEncodedAudioText(value) || isNumericSampleArray(value))) return 'audio';
+    if (audioContext && (isEncodedAudioText(value)
+      || isNumericSampleArray(value) || isEncodedAudioChunkArray(value))) return 'audio';
     if (!value || typeof value !== 'object') return 'clean';
     let verdict = 'clean';
     if (Array.isArray(value)) {
@@ -257,7 +272,9 @@ export const PAYLOAD_TRIPWIRE = `(() => {
         || (trimmed.startsWith('[') && trimmed.endsWith(']')))) return 'clean';
     if (trimmed.length > 1_000_000) return 'opaque';
     try { return inspectEncodedAudio(JSON.parse(trimmed), 0, { remaining: 128 }, false); }
-    catch (e) { void e; return 'clean'; }
+    // Once a value has the shape of a JSON envelope, a parse failure is incomplete evidence. JSONL,
+    // concatenated values, or a truncated body can still carry audio, so ambiguity is opaque/blocking.
+    catch (e) { void e; return 'opaque'; }
   };
 
   const classify = (body) => {

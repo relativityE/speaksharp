@@ -535,6 +535,92 @@ describe('#1258 — the canary proves THIS take saved, and the old oracle cannot
         }
     });
 
+    it('CASUALTY: short base64 audio chunks are judged as one payload, not clean fragments', async () => {
+        type TripwireGlobal = typeof globalThis & {
+            __SS_TRIPWIRE__?: unknown[];
+            __SS_TRIPWIRE_EMIT__?: (record: Record<string, unknown>) => void;
+            document?: { documentElement?: { getAttribute?: (name: string) => string | null } };
+        };
+        const scope = globalThis as TripwireGlobal;
+        const originalFetch = scope.fetch;
+        const originalDocument = scope.document;
+        const records: Record<string, unknown>[] = [];
+        const chunked = { audio: Array.from({ length: 4 }, () => 'A'.repeat(128)) };
+
+        try {
+            delete scope.__SS_TRIPWIRE__;
+            scope.__SS_TRIPWIRE_EMIT__ = (record) => { records.push(record); };
+            scope.document = { documentElement: { getAttribute: () => 'RECORDING' } };
+            scope.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+
+            new Function(PAYLOAD_TRIPWIRE)();
+            await scope.fetch('https://speaksharp-public.vercel.app/api/chunks', {
+                method: 'POST', body: JSON.stringify(chunked),
+            });
+            await scope.fetch('https://abcproject.supabase.co/functions/v1/chunks', {
+                method: 'POST', body: new URLSearchParams({ payload: JSON.stringify(chunked) }),
+            });
+            const form = new FormData();
+            form.append('payload', JSON.stringify(chunked));
+            await scope.fetch('https://eu.posthog.com/e/', { method: 'POST', body: form });
+
+            expect(records.map((record) => record.kind)).toEqual([
+                'encoded_audio', 'encoded_audio', 'audio',
+            ]);
+            expect(JSON.stringify(records)).not.toContain('AAAA');
+        } finally {
+            scope.fetch = originalFetch;
+            if (originalDocument === undefined) delete scope.document;
+            else scope.document = originalDocument;
+            delete scope.__SS_TRIPWIRE__;
+            delete scope.__SS_TRIPWIRE_EMIT__;
+        }
+    });
+
+    it('CASUALTY: JSON-shaped text that cannot be fully parsed is opaque, never certified clean', async () => {
+        type TripwireGlobal = typeof globalThis & {
+            __SS_TRIPWIRE__?: unknown[];
+            __SS_TRIPWIRE_EMIT__?: (record: Record<string, unknown>) => void;
+            document?: { documentElement?: { getAttribute?: (name: string) => string | null } };
+        };
+        const scope = globalThis as TripwireGlobal;
+        const originalFetch = scope.fetch;
+        const originalDocument = scope.document;
+        const records: Record<string, unknown>[] = [];
+        const jsonLines = `${JSON.stringify({ audio: 'A'.repeat(512) })}\n${JSON.stringify({ event: 'saved' })}`;
+
+        try {
+            delete scope.__SS_TRIPWIRE__;
+            scope.__SS_TRIPWIRE_EMIT__ = (record) => { records.push(record); };
+            scope.document = { documentElement: { getAttribute: () => 'RECORDING' } };
+            scope.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+
+            new Function(PAYLOAD_TRIPWIRE)();
+            await scope.fetch('https://speaksharp-public.vercel.app/api/json-lines', {
+                method: 'POST', body: jsonLines,
+            });
+            await scope.fetch('https://abcproject.supabase.co/functions/v1/json-lines', {
+                method: 'POST', body: new URLSearchParams({ payload: jsonLines }),
+            });
+            const form = new FormData();
+            form.append('payload', jsonLines);
+            await scope.fetch('https://eu.posthog.com/e/', { method: 'POST', body: form });
+
+            expect(records.map((record) => record.kind)).toEqual(['blob', 'blob', 'blob']);
+            const findings = auditPayloads(records, {
+                appOrigin: 'https://speaksharp-public.vercel.app',
+            });
+            expect(findings.every((finding) => BLOCKING_PAYLOAD_CATEGORIES.includes(finding.category))).toBe(true);
+            expect(JSON.stringify(records)).not.toContain('AAAA');
+        } finally {
+            scope.fetch = originalFetch;
+            if (originalDocument === undefined) delete scope.document;
+            else scope.document = originalDocument;
+            delete scope.__SS_TRIPWIRE__;
+            delete scope.__SS_TRIPWIRE_EMIT__;
+        }
+    });
+
     it('CASUALTY: generic nonempty multipart Blobs stay opaque and block at every destination', async () => {
         type TripwireGlobal = typeof globalThis & {
             __SS_TRIPWIRE__?: unknown[];
