@@ -40,10 +40,17 @@ const TestConsumer = () => {
     if (!context) return <div>No Context</div>;
 
     if (context.loading) return <div>Loading...</div>;
-    if (!context.session) return <div>Unauthenticated</div>;
+    if (!context.session) return (
+        <div>
+            Unauthenticated
+            <span data-testid="signed-out-by-user">{String(Boolean(context.signedOutByUser))}</span>
+            <button onClick={() => context.setSession({ user: { id: 'user-456' } } as never)}>Sign Back In</button>
+        </div>
+    );
     return (
         <div>
             <div data-testid="user-id">{context.session.user.id}</div>
+            <span data-testid="signed-out-by-user">{String(Boolean(context.signedOutByUser))}</span>
             <button onClick={() => { void context.signOut(); }}>Sign Out</button>
         </div>
     );
@@ -157,6 +164,27 @@ describe('AuthProvider', () => {
         screen.getByText('Sign Out').click();
 
         await waitFor(() => expect(mockSupabase.auth.signOut).toHaveBeenCalled());
+    });
+
+    it('marks a user-initiated sign-out until a session exists again (protected routes send them to /)', async () => {
+        const mockSession = { user: { id: 'user-123' } };
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(screen.getByText('Sign Out')).toBeInTheDocument());
+        screen.getByText('Sign Out').click();
+        await waitFor(() => expect(screen.getByTestId('signed-out-by-user')).toHaveTextContent('true'));
+
+        screen.getByText('Sign Back In').click();
+        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-456'));
+        await waitFor(() => expect(screen.getByTestId('signed-out-by-user')).toHaveTextContent('false'));
     });
 
     it('identifies the authenticated user to analytics by user.id ONLY (no email/PII)', async () => {
