@@ -2,22 +2,22 @@
 
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-16 — reconciled to `main@28b66bc4`, which is `main` after PR #1469 (Focus Points attribution authority), PR #1483 (read-only canary identity inspection), PR #1481 (shared site theme authority and all-page migration) and PR #1489 (issue #1474, the G10 Practice Loop hierarchy) have all merged. Open PRs, the backlog, and current RWT evidence were re-read at the same time.
+**Last Reviewed:** 2026-09-18
+**Last Verified:** 2026-09-18 — reconciled to `main@61597bdc`, which is `main` after PR #1494 (Home, Design Correction Brief H-1…H-5) and PR #1498 (Session, S-8…S-14), on top of PR #1490 (#1259 received-receipt gaps), PR #1467 (Focus Points detection limit), PR #1486 (#1473 automatic Practice Loop suggestions), PR #1493 (Design Correction Brief shared slot map, S-1–S-7 / F-1–F-6), PR #1487 (#1475 G12 signed-out homepage) and PR #1492 (#1294 checkout email sourcing) merged. Open PRs, open issues, the Production migration ledger and the deployed release were re-read at the same time.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
 **Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`), or documentation structure (→ `README.md`).
 **Supersedes:** any conflicting current-status claim in `product_release/archive/`, dated evidence, work items, or older root-file text.
-**Evidence Sources:** GitHub `main`; Production `window.__APP_RELEASE__`; PR #1469, PR #1483 and PR #1481 merge receipts; issues #1258, #1263, #1304, #1390, #1399, and #1471–#1476.
+**Evidence Sources:** GitHub `main`; Production `window.__APP_RELEASE__`; read-only Migrations Preflight run `35341531149`; merge receipts for PRs #1467, #1486, #1487, #1490, #1492 and #1493; issues #1258, #1263, #1304, #1390, #1471–#1476 and #1495.
 
-> **`baseline` and `deployed-release` now CONVERGE, and that is a read, not an inference.** Both are `28b66bc422ad90b2f785ae4f03f7858196fbcbe3`. The deployed release was read directly from `window.__APP_RELEASE__` on the canonical Production app `https://speaksharp-public.vercel.app` at **2026-09-16T17:48:10Z**, by a read-only page load with no interaction and no sign-in. It equals `main`'s tip because the #1489 deploy had propagated by then — **not** because a merge was taken as evidence of a deployment. The criterion below is unchanged and still governs: the deployed release is a read, never inferred from a merge or a moving `main` pointer, so the next time `main` advances these two values diverge again until a new read is taken. The previous entry (`734d045adafcdb8cc00cf95b5b3bbc5bfa7e4dc3`, read 2026-09-15 after #1469) and its multi-merge gap rationale are superseded by this read.
+> **`baseline` and `deployed-release` CONVERGE, and that is a read, not an inference.** Both are `61597bdcd7a6bd587b3579c4deb6462ef0a98adf`. The deployed release was read directly from `window.__APP_RELEASE__` on the canonical Production app `https://speaksharp-public.vercel.app` at **2026-09-18T23:03:00Z**, by a read-only page load with no interaction and no sign-in. It equals `main`'s tip because the #1498 deploy had propagated by then — **not** because a merge was taken as evidence of a deployment. The criterion below is unchanged and still governs: the deployed release is a read, never inferred from a merge or a moving `main` pointer, so the next time `main` advances these two values diverge again until a new read is taken. The previous entries (`86f7b8e9d654523457da8b2640aa419152adceb0`, read 2026-09-18T11:57:15Z; `ef871fd1`, read 14:45:07Z after #1494) are superseded by this read.
 
 <!-- CURRENCY-BLOCK
 # Machine-readable state parsed by tests/config/documentationContract.test.ts.
-baseline: 28b66bc422ad90b2f785ae4f03f7858196fbcbe3
-deployed-release: 28b66bc422ad90b2f785ae4f03f7858196fbcbe3
-verified-on: 2026-09-16
+baseline: 61597bdcd7a6bd587b3579c4deb6462ef0a98adf
+deployed-release: 61597bdcd7a6bd587b3579c4deb6462ef0a98adf
+verified-on: 2026-09-18
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
@@ -36,9 +36,13 @@ lane-1469: merged
 lane-1483: merged
 lane-1481: merged
 lane-1474: merged
-lane-1475: open
+lane-1475: merged
+lane-1467: merged
+lane-1493: merged
+lane-design-brief: open
+lane-test-identity-roles: open
 lane-canary-rotation: open
-lane-practice-loop: open
+lane-practice-loop: merged
 lane-moonshine: returned
 -->
 
@@ -48,13 +52,13 @@ lane-moonshine: returned
 
 | Identity | Current value | Evidence boundary |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `28b66bc422ad90b2f785ae4f03f7858196fbcbe3` (after #1489 / issue #1474), read 2026-09-16 | Re-read GitHub before every exact-pair decision. |
-| **Deployed product release (last READ)** | `window.__APP_RELEASE__ = 28b66bc422ad90b2f785ae4f03f7858196fbcbe3`, read from the canonical Production app `https://speaksharp-public.vercel.app` at 2026-09-16T17:48:10Z | **A literal read, by read-only page load with no interaction or sign-in.** It currently equals the baseline because the #1489 deploy had propagated when the read was taken; that equality is the observed result, not the method. This value must be re-read before any RWT, deployment or go/no-go claim, and it goes stale the moment `main` advances — a merge is never evidence that it deployed. |
+| **Repository `main` (moving branch pointer)** | `61597bdcd7a6bd587b3579c4deb6462ef0a98adf` (after #1498), read 2026-09-18 | Re-read GitHub before every exact-pair decision. |
+| **Deployed product release (last READ)** | `window.__APP_RELEASE__ = 61597bdcd7a6bd587b3579c4deb6462ef0a98adf`, read from the canonical Production app `https://speaksharp-public.vercel.app` at 2026-09-18T23:03:00Z | **A literal read, by read-only page load with no interaction or sign-in.** It currently equals the baseline because the #1498 deploy had propagated when the read was taken; that equality is the observed result, not the method. This value must be re-read before any RWT, deployment or go/no-go claim, and it goes stale the moment `main` advances — a merge is never evidence that it deployed. |
 | **Next release-candidate line** | `v0.9.0-rc` | The version step reflects the significance of the current product/release-control update. This is the release line, not an exact tag name or tag authorization. Before tagging, inventory the existing `v0.9.0-rc*` tags, select the next unused monotonically increasing identifier, align `package.json`, and qualify that exact integrated `main` under explicit Product Owner authorization. |
-| **Next merge candidate** | **PR #1477** (issue #1318), the canonical-authority currentization | It is the prerequisite for every other lane: `main`'s recorded baseline is 26 commits behind the mainline against a threshold of 25, so the currency guard fails on `main` and on every branch cut from it, and only this PR corrects the baseline. No PM acceptance or PO merge authorization is implied. |
-| **Product lane after this one** | PR #1487 (issue #1475), head `797e2ea39fdf17d8f17c02cc55f734bdf0f5a0b5` | Restacked onto `28b66bc4…` and frozen, folding in the filler-series token migration, so its predecessor's reviews do not qualify it. It restacks and requalifies once this PR merges; until then it cannot pass the currency guard. Then PR #1488 and PR #1490 restack and requalify in turn. |
-| **Next product lane** | PR #1467 | Its token dependency is discharged: `brand-neutral-secondary` existed only on #1481's branch and is now on `main`. Restack and exact-head evidence are still required after `main` moves. |
-| **Queued gate/docs implementation** | PR #1477 | **No longer frozen: it is the prerequisite.** **Why this supersedes the earlier ordering, as a factual state change rather than a reversal.** An earlier review required this lane to stay frozen behind whichever product PR held the merge token, and that was correct while it held. PR #1489 then merged and moved `main`, which pushed `main`'s own recorded baseline `55912522eb…` from **25** commits behind the mainline to **26**, crossing the currency guard's threshold of 25. The guard now FAILS on `main` itself, and therefore on every branch cut from it — reproduced on #1487: `baseline is 26 commits behind origin/main — currentize the SSOTs`. No product PR can correct it, because the baseline lives in these two authorities and only this PR currentizes them. So the previous ordering did not become merely slower; it became unsatisfiable, and this lane is now the prerequisite for every other lane's qualification. Restacked and currentized once onto `28b66bc4`; exact-head reviews and CI follow. Its gate change stays limited to the 14 canonical `product_release/*.md` paths — PNG and test-only qualification are explicitly out of scope and tracked as a P2 on #1399. |
+| **Open merge candidates** | PR #1502 (Share feedback retheme, G8), PR #1503 (Focus Points set-up retheme, G7), PR #1504 (FAQ currentization), the #1498 P2 follow-up, PR #1488 (canary exact deployed-take evidence; merge-queue pilot) | Each needs exact-head CI including browser shards, cleared automatic review, PM acceptance and an exact PO head/base authorization. **Automatic Code Review is currently blocked by a Codex usage limit** (Security completed); no merge is authorized until it clears. |
+| **Closed unmerged (superseded)** | PR #1497 (allowlist the newest-one retention migration for exact apply) | Closed 2026-09-18 by PO direction: the read-only ledger shows `20260908120000_transcript_retention_newest_one.sql` already **applied** on 2026-09-12 (see *Database migration state* below). Its one durable finding, that the exact-apply gate excludes only later allowlist entries rather than every unselected pending migration, is recorded on the PR for extraction into its own PR. |
+| **Test identity redesign** | Issue #1495 | Rewritten as separate auth, full-product, paid and trial identity roles. The consumer inventory precedes any design; no identity, credential or Variable/Secret change is authorized by this document. |
+| **Documentation currency** | This currentization (issue #1318) | Restores the baseline to `main@61597bdc`. The currency guard reads committed files and ancestry only. |
 
 The repository currency guard verifies committed-file consistency and ancestry only; it **cannot read a moving GitHub branch or Production deployment**. Those facts must be re-read externally at every decision point.
 
@@ -64,20 +68,37 @@ The repository currency guard verifies committed-file consistency and ancestry o
 - #1463 shipped bounded same-tab progress-debt retry and Start release.
 - #1465 replaced invasive model-comparison observation with a disconnected pre-take control.
 - #1466 shipped the bounded post-save Practice Loop placement/reveal and truthful rendered telemetry. It did **not** ship the full G10 redesign or restore suggestion generation.
+- #1467 explains the Focus Points detection limit on the completed verdict.
+- #1486 restored automatic Practice Loop suggestions (issue #1473 stays open until its Production journey is verified).
+- #1490 made #1259 fail closed on received-receipt gaps.
+- #1493 shipped the Design Correction Brief shared slot map for both products (S-1–S-7, F-1–F-6).
+- #1487 shipped the G12 signed-out homepage on the shared theme authority (issue #1475 stays open until PO verification).
+- #1492 completed the #1294 email sourcing split for the checkout test identity.
+- #1494 shipped the Home redesign (Design Correction Brief H-1…H-5): resume band, peer cards, coaching gated on the persisted Progress verdict.
+- #1498 shipped the Session redesign (S-8…S-14): recorder collapse, hairline waveform, THIS RUN rail, run shape without transport, capped transcript, never-dead-end review. Three advisory P2s follow in their own PR.
 - #1468 shipped a read-only test-user verification action. Its authorized run reported that the configured Free and Pro reviewer identities were absent from Production auth; it made no account, profile, secret, entitlement, or Production data change.
 
 ## Release-blocking closure work
 
-1. **Close current PRs serially, and the order changed when #1489 merged:** #1469, #1483, #1481 and #1489 (issue #1474) are merged; #1489 landed as `28b66bc422ad90b2f785ae4f03f7858196fbcbe3`. **PR #1477 now closes first**, because the currency guard fails on `main` at 26 commits against a threshold of 25 and only this PR corrects it; every other lane inherits that failure from `main`. Then PR #1487 (issue #1475) restacks and requalifies from its frozen head `797e2ea39fdf17d8f17c02cc55f734bdf0f5a0b5`, then PR #1488 and PR #1490 restack and requalify, then restack and close #1467.
+1. **Close current PRs serially.** Merged 2026-09-16…18: #1477, #1486, #1467, #1487, #1490, #1493, #1492, #1494 and #1498. Open now: PR #1502, #1503, #1504, the #1498 P2 follow-up, #1499 (this document) and PR #1488. Each restacks and requalifies on the exact head after every `main` advance.
 2. **Progress integrity:** #1471 must treat empty `{}` as unobservable unless completeness is affirmative; #1476 must prevent cross-tab queue loss.
-3. **Practice Loop availability:** #1473 owns automatic 1+1 review generation, structured cause handling, and truthful retry. The observed Production failure reached a `42501` profile-read denial before the quota path; a quota-exhaustion explanation is refuted for those requests.
+3. **Practice Loop availability:** PR #1486 restored automatic generation; #1473 remains open for Production journey verification and owns automatic 1+1 review generation, structured cause handling, and truthful retry. The observed Production failure reached a `42501` profile-read denial before the quota path; a quota-exhaustion explanation is refuted for those requests.
 4. **Filler truth:** #1472 owns persisted `complete | unobservable | no_speech` semantics across Session, Analytics, PDF, Progress, recovery, and telemetry.
 5. **Moonshine deferral:** #1263 has local fixes for slow acquisition and failed-switch retry, but the real ~95-second probe reproduced an unsanitized repeated 25-word span in all three runs, plus abrupt-stop tail loss and an 18-word live rewrite. Moonshine is therefore **deferred until after RWT or MVP and is not a prerequisite for the current RWT**: it does not gate a stop, qualification, or release. The integrity findings stand and are the reason for the deferral; never deduplicate or sanitize model output to manufacture a pass.
 6. **Comparable v4-over-v2 validation:** the approved TARGET is **v4 as the customer primary on WebGPU-capable devices** (it has the maintained model-release pipeline) with **v2 as the pre-Start fallback, locked for the take**. **Production remains v2-only for ordinary customers today**: v4 is registered `activationReady: false`, so the **configured/default** path in a public build cannot select it. That restriction is about the default path only. A separately authorized, one-use signed Production comparison can still install the runtime v4 override — `installRuntimeCandidateSwitch()` accepts an internal build **or** a consumed `consumeModelComparisonAuthorization()`, and `effectiveCandidate()` then returns the override without the activation check, deliberately, because the comparison must run candidates before one can be approved. That path **collects evidence and does not promote v4 as the customer default**. Nothing here is a statement about what ordinary customers receive. #1304/#1390 must supply like-for-like **v2 and v4** rows on the same corpus, canonical model identity, word-count authority, filler-completeness state, WER, latency, stability, and requested/observed release identity. That evidence confirms the standing choice; it is **not** a three-model down-selection, and Moonshine rows are not required for it. During internal comparison, v4 may report an honest `unobservable` cache result while its asset pins are unshipped test material. Because v4 is the provisional primary, measurable cache-versus-network acquisition plus download duration or a directly measured no-download outcome is a **pre-MVP blocker**. The primary must report candidate/model identity, total setup time, cache result, and download/no-download evidence.
-7. **Product presentation:** #1474 owns the complete G10 during/after Practice Loop hierarchy and theme. #1475 owns the approved G12 landing page and the exact “30 days free, no card. Then $10/month. Cancel any time.” offer.
+7. **Product presentation:** #1474 owns the complete G10 during/after Practice Loop hierarchy and theme; the Design Correction Brief continues it in PR #1493, PR #1494 (Home) and PR #1498 (Session), all merged; modal retheme G7/G8 and the FAQ are open. #1475 (PR #1487 merged, pending PO verification) owns the approved G12 landing page and the exact “30 days free, no card. Then $10/month. Cancel any time.” offer.
 8. **Final evidence:** #1259 and #1382/#1383/#1384 own received-event reliability, clean baseline, SLOs, dashboard/alert, and cleanup proof. #1258 remains the final deployed two-product, real-device PO GO/HOLD.
 
 Other pre-GO owners remain active where their condition is reached: #1254 final copy scan, #1261 hosted read-only SECURITY DEFINER classification, #1313/#1315/#1385 CI truth, #1360 abandonment return, #1407 Focus Points truth, and #1452 before newest-one retention activation.
+
+## Database migration state (last READ)
+
+Read-only Migrations Preflight run `35341531149` (2026-09-18, success) read the Production ledger and dry-ran the queue without applying anything:
+
+- **Applied**, among others: `20260812041500` (the current `check_usage_limit` definition; nothing later on `main` redefines it), `20260903140000`, `20260904150000` and **`20260908120000_transcript_retention_newest_one.sql`**.
+- **Pending**: `20260910193000_ai_suggestion_authority_receipt.sql` and `20260914214307_objective_eligibility_reads_attribution_authority.sql` (#1469).
+- The three September migrations above were applied together on **2026-09-12** by the whole-queue `supabase db push` in "Deploy Supabase" run `34691493637`, not by the exact-allowlist workflow. The migration installs newest-one retention **inert** (`transcript_retention_activation.activated_at` is created NULL, and every save's convergence returns `deferred / retention_not_activated`). No repository path calls the activation RPC. Whether it was activated manually after 2026-09-12 is **unverified**: the read-only `transcript-retention-preflight` run `35348438630` stopped before connecting because its `PREFLIGHT_READONLY_DB_URL` secret is not provisioned. **Installation alone changed behaviour:** it replaced the unconditional newest-two expiry, so no transcript expiry has run on save since 2026-09-12. #1452 stays open. PM and the Product Owner must disposition both facts (evidence on #1452 and PR #1497, which was closed unmerged as superseded). This document records the reads and authorizes nothing.
+- The ledger proves which migrations ran, not the function bodies. Byte-level confirmation of a deployed definition needs a catalog read.
 
 ## RWT status
 
@@ -103,6 +124,7 @@ No Production RWT, migration, Edge/config change, credential/account repair, pay
 - Repair or recreate the missing managed reviewer identities only through the approved credential path and only under exact-action Product Owner authorization.
 - Read the Production grant matrix and sanitized Edge failure code for #1473. Do not infer a grant from browser symptoms, and do not expose credentials or row content.
 - Repair the canary trial fixture: current failures stop at test-user provisioning before any product journey executes.
+- Test identities are being redesigned under #1495 (auth, full-product, paid and trial roles). The Free test identity was recreated under exact PO authorization; any further identity creation, including a standing run-scoped capability, needs its own exact authorization.
 
 ## Criterion: what counts as a product-behavior release
 
@@ -122,7 +144,7 @@ Everything else — `tests/**`, `scripts/**`, docs — deploys without changing 
 Four distinctions the rule depends on, stated so they cannot be collapsed:
 
 1. **Deployed frontend runtime *or* Edge-function behaviour counts.** The original rule named only the frontend bundle. An Edge function is deployed product surface, so a change there is product behaviour even though no bundle file moved.
-2. **A migration changes Production product behaviour only when it is separately applied, never when its file merges.** `backend/supabase/migrations/**` is a *database* change tracked separately. Merging the file and applying it to Production are two events, and only the second alters behaviour. #1469's migration merged on `734d045a` and remains unapplied; that is the current live example.
+2. **A migration changes Production product behaviour only when it is separately applied, never when its file merges.** `backend/supabase/migrations/**` is a *database* change tracked separately. Merging the file and applying it to Production are two events, and only the second alters behaviour. #1469's migration (`20260914214307`) merged on `734d045a` and was still unapplied at the 2026-09-18 ledger read; that is the current live example.
 3. **Tests, evidence, canonical documents and non-runtime scripts never become product behaviour by PR title.** A PR titled `fix(...)` that touches only `tests/**` deploys nothing. The classification follows the files, not the subject line.
 4. **Deployment verification follows the actual affected runtime surface, never title inference.** A frontend change is verified by reading `window.__APP_RELEASE__` on the canonical Production app; an Edge change is verified against that function; a migration is verified by its applied state. Choosing the check from the PR title rather than the changed files is how an unverified deployment gets recorded as verified.
 
