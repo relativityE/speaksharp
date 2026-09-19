@@ -6,8 +6,19 @@
  * (see @/components/faq/FaqMenu) on whatever page the user is currently on, with no
  * navigation and no dedicated /faq route.
  *
- * Keep the copy verbatim — the explanations here are the canonical wording for privacy,
- * progress, and the two practice modes.
+ * Every answer is a product claim, so each one is checked against the contract it describes
+ * (2026-09-18 currentization). If a contract changes, change the answer in the same PR:
+ *   - Progress: the headline is the change in CLARITY versus the previous comparable session
+ *     (`loadSessionProgress` deltaPoints = clarityRaw − previous), the first eligible session is
+ *     the baseline, and clarity = 100 − filler rate × 1.5 − 3 per [inaudible]-style marker − a pace
+ *     penalty outside ~90–170 wpm (`20260812030000_progress_cohort_mode_separation_1265.sql`).
+ *     Pause rhythm is NOT an input.
+ *   - Eligibility: ≥30 s AND ≥75 words, a saved transcript, clarity evidence, verified engine
+ *     attribution and a complete engine identity; a changed setup restarts the comparison.
+ *   - Recording length: capped at 10 minutes (`MAX_PRIVATE_RECORDING_SECONDS: 600`). NOT
+ *     `MAX_UTTERANCE_SECONDS: 900` — that is the memory backstop, deliberately above the cap.
+ *   - Audio: processed in memory on the device, never uploaded or saved.
+ *   - Retention: no deletion schedule is claimed here — newest-one retention is installed inert.
  */
 
 export interface FaqItem {
@@ -30,26 +41,25 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
         title: 'Your privacy',
         items: [
             {
-                id: 'private-transcription',
-                question: 'How does transcription work — and is it private?',
+                id: 'audio-private',
+                question: 'Is my audio private?',
                 answer: [
-                    'SpeakSharp transcribes your speech on your own device. Your audio stays local; it is never uploaded to a server.',
-                    'There is nothing to set up or choose — every session uses this private, on-device transcription.',
+                    'Yes. Your speech is transcribed inside your browser, on your device. The audio is processed in memory while you record and is never uploaded or saved — which is also why there is no recording to play back.',
                 ],
             },
             {
-                id: 'what-is-private-stt',
-                question: 'What is Private transcription, and why does it download something the first time?',
+                id: 'model-download',
+                question: 'Why does Private transcription download a model?',
                 answer: [
-                    'Private transcription (Private STT) is a small speech-to-text model that runs entirely inside your browser. The first time you use it, that model is downloaded to your device — a one-time step. You will see the download progress on the mic card, and the mic unlocks as soon as it is ready.',
-                    'After that first download the model is cached, so later sessions start quickly. Because the model runs locally, your audio is processed on your device and never sent to us or anyone else — that is what makes it private.',
+                    'The speech model runs on your device, so your browser downloads it the first time. You will see its progress on the mic, and the mic unlocks as soon as it is ready.',
+                    'Your browser normally keeps it, so later sessions usually start without downloading it again. It can download again if the browser clears this site’s storage or runs short of space.',
                 ],
             },
             {
-                id: 'audio-stored',
-                question: 'Is my audio recorded or stored?',
+                id: 'what-is-saved',
+                question: 'What is saved after a session?',
                 answer: [
-                    'No. The transcription runs live on your device and your audio is not saved or sent anywhere. What you keep is the text transcript and the practice signals from your session.',
+                    'The session’s text transcript and its measurements — words, fillers, pace — plus your review, so you can come back to them. Audio is never saved.',
                 ],
             },
         ],
@@ -62,25 +72,23 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 id: 'how-progress-measured',
                 question: 'How is my progress measured?',
                 answer: [
-                    'Session progress is one percentage built — in the open — from four signals we measure in your own session: filler rate (filler words per minute), clarity, speaking pace (words per minute), and pause rhythm. Nothing hidden feeds it.',
-                    'Combining these four levels out the natural swing of any single one, so the number is steadier and harder to game. It compares this session with your previous session — a personal, session-over-session read, never a grade or a comparison with other people.',
-                    'The number stays in the background. What matters most is the review: what went well and what to improve, drawn from what you actually did this session. Acting on one improvement next time is the real goal.',
-                ],
-            },
-            {
-                id: 'baseline-signal',
-                question: 'What is the "baseline signal"?',
-                answer: [
-                    'Your first session is your starting point: it is a combined reading of the same four signals — filler rate, clarity, speaking pace, and pause rhythm — taken together. Because there is nothing earlier to compare it with, your first session shows this reading instead of a change percentage.',
-                    'From your next session on, progress is shown as the change in those four signals versus the session right before it — not versus your first session. If a signal is too short or has no usable evidence, we leave it out rather than invent a number — again, in the interest of showing you only what we can actually measure.',
+                    'Progress follows one clarity score from your own session. Filler words lower it, so do stretches the transcript marks as unclear, such as [inaudible], and so does a pace far outside roughly 90–170 words per minute.',
+                    'Each session is compared with your previous qualifying session recorded the same way — same practice mode and transcription setup. It is a personal read, never a grade or a comparison with other people.',
                 ],
             },
             {
                 id: 'first-session-no-percent',
                 question: 'Why doesn’t my first session show a progress percentage?',
                 answer: [
-                    'A percentage is always a change versus an earlier session, and your first session has nothing before it to compare against — so it shows “baseline set”, not a number. This is by design, for every user.',
-                    'You start seeing a progress percentage from your second qualifying session onward, and it is always the change versus your previous session. A session qualifies once it is long enough to measure (about 30 seconds); very short takes are skipped so a stray few seconds never sets or moves your progress. So if you already see a percentage like “+5% vs your previous session”, it means your account has at least two qualifying sessions on record.',
+                    'A percentage is a change, and your first qualifying session has nothing before it — so it shows “baseline set” instead. From your second qualifying session on, you see the change versus the one before.',
+                ],
+            },
+            {
+                id: 'why-not-counted',
+                question: 'Why wasn’t my session counted toward progress?',
+                answer: [
+                    'A session counts only when there is enough to measure fairly: at least 30 seconds and 75 words, a saved transcript, clear filler and clarity evidence, and a verified record of which transcription model produced it. Anything less is left out rather than given an invented number.',
+                    'If your transcription setup changed since your last qualifying session, the comparison restarts rather than comparing unlike recordings.',
                 ],
             },
             {
@@ -100,8 +108,30 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 id: 'open-floor-vs-focus-points',
                 question: 'What is the difference between Open Mic and Focus Points?',
                 answer: [
-                    'Open Mic — speak freely on anything, for as long as you like. Best for warming up or thinking out loud.',
-                    'Focus Points — set a few things you want to cover, then see which ones you actually hit while speaking.',
+                    'Open Mic — speak freely on anything, up to 10 minutes per recording. Good for warming up or thinking out loud.',
+                    'Focus Points — list the points you want to cover, then speak. Afterwards each point shows whether your transcript has evidence you covered it.',
+                ],
+            },
+            {
+                id: 'focus-points-detect',
+                question: 'What can Focus Points detect?',
+                answer: [
+                    'It looks in your transcript for wording that matches each point. “Covered” means matching words were found — not that you made the point well — and an unusual phrasing can be missed.',
+                ],
+            },
+            {
+                id: 'review-status',
+                question: 'Why is my review still coming, or unavailable?',
+                answer: [
+                    'Your review is written after the session saves, so it can take a moment, and it retries automatically if it is delayed.',
+                    'While you wait — or if it can’t be written — your filler and pace counts still show, because they are counted on your device and never depended on the network.',
+                ],
+            },
+            {
+                id: 'report-problem',
+                question: 'How do I report a wrong count or another problem?',
+                answer: [
+                    'Use Share feedback in the menu, choose “Something broke”, and say what you saw. Your transcript and audio aren’t attached automatically.',
                 ],
             },
         ],
