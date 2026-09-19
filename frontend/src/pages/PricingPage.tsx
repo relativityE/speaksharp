@@ -18,8 +18,9 @@ import logger from '../lib/logger';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPaidProEntitlement } from '@/constants/subscriptionTiers';
 
-// #1266 / #1254 / #1475 — the one-product, two-lifecycle tier copy lives in `pricingTiers.ts`, shared verbatim with
-// the landing pricing section so the two surfaces cannot state different terms.
+// #1266 / #1254 / #1475 / #1509 — this page's one-product, two-lifecycle tier copy lives in `pricingTiers.ts`. The
+// landing keeps its OWN copy in `landingOffer.ts` (G17); the two surfaces are held consistent by
+// `public-product-copy-contract.test.ts`, not by a shared import.
 type Tier = PricingTier;
 const tiers = PRICING_TIERS;
 

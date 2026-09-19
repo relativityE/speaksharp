@@ -234,6 +234,15 @@ describe('#1475 G12 Rev 2 — pricing (both payment states)', () => {
         expect(norm(pricing)).not.toMatch(/most popular/i);
     });
 
+    it.each([false, true])('payments enabled=%s: G17 equal borders — both cards 1px neutral-border, no signature border', (enabled) => {
+        paymentsEnabled.mockReturnValue(enabled);
+        render(<PracticePage />);
+        const cards = Array.from(region(/^pricing$/i).querySelectorAll('article'));
+        expect(cards).toHaveLength(2);
+        const borderClasses = cards.map((card) => card.className.split(/\s+/).filter((c) => c.startsWith('border')).sort());
+        expect(borderClasses).toEqual([['border', 'border-neutral-border'], ['border', 'border-neutral-border']]);
+    });
+
     it('payments DISABLED (G17 L3): price shown; the trial CTA is the ONLY control; the paid slot is a plain line; zero paid events', () => {
         paymentsEnabled.mockReturnValue(false);
         render(<PracticePage />);

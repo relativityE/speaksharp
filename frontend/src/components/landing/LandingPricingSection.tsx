@@ -31,12 +31,15 @@ const TRIAL_SIGNUP_HREF = `${LANDING_SIGNUP_ROUTE}?${new URLSearchParams({
  */
 const PRO_SIGNUP_RETURN = { from: { pathname: '/pricing' } } as const;
 
-/** One lifecycle card. `bottomPadding` offsets the 2px signature border so both 52px controls share a baseline. */
+/**
+ * One lifecycle card. G17 (Designer 2026-09-19, supersedes the 2px signature Pro border): BOTH cards take the same
+ * 1px `neutral-border` (#dbe2ec) — yellow is the page's one action colour, and a yellow border on the only card you
+ * cannot act on points emphasis the wrong way. The trial card is distinguished by holding the button. Equal borders
+ * and equal padding also keep both 52px control slots on one baseline.
+ */
 const PriceCard = ({ tier, signature, children }: { tier: LandingTier; signature: boolean; children: ReactNode }) => (
     <article
-        className={`flex min-w-0 flex-[1_1_320px] flex-col rounded-[14px] bg-neutral-page px-7 pt-7 ${
-            signature ? 'border-2 border-signature pb-[29px]' : 'border border-neutral-border pb-[30px]'
-        }`}
+        className="flex min-w-0 flex-[1_1_320px] flex-col rounded-[14px] border border-neutral-border bg-neutral-page px-7 pb-[30px] pt-7"
     >
         <h3 className="mb-1.5 text-[22px] font-extrabold tracking-[-0.02em] text-neutral-heading">{tier.name}</h3>
         <p className="mb-4 text-base font-semibold text-neutral-body">{tier.label}</p>
