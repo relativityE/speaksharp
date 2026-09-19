@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 // ... existing imports ...
+import type { ClarityVsLastSessionValue } from '@/components/session/ClarityVsLastSessionCard';
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
 import { useAuthProvider } from '@/contexts/AuthProvider';
@@ -438,17 +439,20 @@ export const SessionPage: React.FC = () => {
     const beforeState = !isListening && !showAnalyticsPrompt && !isTranscriptFinalizing;
     // Dynamic subtitle from REAL history. practiceHistory is newest-first, so the oldest (baseline) is last.
     const completedSessions = practiceHistory?.length ?? 0;
-    const baselineIso = completedSessions > 0 ? practiceHistory?.[practiceHistory.length - 1]?.created_at : null;
-    const baselineDateLabel = baselineIso ? new Date(baselineIso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null;
     // #1046 Focus Points: the subtitle names the SET, not the session history — "baseline" is an Open-Floor
     // concept. A Focus Points run reads "Focus Points · N points" (attempt-of-a-set numbering is deferred
     // with the same-set retry comparison).
     const objectivePointCount = activeObjectiveBrief?.points?.length ?? 0;
+    // G16 D1/D4 (Option A) — ONE resolved comparison drives both slot D's numeric body and the subtitle's
+    // `· vs {date}` clause, so the header never names a comparison the page does not show. `baseline set` is
+    // retired (the contract compares against the previous comparable session, not a fixed baseline). Until the
+    // clarity delta is wired, slot D shows its truthful no-number body and the subtitle is `Session {n}` alone.
+    const beforeProgress = null as ClarityVsLastSessionValue | null;
     const sessionSubtitle = isObjectiveSession
         ? `Focus Points · ${objectivePointCount} point${objectivePointCount === 1 ? '' : 's'}`
-        : baselineDateLabel
-            ? `Session ${completedSessions + 1} · baseline set ${baselineDateLabel}`
-            : 'Session 1 · your baseline starts here';
+        : beforeProgress
+            ? `Session ${completedSessions + 1} · vs ${beforeProgress.referenceDateLabel}`
+            : `Session ${completedSessions + 1}`;
 
     // Status resolution logic
     const getBaseStatus = (): SttStatus => {
@@ -717,6 +721,7 @@ export const SessionPage: React.FC = () => {
                         void queryClient.resetQueries({ queryKey: ['session', reviewSessionId] });
                     }}
                     onSeeAllSessions={() => navigate('/analytics')}
+                    beforeProgress={beforeProgress}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}
                     finalizeEstimateSeconds={finalizeEstimateSeconds}

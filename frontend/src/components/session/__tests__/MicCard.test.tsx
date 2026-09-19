@@ -108,3 +108,16 @@ describe('MicCard (#1222 slot A)', () => {
         expect(screen.getByTestId('mic-start')).toBeDisabled();
     });
 });
+
+describe('G16 D5 — the device status sits right, out of the reading path', () => {
+    it('CASUALTY: "Mic ready" follows the Start recording control in DOM order and is not its label', () => {
+        render(<MicCard onStart={vi.fn()} privateModelStatus="ready" />);
+        const start = screen.getByTestId('mic-start');
+        const status = screen.getByTestId('mic-status');
+        // Status after the button: the left edge reads mic → "Start recording" → hint.
+        expect(start.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(start).not.toContainElement(status);
+        expect(screen.getByTestId('mic-status-row').parentElement).toContainElement(start);
+        expect(status).toHaveTextContent('Mic ready on this device');
+    });
+});

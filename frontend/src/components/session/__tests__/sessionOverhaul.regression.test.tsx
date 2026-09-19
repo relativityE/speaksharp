@@ -40,7 +40,8 @@ describe('#1222 S10 — session overhaul regression', () => {
         expect(screen.getByTestId('session-shell')).toHaveClass('flex', 'flex-col');
         expect(screen.getByTestId('session-slot-a')).toHaveClass('w-full');
         expect(screen.getByTestId('session-slot-b')).toHaveClass('w-full', 'bg-ink');
-        expect(screen.getByTestId('session-shell-row')).toHaveClass('md:flex-row', 'md:items-start');
+        // G16 D2: `before` stretches so the transcript and rail end level (during/after keep items-start).
+        expect(screen.getByTestId('session-shell-row')).toHaveClass('md:flex-row', 'md:items-stretch');
         expect(screen.getByTestId('session-slot-c')).toHaveClass('md:flex-1', 'min-w-0');
         expect(screen.getByTestId('session-slot-d')).toHaveClass('md:w-[310px]', 'md:shrink-0');
     });
