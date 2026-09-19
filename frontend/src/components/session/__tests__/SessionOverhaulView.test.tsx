@@ -32,9 +32,9 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         render(<SessionOverhaulView {...base} history={[]} />);
         expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
         expect(screen.queryByText(/no universal score/i)).toBeNull();
-        const card = screen.getByTestId('progress-vs-baseline');
+        const card = screen.getByTestId('clarity-vs-last-session');
         expect(screen.getByTestId('session-slot-d')).toContainElement(card);
-        expect(card).toHaveTextContent('Progress vs baseline');
+        expect(card).toHaveTextContent('Clarity vs last session');
         expect(card).toHaveTextContent('First session — this run becomes your baseline.');
     });
 
@@ -47,7 +47,7 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         );
         const slotD = screen.getByTestId('session-slot-d');
         expect(slotD.textContent ?? '').not.toMatch(/See your progress/);
-        const card = screen.getByTestId('progress-vs-baseline');
+        const card = screen.getByTestId('clarity-vs-last-session');
         expect(card).toHaveAttribute('data-progress-body', 'no-history');
         // Not their first session, so the card must not say it is.
         expect(card.textContent ?? '').not.toMatch(/first session/i);
@@ -348,7 +348,7 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('coverage-pace-count')).toBeNull();
         expect(screen.queryByText(/not detected/i)).toBeNull();
         expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
-        expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
+        expect(screen.queryByTestId('clarity-vs-last-session')).toBeNull();
     });
 
     it.each(['expired', 'not_captured'] as const)(
@@ -389,7 +389,7 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
             );
             expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
             // The specific wrong outcome, asserted directly: the Open Mic summary must not stand in.
-            expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
+            expect(screen.queryByTestId('clarity-vs-last-session')).toBeNull();
             // And it must not claim coverage is still coming — this transcript is never coming back.
             expect(screen.queryByTestId('coverage-awaiting-transcript')).toBeNull();
         },

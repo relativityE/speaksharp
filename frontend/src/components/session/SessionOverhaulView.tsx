@@ -13,7 +13,7 @@ import { ThisRunRail } from './ThisRunRail';
 import { OnDeviceCountsContext } from './onDeviceCounts';
 import { ThisRunCard } from './ThisRunCard';
 import { getNextPrompt, getNextSample } from '@/services/practice/practiceOnramp';
-import { ProgressVsBaselineCard, type ProgressVsBaselineValue } from './ProgressVsBaselineCard';
+import { ClarityVsLastSessionCard, type ClarityVsLastSessionValue } from './ClarityVsLastSessionCard';
 import { TrackedFillerWordsCard } from './TrackedFillerWordsCard';
 import { SessionVerdict } from './SessionVerdict';
 import { type CoverageRailPoint } from './CoverageRail';
@@ -115,9 +115,9 @@ export interface SessionOverhaulViewProps {
     onSeeAllSessions?: () => void;
     /**
      * G16 D1/D4 — the resolved `before` comparison for slot D, or null for the no-number body. The SAME object
-     * decides the page subtitle's `baseline set` clause, so the two can never disagree.
+     * decides the page subtitle's `· vs {date}` clause, so the two can never disagree.
      */
-    beforeProgress?: ProgressVsBaselineValue | null;
+    beforeProgress?: ClarityVsLastSessionValue | null;
     /** #1231 R1 — live-updating tail (rendered muted/settling) + post-Stop finalizing banner. */
     interimTranscript?: string;
     isFinalizing?: boolean;
@@ -759,7 +759,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 // the tracked-filler-words card that left the transcript header. The numeric body is wired when
                 // the comparison metric is decided; until then every user gets the truthful no-number body.
                 <>
-                    <ProgressVsBaselineCard progress={beforeProgress ?? null} isFirstSession={(history ?? []).length === 0} />
+                    <ClarityVsLastSessionCard progress={beforeProgress ?? null} isFirstSession={(history ?? []).length === 0} />
                     <TrackedFillerWordsCard />
                 </>
             );
