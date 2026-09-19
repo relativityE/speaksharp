@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { wordErrorRate } from '../evidence/werMetric';
 import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate, readBenchmarkTranscript, startBenchmarkRecording, stopBenchmarkRecording } from './helpers/benchmark-utils';
 import { RECORDER_BAR } from '../helpers/micControls';
+import { resolveLongformCredentials } from '../helpers/longformCredentials';
 import { WASHINGTON_01 } from '../fixtures/stt-isomorphic/washington-speeches';
 
 const BASE_URL = process.env.BASE_URL;
@@ -177,10 +178,12 @@ async function enablePrivateLiveHooks(page: Page) {
 function makeTesterAccount() {
   // STABLE reusable account — never mints a per-run user (which accumulated as private-longform-*
   // residue). Pro/trial state is mocked client-side, so no DB provisioning.
-  return {
-    email: `private-longform-reuse@example.test`,
-    password: process.env.PRIVATE_LONGFORM_REUSE_PASSWORD ?? 'SpeakSharpLongform-Reuse!Aa9',
-  };
+  // #1500: the pair comes ONLY from configuration (email Variable + password Secret). A missing member
+  // fails this proof with a configuration-defect message naming the variable; it never skips and never
+  // substitutes a checked-in credential.
+  const credentials = resolveLongformCredentials();
+  if (!credentials.ok) throw new Error(credentials.reason);
+  return { email: credentials.email, password: credentials.password };
 }
 
 // Idempotent: create the stable account on first run, sign in on every run after. Reuse, never accumulate.
