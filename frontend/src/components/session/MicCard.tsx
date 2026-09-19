@@ -6,10 +6,10 @@ import { emitJourneyStep } from '@/services/telemetry/journeyStep';
  * there is NO engine selector here. The only control is an OS **microphone input-device** picker.
  *
  * Two rows (spec §3):
- *   1. `● Mic ready on this device` left; the input-device picker right. Readiness is not progress, so the
- *      text is neutral and only the dot carries the progress hue (Design Correction Brief S-7).
- *   2. a 76px signature circle with a **real microphone glyph** (capsule body, arc, stand, base — never a
- *      dot/emoji) + "Start recording" / "Space bar works too". One instruction under the button: the old
+ *   One row (G16 D5): the mic button on the left — a 76px signature circle with a **real microphone glyph** (capsule body, arc, stand, base — never a
+ *      dot/emoji) + "Start recording" / "Space bar works too" — and `● Mic ready on this device` (+ the
+ *      input-device picker) on the RIGHT, out of the reading path. Readiness is not progress, so its text
+ *      is neutral and only the dot carries the progress hue (S-7). One instruction under the button: the old
  *      "aim for 60 seconds" duration target is gone (S-6) — pace belongs to Focus Points, where the user
  *      set one, and there it contradicted the user's own guide.
  *
@@ -171,52 +171,56 @@ export const MicCard: React.FC<MicCardProps> = ({
 
     return (
         <div className="rounded-xl border border-neutral-border bg-white p-4" data-testid="mic-card" data-model-status={privateModelStatus}>
-            <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-[13px] font-extrabold" style={{ color: status.text }} data-testid="mic-status">
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: status.dot }} aria-hidden="true" />
-                    {status.label}
-                </span>
-                {hasPicker && (
-                    <select
-                        aria-label="Microphone input device"
-                        data-testid="mic-device-select"
-                        value={selectedDeviceId ?? deviceList[0].deviceId}
-                        onChange={(e) => onSelectDevice?.(e.target.value)}
-                        className="rounded-lg border border-neutral-border bg-white px-2 py-1 text-[13px] font-semibold text-neutral-body"
-                    >
-                        {deviceList.map((d) => (
-                            <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
-                        ))}
-                    </select>
-                )}
-            </div>
-
-            <button
-                type="button"
-                onClick={primaryHandler}
-                disabled={primaryDisabled}
-                aria-label={isColdStart
-                    ? 'Download & start recording'
-                    : modelError ? 'Retry Private setup'
-                    : isBlockedFromStart ? 'Start recording — unavailable while your last session finishes'
-                    : 'Start recording'}
-                data-testid={isColdStart ? 'mic-download' : modelError ? 'mic-retry' : 'mic-start'}
-                className="mt-3 flex w-full items-center gap-4 rounded-lg text-left disabled:opacity-60"
-            >
-                <span
-                    className="relative flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-signature"
-                    aria-hidden="true"
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+                <button
+                    type="button"
+                    onClick={primaryHandler}
+                    disabled={primaryDisabled}
+                    aria-label={isColdStart
+                        ? 'Download & start recording'
+                        : modelError ? 'Retry Private setup'
+                        : isBlockedFromStart ? 'Start recording — unavailable while your last session finishes'
+                        : 'Start recording'}
+                    data-testid={isColdStart ? 'mic-download' : modelError ? 'mic-retry' : 'mic-start'}
+                    className="flex min-w-0 flex-1 items-center gap-4 rounded-lg text-left disabled:opacity-60"
                 >
-                    <MicGlyph />
-                    {loading && pct != null && (
-                        <span className="absolute -bottom-1 rounded-full bg-ink px-1.5 py-0.5 text-[10px] font-bold text-white" data-testid="mic-progress">{pct}%</span>
+                    <span
+                        className="relative flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-signature"
+                        aria-hidden="true"
+                    >
+                        <MicGlyph />
+                        {loading && pct != null && (
+                            <span className="absolute -bottom-1 rounded-full bg-ink px-1.5 py-0.5 text-[10px] font-bold text-white" data-testid="mic-progress">{pct}%</span>
+                        )}
+                    </span>
+                    <span>
+                        <span className="block text-[17px] font-extrabold text-neutral-body">{primaryTitle}</span>
+                        <span className="block text-[13px] text-neutral-secondary">{primarySub}</span>
+                    </span>
+                </button>
+                {/* G16 D5 (Designer 2026-09-19): the device status sits RIGHT, where statuses go — out of the
+                    reading path, so slot A's left edge reads mic → label → hint and the status is never read as
+                    the button's label. The input-device picker stays beside it. */}
+                <div className="flex shrink-0 items-center gap-3" data-testid="mic-status-row">
+                    <span className="flex items-center gap-1.5 text-[13px] font-extrabold" style={{ color: status.text }} data-testid="mic-status">
+                        <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: status.dot }} aria-hidden="true" />
+                        {status.label}
+                    </span>
+                    {hasPicker && (
+                        <select
+                            aria-label="Microphone input device"
+                            data-testid="mic-device-select"
+                            value={selectedDeviceId ?? deviceList[0].deviceId}
+                            onChange={(e) => onSelectDevice?.(e.target.value)}
+                            className="rounded-lg border border-neutral-border bg-white px-2 py-1 text-[13px] font-semibold text-neutral-body"
+                        >
+                            {deviceList.map((d) => (
+                                <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
+                            ))}
+                        </select>
                     )}
-                </span>
-                <span>
-                    <span className="block text-[17px] font-extrabold text-neutral-body">{primaryTitle}</span>
-                    <span className="block text-[13px] text-neutral-secondary">{primarySub}</span>
-                </span>
-            </button>
+                </div>
+            </div>
 
             {error && (
                 <p className="mt-3 rounded-lg bg-state-error-ground px-3 py-2 text-[13px] font-semibold text-state-error" role="alert" data-testid="mic-error">

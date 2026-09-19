@@ -13,7 +13,8 @@ import React from 'react';
  * A failed or absent progress read renders the no-number body (D1), never nothing. The no-number headline is
  * chosen from a FACT, not a guess: `First session …` only when the user genuinely has no saved sessions — a
  * returning user without a comparable number is not on their first session, and telling them so would be
- * false (flagged to the Designer; the returning-user line is pending their confirmation).
+ * false. Designer (2026-09-19): every other no-number case — including a failed read — says `No comparable
+ * run yet.`, and the second line explains why exactly once.
  */
 export interface ProgressVsBaselineValue {
     /** Display value, sign included, e.g. `−24%`. */
@@ -57,7 +58,7 @@ export const ProgressVsBaselineCard: React.FC<ProgressVsBaselineCardProps> = ({ 
         ) : (
             <div className="mt-3.5" data-testid="progress-vs-baseline-empty">
                 <p className="text-[15px] font-bold leading-snug text-neutral-body" data-testid="progress-vs-baseline-line">
-                    {isFirstSession ? 'First session — this run becomes your baseline.' : 'No comparison yet for this setup.'}
+                    {isFirstSession ? 'First session — this run becomes your baseline.' : 'No comparable run yet.'}
                 </p>
                 <p className="mt-3 border-t border-neutral-border-soft pt-3 text-[13px] font-semibold text-neutral-muted">
                     Comparisons start once you have two runs of a similar length.

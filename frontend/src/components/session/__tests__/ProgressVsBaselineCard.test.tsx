@@ -16,7 +16,8 @@ describe('ProgressVsBaselineCard (G16 D1)', () => {
 
     it('CASUALTY: a returning user without a number is never told it is their first session', () => {
         render(<ProgressVsBaselineCard progress={null} isFirstSession={false} />);
-        expect(screen.getByTestId('progress-vs-baseline-line').textContent).not.toMatch(/first session/i);
+        // Designer 2026-09-19: one variable first line — never a first-session claim, never an explanation.
+        expect(screen.getByTestId('progress-vs-baseline-line')).toHaveTextContent(/^No comparable run yet\.$/);
     });
 
     it('numeric body: value, unit and window; improvement in the status green, regression in amber', () => {
