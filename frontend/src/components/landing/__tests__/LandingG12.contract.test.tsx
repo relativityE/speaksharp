@@ -69,20 +69,28 @@ const signupLinks = () => screen.getAllByRole('link').filter((a) => (a.getAttrib
 const viewedSources = () => funnel.viewed.mock.calls.map(([ctx]) => (ctx as { source: string }).source);
 
 describe('#1475 G12 Rev 2 — hero', () => {
-    it('states the repository badge, tagline, Rev 2 hero line and a real Try it out! link to signup', () => {
+    it('states the tagline, hero line and a real Start your session link to signup — and no badge (G17 L1)', () => {
         render(<PracticePage />);
         const hero = region(/^hero$/i);
         expect(norm(screen.getByRole('heading', { level: 1 }))).toBe('Private Practice. Public Impact!');
-        expect(norm(hero)).toContain('Complete product free for 30 days');
+        expect(norm(hero)).not.toContain('Complete product free for 30 days');
         expect(norm(hero)).toContain('Speak. See what to fix. Say it again. Your audio never leaves the browser.');
-        const cta = within(hero).getByRole('link', { name: 'Try it out!' });
+        const cta = within(hero).getByRole('link', { name: 'Start your session' });
         expect(cta.getAttribute('href')).toBe('/auth/signup');
     });
 
-    it('states both terms lines directly under the CTA', () => {
+    it('G17 L1: ONE terms line beside the CTA pairs "Free for 30 days" with "$10/month", the price in the money role', () => {
         render(<PracticePage />);
-        const terms = within(region(/^hero$/i)).getByText('30 days free, no card.');
-        expect(terms.nextElementSibling?.textContent).toBe('Then $10/month. Cancel any time.');
+        const hero = region(/^hero$/i);
+        const terms = within(hero).getByTestId('hero-terms');
+        expect(norm(terms)).toBe('Free for 30 days, $10/month after.');
+        const price = within(terms).getByText('$10/month');
+        expect(price.className).toMatch(/text-money-on-ink/);
+        expect(price.className).toMatch(/font-extrabold/);
+        // Beside the CTA: the terms line and the CTA share one row container.
+        expect(terms.parentElement).toContainElement(within(hero).getByRole('link', { name: 'Start your session' }));
+        expect(occurrences(norm(hero), '30 days')).toBe(1);
+        expect(occurrences(norm(hero), '$10')).toBe(1);
     });
 
     it('is a single column: no grid cell reserved where the sample dashboard used to sit', () => {
@@ -107,15 +115,28 @@ describe('#1475 G12 Rev 2 — removals and honesty', () => {
         expect(norm(document.body)).not.toMatch(/last run only|two most recent|one transcript is kept|last \d+ (runs|sessions|transcripts)|newest[- ](one|two)/i);
     });
 
-    it('ruling B default: the price is stated in the hero and the closing band only, never in the product or privacy sections', () => {
+    // G17 L1 — supersedes ruling B / #1470's closing-band requirement (PO + PM accepted, 2026-09-19): the terms are
+    // stated exactly twice — the hero line and the pricing block — and the closing band makes NO trial claim and
+    // states NO price, so #1470's rule (no trial claim without its post-trial price) still holds everywhere.
+    it.each([false, true])('payments enabled=%s: G17 L1 — terms only in the hero line and the pricing block; closing band has neither', (enabled) => {
+        paymentsEnabled.mockReturnValue(enabled);
         render(<PracticePage />);
         const pricing = region(/^pricing$/i);
         const outside = norm(document.body).replace(norm(pricing), '');
-        expect(occurrences(norm(region(/^hero$/i)), 'Then $10/month')).toBe(1);
-        expect(occurrences(norm(region(/call to action/i)), 'Then $10/month')).toBe(1);
-        expect(occurrences(outside, 'Then $10/month')).toBe(2);
+        expect(occurrences(outside, '$10')).toBe(1);
+        expect(outside.match(/30 day/gi) ?? []).toHaveLength(1);
+        const closing = norm(region(/call to action/i));
+        expect(closing).not.toMatch(/30 day/i);
+        expect(closing).not.toContain('$10');
+        expect(closing).not.toMatch(/\bfree\b|trial/i);
         expect(norm(region(/^products$/i))).not.toContain('$10');
         expect(norm(region(/private, and built to repeat/i))).not.toContain('$10');
+    });
+
+    it.each([false, true])('payments enabled=%s: G17 L2 — "no card" appears nowhere on the route', (enabled) => {
+        paymentsEnabled.mockReturnValue(enabled);
+        render(<PracticePage />);
+        expect(norm(document.body)).not.toMatch(/no card/i);
     });
 });
 
@@ -152,17 +173,30 @@ describe('#1475 G12 Rev 2 — products and the Practice Loop', () => {
 });
 
 describe('#1475 G12 Rev 2 — signup decision points, routing and telemetry', () => {
-    it.each([false, true])('payments enabled=%s: every signup link sits in a unit that states the trial and the price', (enabled) => {
+    // #1470's rule, in its G17 shape: a decision unit that makes a trial claim states the post-trial price with it;
+    // the closing band's unit makes no claim at all.
+    it.each([false, true])('payments enabled=%s: no signup unit claims the trial without the price; the closing unit claims neither', (enabled) => {
         paymentsEnabled.mockReturnValue(enabled);
         render(<PracticePage />);
         const links = signupLinks();
         expect(links.length).toBeGreaterThanOrEqual(3); // hero, pricing trial card, closing band
-        for (const link of links) {
-            const unit = link.closest('[data-signup-decision]');
-            expect(unit, `signup link "${link.textContent}" has no decision unit`).not.toBeNull();
-            expect(norm(unit)).toMatch(/30 days/i);
-            expect(norm(unit)).toMatch(/\$10\/month/);
-        }
+        const units = links.map((link) => link.closest('[data-signup-decision]'));
+        expect(units.every(Boolean), 'every signup link sits in a decision unit').toBe(true);
+        const claimsTrialWithoutPrice = units
+            .map((unit) => norm(unit))
+            .filter((text) => /30 day/i.test(text) && !/\$10\/month/.test(text));
+        expect(claimsTrialWithoutPrice).toEqual([]);
+        expect(norm(within(region(/^hero$/i)).getByTestId('hero-terms'))).toMatch(/30 days.*\$10\/month/);
+        expect(norm(region(/call to action/i))).not.toMatch(/30 day|\$10/i);
+    });
+
+    it.each([false, true])('payments enabled=%s: G17 L5 — ONE trial-CTA label across the route', (enabled) => {
+        paymentsEnabled.mockReturnValue(enabled);
+        render(<PracticePage />);
+        const trialLinks = signupLinks().filter((a) => a.getAttribute('data-testid') !== 'landing-pro-continue');
+        expect(trialLinks).toHaveLength(3); // hero, pricing trial card, closing band
+        for (const link of trialLinks) expect(link).toHaveAccessibleName('Start your session');
+        expect(norm(document.body)).not.toMatch(/Try it out!|Start free\b/);
     });
 
     it('emits the governed views for hero, closing band and trial card, and never the retired preview click', () => {
@@ -173,36 +207,51 @@ describe('#1475 G12 Rev 2 — signup decision points, routing and telemetry', ()
 
     it('hero and closing clicks keep their conversion sources', () => {
         render(<PracticePage />);
-        fireEvent.click(within(region(/^hero$/i)).getByRole('link', { name: 'Try it out!' }));
-        fireEvent.click(within(region(/call to action/i)).getByRole('link', { name: 'Try it out!' }));
+        fireEvent.click(within(region(/^hero$/i)).getByRole('link', { name: 'Start your session' }));
+        fireEvent.click(within(region(/call to action/i)).getByRole('link', { name: 'Start your session' }));
         const sources = funnel.clicked.mock.calls.map(([ctx]) => (ctx as { source: string }).source);
         expect(sources).toEqual(expect.arrayContaining(['hero_primary', 'landing_cta']));
     });
 });
 
 describe('#1475 G12 Rev 2 — pricing (both payment states)', () => {
-    it('renders the repository tier copy, heading and intro verbatim, with no badge', () => {
+    it('G17 L4: the landing pricing copy — heading Pricing, the one-product sub-line, card labels — with no badge', () => {
         render(<PracticePage />);
         const pricing = region(/^pricing$/i);
-        expect(within(pricing).getByRole('heading', { name: 'One product. Free for 30 days.' })).toBeTruthy();
-        expect(within(pricing).getByRole('heading', { name: 'Free trial' })).toBeTruthy();
-        expect(within(pricing).getByRole('heading', { name: 'Pro' })).toBeTruthy();
-        expect(norm(pricing)).toContain('first 30 days · no card required');
-        expect(norm(pricing)).toContain('Open Mic and Focus Points, with saved review and comparable Progress');
-        expect(within(pricing).getByRole('link', { name: 'Start free' }).getAttribute('href')).toMatch(/^\/auth\/signup\?/);
+        const heading = within(pricing).getByRole('heading', { level: 2 });
+        expect(norm(heading)).toBe('Pricing');
+        expect(norm(heading)).not.toMatch(/[0-9$]/); // L4 check: the heading restates no offer
+        expect(norm(pricing)).toContain('The trial is the complete product. Nothing is held back.');
+        expect(norm(pricing)).not.toContain('One product. Free for 30 days.');
+        const trial = within(pricing).getByRole('heading', { name: 'Free trial' }).closest('article') as HTMLElement;
+        const pro = within(pricing).getByRole('heading', { name: 'Pro' }).closest('article') as HTMLElement;
+        expect(norm(trial)).toContain('First 30 days');
+        expect(norm(trial)).toContain('$0');
+        expect(norm(pro)).toContain('Per month, after trial');
+        expect(norm(pro)).toContain('$10/month');
+        expect(norm(pro)).toContain('Cancel any time'); // moved here from the hero
+        expect(within(trial).getByRole('link', { name: 'Start your session' }).getAttribute('href')).toMatch(/^\/auth\/signup\?/);
+        expect(norm(pricing)).not.toMatch(/most popular/i);
     });
 
-    it('payments DISABLED: price still shown; trial stays actionable; paid slot is a non-focusable notice; zero paid events', () => {
+    it('payments DISABLED (G17 L3): price shown; the trial CTA is the ONLY control; the paid slot is a plain line; zero paid events', () => {
         paymentsEnabled.mockReturnValue(false);
         render(<PracticePage />);
         const pricing = region(/^pricing$/i);
         expect(norm(pricing)).toContain('$10');
-        expect(within(pricing).getByRole('link', { name: 'Start free' })).toBeTruthy();
+        const controls = pricing.querySelectorAll('a, button, [role="button"], [tabindex]');
+        expect(controls).toHaveLength(1);
+        expect(controls[0]).toHaveAccessibleName('Start your session');
         const notice = within(pricing).getByTestId('landing-pro-unavailable');
-        expect(notice.textContent).toMatch(/paid continuation isn.t open yet/i);
+        expect(notice.textContent).toBe('Available at the end of your trial.');
+        expect(notice.textContent).not.toMatch(/isn.t open|not yet|paid continuation/i); // forward-looking, never an apology
         expect(['BUTTON', 'A'].includes(notice.tagName)).toBe(false);
         expect(notice.hasAttribute('tabindex')).toBe(false);
         expect(notice.hasAttribute('role')).toBe(false);
+        // No ground, no border (`box-border` is box-sizing, not a border).
+        expect(notice.className.split(/\s+/).filter((c) => /^(border|bg-|rounded)/.test(c))).toEqual([]);
+        const pro = within(pricing).getByRole('heading', { name: 'Pro' }).closest('article') as HTMLElement;
+        expect(pro.querySelectorAll('a, button, [role="button"], [tabindex]')).toHaveLength(0);
         expect(within(pricing).queryByRole('button')).toBeNull();
         expect(viewedSources()).not.toContain('pricing_pro_card');
         expect(funnel.checkout).not.toHaveBeenCalled();
@@ -226,6 +275,7 @@ describe('#1475 G12 Rev 2 — pricing (both payment states)', () => {
         const chips = screen.getAllByTestId('offer-disclosure-chip').map((c) => c.textContent);
         expect(chips).toHaveLength(3);
         expect(chips.slice(0, 2)).toEqual(['Private transcription keeps audio local', 'Transcript data supports SpeakSharp features']);
+        expect(chips[2]).toBe(enabled ? 'Pro continues only after Stripe confirmation' : 'Paid continuation opens later — nothing is charged today');
         unmount();
         paymentsEnabled.mockReturnValue(!enabled);
         render(<PracticePage />);

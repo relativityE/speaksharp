@@ -149,8 +149,8 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       }
       // The retired teal trial strip is replaced by the complete offer at every signup decision point.
       expect(screen.queryByTestId('freeform-trial-strip')).not.toBeInTheDocument();
-      expect(screen.getByRole('region', { name: /^hero$/i })).toHaveTextContent('30 days free, no card.');
-      expect(screen.getByRole('region', { name: /^hero$/i })).toHaveTextContent('Then $10/month. Cancel any time.');
+      // G17 L1: one terms line in the hero pairs the trial with its post-trial price.
+      expect(screen.getByRole('region', { name: /^hero$/i })).toHaveTextContent('Free for 30 days, $10/month after.');
       expect(screen.queryByTestId('support-freeform-explain')).not.toBeInTheDocument();
       // Focus Points is activated — no SOON badge on the anonymous card either.
       expect(screen.queryByTestId('objective-soon-badge')).not.toBeInTheDocument();
@@ -163,18 +163,19 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.queryByTestId('practice-continuity-empty')).not.toBeInTheDocument();
     });
 
-    it('hero "Try it out!" is a real link to the signup destination', () => {
+    it('hero "Start your session" is a real link to the signup destination', () => {
       render(<PracticePage />);
       const cta = screen.getByTestId('practice-hero-start-free');
-      expect(cta).toHaveAccessibleName('Try it out!');
+      expect(cta).toHaveAccessibleName('Start your session');
       expect(cta).toHaveAttribute('href', '/auth/signup');
     });
 
-    it('closing CTA is a real link to the signup destination beside the complete offer', () => {
+    it('closing CTA is a real link to the signup destination, with its value sentence and no terms (G17 L1)', () => {
       render(<PracticePage />);
       const closing = screen.getByRole('region', { name: /call to action/i });
-      expect(within(closing).getByRole('link', { name: 'Try it out!' })).toHaveAttribute('href', '/auth/signup');
-      expect(closing).toHaveTextContent(/free for 30 days\. Then \$10\/month\./);
+      expect(within(closing).getByRole('link', { name: 'Start your session' })).toHaveAttribute('href', '/auth/signup');
+      expect(closing).toHaveTextContent('Your recordings stay Private on this device.');
+      expect(closing).not.toHaveTextContent(/30 day|\$10/i);
     });
 
     it('Freeform product card CTA → account access preserving /session intent', () => {
