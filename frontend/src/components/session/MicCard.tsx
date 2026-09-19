@@ -182,7 +182,7 @@ export const MicCard: React.FC<MicCardProps> = ({
                         : isBlockedFromStart ? 'Start recording — unavailable while your last session finishes'
                         : 'Start recording'}
                     data-testid={isColdStart ? 'mic-download' : modelError ? 'mic-retry' : 'mic-start'}
-                    className="flex min-w-0 flex-1 items-center gap-4 rounded-lg text-left disabled:opacity-60"
+                    className="flex min-w-0 flex-[1_1_16rem] items-center gap-4 rounded-lg text-left disabled:opacity-60"
                 >
                     <span
                         className="relative flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-signature"

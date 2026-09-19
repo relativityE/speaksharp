@@ -94,6 +94,29 @@ const INK = 'rgb(28, 35, 51)';
  * The slot-map contract at one width, in whatever state the page is in.
  * Phones: stacked A → B → C → D. From md: A and B full width, then C beside a 310px D.
  */
+// G16 D5 put the mic status to the RIGHT of the mic button. At 375 px the button (flex-basis 0) shrank instead of
+// wrapping and its title/subtitle were painted UNDER the status: no overflow, every slot present, so the slot map
+// alone passed. Measure the rendered TEXT (not the button box, which is exactly what shrank) against the status.
+async function assertMicTextClearOfStatus(page: Page, label: string) {
+  const hits = await page.evaluate(() => {
+    const card = document.querySelector('[data-testid="mic-card"]');
+    const status = document.querySelector('[data-testid="mic-status-row"]');
+    if (!card || !status) return ['mic-card or mic-status-row missing'];
+    const s = status.getBoundingClientRect();
+    const out: string[] = [];
+    for (const el of Array.from(card.querySelectorAll('button span.block'))) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      for (const r of Array.from(range.getClientRects())) {
+        const overlaps = r.width > 0 && r.left < s.right && r.right > s.left && r.top < s.bottom && r.bottom > s.top;
+        if (overlaps) out.push(`"${el.textContent}" overlaps the mic status`);
+      }
+    }
+    return out;
+  });
+  expect(hits, `mic text vs status @ ${label}`).toEqual([]);
+}
+
 async function assertSlotMap(page: Page, w: number, state: string) {
   await settleViewport(page, w);
   await assertNoHorizontalOverflow(page, `${state}@${w}`);
@@ -151,6 +174,7 @@ test.describe('G1 — the session slot map holds in a real browser', () => {
     await expect(page.locator('[data-testid="session-shell"][data-session-state="before"]')).toBeVisible();
     for (const w of ALL_WIDTHS) {
       await assertSlotMap(page, w, 'before');
+      await assertMicTextClearOfStatus(page, `before@${w}`);
     }
     await settleViewport(page, 375);
     await page.screenshot({ path: `${DIR}/before-phone-375.png`, fullPage: true });
