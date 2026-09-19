@@ -46,7 +46,8 @@ async function settle(page: Page) {
 /**
  * G17 L3/L5 — what only a real browser can prove: every price and term renders at >= 15px, both pricing-card control
  * slots compute to 52px (so the cards stay level with the Pro slot as plain text), with payments disabled the
- * pricing block has exactly one focusable control, and both cards compute the same 1px #dbe2ec border.
+ * pricing block has exactly one focusable control, both cards compute the same 1px #dbe2ec border, and every list
+ * mark in both cards computes the one neutral #6b7688.
  */
 async function assertLandingTermsRender(page: Page) {
   const r = await page.evaluate(() => {
@@ -64,6 +65,8 @@ async function assertLandingTermsRender(page: Page) {
       trialH: trial ? (trial as HTMLElement).getBoundingClientRect().height : -1,
       proH: proSlot ? (proSlot as HTMLElement).getBoundingClientRect().height : -1,
       proDisabled: Boolean(document.querySelector('[data-testid="landing-pro-unavailable"]')),
+      markColours: pricing ? Array.from(new Set(Array.from(pricing.querySelectorAll('article li svg'))
+        .map((mark) => getComputedStyle(mark).color))) : [],
       cardBorders: pricing ? Array.from(pricing.querySelectorAll('article')).map((card) => {
         const cs = getComputedStyle(card);
         return `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`;
@@ -80,6 +83,8 @@ async function assertLandingTermsRender(page: Page) {
   if (r.proDisabled) expect(r.focusable, 'focusable controls in the pricing block (payments disabled)').toBe(1);
   // G17 equal borders (Designer 2026-09-19): both cards 1px solid #dbe2ec.
   expect(r.cardBorders, 'pricing card borders').toEqual(['1px solid rgb(219, 226, 236)', '1px solid rgb(219, 226, 236)']);
+  // G17 equal marks (Designer 2026-09-19): one neutral mark, #6b7688, in both cards.
+  expect(r.markColours, 'pricing list mark colours').toEqual(['rgb(107, 118, 136)']);
 }
 
 test.describe('#1061 one canonical auth-aware page', () => {

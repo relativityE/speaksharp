@@ -33,11 +33,16 @@ const PRO_SIGNUP_RETURN = { from: { pathname: '/pricing' } } as const;
 
 /**
  * One lifecycle card. G17 (Designer 2026-09-19, supersedes the 2px signature Pro border): BOTH cards take the same
- * 1px `neutral-border` (#dbe2ec) — yellow is the page's one action colour, and a yellow border on the only card you
+ * 1px `neutral-border` token — yellow is the page's one action colour, and a yellow border on the only card you
  * cannot act on points emphasis the wrong way. The trial card is distinguished by holding the button. Equal borders
  * and equal padding also keep both 52px control slots on one baseline.
+ *
+ * Both lists take ONE neutral mark (the `neutral-muted` token; Designer 2026-09-19, supersedes G17's green and the
+ * amber Pro marks): green is the status role, reserved for the disclosure-chip shields; amber is the action colour on
+ * a mark that is not an action; and two colours for the same element would imply the lists differ in kind when both
+ * describe the same product.
  */
-const PriceCard = ({ tier, signature, children }: { tier: LandingTier; signature: boolean; children: ReactNode }) => (
+const PriceCard = ({ tier, children }: { tier: LandingTier; children: ReactNode }) => (
     <article
         className="flex min-w-0 flex-[1_1_320px] flex-col rounded-[14px] border border-neutral-border bg-neutral-page px-7 pb-[30px] pt-7"
     >
@@ -50,10 +55,7 @@ const PriceCard = ({ tier, signature, children }: { tier: LandingTier; signature
         <ul className="mb-7 flex flex-col gap-3">
             {tier.features.map((feature) => (
                 <li key={feature} className="flex items-start gap-2.5 text-base font-semibold leading-normal text-neutral-body">
-                    <CheckCircle2
-                        className={`mt-[3px] size-4 shrink-0 ${signature ? 'text-signature-text' : 'text-neutral-muted'}`}
-                        aria-hidden="true"
-                    />
+                    <CheckCircle2 className="mt-[3px] size-4 shrink-0 text-neutral-muted" aria-hidden="true" />
                     <span>{feature}</span>
                 </li>
             ))}
@@ -98,7 +100,7 @@ export const LandingPricingSection = () => {
                 <p className="text-[17px] font-semibold leading-[1.55] text-neutral-body md:text-[19px]">{LANDING_PRICING_SUBLINE}</p>
             </div>
             <div className="mx-auto flex max-w-[820px] flex-wrap items-stretch gap-4">
-                <PriceCard tier={trial} signature={false}>
+                <PriceCard tier={trial}>
                     <Link
                         to={TRIAL_SIGNUP_HREF}
                         onClick={() => trackConversionCtaClicked({ source: 'pricing_free_card', plan: 'free' })}
@@ -112,7 +114,7 @@ export const LandingPricingSection = () => {
                         {LANDING_TRIAL_CTA}
                     </Link>
                 </PriceCard>
-                <PriceCard tier={pro} signature>
+                <PriceCard tier={pro}>
                     {paymentsEnabled ? (
                         <Link
                             to={LANDING_SIGNUP_ROUTE}
