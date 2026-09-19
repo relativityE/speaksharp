@@ -39,7 +39,7 @@ describe('FaqMenu', () => {
         expect(question).toHaveAttribute('aria-expanded', 'true');
         const answer = within(panel).getByTestId('faq-answer');
         expect(answer).toBeInTheDocument();
-        expect(answer).toHaveTextContent(/baseline set/i);
+        expect(answer).toHaveTextContent(/Baseline established/);
     });
 
     it('closes the panel on Escape', () => {
