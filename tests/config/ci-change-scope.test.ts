@@ -8,6 +8,8 @@ describe('#1054 CI change classifier', () => {
     describe('always selects the FULL lane (fail-safe)', () => {
         it.each([
             { label: 'push to main', files: ['README.md'], ctx: { ...draft, eventName: 'push' as const } },
+            // #1501: even a docs-only diff with a stray draft flag runs the full lane in the merge queue.
+            { label: 'merge-queue candidate (merge_group)', files: ['README.md'], ctx: { ...draft, eventName: 'merge_group' as const } },
             { label: 'explicit force_full', files: ['README.md'], ctx: { ...draft, forceFull: true } },
             { label: 'non-draft PR (merge candidate)', files: ['README.md'], ctx: { isDraft: false } },
             { label: 'empty diff', files: [], ctx: draft },

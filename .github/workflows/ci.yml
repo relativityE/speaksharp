@@ -9,6 +9,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # #1501 — the merge queue tests the exact candidate tree (latest `main` + the queued PR) on this event.
+  # It carries no `pull_request` object, so every step below that reads one falls back explicitly.
+  merge_group:
+    types: [checks_requested]
   # An exact-head review can add or dismiss a blocker after the code run completed. Re-evaluate the
   # live GitHub review state on every review transition so a stale green check cannot survive it.
   pull_request_review:
@@ -59,7 +63,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           FORCE_FULL: ${{ github.event_name == 'pull_request_review' || github.event_name == 'pull_request_review_comment' || github.event.inputs.force_full || false }}
         run: |
           set -euo pipefail
