@@ -19,7 +19,7 @@ describe('#1046 ObjectiveSetupForm (capture UI)', () => {
         expect(screen.queryByTestId('objective-goal-input')).toBeNull(); // free text only under "Other"
         expect(screen.getAllByRole('listitem')).toHaveLength(3);
         expect(screen.getByTestId('objective-setup-submit')).toBeDisabled();
-        expect(screen.getByTestId('objective-setup-submit')).toHaveTextContent('Proceed to session');
+        expect(screen.getByTestId('objective-setup-submit')).toHaveTextContent('Head to session');
         expect(screen.queryByText(/Name what you.re rehearsing/i)).not.toBeInTheDocument();
     });
 
@@ -198,5 +198,48 @@ describe('#1429 — every entered Focus Point reaches the brief, in order', () =
 
         await waitFor(() => expect(onReady).toHaveBeenCalled());
         expect(onReady.mock.calls[0][0].points).toEqual([SEVEN[0], SEVEN[2]]);
+    });
+
+    // G7 (Designer, 18 Sep): yellow ACTS, purple IDENTIFIES. jsdom computes no Tailwind, so each rule is
+    // asserted where it is decided — the classes on the element.
+    describe('G7 retheme', () => {
+        it('CASUALTY: the primary is signature yellow on ink, and reads "Head to session"', () => {
+            render(<ObjectiveSetupForm />);
+            const cta = screen.getByTestId('objective-setup-submit');
+            expect(cta).toHaveTextContent('Head to session');
+            expect(cta.className).toContain('bg-signature');
+            expect(cta.className).toContain('text-ink');
+            expect(cta.className).not.toMatch(/bg-focus-points|text-white/);
+        });
+
+        it('CASUALTY: disabled is its own neutral state, never a faded brand colour', () => {
+            render(<ObjectiveSetupForm />);
+            const cta = screen.getByTestId('objective-setup-submit');
+            expect(cta).toBeDisabled();
+            expect(cta.className).toContain('disabled:bg-neutral-border');
+            expect(cta.className).toContain('disabled:text-neutral-muted');
+            expect(cta.className).not.toMatch(/opacity/);
+        });
+
+        it('CASUALTY: point numerals are Focus Points purple, not the amber that means "missed" in slot D', () => {
+            render(<ObjectiveSetupForm />);
+            const html = screen.getAllByRole('listitem')[0].innerHTML;
+            expect(html).toContain('bg-focus-points-ground');
+            expect(html).not.toMatch(/bg-signature-ground|text-signature-text/);
+        });
+
+        it('states the topic rule beneath the select (spec §0)', () => {
+            render(<ObjectiveSetupForm />);
+            expect(screen.getByTestId('objective-topic-helper')).toHaveTextContent('Your topic — shown above your points, never scored as one.');
+        });
+
+        it('CASUALTY: the topic select is white with the product focus ring, not the slate page ground', () => {
+            render(<ObjectiveSetupForm />);
+            const select = screen.getByTestId('objective-goal-select');
+            expect(select.className).toContain('bg-white');
+            expect(select.className).toContain('border-neutral-border');
+            expect(select.className).toContain('focus-visible:ring-ring');
+            expect(select.className).not.toContain('bg-background');
+        });
     });
 });

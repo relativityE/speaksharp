@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { Plus, X, ArrowRight, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PRODUCT_NAMES } from '@/constants/productNames';
@@ -141,9 +140,9 @@ export function ObjectiveSetupForm({
             result = { ok: false, reason: 'error' };
         }
         if (result.ok && result.briefId && result.projectId) {
-            // #1259 F03 — THE CONTROL SAYS "Start speaking" AND NAVIGATES. `MicCard` uses almost the
-            // same words for the control that actually starts recording, so a user reading this as a
-            // promise arrives at a page that waits for a second click. `cta_id` is a checked-in
+            // #1259 F03 — THIS CONTROL NAVIGATES; IT DOES NOT RECORD. It once read "Start speaking", which
+            // collided with `MicCard`'s control that actually starts recording, so a user arrived at a page
+            // waiting for a second click. It now reads "Head to session" (FOCUS_POINTS_SPEC §0). `cta_id` is a checked-in
             // identifier rather than the visible label: copy will change, and the identity of the
             // control is what has to stay comparable across that change.
             emitJourneyStep({
@@ -191,7 +190,9 @@ export function ObjectiveSetupForm({
                     data-testid="objective-goal-select"
                     value={topic}
                     onChange={(e) => onTopicChange(e.target.value)}
-                    className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    // G7: white field on the `neutral-border` border with the product's focus ring — not the slate page
+                    // ground (`bg-background`) and not the browser's native blue outline.
+                    className={`mt-1.5 h-11 w-full rounded-[10px] border border-neutral-border bg-white px-3 text-[15px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${topic === '' ? 'text-neutral-muted' : 'text-neutral-body'}`}
                 >
                     <option value="">Choose a topic…</option>
                     {TOPIC_OPTIONS.map((t) => (
@@ -211,6 +212,10 @@ export function ObjectiveSetupForm({
                         autoFocus
                     />
                 )}
+                {/* FOCUS_POINTS_SPEC §0: the topic is shown above the points and never scored as one (§3 data rule). */}
+                <p data-testid="objective-topic-helper" className="mt-1.5 text-[12px] font-semibold text-neutral-muted">
+                    Your topic — shown above your points, never scored as one.
+                </p>
             </div>
 
             <div className="mt-6">
@@ -220,7 +225,7 @@ export function ObjectiveSetupForm({
                         <li key={p.id} className="flex items-start gap-2">
                             <span
                                 aria-hidden="true"
-                                className="mt-2.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-signature-ground text-[12px] font-extrabold text-signature-text"
+                                className="mt-2.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-focus-points-ground text-[12px] font-extrabold text-focus-points"
                             >
                                 {i + 1}
                             </span>
@@ -306,16 +311,22 @@ export function ObjectiveSetupForm({
                 </p>
             )}
 
-            <Button
+            {/*
+              G7 §0.1 (18 Sep): yellow ACTS, purple IDENTIFIES — the primary is signature yellow on ink, like
+              every other primary in the product. Disabled is its own neutral state (`neutral-border` fill / `neutral-muted` text); the
+              shared Button's `disabled:opacity-50` would render a faded brand colour, which reads as
+              enabled-but-broken, so this is a plain button styled from the tokens.
+            */}
+            <button
                 type="submit"
                 data-testid="objective-setup-submit"
                 disabled={!canSubmit}
-                className="mt-7 flex w-full items-center justify-center gap-2 rounded-[10px] bg-focus-points py-[15px] text-[16px] font-bold text-white hover:bg-focus-points-strong"
+                className="mt-7 flex w-full items-center justify-center gap-2 rounded-[10px] bg-signature py-[15px] text-[16px] font-extrabold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-border disabled:text-neutral-muted disabled:hover:brightness-100"
             >
                 {submitting
                     ? <><Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden="true" /> Saving…</>
-                    : <>Proceed to session <ArrowRight className="h-[18px] w-[18px]" aria-hidden="true" /></>}
-            </Button>
+                    : <>Head to session <ArrowRight className="h-[18px] w-[18px]" aria-hidden="true" /></>}
+            </button>
         </form>
     );
 }
