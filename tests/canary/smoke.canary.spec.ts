@@ -1,11 +1,53 @@
-import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { test, expect, type Page, type Worker } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
 import {
     classifyCanaryStartResponse,
     classifyCanaryUsageEntitlement,
+    canaryPathContainsEncodedAudio,
+    canaryQueryContainsEncodedAudio,
+    judgeCanaryEgress,
+    judgeDurableSession,
+    judgeSessionAttributionAuthority,
+    sanitizeCanaryPayloadUrl,
+    verdictCategory,
+    verdictUrl,
     type CanaryStartRpcPayload,
+    type ChannelObservation,
+    type EgressObservation,
 } from './canaryRuntimeContract';
+import { candidateFromPersistedTuple } from '../live/helpers/practiceLoopJourney';
+import { PAYLOAD_TRIPWIRE } from '../../scripts/human-test/payloadTripwire.mjs';
+import { auditPayloads, BLOCKING_PAYLOAD_CATEGORIES } from '../../scripts/human-test/observer.mjs';
+
+type CanaryPayloadRecord = {
+    t: number | null;
+    transport: string;
+    url: string;
+    method: string;
+    kind: string;
+    mime: string | null;
+    bytes: number | null;
+    runtimeState: string | null;
+    context: 'main' | 'worker';
+};
+
+function sanitizePayloadRecord(raw: unknown, context: 'main' | 'worker', appUrl: string): CanaryPayloadRecord {
+    const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const url = sanitizeCanaryPayloadUrl(record.url, appUrl);
+    return {
+        t: typeof record.t === 'number' ? record.t : null,
+        transport: typeof record.transport === 'string' ? record.transport : 'unknown',
+        url,
+        method: typeof record.method === 'string' ? record.method : 'UNKNOWN',
+        kind: typeof record.kind === 'string' ? record.kind : 'unknown',
+        mime: typeof record.mime === 'string' ? record.mime : null,
+        bytes: typeof record.bytes === 'number' ? record.bytes : null,
+        runtimeState: typeof record.runtimeState === 'string' ? record.runtimeState : null,
+        context,
+    };
+}
 
 /**
  * #1106 — deploy-race gate. The canary is triggered on push to main, but Vercel's deploy is async, so a
@@ -127,6 +169,51 @@ test.describe('Production Smoke Canary @canary', () => {
     });
 
     test('should complete a full session cycle on real infrastructure', async ({ page }) => {
+        // #1258 — install the repository's payload tripwire before ANY app code. Main-document payload
+        // metadata is streamed to the test because the successful save navigates away and destroys that
+        // document. The callback immediately strips query strings and retains metadata only — never a
+        // transcript, audio body, or raw URL. Workers are installed and drained separately below.
+        const payloadRecords: CanaryPayloadRecord[] = [];
+        const channelObservations: ChannelObservation[] = [];
+        let recordingStartedAt: number | null = null;
+        let lateWorkerCount = 0;
+        await page.exposeBinding('__SS_TRIPWIRE_EMIT__', (_source, raw: unknown) => {
+            const source = (raw as { __ssSource?: unknown } | null)?.__ssSource === 'worker' ? 'worker' : 'main';
+            payloadRecords.push(sanitizePayloadRecord(raw, source, page.url()));
+        });
+        await page.exposeBinding('__SS_TRIPWIRE_CHANNEL_EMIT__', (_source, raw: unknown) => {
+            const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+            const rawUrl = typeof record.url === 'string' ? record.url : '';
+            try {
+                const parsed = new URL(rawUrl, page.url());
+                channelObservations.push({
+                    redacted: sanitizeCanaryPayloadUrl(rawUrl, page.url()),
+                    origin: parsed.origin,
+                    kind: 'eventsource',
+                    // No EventSource route is part of the supported take contract.
+                    routeAllowed: false,
+                });
+            }
+            catch {
+                channelObservations.push({
+                    redacted: '<unparseable>', origin: '', kind: 'eventsource', routeAllowed: false,
+                });
+            }
+        });
+        await page.addInitScript({ content: PAYLOAD_TRIPWIRE });
+
+        const workerInstallations = new Map<Worker, Promise<boolean>>();
+        const installWorker = (worker: Worker) => {
+            if (workerInstallations.has(worker)) return;
+            if (recordingStartedAt !== null) lateWorkerCount += 1;
+            workerInstallations.set(worker, worker.evaluate(PAYLOAD_TRIPWIRE)
+                .then(() => worker.evaluate<boolean>(
+                    'globalThis.__SS_TRIPWIRE_READY_PROMISE__.then(() => globalThis.__SS_TRIPWIRE_RELAY_READY__ === true)',
+                ))
+                .catch(() => false));
+        };
+        page.on('worker', installWorker);
+
         // Capture the SERVER entitlement response (also recorded in the trace's network log) so the
         // journey proves the reusable synthetic account is durably paid and currently allowed to start.
         let usageBody: {
@@ -205,6 +292,117 @@ test.describe('Production Smoke Canary @canary', () => {
         debugLog('[CANARY] Confirming Private STT and readying the recorder...');
         await ensurePrivateReady(page);
 
+        // The worker holding PCM must already be instrumented BEFORE recording. A worker first created
+        // after Start creates an unobserved interval and fails the proof even if installation later wins.
+        page.workers().forEach(installWorker);
+        const installedBeforeStart = await Promise.all(workerInstallations.values());
+        expect(workerInstallations.size, 'CANARY_PAYLOAD_OBSERVER_MISSING: no Private-STT worker').toBeGreaterThan(0);
+        expect(installedBeforeStart.every(Boolean), 'CANARY_PAYLOAD_OBSERVER_MISSING: worker install failed').toBe(true);
+        await expect.poll(() => page.evaluate(() => ({
+            tripwire: Array.isArray((globalThis as unknown as { __SS_TRIPWIRE__?: unknown }).__SS_TRIPWIRE__),
+            binding: typeof (globalThis as unknown as { __SS_TRIPWIRE_EMIT__?: unknown }).__SS_TRIPWIRE_EMIT__ === 'function',
+        })), { message: 'CANARY_PAYLOAD_OBSERVER_MISSING: main tripwire/binding', timeout: 5000 })
+            .toEqual({ tripwire: true, binding: true });
+
+        // #1258 — OBSERVE EVERY REQUEST AND CHANNEL THE TAKE OPENS. Installed before Start so the
+        // recording window is fully covered. Recording only; the verdict is judged after the take.
+        //
+        // REDACT AT CAPTURE. The browser necessarily holds the full URL — that is not ours to change.
+        // What is ours is never STORING or ATTACHING path/query content: either can carry a transcript.
+        const redact = (u: string): {
+            redacted: string;
+            origin: string;
+            hasQuery: boolean;
+            queryContainsEncodedAudio: boolean;
+            pathContainsEncodedAudio: boolean;
+        } => {
+            try {
+                const p = new URL(u, page.url());
+                return {
+                    redacted: sanitizeCanaryPayloadUrl(u, page.url()),
+                    origin: p.origin,
+                    hasQuery: p.search.length > 0,
+                    queryContainsEncodedAudio: canaryQueryContainsEncodedAudio(u, page.url()),
+                    pathContainsEncodedAudio: canaryPathContainsEncodedAudio(u, page.url()),
+                };
+            }
+            catch {
+                return {
+                    redacted: '<unparseable>', origin: '', hasQuery: false,
+                    queryContainsEncodedAudio: false, pathContainsEncodedAudio: false,
+                };
+            }
+        };
+        const egressObservations: EgressObservation[] = [];
+        const appOriginDuringTake = new URL(page.url()).origin;
+        const configuredSupabaseUrlDuringTake = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
+        expect(configuredSupabaseUrlDuringTake, 'CANARY_CONFIG_INVALID: Supabase URL required before observation')
+            .toBeTruthy();
+        const supabaseOriginDuringTake = new URL(configuredSupabaseUrlDuringTake as string).origin;
+        const telemetryOriginsDuringTake = new Set([
+            process.env.VITE_POSTHOG_HOST,
+            process.env.SENTRY_DSN,
+        ].filter((value): value is string => Boolean(value)).map((value) => new URL(value).origin));
+        const allowedSupabaseRoutes = new Set([
+            'POST /rest/v1/rpc/create_session_and_update_usage',
+            'PATCH /rest/v1/sessions',
+            'POST /functions/v1/attest-session-engine',
+            'POST /functions/v1/get-ai-suggestions',
+        ]);
+        const requestContract = (rawUrl: string, method: string, contentType: string | undefined) => {
+            try {
+                const parsed = new URL(rawUrl, page.url());
+                const route = `${method} ${parsed.pathname}`;
+                const routeAllowed = parsed.origin === supabaseOriginDuringTake
+                    ? allowedSupabaseRoutes.has(route)
+                    : telemetryOriginsDuringTake.has(parsed.origin)
+                        ? method === 'POST' && (/^\/e\/?$/.test(parsed.pathname)
+                            || /^\/batch\/?$/.test(parsed.pathname)
+                            || /^\/api\/\d+\/envelope\/?$/.test(parsed.pathname))
+                        : parsed.origin === appOriginDuringTake
+                            && (method === 'GET' || method === 'HEAD')
+                            && parsed.pathname === '/session';
+                const normalizedType = (contentType ?? '').split(';', 1)[0].trim().toLowerCase();
+                const bodyClassAllowed = method === 'GET' || method === 'HEAD'
+                    || ['application/json', 'text/plain', 'application/x-www-form-urlencoded'].includes(normalizedType);
+                return { routeAllowed, bodyClassAllowed };
+            } catch {
+                return { routeAllowed: false, bodyClassAllowed: false };
+            }
+        };
+        let createSessionRpcCount = 0;
+        page.on('request', (request) => {
+            const {
+                redacted, origin, hasQuery, queryContainsEncodedAudio, pathContainsEncodedAudio,
+            } = redact(request.url());
+            if (request.method() === 'POST'
+                && request.url().includes('/rest/v1/rpc/create_session_and_update_usage')) {
+                createSessionRpcCount += 1;
+            }
+            // `postDataBuffer()` sees binary and multipart bodies; `postData()` returns null for both,
+            // so an audio upload as multipart would have recorded as bodyless. `null` here means the
+            // state could not be determined and the judge treats that as prohibited.
+            let bodyBytes: number | null = null;
+            try { bodyBytes = request.postDataBuffer()?.byteLength ?? 0; } catch { bodyBytes = null; }
+            const { routeAllowed, bodyClassAllowed } = requestContract(
+                request.url(), request.method(), request.headers()['content-type'],
+            );
+            egressObservations.push({
+                redacted, origin, bodyBytes, resourceType: request.resourceType(), hasQuery,
+                queryContainsEncodedAudio, pathContainsEncodedAudio, routeAllowed, bodyClassAllowed,
+            });
+        });
+        page.on('websocket', (ws) => {
+            const { redacted, origin } = redact(ws.url());
+            let routeAllowed = false;
+            try {
+                const parsed = new URL(ws.url());
+                routeAllowed = parsed.origin === supabaseOriginDuringTake.replace(/^https/, 'wss')
+                    && parsed.pathname === '/realtime/v1/websocket';
+            } catch { /* fail closed */ }
+            channelObservations.push({ redacted, origin, kind: 'websocket', routeAllowed });
+        });
+
         // 4. Start Session — the readied recorder control is `mic-start`.
         debugLog('[CANARY] Starting session...');
         const startButton = page.getByTestId('mic-start');
@@ -213,6 +411,7 @@ test.describe('Production Smoke Canary @canary', () => {
             response.request().method() === 'POST'
             && response.url().includes('/rest/v1/rpc/create_session_and_update_usage'),
         { timeout: 20000 });
+        recordingStartedAt = Date.now();
         await startButton.click();
 
         // Fail on the authoritative start denial BEFORE waiting on any secondary UI selector. The
@@ -226,7 +425,7 @@ test.describe('Production Smoke Canary @canary', () => {
             contentType: 'application/json',
             body: JSON.stringify(startOutcome, null, 2),
         });
-        expect(startOutcome.ok, `CANARY_START_DENIED:${startOutcome.ok ? 'none' : startOutcome.category}`).toBe(true);
+        expect(startOutcome.ok, `CANARY_START_DENIED:${verdictCategory(startOutcome)}`).toBe(true);
 
         // Prove the current runtime + during-state seams AND exact Private authority. The ambient header
         // remains a corroborating assertion, never the sole proof; Browser/Cloud/Native cannot satisfy
@@ -251,48 +450,194 @@ test.describe('Production Smoke Canary @canary', () => {
         await expect(stopButton).toBeVisible();
         await stopButton.click();
 
-        // 7. Handle session end (dialog, empty state, or redirect)
+        // 7. #1258 — THIS TAKE'S OWN EVIDENCE, UNCONDITIONALLY.
+        //
+        // What this replaces: a `Promise.race` of three end states where two resolved on ABSENCE
+        // (`No speech was detected`, plus every racer swallowing its own timeout via
+        // `.catch(() => null)`), then a schema check gated behind `if (url.includes('/analytics'))`
+        // and, inside that, `if (sessions.length > 0)`. An empty session list is exactly what a
+        // silently failed save produces, so the one assertion proving a save happened was skipped
+        // by the failure it existed to catch — and the spec then logged "Smoke test passed".
+        //
+        // Nothing below may be conditional, and no terminal may carry a swallowing catch.
+        // ORDER MATTERS. `UpgradePromptDialog` can BLOCK navigation to /analytics, which is why the
+        // replaced oracle raced them. Dismiss it FIRST, then require the terminal — racing a blocker
+        // against the thing it blocks is how an absence became a pass.
         const dialogLocator = page.locator('div[role="alertdialog"]');
-        const emptyStateLocator = page.getByText('No speech was detected');
-        const analyticsUrl = page.waitForURL(/\/analytics/, { timeout: 15000 }).catch(() => null);
-
-        // Wait for any end state
-        await Promise.race([
-            dialogLocator.waitFor({ timeout: 10000 }).catch(() => null),
-            emptyStateLocator.waitFor({ timeout: 10000 }).catch(() => null),
-            analyticsUrl,
-        ]);
-
-        // If we reached analytics, perform SCHEMA CHECK on Sessions
-        if (page.url().includes('/analytics')) {
-            debugLog('[CANARY] 🔍 Validating Sessions Schema...');
-            // Intercept the next list fetch to validate fields
-            const sessionResponsePromise = page.waitForResponse(res =>
-                res.url().includes('/rest/v1/sessions') && res.status() === 200
-            );
-
-            // Force a reload or wait for data
-            await page.reload();
-            const response = await sessionResponsePromise;
-            const sessions = await response.json();
-
-            if (Array.isArray(sessions) && sessions.length > 0) {
-                const latestSession = sessions[0];
-                const requiredFields = ['id', 'user_id', 'total_words', 'duration', 'created_at', 'engine'];
-                for (const field of requiredFields) {
-                    expect(latestSession[field], `Schema Valid: Session missing ${field}`).toBeDefined();
-                }
-                debugLog('[CANARY] ✅ Sessions Schema Valid');
-            }
-        }
-
-        // If dialog appeared, dismiss it
         if (await dialogLocator.isVisible().catch(() => false)) {
             const stayButton = page.getByRole('button', { name: 'Stay on Page' });
-            if (await stayButton.isVisible().catch(() => false)) {
-                await stayButton.click();
-            }
+            if (await stayButton.isVisible().catch(() => false)) await stayButton.click();
         }
+
+        // FORBIDDEN TERMINAL. The fixture contains speech; "no speech" is the defect, not an end state.
+        await expect(
+            page.getByText('No speech was detected'),
+            'CANARY_FORBIDDEN_TERMINAL: the recorded take produced no speech',
+        ).toHaveCount(0);
+
+        // REQUIRED TERMINAL. Saving stays on /session; the after-state verdict is the actual rendered
+        // post-save terminal. No `.catch(() => null)`: a timeout here is a failure, not a pass.
+        await expect(page.getByTestId('session-verdict')).toBeVisible({ timeout: 15000 });
+
+        // Seal payload evidence only AFTER stop/finalization/save reaches that required terminal. The
+        // Stop button's callback is intentionally void while persistence continues asynchronously, so
+        // auditing immediately after click() misses any egress during STOPPING or save. Worker records
+        // stream to the document while the engine is alive. Worker teardown remains synchronous; its
+        // shared atomic counter freezes the exact final sequence. This document-side drain requires
+        // every numbered record and exposed-binding acknowledgement, never an elapsed-time guess.
+        const payloadDrain = await page.evaluate(async (expectedWorkers) => {
+            const drain = (globalThis as typeof globalThis & {
+                __SS_TRIPWIRE_DRAIN__?: (expected: number) => Promise<{
+                    workers: number; received: number; acknowledged: number;
+                }>;
+            }).__SS_TRIPWIRE_DRAIN__;
+            if (typeof drain !== 'function') throw new Error('payload relay drain unavailable');
+            return drain(expectedWorkers);
+        }, workerInstallations.size);
+        expect(payloadDrain.workers, 'CANARY_PAYLOAD_OBSERVER_GAP: worker relay not registered')
+            .toBeGreaterThanOrEqual(workerInstallations.size);
+        expect(payloadDrain.acknowledged, 'CANARY_PAYLOAD_OBSERVER_GAP: worker sequence not drained')
+            .toBeGreaterThanOrEqual(payloadDrain.received);
+        expect(lateWorkerCount, 'CANARY_PAYLOAD_OBSERVER_GAP: worker created after recording began').toBe(0);
+
+        const payloadFindings = auditPayloads(payloadRecords, {
+            appOrigin: new URL(page.url()).origin,
+            recordingStartedAt,
+        });
+        const blockingPayloads = payloadFindings.filter((finding: { category?: string }) =>
+            BLOCKING_PAYLOAD_CATEGORIES.includes(finding.category));
+        await test.info().attach('audio-egress-payload-verdict', {
+            contentType: 'application/json',
+            body: JSON.stringify({
+                verdict: blockingPayloads.length === 0 ? 'PASS' : 'FAIL',
+                inspected: payloadRecords.length,
+                workers: workerInstallations.size,
+                findings: payloadFindings,
+            }, null, 2),
+        });
+        expect(blockingPayloads, 'CANARY_AUDIO_EGRESS: payload tripwire observed prohibited bytes').toEqual([]);
+        // Seal the exact take window before navigation/reload. Later evidence reads must not contaminate it.
+        const sealedEgressObservations = egressObservations.slice();
+        const sealedChannelObservations = channelObservations.slice();
+
+        // Exercise the shipped action only after the post-save payload verdict is sealed. This makes
+        // /analytics an explicit journey step instead of pretending Save navigates there automatically.
+        await page.getByTestId('verdict-see-all').click();
+        await page.waitForURL(/\/analytics/, { timeout: 15000 });
+
+        debugLog('[CANARY] 🔍 Binding durable evidence to this take...');
+        const sessionResponsePromise = page.waitForResponse((res) => {
+            if (res.request().method() !== 'GET' || res.status() !== 200) return false;
+            try {
+                const url = new URL(res.url());
+                const projection = url.searchParams.get('select') ?? '';
+                return url.pathname.endsWith('/rest/v1/sessions')
+                    && projection.includes('id')
+                    && projection.includes('total_words')
+                    && projection.includes('duration');
+            } catch {
+                return false;
+            }
+        });
+        await page.reload();
+        const sessionResponse = await sessionResponsePromise;
+        const sessions = await sessionResponse.json();
+
+        // Bound to THIS take's session id from the authoritative start RPC — never `sessions[0]`,
+        // which is the newest row the account has and on a re-run is the PREVIOUS take.
+        const boundSessionId = 'sessionId' in startOutcome ? startOutcome.sessionId : '';
+        const durable = judgeDurableSession(sessions, boundSessionId);
+        await test.info().attach('durable-session-verdict', {
+            contentType: 'application/json',
+            body: JSON.stringify({ ...durable, boundSessionId }, null, 2),
+        });
+        const durableReason = verdictCategory(durable);
+        expect(durable.ok, `CANARY_TAKE_NOT_DURABLE:${durableReason}`).toBe(true);
+        expect(createSessionRpcCount, 'CANARY_DUPLICATE_SESSION_CREATE: expected one start RPC for this take').toBe(1);
+        debugLog('[CANARY] ✅ This take saved exactly once with a non-zero word count.');
+
+        // Candidate identity comes from THIS TAKE'S immutable, server-owned attribution authority — never
+        // from the legacy client-facing `sessions.attribution_status` tuple. Reuse the authenticated headers
+        // already sent by the app for its owner-scoped sessions read, but never attach or log those values.
+        const configuredSupabaseUrl = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
+        expect(configuredSupabaseUrl, 'CANARY_CONFIG_INVALID: Supabase URL is required for authority read')
+            .toBeTruthy();
+        const requestHeaders = await sessionResponse.request().allHeaders();
+        const apiKey = requestHeaders.apikey;
+        const authorization = requestHeaders.authorization;
+        expect(Boolean(apiKey && authorization), 'CANARY_AUTHORITY_READ_HEADERS_MISSING').toBe(true);
+        const authorityUrl = new URL('/rest/v1/session_attribution_authority', configuredSupabaseUrl as string);
+        authorityUrl.searchParams.set(
+            'select',
+            'session_id,user_id,authority_version,engine_class,engine,engine_version,model_id,provider,attested_at',
+        );
+        authorityUrl.searchParams.set('session_id', `eq.${boundSessionId}`);
+        let authorityRows: unknown = null;
+        await expect.poll(async () => {
+            const response = await fetch(authorityUrl, {
+                headers: { apikey: apiKey as string, authorization: authorization as string },
+            });
+            if (!response.ok) return `authority_http_${response.status}`;
+            try { authorityRows = await response.json(); }
+            catch { return 'authority_invalid_json'; }
+            return verdictCategory(judgeSessionAttributionAuthority(authorityRows, boundSessionId));
+        }, {
+            message: 'CANARY_CANDIDATE_AUTHORITY_NOT_TERMINAL',
+            timeout: 15_000,
+        }).toBe('none');
+        const authority = judgeSessionAttributionAuthority(authorityRows, boundSessionId);
+        await test.info().attach('candidate-authority-verdict', {
+            contentType: 'application/json',
+            body: JSON.stringify({ ...authority, boundSessionId }, null, 2),
+        });
+        expect(authority.ok, `CANARY_CANDIDATE_AUTHORITY:${verdictCategory(authority)}`).toBe(true);
+
+        // The expected side is the checked-in selector in the exact release under test, so a future v4
+        // promotion automatically changes this assertion while a silent declaration mismatch remains visible.
+        const engineVersion = 'engineVersion' in authority ? authority.engineVersion : null;
+        const modelId = 'modelId' in authority ? authority.modelId : null;
+        const persistedCandidate = candidateFromPersistedTuple(engineVersion, modelId);
+        const configuredCandidate = (JSON.parse(
+            readFileSync('frontend/src/config/private-stt.config.json', 'utf8'),
+        ) as { candidate?: unknown }).candidate;
+        expect(typeof configuredCandidate, 'CANARY_CONFIG_INVALID: Private STT selector has no candidate').toBe('string');
+        expect('failure' in persistedCandidate ? persistedCandidate.failure : null,
+            'CANARY_CANDIDATE_UNATTRIBUTABLE').toBeNull();
+        const observedCandidate = 'candidateId' in persistedCandidate ? persistedCandidate.candidateId : null;
+        expect(observedCandidate, 'CANARY_CANDIDATE_DIVERGENCE').toBe(configuredCandidate);
+        await test.info().attach('candidate-attribution-verdict', {
+            contentType: 'application/json',
+            body: JSON.stringify({
+                configuredCandidate,
+                observedCandidate,
+                authorityVersion: 'authorityVersion' in authority ? authority.authorityVersion : null,
+            }, null, 2),
+        });
+
+        // 8. Destination-policy proof. This catches undeclared origins, audio-shaped query exfiltration
+        // even to an approved origin, any post-readiness model-origin request, unreadable body state,
+        // and ungoverned duplex channels. Body-content classification remains the worker/main tripwire's
+        // responsibility; query shape is classified here before the URL is redacted to origin-only evidence.
+        const appOrigin = new URL(page.url()).origin;
+        expect(configuredSupabaseUrl, 'CANARY_CONFIG_INVALID: Supabase URL is required for exact-origin policy')
+            .toBeTruthy();
+        const supabaseOrigin = new URL(configuredSupabaseUrl as string).origin;
+        const governedTelemetry = Array.from(new Set([
+            process.env.VITE_POSTHOG_HOST,
+            process.env.SENTRY_DSN,
+        ].filter((value): value is string => Boolean(value)).map((value) => new URL(value).origin)));
+        const egress = judgeCanaryEgress(sealedEgressObservations, sealedChannelObservations, {
+            firstParty: [appOrigin, supabaseOrigin, supabaseOrigin.replace(/^https/, 'wss')],
+            governedTelemetry,
+            modelAssets: ['https://huggingface.co', 'https://cdn-lfs.huggingface.co', 'https://cdn-lfs-us-1.huggingface.co'],
+        });
+        await test.info().attach('egress-destination-verdict', {
+            contentType: 'application/json',
+            body: JSON.stringify(egress, null, 2),
+        });
+        const egressReason = `${verdictCategory(egress)} ${verdictUrl(egress)}`.trim();
+        expect(egress.ok, `CANARY_PROHIBITED_DESTINATION:${egressReason}`).toBe(true);
+        debugLog(`[CANARY] ✅ No prohibited destination across ${egress.ok ? egress.inspected : 0} observed requests.`);
 
         debugLog('[CANARY] ✅ Smoke test passed. System is operational.');
     });

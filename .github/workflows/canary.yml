@@ -149,6 +149,12 @@ jobs:
           CANARY_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
           CANARY_EXPECTED_ACCESS: active-trial
           BASE_URL: https://speaksharp-public.vercel.app/
+          # Exact destination authorities consumed by the deployed egress policy. These are public
+          # origins, not credentials. Sentry is optional in-product; when configured, its exact ingest
+          # origin must be governed rather than misreported as an undeclared destination.
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_POSTHOG_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
           # #1106 deploy-race gate: the commit this run was triggered from. The canary must confirm the
           # deployed build (window.__APP_RELEASE__) equals this SHA BEFORE it asserts product behavior.
           EXPECTED_RELEASE_SHA: ${{ github.sha }}
