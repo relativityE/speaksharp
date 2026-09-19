@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 // ... existing imports ...
+import type { ProgressVsBaselineValue } from '@/components/session/ProgressVsBaselineCard';
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
 import { useAuthProvider } from '@/contexts/AuthProvider';
@@ -444,11 +445,16 @@ export const SessionPage: React.FC = () => {
     // concept. A Focus Points run reads "Focus Points · N points" (attempt-of-a-set numbering is deferred
     // with the same-set retry comparison).
     const objectivePointCount = activeObjectiveBrief?.points?.length ?? 0;
+    // G16 D1/D4 — ONE resolved comparison drives both slot D's numeric body and the subtitle's baseline clause,
+    // so the header can never claim a baseline the page does not show. The comparison metric is pending a
+    // PM/Designer decision (spec §6 fillers-per-minute vs the shipped clarity-vs-previous-session contract);
+    // until it is wired, slot D shows its truthful no-number body and the subtitle is `Session {n}` alone.
+    const beforeProgress: ProgressVsBaselineValue | null = null;
     const sessionSubtitle = isObjectiveSession
         ? `Focus Points · ${objectivePointCount} point${objectivePointCount === 1 ? '' : 's'}`
-        : baselineDateLabel
+        : beforeProgress && baselineDateLabel
             ? `Session ${completedSessions + 1} · baseline set ${baselineDateLabel}`
-            : 'Session 1 · your baseline starts here';
+            : `Session ${completedSessions + 1}`;
 
     // Status resolution logic
     const getBaseStatus = (): SttStatus => {
@@ -717,6 +723,7 @@ export const SessionPage: React.FC = () => {
                         void queryClient.resetQueries({ queryKey: ['session', reviewSessionId] });
                     }}
                     onSeeAllSessions={() => navigate('/analytics')}
+                    beforeProgress={beforeProgress}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}
                     finalizeEstimateSeconds={finalizeEstimateSeconds}

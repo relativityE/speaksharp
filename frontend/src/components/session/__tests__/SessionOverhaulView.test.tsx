@@ -28,38 +28,57 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
     });
 
-    it('CASUALTY S-5: before carries no disclaimer card — a first session gets one plain baseline line', () => {
+    it('CASUALTY G16 D1: a first session gets the progress CARD with its plain baseline line, never a disclaimer', () => {
         render(<SessionOverhaulView {...base} history={[]} />);
         expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
         expect(screen.queryByText(/no universal score/i)).toBeNull();
-        const line = screen.getByTestId('open-mic-baseline-line');
-        expect(line).toHaveTextContent('First session — this run becomes your baseline.');
-        expect(screen.getByTestId('session-slot-d')).toContainElement(line);
-        // No heading, no chrome: the line is the whole rail.
-        expect(screen.getByTestId('session-slot-d').querySelector('h1,h2,h3,h4,section')).toBeNull();
+        const card = screen.getByTestId('progress-vs-baseline');
+        expect(screen.getByTestId('session-slot-d')).toContainElement(card);
+        expect(card).toHaveTextContent('Progress vs baseline');
+        expect(card).toHaveTextContent('First session — this run becomes your baseline.');
     });
 
-    it('S-5: a returning user gets a plain progress link, never an invented number', () => {
-        const onSeeAllSessions = vi.fn();
+    it('CASUALTY G16 D1: a returning user gets a surface with a body — never the bare "See your progress" heading', () => {
         render(
             <SessionOverhaulView
                 {...base}
-                onSeeAllSessions={onSeeAllSessions}
                 history={[{ id: 's1', user_id: 'user-1', created_at: '2026-09-01T00:00:00Z', duration: 90 }]}
             />,
         );
-        expect(screen.queryByTestId('open-mic-baseline-line')).toBeNull();
-        const link = screen.getByRole('button', { name: 'See your progress' });
-        expect(screen.getByTestId('session-slot-d')).toHaveTextContent(/^See your progress$/);
-        fireEvent.click(link);
-        expect(onSeeAllSessions).toHaveBeenCalledTimes(1);
+        const slotD = screen.getByTestId('session-slot-d');
+        expect(slotD.textContent ?? '').not.toMatch(/See your progress/);
+        const card = screen.getByTestId('progress-vs-baseline');
+        expect(card).toHaveAttribute('data-progress-body', 'no-history');
+        // Not their first session, so the card must not say it is.
+        expect(card.textContent ?? '').not.toMatch(/first session/i);
     });
 
-    it('CASUALTY S-4: the filler-words settings strip is gone; its link lives in the transcript header', () => {
+    it('CASUALTY G16 D3: the filler-word control is its own rail card — the transcript header carries no link or tick', () => {
         render(<SessionOverhaulView {...base} />);
         expect(screen.queryByTestId('custom-words-bar')).toBeNull();
-        expect(screen.queryByText(/tracking common hesitation sounds/i)).toBeNull();
-        expect(screen.getByTestId('transcript-card')).toContainElement(screen.getByTestId('add-custom-word-button'));
+        const edit = screen.getByTestId('add-custom-word-button');
+        expect(screen.getByTestId('tracked-filler-words-card')).toContainElement(edit);
+        expect(screen.getByTestId('transcript-card')).not.toContainElement(edit);
+        const header = screen.getByTestId('transcript-before-header');
+        expect(header).toHaveTextContent(/live transcript/i);
+        expect(header).toHaveTextContent('0 words');
+        expect(header.querySelector('svg')).toBeNull();
+    });
+
+    it('G16 D3: the only signature-yellow fill in the before row is "Give me a prompt"', () => {
+        const { container } = render(<SessionOverhaulView {...base} />);
+        const row = container.querySelector('[data-testid="session-shell-row"]') as HTMLElement;
+        const yellowFills = [...row.querySelectorAll<HTMLElement>('*')].filter((el) => /(^|\s)bg-signature(\s|$)/.test(el.className));
+        expect(yellowFills).toHaveLength(1);
+        expect(yellowFills[0]).toHaveTextContent('Give me a prompt');
+        expect(row.innerHTML).not.toMatch(/text-signature(-text)?\b/);
+    });
+
+    it('G16 D2: the before row stretches both columns; during/after keep items-start', () => {
+        const { container, rerender } = render(<SessionOverhaulView {...base} />);
+        expect(container.querySelector('[data-testid="session-shell-row"]')!.className).toContain('md:items-stretch');
+        rerender(<SessionOverhaulView {...base} isListening transcriptContent="so um" elapsedTime={30} />);
+        expect(container.querySelector('[data-testid="session-shell-row"]')!.className).toContain('md:items-start');
     });
 
     it('listening runtime → during state (recorder bar + live transcript)', () => {

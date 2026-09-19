@@ -68,9 +68,20 @@ describe('SessionShell — one slot map for both products (G1)', () => {
     it('lays the row out as flex 1 + a 310px rail from md, stacked below it', () => {
         renderState('before');
         const row = screen.getByTestId('session-shell-row');
-        expect(row).toHaveClass('flex', 'flex-col', 'md:flex-row', 'md:items-start');
+        // G16 D2: in `before` both columns share the row's height so they end level.
+        expect(row).toHaveClass('flex', 'flex-col', 'md:flex-row', 'md:items-stretch');
         expect(screen.getByTestId('session-slot-c')).toHaveClass('min-w-0', 'md:flex-1');
         expect(screen.getByTestId('session-slot-d')).toHaveClass('md:w-[310px]', 'md:shrink-0');
+    });
+
+    it('CASUALTY G16 D2: only `before` stretches — during/after keep items-start so a long transcript never stretches the rail', () => {
+        for (const state of ['during', 'after'] as const) {
+            const { unmount } = renderState(state);
+            const row = screen.getByTestId('session-shell-row');
+            expect(row).toHaveClass('md:items-start');
+            expect(row).not.toHaveClass('md:items-stretch');
+            unmount();
+        }
     });
 
     it('only slot B is dark — A, C and D carry no ground of their own', () => {

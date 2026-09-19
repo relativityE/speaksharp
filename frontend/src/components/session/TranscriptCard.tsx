@@ -77,6 +77,12 @@ export interface TranscriptCardProps {
      * measure. `Read full transcript` lifts the cap in place.
      */
     capped?: boolean;
+    /**
+     * G16 / SESSION_BEFORE_DELTA D2+D3 — the `before` layout. The header is the `LIVE TRANSCRIPT` eyebrow with
+     * the word count right-aligned (no tick, no glyph, no link), and the empty-state box is compact so the
+     * transcript and the rail end level. `during` and `after` keep their layout (the delta changes neither).
+     */
+    beforeLayout?: boolean;
 }
 
 const OrangeTick: React.FC = () => (
@@ -104,6 +110,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
     children,
     headerAction,
     capped,
+    beforeLayout,
 }) => {
     const [expanded, setExpanded] = React.useState(false);
     const isCapped = Boolean(capped) && !expanded;
@@ -150,6 +157,16 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
         >
             {/* Header — tick + title left; recovery link and header action right. Present in every state.
                 S-4: no `✕` — the transcript is the product, not a dismissible panel. */}
+            {beforeLayout ? (
+                <div className="mb-3 flex items-center justify-between" data-testid="transcript-before-header">
+                    <h2 className="text-[12px] font-extrabold uppercase tracking-[0.09em] text-neutral-secondary">Live transcript</h2>
+                    {headerMeta && (
+                        <span className="text-[12px] font-bold text-neutral-muted" data-testid="transcript-header-meta">
+                            {headerMeta}
+                        </span>
+                    )}
+                </div>
+            ) : (
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <OrangeTick />
@@ -174,6 +191,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                     {headerAction}
                 </div>
             </div>
+            )}
 
             {/* #1231 R1 / PO 2026-08-10: ONE prominent status banner at the top of the transcript, so the
                 user is never judging the ROUGH live draft as the final result. While recording it reads
@@ -219,7 +237,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 </>
             ) : (
                 <div
-                    className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-border-strong p-6"
+                    className={`flex flex-1 items-center justify-center rounded-lg border border-dashed border-neutral-border-strong ${beforeLayout ? 'px-5 py-[22px]' : 'p-6'}`}
                     data-testid="transcript-empty-frame"
                 >
                     {hasChosenPrompt ? (

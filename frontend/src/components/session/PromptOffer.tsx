@@ -25,10 +25,10 @@ export interface PromptOfferProps {
 export const PromptOffer: React.FC<PromptOfferProps> = ({ onPrompt, onSample }) => {
     return (
         <div className="mx-auto max-w-md text-center" data-testid="prompt-offer">
-            <p className="text-[18px] font-extrabold text-neutral-body">Not sure what to say?</p>
+            <p className="text-[16px] font-extrabold text-neutral-body">Not sure what to say?</p>
 
             {/* Matched pair: equal weight, side by side. */}
-            <div className="mt-4 flex justify-center gap-3">
+            <div className="mt-[14px] flex justify-center gap-3">
                 <button
                     type="button"
                     onClick={onPrompt}
@@ -41,13 +41,13 @@ export const PromptOffer: React.FC<PromptOfferProps> = ({ onPrompt, onSample }) 
                     type="button"
                     onClick={onSample}
                     data-testid="prompt-offer-sample"
-                    className="rounded-lg border border-neutral-border-strong bg-white px-4 py-2 text-[14px] font-bold text-neutral-heading transition-colors hover:bg-neutral-band"
+                    className="rounded-lg border border-neutral-border-strong bg-white px-4 py-2 text-[14px] font-bold text-neutral-body transition-colors hover:bg-neutral-band"
                 >
                     Read a sample
                 </button>
             </div>
 
-            <p className="mt-3 text-[12px] text-neutral-secondary">
+            <p className="mt-[14px] text-[13px] font-semibold text-neutral-muted">
                 Or just press the mic — your words appear here.
             </p>
         </div>

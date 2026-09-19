@@ -13,8 +13,8 @@ import { ThisRunRail } from './ThisRunRail';
 import { OnDeviceCountsContext } from './onDeviceCounts';
 import { ThisRunCard } from './ThisRunCard';
 import { getNextPrompt, getNextSample } from '@/services/practice/practiceOnramp';
-import { AddFillerWordsLink } from './AddFillerWordsLink';
-import { OpenMicBaselineLine } from './OpenMicBaselineLine';
+import { ProgressVsBaselineCard, type ProgressVsBaselineValue } from './ProgressVsBaselineCard';
+import { TrackedFillerWordsCard } from './TrackedFillerWordsCard';
 import { SessionVerdict } from './SessionVerdict';
 import { type CoverageRailPoint } from './CoverageRail';
 import { CoveragePace } from './CoveragePace';
@@ -113,6 +113,11 @@ export interface SessionOverhaulViewProps {
     /** Completed-session Practice Loop review. SessionPage owns its persistence-ready/session-id gate. */
     practiceLoopReview?: React.ReactNode;
     onSeeAllSessions?: () => void;
+    /**
+     * G16 D1/D4 — the resolved `before` comparison for slot D, or null for the no-number body. The SAME object
+     * decides the page subtitle's `baseline set` clause, so the two can never disagree.
+     */
+    beforeProgress?: ProgressVsBaselineValue | null;
     /** #1231 R1 — live-updating tail (rendered muted/settling) + post-Stop finalizing banner. */
     interimTranscript?: string;
     isFinalizing?: boolean;
@@ -182,6 +187,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     aiSuggestions: _aiSuggestions,
     practiceLoopReview,
     onSeeAllSessions,
+    beforeProgress,
     interimTranscript,
     isFinalizing,
     finalizeEstimateSeconds,
@@ -748,7 +754,15 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         // plain line (S-5). A Focus Points brief whose coverage is not derived yet keeps an empty rail.
         const beforeRail = isObjective
             ? (objectiveBeforeSlotC || objectivePlanSlotD ? <>{objectiveBeforeSlotC}{objectivePlanSlotD}</> : null)
-            : <OpenMicBaselineLine isFirstSession={(history ?? []).length === 0} onSeeProgress={onSeeAllSessions} />;
+            : (
+                // G16 D1+D3: slot D is always a surface — the progress card (never a bare heading) and, under it,
+                // the tracked-filler-words card that left the transcript header. The numeric body is wired when
+                // the comparison metric is decided; until then every user gets the truthful no-number body.
+                <>
+                    <ProgressVsBaselineCard progress={beforeProgress ?? null} isFirstSession={(history ?? []).length === 0} />
+                    <TrackedFillerWordsCard />
+                </>
+            );
         return (
             <SessionBeforeState
                 mic={{
@@ -775,7 +789,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     hidePromptOffer: isObjective,
                     // S-4: the settings strip that sat under the shell is now a header link. Filler words are
                     // an Open Mic concept, so Focus Points carries no link (#1046).
-                    headerAction: isObjective ? undefined : <AddFillerWordsLink />,
+                    // G16 D3: the filler-word control moved to its own rail card, so Open Mic's header carries no
+                    // link; the header is the LIVE TRANSCRIPT eyebrow with the word count (Focus Points unchanged).
+                    headerAction: undefined,
+                    beforeLayout: !isObjective,
+                    headerMeta: isObjective ? undefined : '0 words',
                 }}
                 rail={beforeRail}
             />
