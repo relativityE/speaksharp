@@ -38,10 +38,14 @@ describe('FAQ claims match the shipped contracts', () => {
         expect(text).not.toMatch(/qualifies once it is long enough/i);
     });
 
-    it('CASUALTY: never promises unlimited session length; states the real cap', () => {
+    it('CASUALTY: states the PRODUCT recording cap, never the memory backstop or "unlimited"', () => {
         expect(text).not.toMatch(/as long as you like|unlimited|no time limit/i);
-        expect(PRIV_STT.MAX_UTTERANCE_SECONDS).toBe(900);
-        expect(answerOf('open-floor-vs-focus-points')).toMatch(/15 minutes/);
+        // The binding cap is MAX_PRIVATE_RECORDING_SECONDS. MAX_UTTERANCE_SECONDS is a memory backstop set
+        // deliberately ABOVE it (a normal take never reaches it) — quoting it told users 15 min instead of 10.
+        const capMinutes = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS / 60;
+        expect(PRIV_STT.MAX_UTTERANCE_SECONDS).toBeGreaterThan(PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS);
+        expect(answerOf('open-floor-vs-focus-points')).toMatch(new RegExp(`up to ${capMinutes} minutes per recording`));
+        expect(text).not.toMatch(new RegExp(`${PRIV_STT.MAX_UTTERANCE_SECONDS / 60} minutes`));
     });
 
     it('CASUALTY: Focus Points is described as detector evidence, not proof of what was meant', () => {

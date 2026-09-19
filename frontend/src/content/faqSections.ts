@@ -15,7 +15,8 @@
  *     Pause rhythm is NOT an input.
  *   - Eligibility: ≥30 s AND ≥75 words, a saved transcript, clarity evidence, verified engine
  *     attribution and a complete engine identity; a changed setup restarts the comparison.
- *   - Recording length: capped at 15 minutes (`MAX_UTTERANCE_SECONDS: 900`).
+ *   - Recording length: capped at 10 minutes (`MAX_PRIVATE_RECORDING_SECONDS: 600`). NOT
+ *     `MAX_UTTERANCE_SECONDS: 900` — that is the memory backstop, deliberately above the cap.
  *   - Audio: processed in memory on the device, never uploaded or saved.
  *   - Retention: no deletion schedule is claimed here — newest-one retention is installed inert.
  */
@@ -107,7 +108,7 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 id: 'open-floor-vs-focus-points',
                 question: 'What is the difference between Open Mic and Focus Points?',
                 answer: [
-                    'Open Mic — speak freely on anything, up to 15 minutes per recording. Good for warming up or thinking out loud.',
+                    'Open Mic — speak freely on anything, up to 10 minutes per recording. Good for warming up or thinking out loud.',
                     'Focus Points — list the points you want to cover, then speak. Afterwards each point shows whether your transcript has evidence you covered it.',
                 ],
             },
