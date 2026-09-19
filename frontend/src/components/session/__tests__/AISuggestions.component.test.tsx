@@ -51,6 +51,13 @@ describe('AISuggestions Integration', () => {
      * value is omitted, not zeroed or dashed.
      */
     describe('S-14 — on-device counts fill the still-coming state', () => {
+        it('CASUALTY (#1498 P2): the review is a navigable section with a heading that parents its subsections', () => {
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* in flight */ }));
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-heading" />);
+            // A styled paragraph named nothing: screen-reader users could not jump to the review.
+            expect(screen.getByRole('heading', { level: 3, name: /practice loop review/i })).toBeInTheDocument();
+        });
+
         it('renders the published fillers and pace while the review is pending', () => {
             mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* in flight */ }));
             render(

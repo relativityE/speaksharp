@@ -1,5 +1,5 @@
 import React from 'react';
-import { sampleCountForWidth, downsamplePeaks } from './waveformGeometry';
+import { sampleCountForWidth, downsamplePeaks, bucketForIndex } from './waveformGeometry';
 
 /**
  * S-9 — the waveform, shared by the `during` recorder bar and the static shape kept in `after`.
@@ -110,10 +110,10 @@ export const Waveform: React.FC<WaveformProps> = ({
         [amplitudes, rendered, compressed],
     );
 
-    // A source index lands in the bucket that contains it — the same bucketing `downsamplePeaks` uses.
+    // A source index lands in the bucket that contains it — the SAME partition `downsamplePeaks` uses.
     const lineFor = React.useCallback(
         (sourceIndex: number) => (compressed
-            ? Math.min(rendered - 1, Math.floor((sourceIndex * rendered) / sourceLength))
+            ? bucketForIndex(sourceIndex, sourceLength, rendered)
             : sourceIndex),
         [compressed, rendered, sourceLength],
     );

@@ -18,6 +18,7 @@ import { __resetPracticeLoopTelemetryForTests } from '@/services/telemetry/pract
 import { __resetJourneyIdentityForTests, beginJourney } from '@/services/telemetry/journeyIdentity';
 import { reachedStages, __resetCompletionStagesForTests } from '@/services/telemetry/completionStages';
 import type { SttStatus } from '@/types/transcription';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 const POINTS = ['Name the price', 'Close with the next step'];
 
@@ -179,6 +180,10 @@ describe('#1421 P1 — Focus Points review receipts', () => {
 // S-11 — the mic returned to slot A in `after` is a restart control, so it must go through the SAME
 // telemetry-wrapped, product-correct handler as the review's own "go again" action.
 describe('S-11 P1 — the after-state mic restarts the same product, and says so', () => {
+    // The returned mic carries the before-state start gate. In the app the durable queue has been read long
+    // before a review exists; resolve it for this viewer so these tests exercise the routing, not the gate.
+    beforeEach(() => { useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'user-1' }); });
+
     it('CASUALTY: on Focus Points it rebinds the completed brief (onRetryPoints), never raw onStartStop', () => {
         // Raw onStartStop starts an OPEN MIC take here, because production clears the live brief on save.
         const onRetryPoints = vi.fn();

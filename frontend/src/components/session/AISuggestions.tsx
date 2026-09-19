@@ -530,10 +530,12 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       className="min-w-0"
     >
       <div className="mb-4 flex items-center justify-between gap-3.5">
-        <p className="inline-flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-[0.09em] text-signature">
+        {/* A real heading at the eyebrow's visual size: it names the review section for screen-reader
+            navigation and parents the "What went well" / "Try this next run" h4s. */}
+        <h3 className="inline-flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-[0.09em] text-signature">
           <Sparkles className="h-[15px] w-[15px]" aria-hidden="true" />
           Practice Loop review
-        </p>
+        </h3>
         {inFlight ? (
           /* The chip replaces the session meta — the one progress indicator the user needs. Retry is
              silent and backed off; no error code, no spinner, no disabled primary action. It appears ONLY

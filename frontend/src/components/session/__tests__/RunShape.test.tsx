@@ -85,4 +85,14 @@ describe('RunShape — the mic returns and the run is a picture (S-11)', () => {
         expect(track.className).toContain('min-w-[96px]');
         expect(track).toContainElement(screen.getByTestId('run-shape-waveform'));
     });
+
+    it('CASUALTY (#1498 P2): a gated mic is disabled and cannot start a run', () => {
+        const onStart = vi.fn();
+        render1({ onStart, disabled: true });
+        const mic = screen.getByTestId('run-shape-mic');
+        expect(mic).toBeDisabled();
+        expect(mic).toHaveAttribute('aria-label', 'Start recording — unavailable while your last session finishes');
+        fireEvent.click(mic);
+        expect(onStart).not.toHaveBeenCalled();
+    });
 });

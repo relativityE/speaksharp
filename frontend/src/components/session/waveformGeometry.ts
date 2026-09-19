@@ -50,3 +50,18 @@ export function downsamplePeaks(buffer: ArrayLike<number>, count: number): numbe
     }
     return out;
 }
+
+/**
+ * The bucket that contains `sourceIndex` when `sourceLength` levels are downsampled to `count` buckets —
+ * using EXACTLY the partition `downsamplePeaks` uses (bucket b starts at floor(b·n / count)). Anything that
+ * marks a line (a filler, the recorded boundary) must land on the line whose peak contains that audio;
+ * a separately rounded formula drifts one line early whenever n is not divisible by count.
+ */
+export function bucketForIndex(sourceIndex: number, sourceLength: number, count: number): number {
+    if (count <= 0 || sourceLength <= 0) return 0;
+    const start = (b: number) => Math.floor((b * sourceLength) / count);
+    let b = Math.min(count - 1, Math.max(0, Math.floor((sourceIndex * count) / sourceLength)));
+    while (b + 1 < count && start(b + 1) <= sourceIndex) b += 1;
+    while (b > 0 && start(b) > sourceIndex) b -= 1;
+    return b;
+}

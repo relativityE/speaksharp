@@ -895,6 +895,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     // Focus Points rebinds the completed brief (raw start would open Open Mic), and Open Mic
                     // records `option_selected` exactly as its "Practice again" does.
                     onStart: isObjective ? chooseRetryPoints : choosePracticeAgain,
+                    // The before-state mic's gate, verbatim: a press here must be possible exactly when it is there.
+                    disabled: Boolean(isButtonDisabled) || gateBlocksStart,
                 }}
                 transcript={{
                     tokens: renderedReviewTokens,
