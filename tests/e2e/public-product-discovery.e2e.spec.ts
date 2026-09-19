@@ -43,6 +43,50 @@ async function settle(page: Page) {
   }, { timeout: 10000 });
 }
 
+/**
+ * G17 L3/L5 — what only a real browser can prove: every price and term renders at >= 15px, both pricing-card control
+ * slots compute to 52px (so the cards stay level with the Pro slot as plain text), with payments disabled the
+ * pricing block has exactly one focusable control, both cards compute the same 1px #dbe2ec border, and every list
+ * mark in both cards computes the one neutral #6b7688.
+ */
+async function assertLandingTermsRender(page: Page) {
+  const r = await page.evaluate(() => {
+    const px = (el: Element | null) => (el ? parseFloat(getComputedStyle(el).fontSize) : -1);
+    const pricing = document.querySelector('section[aria-label="Pricing"]');
+    const terms = document.querySelector('[data-testid="hero-terms"]');
+    const priceNodes = pricing ? Array.from(pricing.querySelectorAll('article p span')) : [];
+    const trial = document.querySelector('[data-testid="landing-trial-cta"]');
+    const proSlot = document.querySelector('[data-testid="landing-pro-unavailable"], [data-testid="landing-pro-continue"]');
+    const focusable = pricing ? pricing.querySelectorAll('a[href], button, [tabindex]:not([tabindex="-1"])').length : -1;
+    return {
+      termsPx: px(terms),
+      termsPricePx: px(terms?.querySelector('span') ?? null),
+      pricePx: priceNodes.map(px),
+      trialH: trial ? (trial as HTMLElement).getBoundingClientRect().height : -1,
+      proH: proSlot ? (proSlot as HTMLElement).getBoundingClientRect().height : -1,
+      proDisabled: Boolean(document.querySelector('[data-testid="landing-pro-unavailable"]')),
+      markColours: pricing ? Array.from(new Set(Array.from(pricing.querySelectorAll('article li svg'))
+        .map((mark) => getComputedStyle(mark).color))) : [],
+      cardBorders: pricing ? Array.from(pricing.querySelectorAll('article')).map((card) => {
+        const cs = getComputedStyle(card);
+        return `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`;
+      }) : [],
+      focusable,
+    };
+  });
+  expect(r.termsPx, 'hero terms line size').toBeGreaterThanOrEqual(15);
+  expect(r.termsPricePx, 'hero price size').toBeGreaterThanOrEqual(15);
+  expect(r.pricePx.length, 'pricing prices found').toBeGreaterThan(0);
+  for (const size of r.pricePx) expect(size, 'pricing price size').toBeGreaterThanOrEqual(15);
+  expect(r.trialH, 'trial CTA slot height').toBe(52);
+  expect(r.proH, 'Pro CTA slot height').toBe(52);
+  if (r.proDisabled) expect(r.focusable, 'focusable controls in the pricing block (payments disabled)').toBe(1);
+  // G17 equal borders (Designer 2026-09-19): both cards 1px solid #dbe2ec.
+  expect(r.cardBorders, 'pricing card borders').toEqual(['1px solid rgb(219, 226, 236)', '1px solid rgb(219, 226, 236)']);
+  // G17 equal marks (Designer 2026-09-19): one neutral mark, #6b7688, in both cards.
+  expect(r.markColours, 'pricing list mark colours').toEqual(['rgb(107, 118, 136)']);
+}
+
 test.describe('#1061 one canonical auth-aware page', () => {
   test('anonymous `/`: #1475 G12 hero with the complete offer + product cards + pricing; NO continuity', async ({ page }) => {
     await bootAnonymous(page);
@@ -52,10 +96,13 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('practice-hero-start-free')).toBeVisible();
     // #1475: the retired trial strip is replaced by the complete offer at every signup decision point.
     await expect(page.getByTestId('freeform-trial-strip')).toHaveCount(0);
-    await expect(page.getByRole('region', { name: /^hero$/i })).toContainText('30 days free, no card.');
-    await expect(page.getByRole('region', { name: /^hero$/i })).toContainText('Then $10/month. Cancel any time.');
-    await expect(page.getByRole('region', { name: /call to action/i })).toContainText(/free for 30 days\. Then \$10\/month\./);
+    // G17 L1: one hero terms line pairs the trial with its price; the closing band states neither (supersedes #1470's
+    // closing-band copy, PO + PM 2026-09-19). L2: `no card` nowhere on the route.
+    await expect(page.getByTestId('hero-terms')).toHaveText('Free for 30 days, $10/month after.');
+    await expect(page.getByRole('region', { name: /call to action/i })).not.toContainText(/30 day|\$10/i);
+    await expect(page.locator('body')).not.toContainText(/no card/i);
     await expect(page.getByRole('region', { name: /pricing/i })).toBeVisible();
+    await assertLandingTermsRender(page);
     await expect(page.getByTestId('support-freeform-explain')).toHaveCount(0);
     // Focus Points is activated (#1046 5b): no SOON badge, a real start CTA; never "Planned"; no continuity for anon.
     await expect(page.getByTestId('objective-soon-badge')).toHaveCount(0);

@@ -24,7 +24,11 @@ const surfaces = {
   statusNotification: read('frontend/src/components/session/StatusNotificationBar.tsx'),
   transcriptPanel: read('frontend/src/components/session/LiveTranscriptPanel.tsx'),
   faq: read('frontend/src/content/faqSections.ts'),
+  // HeroSection/FeaturesSection belong to the unrouted legacy Index/MainPage; the LIVE signed-out homepage is
+  // PracticePage → LandingHero / LandingPricingSection / ClosingCTASection, whose copy lives in landingOffer.ts.
   landingHero: read('frontend/src/components/landing/HeroSection.tsx'),
+  landingOffer: read('frontend/src/components/landing/landingOffer.ts'),
+  landingClosing: read('frontend/src/components/landing/ClosingCTASection.tsx'),
   landingFeatures: read('frontend/src/components/landing/FeaturesSection.tsx'),
 };
 
@@ -72,11 +76,24 @@ describe('Private-only public product copy contract (#1254)', () => {
     expect(surfaces.testerGuide).toContain('Every customer practice session uses Private transcription on your device');
     expect(surfaces.testerGuide).toContain('free for 30 days');
     expect(surfaces.testerGuide).toContain('$10/month');
-    expect(surfaces.landingHero).toContain('Complete product free for 30 days');
-    expect(surfaces.landingHero).toContain('$10/month after');
     expect(surfaces.landingHero).toContain('Every recording uses Private on-device transcription');
     expect(surfaces.landingFeatures).toContain('Every customer recording uses on-device Private transcription');
     expect(surfaces.landingFeatures).toContain('Trial and paid access provide the same complete product');
+  });
+
+  // #1470, in the shape PO + PM accepted for G17 (2026-09-19): the live hero pairs "Free for 30 days" with
+  // "$10/month", and the closing band makes neither a trial claim nor a price claim — so no free-trial claim on the
+  // homepage ships without its post-trial price. G17 supersedes #1470's closing-band copy requirement.
+  it('#1470 / G17: the hero pairs the trial with its price; the closing band states neither', async () => {
+    const { HERO_TERMS, CLOSING_VALUE } = await import('../../frontend/src/components/landing/landingOffer');
+    const heroTerms = `${HERO_TERMS.lead}${HERO_TERMS.price}${HERO_TERMS.tail}`;
+    expect(heroTerms).toBe('Free for 30 days, $10/month after.');
+    expect(surfaces.landingOffer).toContain("lead: 'Free for 30 days, '");
+    expect(surfaces.landingOffer).toContain("price: '$10/month'");
+    const closingCopy = [CLOSING_VALUE, ...stringLiterals(surfaces.landingClosing)].join('\n');
+    expect(closingCopy).not.toMatch(/30[ -]day/i);
+    expect(closingCopy).not.toContain('$10');
+    expect(closingCopy).not.toMatch(/\bfree\b|\btrial\b/i);
   });
 
   it('forbids the retired customer propositions', () => {

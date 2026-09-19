@@ -2,11 +2,12 @@ import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Mic } from 'lucide-react';
 import { trackConversionCtaClicked, trackConversionCtaViewed } from '@/services/conversionFunnel';
-import { CLOSING_OFFER, LANDING_SIGNUP_ROUTE } from './landingOffer';
+import { CLOSING_VALUE, LANDING_SIGNUP_ROUTE, LANDING_TRIAL_CTA } from './landingOffer';
 
 /**
- * #1475 G12 Rev 2 §2 section 6 — the closing band on ink. Its H2 is one step below the section H2s on purpose. The
- * offer sentence carries the post-trial price required by #1470 (ruling B on #1475).
+ * #1475 G12 Rev 2 §2 section 6 — the closing band on ink. Its H2 is one step below the section H2s on purpose.
+ * G17 L1: it keeps its value sentence and button and states NO trial claim and NO price — a price quoted at the
+ * moment of the last click reads as pressure. PO + PM accepted this as superseding #1470's closing-band copy.
  */
 export const ClosingCTASection = () => {
     useEffect(() => {
@@ -23,7 +24,7 @@ export const ClosingCTASection = () => {
                 Ready to practice before it <span className="text-signature">matters?</span>
             </h2>
             <p className="mx-auto mb-7 max-w-[580px] text-[17px] font-medium leading-[1.55] text-ink-text md:text-[19px]">
-                {CLOSING_OFFER}
+                {CLOSING_VALUE}
             </p>
             <Link
                 to={LANDING_SIGNUP_ROUTE}
@@ -31,7 +32,7 @@ export const ClosingCTASection = () => {
                 className="mx-auto inline-flex h-[58px] w-full max-w-[420px] items-center justify-center gap-[11px] whitespace-nowrap rounded-xl bg-signature px-8 text-[17px] font-extrabold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2 focus-visible:ring-offset-ink md:w-auto"
             >
                 <Mic className="size-[21px]" aria-hidden="true" />
-                Try it out!
+                {LANDING_TRIAL_CTA}
             </Link>
         </section>
     );

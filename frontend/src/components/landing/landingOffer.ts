@@ -1,19 +1,76 @@
 /**
- * #1475 G12 Rev 2 — the homepage's offer and hero strings.
+ * The homepage's offer, CTA and pricing strings.
  *
- * Rev 2 §5.1: the hero states the terms in full, at reading size, directly under the CTA. Rev 2 §0.2 sets the hero
- * line and keeps the repository badge. The closing band carries the post-trial price because the #1470 acceptance
- * (binding on #1475) requires it; Rev 2 §5.1 disagrees, and that conflict is ruling B on the issue.
+ * G17 (LANDING_TERMS_DELTA L1–L5, LANDING_PAGE_SPEC §5.1/§5.4/§5.5, 2026-09-19): the commercial terms appear exactly
+ * twice on this route — the hero terms line and the pricing block — and `no card` appears nowhere. The closing band
+ * states neither a trial claim nor a price; PO + PM accepted that as superseding #1470's closing-band requirement
+ * (#1470's rule still holds: no trial claim ships without its post-trial price, and the hero pairs the two).
+ *
+ * The pricing strings here are the LANDING's own. `/pricing` keeps the shared `pricingTiers` / `offerDisclosure`
+ * copy until its own follow-up; this route must not change it (delta scope: the unauthenticated landing only).
  */
-export const HERO_BADGE = 'Complete product free for 30 days';
 export const HERO_LINE = 'Speak. See what to fix. Say it again. Your audio never leaves the browser.';
 
-/** Two terms lines under the hero CTA: the trial, then the price in the money role. */
-export const HERO_TERMS_TRIAL = '30 days free, no card.';
-export const HERO_TERMS_PRICE = 'Then $10/month. Cancel any time.';
+/** L1 mention 1 — one line beside the hero CTA; `price` renders in the money role. */
+export const HERO_TERMS = Object.freeze({ lead: 'Free for 30 days, ', price: '$10/month', tail: ' after.' });
 
-/** Closing band: the repository's closing sentence, with the post-trial price #1470 requires. */
-export const CLOSING_OFFER = 'Start the complete product free for 30 days. Then $10/month. Your recordings stay Private on this device.';
+/** L5 — the ONE trial-CTA label on the route (Designer 2026-09-19: says what happens when you press it). */
+export const LANDING_TRIAL_CTA = 'Start your session';
+
+/** Closing band: its value sentence only — no trial claim, no price. */
+export const CLOSING_VALUE = 'Your recordings stay Private on this device.';
 
 /** The repository's signed-out signup destination (see the `/auth/signup` route in App.tsx). */
 export const LANDING_SIGNUP_ROUTE = '/auth/signup';
+
+/** L4 — the pricing block names the section; the sub-line carries the one-product point. */
+export const LANDING_PRICING_HEADING = 'Pricing';
+export const LANDING_PRICING_SUBLINE = 'The trial is the complete product. Nothing is held back.';
+
+export interface LandingTier {
+    plan: 'free' | 'pro';
+    name: string;
+    label: string;
+    price: string;
+    features: readonly string[];
+}
+
+/** L4 card copy (G17). Both cards describe the same complete product; they differ only by trial vs continuation. */
+export const LANDING_TIERS: readonly [LandingTier, LandingTier] = [
+    {
+        plan: 'free',
+        name: 'Free trial',
+        label: 'First 30 days',
+        price: '$0',
+        features: [
+            'Open Mic and Focus Points sessions',
+            'Full feedback and review after every run',
+            'Private transcription, audio stays local',
+        ],
+    },
+    {
+        plan: 'pro',
+        name: 'Pro',
+        label: 'Per month, after trial',
+        price: '$10',
+        features: ['Everything in the trial, unchanged', 'Your session history keeps building', 'Cancel any time'],
+    },
+];
+
+/** §5.4 enabled: the paid control's label. */
+export const LANDING_PRO_CTA = 'Continue for $10/month';
+
+/**
+ * L3 / §5.4 disabled: a plain, forward-looking line in the paid control's slot — never an apology, never the
+ * product's build state, never a control.
+ */
+export const LANDING_PRO_UNAVAILABLE_LINE = 'Available at the end of your trial.';
+
+/** §5.5: two unconditional chips (no cards, billing or trial length) + the §5.4 state-dependent third. */
+export function landingDisclosureChips(paymentsEnabled: boolean): readonly [string, string, string] {
+    return [
+        'Private transcription keeps audio local',
+        'Transcript data supports SpeakSharp features',
+        paymentsEnabled ? 'Pro continues only after Stripe confirmation' : 'Paid continuation opens later — nothing is charged today',
+    ];
+}
