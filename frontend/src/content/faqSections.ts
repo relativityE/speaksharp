@@ -80,7 +80,7 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 id: 'first-session-no-percent',
                 question: 'Why doesn’t my first session show a progress percentage?',
                 answer: [
-                    'A percentage is a change, and your first qualifying session has nothing before it — so it shows “baseline set” instead. From your second qualifying session on, you see the change versus the one before.',
+                    'A percentage is a change, and your first qualifying session has nothing before it — so it shows “Baseline established” instead. From your second qualifying session on, you see the change versus the one before.',
                 ],
             },
             {

@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { FAQ_SECTIONS } from '../faqSections';
 import { PRIV_STT } from '@/services/transcription/sttConstants';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+// The first-session line the Progress panel actually renders lives in progressPresentation.ts.
+const PROGRESS_PRESENTATION_SOURCE = readFileSync(
+    path.resolve(__dirname, '../../services/progress/progressPresentation.ts'), 'utf8');
 
 /**
  * The FAQ is a set of product claims. These casualties bind each claim to the contract it describes, so
@@ -26,7 +32,11 @@ describe('FAQ claims match the shipped contracts', () => {
 
     it('compares against the previous qualifying session, with the first as the baseline', () => {
         expect(answerOf('how-progress-measured')).toMatch(/previous qualifying session/i);
-        expect(answerOf('first-session-no-percent')).toMatch(/baseline set/i);
+        // The FAQ QUOTES the product's first-session line, so the quote must be the product's real text. It said
+        // "baseline set" — a string the Progress panel never showed — and shipped that way in #1504.
+        const quoted = /“([^”]+)”/.exec(answerOf('first-session-no-percent'))?.[1];
+        expect(quoted).toBe('Baseline established');
+        expect(PROGRESS_PRESENTATION_SOURCE).toContain(`text: "${quoted} —`);
     });
 
     it('CASUALTY: eligibility is never reduced to duration alone', () => {
