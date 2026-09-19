@@ -20,6 +20,7 @@ const renderAt = () =>
       <Routes>
         <Route path="/protected" element={<ProtectedRoute><div data-testid="child">CHILD</div></ProtectedRoute>} />
         <Route path="/auth" element={<div data-testid="auth-page">AUTH</div>} />
+        <Route path="/" element={<div data-testid="anonymous-landing">LANDING</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -42,6 +43,24 @@ describe('ProtectedRoute — beta access control', () => {
     mockUseAuthProvider.mockReturnValue({ user: null, loading: false });
     renderAt();
     expect(screen.getByTestId('auth-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('child')).not.toBeInTheDocument();
+  });
+
+  // PO 2026-09-19 (Production): signing out from a protected page sent the user to /auth (the guard beat the
+  // Sign Out control's own navigate('/')) and could leave an empty body. Sign-out lands on the anonymous landing.
+  it('sends a user who just signed out to the anonymous landing, not /auth', () => {
+    mockUseAuthProvider.mockReturnValue({ user: null, loading: false, signedOutByUser: true });
+    renderAt();
+    expect(screen.getByTestId('anonymous-landing')).toBeInTheDocument();
+    expect(screen.queryByTestId('auth-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('child')).not.toBeInTheDocument();
+  });
+
+  it('the signed-out destination holds in the E2E build too, whose bypass otherwise hides every redirect', () => {
+    mockUseAuthProvider.mockReturnValue({ user: null, loading: false, signedOutByUser: true });
+    mockEnv.isE2E = true;
+    renderAt();
+    expect(screen.getByTestId('anonymous-landing')).toBeInTheDocument();
     expect(screen.queryByTestId('child')).not.toBeInTheDocument();
   });
 

@@ -22,6 +22,12 @@ export interface AuthContextType {
   loading: boolean;
   signOut: () => Promise<void>;
   setSession: (s: Session | null) => void;
+  /**
+   * True from the moment the user asks to sign out until a session exists again. Protected routes read it to
+   * send a missing user to the anonymous landing (`/`) instead of the sign-in page: someone who just signed
+   * out did not ask to sign in (PO 2026-09-19).
+   */
+  signedOutByUser?: boolean;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -90,6 +96,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
    * answers — `getSession()` returning a session or none, a terminal error, an auth event, an explicit
    * sign-out or set session. The timeout keeps the UI moving and settles nothing.
    */
+  const [signedOutByUser, setSignedOutByUser] = useState(false);
   const [identityAnswered, setIdentityAnswered] = useState(() => Boolean(getInjectedSession()) || isE2EMockMode);
 
   useEffect(() => {
@@ -361,6 +368,9 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   }, [loading, sessionState]);
 
   const signOut = useCallback(async () => {
+    // Set BEFORE anything is cleared: every render in the sign-out window must already know where a
+    // protected route should send the now-anonymous user.
+    setSignedOutByUser(true);
     try {
       queryClient.clear();
       logger.info('[AuthProvider] QueryClient cache cleared');
@@ -378,6 +388,11 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     setIdentityAnswered(true);
   }, [supabase, queryClient]);
 
+  // A session existing again (sign-in, magic-link return) ends the signed-out state.
+  useEffect(() => {
+    if (sessionState?.user) setSignedOutByUser(false);
+  }, [sessionState]);
+
   const value = useMemo((): AuthContextType => ({
     session: sessionState ?? null,
     user: sessionState?.user ?? null,
@@ -391,7 +406,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       setSessionState(s);
       setIdentityAnswered(true);
     },
-  }), [sessionState, loading, signOut]);
+    signedOutByUser,
+  }), [sessionState, loading, signOut, signedOutByUser]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -16,7 +16,7 @@ interface ProtectedRouteProps {
  * This allows public pages to render immediately while protected pages wait for auth.
  */
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user, loading } = useAuthProvider();
+  const { user, loading, signedOutByUser } = useAuthProvider();
   const location = useLocation();
 
   // Show loading state for protected routes - this is the RIGHT place for it
@@ -30,6 +30,13 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }
 
   // 🧪 INTEGRITY BYPASS: Allow System Probe to reach protected routes without real Auth
+  // The user signed out from this page: go to the anonymous landing, the same destination every Sign Out
+  // control navigates to. Redirecting to /auth here raced that navigation and could leave the user on a
+  // sign-in URL with an empty body (PO 2026-09-19, Production).
+  if (!user && signedOutByUser) {
+    return <Navigate to="/" replace />;
+  }
+
   if (!user && !ENV.isE2E) {
     logger.info({ from: `${location.pathname}${location.search}` }, '[ProtectedRoute] No user, redirecting to /auth');
     return <Navigate to="/auth" state={{ from: location }} replace />;
