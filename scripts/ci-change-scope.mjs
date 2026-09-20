@@ -89,6 +89,10 @@ export function classifyChanges(changedFiles, ctx = {}) {
     // A push to a protected branch, an explicit full request, or any non-draft PR (i.e. a merge
     // candidate) always gets complete validation.
     if (eventName === 'push') return { ...full, reason: 'push' };
+    // #1501 — a merge-queue candidate is the exact tree about to become `main`. It always gets the full
+    // lane, explicitly: its event carries no pull_request draft flag, so relying on "not a draft" would be
+    // correct only by accident.
+    if (eventName === 'merge_group') return { ...full, reason: 'merge_group' };
     if (forceFull) return { ...full, reason: 'force_full' };
     if (!isDraft) return { ...full, reason: 'non_draft_pr' };
 
