@@ -38,16 +38,14 @@ export const TrackedFillerWordsCard: React.FC = () => {
                     </button>
                 </PopoverTrigger>
                 <PopoverContent className="w-80 border-neutral-border bg-white">
-                    <div data-testid="tracked-filler-list" className="mb-3">
-                        <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-neutral-secondary">
-                            Tracked words ({allWords.length})
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                            {allWords.map((w, i) => (
-                                <span key={`${w}-${i}`} className="rounded-full bg-neutral-band px-2 py-0.5 text-[12px] text-neutral-body">{w}</span>
-                            ))}
-                        </div>
-                    </div>
+                    {/*
+                     * ONE list of words in this popover, and it is the manager's — the list whose entries can be
+                     * removed. The chip list that shipped here beside it named every custom word a second time:
+                     * the user read the same word twice in one popover, and `user-filler-words.e2e` failed with a
+                     * strict-mode violation (its post-removal check matched two elements) on `main@289da05a`.
+                     * The card's own `Tracking N filler words` still states what is listened for, including the
+                     * built-ins the manager does not list.
+                     */}
                     <UserFillerWordsManager />
                 </PopoverContent>
             </Popover>
