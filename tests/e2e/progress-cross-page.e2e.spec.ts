@@ -181,7 +181,9 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await expect(page.getByTestId('progress-panel')).toBeVisible();
     await expect(page.getByTestId('progress-what-worked')).toHaveCount(1);
     await expect(page.getByTestId('progress-practice-next')).toHaveCount(1);
-    await expect(page.getByTestId('progress-direction')).toHaveText(/improved 7\.3% vs your previous comparable session/i);
+    // G18: the panel states the MOVE in the app's own clarity unit (`84% → 90%`), never a percent-of-previous.
+    await expect(page.getByTestId('progress-direction')).toHaveText(/Clearer than your previous comparable session: \d+% → \d+%\./);
+    await expect(page.getByTestId('progress-direction')).not.toHaveText(/7\.3%/);
     await expect(page.getByTestId('progress-baseline-context')).toHaveText(/previous comparable session is also your first-session baseline/i);
     await expect(page.getByTestId('progress-accept')).toHaveText(/Practice this next/i);
     await expect(page.getByText(/SpeakSharp Score/i)).toHaveCount(0);
@@ -215,7 +217,9 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     expect(pdfText).not.toContain('The saved-session evidence made the recommendation concrete.');
     expect(pdfText).toContain('Close the next attempt with the requested decision and owner.');
     expect(pdfText).toContain('Comparable Progress');
-    expect(pdfText).toContain('improved 7.3% vs your previous comparable session');
+    // G18: the export carries the same sentence as the panel, with the arrow transliterated for WinAnsi.
+    expect(pdfText).toMatch(/Clearer than your previous comparable session: \d+% -> \d+%\./);
+    expect(pdfText).not.toContain('7.3%');
     expect(forbiddenCloudRequests).toEqual([]);
   });
 });
