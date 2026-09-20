@@ -62,6 +62,14 @@ describe('audio leaving the device is the violation', () => {
         expect(hits).toHaveLength(1);
         expect(hits[0].category).toBe('audio_egress');
     });
+
+    it('CASUALTY: encoding audio as base64 or numeric JSON does not authorise it', () => {
+        const hits = blocking([
+            rec({ url: `${APP}/api/upload`, kind: 'encoded_audio', mime: null, bytes: 512 }),
+            rec({ url: 'https://us.i.posthog.com/e/', kind: 'encoded_audio', mime: 'application/json', bytes: 1_024 }),
+        ]);
+        expect(hits.map((hit) => hit.category)).toEqual(['same_origin_audio', 'audio_egress']);
+    });
 });
 
 describe('ordinary product behaviour is NOT a violation', () => {
