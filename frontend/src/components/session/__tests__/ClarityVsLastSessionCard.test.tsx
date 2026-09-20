@@ -43,14 +43,14 @@ describe('ClarityVsLastSessionCard (G18)', () => {
         expect(screen.getByTestId('clarity-vs-last-session')).toHaveAttribute('data-progress-body', 'numeric');
         expect(screen.getByTestId('clarity-vs-last-session-value')).toHaveTextContent(/82%\s*→\s*88%/);
         expect(screen.getByTestId('clarity-vs-last-session-current').className).toContain('text-status');
-        expect(screen.getByTestId('clarity-vs-last-session-support')).toHaveTextContent('Clearer than your last session, 14 Sep.');
+        expect(screen.getByTestId('clarity-vs-last-session-support')).toHaveTextContent('Clearer than your 14 Sep session.');
     });
 
     it('declined: the second number is the signature amber, and the support line says less clear', () => {
         render(<ClarityVsLastSessionCard move={move({ previousPercent: 88, currentPercent: 83, direction: 'declined' })} />);
         expect(screen.getByTestId('clarity-vs-last-session-value')).toHaveTextContent(/88%\s*→\s*83%/);
         expect(screen.getByTestId('clarity-vs-last-session-current').className).toContain('text-signature-text');
-        expect(screen.getByTestId('clarity-vs-last-session-support')).toHaveTextContent('Less clear than your last session, 14 Sep.');
+        expect(screen.getByTestId('clarity-vs-last-session-support')).toHaveTextContent('Less clear than your 14 Sep session.');
     });
 
     /*
@@ -68,6 +68,22 @@ describe('ClarityVsLastSessionCard (G18)', () => {
         expect(current).not.toContain('text-status');
         expect(current).not.toContain('text-signature-text');
         expect(screen.getByTestId('clarity-vs-last-session-support')).toHaveTextContent('Holding steady since 14 Sep.');
+    });
+
+    // D1d — the window line names the compared session by DATE and claims no adjacency: eligibility can skip
+    // a non-qualifying run, so `last` / `previous` / `comparable` would all overclaim.
+    it.each(['improved', 'declined', 'held_steady'] as const)('D1d: the %s window line names the date and no ordinal', (direction) => {
+        render(<ClarityVsLastSessionCard move={move({ direction })} />);
+        const support = screen.getByTestId('clarity-vs-last-session-support').textContent ?? '';
+        expect(support).toContain('14 Sep');
+        expect(support).not.toMatch(/\b(last|previous|comparable)\b/i);
+    });
+
+    // D1e — slot D carries no colour outside the token set; the withdrawn draft values must not reappear.
+    it('D1e: the card uses tokens only — no raw hex anywhere in its markup', () => {
+        const { container } = render(<ClarityVsLastSessionCard move={move()} />);
+        expect(container.innerHTML).not.toMatch(/#[0-9a-f]{6}/i);
+        expect(container.innerHTML).not.toMatch(/2b3446|9aa3b2|eef1f6/i);
     });
 
     // The delta is deliberately absent: `+6` beside `82% → 88%` is the same fact twice, and a lone `+1` is

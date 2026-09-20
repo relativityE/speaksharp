@@ -32,6 +32,7 @@ import { ProgressPanel } from '@/components/progress/ProgressPanel';
 import { ClarityVsLastSessionCard } from '@/components/session/ClarityVsLastSessionCard';
 import { useClarityMove } from '@/hooks/useClarityMove';
 import type { PracticeSession } from '@/types/session';
+import type { SessionProgressResult } from '@/services/progress/loadSessionProgress';
 
 const HISTORY = [
     { id: 's2', user_id: 'u1', created_at: '2026-09-20T10:00:00Z', duration: 90 },
@@ -39,7 +40,7 @@ const HISTORY = [
 ] as unknown as PracticeSession[];
 
 /** One authority, two projections of it — built from the same clarity pair. */
-const authority = (previous: number, current: number) => ({
+const authority = (previous: number, current: number): SessionProgressResult => ({
     status: 'eligible' as const,
     sessionId: 's2',
     comparison: 'previous' as const,
@@ -64,7 +65,11 @@ const authority = (previous: number, current: number) => ({
         deltaPercent: ((current - previous) / previous) * 100,
         units: 'clear-delivery points' as const,
     },
-    takeaways: { whatWorked: 'Very few filler words', practiceThisNext: 'Cut filler words toward 3%', target: null },
+    takeaways: {
+        whatWorked: 'Very few filler words',
+        practiceThisNext: 'Cut filler words toward 3%',
+        target: { metric: 'filler_rate', direction: 'decrease', targetValue: 3, units: 'percent' },
+    },
     recommendationId: null,
     latestAttempt: null,
 });

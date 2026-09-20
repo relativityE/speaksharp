@@ -26,9 +26,15 @@ export interface ClarityVsLastSessionCardProps {
     move: ClarityMove;
 }
 
+/*
+ * The window line names the compared session BY DATE and makes no claim about adjacency (Designer,
+ * 2026-09-20). Eligibility skips runs that fail a gate, so "your last session" can be false for a user who
+ * recorded a short take in between; "last comparable session" is true but adds the kind of word this
+ * revision exists to remove. The date is true in every case and checkable against the session list.
+ */
 const SUPPORT_LINE: Record<'improved' | 'declined' | 'held_steady', (date: string) => string> = {
-    improved: (date) => `Clearer than your last session, ${date}.`,
-    declined: (date) => `Less clear than your last session, ${date}.`,
+    improved: (date) => `Clearer than your ${date} session.`,
+    declined: (date) => `Less clear than your ${date} session.`,
     held_steady: (date) => `Holding steady since ${date}.`,
 };
 
