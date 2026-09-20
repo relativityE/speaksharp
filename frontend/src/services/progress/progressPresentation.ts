@@ -100,8 +100,16 @@ export function describeDirection(
         ? null
         : ((current.clarityRaw - reference.clarityRaw) / reference.clarityRaw) * 100;
 
+    // G18 (Designer + PM, 2026-09-20) — state THE MOVE in the unit the app already prints for clarity
+    // (`96%` in the session rows, the analytics table and the export). A percent-OF-PREVIOUS here
+    // ("improved 7.3%") was a second, different percent for the same metric, and it put the display in a
+    // different unit from the 3-point significance rule below. Both scores are shown, so "why wasn't that an
+    // improvement" is answerable by looking.
+    const move = `${Math.round(reference.clarityRaw)}% → ${Math.round(current.clarityRaw)}%`;
+
     if (Math.abs(delta) < threshold) {
-        return { direction: 'below_policy', deltaPoints: delta, deltaPercent, reason: null, text: 'No meaningful change yet.' };
+        // A real comparison that the copy declines to celebrate: below the meaningful-change threshold.
+        return { direction: 'below_policy', deltaPoints: delta, deltaPercent, reason: null, text: `Holding steady since your ${referenceLabel}: ${move}.` };
     }
     if (deltaPercent === null) {
         // Zero-reference: a relative movement measured against a zero clear-delivery baseline has no
@@ -115,14 +123,13 @@ export function describeDirection(
             text: `No defensible change — your ${referenceLabel} had no clear-delivery baseline (zero) to compare against.`,
         };
     }
-    // Display precision: ONE decimal. A whole-percent round hid real sub-point movement (e.g. 7.3% → "7%").
-    const shown = (Math.round(Math.abs(deltaPercent) * 10) / 10).toFixed(1);
     return {
         direction: delta > 0 ? 'improved' : 'declined',
         deltaPoints: delta,
+        // Retained as evidence for the inspectable disclosure and the tests; no longer displayed (G18).
         deltaPercent,
         reason: null,
-        text: `Clear delivery ${delta > 0 ? 'improved' : 'declined'} ${shown}% vs your ${referenceLabel}.`,
+        text: `${delta > 0 ? 'Clearer' : 'Less clear'} than your ${referenceLabel}: ${move}.`,
     };
 }
 

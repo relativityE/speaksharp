@@ -126,8 +126,12 @@ describe('#1047 U2 loadSessionProgress', () => {
         if (view.status !== 'eligible') throw new Error('expected eligible');
         expect(view.direction.direction).toBe('improved');
         expect(view.direction.deltaPoints).toBe(6); // previous=84, not first baseline=80
-        expect(view.direction.text).toMatch(/7\.1% vs your previous comparable session/i); // one-decimal display
-        expect(view.baselineContext).toMatch(/12\.5% vs your first comparable session/i);
+        // G18: the panel states the MOVE in the app's own clarity unit; the relative percent stays as
+        // inspectable evidence in the disclosure, never as displayed copy.
+        expect(view.direction.text).toBe('Clearer than your previous comparable session: 84% → 90%.');
+        expect(view.direction.text).not.toMatch(/7\.1%/);
+        // The quiet long-term line follows the same G18 rule as the headline: scores, not a percent-of-previous.
+        expect(view.baselineContext).toBe('Clearer than your first comparable session: 80% → 90%.');
         expect(view.comparison).toBe('previous');
         expect(view.recommendationId).toBe('rec-2');
         // Inspectable evidence disclosure: the validated reference session, cohort/mode, inputs, and units.

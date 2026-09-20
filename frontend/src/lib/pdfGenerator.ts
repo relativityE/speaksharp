@@ -89,6 +89,13 @@ export const getSessionPdfFilename = (
   return `${sanitizeFilenamePart(identifier)}_session_${sessionNumber}_${dateStr}.pdf`;
 };
 
+/** WinAnsi-safe rendering of copy the UI writes with typographic characters. */
+export const toPdfText = (value: string): string => value
+  .replace(/\u2192/g, '->')
+  .replace(/[\u2013\u2014]/g, '-')
+  .replace(/[\u2018\u2019]/g, "'")
+  .replace(/[\u201c\u201d]/g, '"');
+
 const writePaginatedText = (
   doc: jsPDF,
   text: string,
@@ -98,7 +105,10 @@ const writePaginatedText = (
   lineHeight = 5,
   bottomMargin = 18
 ): number => {
-  const lines = doc.splitTextToSize(text, maxWidth);
+  // jsPDF's built-in fonts are WinAnsi: a character outside that set does not render as itself. The G18
+  // Progress sentence carries `→` on screen, so the EXPORT transliterates it rather than emitting a glyph the
+  // reader cannot see. This changes the rendering, never the sentence the app shows.
+  const lines = doc.splitTextToSize(toPdfText(text), maxWidth);
   const pageHeight = (doc.internal as unknown as jsPDFInternal).pageSize.height;
   let y = startY;
 

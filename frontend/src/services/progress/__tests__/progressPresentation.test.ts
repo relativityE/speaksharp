@@ -38,7 +38,8 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         const r = describeDirection(withClarity(mk(), 84), withClarity(mk({ sessionId: 's0' }), 80));
         expect(r.direction).toBe('improved');
         expect(r.deltaPercent).toBe(5);
-        expect(r.text).toBe('Clear delivery improved 5.0% vs your previous comparable session.');
+        // G18: the MOVE, in the unit the app already prints for clarity — not a percent of the previous score.
+        expect(r.text).toBe('Clearer than your previous comparable session: 80% → 84%.');
         expect(r.text).not.toMatch(/great|excellent|good|well done|better than/i);
     });
 
@@ -46,14 +47,16 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         const r = describeDirection(withClarity(mk(), 76), withClarity(mk({ sessionId: 's0' }), 80));
         expect(r.direction).toBe('declined');
         expect(r.deltaPercent).toBe(-5);
-        expect(r.text).toBe('Clear delivery declined 5.0% vs your previous comparable session.');
+        expect(r.text).toBe('Less clear than your previous comparable session: 80% → 76%.');
         expect(r.text).not.toMatch(/worse|poor|bad|failed|declining/i);
     });
 
     it('movement below the product policy is honest, not inflated', () => {
         const r = describeDirection(withClarity(mk(), 81.4), withClarity(mk({ sessionId: 's0' }), 80));
         expect(r.direction).toBe('below_policy');
-        expect(r.text).toBe('No meaningful change yet.');
+        // G18: a real comparison the copy declines to celebrate — both scores shown, no improvement claim.
+        expect(r.text).toBe('Holding steady since your previous comparable session: 80% → 81%.');
+        expect(r.text).not.toMatch(/improv|clearer/i);
         // the sub-point evidence is still carried, it is simply not SHOWN as movement
         expect(r.deltaPoints).toBeCloseTo(1.4, 10);
     });
@@ -70,7 +73,7 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         const r = describeDirection(withClarity(mk(), 84.4), withClarity(mk({ sessionId: 's0' }), 80.1));
         expect(r.deltaPoints).toBeCloseTo(4.3, 10);  // full precision retained
         expect(r.deltaPercent).toBeCloseTo(5.36828963795257, 10);
-        expect(r.text).toBe('Clear delivery improved 5.4% vs your previous comparable session.'); // display rounded to ONE decimal
+        expect(r.text).toBe('Clearer than your previous comparable session: 80% → 84%.'); // scores rounded for display only
     });
 
     it('a cohort change restarts the comparison instead of showing a false jump', () => {
@@ -96,12 +99,16 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         expect(r.text).toBe('Not enough comparable data yet');
     });
 
-    it('displays relative movement to ONE decimal (never a whole-percent round)', () => {
+    // G18 (Designer + PM 2026-09-20): the displayed unit is the SCORE the rest of the app prints (`96%`),
+    // never a percent of the previous score. A relative percent beside a row reading `96%` was two different
+    // percents for one metric, and it put the display in a different unit from the 3-point rule.
+    it('displays the two scores, never a percent-of-previous', () => {
         const r = describeDirection(withClarity(mk(), 81), withClarity(mk({ sessionId: 's0' }), 80));
-        // 8/80 = 10% → shown to one decimal as "10.0%" (the ".0" proves one-decimal formatting), and the
-        // fractional case (5.368% → "5.4%") is pinned by the unrounded-arithmetic test above.
         const clean = describeDirection(withClarity(mk(), 88), withClarity(mk({ sessionId: 's0' }), 80));
-        expect(clean.text).toBe('Clear delivery improved 10.0% vs your previous comparable session.');
+        expect(clean.text).toBe('Clearer than your previous comparable session: 80% → 88%.');
+        expect(clean.text).not.toMatch(/10\.0%/);
+        // The relative value is retained as inspectable evidence, but is not displayed.
+        expect(clean.deltaPercent).toBeCloseTo(10, 10);
         expect(r.direction).toBe('below_policy');
     });
 

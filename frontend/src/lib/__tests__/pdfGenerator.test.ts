@@ -134,8 +134,8 @@ describe('generateSessionPdf', () => {
       status: 'eligible',
       sessionId: '123',
       comparison: 'previous',
-      direction: { direction: 'improved', deltaPoints: 6, deltaPercent: 7.14, reason: null, text: 'Clear delivery improved 7.1% vs your previous comparable session.' },
-      baselineContext: 'Clear delivery improved 12.5% vs your first comparable session.',
+      direction: { direction: 'improved', deltaPoints: 6, deltaPercent: 7.14, reason: null, text: 'Clearer than your previous comparable session: 84% → 90%.' },
+      baselineContext: 'Clearer than your first comparable session: 80% → 90%.',
       disclosure: {
         referenceSessionId: 'prev-1', referenceRole: 'previous comparable session', alsoFirstComparable: false,
         cohortKey: 'private|v2|base|clarity_v1', currentClarityPoints: 90, referenceClarityPoints: 84,
@@ -155,8 +155,9 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(Comparable Progress) Tj');
     expect(savedPdf.text).toContain('(Practice this next) Tj');
     expect(savedPdf.text).toContain('(Cut filler words toward 3%) Tj');
-    expect(savedPdf.text).toContain('(Clear delivery improved 7.1% vs your previous comparable session.) Tj');
-    expect(savedPdf.text).toContain('(Clear delivery improved 12.5% vs your first comparable session.) Tj');
+    // G18: the export carries the same two-value sentence as the panel and the card — one metric, one unit.
+    expect(savedPdf.text).toContain('(Clearer than your previous comparable session: 84% -> 90%.) Tj');
+    expect(savedPdf.text).toContain('(Clearer than your first comparable session: 80% -> 90%.) Tj');
   });
 
   it('still exports the session when comparable Progress cannot be loaded', async () => {
