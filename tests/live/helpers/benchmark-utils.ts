@@ -540,7 +540,7 @@ export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
     }
 }
 
-export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_000) {
+export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_000): Promise<{ recordingAlreadyStarted: boolean }> {
     // STATE-SPECIFIC CONTROL. MicCard renders a DIFFERENT testid per model state:
     //   download-required -> 'mic-download'   (aria-label "Download to start speaking")
     //   init-failed/error -> 'mic-retry'
@@ -561,7 +561,7 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_00
 
     if (!setupNeeded) {
         await logBenchmarkPhase(page, 'SETUP_MODEL_NOT_REQUIRED_WARM_CACHE');
-        return;
+        return { recordingAlreadyStarted: false };
     }
 
     await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_VISIBLE');
@@ -620,10 +620,31 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_00
             `${JSON.stringify(snapshot, null, 2)}`
         );
     }
-    // The journey continues at `ready`, so the START control must now be the rendered one. Proving it
-    // here means a mismatch surfaces in seconds at the end of setup, not minutes later mid-recording.
-    await expectMicControlForState(page, 'ready');
-    await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_READY');
+    // #1416 — SETUP MAY ALREADY HAVE STARTED THE TAKE, AND ASSERTING `mic-start` DENIES IT.
+    //
+    // This used to read `await expectMicControlForState(page, 'ready')`, on the premise stated in its
+    // own comment: "the journey continues at `ready`, so the START control must now be the rendered
+    // one." That premise died with #1415/#1416. The CTA pressed above is ONE activation that consents,
+    // downloads AND records, so when acquisition completes the held intent resumes,
+    // `SessionDuringState` replaces `MicCard`, and `mic-start` correctly stops existing. The canary hit
+    // exactly this on Production: `RECORDING 01:55` with no `mic-start` in the DOM (run 35646081865).
+    //
+    // Two rules, both learned the expensive way on this ticket:
+    //   1. press only the control the CURRENT state renders (this helper already did);
+    //   2. after pressing, wait on PRODUCT STATE — never on the continued existence of that control.
+    //
+    // So the end of setup accepts either shape and REPORTS which. A caller that starts its own take
+    // must not do so when the take is already running: a second press creates a second session, and a
+    // proof that counts sessions would then be corrupted by its own setup.
+    const recordingAlreadyStarted = (await page.getByTestId(RECORDER_STOP).count()) > 0;
+    if (!recordingAlreadyStarted) {
+        await expectMicControlForState(page, 'ready');
+    }
+    await logBenchmarkPhase(
+        page,
+        recordingAlreadyStarted ? 'SETUP_MODEL_PROVIDER_READY_TAKE_RUNNING' : 'SETUP_MODEL_PROVIDER_READY',
+    );
+    return { recordingAlreadyStarted };
 }
 
 /**
@@ -697,6 +718,20 @@ export async function expectBenchmarkRecordingStarted(page: Page, label: string)
  * instead of consuming the model budget.
  */
 export async function startBenchmarkRecording(page: Page, label: string): Promise<void> {
+    // #1416 — THE TAKE MAY ALREADY BE RUNNING, BECAUSE SETUP STARTED IT.
+    //
+    // `preparePrivateModelIfPrompted` presses the cold control, and since #1415/#1416 that single
+    // activation consents, downloads AND records. So on a first-run account the take is already
+    // running by the time this is called, `RecorderBar` has replaced `MicCard`, and the start control
+    // this resolves from `data-model-status` no longer exists.
+    //
+    // Pressing anything here would be the worse outcome: a SECOND session row, which corrupts exactly
+    // the count the three-session retention proof exists to measure. Every caller of this helper is
+    // covered by this one check, so no spec has to remember the rule.
+    if ((await page.getByTestId(RECORDER_STOP).count()) > 0) {
+        await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_FROM_SETUP`);
+        return;
+    }
     const status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
     const control = micControlFor(status);
     if (control === null) {

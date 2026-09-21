@@ -83,7 +83,7 @@ vi.mock('@playwright/test', () => {
 
 // Transcript-surface helpers are exercised in benchmarkHarnessSurface.test.tsx, which mounts the REAL
 // SessionDuringState rather than hand-written markup. This file covers the mic/recorder controls.
-const { preparePrivateModelIfPrompted, expectMicControlForState, expectBenchmarkRecordingStarted, stopBenchmarkRecording } =
+const { preparePrivateModelIfPrompted, expectMicControlForState, expectBenchmarkRecordingStarted, stopBenchmarkRecording, startBenchmarkRecording } =
     await import('../live/helpers/benchmark-utils');
 
 interface FakeLocator {
@@ -102,6 +102,20 @@ const asked: string[] = [];
 const clicked: string[] = [];
 /** Applied to `data-model-status` when the acquisition CTA is clicked; null = the CTA does nothing. */
 let onDownloadClick: string | null = 'ready';
+/**
+ * #1416 — THE COLD PRESS RECORDS, AND THIS FAKE USED TO DENY IT.
+ *
+ * `onDownloadClick = 'ready'` alone models the PRE-#1416 product: press the gate, get a ready
+ * `mic-start`. That is not what ships. The cold press is one activation that consents, downloads AND
+ * records, so acquisition completing resumes the held intent, `SessionDuringState` replaces `MicCard`,
+ * and `mic-start` stops existing.
+ *
+ * Because the fake denied it, the helper's assertion that `mic-start` is rendered after setup passed
+ * here and failed on Production — the same shape as `useSessionLifecycle.test.tsx` pinning the
+ * cold-start defect as correct behaviour. A fix validated against this fake would have been validated
+ * against a product that no longer exists.
+ */
+let coldPressRecords = true;
 
 const locatorFor = (selector: string): FakeLocator => ({
     __locator: true,
@@ -119,6 +133,8 @@ const locatorFor = (selector: string): FakeLocator => ({
         if (selector.includes(MIC_CONTROL_BY_STATUS['download-required']) && onDownloadClick) {
             // Acquisition completing re-renders the card into the next state's control, as in the app.
             renderState(onDownloadClick);
+            // ...and then the held recording intent resumes, replacing the card entirely (#1416).
+            if (coldPressRecords && onDownloadClick === 'ready') renderRecording();
         }
     },
 });
@@ -147,7 +163,7 @@ function renderRecording() {
 }
 
 beforeEach(() => {
-    asked.length = 0; clicked.length = 0; onDownloadClick = 'ready';
+    asked.length = 0; clicked.length = 0; onDownloadClick = 'ready'; coldPressRecords = true;
     document.documentElement.removeAttribute('data-recording-state');
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 });
@@ -155,11 +171,32 @@ beforeEach(() => {
 describe('acquisition drives the state-specific CTA', () => {
     it('clicks mic-download in download-required and never the retired combined control', async () => {
         renderState('download-required');
-        await preparePrivateModelIfPrompted(page, 5_000);
+        const { recordingAlreadyStarted } = await preparePrivateModelIfPrompted(page, 5_000);
         expect(clicked).toContain(`[data-testid="${MIC_CONTROL_BY_STATUS['download-required']}"]`);
         expect(asked.join(' '), 'the retired control must never be requested')
             .not.toContain(RETIRED_COMBINED_CONTROL);
         expect(document.documentElement.getAttribute('data-model-status')).toBe('ready');
+        // #1416: that one press also started the take, and setup must SAY so rather than deny it.
+        expect(recordingAlreadyStarted, 'the cold press starts the take').toBe(true);
+    });
+
+    /**
+     * CASUALTY — the failure the retention proof would have spent a paid Production run to rediscover.
+     * Setup must not assert a control that recording has correctly removed.
+     */
+    it('CASUALTY: setup SUCCEEDS when the cold press has already started the take', async () => {
+        renderState('download-required');
+        await expect(preparePrivateModelIfPrompted(page, 5_000)).resolves.toEqual({ recordingAlreadyStarted: true });
+        expect(document.querySelector(`[data-testid="${RECORDER_STOP}"]`), 'the recorder is up').not.toBeNull();
+        expect(document.querySelector(`[data-testid="mic-start"]`), 'mic-start is correctly gone').toBeNull();
+    });
+
+    it('a cold press that does NOT record still ends setup on a rendered mic-start', async () => {
+        // The fix must not assume recording either: the helper reports what it finds, never what it hopes.
+        coldPressRecords = false;
+        renderState('download-required');
+        await expect(preparePrivateModelIfPrompted(page, 5_000)).resolves.toEqual({ recordingAlreadyStarted: false });
+        expect(document.querySelector(`[data-testid="mic-start"]`)).not.toBeNull();
     });
 
     it('FALSIFICATION: a page rendering only the retired control fails in seconds, not minutes', async () => {
@@ -176,9 +213,9 @@ describe('acquisition drives the state-specific CTA', () => {
         await expect(preparePrivateModelIfPrompted(page, 5_000)).rejects.toThrow(/must leave download-required/);
     });
 
-    it('a warm cache skips setup without clicking anything', async () => {
+    it('a warm cache skips setup without clicking anything, and reports no take running', async () => {
         renderState('ready');
-        await preparePrivateModelIfPrompted(page, 5_000);
+        await expect(preparePrivateModelIfPrompted(page, 5_000)).resolves.toEqual({ recordingAlreadyStarted: false });
         expect(clicked).toEqual([]);
     });
 });
@@ -229,5 +266,34 @@ describe('recording is proven through rendered state, not a dead attribute', () 
     it('FALSIFICATION: a recorder that never disappears fails the stop assertion', async () => {
         renderRecording();
         await expect(stopBenchmarkRecording(page, 'r1', 5_000)).rejects.toThrow(/stop precondition failed/);
+    });
+});
+
+/**
+ * #1416 — NO SECOND TAKE. A cold setup press already started the recording, so the shared start helper
+ * must refuse to press anything. A second press writes a SECOND session row, which corrupts exactly the
+ * count the three-session retention proof exists to measure — on a paid Production run.
+ */
+describe('startBenchmarkRecording never starts a second take', () => {
+    it('CASUALTY: with the recorder already up it presses nothing and succeeds', async () => {
+        renderRecording();
+        await expect(startBenchmarkRecording(page, 'cold-take')).resolves.toBeUndefined();
+        expect(clicked, 'no control may be pressed while a take is running').toEqual([]);
+    });
+
+    it('still starts the take normally when nothing is recording', async () => {
+        renderState('ready');
+        await startBenchmarkRecording(page, 'warm-take');
+        expect(clicked).toEqual([`[data-testid="mic-start"]`]);
+    });
+
+    it('END TO END: cold setup starts the take, and the start helper leaves it alone', async () => {
+        renderState('download-required');
+        const { recordingAlreadyStarted } = await preparePrivateModelIfPrompted(page, 5_000);
+        expect(recordingAlreadyStarted).toBe(true);
+        const pressesAfterSetup = clicked.length;
+        await startBenchmarkRecording(page, 'cold-take');
+        expect(clicked.length, 'exactly one press across setup AND start').toBe(pressesAfterSetup);
+        expect(clicked).toHaveLength(1);
     });
 });

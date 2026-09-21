@@ -528,17 +528,21 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             // registry), so no model is downloaded or run. This endurance path exercises the REAL Private
             // start/stop/finalize lifecycle with active-trial accounts (no retired private-sample allowance).
 
-            // 3. Ready the Private engine, then Start. The shipped session shell renders the recorder control
-            // as `mic-download` (one-time on-device model gate) until the model is loaded, then `mic-start`.
-            // Clicking the gate drives the (mocked) Private engine to ready — never a Browser/Cloud path.
+            // 3. Start the take with its ONE control — never a Browser/Cloud path.
+            //
+            // #1416: the cold control is not a "gate" that yields a ready Start. That single activation
+            // consents, downloads AND records, so waiting for `mic-start` after pressing it waits for a
+            // control the recorder has correctly removed — and winning that race is worse, because the
+            // second press starts a SECOND session. The canary died on exactly this shape against
+            // Production (`RECORDING 01:55`, no `mic-start`, run 35646081865).
             const downloadBtn = page.getByTestId('mic-download');
             const startButton = page.getByTestId('mic-start');
             await expect(downloadBtn.or(startButton).first()).toBeVisible({ timeout: 30000 });
-            if (await downloadBtn.count() > 0) {
-                await downloadBtn.first().click();
-            }
-            await expect(startButton).toBeEnabled({ timeout: 60000 });
-            await startButton.click();
+            const coldStart = (await downloadBtn.count()) > 0;
+            const startControl = coldStart ? downloadBtn.first() : startButton;
+            // Cold carries the one-time model download before the recording starts, so it needs the budget.
+            await expect(startControl).toBeEnabled({ timeout: coldStart ? 60000 : 30000 });
+            await startControl.click();
             // Runtime-state seam: the shell must reach RECORDING resolved to PRIVATE. If Private cannot start,
             // FAIL with the exact runtime reason — engines are never silently changed to Browser/Cloud.
             try {
