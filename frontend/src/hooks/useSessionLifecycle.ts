@@ -22,6 +22,7 @@ import { speechRuntimeController,
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { isPrivateModelBlockingStart } from '@/services/transcription/privateModelStartBlock';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
@@ -130,8 +131,10 @@ export const useSessionLifecycle = () => {
         if (typeof document === 'undefined') return 'idle';
         return document.documentElement.getAttribute('data-model-status') || 'idle';
     });
-    const isPrivateStartBlockedByModelState = effectiveMode === 'private'
-        && ['download-required', 'loading', 'init-failed', 'error'].includes(privateModelStatus);
+    // #1306: the list lives in `privateModelStartBlock`, beside the reasoning for what is and is not on
+    // it. `download-required` is deliberately absent — the cold press IS the start, and disabling it
+    // sealed every first-run account into a state whose only exit is that press.
+    const isPrivateStartBlockedByModelState = isPrivateModelBlockingStart(effectiveMode, privateModelStatus);
 
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const isProcessingRef = useRef(false);

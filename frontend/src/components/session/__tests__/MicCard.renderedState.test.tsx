@@ -5,6 +5,7 @@ import { MicCard } from '../MicCard';
 import {
     MIC_CONTROL_BY_STATUS, NON_ACTIONABLE_STATUS, RETIRED_COMBINED_CONTROL, micControlFor,
 } from '../../../../../tests/helpers/micControls';
+import { isPrivateModelBlockingStart } from '@/services/transcription/privateModelStartBlock';
 
 /**
  * #1306 — RENDERED-STATE contract for the desktop `before` slot.
@@ -26,6 +27,15 @@ const baseProps = { onStart: vi.fn(), onDownloadModel: vi.fn() };
 
 const ALL_PRIMARY = ['mic-download', 'mic-retry', 'mic-start'] as const;
 
+/**
+ * #1306 — `disabled` IS NOT OPTIONAL HERE ANY MORE.
+ *
+ * This helper used to omit it, so every case below rendered with `disabled: undefined` — a prop
+ * combination SessionOverhaulView never produces. The file therefore asserted `download-required`
+ * was enabled while production shipped it disabled, and stayed green through two failed production
+ * proofs. Taking the value from the REAL predicate keeps this file testing the component as it is
+ * actually composed; `SessionOverhaulView.coldStart.test.tsx` covers the same seam from the view.
+ */
 const renderIn = (privateModelStatus: string) => {
     const onStart = vi.fn();
     const onDownloadModel = vi.fn();
@@ -35,6 +45,7 @@ const renderIn = (privateModelStatus: string) => {
             onStart={onStart}
             onDownloadModel={onDownloadModel}
             privateModelStatus={privateModelStatus}
+            disabled={isPrivateModelBlockingStart('private', privateModelStatus)}
         />,
     );
     return { onStart, onDownloadModel };
