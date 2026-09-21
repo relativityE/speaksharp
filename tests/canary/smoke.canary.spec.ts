@@ -1,7 +1,18 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
-import { startTake } from './canaryStartTake';
+import { startTake as startTakeWithAssertions, type TakeAssertions } from './canaryStartTake';
+
+/**
+ * The two-line seam described in `canaryStartTake.ts`: Playwright's own `expect`, handed to the
+ * extracted logic so that module stays importable by the unit lane. This adapter is the ONLY part of
+ * the start path the unit test cannot reach — the paid canary run is what proves it.
+ */
+const canaryAssertions: TakeAssertions<Locator> = {
+    visible: (x, t) => expect(x).toBeVisible({ timeout: t }),
+    enabled: (x, t) => expect(x).toBeEnabled({ timeout: t }),
+};
+const startTake = (page: Page) => startTakeWithAssertions(page, canaryAssertions);
 import {
     classifyCanaryStartResponse,
     classifyCanaryUsageEntitlement,
