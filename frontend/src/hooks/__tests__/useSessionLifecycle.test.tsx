@@ -1427,12 +1427,25 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             expect(renderWithModelStatus('ready', 'private', 'READY').current.isButtonDisabled).toBe(false);
         });
 
-        it.each(['download-required', 'loading', 'init-failed', 'error'])(
+        it.each(['loading', 'init-failed', 'error'])(
             'BLOCKS start for a not-ready Private model status: %s',
             (status) => {
                 expect(renderWithModelStatus(status, 'private', 'READY').current.isButtonDisabled).toBe(true);
             },
         );
+
+        // #1306 — `download-required` USED TO BE IN THE LIST ABOVE, AND THAT WAS THE PRODUCTION DEFECT.
+        //
+        // It belonged there while the cold control was a setup-only action force-enabled downstream:
+        // "start" was genuinely unavailable, and a separate download button was what the user pressed.
+        // #1415 made the cold press one activation that downloads AND records, and narrowed MicCard's
+        // always-enabled branch to the retry action alone — so this flag became the only input left,
+        // and it disabled the sole control that can leave the state. Every first-run account saw
+        // "One-time download needed" above an unpressable button; the three-session production proof
+        // failed on it twice, identically, before recording a single word.
+        it('does NOT block start for download-required — the cold press is what leaves that state', () => {
+            expect(renderWithModelStatus('download-required', 'private', 'READY').current.isButtonDisabled).toBe(false);
+        });
 
         // #1184: a plain 'native' session is now promoted to Private (Private is the only engine), so
         // "native stays selectable" is no longer a real user state — the private-model gate above governs
