@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 // ... existing imports ...
-import type { ClarityVsLastSessionValue } from '@/components/session/ClarityVsLastSessionCard';
+import { useClarityMove } from '@/hooks/useClarityMove';
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
 import { useAuthProvider } from '@/contexts/AuthProvider';
@@ -54,6 +54,10 @@ export const SessionPage: React.FC = () => {
     const previousTranscriptScrollHeightRef = useRef(0);
     // #1222: real session history feeds the overhaul's Progress card (slot C, aggregate).
     const { data: practiceHistory } = usePracticeHistory();
+    // G18 D1/D4 — ONE resolved comparison drives both slot D's numeric body and the subtitle's `· vs {date}`
+    // clause, so the header never names a comparison the page does not show. It reads the same authority as the
+    // Progress panel (`loadSessionProgress` on the newest saved session), so the two cannot disagree.
+    const beforeProgress = useClarityMove(practiceHistory);
     // #1033 Part-2b: authoritative engine-selection lock + pending recovery, published by the controller.
     const engineSelectionLocked = useSessionStore(state => state.engineSelectionLocked);
     const pendingResolutionKind = useSessionStore(state => state.pendingResolutionKind);
@@ -443,14 +447,9 @@ export const SessionPage: React.FC = () => {
     // concept. A Focus Points run reads "Focus Points · N points" (attempt-of-a-set numbering is deferred
     // with the same-set retry comparison).
     const objectivePointCount = activeObjectiveBrief?.points?.length ?? 0;
-    // G16 D1/D4 (Option A) — ONE resolved comparison drives both slot D's numeric body and the subtitle's
-    // `· vs {date}` clause, so the header never names a comparison the page does not show. `baseline set` is
-    // retired (the contract compares against the previous comparable session, not a fixed baseline). Until the
-    // clarity delta is wired, slot D shows its truthful no-number body and the subtitle is `Session {n}` alone.
-    const beforeProgress = null as ClarityVsLastSessionValue | null;
     const sessionSubtitle = isObjectiveSession
         ? `Focus Points · ${objectivePointCount} point${objectivePointCount === 1 ? '' : 's'}`
-        : beforeProgress
+        : beforeProgress.kind === 'move'
             ? `Session ${completedSessions + 1} · vs ${beforeProgress.referenceDateLabel}`
             : `Session ${completedSessions + 1}`;
 

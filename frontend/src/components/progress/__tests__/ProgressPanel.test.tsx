@@ -28,8 +28,8 @@ import { ProgressPanel } from '../ProgressPanel';
 
 const VIEW = {
     status: 'eligible', sessionId: 's1', comparison: 'previous', latestAttempt: null,
-    direction: { direction: 'improved', deltaPoints: 4, deltaPercent: 5, reason: null, text: 'Clear delivery improved 5.0% vs your previous comparable session.' },
-    baselineContext: 'Clear delivery improved 12.5% vs your first comparable session.',
+    direction: { direction: 'improved', deltaPoints: 4, deltaPercent: 5, reason: null, text: 'Clearer than your previous comparable session: 80% → 84%.' },
+    baselineContext: 'Clearer than your first comparable session: 80% → 90%.',
     disclosure: {
         referenceSessionId: 's0', referenceRole: 'previous comparable session', alsoFirstComparable: false,
         cohortKey: 'private|v2|base|clarity_v1', currentClarityPoints: 84, referenceClarityPoints: 80,
@@ -124,8 +124,8 @@ describe('#1047 U2 ProgressPanel', () => {
     it('shows exactly two eligible takeaways and the canonical action', async () => {
         loadSessionProgress.mockResolvedValue(VIEW);
         renderPanel();
-        expect(await screen.findByTestId('progress-direction')).toHaveTextContent('improved 5.0% vs your previous comparable session');
-        expect(screen.getByTestId('progress-baseline-context')).toHaveTextContent('improved 12.5% vs your first comparable session');
+        expect(await screen.findByTestId('progress-direction')).toHaveTextContent('Clearer than your previous comparable session: 80% → 84%.');
+        expect(screen.getByTestId('progress-baseline-context')).toHaveTextContent('Clearer than your first comparable session: 80% → 90%.');
         expect(screen.getByTestId('progress-what-worked')).toHaveTextContent('Very few filler words');
         expect(screen.getByTestId('progress-practice-next')).toHaveTextContent('Cut filler words toward 3%');
         expect(screen.getByTestId('progress-accept')).toHaveTextContent('Practice this next');

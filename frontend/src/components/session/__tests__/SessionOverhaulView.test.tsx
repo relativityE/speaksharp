@@ -34,7 +34,8 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         expect(screen.queryByText(/no universal score/i)).toBeNull();
         const card = screen.getByTestId('clarity-vs-last-session');
         expect(screen.getByTestId('session-slot-d')).toContainElement(card);
-        expect(card).toHaveTextContent('Clarity vs last session');
+        expect(card).toHaveTextContent('Your progress'); // G18: the eyebrow names the outcome, not the composite
+        expect(card.textContent ?? '').not.toMatch(/clarity vs last session/i);
         expect(card).toHaveTextContent('First session — this run becomes your baseline.');
     });
 

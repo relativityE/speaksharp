@@ -73,14 +73,15 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 question: 'How is my progress measured?',
                 answer: [
                     'Progress follows one clarity score from your own session. Filler words lower it, so do stretches the transcript marks as unclear, such as [inaudible], and so does a pace far outside roughly 90–170 words per minute.',
-                    'Each session is compared with your previous qualifying session recorded the same way — same practice mode and transcription setup. It is a personal read, never a grade or a comparison with other people.',
+                    'Each session is compared with your previous qualifying session recorded the same way — same practice mode and transcription setup. You see both scores and the direction between them, for example 82% → 88%, so the size of the move is visible rather than described. It is a personal read, never a grade or a comparison with other people.',
+                    'A move smaller than 3 points is shown but not called an improvement — both scores still appear, and the wording says you held steady.',
                 ],
             },
             {
                 id: 'first-session-no-percent',
-                question: 'Why doesn’t my first session show a progress percentage?',
+                question: 'Why doesn’t my first session show a comparison?',
                 answer: [
-                    'A percentage is a change, and your first qualifying session has nothing before it — so it shows “Baseline established” instead. From your second qualifying session on, you see the change versus the one before.',
+                    'A comparison needs two sessions, and your first qualifying session has nothing before it — so it shows “Baseline established” instead. From your second qualifying session on, you see both scores, such as 82% → 88%.',
                 ],
             },
             {

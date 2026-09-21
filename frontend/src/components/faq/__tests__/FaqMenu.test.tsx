@@ -18,7 +18,7 @@ describe('FaqMenu', () => {
         const panel = openPanel();
         expect(panel).toBeInTheDocument();
         // A known question is present (progress explanation).
-        expect(within(panel).getByText(/why doesn.t my first session show a progress percentage/i)).toBeInTheDocument();
+        expect(within(panel).getByText(/why doesn.t my first session show a comparison/i)).toBeInTheDocument();
         expect(within(panel).getByText(/how is my progress measured/i)).toBeInTheDocument();
     });
 
@@ -29,7 +29,7 @@ describe('FaqMenu', () => {
         expect(within(panel).queryByTestId('faq-answer')).not.toBeInTheDocument();
 
         const question = within(panel).getByRole('button', {
-            name: /why doesn.t my first session show a progress percentage/i,
+            name: /why doesn.t my first session show a comparison/i,
         });
         expect(question).toHaveAttribute('data-testid', 'faq-question');
         expect(question).toHaveAttribute('aria-expanded', 'false');
