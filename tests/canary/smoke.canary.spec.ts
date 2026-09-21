@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
+import { startTake } from './canaryStartTake';
 import {
     classifyCanaryStartResponse,
     classifyCanaryUsageEntitlement,
@@ -72,30 +73,6 @@ async function assertDeployedReleaseIsLive(page: Page) {
     );
 }
 
-/**
- * #1184: Private is the ONLY engine — there is no selector and no Native/Cloud choice. This helper
- * confirms the static Private indicator and makes the recorder ready to start. On a fresh production
- * browser the on-device model is not cached, so the mic first acts as the "Set up Private" download
- * control; we click it to trigger the on-device download (no paid STT API — still $0) and wait until it
- * becomes a ready Start control. If the model is already cached, the mic is already a ready Start control.
- */
-async function ensurePrivateReady(page: Page) {
-    // #1184 Private-only: there is no engine selector anymore. The shipped session page (MicCard, via
-    // SessionOverhaulView) renders the recorder control as `mic-download` while the on-device Private model
-    // still needs its one-time download, then `mic-start` once ready (disabled while the download runs,
-    // enabled when the model is loaded). On a cold canary browser the model is not cached.
-    const downloadBtn = page.getByTestId('mic-download');
-    const startBtn = page.getByTestId('mic-start');
-    // The recorder control is present in one of its two states before we ready it.
-    await expect(downloadBtn.or(startBtn).first()).toBeVisible({ timeout: 15000 });
-    if (await downloadBtn.count() > 0) {
-        // Trigger the on-device model download; no network transcription is performed.
-        await downloadBtn.first().click();
-    }
-    // Once the model is loaded, the control is `mic-start` and enabled. The download can take a while on a
-    // cold machine, so allow a generous budget.
-    await expect(startBtn).toBeEnabled({ timeout: 120000 });
-}
 
 
 /**
@@ -201,19 +178,14 @@ test.describe('Production Smoke Canary @canary', () => {
         }
         await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible();
 
-        // 3. Confirm the Private engine surface and make the recorder ready (on-device model; $0).
-        debugLog('[CANARY] Confirming Private STT and readying the recorder...');
-        await ensurePrivateReady(page);
-
-        // 4. Start Session — the readied recorder control is `mic-start`.
-        debugLog('[CANARY] Starting session...');
-        const startButton = page.getByTestId('mic-start');
-        await expect(startButton).toBeEnabled();
-        const authoritativeStart = page.waitForResponse((response) =>
-            response.request().method() === 'POST'
-            && response.url().includes('/rest/v1/rpc/create_session_and_update_usage'),
-        { timeout: 20000 });
-        await startButton.click();
+        // 3-4. Start the take with its ONE control (on-device model; $0). See startTake().
+        debugLog('[CANARY] Confirming Private STT and starting the take...');
+        const { authoritativeStart, path: startPath } = await startTake(page);
+        await test.info().attach('start-path', {
+            contentType: 'application/json',
+            body: JSON.stringify({ path: startPath }),
+        });
+        debugLog(`[CANARY] Take started on the ${startPath} path.`);
 
         // Fail on the authoritative start denial BEFORE waiting on any secondary UI selector. The
         // category is strictly sanitized so traces/logs identify private_sample_used (etc.) without
