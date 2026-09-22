@@ -1,6 +1,25 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { startTake, type TakeAssertions } from '../canary/canaryStartTake';
+import {
+    startTake,
+    type TakeAssertions,
+    CONTROL_WAIT_MS,
+    COLD_START_RPC_TIMEOUT_MS,
+    COLD_START_TOTAL_BUDGET_MS,
+} from '../canary/canaryStartTake';
+import {
+    canaryTestTimeoutMs,
+    DEPLOY_WAIT_MS,
+    PRODUCT_SMOKE_BUDGET_MS,
+    LOGIN_FLOW_BUDGET_MS,
+    NAVIGATION_BUDGET_MS,
+    PRE_START_CHECK_BUDGET_MS,
+    RECORDING_CHECK_BUDGET_MS,
+    RECORDING_DWELL_MS,
+    STOP_SAVE_BUDGET_MS,
+} from '../canary/canaryBudget';
 
 /**
  * #1306 — THE COLD ACCOUNT PATH, REPRODUCED IN MILLISECONDS.
@@ -169,5 +188,78 @@ describe('#1306 no retired start behaviour survives, in either file', () => {
         const forbidden = (source: string) => RETIRED.some((r) => source.includes(r));
         expect(forbidden(callsIt), 'a real call must be caught').toBe(true);
         expect(forbidden(documentsIt), 'a doc comment naming it must be allowed').toBe(false);
+    });
+});
+
+/**
+ * #1518 P1 (Codex, exact head `fa322aa33`; PM RETURN) — THE CLOCK IS PART OF THE CONTRACT.
+ *
+ * The cold wait lived in the helper, the per-test ceiling in the spec, and the job ceiling in the
+ * workflow, with nothing relating them — so the cold path could not physically complete under any of
+ * them and a healthy cold account died on a generic Playwright timeout. These assertions compute the
+ * whole sequential path and require every outer budget to exceed it, in BOTH modes, so the constants
+ * cannot drift apart again.
+ */
+describe('#1518 the cold journey is affordable in both deploy-gate modes', () => {
+    const repoRoot = resolve(__dirname, '..', '..');
+    const config = readFileSync(resolve(repoRoot, 'playwright.canary.config.ts'), 'utf8');
+    const workflow = readFileSync(resolve(repoRoot, '.github/workflows/canary.yml'), 'utf8');
+    const spec = readFileSync(resolve(repoRoot, 'tests/canary/smoke.canary.spec.ts'), 'utf8');
+
+    /** Playwright's own per-test default for this project — the ceiling the fix must escape. */
+    const configDefaultMs = Number(/^\s*timeout:\s*(\d+),/m.exec(config)?.[1]);
+    /** The smoke job's ceiling, the outermost budget of all. */
+    const jobTimeoutMs = Math.max(
+        ...[...workflow.matchAll(/^\s*timeout-minutes:\s*(\d+)$/gm)].map((m) => Number(m[1]) * 60_000),
+    );
+    /** The complete cold path, summed independently of the module's own arithmetic. */
+    const coldPathMs = LOGIN_FLOW_BUDGET_MS + NAVIGATION_BUDGET_MS + PRE_START_CHECK_BUDGET_MS
+        + COLD_START_TOTAL_BUDGET_MS + RECORDING_CHECK_BUDGET_MS + RECORDING_DWELL_MS + STOP_SAVE_BUDGET_MS;
+
+    it('the fixtures parsed (an unread config or workflow would make the rest vacuous)', () => {
+        expect(Number.isFinite(configDefaultMs)).toBe(true);
+        expect(Number.isFinite(jobTimeoutMs)).toBe(true);
+        expect(coldPathMs).toBeGreaterThan(0);
+    });
+
+    it('the internal cold-start timeout is unchanged at 150s, and the helper total follows from it', () => {
+        // PM RETURN: keep the 150s wait and the single-click behaviour exactly as they are.
+        expect(COLD_START_RPC_TIMEOUT_MS).toBe(150_000);
+        expect(COLD_START_TOTAL_BUDGET_MS).toBe(CONTROL_WAIT_MS * 2 + COLD_START_RPC_TIMEOUT_MS);
+    });
+
+    it('the product allowance is DERIVED from the whole sequential path, not a flat share', () => {
+        expect(PRODUCT_SMOKE_BUDGET_MS).toBe(coldPathMs);
+        // The old flat two minutes was smaller than the cold wait alone — the arithmetic that failed.
+        expect(PRODUCT_SMOKE_BUDGET_MS).toBeGreaterThan(COLD_START_TOTAL_BUDGET_MS);
+        expect(2 * 60_000).toBeLessThan(COLD_START_TOTAL_BUDGET_MS);
+    });
+
+    it('CASUALTY: an UNGATED cold run is not capped at the 60s default', () => {
+        const ungated = canaryTestTimeoutMs(false);
+        expect(ungated).toBeGreaterThan(configDefaultMs);
+        expect(ungated).toBeGreaterThanOrEqual(coldPathMs);
+        // No deployment allowance is spent when no deployment is being awaited.
+        expect(ungated).toBe(PRODUCT_SMOKE_BUDGET_MS);
+    });
+
+    it('CASUALTY: maximum deployment polling cannot consume the cold/product allowance', () => {
+        const gated = canaryTestTimeoutMs(true);
+        expect(gated - DEPLOY_WAIT_MS).toBeGreaterThanOrEqual(coldPathMs);
+        expect(gated).toBe(DEPLOY_WAIT_MS + PRODUCT_SMOKE_BUDGET_MS);
+    });
+
+    it('CASUALTY: the smoke JOB ceiling covers the worst case plus setup, or the test is killed first', () => {
+        // The outermost budget. A job killed at 15 min reproduces exactly the generic-timeout failure the
+        // in-test raise was added to remove.
+        const setupAllowanceMs = 4 * 60_000;      // checkout, install, provision
+        expect(jobTimeoutMs).toBeGreaterThanOrEqual(canaryTestTimeoutMs(true) + setupAllowanceMs);
+    });
+
+    it('the spec installs the ceiling unconditionally, through the derived helper', () => {
+        // A timeout is only ever a string until the run, so the wiring is asserted on the source.
+        expect(spec).toMatch(/test\.setTimeout\(canaryTestTimeoutMs\(deployGateIsArmed\(\)\)\)/);
+        expect(spec, 'setTimeout must not be nested inside the deploy-gate branch')
+            .not.toMatch(/if \(deployGateIsArmed\(\)\) \{\s*\n\s*test\.setTimeout/);
     });
 });

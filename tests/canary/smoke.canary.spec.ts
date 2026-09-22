@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
 import { startTake as startTakeWithAssertions, type TakeAssertions } from './canaryStartTake';
+import { canaryTestTimeoutMs, DEPLOY_WAIT_MS, DEPLOY_POLL_MS } from './canaryBudget';
 
 /**
  * The two-line seam described in `canaryStartTake.ts`: Playwright's own `expect`, handed to the
@@ -32,17 +33,12 @@ import {
  */
 const EXPECTED_RELEASE_SHA = process.env.EXPECTED_RELEASE_SHA?.trim();
 const PROD_HOST = 'speaksharp-public.vercel.app';
-const DEPLOY_WAIT_MS = 4 * 60_000; // Vercel post-merge publish budget
-const DEPLOY_POLL_MS = 15_000;
-/**
- * Headroom for the product smoke that runs AFTER the gate. `playwright.canary.config.ts` sets a 60s
- * per-test timeout, which is ample for the product path alone but would abort the deploy poll long before
- * DEPLOY_WAIT_MS elapsed — Playwright would kill the test with a GENERIC timeout and the distinct
- * `DEPLOYMENT NOT LIVE` error and `deployed-release` attachment would never be produced, defeating the
- * whole point of the gate. So when (and only when) the gate is armed, the test timeout is raised to cover
- * the poll budget PLUS this product budget. The workflow job timeout is raised to match.
+
+/*
+ * The canary's budgets are DERIVED in `./canaryBudget`, not declared here — see that file for why
+ * (#1518 P1: the cold wait, the per-test ceiling and the job ceiling were three unrelated numbers, and
+ * the cold path could not physically complete under any of them).
  */
-const PRODUCT_SMOKE_BUDGET_MS = 2 * 60_000;
 
 function deployGateIsArmed(): boolean {
     return Boolean(EXPECTED_RELEASE_SHA) && (process.env.BASE_URL ?? '').includes(PROD_HOST);
@@ -132,12 +128,12 @@ test.describe('Production Smoke Canary @canary', () => {
         // product assertion, so a not-yet-live deployment fails distinctly as "deployment not live" rather
         // than misreporting a stale build as a product regression.
         //
-        // The config's 60s per-test timeout would abort the poll (and its diagnostic) long before the
-        // budget elapsed, so extend the timeout — ONLY when the gate is armed, leaving every other run
-        // (local, non-prod) on the strict default.
-        if (deployGateIsArmed()) {
-            test.setTimeout(DEPLOY_WAIT_MS + PRODUCT_SMOKE_BUDGET_MS);
-        }
+        // UNCONDITIONAL, and that is the #1518 P1 fix: the product allowance is what the COLD journey
+        // needs whether or not a deployment is being awaited. Gating the raise on `deployGateIsArmed()`
+        // left every ungated run — local, staging, any run without EXPECTED_RELEASE_SHA — unable to
+        // finish a cold take at all, and gated runs with a slow publish no better off. The deployment
+        // allowance is ADDED on top only when the poll will actually run.
+        test.setTimeout(canaryTestTimeoutMs(deployGateIsArmed()));
         await assertDeployedReleaseIsLive(page);
 
         // 1. Real Login (modeled after soak test)

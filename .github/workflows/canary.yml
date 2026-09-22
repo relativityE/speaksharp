@@ -96,11 +96,16 @@ jobs:
       matrix:
         lane: ${{ fromJSON(github.event.schedule == '0 6 * * 1' && '["active-trial","billing-qualification"]' || '["active-trial"]') }}
     runs-on: ubuntu-latest
-    # 15 (was 10) so the #1106 deploy-race gate can spend its full budget and still emit its diagnostic:
-    # the smoke test may now wait up to 4 min for the expected SHA to go live, plus 2 min for the product
-    # path, on top of checkout/setup/provision. Without this the JOB would be killed before the test could
-    # report DEPLOYMENT NOT LIVE — the same generic-timeout failure mode the gate exists to eliminate.
-    timeout-minutes: 15
+    # 25 (was 15, was 10). The job ceiling is the OUTERMOST budget, so it has to cover the worst case the
+    # test itself now allows, or the job is killed first and reproduces the very generic-timeout failure
+    # the in-test raise removes (#1518 P1).
+    #
+    # Worst case = 4 min deploy-race poll + the derived cold product path (~7 min 20 s: login, navigation,
+    # pre-start checks, the 150 s cold-start RPC with its control waits, the recording assertions and
+    # dwell, stop/save) + ~4 min checkout/install/provision. `tests/unit/canaryStartTake.test.ts` asserts
+    # this value covers `canaryTestTimeoutMs(true)` plus that setup allowance, so the three ceilings —
+    # helper, spec and job — can no longer drift apart silently.
+    timeout-minutes: 25
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

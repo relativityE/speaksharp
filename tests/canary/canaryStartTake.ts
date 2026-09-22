@@ -54,20 +54,45 @@ export interface TakeAssertions<L> {
     enabled(locator: L, timeoutMs: number): Promise<unknown>;
 }
 
+/**
+ * THE BUDGETS THIS HELPER SPENDS, EXPORTED SO THE SPEC CANNOT UNDER-BUDGET THEM.
+ *
+ * #1518 P1 (Codex, exact head fa322aa33): the cold wait was a bare `150000` here while
+ * `playwright.canary.config.ts` kills the test at 60s and the spec only raised that when the deploy gate
+ * was armed. Ungated, the 150s could never elapse; gated, the 2-minute product share was already smaller
+ * than the wait itself. A healthy cold account therefore died on a generic Playwright timeout instead of
+ * completing the journey — the same class of false failure this file exists to remove, moved from the
+ * selector to the clock.
+ *
+ * A number the caller has to remember is a number the caller gets wrong, so the spec now derives its
+ * timeout from these and a unit test pins the relationship.
+ */
+/** Either control must render, then be enabled, before the press. */
+export const CONTROL_WAIT_MS = 15_000;
+/**
+ * A cold account's press downloads the model AND records, so the authoritative RPC can legitimately take
+ * over two minutes; the repository documents observed 126s cold starts.
+ */
+export const COLD_START_RPC_TIMEOUT_MS = 150_000;
+/** A warm account has the model already; the RPC is immediate. */
+export const WARM_START_RPC_TIMEOUT_MS = 20_000;
+/** What `startTake` can spend end to end on the slower path: both control waits plus the cold RPC. */
+export const COLD_START_TOTAL_BUDGET_MS = CONTROL_WAIT_MS * 2 + COLD_START_RPC_TIMEOUT_MS;
+
 export async function startTake<L extends TakeLocator<L>, R extends TakeResponse>(
     page: TakePage<L, R>,
     assertions: TakeAssertions<L>,
 ): Promise<{ authoritativeStart: Promise<R>; path: 'cold' | 'warm' }> {
     const downloadBtn = page.getByTestId('mic-download');
     const startBtn = page.getByTestId('mic-start');
-    await assertions.visible(downloadBtn.or(startBtn).first(), 15000);
+    await assertions.visible(downloadBtn.or(startBtn).first(), CONTROL_WAIT_MS);
     const path: 'cold' | 'warm' = (await downloadBtn.count()) > 0 ? 'cold' : 'warm';
     const control: L = path === 'cold' ? downloadBtn.first() : startBtn;
-    await assertions.enabled(control, 15000);
+    await assertions.enabled(control, CONTROL_WAIT_MS);
     const authoritativeStart = page.waitForResponse((response) =>
         response.request().method() === 'POST'
         && response.url().includes('/rest/v1/rpc/create_session_and_update_usage'),
-    { timeout: path === 'cold' ? 150000 : 20000 });
+    { timeout: path === 'cold' ? COLD_START_RPC_TIMEOUT_MS : WARM_START_RPC_TIMEOUT_MS });
     await control.click();
     return { authoritativeStart, path };
 }
