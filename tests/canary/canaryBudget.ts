@@ -100,11 +100,11 @@ export function canaryTestTimeoutMs(deployGateArmed: boolean): number {
 /**
  * THE JOB CEILING MUST FIT EVERY PERMITTED ATTEMPT, NOT ONE.
  *
- * Codex P1 on `3492c5b`: `playwright.canary.config.ts` had `retries: 1`, so a late first-attempt failure
- * was followed by a whole second attempt that a one-attempt job ceiling would kill before it could pass
- * or report. PM's decision (2026-09-22) is FAIL FAST: `retries: 0`, a failure stays red, and a rerun is
- * separate operator evidence. The requirement below is still computed from the configured retry count,
- * so reintroducing a retry cannot silently outgrow the job ceiling.
+ * Codex P1 on `3492c5b`: `playwright.canary.config.ts` sets `retries: 1`, so a late first-attempt failure
+ * is followed by a whole second attempt, and a job ceiling sized for one attempt kills that retry before
+ * it can pass or report. The retry is kept (PM, 2026-09-22) — it is the canary's existing failure
+ * contract — so the job ceiling is sized for every permitted attempt instead, computed from the
+ * configured retry count so neither side can drift.
  */
 /** Checkout, dependency install, browser install and account provisioning before the first attempt. */
 export const JOB_SETUP_ALLOWANCE_MS = 4 * 60_000;

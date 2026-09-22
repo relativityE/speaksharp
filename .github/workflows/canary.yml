@@ -96,17 +96,16 @@ jobs:
       matrix:
         lane: ${{ fromJSON(github.event.schedule == '0 6 * * 1' && '["active-trial","billing-qualification"]' || '["active-trial"]') }}
     runs-on: ubuntu-latest
-    # 25 minutes, for ONE attempt. The job ceiling is the OUTERMOST budget, so it must fit every permitted
-    # attempt or GitHub kills a legitimate run before it can pass or report (#1518, Codex P1 on 3492c5b).
-    # The canary is FAIL-FAST: `playwright.canary.config.ts` sets `retries: 0`, so a failure stays RED
-    # and a rerun is separate, separately attributable operator evidence — never a hidden second attempt.
+    # 45 minutes (was 25, 15, 10). The job ceiling is the OUTERMOST budget, so it must fit EVERY permitted
+    # attempt, or GitHub kills a legitimate retry before it can pass or report (#1518, Codex P1 on
+    # 3492c5b). `playwright.canary.config.ts` keeps `retries: 1` — the canary's existing failure contract.
     #
-    # Required = setup 4 min + 1 attempt x 16 min (4 min deploy poll + 15 s verdict slack + 11.75 min
+    # Required = setup 4 min + 2 attempts x 16 min (4 min deploy poll + 15 s verdict slack + 11.75 min
     # enforced product phases) + finalization 5 min (account-ceiling check, artifacts, cleanup,
-    # diagnostics) = 25 min. `tests/unit/canaryStartTake.test.ts` computes this from
-    # `requiredCanaryJobCeilingMs(retries)` and the config's own `retries`: restoring a retry, or lowering
-    # this ceiling, fails the unit gate. A ceiling is not a runtime — a passing run takes minutes.
-    timeout-minutes: 25
+    # diagnostics) = 41 min. `tests/unit/canaryStartTake.test.ts` computes this from
+    # `requiredCanaryJobCeilingMs(retries)` and the config's own `retries`: raising the retries or
+    # restoring a 25-minute ceiling fails the unit gate. A ceiling is not a runtime — a passing run takes minutes.
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

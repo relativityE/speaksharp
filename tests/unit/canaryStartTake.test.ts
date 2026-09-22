@@ -318,18 +318,19 @@ describe('#1518 phase ceilings are enforced, and the outer budgets exceed their 
         // unrelated job's larger ceiling kept the test green.
         // Codex P1 on 3492c5b: `retries` means the job must fit EVERY permitted attempt, not one. A late
         // first-attempt failure otherwise gets its retry killed by the job before it can report.
-        expect(configRetries, 'the Production canary is fail-fast: no automatic retry (PM decision)').toBe(0);
+        expect(configRetries, 'the canary keeps its one retry — its existing failure contract (PM)').toBe(1);
         expect(canaryCheckTimeoutMs).toBeGreaterThanOrEqual(requiredCanaryJobCeilingMs(configRetries));
         expect(requiredCanaryJobCeilingMs(configRetries)).toBe(
             JOB_SETUP_ALLOWANCE_MS + (configRetries + 1) * canaryTestTimeoutMs(true) + JOB_FINALIZATION_ALLOWANCE_MS,
         );
     });
 
-    it('CASUALTY: restoring retries: 1 outgrows the 25-minute ceiling unless the budget is re-sized', () => {
-        // A retry doubles the attempt budget. At the current ceiling that would let GitHub kill the second
-        // attempt before it reports — so reintroducing one must be a deliberate, re-budgeted decision.
-        expect(requiredCanaryJobCeilingMs(1)).toBeGreaterThan(canaryCheckTimeoutMs!);
-        expect(requiredCanaryJobCeilingMs(0)).toBeLessThanOrEqual(canaryCheckTimeoutMs!);
+    it('CASUALTY: the 25-minute ceiling cannot hold two attempts, and a second retry outgrows 45', () => {
+        // Two attempts need 41 minutes; the old 25-minute ceiling would kill the retry before it reports.
+        expect(requiredCanaryJobCeilingMs(1)).toBeGreaterThan(25 * 60_000);
+        expect(requiredCanaryJobCeilingMs(1)).toBeLessThanOrEqual(canaryCheckTimeoutMs!);
+        // Raising retries is a budget decision, not a free change: three attempts need 57 minutes.
+        expect(requiredCanaryJobCeilingMs(2)).toBeGreaterThan(canaryCheckTimeoutMs!);
     });
 
     it('CASUALTY: the parser ignores a larger unrelated job, so a canary-check regression cannot hide', () => {
