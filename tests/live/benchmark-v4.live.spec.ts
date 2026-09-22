@@ -11,7 +11,7 @@ import {
     expectBenchmarkRecordingStarted,
     expectBenchmarkTranscriptOutput,
     logBenchmarkPhase,
-    preparePrivateModelIfPrompted,
+    preparePrivateModelIfPrompted, startBenchmarkRecording, stopBenchmarkRecording,
     readBenchmarks,
     selectBenchmarkMode,
     waitForBenchmarkSaveCandidate,
@@ -105,7 +105,11 @@ test('measure Transformers.js v4 worker', async ({ page }, testInfo) => {
     await selectBenchmarkMode(page, 'private');
     await preparePrivateModelIfPrompted(page, 90_000);
 
-    await page.getByTestId('session-start-stop-button').click();
+    // #1519 P1 — `session-start-stop-button` is the RETIRED combined toggle: nothing renders it on any
+    // viewport, so this click never started anything, and after a cold setup press the take is already
+    // running anyway. `startBenchmarkRecording` presses only the control the CURRENT state renders, and
+    // presses nothing when setup already started the take (one click, one session).
+    await startBenchmarkRecording(page, 'private-v4');
     const recordingStartedAt = Date.now();
     await expectBenchmarkRecordingStarted(page, 'private-v4');
     await expectBenchmarkTranscriptOutput(page, 'private-v4', 30_000);
@@ -138,8 +142,9 @@ test('measure Transformers.js v4 worker', async ({ page }, testInfo) => {
     const elapsedSinceStartMs = Date.now() - recordingStartedAt;
     await page.waitForTimeout(Math.max(0, HARVARD_BENCHMARK_AUDIO_MS + AUDIO_COMPLETION_MARGIN_MS - elapsedSinceStartMs));
 
-    await page.getByTestId('session-start-stop-button').click();
-    await logBenchmarkPhase(page, 'PROOF_JOURNEY_STOP_CLICKED_PRIVATE_V4');
+    // Stop is a SPLIT control too: RecorderBar's `recorder-stop`, which this helper waits on and then
+    // proves the recorder bar actually went away — a stop that did not stop is not a stop.
+    await stopBenchmarkRecording(page, 'private-v4');
     const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-v4');
     const transcriptText = (saveCandidate.selectedForSave ?? '')
         .toLowerCase()

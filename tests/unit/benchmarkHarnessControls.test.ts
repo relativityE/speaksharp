@@ -15,6 +15,8 @@
 // Playwright's assertion library is replaced with a shim that understands the same matchers, because
 // the subject under test is the helpers' SELECTOR CHOICE and CONTROL FLOW, not Playwright itself.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, RETIRED_COMBINED_CONTROL } from '../helpers/micControls';
 
 vi.mock('@playwright/test', () => {
@@ -350,5 +352,98 @@ describe('startBenchmarkRecording never starts a second take', () => {
         await startBenchmarkRecording(page, 'cold-take');
         expect(clicked.length, 'exactly one press across setup AND start').toBe(pressesAfterSetup);
         expect(clicked).toHaveLength(1);
+    });
+});
+
+/**
+ * #1519 P1 (Codex + PM RETURN on 85d30695) — THE HELPER BEING RIGHT IS NOT THE CALLERS BEING RIGHT.
+ *
+ * Every test above executes the helpers, because the question there is whether a control EXISTS in the
+ * state under test, and a source scan cannot answer that (see this file's header). The question here is
+ * different and genuinely structural: do the cold-setup consumers DELEGATE their start to the helper, or
+ * do they resolve and press a control themselves? That is a property of the source, so the source is the
+ * right instrument — the same reasoning as #1518's stale-behaviour guard.
+ *
+ * It matters because setup may return with the take already running. A caller that then demands a
+ * ready-state control fails on a healthy cold account, and one that presses anyway writes a SECOND
+ * session row — corrupting exactly the count the three-session retention proof exists to measure, on a
+ * paid Production run.
+ *
+ * SCOPE IS DERIVED, NOT LISTED: every spec that imports `preparePrivateModelIfPrompted` is a consumer of
+ * cold setup, so a consumer added later is covered without anyone remembering to add it here.
+ *
+ * KNOWN EXCLUSION, stated rather than silently skipped: `tester-b-private-native-stt.live.spec.ts` still
+ * presses the retired combined control, as do the two analytics specs. That was declared out of scope by
+ * the change under test and is tracked separately; it is excluded here by name so the gap stays visible
+ * instead of being hidden by a guard that quietly passes.
+ */
+describe('#1519 every cold-setup consumer delegates its start to the recording-aware helper', () => {
+    const repoRoot = resolve(__dirname, '..', '..');
+    const EXCLUDED = ['tester-b-private-native-stt.live.spec.ts'];
+
+    const consumers = readdirSync(resolve(repoRoot, 'tests/live'))
+        .filter((f) => f.endsWith('.spec.ts'))
+        .filter((f) => !EXCLUDED.includes(f))
+        .map((f) => ({ file: f, src: readFileSync(resolve(repoRoot, 'tests/live', f), 'utf8') }))
+        .filter(({ src }) => src.includes('preparePrivateModelIfPrompted'));
+
+    it('the scope actually resolved (an empty sweep would make every assertion below vacuous)', () => {
+        expect(consumers.length).toBeGreaterThanOrEqual(6);
+        expect(consumers.map((c) => c.file)).toContain('three-session-retention-proof.live.spec.ts');
+        expect(consumers.map((c) => c.file)).toContain('benchmark-cpu.live.spec.ts');
+        expect(consumers.map((c) => c.file)).toContain('benchmark-v4.live.spec.ts');
+    });
+
+    it('CASUALTY: none of them presses the retired combined control', () => {
+        // FORBID THE CALL, PERMIT THE MENTION. A substring guard fails on the comments that explain WHY
+        // the control is retired — which is how a guard teaches its next reader to delete the
+        // explanation instead of the defect (Consultant, #1518). So this matches the SELECTOR FORMS a
+        // press actually goes through, and says nothing about prose.
+        const selectorForms = [
+            new RegExp(`getByTestId\\(\\s*['"\`]${RETIRED_COMBINED_CONTROL}['"\`]`),
+            new RegExp(`data-testid=\\\\?["']${RETIRED_COMBINED_CONTROL}`),
+            new RegExp(`locator\\([^)]*${RETIRED_COMBINED_CONTROL}`),
+        ];
+        for (const { file, src } of consumers) {
+            for (const form of selectorForms) {
+                expect(form.test(src), `${file} selects ${RETIRED_COMBINED_CONTROL}, which renders on no viewport`).toBe(false);
+            }
+        }
+    });
+
+    it('the mention/press distinction holds in both directions', () => {
+        // A doc comment naming the retired control passes; either press form fails. Without this, the
+        // guard above could be satisfied by a regex that matches nothing at all.
+        const pressForms = [
+            `await page.getByTestId('${RETIRED_COMBINED_CONTROL}').click();`,
+            `page.locator('[data-testid="${RETIRED_COMBINED_CONTROL}"]').first().click();`,
+        ];
+        const mention = `// ${RETIRED_COMBINED_CONTROL} is the retired combined toggle and renders nowhere.`;
+        const forms = [
+            new RegExp(`getByTestId\\(\\s*['"\`]${RETIRED_COMBINED_CONTROL}['"\`]`),
+            new RegExp(`data-testid=\\\\?["']${RETIRED_COMBINED_CONTROL}`),
+            new RegExp(`locator\\([^)]*${RETIRED_COMBINED_CONTROL}`),
+        ];
+        for (const press of pressForms) {
+            expect(forms.some((f) => f.test(press)), `a press must be caught: ${press}`).toBe(true);
+        }
+        expect(forms.some((f) => f.test(mention)), 'a doc mention must be permitted').toBe(false);
+    });
+
+    it('CASUALTY: none of them resolves and clicks its own start control after setup', () => {
+        // The exact shape that fails on a cold account: ask for the `ready` control, then click it.
+        const selfResolvedStart = /expectMicControlForState\(\s*page\s*,\s*'ready'\s*\)/;
+        for (const { file, src } of consumers) {
+            expect(selfResolvedStart.test(src), `${file} must start through startBenchmarkRecording`).toBe(false);
+        }
+    });
+
+    it('every consumer that starts a take does so through the helper', () => {
+        for (const { file, src } of consumers) {
+            const startsATake = src.includes('expectBenchmarkRecordingStarted') || src.includes('stopBenchmarkRecording');
+            if (!startsATake) continue;
+            expect(src, `${file} starts a take, so it must call startBenchmarkRecording`)
+                .toContain('startBenchmarkRecording(');
+        }
     });
 });

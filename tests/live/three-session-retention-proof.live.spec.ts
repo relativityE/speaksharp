@@ -6,8 +6,8 @@ import {
     expectBenchmarkDraftActivity,
     expectBenchmarkRecordingStarted,
     expectFinalizedTranscriptOutput,
-    expectMicControlForState,
     preparePrivateModelIfPrompted,
+    startBenchmarkRecording,
     selectBenchmarkMode,
     stopBenchmarkRecording,
     waitForBenchmarkSaveCandidate,
@@ -473,8 +473,15 @@ test.describe('#1306 three-session newest-one retention production proof @live',
             // combined toggle: `session-start-stop-button` is rendered by nothing on any viewport
             // (MobileActionBar renders the SUFFIXED `-mobile` id), which is why clicking it burned all
             // 40 minutes of attempt 5's budget without ever invoking acquisition.
-            const startControl = await expectMicControlForState(page, 'ready');
-            await startControl.click();
+            // #1519 P1 (Codex + PM RETURN on 85d30695) — THE COLD PRESS MAY ALREADY BE THE TAKE.
+            //
+            // Demanding a ready-state control here contradicted the very change this PR makes:
+            // `preparePrivateModelIfPrompted` can return with the take already running (#1415/#1416
+            // made the cold press consent + download + record), and then `mic-start` correctly no
+            // longer exists. `startBenchmarkRecording` is the one place that knows this — it returns
+            // without pressing when the recorder is up, so a SECOND session row can never be written
+            // into the count this proof exists to measure.
+            await startBenchmarkRecording(page, label);
             await expectBenchmarkRecordingStarted(page, label);
 
             // PHASE CONTRACT. The transcript has TWO distinct lifecycle phases and one assertion cannot

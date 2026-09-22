@@ -152,7 +152,12 @@ describe('three-session production proof — assertion contract', () => {
       .join('\n');
     expect(strip(SPEC)).not.toMatch(/toHaveAttribute\('data-recording'/);
     expect(strip(BENCH)).not.toMatch(/getByLabel\(\/Stop Recording/);
-    expect(SPEC).toMatch(/expectMicControlForState/);
+    // #1519 P1: the start goes through the RECORDING-AWARE helper, which presses nothing when a cold
+    // setup press already started the take. Resolving a `ready` control directly (the old
+    // `expectMicControlForState(page, 'ready')` + click) fails on a healthy cold account and, worse, could
+    // write a SECOND session row into the count this proof measures.
+    expect(SPEC).toMatch(/startBenchmarkRecording\(page, label\)/);
+    expect(strip(SPEC)).not.toMatch(/expectMicControlForState\(\s*page\s*,\s*'ready'\s*\)/);
     expect(SPEC).toMatch(/stopBenchmarkRecording/);
   });
 
