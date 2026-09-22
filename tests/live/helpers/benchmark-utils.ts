@@ -326,7 +326,19 @@ export async function assertNativeSpeechRecognitionIsReal(page: Page, label: str
     }
 }
 
-export async function assertPreStartMode(page: Page, mode: 'native' | 'cloud' | 'private') {
+/**
+ * The mode the take will run in, checked before the harness starts it.
+ *
+ * #1519 (Codex P1 on 1e5420e8): on a cold account `preparePrivateModelIfPrompted` returns with the take
+ * ALREADY RECORDING (the cold press consents, downloads and records). Demanding READY|IDLE then failed
+ * every production proof before it reached the recording-aware start. Pass the setup result: a running
+ * take must be RECORDING, anything else must be READY|IDLE — and the mode policy is enforced in both.
+ */
+export async function assertPreStartMode(
+    page: Page,
+    mode: 'native' | 'cloud' | 'private',
+    { takeAlreadyRunning = false }: { takeAlreadyRunning?: boolean } = {},
+) {
     try {
         await expect(async () => {
             const snapshot = await collectBenchmarkPreconditionSnapshot(page, `pre-start-${mode}`);
@@ -340,7 +352,11 @@ export async function assertPreStartMode(page: Page, mode: 'native' | 'cloud' | 
             if (snapshot.ui?.modeSelectState !== undefined && snapshot.ui?.modeSelectState !== null) {
                 expect(snapshot.ui.modeSelectState, `PRE_START_MODE_STATE selector must remain ${mode}`).toBe(mode);
             }
-            expect(snapshot.root?.runtimeState, 'PRE_START_MODE_STATE runtime should be ready or idle before Start').toMatch(/READY|IDLE/);
+            if (takeAlreadyRunning) {
+                expect(snapshot.root?.runtimeState, 'PRE_START_MODE_STATE setup reported the cold press started the take, so the runtime must be RECORDING').toMatch(/^RECORDING$/);
+            } else {
+                expect(snapshot.root?.runtimeState, 'PRE_START_MODE_STATE runtime should be ready or idle before Start').toMatch(/READY|IDLE/);
+            }
             expect(runtime?.controllerPreferredMode, `PRE_START_MODE_STATE controller policy must prefer ${mode}`).toBe(mode);
             expect(policy?.preferredMode, `PRE_START_MODE_STATE policy preferredMode must be ${mode}`).toBe(mode);
         }).toPass({ timeout: 15_000, intervals: [500, 1_000, 2_000] });

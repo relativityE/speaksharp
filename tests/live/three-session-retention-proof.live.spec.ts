@@ -422,8 +422,9 @@ test.describe('#1306 three-session newest-one retention production proof @live',
             const ctaRequired = statusBeforeCta === 'download-required';
 
             // The acquisition diagnosis must survive a stall here, which is exactly where attempt 4 died.
+            let setup: Awaited<ReturnType<typeof preparePrivateModelIfPrompted>>;
             try {
-                await preparePrivateModelIfPrompted(page, 600_000);
+                setup = await preparePrivateModelIfPrompted(page, 600_000);
             } catch (err) {
                 await emitModelDiagnosis(`${label}:model-prepare-FAILED:ctaRequired=${ctaRequired}:before=${statusBeforeCta}`);
                 throw err;
@@ -441,7 +442,8 @@ test.describe('#1306 three-session newest-one retention production proof @live',
                     `the setup CTA must move the model off download-required; it stayed at ${String(statusAfterCta)}`,
                 ).not.toBe('download-required');
             }
-            await assertPreStartMode(page, 'private');
+            // The cold press may already be the take (#1519, Codex P1 on 1e5420e8).
+            await assertPreStartMode(page, 'private', { takeAlreadyRunning: setup.recordingAlreadyStarted });
 
             // ENTITLEMENT GATE, re-evaluated before EVERY recording from the same server authority.
             // `can_start` is checked again ahead of recordings 2 and 3 because a mid-run entitlement

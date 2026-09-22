@@ -70,6 +70,7 @@ vi.mock('@playwright/test', () => {
         const shown = () => JSON.stringify(actual);
         return {
             toBe: (v: unknown) => { if (actual !== v) fail(`expected ${shown()} to be ${JSON.stringify(v)}`); },
+            toMatch: (re: RegExp) => { if (!(typeof actual === 'string' && re.test(actual))) fail(`expected ${shown()} to match ${String(re)}`); },
             toContain: (v: unknown) => {
                 const has = Array.isArray(actual) ? actual.includes(v)
                     : typeof actual === 'string' && typeof v === 'string' ? actual.includes(v) : false;
@@ -95,7 +96,7 @@ vi.mock('@playwright/test', () => {
 
 // Transcript-surface helpers are exercised in benchmarkHarnessSurface.test.tsx, which mounts the REAL
 // SessionDuringState rather than hand-written markup. This file covers the mic/recorder controls.
-const { preparePrivateModelIfPrompted, expectMicControlForState, expectBenchmarkRecordingStarted, stopBenchmarkRecording, startBenchmarkRecording } =
+const { preparePrivateModelIfPrompted, expectMicControlForState, expectBenchmarkRecordingStarted, stopBenchmarkRecording, startBenchmarkRecording, assertPreStartMode } =
     await import('../live/helpers/benchmark-utils');
 
 interface FakeLocator {
@@ -377,6 +378,52 @@ describe('startBenchmarkRecording never starts a second take', () => {
  * the change under test and is tracked separately; it is excluded here by name so the gap stays visible
  * instead of being hidden by a guard that quietly passes.
  */
+describe('#1519 Codex P1 on 1e5420e8: the pre-start mode check knows the cold press may be the take', () => {
+    // `assertPreStartMode` demanded READY|IDLE unconditionally. Both production proofs call it right
+    // after `preparePrivateModelIfPrompted`, which on a cold account returns with the take RECORDING —
+    // so the proof polled for 15 s and failed before ever reaching the recording-aware start.
+    const runtimeFor = (preferred: string) => {
+        (window as unknown as { __SPEECH_RUNTIME_DEBUG__?: () => unknown }).__SPEECH_RUNTIME_DEBUG__ =
+            () => ({ controllerPreferredMode: preferred, policy: { preferredMode: preferred } });
+    };
+    const at = (runtimeState: string, preferred = 'private') => {
+        document.documentElement.setAttribute('data-runtime-state', runtimeState);
+        runtimeFor(preferred);
+    };
+
+    it('CASUALTY: after a cold press that started the take, the running take passes the mode check', async () => {
+        at('RECORDING');
+        await expect(assertPreStartMode(page, 'private', { takeAlreadyRunning: true })).resolves.toBeUndefined();
+    });
+
+    it('END TO END: the setup result is what tells the check a take is running', async () => {
+        renderState('download-required');
+        document.documentElement.setAttribute('data-runtime-state', 'READY');
+        runtimeFor('private');
+        const setup = await preparePrivateModelIfPrompted(page, 5_000);
+        document.documentElement.setAttribute('data-runtime-state', 'RECORDING');
+        expect(setup.recordingAlreadyStarted).toBe(true);
+        await expect(assertPreStartMode(page, 'private', { takeAlreadyRunning: setup.recordingAlreadyStarted })).resolves.toBeUndefined();
+    });
+
+    it('CONTROL: with no take running, only READY or IDLE is a pre-start state', async () => {
+        at('READY');
+        await expect(assertPreStartMode(page, 'private')).resolves.toBeUndefined();
+        at('RECORDING');
+        await expect(assertPreStartMode(page, 'private')).rejects.toThrow(/PRE_START_MODE_STATE failed/);
+    });
+
+    it('FALSIFICATION: a take that setup claims but the runtime does not show is refused', async () => {
+        at('READY');
+        await expect(assertPreStartMode(page, 'private', { takeAlreadyRunning: true })).rejects.toThrow(/PRE_START_MODE_STATE failed/);
+    });
+
+    it('FALSIFICATION: the mode is still enforced while the take runs', async () => {
+        at('RECORDING', 'native');
+        await expect(assertPreStartMode(page, 'private', { takeAlreadyRunning: true })).rejects.toThrow(/PRE_START_MODE_STATE failed/);
+    });
+});
+
 describe('#1519 every cold-setup consumer delegates its start to the recording-aware helper', () => {
     const repoRoot = resolve(__dirname, '..', '..');
     const EXCLUDED = ['tester-b-private-native-stt.live.spec.ts'];
@@ -435,6 +482,16 @@ describe('#1519 every cold-setup consumer delegates its start to the recording-a
         const selfResolvedStart = /expectMicControlForState\(\s*page\s*,\s*'ready'\s*\)/;
         for (const { file, src } of consumers) {
             expect(selfResolvedStart.test(src), `${file} must start through startBenchmarkRecording`).toBe(false);
+        }
+    });
+
+    it('CASUALTY (Codex P1 on 1e5420e8): a pre-start check after setup is told whether the take is running', () => {
+        const bareCheck = /assertPreStartMode\(\s*page\s*,\s*'private'\s*\)/;
+        const checked = consumers.filter(({ src }) => src.includes('assertPreStartMode('));
+        expect(checked.map((c) => c.file)).toContain('three-session-retention-proof.live.spec.ts');
+        expect(checked.map((c) => c.file)).toContain('private-recording-proof.live.spec.ts');
+        for (const { file, src } of checked) {
+            expect(bareCheck.test(src), `${file} checks pre-start state after a cold setup without passing the setup result`).toBe(false);
         }
     });
 
