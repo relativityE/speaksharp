@@ -149,10 +149,16 @@ test.describe('Production Smoke Canary @canary', () => {
         // finish a cold take at all, and gated runs with a slow publish no better off. The deployment
         // allowance is ADDED on top only when the poll will actually run.
         test.setTimeout(canaryTestTimeoutMs(deployGateIsArmed()));
-        // Each phase runs under its OWN enforced ceiling, so the total above is a real bound rather than
-        // an inventory of internal waits — the round-2 correction. A phase that overruns fails as
+        // Each product phase runs under its OWN enforced ceiling, so the total above is a real bound
+        // rather than an inventory of internal waits. A phase that overruns fails as
         // CANARY_PHASE_TIMEOUT:<phase>, naming where the time went instead of a generic test timeout.
-        await withPhaseDeadline('deploy_gate', () => assertDeployedReleaseIsLive(page));
+        //
+        // The deploy poll is deliberately NOT wrapped (Codex, exact head 90a1eceb8). It already bounds
+        // itself to DEPLOY_WAIT_MS, navigation included; racing it against a second timer of the SAME
+        // budget let that outer timer fire first and swallow the DEPLOYMENT NOT LIVE verdict and its
+        // `deployed-release` evidence — the very diagnostic the gate exists to emit. Its verdict path is
+        // paid for by DEPLOY_VERDICT_SLACK_MS in the outer budget instead.
+        await assertDeployedReleaseIsLive(page);
 
         // 1. Real Login (modeled after soak test)
         await withPhaseDeadline('login', () => canaryLogin(page, CANARY_USER.email, CANARY_USER.password));
@@ -160,18 +166,15 @@ test.describe('Production Smoke Canary @canary', () => {
         // 2. Navigate to Session Page (use client-side navigation to preserve state)
         await withPhaseDeadline('navigate_session', () => navigateToRoute(page, ROUTES.SESSION));
 
-        // 🔹 SCHEMA CHECK: User Profile
-        // Verify that the profile loaded correctly and reflects the subscription status
-        // This implicitly validates the 'user_profiles' table schema. The shipped recorder control is
-        // `mic-download` (one-time model gate) or `mic-start` (ready) — never the retired
-        // `session-start-stop-button` from the removed LiveRecordingCard.
-        await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 15000 });
-
         // 🔹 ENTITLEMENT + AFFORDANCE CHECK (post-#1047, replaces the stale tier-affordance selectors).
         // The old check asserted PRIVATE_SAMPLE_SETUP_BUTTON / "Private sample: up to 5 minutes" — both
         // removed/relocated by #1047/#1094, which is why the canary failed (#1100). We now read the live
         // server entitlement and assert the affordance that MATCHES that account state.
         await withPhaseDeadline('pre_start_checks', async () => {
+        // 🔹 SCHEMA CHECK: User Profile — the shipped recorder control is `mic-download` (one-time model
+        // gate) or `mic-start` (ready), never the retired `session-start-stop-button`. Inside this phase
+        // since #1518 round 3: it was a 15s wait sitting between two phases with no budget of its own.
+        await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 15000 });
         await expect.poll(() => usageBody, {
             message: 'check-usage-limit response never arrived',
             timeout: 15000,
@@ -209,7 +212,17 @@ test.describe('Production Smoke Canary @canary', () => {
         // `start_take` owns the cold authoritative RPC, so its ceiling is the helper's own total: the
         // press plus the two control waits plus the 150s RPC, unchanged.
         debugLog('[CANARY] Confirming Private STT and starting the take...');
-        const { authoritativeStart, path: startPath } = await withPhaseDeadline('start_take', () => startTake(page));
+        //
+        // The phase now includes AWAITING the authoritative RPC, not just pressing. Before #1518 round 3
+        // `start_take` ended at the click, and the 150s cold RPC wait — the longest wait in the whole
+        // journey — ran outside every phase.
+        const { startPath, startResponse, startPayload } = await withPhaseDeadline('start_take', async () => {
+            const { authoritativeStart, path } = await startTake(page);
+            const response = await authoritativeStart;
+            let payload: CanaryStartRpcPayload | null = null;
+            try { payload = await response.json() as CanaryStartRpcPayload; } catch { /* classified below */ }
+            return { startPath: path, startResponse: response, startPayload: payload };
+        });
         await test.info().attach('start-path', {
             contentType: 'application/json',
             body: JSON.stringify({ path: startPath }),
@@ -219,9 +232,6 @@ test.describe('Production Smoke Canary @canary', () => {
         // Fail on the authoritative start denial BEFORE waiting on any secondary UI selector. The
         // category is strictly sanitized so traces/logs identify private_sample_used (etc.) without
         // reflecting arbitrary database text.
-        const startResponse = await authoritativeStart;
-        let startPayload: CanaryStartRpcPayload | null = null;
-        try { startPayload = await startResponse.json() as CanaryStartRpcPayload; } catch { /* classified below */ }
         const startOutcome = classifyCanaryStartResponse(startResponse.status(), startPayload);
         await test.info().attach('authoritative-recording-start', {
             contentType: 'application/json',

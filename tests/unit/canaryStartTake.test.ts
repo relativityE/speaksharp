@@ -18,6 +18,8 @@ import {
     PRODUCT_PHASES,
     PRODUCT_SMOKE_BUDGET_MS,
     DEPLOY_WAIT_MS,
+    DEPLOY_VERDICT_SLACK_MS,
+    INTER_PHASE_HEADROOM_MS,
 } from '../canary/canaryBudget';
 
 /**
@@ -224,15 +226,64 @@ describe('#1518 phase ceilings are enforced, and the outer budgets exceed their 
         expect(PHASE_BUDGETS_MS.start_take).toBe(COLD_START_TOTAL_BUDGET_MS);
     });
 
-    it('the product total is the sum of the ENFORCED phase ceilings, deployment excluded', () => {
+    it('the product total is the sum of the ENFORCED phase ceilings plus inter-phase headroom', () => {
         const summed = PRODUCT_PHASES.reduce((t, phase) => t + PHASE_BUDGETS_MS[phase], 0);
-        expect(PRODUCT_SMOKE_BUDGET_MS).toBe(summed);
+        expect(PRODUCT_SMOKE_BUDGET_MS).toBe(summed + INTER_PHASE_HEADROOM_MS);
         expect(PRODUCT_PHASES).not.toContain('deploy_gate');
         // Every product phase the spec performs is bounded — no phase may run unbudgeted.
         for (const phase of PRODUCT_PHASES) {
             expect(spec, `phase ${phase} must run under withPhaseDeadline`).toContain(`withPhaseDeadline('${phase}'`);
         }
-        expect(spec).toContain("withPhaseDeadline('deploy_gate'");
+    });
+
+    it('CASUALTY: the self-bounded deploy poll is NOT raced against a same-budget timer', () => {
+        // Codex, exact head 90a1eceb8: wrapping the already-bounded poll in withPhaseDeadline let the outer
+        // timer fire first and swallow DEPLOYMENT NOT LIVE plus its `deployed-release` evidence.
+        expect(spec).not.toContain("withPhaseDeadline('deploy_gate'");
+        expect(spec).toMatch(/^\s+await assertDeployedReleaseIsLive\(page\);$/m);
+        // …and the outer budget pays for the verdict path after the poll's deadline.
+        expect(DEPLOY_VERDICT_SLACK_MS).toBeGreaterThan(0);
+    });
+
+    it('CASUALTY: nothing between phases awaits the page — every wait lives inside a phase', () => {
+        /*
+         * Codex, exact head 90a1eceb8: a 15s control-visibility wait sat between `navigate_session` and
+         * `pre_start_checks` with no budget; and on inspection the 150s cold RPC wait itself —
+         * `await authoritativeStart` — ran AFTER `start_take` returned, outside every phase. A total that
+         * is a sum of phase ceilings is only a bound if nothing waits outside them.
+         *
+         * So: from the timeout installation to the end of the test, every `await` that is not inside a
+         * `withPhaseDeadline(...)` call must be an evidence attachment or the self-bounded deploy poll.
+         */
+        const start = spec.indexOf('test.setTimeout(canaryTestTimeoutMs');
+        expect(start).toBeGreaterThan(0);
+        const body = spec.slice(start);
+
+        // Mark the source ranges covered by each withPhaseDeadline(...) call by balancing parentheses.
+        const covered: Array<[number, number]> = [];
+        for (const m of body.matchAll(/withPhaseDeadline\(/g)) {
+            let depth = 0;
+            for (let i = m.index! + 'withPhaseDeadline'.length; i < body.length; i += 1) {
+                if (body[i] === '(') depth += 1;
+                else if (body[i] === ')') { depth -= 1; if (depth === 0) { covered.push([m.index!, i]); break; } }
+            }
+        }
+        const inside = (at: number) => covered.some(([a, b]) => at > a && at < b);
+        const allowed = /^await (test\.info\(\)\.attach\(|assertDeployedReleaseIsLive\(|withPhaseDeadline\()/;
+
+        const stray = [...body.matchAll(/await [^\n;]+/g)]
+            .filter((m) => !inside(m.index!))
+            .map((m) => m[0])
+            .filter((text) => !allowed.test(text));
+        expect(stray, 'waits outside any phase').toEqual([]);
+        expect(covered.length).toBeGreaterThanOrEqual(PRODUCT_PHASES.length);
+    });
+
+    it('CASUALTY: start_take awaits the authoritative RPC inside its own phase', () => {
+        // The largest wait in the journey. It must be bounded by the phase whose ceiling was sized for it.
+        const phase = /withPhaseDeadline\('start_take', async \(\) => \{([\s\S]*?)\n {8}\}\);/.exec(spec);
+        expect(phase, 'start_take must be an async phase body').not.toBeNull();
+        expect(phase![1]).toMatch(/await authoritativeStart/);
     });
 
     it('CASUALTY: an UNGATED cold run is not capped at the config default', () => {
@@ -243,8 +294,8 @@ describe('#1518 phase ceilings are enforced, and the outer budgets exceed their 
 
     it('CASUALTY: maximum deployment polling cannot consume the product allowance', () => {
         const gated = canaryTestTimeoutMs(true);
-        expect(gated - DEPLOY_WAIT_MS).toBe(PRODUCT_SMOKE_BUDGET_MS);
-        expect(gated).toBe(DEPLOY_WAIT_MS + PRODUCT_SMOKE_BUDGET_MS);
+        expect(gated - DEPLOY_WAIT_MS - DEPLOY_VERDICT_SLACK_MS).toBe(PRODUCT_SMOKE_BUDGET_MS);
+        expect(gated).toBe(DEPLOY_WAIT_MS + DEPLOY_VERDICT_SLACK_MS + PRODUCT_SMOKE_BUDGET_MS);
     });
 
     it('CASUALTY: the deployment poll bounds its own navigation by the time remaining', () => {

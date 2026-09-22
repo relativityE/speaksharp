@@ -33,7 +33,8 @@ export const PHASE_BUDGETS_MS = Object.freeze({
     /**
      * The #1106 deploy-race poll. STRICT, including navigation: every `page.goto` inside it is given only
      * the time remaining, so a navigation started near the ceiling cannot overrun it and eat the product
-     * allowance (PM RETURN finding 1). Expiry keeps the distinct DEPLOYMENT NOT LIVE diagnostic.
+     * allowance (PM RETURN finding 1). Enforced INSIDE the poll, never by `withPhaseDeadline` — racing
+     * it against a same-budget timer swallowed the DEPLOYMENT NOT LIVE verdict (Codex, `90a1eceb8`).
      */
     deploy_gate: 4 * 60_000,
     /** `canaryLogin`: the app-visible barrier plus the post-login redirect poll. */
@@ -54,6 +55,21 @@ export const PHASE_BUDGETS_MS = Object.freeze({
 
 export type CanaryPhase = keyof typeof PHASE_BUDGETS_MS;
 
+/**
+ * Time for the deploy poll to emit its verdict AFTER its deadline: attach `deployed-release` and throw
+ * DEPLOYMENT NOT LIVE. Without it the outer test timeout and the poll deadline coincide exactly, and the
+ * test can be killed mid-verdict — losing the evidence the gate exists to produce.
+ */
+export const DEPLOY_VERDICT_SLACK_MS = 15_000;
+
+/**
+ * Work BETWEEN phases: evidence attachments, response classification and logging. None of it waits on
+ * the page, but it is not free, and a total that is exactly the sum of phase ceilings leaves it no room
+ * (Codex, `90a1eceb8`). `tests/unit/canaryStartTake.test.ts` pins that nothing between phases may await
+ * anything except an attachment, so this headroom cannot quietly become a place to hide a page wait.
+ */
+export const INTER_PHASE_HEADROOM_MS = 30_000;
+
 /** Every phase except the deployment poll — i.e. the product flow proper. */
 export const PRODUCT_PHASES: readonly CanaryPhase[] = Object.freeze(
     (Object.keys(PHASE_BUDGETS_MS) as CanaryPhase[]).filter((p) => p !== 'deploy_gate'),
@@ -67,7 +83,8 @@ export const DEPLOY_POLL_MS = 15_000;
  * The complete product path as a sum of ENFORCED ceilings. Because each phase fails at its own ceiling,
  * this is a real bound on the product flow rather than an inventory of internal waits.
  */
-export const PRODUCT_SMOKE_BUDGET_MS = PRODUCT_PHASES.reduce((total, phase) => total + PHASE_BUDGETS_MS[phase], 0);
+export const PRODUCT_SMOKE_BUDGET_MS =
+    PRODUCT_PHASES.reduce((total, phase) => total + PHASE_BUDGETS_MS[phase], 0) + INTER_PHASE_HEADROOM_MS;
 
 /**
  * The per-test ceiling the spec installs, UNCONDITIONALLY.
@@ -77,7 +94,7 @@ export const PRODUCT_SMOKE_BUDGET_MS = PRODUCT_PHASES.reduce((total, phase) => t
  * the product allowance when a publish is slow.
  */
 export function canaryTestTimeoutMs(deployGateArmed: boolean): number {
-    return (deployGateArmed ? PHASE_BUDGETS_MS.deploy_gate : 0) + PRODUCT_SMOKE_BUDGET_MS;
+    return (deployGateArmed ? PHASE_BUDGETS_MS.deploy_gate + DEPLOY_VERDICT_SLACK_MS : 0) + PRODUCT_SMOKE_BUDGET_MS;
 }
 
 /** Thrown when a phase passes its ceiling, so the report names the phase instead of timing out generically. */
