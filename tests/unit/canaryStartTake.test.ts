@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     startTake,
     type TakeAssertions,
@@ -11,14 +11,13 @@ import {
 } from '../canary/canaryStartTake';
 import {
     canaryTestTimeoutMs,
-    DEPLOY_WAIT_MS,
+    withPhaseDeadline,
+    parseJobTimeoutMs,
+    CanaryPhaseTimeout,
+    PHASE_BUDGETS_MS,
+    PRODUCT_PHASES,
     PRODUCT_SMOKE_BUDGET_MS,
-    LOGIN_FLOW_BUDGET_MS,
-    NAVIGATION_BUDGET_MS,
-    PRE_START_CHECK_BUDGET_MS,
-    RECORDING_CHECK_BUDGET_MS,
-    RECORDING_DWELL_MS,
-    STOP_SAVE_BUDGET_MS,
+    DEPLOY_WAIT_MS,
 } from '../canary/canaryBudget';
 
 /**
@@ -192,72 +191,130 @@ describe('#1306 no retired start behaviour survives, in either file', () => {
 });
 
 /**
- * #1518 P1 (Codex, exact head `fa322aa33`; PM RETURN) — THE CLOCK IS PART OF THE CONTRACT.
+ * #1518 — THE CLOCK IS PART OF THE CONTRACT, AND CEILINGS MUST BE ENFORCED RATHER THAN ESTIMATED.
  *
- * The cold wait lived in the helper, the per-test ceiling in the spec, and the job ceiling in the
- * workflow, with nothing relating them — so the cold path could not physically complete under any of
- * them and a healthy cold account died on a generic Playwright timeout. These assertions compute the
- * whole sequential path and require every outer budget to exceed it, in BOTH modes, so the constants
- * cannot drift apart again.
+ * Round 1 (Codex, `fa322aa33`): the 150s cold wait could not elapse under a 60s per-test ceiling that
+ * was raised only when the deploy gate was armed.
+ *
+ * Round 2 (PM RETURN, `3492c5b9e`): my replacement summed what I BELIEVED each phase cost, and the
+ * inventory was wrong — navigation alone hides an app-visible barrier plus `waitForURL` plus route-shell
+ * waits, recording validation has four assertions not three, and stop/save omitted the stop-control
+ * wait, the reload and the sessions-response validation. A sum of guessed internal waits cannot be
+ * verified, so the phases are now BOUNDED and the total is the sum of ceilings that actually fire.
  */
-describe('#1518 the cold journey is affordable in both deploy-gate modes', () => {
+describe('#1518 phase ceilings are enforced, and the outer budgets exceed their sum', () => {
     const repoRoot = resolve(__dirname, '..', '..');
     const config = readFileSync(resolve(repoRoot, 'playwright.canary.config.ts'), 'utf8');
     const workflow = readFileSync(resolve(repoRoot, '.github/workflows/canary.yml'), 'utf8');
     const spec = readFileSync(resolve(repoRoot, 'tests/canary/smoke.canary.spec.ts'), 'utf8');
 
-    /** Playwright's own per-test default for this project — the ceiling the fix must escape. */
     const configDefaultMs = Number(/^\s*timeout:\s*(\d+),/m.exec(config)?.[1]);
-    /** The smoke job's ceiling, the outermost budget of all. */
-    const jobTimeoutMs = Math.max(
-        ...[...workflow.matchAll(/^\s*timeout-minutes:\s*(\d+)$/gm)].map((m) => Number(m[1]) * 60_000),
-    );
-    /** The complete cold path, summed independently of the module's own arithmetic. */
-    const coldPathMs = LOGIN_FLOW_BUDGET_MS + NAVIGATION_BUDGET_MS + PRE_START_CHECK_BUDGET_MS
-        + COLD_START_TOTAL_BUDGET_MS + RECORDING_CHECK_BUDGET_MS + RECORDING_DWELL_MS + STOP_SAVE_BUDGET_MS;
+    const canaryCheckTimeoutMs = parseJobTimeoutMs(workflow, 'canary-check');
 
     it('the fixtures parsed (an unread config or workflow would make the rest vacuous)', () => {
         expect(Number.isFinite(configDefaultMs)).toBe(true);
-        expect(Number.isFinite(jobTimeoutMs)).toBe(true);
-        expect(coldPathMs).toBeGreaterThan(0);
+        expect(canaryCheckTimeoutMs).not.toBeNull();
+        expect(PRODUCT_PHASES.length).toBeGreaterThanOrEqual(7);
     });
 
-    it('the internal cold-start timeout is unchanged at 150s, and the helper total follows from it', () => {
-        // PM RETURN: keep the 150s wait and the single-click behaviour exactly as they are.
+    it('the internal cold-start timeout and the helper total are unchanged', () => {
+        // PM RETURN: keep the 150s RPC wait and the one-click/one-session behaviour exactly as they are.
         expect(COLD_START_RPC_TIMEOUT_MS).toBe(150_000);
         expect(COLD_START_TOTAL_BUDGET_MS).toBe(CONTROL_WAIT_MS * 2 + COLD_START_RPC_TIMEOUT_MS);
+        expect(PHASE_BUDGETS_MS.start_take).toBe(COLD_START_TOTAL_BUDGET_MS);
     });
 
-    it('the product allowance is DERIVED from the whole sequential path, not a flat share', () => {
-        expect(PRODUCT_SMOKE_BUDGET_MS).toBe(coldPathMs);
-        // The old flat two minutes was smaller than the cold wait alone — the arithmetic that failed.
-        expect(PRODUCT_SMOKE_BUDGET_MS).toBeGreaterThan(COLD_START_TOTAL_BUDGET_MS);
-        expect(2 * 60_000).toBeLessThan(COLD_START_TOTAL_BUDGET_MS);
+    it('the product total is the sum of the ENFORCED phase ceilings, deployment excluded', () => {
+        const summed = PRODUCT_PHASES.reduce((t, phase) => t + PHASE_BUDGETS_MS[phase], 0);
+        expect(PRODUCT_SMOKE_BUDGET_MS).toBe(summed);
+        expect(PRODUCT_PHASES).not.toContain('deploy_gate');
+        // Every product phase the spec performs is bounded — no phase may run unbudgeted.
+        for (const phase of PRODUCT_PHASES) {
+            expect(spec, `phase ${phase} must run under withPhaseDeadline`).toContain(`withPhaseDeadline('${phase}'`);
+        }
+        expect(spec).toContain("withPhaseDeadline('deploy_gate'");
     });
 
-    it('CASUALTY: an UNGATED cold run is not capped at the 60s default', () => {
+    it('CASUALTY: an UNGATED cold run is not capped at the config default', () => {
         const ungated = canaryTestTimeoutMs(false);
         expect(ungated).toBeGreaterThan(configDefaultMs);
-        expect(ungated).toBeGreaterThanOrEqual(coldPathMs);
-        // No deployment allowance is spent when no deployment is being awaited.
         expect(ungated).toBe(PRODUCT_SMOKE_BUDGET_MS);
     });
 
-    it('CASUALTY: maximum deployment polling cannot consume the cold/product allowance', () => {
+    it('CASUALTY: maximum deployment polling cannot consume the product allowance', () => {
         const gated = canaryTestTimeoutMs(true);
-        expect(gated - DEPLOY_WAIT_MS).toBeGreaterThanOrEqual(coldPathMs);
+        expect(gated - DEPLOY_WAIT_MS).toBe(PRODUCT_SMOKE_BUDGET_MS);
         expect(gated).toBe(DEPLOY_WAIT_MS + PRODUCT_SMOKE_BUDGET_MS);
     });
 
-    it('CASUALTY: the smoke JOB ceiling covers the worst case plus setup, or the test is killed first', () => {
-        // The outermost budget. A job killed at 15 min reproduces exactly the generic-timeout failure the
-        // in-test raise was added to remove.
-        const setupAllowanceMs = 4 * 60_000;      // checkout, install, provision
-        expect(jobTimeoutMs).toBeGreaterThanOrEqual(canaryTestTimeoutMs(true) + setupAllowanceMs);
+    it('CASUALTY: the deployment poll bounds its own navigation by the time remaining', () => {
+        // PM RETURN finding 1: the elapsed check used to happen only AFTER an unbounded `page.goto`, so a
+        // navigation begun near the ceiling could overrun it and spend the product allowance.
+        expect(spec).toMatch(/page\.goto\(base, \{ waitUntil: 'domcontentloaded', timeout: Math\.max\(1, remainingMs\(\)\) \}\)/);
+        expect(spec).toMatch(/while \(remainingMs\(\) > 0\)/);
+        expect(spec, 'the poll sleep must be clamped to the remaining budget')
+            .toMatch(/waitForTimeout\(Math\.max\(1, Math\.min\(DEPLOY_POLL_MS, remainingMs\(\)\)\)\)/);
+        expect(spec, 'a deadline hit mid-navigation must still produce the deployment verdict')
+            .toMatch(/if \(remainingMs\(\) > 0\) throw err;/);
+    });
+
+    it('CASUALTY: the canary-check JOB ceiling is read from that job, not the workflow maximum', () => {
+        // PM RETURN finding 3: taking the max `timeout-minutes` anywhere let canary-check regress while an
+        // unrelated job's larger ceiling kept the test green.
+        const setupAllowanceMs = 4 * 60_000;   // checkout, install, provision
+        expect(canaryCheckTimeoutMs).toBeGreaterThanOrEqual(canaryTestTimeoutMs(true) + setupAllowanceMs);
+    });
+
+    it('CASUALTY: the parser ignores a larger unrelated job, so a canary-check regression cannot hide', () => {
+        const fixture = [
+            'jobs:',
+            '  migration-readiness:',
+            '    timeout-minutes: 60',
+            '  canary-check:',
+            '    name: canary-check (lane)',
+            '    timeout-minutes: 15',
+            '  canary-result:',
+            '    timeout-minutes: 90',
+            '',
+        ].join('\n');
+        expect(parseJobTimeoutMs(fixture, 'canary-check')).toBe(15 * 60_000);
+        expect(parseJobTimeoutMs(fixture, 'migration-readiness')).toBe(60 * 60_000);
+        expect(parseJobTimeoutMs(fixture, 'no-such-job')).toBeNull();
+        // The regression PM described, proven to fail the real assertion:
+        expect(15 * 60_000).toBeLessThan(canaryTestTimeoutMs(true) + 4 * 60_000);
+    });
+
+    it('withPhaseDeadline fails with a NAMED phase error, and passes fast work through', async () => {
+        await expect(withPhaseDeadline('recording_dwell', async () => 'done')).resolves.toBe('done');
+
+        // Fake timers, so proving a 15s ceiling fires does not cost 15s of gate time on every run.
+        vi.useFakeTimers();
+        try {
+            const budget = PHASE_BUDGETS_MS.recording_dwell;
+            const slow = withPhaseDeadline('recording_dwell', () => new Promise((r) => setTimeout(r, budget + 5_000)));
+            // Capture the settlement BEFORE advancing the clock, so the rejection is never unhandled.
+            const settled = slow.then(() => null, (error: unknown) => error);
+            await vi.advanceTimersByTimeAsync(budget + 1);
+            const error = await settled;
+            expect(error).toBeInstanceOf(CanaryPhaseTimeout);
+            expect((error as CanaryPhaseTimeout).phase).toBe('recording_dwell');
+            expect(String((error as Error).message)).toMatch(/CANARY_PHASE_TIMEOUT:recording_dwell/);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('withPhaseDeadline hands the phase its remaining time, which only decreases', async () => {
+        await withPhaseDeadline('login', async ({ remainingMs }) => {
+            const first = remainingMs();
+            expect(first).toBeLessThanOrEqual(PHASE_BUDGETS_MS.login);
+            await new Promise((r) => setTimeout(r, 25));
+            expect(remainingMs()).toBeLessThan(first);
+            expect(remainingMs()).toBeGreaterThan(0);
+        });
     });
 
     it('the spec installs the ceiling unconditionally, through the derived helper', () => {
-        // A timeout is only ever a string until the run, so the wiring is asserted on the source.
         expect(spec).toMatch(/test\.setTimeout\(canaryTestTimeoutMs\(deployGateIsArmed\(\)\)\)/);
         expect(spec, 'setTimeout must not be nested inside the deploy-gate branch')
             .not.toMatch(/if \(deployGateIsArmed\(\)\) \{\s*\n\s*test\.setTimeout/);

@@ -2,7 +2,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
 import { startTake as startTakeWithAssertions, type TakeAssertions } from './canaryStartTake';
-import { canaryTestTimeoutMs, DEPLOY_WAIT_MS, DEPLOY_POLL_MS } from './canaryBudget';
+import { canaryTestTimeoutMs, withPhaseDeadline, DEPLOY_WAIT_MS, DEPLOY_POLL_MS } from './canaryBudget';
 
 /**
  * The two-line seam described in `canaryStartTake.ts`: Playwright's own `expect`, handed to the
@@ -51,12 +51,27 @@ async function assertDeployedReleaseIsLive(page: Page) {
         return;
     }
     const started = Date.now();
+    const deadlineAt = started + DEPLOY_WAIT_MS;
+    const remainingMs = () => deadlineAt - Date.now();
     let observed: string | undefined;
-    // Poll the deployed release marker, reloading each cycle, until it matches or the budget elapses.
-    // (Date.now() is fine in a Playwright spec — this is a test, not a resumable workflow script.)
-    for (;;) {
-        await page.goto(base, { waitUntil: 'domcontentloaded' });
-        observed = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__);
+    /*
+     * STRICTLY BOUNDED BY DEPLOY_WAIT_MS, NAVIGATION INCLUDED (PM RETURN finding 1).
+     *
+     * The elapsed check used to happen only AFTER `page.goto()`, and the goto carried no timeout — so a
+     * navigation begun at 3:59 could run on for its own navigation timeout and spend the product
+     * allowance this patch exists to protect. Now every goto is given only the time that remains, the
+     * poll sleep is clamped to it, and the budget is re-checked before each attempt. A goto that times
+     * out because the deadline arrived is reported as DEPLOYMENT NOT LIVE, never as a navigation fault:
+     * the distinct diagnostic is the whole point of the gate.
+     */
+    while (remainingMs() > 0) {
+        try {
+            await page.goto(base, { waitUntil: 'domcontentloaded', timeout: Math.max(1, remainingMs()) });
+            observed = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__);
+        } catch (err) {
+            if (remainingMs() > 0) throw err;   // a real navigation fault, not the deadline
+            break;                              // the ceiling arrived mid-navigation → deployment verdict below
+        }
         if (observed && observed === EXPECTED_RELEASE_SHA) {
             await test.info().attach('deployed-release', {
                 contentType: 'application/json',
@@ -65,8 +80,8 @@ async function assertDeployedReleaseIsLive(page: Page) {
             debugLog(`[CANARY] deployed release matches ${EXPECTED_RELEASE_SHA} (waited ${Math.round((Date.now() - started) / 1000)}s).`);
             return;
         }
-        if (Date.now() - started > DEPLOY_WAIT_MS) break;
-        await page.waitForTimeout(DEPLOY_POLL_MS);
+        if (remainingMs() <= 0) break;
+        await page.waitForTimeout(Math.max(1, Math.min(DEPLOY_POLL_MS, remainingMs())));
     }
     await test.info().attach('deployed-release', {
         contentType: 'application/json',
@@ -134,13 +149,16 @@ test.describe('Production Smoke Canary @canary', () => {
         // finish a cold take at all, and gated runs with a slow publish no better off. The deployment
         // allowance is ADDED on top only when the poll will actually run.
         test.setTimeout(canaryTestTimeoutMs(deployGateIsArmed()));
-        await assertDeployedReleaseIsLive(page);
+        // Each phase runs under its OWN enforced ceiling, so the total above is a real bound rather than
+        // an inventory of internal waits — the round-2 correction. A phase that overruns fails as
+        // CANARY_PHASE_TIMEOUT:<phase>, naming where the time went instead of a generic test timeout.
+        await withPhaseDeadline('deploy_gate', () => assertDeployedReleaseIsLive(page));
 
         // 1. Real Login (modeled after soak test)
-        await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
+        await withPhaseDeadline('login', () => canaryLogin(page, CANARY_USER.email, CANARY_USER.password));
 
         // 2. Navigate to Session Page (use client-side navigation to preserve state)
-        await navigateToRoute(page, ROUTES.SESSION);
+        await withPhaseDeadline('navigate_session', () => navigateToRoute(page, ROUTES.SESSION));
 
         // 🔹 SCHEMA CHECK: User Profile
         // Verify that the profile loaded correctly and reflects the subscription status
@@ -153,6 +171,7 @@ test.describe('Production Smoke Canary @canary', () => {
         // The old check asserted PRIVATE_SAMPLE_SETUP_BUTTON / "Private sample: up to 5 minutes" — both
         // removed/relocated by #1047/#1094, which is why the canary failed (#1100). We now read the live
         // server entitlement and assert the affordance that MATCHES that account state.
+        await withPhaseDeadline('pre_start_checks', async () => {
         await expect.poll(() => usageBody, {
             message: 'check-usage-limit response never arrived',
             timeout: 15000,
@@ -184,10 +203,13 @@ test.describe('Production Smoke Canary @canary', () => {
             await expect(page.getByTestId(TEST_IDS.PRO_BADGE)).toHaveCount(0);
         }
         await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible();
+        });
 
         // 3-4. Start the take with its ONE control (on-device model; $0). See startTake().
+        // `start_take` owns the cold authoritative RPC, so its ceiling is the helper's own total: the
+        // press plus the two control waits plus the 150s RPC, unchanged.
         debugLog('[CANARY] Confirming Private STT and starting the take...');
-        const { authoritativeStart, path: startPath } = await startTake(page);
+        const { authoritativeStart, path: startPath } = await withPhaseDeadline('start_take', () => startTake(page));
         await test.info().attach('start-path', {
             contentType: 'application/json',
             body: JSON.stringify({ path: startPath }),
@@ -210,6 +232,7 @@ test.describe('Production Smoke Canary @canary', () => {
         // Prove the current runtime + during-state seams AND exact Private authority. The ambient header
         // remains a corroborating assertion, never the sole proof; Browser/Cloud/Native cannot satisfy
         // these exact attributes.
+        await withPhaseDeadline('recording_checks', async () => {
         await expect(page.locator('html[data-runtime-state="RECORDING"][data-stt-resolved-mode="private"]'))
             .toBeVisible({ timeout: 10000 });
         await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]'))
@@ -218,14 +241,19 @@ test.describe('Production Smoke Canary @canary', () => {
         await expect(
             page.locator('[data-testid="live-session-header"][data-engine="private"][data-recording="true"]'),
         ).toBeVisible({ timeout: 10000 });
+        });
         debugLog('[CANARY] Confirmed runtime=RECORDING, during-state, and exact Private engine authority.');
 
         // 5. Record for 5 seconds
         debugLog('[CANARY] Recording for 5 seconds...');
-        await page.waitForTimeout(5000);
+        await withPhaseDeadline('recording_dwell', () => page.waitForTimeout(5000));
 
         // 6. Stop Session — the during-state RecorderBar exposes `recorder-stop`.
+        // One phase covers stop through settle: the stop-control wait, the end-state race, and the
+        // analytics reload with its sessions-response validation — the waits the earlier enumeration
+        // left out entirely (PM RETURN finding 2).
         debugLog('[CANARY] Stopping session...');
+        await withPhaseDeadline('stop_and_settle', async () => {
         const stopButton = page.getByTestId('recorder-stop');
         await expect(stopButton).toBeVisible();
         await stopButton.click();
@@ -272,6 +300,7 @@ test.describe('Production Smoke Canary @canary', () => {
                 await stayButton.click();
             }
         }
+        });
 
         debugLog('[CANARY] ✅ Smoke test passed. System is operational.');
     });
