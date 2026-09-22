@@ -16,6 +16,7 @@ import InvalidEnvironmentPage from "./pages/InvalidEnvironmentPage";
 import App from './App';
 import { ENV } from './config/TestFlags';
 import { useReadinessStore } from './stores/useReadinessStore';
+import { startRuntimeIfPathNeedsIt } from './lib/runtimeBootGate';
 import { getDevEnvironmentStatus } from './lib/devEnvironmentGuard';
 import { publishAppRuntimeConfig } from './config/appRuntimeConfig';
 import { installStaleChunkRecovery } from './lib/staleChunkRecovery';
@@ -322,8 +323,8 @@ const startInitializing = async () => {
     const { initE2EConfig } = await import('../../tests/types/e2eConfig');
     initE2EConfig({});
 
-    // Start STT infrastructure after E2E config is ready
-    initSTT();
+    // Start STT infrastructure after E2E config is ready — but only on a route that uses it.
+    startRuntimeIfPathNeedsIt(window.location.pathname, initSTT);
 
     const { initializeE2EEnvironment } = await import('./lib/e2e-bridge');
     await initializeE2EEnvironment();
@@ -337,8 +338,13 @@ const startInitializing = async () => {
     }
     await renderApp();
   } else {
-    // Standard Production Path
-    initSTT();
+    // Standard Production Path.
+    // Only a runtime route warms the runtime at boot. Booting it on the landing page, /terms or
+    // /auth/* arms the 5-minute idle-reclamation timer on a tab nobody records on, which then
+    // cycles IDLE -> TERMINATED -> IDLE forever: battery on the user's device and lifecycle
+    // telemetry no user produced. TranscriptionProvider initializes the runtime on mount for the
+    // routes that need it, so declining here cannot leave a route without one.
+    startRuntimeIfPathNeedsIt(window.location.pathname, initSTT);
     useReadinessStore.getState().setReady('msw'); // Always ready in production (no MSW)
     await renderApp();
   }
