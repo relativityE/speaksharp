@@ -297,15 +297,31 @@ const startInitializing = async () => {
 
   logger.debug('[main.tsx] Initialize started');
 
-  // Defer heavy WASM initialization to avoid competing with React hydration
-  const initSTT = () => {
-    // Install the hidden CDP qualification switch. It has no UI/URL/storage input and accepts only the
-    // PO-approved three-model slate; canonical Production needs it for the authenticated human test.
+  /**
+   * The hidden CDP qualification switch. UNGATED BY ROUTE, DELIBERATELY.
+   *
+   * #1517 P1 (Codex, exact head 08f3d0e9): this used to sit inside `initSTT`, so route-gating the
+   * runtime also stopped installing the switch. The model-comparison tooling enters from `/`
+   * (`prepare-take.mjs`) and `/practice` (`practice-loop-journey.live.spec.ts`) and requires
+   * `__SS_SWITCH_CANDIDATE__` to exist BEFORE it navigates to `/session`; `TranscriptionProvider`
+   * installs nothing. Every authorized comparison run would have stopped with "comparison switch
+   * surface did not install".
+   *
+   * Installing it costs nothing the route gate exists to save: it is a small module that registers one
+   * window function, starts no engine and enters no state machine, so it arms no reclamation timer. The
+   * churn came from `initializeInfrastructure()` alone — so that, and only that, is what the gate holds
+   * back. It has no UI/URL/storage input and accepts only the PO-approved three-model slate.
+   */
+  const installComparisonSwitch = () => {
     void import('./services/transcription/installRuntimeSwitch')
       .then(async ({ installRuntimeCandidateSwitch }) => {
         if (await installRuntimeCandidateSwitch()) logger.debug('[main.tsx] CDP model-comparison switch installed');
       })
       .catch((err) => logger.warn({ err }, '[main.tsx] runtime model switch unavailable'));
+  };
+
+  // Defer heavy WASM initialization to avoid competing with React hydration
+  const initSTT = () => {
     // Lazy import of SpeechRuntimeController
     void import('./services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
       speechRuntimeController.initializeInfrastructure()
@@ -323,6 +339,8 @@ const startInitializing = async () => {
     const { initE2EConfig } = await import('../../tests/types/e2eConfig');
     initE2EConfig({});
 
+    // The switch installs on every route; only the runtime is route-gated.
+    installComparisonSwitch();
     // Start STT infrastructure after E2E config is ready — but only on a route that uses it.
     startRuntimeIfPathNeedsIt(window.location.pathname, initSTT);
 
@@ -344,6 +362,7 @@ const startInitializing = async () => {
     // cycles IDLE -> TERMINATED -> IDLE forever: battery on the user's device and lifecycle
     // telemetry no user produced. TranscriptionProvider initializes the runtime on mount for the
     // routes that need it, so declining here cannot leave a route without one.
+    installComparisonSwitch();
     startRuntimeIfPathNeedsIt(window.location.pathname, initSTT);
     useReadinessStore.getState().setReady('msw'); // Always ready in production (no MSW)
     await renderApp();

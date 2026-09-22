@@ -81,6 +81,33 @@ describe('runtime boot gate — only the routes that use the runtime may boot it
         }
     });
 
+    it('CASUALTY: the model-comparison switch installs on EVERY route, not only the gated ones', () => {
+        /*
+         * #1517 P1 (Codex, exact head 08f3d0e9) — THE GATE TOOK SOMETHING IT WAS NOT MEANT TO.
+         *
+         * `installRuntimeCandidateSwitch()` used to live inside `initSTT`, so route-gating the runtime
+         * also stopped installing the switch. The comparison tooling enters from `/` and `/practice`
+         * and needs `__SS_SWITCH_CANDIDATE__` before it navigates to `/session`, and
+         * `TranscriptionProvider` installs nothing — so every authorized comparison run would have
+         * died with "comparison switch surface did not install".
+         *
+         * This asserts the SHAPE that keeps them separate: the switch is its own call, made
+         * unconditionally on both boot paths, and the gate wraps only the runtime initializer.
+         */
+        const main = readFileSync(resolve(__dirname, '../../main.tsx'), 'utf8');
+
+        // The switch must NOT be inside the function the gate controls.
+        const initSttBody = /const initSTT = \(\) => \{([\s\S]*?)\n {2}\};/.exec(main);
+        expect(initSttBody, 'initSTT must still exist').not.toBeNull();
+        expect(initSttBody?.[1], 'the switch install must not sit inside the gated initializer')
+            .not.toMatch(/installRuntimeCandidateSwitch|installComparisonSwitch/);
+
+        // …and it must be invoked unconditionally on both boot paths, never through the gate.
+        const unconditional = main.match(/^\s*installComparisonSwitch\(\);$/gm) ?? [];
+        expect(unconditional, 'both boot paths install the switch unconditionally').toHaveLength(2);
+        expect(main).not.toMatch(/startRuntimeIfPathNeedsIt\([^)]*installComparisonSwitch/);
+    });
+
     it('CONTRACT: main.tsx has no ungated runtime boot left', () => {
         // The bug WAS the wiring, not the predicate: `initSTT()` called unconditionally on every
         // route. Both boot paths (test mode and production) must go through the gate.
