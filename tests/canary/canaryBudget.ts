@@ -97,6 +97,27 @@ export function canaryTestTimeoutMs(deployGateArmed: boolean): number {
     return (deployGateArmed ? PHASE_BUDGETS_MS.deploy_gate + DEPLOY_VERDICT_SLACK_MS : 0) + PRODUCT_SMOKE_BUDGET_MS;
 }
 
+/**
+ * THE JOB CEILING MUST FIT EVERY PERMITTED ATTEMPT, NOT ONE.
+ *
+ * Codex P1 on `3492c5b`: `playwright.canary.config.ts` had `retries: 1`, so a late first-attempt failure
+ * was followed by a whole second attempt that a one-attempt job ceiling would kill before it could pass
+ * or report. PM's decision (2026-09-22) is FAIL FAST: `retries: 0`, a failure stays red, and a rerun is
+ * separate operator evidence. The requirement below is still computed from the configured retry count,
+ * so reintroducing a retry cannot silently outgrow the job ceiling.
+ */
+/** Checkout, dependency install, browser install and account provisioning before the first attempt. */
+export const JOB_SETUP_ALLOWANCE_MS = 4 * 60_000;
+/** After the last attempt: the always-run account-ceiling check, artifact upload, cleanup, diagnostics. */
+export const JOB_FINALIZATION_ALLOWANCE_MS = 5 * 60_000;
+
+/** The least `canary-check` job ceiling that lets every permitted attempt finish and report. */
+export function requiredCanaryJobCeilingMs(retries: number): number {
+    return JOB_SETUP_ALLOWANCE_MS
+        + (retries + 1) * canaryTestTimeoutMs(true)
+        + JOB_FINALIZATION_ALLOWANCE_MS;
+}
+
 /** Thrown when a phase passes its ceiling, so the report names the phase instead of timing out generically. */
 export class CanaryPhaseTimeout extends Error {
     constructor(public readonly phase: CanaryPhase, public readonly budgetMs: number) {

@@ -28,7 +28,12 @@ export default defineConfig({
     testMatch: 'smoke.canary.spec.ts',
     outputDir: './test-results/canary',
     timeout: 60000,
-    retries: 1,
+    // #1518 (PM, 2026-09-22): FAIL FAST — no automatic retry on the Production canary. A transient
+    // failure must stay RED rather than become a green "flaky pass" hiding a failed first attempt; an
+    // operator rerun is a separate, separately attributable run. It also keeps the whole worst case inside
+    // the 25-minute canary-check ceiling. Restoring a retry fails tests/unit/canaryStartTake.test.ts
+    // until the job ceiling is deliberately re-sized for every permitted attempt.
+    retries: 0,
     reporter: [['html', { outputFolder: 'playwright-report' }], ['list']],
     use: {
         ...baseConfig.use,

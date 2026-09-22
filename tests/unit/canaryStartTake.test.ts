@@ -20,6 +20,9 @@ import {
     DEPLOY_WAIT_MS,
     DEPLOY_VERDICT_SLACK_MS,
     INTER_PHASE_HEADROOM_MS,
+    JOB_SETUP_ALLOWANCE_MS,
+    JOB_FINALIZATION_ALLOWANCE_MS,
+    requiredCanaryJobCeilingMs,
 } from '../canary/canaryBudget';
 
 /**
@@ -211,6 +214,7 @@ describe('#1518 phase ceilings are enforced, and the outer budgets exceed their 
     const spec = readFileSync(resolve(repoRoot, 'tests/canary/smoke.canary.spec.ts'), 'utf8');
 
     const configDefaultMs = Number(/^\s*timeout:\s*(\d+),/m.exec(config)?.[1]);
+    const configRetries = Number(/^\s*retries:\s*(\d+),/m.exec(config)?.[1] ?? 0);
     const canaryCheckTimeoutMs = parseJobTimeoutMs(workflow, 'canary-check');
 
     it('the fixtures parsed (an unread config or workflow would make the rest vacuous)', () => {
@@ -312,8 +316,20 @@ describe('#1518 phase ceilings are enforced, and the outer budgets exceed their 
     it('CASUALTY: the canary-check JOB ceiling is read from that job, not the workflow maximum', () => {
         // PM RETURN finding 3: taking the max `timeout-minutes` anywhere let canary-check regress while an
         // unrelated job's larger ceiling kept the test green.
-        const setupAllowanceMs = 4 * 60_000;   // checkout, install, provision
-        expect(canaryCheckTimeoutMs).toBeGreaterThanOrEqual(canaryTestTimeoutMs(true) + setupAllowanceMs);
+        // Codex P1 on 3492c5b: `retries` means the job must fit EVERY permitted attempt, not one. A late
+        // first-attempt failure otherwise gets its retry killed by the job before it can report.
+        expect(configRetries, 'the Production canary is fail-fast: no automatic retry (PM decision)').toBe(0);
+        expect(canaryCheckTimeoutMs).toBeGreaterThanOrEqual(requiredCanaryJobCeilingMs(configRetries));
+        expect(requiredCanaryJobCeilingMs(configRetries)).toBe(
+            JOB_SETUP_ALLOWANCE_MS + (configRetries + 1) * canaryTestTimeoutMs(true) + JOB_FINALIZATION_ALLOWANCE_MS,
+        );
+    });
+
+    it('CASUALTY: restoring retries: 1 outgrows the 25-minute ceiling unless the budget is re-sized', () => {
+        // A retry doubles the attempt budget. At the current ceiling that would let GitHub kill the second
+        // attempt before it reports — so reintroducing one must be a deliberate, re-budgeted decision.
+        expect(requiredCanaryJobCeilingMs(1)).toBeGreaterThan(canaryCheckTimeoutMs!);
+        expect(requiredCanaryJobCeilingMs(0)).toBeLessThanOrEqual(canaryCheckTimeoutMs!);
     });
 
     it('CASUALTY: the parser ignores a larger unrelated job, so a canary-check regression cannot hide', () => {
@@ -332,7 +348,7 @@ describe('#1518 phase ceilings are enforced, and the outer budgets exceed their 
         expect(parseJobTimeoutMs(fixture, 'migration-readiness')).toBe(60 * 60_000);
         expect(parseJobTimeoutMs(fixture, 'no-such-job')).toBeNull();
         // The regression PM described, proven to fail the real assertion:
-        expect(15 * 60_000).toBeLessThan(canaryTestTimeoutMs(true) + 4 * 60_000);
+        expect(15 * 60_000).toBeLessThan(requiredCanaryJobCeilingMs(1));
     });
 
     it('withPhaseDeadline fails with a NAMED phase error, and passes fast work through', async () => {
