@@ -28,6 +28,10 @@ export default defineConfig({
     testMatch: 'smoke.canary.spec.ts',
     outputDir: './test-results/canary',
     timeout: 60000,
+    // #1518: ONE retry, kept deliberately (PM, 2026-09-22). It is part of the canary's existing failure
+    // contract; changing it would be a separate canary-policy decision, not this timeout fix. Every
+    // permitted attempt must fit the `canary-check` job ceiling — tests/unit/canaryStartTake.test.ts
+    // computes that from this value, so raising it without re-sizing the job fails the unit gate.
     retries: 1,
     reporter: [['html', { outputFolder: 'playwright-report' }], ['list']],
     use: {

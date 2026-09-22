@@ -1,6 +1,19 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
+import { startTake as startTakeWithAssertions, type TakeAssertions } from './canaryStartTake';
+import { canaryTestTimeoutMs, withPhaseDeadline, DEPLOY_WAIT_MS, DEPLOY_POLL_MS } from './canaryBudget';
+
+/**
+ * The two-line seam described in `canaryStartTake.ts`: Playwright's own `expect`, handed to the
+ * extracted logic so that module stays importable by the unit lane. This adapter is the ONLY part of
+ * the start path the unit test cannot reach — the paid canary run is what proves it.
+ */
+const canaryAssertions: TakeAssertions<Locator> = {
+    visible: (x, t) => expect(x).toBeVisible({ timeout: t }),
+    enabled: (x, t) => expect(x).toBeEnabled({ timeout: t }),
+};
+const startTake = (page: Page) => startTakeWithAssertions(page, canaryAssertions);
 import {
     classifyCanaryStartResponse,
     classifyCanaryUsageEntitlement,
@@ -20,17 +33,12 @@ import {
  */
 const EXPECTED_RELEASE_SHA = process.env.EXPECTED_RELEASE_SHA?.trim();
 const PROD_HOST = 'speaksharp-public.vercel.app';
-const DEPLOY_WAIT_MS = 4 * 60_000; // Vercel post-merge publish budget
-const DEPLOY_POLL_MS = 15_000;
-/**
- * Headroom for the product smoke that runs AFTER the gate. `playwright.canary.config.ts` sets a 60s
- * per-test timeout, which is ample for the product path alone but would abort the deploy poll long before
- * DEPLOY_WAIT_MS elapsed — Playwright would kill the test with a GENERIC timeout and the distinct
- * `DEPLOYMENT NOT LIVE` error and `deployed-release` attachment would never be produced, defeating the
- * whole point of the gate. So when (and only when) the gate is armed, the test timeout is raised to cover
- * the poll budget PLUS this product budget. The workflow job timeout is raised to match.
+
+/*
+ * The canary's budgets are DERIVED in `./canaryBudget`, not declared here — see that file for why
+ * (#1518 P1: the cold wait, the per-test ceiling and the job ceiling were three unrelated numbers, and
+ * the cold path could not physically complete under any of them).
  */
-const PRODUCT_SMOKE_BUDGET_MS = 2 * 60_000;
 
 function deployGateIsArmed(): boolean {
     return Boolean(EXPECTED_RELEASE_SHA) && (process.env.BASE_URL ?? '').includes(PROD_HOST);
@@ -43,12 +51,27 @@ async function assertDeployedReleaseIsLive(page: Page) {
         return;
     }
     const started = Date.now();
+    const deadlineAt = started + DEPLOY_WAIT_MS;
+    const remainingMs = () => deadlineAt - Date.now();
     let observed: string | undefined;
-    // Poll the deployed release marker, reloading each cycle, until it matches or the budget elapses.
-    // (Date.now() is fine in a Playwright spec — this is a test, not a resumable workflow script.)
-    for (;;) {
-        await page.goto(base, { waitUntil: 'domcontentloaded' });
-        observed = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__);
+    /*
+     * STRICTLY BOUNDED BY DEPLOY_WAIT_MS, NAVIGATION INCLUDED (PM RETURN finding 1).
+     *
+     * The elapsed check used to happen only AFTER `page.goto()`, and the goto carried no timeout — so a
+     * navigation begun at 3:59 could run on for its own navigation timeout and spend the product
+     * allowance this patch exists to protect. Now every goto is given only the time that remains, the
+     * poll sleep is clamped to it, and the budget is re-checked before each attempt. A goto that times
+     * out because the deadline arrived is reported as DEPLOYMENT NOT LIVE, never as a navigation fault:
+     * the distinct diagnostic is the whole point of the gate.
+     */
+    while (remainingMs() > 0) {
+        try {
+            await page.goto(base, { waitUntil: 'domcontentloaded', timeout: Math.max(1, remainingMs()) });
+            observed = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__);
+        } catch (err) {
+            if (remainingMs() > 0) throw err;   // a real navigation fault, not the deadline
+            break;                              // the ceiling arrived mid-navigation → deployment verdict below
+        }
         if (observed && observed === EXPECTED_RELEASE_SHA) {
             await test.info().attach('deployed-release', {
                 contentType: 'application/json',
@@ -57,8 +80,8 @@ async function assertDeployedReleaseIsLive(page: Page) {
             debugLog(`[CANARY] deployed release matches ${EXPECTED_RELEASE_SHA} (waited ${Math.round((Date.now() - started) / 1000)}s).`);
             return;
         }
-        if (Date.now() - started > DEPLOY_WAIT_MS) break;
-        await page.waitForTimeout(DEPLOY_POLL_MS);
+        if (remainingMs() <= 0) break;
+        await page.waitForTimeout(Math.max(1, Math.min(DEPLOY_POLL_MS, remainingMs())));
     }
     await test.info().attach('deployed-release', {
         contentType: 'application/json',
@@ -72,30 +95,6 @@ async function assertDeployedReleaseIsLive(page: Page) {
     );
 }
 
-/**
- * #1184: Private is the ONLY engine — there is no selector and no Native/Cloud choice. This helper
- * confirms the static Private indicator and makes the recorder ready to start. On a fresh production
- * browser the on-device model is not cached, so the mic first acts as the "Set up Private" download
- * control; we click it to trigger the on-device download (no paid STT API — still $0) and wait until it
- * becomes a ready Start control. If the model is already cached, the mic is already a ready Start control.
- */
-async function ensurePrivateReady(page: Page) {
-    // #1184 Private-only: there is no engine selector anymore. The shipped session page (MicCard, via
-    // SessionOverhaulView) renders the recorder control as `mic-download` while the on-device Private model
-    // still needs its one-time download, then `mic-start` once ready (disabled while the download runs,
-    // enabled when the model is loaded). On a cold canary browser the model is not cached.
-    const downloadBtn = page.getByTestId('mic-download');
-    const startBtn = page.getByTestId('mic-start');
-    // The recorder control is present in one of its two states before we ready it.
-    await expect(downloadBtn.or(startBtn).first()).toBeVisible({ timeout: 15000 });
-    if (await downloadBtn.count() > 0) {
-        // Trigger the on-device model download; no network transcription is performed.
-        await downloadBtn.first().click();
-    }
-    // Once the model is loaded, the control is `mic-start` and enabled. The download can take a while on a
-    // cold machine, so allow a generous budget.
-    await expect(startBtn).toBeEnabled({ timeout: 120000 });
-}
 
 
 /**
@@ -144,31 +143,38 @@ test.describe('Production Smoke Canary @canary', () => {
         // product assertion, so a not-yet-live deployment fails distinctly as "deployment not live" rather
         // than misreporting a stale build as a product regression.
         //
-        // The config's 60s per-test timeout would abort the poll (and its diagnostic) long before the
-        // budget elapsed, so extend the timeout — ONLY when the gate is armed, leaving every other run
-        // (local, non-prod) on the strict default.
-        if (deployGateIsArmed()) {
-            test.setTimeout(DEPLOY_WAIT_MS + PRODUCT_SMOKE_BUDGET_MS);
-        }
+        // UNCONDITIONAL, and that is the #1518 P1 fix: the product allowance is what the COLD journey
+        // needs whether or not a deployment is being awaited. Gating the raise on `deployGateIsArmed()`
+        // left every ungated run — local, staging, any run without EXPECTED_RELEASE_SHA — unable to
+        // finish a cold take at all, and gated runs with a slow publish no better off. The deployment
+        // allowance is ADDED on top only when the poll will actually run.
+        test.setTimeout(canaryTestTimeoutMs(deployGateIsArmed()));
+        // Each product phase runs under its OWN enforced ceiling, so the total above is a real bound
+        // rather than an inventory of internal waits. A phase that overruns fails as
+        // CANARY_PHASE_TIMEOUT:<phase>, naming where the time went instead of a generic test timeout.
+        //
+        // The deploy poll is deliberately NOT wrapped (Codex, exact head 90a1eceb8). It already bounds
+        // itself to DEPLOY_WAIT_MS, navigation included; racing it against a second timer of the SAME
+        // budget let that outer timer fire first and swallow the DEPLOYMENT NOT LIVE verdict and its
+        // `deployed-release` evidence — the very diagnostic the gate exists to emit. Its verdict path is
+        // paid for by DEPLOY_VERDICT_SLACK_MS in the outer budget instead.
         await assertDeployedReleaseIsLive(page);
 
         // 1. Real Login (modeled after soak test)
-        await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
+        await withPhaseDeadline('login', () => canaryLogin(page, CANARY_USER.email, CANARY_USER.password));
 
         // 2. Navigate to Session Page (use client-side navigation to preserve state)
-        await navigateToRoute(page, ROUTES.SESSION);
-
-        // 🔹 SCHEMA CHECK: User Profile
-        // Verify that the profile loaded correctly and reflects the subscription status
-        // This implicitly validates the 'user_profiles' table schema. The shipped recorder control is
-        // `mic-download` (one-time model gate) or `mic-start` (ready) — never the retired
-        // `session-start-stop-button` from the removed LiveRecordingCard.
-        await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 15000 });
+        await withPhaseDeadline('navigate_session', () => navigateToRoute(page, ROUTES.SESSION));
 
         // 🔹 ENTITLEMENT + AFFORDANCE CHECK (post-#1047, replaces the stale tier-affordance selectors).
         // The old check asserted PRIVATE_SAMPLE_SETUP_BUTTON / "Private sample: up to 5 minutes" — both
         // removed/relocated by #1047/#1094, which is why the canary failed (#1100). We now read the live
         // server entitlement and assert the affordance that MATCHES that account state.
+        await withPhaseDeadline('pre_start_checks', async () => {
+        // 🔹 SCHEMA CHECK: User Profile — the shipped recorder control is `mic-download` (one-time model
+        // gate) or `mic-start` (ready), never the retired `session-start-stop-button`. Inside this phase
+        // since #1518 round 3: it was a 15s wait sitting between two phases with no budget of its own.
+        await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 15000 });
         await expect.poll(() => usageBody, {
             message: 'check-usage-limit response never arrived',
             timeout: 15000,
@@ -200,27 +206,32 @@ test.describe('Production Smoke Canary @canary', () => {
             await expect(page.getByTestId(TEST_IDS.PRO_BADGE)).toHaveCount(0);
         }
         await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible();
+        });
 
-        // 3. Confirm the Private engine surface and make the recorder ready (on-device model; $0).
-        debugLog('[CANARY] Confirming Private STT and readying the recorder...');
-        await ensurePrivateReady(page);
-
-        // 4. Start Session — the readied recorder control is `mic-start`.
-        debugLog('[CANARY] Starting session...');
-        const startButton = page.getByTestId('mic-start');
-        await expect(startButton).toBeEnabled();
-        const authoritativeStart = page.waitForResponse((response) =>
-            response.request().method() === 'POST'
-            && response.url().includes('/rest/v1/rpc/create_session_and_update_usage'),
-        { timeout: 20000 });
-        await startButton.click();
+        // 3-4. Start the take with its ONE control (on-device model; $0). See startTake().
+        // `start_take` owns the cold authoritative RPC, so its ceiling is the helper's own total: the
+        // press plus the two control waits plus the 150s RPC, unchanged.
+        debugLog('[CANARY] Confirming Private STT and starting the take...');
+        //
+        // The phase now includes AWAITING the authoritative RPC, not just pressing. Before #1518 round 3
+        // `start_take` ended at the click, and the 150s cold RPC wait — the longest wait in the whole
+        // journey — ran outside every phase.
+        const { startPath, startResponse, startPayload } = await withPhaseDeadline('start_take', async () => {
+            const { authoritativeStart, path } = await startTake(page);
+            const response = await authoritativeStart;
+            let payload: CanaryStartRpcPayload | null = null;
+            try { payload = await response.json() as CanaryStartRpcPayload; } catch { /* classified below */ }
+            return { startPath: path, startResponse: response, startPayload: payload };
+        });
+        await test.info().attach('start-path', {
+            contentType: 'application/json',
+            body: JSON.stringify({ path: startPath }),
+        });
+        debugLog(`[CANARY] Take started on the ${startPath} path.`);
 
         // Fail on the authoritative start denial BEFORE waiting on any secondary UI selector. The
         // category is strictly sanitized so traces/logs identify private_sample_used (etc.) without
         // reflecting arbitrary database text.
-        const startResponse = await authoritativeStart;
-        let startPayload: CanaryStartRpcPayload | null = null;
-        try { startPayload = await startResponse.json() as CanaryStartRpcPayload; } catch { /* classified below */ }
         const startOutcome = classifyCanaryStartResponse(startResponse.status(), startPayload);
         await test.info().attach('authoritative-recording-start', {
             contentType: 'application/json',
@@ -231,6 +242,7 @@ test.describe('Production Smoke Canary @canary', () => {
         // Prove the current runtime + during-state seams AND exact Private authority. The ambient header
         // remains a corroborating assertion, never the sole proof; Browser/Cloud/Native cannot satisfy
         // these exact attributes.
+        await withPhaseDeadline('recording_checks', async () => {
         await expect(page.locator('html[data-runtime-state="RECORDING"][data-stt-resolved-mode="private"]'))
             .toBeVisible({ timeout: 10000 });
         await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]'))
@@ -239,14 +251,19 @@ test.describe('Production Smoke Canary @canary', () => {
         await expect(
             page.locator('[data-testid="live-session-header"][data-engine="private"][data-recording="true"]'),
         ).toBeVisible({ timeout: 10000 });
+        });
         debugLog('[CANARY] Confirmed runtime=RECORDING, during-state, and exact Private engine authority.');
 
         // 5. Record for 5 seconds
         debugLog('[CANARY] Recording for 5 seconds...');
-        await page.waitForTimeout(5000);
+        await withPhaseDeadline('recording_dwell', () => page.waitForTimeout(5000));
 
         // 6. Stop Session — the during-state RecorderBar exposes `recorder-stop`.
+        // One phase covers stop through settle: the stop-control wait, the end-state race, and the
+        // analytics reload with its sessions-response validation — the waits the earlier enumeration
+        // left out entirely (PM RETURN finding 2).
         debugLog('[CANARY] Stopping session...');
+        await withPhaseDeadline('stop_and_settle', async () => {
         const stopButton = page.getByTestId('recorder-stop');
         await expect(stopButton).toBeVisible();
         await stopButton.click();
@@ -293,6 +310,7 @@ test.describe('Production Smoke Canary @canary', () => {
                 await stayButton.click();
             }
         }
+        });
 
         debugLog('[CANARY] ✅ Smoke test passed. System is operational.');
     });
