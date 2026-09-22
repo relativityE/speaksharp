@@ -87,12 +87,17 @@ jobs:
             *) echo "::error::traffic_type must be a controlled evidence class (canary or internal_test)"; exit 1;;
           esac
           [ -n "$STAGES" ] || { echo "::error::stages is required — a run declares what it exercised"; exit 1; }
+          # Count the parsed stages, not the raw string (Codex P2): `,` or whitespace is non-empty but
+          # declares NOTHING, and would reach a credentialed query that can only HOLD.
+          declared=0
           for s in $(echo "$STAGES" | tr ',' ' '); do
+            declared=$((declared + 1))
             case "$s" in
               share_feedback|session_during|session_after_open_mic|session_after_focus_points) ;;
               *) echo "::error::unknown qualification stage '$s'"; exit 1;;
             esac
           done
+          [ "$declared" -ge 1 ] || { echo "::error::stages declares no stage (separator or whitespace only)"; exit 1; }
           echo "$WINDOW_HOURS" | grep -Eq '^[0-9]{1,3}$' \
             || { echo "::error::window_hours must be numeric"; exit 1; }
           [ "$WINDOW_HOURS" -ge 1 ] && [ "$WINDOW_HOURS" -le 168 ] \
@@ -122,7 +127,10 @@ jobs:
         env:
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
-          POSTHOG_API_HOST: ${{ secrets.POSTHOG_API_HOST }}
+          # A repository VARIABLE, like every other PostHog workflow here (Codex P2): read from `secrets.*`
+          # it resolved empty and the script silently defaulted to us.posthog.com — a non-US project would
+          # be queried against the wrong region and HOLD for a reason unrelated to its telemetry.
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           RELEASE_SHA: ${{ github.event.inputs.release_sha }}
           TELEMETRY_QUALIFICATION_JOURNEY_ID: ${{ github.event.inputs.journey_id }}
           TELEMETRY_QUALIFICATION_TRAFFIC_TYPE: ${{ github.event.inputs.traffic_type }}

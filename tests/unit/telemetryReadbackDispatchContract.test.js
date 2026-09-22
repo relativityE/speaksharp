@@ -12,6 +12,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const repo = resolve(__dirname, '..', '..');
@@ -90,6 +91,30 @@ describe('#1382 telemetry readback dispatch workflow — contract', () => {
         }
         // Only the window may carry a default, and it must be bounded.
         expect(workflow).toMatch(/-ge 1 \] && \[ "\$WINDOW_HOURS" -le 168/);
+    });
+
+    it('CASUALTY: the PostHog host comes from the repository variable, as every other PostHog workflow does', () => {
+        expect(workflow).toMatch(/POSTHOG_API_HOST: \$\{\{ vars\.POSTHOG_API_HOST \}\}/);
+        expect(workflow).not.toMatch(/secrets\.POSTHOG_API_HOST/);
+    });
+
+    it('CASUALTY: a separator-only stage list is refused BEFORE any credentialed query', () => {
+        // Execute the workflow's own validation step, not a paraphrase of it.
+        const step = /name: Validate dispatch inputs \(fail closed\)[\s\S]*?run: \|\n([\s\S]*?)\n\s{6}# PIN TO THE RELEASE/.exec(workflow);
+        expect(step, 'validation step must be locatable').not.toBeNull();
+        const script = step[1].replace(/^ {10}/gm, '');
+        const run = (stages) => spawnSync('bash', ['-c', script], {
+            encoding: 'utf8',
+            env: { PATH: process.env.PATH, RELEASE_SHA: 'a'.repeat(40), JOURNEY_ID: 'jrn_contract_1234', TRAFFIC_TYPE: 'canary', STAGES: stages, WINDOW_HOURS: '24' },
+        });
+        for (const empty of [',', ' ', ' , , ']) {
+            const r = run(empty);
+            expect(r.status, `stages=${JSON.stringify(empty)} must be refused`).not.toBe(0);
+            expect(r.stdout + r.stderr).not.toContain('inputs validated');
+        }
+        const ok = run('session_during,session_after_open_mic');
+        expect({ status: ok.status, output: ok.stdout + ok.stderr }).toMatchObject({ status: 0 });
+        expect(ok.stdout).toContain('inputs validated');
     });
 
     it('refuses a missing PostHog credential rather than skipping', () => {
