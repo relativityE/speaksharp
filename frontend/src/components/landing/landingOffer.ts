@@ -66,11 +66,27 @@ export const LANDING_PRO_CTA = 'Continue for $10/month';
  */
 export const LANDING_PRO_UNAVAILABLE_LINE = 'Available at the end of your trial.';
 
-/** §5.5: two unconditional chips (no cards, billing or trial length) + the §5.4 state-dependent third. */
-export function landingDisclosureChips(paymentsEnabled: boolean): readonly [string, string, string] {
-    return [
+/**
+ * §5.5: the two unconditional factual chips (no cards, billing or trial length), plus a third ONLY when
+ * payments are enabled.
+ *
+ * #1522 — THE DISABLED STATE SAYS NOTHING ABOUT PAYMENT, RATHER THAN SAYING SOMETHING REASSURING.
+ *
+ * The disabled third chip used to read "Paid continuation opens later — nothing is charged today". PO
+ * removed it, and it is NOT replaced: any substitute — a launch date, a reassurance, a "nothing is
+ * charged" of another wording — is the same promise in different words, and the landing page has no
+ * business making one while there is nothing to buy. The two retained chips are facts about privacy
+ * and data that hold in both states.
+ *
+ * When payments ARE enabled the third chip is unchanged: Stripe confirmation is a fact about a
+ * transaction the user can actually make.
+ */
+export function landingDisclosureChips(
+    paymentsEnabled: boolean,
+): readonly [string, string, string] | readonly [string, string] {
+    const factual: readonly [string, string] = [
         'Private transcription keeps audio local',
         'Transcript data supports SpeakSharp features',
-        paymentsEnabled ? 'Pro continues only after Stripe confirmation' : 'Paid continuation opens later — nothing is charged today',
     ];
+    return paymentsEnabled ? [...factual, 'Pro continues only after Stripe confirmation'] : factual;
 }

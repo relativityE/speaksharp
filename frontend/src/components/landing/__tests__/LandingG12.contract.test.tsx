@@ -287,17 +287,37 @@ describe('#1475 G12 Rev 2 — pricing (both payment states)', () => {
         expect(viewedSources()).toContain('pricing_pro_card');
     });
 
-    it.each([false, true])('payments enabled=%s: three chips, the first two fixed, the third state-specific', (enabled) => {
+    const FACTUAL_CHIPS = ['Private transcription keeps audio local', 'Transcript data supports SpeakSharp features'];
+
+    it.each([
+        [false, FACTUAL_CHIPS],
+        [true, [...FACTUAL_CHIPS, 'Pro continues only after Stripe confirmation']],
+    ])('payments enabled=%s: the two factual chips, and a payment chip only when there is a payment', (enabled, expected) => {
         paymentsEnabled.mockReturnValue(enabled);
-        const { unmount } = render(<PracticePage />);
-        const chips = screen.getAllByTestId('offer-disclosure-chip').map((c) => c.textContent);
-        expect(chips).toHaveLength(3);
-        expect(chips.slice(0, 2)).toEqual(['Private transcription keeps audio local', 'Transcript data supports SpeakSharp features']);
-        expect(chips[2]).toBe(enabled ? 'Pro continues only after Stripe confirmation' : 'Paid continuation opens later — nothing is charged today');
-        unmount();
-        paymentsEnabled.mockReturnValue(!enabled);
         render(<PracticePage />);
-        expect(screen.getAllByTestId('offer-disclosure-chip')[2].textContent).not.toBe(chips[2]);
+        const chips = screen.getAllByTestId('offer-disclosure-chip').map((c) => c.textContent);
+        expect(chips).toEqual(expected);
+    });
+
+    it('CASUALTY: the removed continuation sentence cannot reappear in the disabled state', () => {
+        /*
+         * #1522 — the sentence is gone, and no reworded promise takes its slot.
+         *
+         * Asserted on the RENDERED page rather than the chip array, because the chip list is not the only
+         * place copy can reappear: the paid card's slot, the closing band and the section body all render
+         * here too. The negative is paired with a positive assertion, so a render that produced nothing at
+         * all could not pass this as "absent".
+         */
+        paymentsEnabled.mockReturnValue(false);
+        render(<PracticePage />);
+
+        expect(screen.getAllByTestId('offer-disclosure-chip').map((c) => c.textContent)).toEqual(FACTUAL_CHIPS);
+        const rendered = document.body.textContent ?? '';
+        expect(rendered).toContain(FACTUAL_CHIPS[0]);                       // the page really rendered
+        expect(rendered).not.toContain('Paid continuation opens later');
+        expect(rendered).not.toContain('nothing is charged');
+        expect(rendered).not.toMatch(/nothing (is|will be) charged/i);
+        expect(rendered).not.toContain('Pro continues only after Stripe confirmation');
     });
 });
 
