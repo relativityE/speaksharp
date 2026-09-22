@@ -649,42 +649,31 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_00
     //   1. press only the control the CURRENT state renders (this helper already did);
     //   2. after pressing, wait on PRODUCT STATE — never on the continued existence of that control.
     //
-    // So the end of setup accepts either shape and REPORTS which. A caller that starts its own take
-    // must not do so when the take is already running: a second press creates a second session, and a
-    // proof that counts sessions would then be corrupted by its own setup.
-    // Consultant condition on `76876df3`: WAIT FOR A TERMINAL OUTCOME, NEVER A SNAPSHOT.
+    // PM RETURN on `b0695d14a` (P1) — ON THE COLD PATH, ONLY A RUNNING TAKE IS SUCCESS.
     //
-    // A single `count()` reads one instant. `data-model-status` reaching `ready` does not mean the
-    // transition is over: the canary artifact showed `mic-start` RENDERED BUT DISABLED before
-    // `SessionDuringState` replaced it. If that phase lands after `ready`, a snapshot sees no recorder,
-    // falls into `expectMicControlForState`, and waits for a control that goes disabled and then
-    // disappears — `CONTROL_NOT_RENDERED` again, now intermittent instead of certain, and discovered on
-    // the PAID proof. Which side of `ready` that phase falls on is unverified, so this waits instead of
-    // assuming: during engine start `mic-start` is disabled, so only a RUNNING recorder or an ENABLED
-    // start control ends the transition. Rule 2 — wait on product state — applied to the wait itself.
+    // This used to settle on "a running take OR an enabled start control" and report which. But the
+    // cold press is ONE activation that downloads AND starts the take. An enabled, idle Start after it
+    // is a FAILED automatic resume — the product regression this proof exists to catch — and reporting
+    // it as `recordingAlreadyStarted: false` let the consumer press Start a second time and pass.
+    //
+    // So wait (Consultant condition on `76876df3`: a terminal outcome, never a snapshot — `mic-start`
+    // is briefly rendered-but-disabled before the recorder replaces it) for the running take alone, and
+    // otherwise fail with the named status and the content-safe precondition snapshot. Nothing here, and
+    // nothing after it, may press Start: the journey ends in setup. The WARM path (no setup click)
+    // returned above; there an enabled Start is correct and `startBenchmarkRecording` presses it once.
     const runningTake = page.getByTestId(RECORDER_STOP);
-    const enabledStart = page.locator(`[data-testid="${micControlFor('ready')}"]:not([disabled])`);
     try {
-        await expect(
-            runningTake.or(enabledStart).first(),
-            'setup must settle on a running take or an enabled start control',
-        ).toBeVisible({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+        await expect(runningTake, 'the cold press must start the take').toBeVisible({ timeout: MISSING_CONTROL_TIMEOUT_MS });
     } catch (error) {
-        const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'setup-ready-no-terminal-control');
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'setup-ready-cold-start-did-not-record');
         throw new Error(
-            `INVALID_SETUP CONTROL_NOT_RENDERED state 'ready' settled on neither a running take nor an enabled start control\n` +
+            `INVALID_SETUP COLD_START_DID_NOT_RECORD state 'ready' after the one cold press, but no take is running ` +
+            `(an idle Start here is a failed automatic resume, never a second press)\n` +
             `${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`
         );
     }
-    const recordingAlreadyStarted = (await runningTake.count()) > 0;
-    if (!recordingAlreadyStarted) {
-        // Still assert the full mutual-exclusion contract for the non-recording shape.
-        await expectMicControlForState(page, 'ready');
-    }
-    await logBenchmarkPhase(
-        page,
-        recordingAlreadyStarted ? 'SETUP_MODEL_PROVIDER_READY_TAKE_RUNNING' : 'SETUP_MODEL_PROVIDER_READY',
-    );
+    const recordingAlreadyStarted = true;
+    await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_READY_TAKE_RUNNING');
     return { recordingAlreadyStarted };
 }
 

@@ -249,12 +249,51 @@ describe('acquisition drives the state-specific CTA', () => {
         expect(document.querySelector('[data-testid="mic-start"]'), 'the disabled start control is gone').toBeNull();
     });
 
-    it('a cold press that does NOT record still ends setup on a rendered mic-start', async () => {
-        // The fix must not assume recording either: the helper reports what it finds, never what it hopes.
+    /**
+     * PM RETURN on `b0695d14a` (P1). This test used to PIN THE DEFECT: "a cold press that does NOT record
+     * still ends setup on a rendered mic-start". The cold press is ONE activation that downloads AND
+     * starts the take, so an enabled idle Start after it is a failed automatic resume — and reporting
+     * `recordingAlreadyStarted: false` let the consumer press Start a second time and turn a product
+     * regression into a passing paid proof.
+     */
+    it('CASUALTY: a cold press that reaches ready but never records FAILS — one download click, no Start click', async () => {
         coldPressRecords = false;
         renderState('download-required');
+        await expect(preparePrivateModelIfPrompted(page, 5_000)).rejects.toThrow(/COLD_START_DID_NOT_RECORD/);
+        const downloadClicks = clicked.filter((c) => c.includes(MIC_CONTROL_BY_STATUS['download-required']));
+        const startClicks = clicked.filter((c) => c.includes(MIC_CONTROL_BY_STATUS.ready));
+        expect({ downloadClicks: downloadClicks.length, startClicks: startClicks.length, total: clicked.length })
+            .toEqual({ downloadClicks: 1, startClicks: 0, total: 1 });
+    });
+
+    it('CASUALTY: a consumer cannot reach a second press after a failed cold start (zero second session)', async () => {
+        // The migrated consumer shape: setup, then the recording-aware start. The failed resume must stop
+        // the journey inside setup, so the start helper never gets the chance to press an idle Start.
+        coldPressRecords = false;
+        renderState('download-required');
+        const journey = async () => {
+            await preparePrivateModelIfPrompted(page, 5_000);
+            await startBenchmarkRecording(page, 'consumer');
+        };
+        await expect(journey()).rejects.toThrow(/COLD_START_DID_NOT_RECORD/);
+        expect(clicked.filter((c) => c.includes(MIC_CONTROL_BY_STATUS.ready)), 'no session-starting press').toEqual([]);
+        expect(document.querySelector(`[data-testid="${RECORDER_STOP}"]`), 'no take was started by the harness').toBeNull();
+    });
+
+    it('CONTROL: a cold auto-start succeeds with exactly one click', async () => {
+        renderState('download-required');
+        await expect(preparePrivateModelIfPrompted(page, 5_000)).resolves.toEqual({ recordingAlreadyStarted: true });
+        expect(clicked.length, `one activation only, got ${JSON.stringify(clicked)}`).toBe(1);
+        await startBenchmarkRecording(page, 'consumer');
+        expect(clicked.length, 'the start helper leaves the running take alone').toBe(1);
+    });
+
+    it('CONTROL: a warm enabled Start is activated once, by the start helper', async () => {
+        renderState('ready');
         await expect(preparePrivateModelIfPrompted(page, 5_000)).resolves.toEqual({ recordingAlreadyStarted: false });
-        expect(document.querySelector(`[data-testid="mic-start"]`)).not.toBeNull();
+        expect(clicked, 'warm setup clicks nothing').toEqual([]);
+        await startBenchmarkRecording(page, 'consumer');
+        expect(clicked.filter((c) => c.includes(MIC_CONTROL_BY_STATUS.ready)).length, 'exactly one Start press').toBe(1);
     });
 
     it('FALSIFICATION: a page rendering only the retired control fails in seconds, not minutes', async () => {
