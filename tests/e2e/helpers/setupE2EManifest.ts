@@ -622,6 +622,24 @@ export async function setupE2EManifest(
         },
       },
       rpc: async (fn: string, args?: Record<string, unknown>) => {
+        /*
+         * #1360 — AN OPT-IN SERVER GATE THAT OUTLIVES THE TAB.
+         *
+         * This double keeps its rows in per-tab sessionStorage, which is right for everything else and
+         * wrong for abandonment: a user who closes a tab mid-recording and returns in a NEW tab (or a new
+         * device) meets server state that survived the tab. A spec that needs that installs
+         * `window.__e2eServerGate` via `context.exposeBinding`; the gate lives in the TEST PROCESS, so it is
+         * shared across tabs and contexts exactly like a real server. When absent, nothing below changes.
+         *
+         * The gate models the live server's concurrency rules, not a simplification of them
+         * (`create_session_and_update_usage` + `heartbeat_session`, 20260812041500 / 20260908120000):
+         * a created recording row is `active` with `expires_at = now + 1 hour`; each successful heartbeat
+         * resets it to `now + 5 minutes`; creation first fails the user's expired active rows, then refuses
+         * with `max_concurrent_sessions_reached` when the unexpired active count reaches the tier limit.
+         */
+        const serverGate = (window as unknown as {
+          __e2eServerGate?: (op: string, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        }).__e2eServerGate;
         if (fn === 'issue_objective_project_v1') {
           objectiveSequence += 1;
           return { data: `e2e-objective-project-${objectiveSequence}`, error: null };
@@ -658,6 +676,10 @@ export async function setupE2EManifest(
           // #1306 firewall: a create RPC whose session payload smuggles a forbidden content field is REJECTED.
           const rejected = rejectForbiddenSessionWrite(sessionData);
           if (rejected) return { data: null, error: rejected.error };
+          if (serverGate) {
+            const gate = await serverGate('create', { userId: e2eProfile.id });
+            if (gate.refused) return { data: gate.refused, error: null };
+          }
           const newSession = makeSession({
             ...sessionData,
             engine: (args?.p_engine_type as string) || sessionData.engine || 'native',
@@ -668,6 +690,7 @@ export async function setupE2EManifest(
           });
           sessionState.sessions.unshift(newSession);
           persistSessions();
+          if (serverGate) await serverGate('created', { userId: e2eProfile.id, sessionId: newSession.id });
           return { data: { new_session: newSession, usage_exceeded: false }, error: null };
         }
         // #1306 Step 3 — the PRODUCTION completion path. This double is what `getSupabaseClient()`
@@ -678,6 +701,7 @@ export async function setupE2EManifest(
         // envelope, which the client's fail-closed parser correctly rejects.
         if (fn === 'complete_session_v2') {
           const sessionId = args?.p_session_id;
+          if (serverGate) await serverGate('complete', { sessionId, status: (args?.p_status as string) || 'completed' });
           const session = sessionState.sessions.find((row: E2ESessionRow) => row.id === sessionId);
           const supplied = typeof args?.p_final_transcript === 'string' ? String(args.p_final_transcript).trim() : '';
           const requestedStatus = (args?.p_status as string) || 'completed';
@@ -753,6 +777,7 @@ export async function setupE2EManifest(
           };
         }
         if (fn === 'heartbeat_session') {
+          if (serverGate) await serverGate('heartbeat', { sessionId: args?.p_session_id });
           return { data: { success: true }, error: null };
         }
         // #1264 — accepting "Practice this next": the RPC returns the new pending attempt id (a string),
