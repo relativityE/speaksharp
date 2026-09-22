@@ -68,10 +68,31 @@ async function installGate(context: BrowserContext, gate: ServerGate) {
     await context.exposeBinding('__e2eServerGate', (_source, op: string, payload: Record<string, unknown>) => gate.handle(op, payload));
 }
 
+/** The recovery draft as the closing tab left it — owner and state only, never content. */
+async function draftSnapshot(page: Page) {
+    return page.evaluate(() => {
+        const raw = localStorage.getItem('speaksharp_unsaved_session_draft');
+        if (!raw) return { present: false, keys: Object.keys(localStorage).filter((k) => !k.startsWith('sb-')) };
+        const d = JSON.parse(raw) as { userId?: string; recoveryState?: string; sessionId?: string };
+        return { present: true, recoveryState: d.recoveryState ?? null, owner: d.userId ?? null, hasSessionId: Boolean(d.sessionId) };
+    });
+}
+
 /** Everything a returning user can see about the previous take and the result of pressing Start. */
 async function observeReturn(page: Page) {
+    const markers: string[] = [];
+    page.on('console', (m) => {
+        const t = m.text();
+        if (/startRecording blocked|Usage limit exceeded|max_concurrent|progress gate|Start gate|engine selection locked|unresolved/i.test(t)) markers.push(t.slice(0, 200));
+    });
     const draftBefore = await page.evaluate(() => localStorage.getItem('speaksharp_unsaved_session_draft')).catch(() => null);
     await navigateToRoute(page, '/session');
+    const signedInUser = await page.evaluate(async () => {
+        const sb = (window as unknown as { supabase?: { auth?: { getSession: () => Promise<{ data?: { session?: { user?: { id?: string } } } }> } } }).supabase;
+        const r = await sb?.auth?.getSession().catch(() => null);
+        return r?.data?.session?.user?.id ?? null;
+    }).catch(() => null);
+    const draftOwner = draftBefore ? (JSON.parse(draftBefore) as { userId?: string }).userId ?? null : null;
     const recovery = page.getByTestId('session-recovery-actions').or(page.getByTestId('session-unresolved-recovery'));
     const recoveryVisible = await recovery.first().isVisible().catch(() => false);
     const recoveryText = recoveryVisible ? (await recovery.first().innerText()).replace(/\s+/g, ' ').trim() : null;
@@ -87,7 +108,18 @@ async function observeReturn(page: Page) {
     const bodyText = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
     const usageLimitShown = /usage limit/i.test(bodyText);
     const statusText = await page.locator('[role="status"], [role="alert"], [data-sonner-toast]').allInnerTexts().catch(() => []);
-    return { draftBefore: draftBefore ? JSON.parse(draftBefore).recoveryState ?? 'present' : null, recoveryVisible, recoveryText, startEnabled, recordingStarted, usageLimitShown, statusText };
+    const runtime = await page.evaluate(() => ({
+        state: document.documentElement.getAttribute('data-runtime-state'),
+        controller: (window as unknown as { __SPEECH_RUNTIME_DEBUG__?: () => { controllerState?: string } }).__SPEECH_RUNTIME_DEBUG__?.().controllerState ?? null,
+    })).catch(() => null);
+    return {
+        signedInUser,
+        draftBefore: draftBefore ? JSON.parse(draftBefore).recoveryState ?? 'present' : null,
+        draftOwnerMatchesUser: draftOwner === null ? null : draftOwner === signedInUser,
+        recoveryVisible, recoveryText, startEnabled, recordingStarted, usageLimitShown, statusText,
+        runtimeAfterPress: runtime,
+        clientStartMarkers: markers,
+    };
 }
 
 test.describe('#1360 abandonment mid-recording → return → record again', () => {
@@ -108,7 +140,9 @@ test.describe('#1360 abandonment mid-recording → return → record again', () 
         }).toBe(true);
 
         // 2. ABANDON: close the tab mid-recording. No stop, no save, no teardown.
+        const draftAtClose = await draftSnapshot(page);
         await page.close({ runBeforeUnload: true });
+        console.log('DRAFT-AT-CLOSE', JSON.stringify(draftAtClose));
 
         // 3. Return in a new tab of the same browser.
         const back = await page.context().newPage();
@@ -137,7 +171,9 @@ test.describe('#1360 abandonment mid-recording → return → record again', () 
         await page.getByTestId('mic-start').click();
         await page.waitForSelector('html[data-runtime-state="RECORDING"], [data-testid="session-shell"][data-session-state="during"]', { timeout: 15_000 });
         await expect.poll(() => gate.activeFor().length, { timeout: 10_000 }).toBe(1);
+        const draftAtClose = await draftSnapshot(page);
         await page.close({ runBeforeUnload: true });
+        console.log('DRAFT-AT-CLOSE', JSON.stringify(draftAtClose));
         for (const r of gate.rows) r.expiresAt = Date.now() - 1_000;      // the window has passed
 
         const back = await page.context().newPage();
@@ -156,7 +192,9 @@ test.describe('#1360 abandonment mid-recording → return → record again', () 
         await page.getByTestId('mic-start').click();
         await page.waitForSelector('html[data-runtime-state="RECORDING"], [data-testid="session-shell"][data-session-state="during"]', { timeout: 15_000 });
         await expect.poll(() => gate.activeFor().length, { timeout: 10_000 }).toBe(1);
+        const draftAtClose = await draftSnapshot(page);
         await page.close({ runBeforeUnload: true });
+        console.log('DRAFT-AT-CLOSE', JSON.stringify(draftAtClose));
 
         // A different context shares nothing with the first — no recovery draft, no cookies — only the
         // server, which is exactly the gate.
