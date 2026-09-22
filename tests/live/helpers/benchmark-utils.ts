@@ -636,8 +636,33 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_00
     // So the end of setup accepts either shape and REPORTS which. A caller that starts its own take
     // must not do so when the take is already running: a second press creates a second session, and a
     // proof that counts sessions would then be corrupted by its own setup.
-    const recordingAlreadyStarted = (await page.getByTestId(RECORDER_STOP).count()) > 0;
+    // Consultant condition on `76876df3`: WAIT FOR A TERMINAL OUTCOME, NEVER A SNAPSHOT.
+    //
+    // A single `count()` reads one instant. `data-model-status` reaching `ready` does not mean the
+    // transition is over: the canary artifact showed `mic-start` RENDERED BUT DISABLED before
+    // `SessionDuringState` replaced it. If that phase lands after `ready`, a snapshot sees no recorder,
+    // falls into `expectMicControlForState`, and waits for a control that goes disabled and then
+    // disappears — `CONTROL_NOT_RENDERED` again, now intermittent instead of certain, and discovered on
+    // the PAID proof. Which side of `ready` that phase falls on is unverified, so this waits instead of
+    // assuming: during engine start `mic-start` is disabled, so only a RUNNING recorder or an ENABLED
+    // start control ends the transition. Rule 2 — wait on product state — applied to the wait itself.
+    const runningTake = page.getByTestId(RECORDER_STOP);
+    const enabledStart = page.locator(`[data-testid="${micControlFor('ready')}"]:not([disabled])`);
+    try {
+        await expect(
+            runningTake.or(enabledStart).first(),
+            'setup must settle on a running take or an enabled start control',
+        ).toBeVisible({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'setup-ready-no-terminal-control');
+        throw new Error(
+            `INVALID_SETUP CONTROL_NOT_RENDERED state 'ready' settled on neither a running take nor an enabled start control\n` +
+            `${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`
+        );
+    }
+    const recordingAlreadyStarted = (await runningTake.count()) > 0;
     if (!recordingAlreadyStarted) {
+        // Still assert the full mutual-exclusion contract for the non-recording shape.
         await expectMicControlForState(page, 'ready');
     }
     await logBenchmarkPhase(

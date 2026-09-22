@@ -26,7 +26,17 @@ vi.mock('@playwright/test', () => {
             const fail = (why: string) => { throw new Error(`${message ?? ''} ${why}`.trim()); };
             const node = () => document.querySelector(actual.selector);
             return {
-                toBeVisible: async () => { if (!node()) fail(`expected ${actual.selector} to be visible`); },
+                // A REAL `toBeVisible` WAITS. The synchronous check could only ever see the first
+                // instant, so an asynchronous transition (`mic-start` disabled, then RecorderBar) was
+                // untestable here and any fix for it would have been validated against a fake that
+                // cannot express it. Polls on real timers, like Playwright, with a short deadline.
+                toBeVisible: async () => {
+                    const deadline = Date.now() + 1_000;
+                    while (!node()) {
+                        if (Date.now() > deadline) fail(`expected ${actual.selector} to be visible`);
+                        await new Promise((r) => setTimeout(r, 5));
+                    }
+                },
                 toBeEnabled: async () => {
                     const el = node();
                     if (!el) fail(`expected ${actual.selector} to exist`);
@@ -95,6 +105,9 @@ interface FakeLocator {
     scrollIntoViewIfNeeded(): Promise<void>;
     textContent(): Promise<string | null>;
     getAttribute(name: string): Promise<string | null>;
+    /** Playwright's locator union / index, as the helpers use them. */
+    or(other: FakeLocator): FakeLocator;
+    first(): FakeLocator;
 }
 
 /** Every testid the helper asked for, and every one it clicked — the two things that broke. */
@@ -116,6 +129,16 @@ let onDownloadClick: string | null = 'ready';
  * against a product that no longer exists.
  */
 let coldPressRecords = true;
+/**
+ * Consultant condition on `76876df3` — THE GAP BETWEEN `ready` AND THE RECORDER.
+ *
+ * `'sync'` renders the recorder inside the click handler, so any snapshot taken afterwards always sees
+ * it: the timing gap cannot exist. The canary artifact showed the other shape — `mic-start` RENDERED
+ * BUT DISABLED while the engine starts, replaced by `SessionDuringState` a tick later. `'disabled-then-
+ * recording'` models that, which is the only way a snapshot-based setup can be shown to break and a
+ * terminal-outcome wait to hold.
+ */
+let coldPressTiming: 'sync' | 'disabled-then-recording' = 'sync';
 
 const locatorFor = (selector: string): FakeLocator => ({
     __locator: true,
@@ -125,6 +148,10 @@ const locatorFor = (selector: string): FakeLocator => ({
     scrollIntoViewIfNeeded: async () => undefined,
     textContent: async () => document.querySelector(selector)?.textContent ?? null,
     getAttribute: async (name) => document.querySelector(selector)?.getAttribute(name) ?? null,
+    // A CSS union matches either shape, and `querySelector` returns the first in document order —
+    // which is what `.or(...).first()` means for these helpers.
+    or: (other: FakeLocator) => locatorFor(`${selector}, ${other.selector}`),
+    first: () => locatorFor(selector),
     click: async () => {
         const el = document.querySelector(selector);
         if (!el) throw new Error(`click on a control that does not exist: ${selector}`);
@@ -134,7 +161,17 @@ const locatorFor = (selector: string): FakeLocator => ({
             // Acquisition completing re-renders the card into the next state's control, as in the app.
             renderState(onDownloadClick);
             // ...and then the held recording intent resumes, replacing the card entirely (#1416).
-            if (coldPressRecords && onDownloadClick === 'ready') renderRecording();
+            if (coldPressRecords && onDownloadClick === 'ready') {
+                if (coldPressTiming === 'sync') {
+                    renderRecording();
+                } else {
+                    // `ready` is reached with the start control present but DISABLED, and the recorder
+                    // replaces it only on a later tick.
+                    document.body.innerHTML =
+                        `<button data-testid="${MIC_CONTROL_BY_STATUS.ready}" disabled>c</button>`;
+                    setTimeout(renderRecording, 25);
+                }
+            }
         }
     },
 });
@@ -164,6 +201,7 @@ function renderRecording() {
 
 beforeEach(() => {
     asked.length = 0; clicked.length = 0; onDownloadClick = 'ready'; coldPressRecords = true;
+    coldPressTiming = 'sync';
     document.documentElement.removeAttribute('data-recording-state');
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 });
@@ -189,6 +227,23 @@ describe('acquisition drives the state-specific CTA', () => {
         await expect(preparePrivateModelIfPrompted(page, 5_000)).resolves.toEqual({ recordingAlreadyStarted: true });
         expect(document.querySelector(`[data-testid="${RECORDER_STOP}"]`), 'the recorder is up').not.toBeNull();
         expect(document.querySelector(`[data-testid="mic-start"]`), 'mic-start is correctly gone').toBeNull();
+    });
+
+    /**
+     * CASUALTY — Consultant condition on `76876df3`. THE SNAPSHOT VERSION FAILS HERE.
+     *
+     * Production reaches `ready` with `mic-start` rendered but DISABLED, and replaces it with the
+     * recorder a tick later. A setup that takes ONE snapshot at `ready` sees no recorder, falls into
+     * `expectMicControlForState`, and waits for a control that goes disabled and then disappears —
+     * `CONTROL_NOT_RENDERED`, intermittent, discovered on the PAID proof. Waiting for a terminal
+     * outcome (running take OR enabled start) settles it either way.
+     */
+    it('CASUALTY: setup waits through a disabled mic-start and reports the take that follows it', async () => {
+        coldPressTiming = 'disabled-then-recording';
+        renderState('download-required');
+        await expect(preparePrivateModelIfPrompted(page, 5_000)).resolves.toEqual({ recordingAlreadyStarted: true });
+        expect(document.querySelector(`[data-testid="${RECORDER_STOP}"]`), 'the recorder replaced the card').not.toBeNull();
+        expect(document.querySelector('[data-testid="mic-start"]'), 'the disabled start control is gone').toBeNull();
     });
 
     it('a cold press that does NOT record still ends setup on a rendered mic-start', async () => {
