@@ -21,7 +21,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { navigateToRoute, programmaticLoginWithRoutes, mockLiveTranscript } from './helpers';
+import { goToApp, navigateToRoute, programmaticLoginWithRoutes, mockLiveTranscript } from './helpers';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 
 type Row = { userId: string; sessionId: string; status: 'active' | 'completed' | 'failed'; expiresAt: number };
@@ -68,11 +68,16 @@ async function installGate(context: BrowserContext, gate: ServerGate) {
     await context.exposeBinding('__e2eServerGate', (_source, op: string, payload: Record<string, unknown>) => gate.handle(op, payload));
 }
 
-/** The recovery draft as the closing tab left it — owner and state only, never content. */
-async function draftSnapshot(page: Page) {
+/**
+ * Read the recovery draft BEFORE the E2E double is installed on this tab. `setupE2EManifest` runs
+ * `localStorage.clear()` on every page it is installed on (its "strict zero baseline"), so reading after
+ * `programmaticLoginWithRoutes` reports "no draft" for the harness's own reason, not the product's.
+ */
+async function draftBeforeHarness(page: Page) {
+    await goToApp(page, '/terms');
     return page.evaluate(() => {
         const raw = localStorage.getItem('speaksharp_unsaved_session_draft');
-        if (!raw) return { present: false, keys: Object.keys(localStorage).filter((k) => !k.startsWith('sb-')) };
+        if (!raw) return { present: false };
         const d = JSON.parse(raw) as { userId?: string; recoveryState?: string; sessionId?: string };
         return { present: true, recoveryState: d.recoveryState ?? null, owner: d.userId ?? null, hasSessionId: Boolean(d.sessionId) };
     });
@@ -140,14 +145,27 @@ test.describe('#1360 abandonment mid-recording → return → record again', () 
         }).toBe(true);
 
         // 2. ABANDON: close the tab mid-recording. No stop, no save, no teardown.
-        const draftAtClose = await draftSnapshot(page);
+        // The app's `beforeunload` guard calls preventDefault() while recording, which raises the browser's
+        // "leave site?" prompt. Playwright DISMISSES dialogs by default — cancelling the unload — so an
+        // unhandled close would leave the "abandoned" tab alive and recording. The user abandoning means
+        // confirming the leave: accept it, then prove the tab is really gone.
+        const unloadLog: string[] = [];
+        page.on('console', (m) => { if (/recovery draft|persistActiveRecoveryDraft|UX-NAV|unload/i.test(m.text())) unloadLog.push(m.text().slice(0, 160)); });
+        const unloadState = await page.evaluate(() => ({
+            runtime: document.documentElement.getAttribute('data-runtime-state'),
+            words: document.querySelector('[data-testid="transcript-card"]')?.textContent?.trim().split(/\s+/).filter(Boolean).length ?? 0,
+        }));
+        page.once('dialog', (d) => void d.accept());
         await page.close({ runBeforeUnload: true });
-        console.log('DRAFT-AT-CLOSE', JSON.stringify(draftAtClose));
+        await expect.poll(() => page.isClosed(), { message: 'the abandoned tab really closed', timeout: 10_000 }).toBe(true);
+        console.log('AT-UNLOAD', JSON.stringify({ ...unloadState, unloadLog }));
+
 
         // 3. Return in a new tab of the same browser.
         const back = await page.context().newPage();
+        const draftOnReturn = await draftBeforeHarness(back);
         await programmaticLoginWithRoutes(back, { userType: 'free' });
-        const outcome = await observeReturn(back);
+        const outcome = { ...(await observeReturn(back)), draftOnReturn };
         await test.info().attach('return-outcome-new-tab', { contentType: 'application/json', body: JSON.stringify({ ...outcome, activeServerRows: gate.activeFor().length, gateLog: gate.log }, null, 2) });
         console.log('RETURN-OUTCOME', JSON.stringify({ ...outcome, gateLog: gate.log }));
 
@@ -171,14 +189,27 @@ test.describe('#1360 abandonment mid-recording → return → record again', () 
         await page.getByTestId('mic-start').click();
         await page.waitForSelector('html[data-runtime-state="RECORDING"], [data-testid="session-shell"][data-session-state="during"]', { timeout: 15_000 });
         await expect.poll(() => gate.activeFor().length, { timeout: 10_000 }).toBe(1);
-        const draftAtClose = await draftSnapshot(page);
+        // The app's `beforeunload` guard calls preventDefault() while recording, which raises the browser's
+        // "leave site?" prompt. Playwright DISMISSES dialogs by default — cancelling the unload — so an
+        // unhandled close would leave the "abandoned" tab alive and recording. The user abandoning means
+        // confirming the leave: accept it, then prove the tab is really gone.
+        const unloadLog: string[] = [];
+        page.on('console', (m) => { if (/recovery draft|persistActiveRecoveryDraft|UX-NAV|unload/i.test(m.text())) unloadLog.push(m.text().slice(0, 160)); });
+        const unloadState = await page.evaluate(() => ({
+            runtime: document.documentElement.getAttribute('data-runtime-state'),
+            words: document.querySelector('[data-testid="transcript-card"]')?.textContent?.trim().split(/\s+/).filter(Boolean).length ?? 0,
+        }));
+        page.once('dialog', (d) => void d.accept());
         await page.close({ runBeforeUnload: true });
-        console.log('DRAFT-AT-CLOSE', JSON.stringify(draftAtClose));
+        await expect.poll(() => page.isClosed(), { message: 'the abandoned tab really closed', timeout: 10_000 }).toBe(true);
+        console.log('AT-UNLOAD', JSON.stringify({ ...unloadState, unloadLog }));
+
         for (const r of gate.rows) r.expiresAt = Date.now() - 1_000;      // the window has passed
 
         const back = await page.context().newPage();
+        const draftOnReturn = await draftBeforeHarness(back);
         await programmaticLoginWithRoutes(back, { userType: 'free' });
-        const outcome = await observeReturn(back);
+        const outcome = { ...(await observeReturn(back)), draftOnReturn };
         console.log('RETURN-OUTCOME-CONTROL', JSON.stringify({ ...outcome, gateLog: gate.log }));
         expect(outcome.recordingStarted, 'with no live lock, the harness starts a recording').toBe(true);
     });
@@ -192,17 +223,30 @@ test.describe('#1360 abandonment mid-recording → return → record again', () 
         await page.getByTestId('mic-start').click();
         await page.waitForSelector('html[data-runtime-state="RECORDING"], [data-testid="session-shell"][data-session-state="during"]', { timeout: 15_000 });
         await expect.poll(() => gate.activeFor().length, { timeout: 10_000 }).toBe(1);
-        const draftAtClose = await draftSnapshot(page);
+        // The app's `beforeunload` guard calls preventDefault() while recording, which raises the browser's
+        // "leave site?" prompt. Playwright DISMISSES dialogs by default — cancelling the unload — so an
+        // unhandled close would leave the "abandoned" tab alive and recording. The user abandoning means
+        // confirming the leave: accept it, then prove the tab is really gone.
+        const unloadLog: string[] = [];
+        page.on('console', (m) => { if (/recovery draft|persistActiveRecoveryDraft|UX-NAV|unload/i.test(m.text())) unloadLog.push(m.text().slice(0, 160)); });
+        const unloadState = await page.evaluate(() => ({
+            runtime: document.documentElement.getAttribute('data-runtime-state'),
+            words: document.querySelector('[data-testid="transcript-card"]')?.textContent?.trim().split(/\s+/).filter(Boolean).length ?? 0,
+        }));
+        page.once('dialog', (d) => void d.accept());
         await page.close({ runBeforeUnload: true });
-        console.log('DRAFT-AT-CLOSE', JSON.stringify(draftAtClose));
+        await expect.poll(() => page.isClosed(), { message: 'the abandoned tab really closed', timeout: 10_000 }).toBe(true);
+        console.log('AT-UNLOAD', JSON.stringify({ ...unloadState, unloadLog }));
+
 
         // A different context shares nothing with the first — no recovery draft, no cookies — only the
         // server, which is exactly the gate.
         const other = await browser.newContext();
         await installGate(other, gate);
         const back = await other.newPage();
+        const draftOnReturn = await draftBeforeHarness(back);
         await programmaticLoginWithRoutes(back, { userType: 'free' });
-        const outcome = await observeReturn(back);
+        const outcome = { ...(await observeReturn(back)), draftOnReturn };
         await test.info().attach('return-outcome-fresh-context', { contentType: 'application/json', body: JSON.stringify({ ...outcome, activeServerRows: gate.activeFor().length, gateLog: gate.log }, null, 2) });
         console.log('RETURN-OUTCOME', JSON.stringify({ ...outcome, gateLog: gate.log }));
 
