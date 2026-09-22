@@ -43,8 +43,13 @@ export const PHASE_BUDGETS_MS = Object.freeze({
     navigate_session: 150_000,
     /** Usage-limit poll, tier badge, and the control-visibility assertions before the press. */
     pre_start_checks: 60_000,
-    /** `startTake`: both control waits plus the cold authoritative RPC. Unchanged at 150s + 2×15s. */
-    start_take: COLD_START_TOTAL_BUDGET_MS,
+    /**
+     * `startTake` plus the authoritative RPC: both control waits, the 150s cold RPC (unchanged), and
+     * START_TAKE_SLACK_MS. Codex P2 on `27e59a4`: a ceiling EQUAL to the sum of its nested timeouts loses
+     * the race — this phase's timer starts before the control waits, the RPC's own timer only after them
+     * and after click/setup overhead — so a healthy near-150s cold start could fail as a phase timeout.
+     */
+    start_take: COLD_START_TOTAL_BUDGET_MS + 15_000,
     /** Runtime RECORDING, during-state shell, policy body and the live header — four assertions. */
     recording_checks: 60_000,
     /** The deliberate in-recording dwell, so the take has real audio to finalize. */
@@ -54,6 +59,9 @@ export const PHASE_BUDGETS_MS = Object.freeze({
 } as const);
 
 export type CanaryPhase = keyof typeof PHASE_BUDGETS_MS;
+
+/** Execution/verdict slack `start_take` carries above the sum of its nested timeouts. */
+export const START_TAKE_SLACK_MS = PHASE_BUDGETS_MS.start_take - COLD_START_TOTAL_BUDGET_MS;
 
 /**
  * Time for the deploy poll to emit its verdict AFTER its deadline: attach `deployed-release` and throw

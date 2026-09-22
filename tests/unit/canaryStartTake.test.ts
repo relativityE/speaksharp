@@ -23,6 +23,7 @@ import {
     JOB_SETUP_ALLOWANCE_MS,
     JOB_FINALIZATION_ALLOWANCE_MS,
     requiredCanaryJobCeilingMs,
+    START_TAKE_SLACK_MS,
 } from '../canary/canaryBudget';
 
 /**
@@ -227,7 +228,10 @@ describe('#1518 phase ceilings are enforced, and the outer budgets exceed their 
         // PM RETURN: keep the 150s RPC wait and the one-click/one-session behaviour exactly as they are.
         expect(COLD_START_RPC_TIMEOUT_MS).toBe(150_000);
         expect(COLD_START_TOTAL_BUDGET_MS).toBe(CONTROL_WAIT_MS * 2 + COLD_START_RPC_TIMEOUT_MS);
-        expect(PHASE_BUDGETS_MS.start_take).toBe(COLD_START_TOTAL_BUDGET_MS);
+        // Codex P2 on 27e59a4: the phase must EXCEED its nested timeouts, or a healthy near-limit cold
+        // start loses the timer race and is reported as a phase timeout.
+        expect(START_TAKE_SLACK_MS).toBeGreaterThanOrEqual(10_000);
+        expect(PHASE_BUDGETS_MS.start_take).toBe(COLD_START_TOTAL_BUDGET_MS + START_TAKE_SLACK_MS);
     });
 
     it('the product total is the sum of the ENFORCED phase ceilings plus inter-phase headroom', () => {
