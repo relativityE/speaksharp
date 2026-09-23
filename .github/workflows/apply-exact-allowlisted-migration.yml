@@ -20,6 +20,8 @@ on:
           - '20260819120000'
           - '20260829120000'
           - '20260904150000'
+          - '20260910193000'
+          - '20260914214307'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
@@ -118,7 +120,8 @@ jobs:
       - name: Build isolated target-only migration workspace
         run: |
           set -euo pipefail
-          node scripts/exact-migration-gate.mjs prepare-workspace backend/supabase "$RUNNER_TEMP"
+          # Exclusions come from the pre-apply ledger read above: only still-pending later allowlist entries.
+          node scripts/exact-migration-gate.mjs prepare-workspace backend/supabase "$RUNNER_TEMP" "$RUNNER_TEMP/migrations-before.txt"
 
       - name: Prove dry-run is target-only
         working-directory: ${{ runner.temp }}/exact-backend
@@ -434,7 +437,7 @@ jobs:
           echo "- SHA-256: \`${{ steps.contract.outputs.target_sha256 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Classification: \`${{ steps.contract.outputs.classification }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Isolated out-of-order flag required: \`${{ steps.contract.outputs.requires_include_all }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Excluded pending migrations: \`${{ steps.contract.outputs.excluded_versions }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Later allowlist entries (excluded only while still pending in the pre-apply ledger; applied ones are kept): \`${{ steps.contract.outputs.excluded_versions }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"

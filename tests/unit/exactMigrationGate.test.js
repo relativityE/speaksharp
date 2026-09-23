@@ -173,6 +173,7 @@ describe('exact migration gate', () => {
     it('accepts only the observed two-migration pre-apply state', () => {
         expect(assertBeforeApply([matched, heldPending, targetPending].join('\n'))).toEqual({
             pending: ['20260811143000', '20260812002000'],
+            excludedVersions: ['20260811143000'],
         });
         expect(() => assertBeforeApply([matched, targetPending].join('\n'))).toThrow(/unexpected pending/);
         expect(() => assertBeforeApply([matched, heldPending, targetPending, ' 20260813000000 | | x'].join('\n')))

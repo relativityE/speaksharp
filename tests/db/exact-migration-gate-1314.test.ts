@@ -90,13 +90,55 @@ describe('#1314 pending-set enforcement (does not require activation, keeps unse
     expect(() => assertBeforeApply(migrationList(rows), cfg)).not.toThrow();
   });
 
-  it('NEGATIVE: if activation were already applied, the pending set is wrong — fails', () => {
+  // Real-ledger contract (2026-09-23 read: activation 20260812042000 is RECORDED applied, #1282). A later allowlist
+  // entry already applied is neither pending nor excluded: it stays in the workspace and must stay applied. This used
+  // to be asserted as a failure, which made the exact route unexecutable against the real Production ledger.
+  it('BEFORE apply: later allowlist entries already RECORDED APPLIED are accepted (not required pending)', () => {
     const rows = [
       ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
       { v: V1314, local: true, remote: false },
-      ...excludedApplied,   // an excluded entry already applied -> not pending -> wrong set
+      ...excludedApplied,
     ];
-    expect(() => assertBeforeApply(migrationList(rows), cfg)).toThrow(/pending/);
+    expect(assertBeforeApply(migrationList(rows), cfg)).toMatchObject({ pending: [V1314], excludedVersions: [] });
+  });
+
+  it('NEGATIVE: a later allowlist entry missing from the ledger fails closed', () => {
+    const rows = [
+      ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
+      { v: V1314, local: true, remote: false },
+      ...excludedApplied.slice(1),
+    ];
+    expect(() => assertBeforeApply(migrationList(rows), cfg)).toThrow(/absent from the migration list/);
+  });
+
+  it('NEGATIVE: an unrelated pending migration is REFUSED BY NAME, never hidden', () => {
+    const rows = [
+      ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
+      { v: V1314, local: true, remote: false },
+      ...excludedApplied,
+      { v: '20260920000000', local: true, remote: false },
+    ];
+    expect(() => assertBeforeApply(migrationList(rows), cfg)).toThrow(/refused, not selected: 20260920000000/);
+  });
+
+  it('AFTER apply: a later entry recorded applied must stay applied', () => {
+    const before = migrationList([
+      ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
+      { v: V1314, local: true, remote: false },
+      ...excludedApplied,
+    ]);
+    const good = migrationList([
+      ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
+      { v: V1314, local: true, remote: true },
+      ...excludedApplied,
+    ]);
+    expect(() => assertAfterApply(before, good, cfg)).not.toThrow();
+    const flipped = migrationList([
+      ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
+      { v: V1314, local: true, remote: true },
+      ...excludedPending,
+    ]);
+    expect(() => assertAfterApply(before, flipped, cfg)).toThrow();
   });
 
   it('AFTER apply: target applied, activation still pending — passes', () => {
