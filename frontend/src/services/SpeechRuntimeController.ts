@@ -6206,6 +6206,37 @@ export class SpeechRuntimeController {
                     serviceMode === 'private' &&
                     pageForeground;
 
+                // AN UNSAVED TAKE OUTRANKS RECLAIMED MEMORY (#1033 Retry Save × #1258 reclamation).
+                //
+                // `reset('idle_reclamation')` runs `applyHardResetState`, whose clearing is scoped by its own
+                // comment to "navigation/logout/account change/manual": it nulls both retry handles and resets
+                // the transcript lifecycle. On a TIMER that discards the only handle Retry Save has, for a page
+                // the user merely left in the background — and nothing re-arms it in place, because
+                // `useUnresolvedRecovery` rehydrates once per MOUNT and the durable draft it would rehydrate
+                // from is content-free by design. The take's text would simply be gone, silently, five minutes
+                // after a tab switch.
+                //
+                // So a pending recovery DEFERS reclamation rather than disabling it: the timer re-arms, and the
+                // engine is freed as soon as the retry resolves (or the page navigates, which still takes the
+                // hard path deliberately).
+                // The predicate is `isEngineSelectionLocked()`, not `hasPendingAttribution()`. The hard reset
+                // ALSO calls `markRecordingResolved()`, clearing `recordingStartedUnresolved` and
+                // `pendingInitialSaveContext` — the post-start failure window that finalization, STT, stop and
+                // heartbeat failures land in. Those never reach a save, so they set NO retry handle:
+                // `hasPendingAttribution()` is false for exactly the cases whose recovery window this reset
+                // closes, and they land in `IDLE`/`READY`, which the preserve rule below does not cover in the
+                // foreground either. `isEngineSelectionLocked()` is the codebase's existing answer to "is a
+                // recording in flight or unresolved?" and already covers all five states the reset destroys.
+                if (this.isEngineSelectionLocked()) {
+                    logger.info({
+                        state: this.state,
+                        pendingResolution: this.pendingResolutionKind(),
+                        recordingUnresolved: this.recordingStartedUnresolved,
+                    }, '[SpeechRuntimeController] Deferring idle reclamation: a recording is in flight or unresolved');
+                    this.startIdleTimer();
+                    return;
+                }
+
                 if (shouldPreserveReadyPrivateEngine) {
                     logger.info({
                         state: this.state,
