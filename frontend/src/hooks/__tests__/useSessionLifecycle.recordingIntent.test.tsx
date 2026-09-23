@@ -111,6 +111,8 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
     speechRuntimeController: {
         startRecording: vi.fn(),
         retireEngineForUnmount: vi.fn(async (): Promise<'terminal' | 'unconfirmed'> => 'terminal'),
+        isEngineTerminal: vi.fn((): boolean => true),
+        confirmEngineShutdown: vi.fn(async (): Promise<'terminal' | 'unconfirmed'> => 'terminal'),
         stopRecording: vi.fn(async () => ({ 
             transcript: '', 
             total_words: 0, 

@@ -24,6 +24,8 @@ const leaseMock = vi.hoisted(() => ({
     release: vi.fn(async () => undefined),
     heartbeat: vi.fn((_onRevoked: () => void) => undefined),
     confirm: vi.fn(async (): Promise<'held' | 'revoked' | 'unconfirmed'> => 'held'),
+    /** The lease this tab holds now (a newer take replaces it). */
+    current: null as string | null,
 }));
 // #1476: the server's per-session Progress obligations, loaded at Start. Answers "nothing owed" by default.
 const obligationsMock = vi.hoisted(() => ({
@@ -37,7 +39,7 @@ vi.mock('@/services/recordingLease', () => ({
     releaseTakeLease: () => leaseMock.release(),
     startLeaseHeartbeat: (onRevoked: () => void) => leaseMock.heartbeat(onRevoked),
     confirmTakeLease: () => leaseMock.confirm(),
-    currentTakeLeaseId: () => null,
+    currentTakeLeaseId: () => leaseMock.current,
 }));
 
 vi.mock('@/hooks/useProfile', () => ({
@@ -95,6 +97,8 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
     speechRuntimeController: {
         startRecording: vi.fn(),
         retireEngineForUnmount: vi.fn(async (): Promise<'terminal' | 'unconfirmed'> => 'terminal'),
+        isEngineTerminal: vi.fn((): boolean => true),
+        confirmEngineShutdown: vi.fn(async (): Promise<'terminal' | 'unconfirmed'> => 'terminal'),
         stopRecording: vi.fn(async () => ({ 
             transcript: '', 
             total_words: 0, 
@@ -1846,6 +1850,70 @@ describe('useSessionLifecycle - one account, one engine (#1476)', () => {
         // Retryable: once storage is available again, the next Start proceeds.
         await act(async () => { await result.current.handleStartStop(); });
         expect(speechRuntimeController.startRecording).toHaveBeenCalled();
+    });
+
+    // The engine-level proof (real TranscriptionService: held/rejected termination, a failed engine STOP) is in
+    // services/__tests__/unmountEngineRetirement1476.test.ts. These pin the page's side: release only on PROOF.
+    const endedTake = async () => {
+        const store = readyStore();
+        render();
+        await act(async () => { store.setState({ runtimeState: 'RECORDING' } as never); });
+        leaseMock.release.mockClear();
+        return store;
+    };
+
+    it('CASUALTY (Codex P1 on c4fd77b2 / PM RETURN): a take that ends — failed, or stopped with an engine that did not stop — keeps the lease until the engine is PROVEN off', async () => {
+        for (const endState of ['FAILED', 'READY'] as const) {
+            vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(false);
+            let prove: (o: 'terminal' | 'unconfirmed') => void = () => undefined;
+            vi.mocked(speechRuntimeController.confirmEngineShutdown).mockImplementationOnce(() => new Promise((resolve) => { prove = resolve; }));
+            const store = await endedTake();
+            await act(async () => { store.setState({ runtimeState: endState } as never); });
+            expect(speechRuntimeController.confirmEngineShutdown, `${endState}: a bounded attempt to prove it`).toHaveBeenCalled();
+            expect(leaseMock.release, `${endState}: not before proof`).not.toHaveBeenCalled();
+            await act(async () => { prove('terminal'); await Promise.resolve(); });
+            expect(leaseMock.release, `${endState}: released once proven`).toHaveBeenCalledTimes(1);
+            vi.mocked(speechRuntimeController.confirmEngineShutdown).mockClear();
+        }
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(true);
+    });
+
+    it('PM RETURN: an engine that cannot be proven off KEEPS the lease and says so', async () => {
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(false);
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockImplementationOnce(async () => 'unconfirmed');
+        const store = await endedTake();
+        await act(async () => { store.setState({ runtimeState: 'FAILED' } as never); await Promise.resolve(); });
+        expect(leaseMock.release).not.toHaveBeenCalled();
+        expect(store.getState().setSTTStatus).toHaveBeenCalledWith({
+            type: 'error',
+            message: "SpeakSharp could not confirm the last recording stopped, so this tab still holds your account's recording. Reload or close this tab to end it, or start on another device and take over.",
+        });
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(true);
+    });
+
+    it('PM RETURN: a stale proof for lease A never releases lease B', async () => {
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(false);
+        let prove: (o: 'terminal' | 'unconfirmed') => void = () => undefined;
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockImplementationOnce(() => new Promise((resolve) => { prove = resolve; }));
+        leaseMock.current = 'lease-A';
+        const store = await endedTake();
+        await act(async () => { store.setState({ runtimeState: 'FAILED' } as never); });
+        leaseMock.current = 'lease-B'; // a newer take acquired its own lease before A's engine was proven off
+        await act(async () => { prove('terminal'); await Promise.resolve(); });
+        expect(leaseMock.release, 'A\'s late proof must not release B').not.toHaveBeenCalled();
+        leaseMock.current = null;
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(true);
+    });
+
+    it('CONTROL: a take that ends normally (RECORDING → STOPPING → IDLE) releases once it is at rest', async () => {
+        const store = readyStore();
+        render();
+        await act(async () => { store.setState({ runtimeState: 'RECORDING' } as never); });
+        leaseMock.release.mockClear();
+        await act(async () => { store.setState({ runtimeState: 'STOPPING' } as never); });
+        expect(leaseMock.release, 'STOPPING is still the take').not.toHaveBeenCalled();
+        await act(async () => { store.setState({ runtimeState: 'IDLE' } as never); });
+        expect(leaseMock.release).toHaveBeenCalledTimes(1);
     });
 
     it('CONTROL: server obligations are loaded BEFORE the engine starts, so the controller\'s durable-queue check sees them', async () => {

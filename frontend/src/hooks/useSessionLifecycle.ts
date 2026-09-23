@@ -38,7 +38,7 @@ import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthorit
 import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
 import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
-import { acquireTakeLease, confirmTakeLease, releaseTakeLease, startLeaseHeartbeat } from '@/services/recordingLease';
+import { acquireTakeLease, confirmTakeLease, currentTakeLeaseId, releaseTakeLease, startLeaseHeartbeat } from '@/services/recordingLease';
 import { LEASE_NOT_HELD_MESSAGE, LEASE_REVOKED_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from '@/services/recordingLeasePolicy';
 import { toast } from '@/lib/toast';
 import { hydrateServerProgressObligations } from '@/services/progress/serverProgressObligations';
@@ -84,6 +84,8 @@ const START_OBLIGATIONS_TIMEOUT_MS = 5_000;
 /** #1476: a server-confirmed Progress obligation could not be stored on this device (quota or blocked storage). */
 const UNPERSISTED_OBLIGATIONS_MESSAGE =
     'Your earlier session still needs its Progress saved, and this browser could not store it (storage is full or blocked). Free up space or allow site storage, then press Start again.';
+/** #1476: how long an ended take waits for its engine to be confirmed off before keeping the lease instead. */
+const FAILED_TEARDOWN_CONFIRM_MS = 20_000;
 /** #1476: shown when the page went away and this tab could not confirm its recording engine stopped. */
 export const ENGINE_RETIRE_UNCONFIRMED_MESSAGE =
     'SpeakSharp could not confirm the last recording stopped, so this tab still holds your account\'s recording. Reload or close this tab to end it, or start on another device and take over.';
@@ -1116,14 +1118,24 @@ export const useSessionLifecycle = () => {
      * a too-short discard, an engine or microphone failure, teardown. Releasing marks the take as ended normally, so its
      * save or Retry Save is still accepted after another device starts. STOPPING is still the take.
      */
+    // Codex P1 on c4fd77b2 + PM RETURNs: a take's end — a normal stop, a stop whose engine failed to stop, or a failure —
+    // is not proof its engine is off. Release only when the engine is PROVEN stopped (TranscriptionService's registry), after
+    // the controller's bounded attempt to confirm it; otherwise keep the lease (other devices stay blocked; the unmount
+    // retirement or the next take's own acquire resolve it) and say so. Bound to the lease the take held.
     const leaseRuntimeState = useSessionStore((state) => state.runtimeState);
     useEffect(() => {
         if (leaseRuntimeState === 'RECORDING') { takeReachedRecordingRef.current = true; return; }
-        if (takeReachedRecordingRef.current && leaseRuntimeState !== 'STOPPING') {
-            takeReachedRecordingRef.current = false;
-            void releaseTakeLease();
-        }
-    }, [leaseRuntimeState]);
+        if (!takeReachedRecordingRef.current || leaseRuntimeState === 'STOPPING') return;
+        takeReachedRecordingRef.current = false;
+        const leaseOfTake = currentTakeLeaseId();
+        if (speechRuntimeController.isEngineTerminal()) { void releaseTakeLease(); return; }
+        void speechRuntimeController.confirmEngineShutdown(FAILED_TEARDOWN_CONFIRM_MS).then((outcome) => {
+            if (currentTakeLeaseId() !== leaseOfTake) return; // a newer take owns the lease now
+            if (outcome === 'terminal') { void releaseTakeLease(); return; }
+            logger.warn({ state: leaseRuntimeState }, '[useSessionLifecycle] take ended but its engine is not confirmed off; keeping the recording lease');
+            setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
+        });
+    }, [leaseRuntimeState, setSTTStatus]);
 
     // UI Cleanup on unmount
     // We ONLY detach listeners (subscriber_unmount) to handle React remounts.

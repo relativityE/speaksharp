@@ -84,15 +84,22 @@ class ControlledEngine {
         this.startCalls += 1;
         if (this.failStart) throw this.failStart;
     }
-    async stop() { /* no-op */ }
+    /** True models an engine whose stop REJECTS while it may still be running. */
+    public stopRejects = false;
+    async stop() {
+        if (this.stopRejects) throw new Error('engine did not stop');
+    }
     async resume() { /* no-op */ }
     async pause() { /* no-op */ }
     public terminateCalls = 0;
     /** True models an engine whose termination never completes (a wedged worker). */
     public terminateHangs = false;
+    /** When set, termination waits on this promise (held, then resolved or rejected by the test). */
+    public terminateGate: Promise<void> | null = null;
     async terminate() {
         this.terminateCalls += 1;
         if (this.terminateHangs) await new Promise(() => undefined);
+        if (this.terminateGate) await this.terminateGate;
     }
     async getTranscript() { return ''; }
     getLastHeartbeatTimestamp() { return Date.now(); }
@@ -234,6 +241,104 @@ describe('#1476 — unmount retires the engine before the account lease is relea
             type: 'error',
             message: "SpeakSharp could not confirm the last recording stopped, so this tab still holds your account's recording. Reload or close this tab to end it, or start on another device and take over.",
         });
+    });
+
+    it('isEngineTerminal (Codex P1 on c4fd77b2): false while a real engine records, true once it is torn down', async () => {
+        expect(controller.isEngineTerminal(), 'no service yet').toBe(true);
+        const started = controller.startRecording(POLICY as never, []);
+        await settle(60);
+        await started;
+        expect(controller.getState()).toBe('RECORDING');
+        expect(controller.isEngineTerminal(), 'a recording engine is not terminal').toBe(false);
+        await expect(releaseTakeLeaseOnUnmount(true)).resolves.toBe(true);
+        expect(controller.isEngineTerminal()).toBe(true);
+    });
+
+    it('PM RETURN (real service): FAILED → destroy() with strategy.terminate() HELD past a poll — the early FSM TERMINATED is NOT "engine off"', async () => {
+        const started = controller.startRecording(POLICY as never, []);
+        await settle(60);
+        await started;
+        const svc = (controller as unknown as { service: { destroy: () => Promise<void>; isServiceDestroyed: () => boolean; fsm: { transition: (e: unknown) => void } } }).service;
+        let finishTermination: () => void = () => undefined;
+        engine.terminateGate = new Promise<void>((resolve) => { finishTermination = resolve; });
+        svc.fsm.transition({ type: 'ERROR_OCCURRED', error: new Error('STT_HEARTBEAT_FAILURE') }); // the take FAILS
+        const destroying = svc.destroy(); // then the failure path destroys it: FAILED → TERMINATED at once
+        await settle();
+        expect(svc.isServiceDestroyed(), 'the FSM already says TERMINATED (the early state PM identified)').toBe(true);
+        expect(controller.isEngineTerminal(), 'but the engine is still terminating').toBe(false);
+        await new Promise((r) => setTimeout(r, 300)); // longer than one lifecycle poll
+        expect(controller.isEngineTerminal()).toBe(false);
+        finishTermination();
+        await destroying;
+        expect(controller.isEngineTerminal(), 'proven done once termination resolved').toBe(true);
+    });
+
+    it('PM RETURN (real service): a termination that REJECTS stays unconfirmed — the unmount keeps the lease and says so', async () => {
+        const started = controller.startRecording(POLICY as never, []);
+        await settle(60);
+        await started;
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        vi.spyOn(controller, 'stopRecording').mockRejectedValueOnce(new Error('stop failed before shutdown'));
+        await expect(releaseTakeLeaseOnUnmount(true)).resolves.toBe(false);
+        expect(controller.isEngineTerminal()).toBe(false);
+        expect(lease.release, 'another device stays blocked').not.toHaveBeenCalled();
+    });
+
+    const recordNow = async () => {
+        const started = controller.startRecording(POLICY as never, []);
+        await settle(60);
+        await started;
+        expect(controller.getState()).toBe('RECORDING');
+    };
+
+    it('PM RETURN (real service): an ORDINARY Stop proves the engine off', async () => {
+        await recordNow();
+        await controller.stopRecording();
+        await settle();
+        expect(controller.isEngineTerminal()).toBe(true);
+    });
+
+    it('PM RETURN (real service) CONTROL: failed engine STOP → the failure path\'s destroy terminates successfully → PROVEN off; Retry Save untouched', async () => {
+        await recordNow();
+        engine.stopRejects = true;
+        const retry = { sessionId: 'sess-retry', marker: 'durable-retry-save' };
+        const before = engine.terminateCalls;
+        await controller.stopRecording();
+        await settle();
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = retry;
+        expect(engine.terminateCalls - before, 'proved by an awaited, successful termination').toBeGreaterThanOrEqual(1);
+        expect(controller.isEngineTerminal()).toBe(true);
+        await expect(controller.confirmEngineShutdown(2_000)).resolves.toBe('terminal');
+        expect((controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry).toBe(retry);
+    });
+
+    it('PM RETURN (real service): failed engine STOP, then termination REJECTS — never "off"; the lease must be kept', async () => {
+        await recordNow();
+        engine.stopRejects = true;
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        await controller.stopRecording();
+        await settle();
+        expect(controller.isEngineTerminal(), 'a failed stop plus a failed termination is not a stopped engine').toBe(false);
+        await expect(controller.confirmEngineShutdown(2_000)).resolves.toBe('unconfirmed');
+    });
+
+    it('PM RETURN (real service): failed engine STOP, then termination HANGS — unconfirmed within the bound', async () => {
+        await recordNow();
+        engine.stopRejects = true;
+        engine.terminateHangs = true;
+        void controller.stopRecording(); // may itself wait on the hung termination
+        await settle();
+        expect(controller.isEngineTerminal()).toBe(false);
+        await expect(controller.confirmEngineShutdown(300)).resolves.toBe('unconfirmed');
+    });
+
+    it('confirmEngineShutdown\'s OWN bounded destroy: an attached, unconfirmed engine whose termination hangs is unconfirmed, never "proven"', async () => {
+        await recordNow(); // attached and registered: not yet proven stopped
+        engine.terminateHangs = true;
+        await expect(controller.confirmEngineShutdown(300)).resolves.toBe('unconfirmed');
+        expect(controller.isEngineTerminal()).toBe(false);
     });
 
     it('CONTROL: an idle page releases at once, touching no engine', async () => {

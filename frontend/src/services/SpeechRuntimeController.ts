@@ -24,7 +24,7 @@ import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
-import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
+import TranscriptionService, { getTranscriptionService, hasEngineNotConfirmedStopped } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 import { getV4FlagState } from '@/services/transcription/privateV4Flags';
@@ -4616,6 +4616,47 @@ export class SpeechRuntimeController {
     }
 
     /**
+     * #1476 PM RETURN — TRY TO PROVE THE ENGINE IS OFF, WITHOUT DISTURBING THE TAKE'S OUTCOME. Used after a take has ended
+     * (a normal stop, a stop whose engine failed to stop, or a failure) when an engine is not yet confirmed stopped: run the
+     * existing bounded destroy on the attached service if it is the unconfirmed one, then wait (bounded) for the proof.
+     * It changes no runtime state and never touches `pendingFullSaveRetry` / `pendingAttributionRetry`, so Retry Save and
+     * the visible outcome are preserved. `terminal` only when proven; otherwise `unconfirmed` — keep the account lease.
+     */
+    public async confirmEngineShutdown(boundMs: number = 10_000): Promise<'terminal' | 'unconfirmed'> {
+        if (!hasEngineNotConfirmedStopped()) return 'terminal';
+        const deadline = Date.now() + boundMs;
+        const svc = this.service;
+        if (svc && !svc.isServiceDestroyed()) {
+            this.detachService(svc);
+            this.stopWatchdog();
+            this.stopHeartbeat();
+            this.setEngineReady(false);
+            const settled = await new Promise<boolean>((resolve) => {
+                const timer = setTimeout(() => resolve(false), boundMs);
+                svc.destroy().then(() => { clearTimeout(timer); resolve(true); }, () => { clearTimeout(timer); resolve(true); });
+            });
+            if (!settled) return 'unconfirmed';
+        }
+        while (hasEngineNotConfirmedStopped()) {
+            if (Date.now() >= deadline) return 'unconfirmed';
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        return 'terminal';
+    }
+
+    /**
+     * #1476 Codex P1 on c4fd77b2 — IS THIS TAB'S ENGINE CONFIRMED OFF? Read-only. True only when no engine in this tab
+     * awaits a proven stop (TranscriptionService's registry). A failure transition (RECORDING → FAILED) does not stop the engine by
+     * itself — the heartbeat-failure path destroys the service only after that transition — so the account lease must
+     * not be released on the state change alone.
+     */
+    public isEngineTerminal(): boolean {
+        // PM RETURN: not the FSM (destroy() enters TERMINATED before termination finishes) and not attachment (services
+        // are detached before they are destroyed) — only a PROVEN stop, tracked by the service itself.
+        return !hasEngineNotConfirmedStopped();
+    }
+
+    /**
      * #1476 PM pre-push review of the 54576db9 correction — RETIRE THE ENGINE WHEN THE SESSION PAGE GOES AWAY.
      *
      * The page's unmount reset is deliberately SOFT (it only detaches the subscriber), so without this a Start still
@@ -4644,7 +4685,7 @@ export class SpeechRuntimeController {
         }
         const atRest = (): boolean => this.state === 'IDLE' || this.state === 'READY' || this.state === 'TERMINATED' || this.state === 'DOWNLOAD_REQUIRED';
         const preparing = this.state === 'INITIATING' || this.state === 'ENGINE_INITIALIZING' || this.state === 'DOWNLOAD_REQUIRED';
-        if (atRest() && !preparing) return 'terminal';
+        if (atRest() && !preparing && !hasEngineNotConfirmedStopped()) return 'terminal';
 
         logger.warn({ state: this.state }, '[SpeechRuntimeController] retiring the engine for unmount');
         this.lifecycleVersion++;
@@ -4656,7 +4697,8 @@ export class SpeechRuntimeController {
             this.stopWatchdog();
             this.stopHeartbeat();
             const destroyed = await within(svc.destroy());
-            if (destroyed !== 'ok') {
+            // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside).
+            if (destroyed !== 'ok' || hasEngineNotConfirmedStopped()) {
                 pushNativeRuntimeTrace('controller_unmount_retire_unconfirmed', { state: this.state, destroy: destroyed });
                 return 'unconfirmed';
             }
@@ -4664,7 +4706,7 @@ export class SpeechRuntimeController {
         this.setEngineReady(false);
         await this.transition('TERMINATED');
         await this.transition('IDLE');
-        return 'terminal';
+        return hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal';
     }
 
     private resetEphemeralState(reason: string = 'unknown'): void {
