@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
     EXACT_MIGRATION_ALLOWLIST,
+    assertAfterApply,
     assertBeforeApply,
     assertExactDryRun,
     expectedAuthorizationPhrase,
+    ledgerAwareConfig,
     prepareExactMigrationWorkspace,
     resolveExactMigrationConfig,
 } from '../../scripts/lib/exactMigrationGate.mjs';
@@ -29,8 +31,11 @@ const ACTIVATION = EXACT_MIGRATION_ALLOWLIST.find((e) => e.classification === 'c
 describe('#1476 migration is wired into the exact allowlisted apply path', () => {
     const entry = EXACT_MIGRATION_ALLOWLIST.find((item) => item.version === VERSION);
 
-    it('is allowlisted as staged, before the held commercial-activation entry', () => {
+    it('is allowlisted as staged, third in the queue after #1432 and #1469, before the held commercial-activation entry', () => {
         expect(entry).toMatchObject({ file: FILE, classification: 'staged' });
+        const order = EXACT_MIGRATION_ALLOWLIST.map((e) => e.version);
+        expect(order.indexOf(VERSION)).toBe(order.indexOf('20260914214307') + 1);
+        expect(order.indexOf('20260914214307')).toBe(order.indexOf('20260910193000') + 1);
         expect(EXACT_MIGRATION_ALLOWLIST.indexOf(entry)).toBeLessThan(EXACT_MIGRATION_ALLOWLIST.indexOf(ACTIVATION));
     });
 
@@ -43,20 +48,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'a'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([ACTIVATION.version]);
-    });
-
-    it('the isolated workspace holds this target and drops the later allowlist entry (activation) — which the real ledger records APPLIED, see below; the source tree is untouched', () => {
-        const root = mkdtempSync(join(tmpdir(), 'exact-1476-'));
-        try {
-            prepareExactMigrationWorkspace(SUPABASE, root, config);
-            const isolated = readdirSync(join(root, 'exact-backend', 'supabase', 'migrations'));
-            expect(isolated).toContain(FILE);
-            expect(isolated).not.toContain(ACTIVATION.file);
-            expect(readdirSync(resolve(SUPABASE, 'migrations'))).toContain(ACTIVATION.file);
-        } finally {
-            rmSync(root, { recursive: true, force: true });
-        }
+        expect(config.excludedMigrations.map(({ version }) => version), 'static: later allowlist entries; the real ledger decides which stay excluded').toEqual([ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -83,16 +75,23 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
         expect(REAL).toMatch(new RegExp(`^\\s*${ACTIVATION.version}\\s*\\|\\s*${ACTIVATION.version}\\s*\\|`, 'm'));
     });
 
-    it('ROUTE NOT EXECUTABLE (recorded): against the real ledger after merge, the exact gate REFUSES this target', () => {
-        expect(() => assertBeforeApply(afterMerge(), config)).toThrow(/unexpected pending migration set/);
+    it('ORDERED QUEUE: after merge, this target is REFUSED while #1432 and #1469 are still pending — named, not hidden', () => {
+        expect(() => assertBeforeApply(afterMerge(), config)).toThrow(/refused, not selected: 20260910193000,20260914214307|not applied/);
     });
 
-    it('ROUTE NOT EXECUTABLE (recorded): even with #1432 and #1469 applied first, it still REFUSES — the gate demands the already-applied activation entry be PENDING', () => {
-        // resolveExactMigrationConfig puts every LATER allowlist entry in excludedMigrations, and assertBeforeApply
-        // requires each excluded version to be pending. The activation entry is recorded applied, so no real ledger can
-        // satisfy it. (The isolated workspace would also drop that applied migration's file, leaving remote history the
-        // checked-out source lacks.) Not hidden, not reclassified here: fixing the route is a separate reviewed decision.
-        expect(() => assertBeforeApply(afterMerge(['20260910193000', '20260914214307']), config))
-            .toThrow(/unexpected pending migration set: 20260923120000$/);
+    it('EXECUTABLE once #1432 and #1469 are applied: admitted; the applied activation file stays in the workspace; target-only; nothing else pending after', () => {
+        const before = afterMerge(['20260910193000', '20260914214307']);
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION], excludedVersions: [] });
+        const root = mkdtempSync(join(tmpdir(), 'exact-1476-'));
+        try {
+            prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
+            const isolated = readdirSync(join(root, 'exact-backend', 'supabase', 'migrations'));
+            expect(isolated).toContain(FILE);
+            expect(isolated, 'recorded-applied activation stays, so remote history matches the source').toContain(ACTIVATION.file);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+        const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
+        expect(assertAfterApply(before, after, config).pending).toEqual([]);
     });
 });
