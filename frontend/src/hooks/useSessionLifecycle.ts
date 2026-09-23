@@ -612,13 +612,10 @@ export const useSessionLifecycle = () => {
                     }
                 }
                 startLeaseHeartbeat(() => {
-                    // Displaced: the server refuses this take's work (Codex P1 on dae853fb), so a Retry Save could never
-                    // succeed. Stop, resolve the take by discarding it, and say exactly that — never "kept for recovery".
-                    void (async () => {
-                        try { await speechRuntimeController.stopRecording(); } catch { /* the save is refused by design */ }
-                        await speechRuntimeController.discardUnresolvedRecording().catch(() => undefined);
-                        setSTTStatus({ type: 'error', message: LEASE_REVOKED_MESSAGE });
-                    })();
+                    // Displaced (PM directive on dae853fb): the server no longer lets this take RECORD, but it does accept
+                    // its save — so stop and save exactly like a normal Stop. A failed save keeps the normal Retry Save.
+                    setSTTStatus({ type: 'info', message: LEASE_REVOKED_MESSAGE });
+                    void speechRuntimeController.stopRecording();
                 });
 
                 const currentRuntimeState = useSessionStore.getState().runtimeState;

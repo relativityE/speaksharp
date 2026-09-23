@@ -46,7 +46,7 @@ describe('#1476 acquire — before engine preparation', () => {
         const { rpc } = fakeRpc({ acquire_recording_lease: () => ({ acquired: false, reason: 'held_by_other', holder_label: 'this browser on MacIntel' }) });
         const d = await acquireTakeLease({ rpc });
         expect(d).toMatchObject({ action: 'blocked', holderLabel: 'this browser on MacIntel' });
-        expect(d.action === 'blocked' && d.message).toBe('A recording is active on this browser on MacIntel. Stop it there, or press Start again to take over here.');
+        expect(d.action === 'blocked' && d.message).toBe('A recording is active on this browser on MacIntel. Stop it there, or press Start again to take over here — that stops the recording there, and what it recorded so far is saved.');
         expect(currentTakeLeaseId()).toBeNull();
     });
 

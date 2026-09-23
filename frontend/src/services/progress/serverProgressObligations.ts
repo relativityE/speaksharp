@@ -22,22 +22,23 @@ export async function hydrateServerProgressObligations(
     userId: string,
     nowIso: string,
     rpc: ObligationsRpc = defaultRpc,
-): Promise<{ ok: boolean; queued: number }> {
+): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable' }> {
     let rows: unknown = null;
     try {
         const { data, error } = await rpc('get_progress_obligations', { p_limit: 20 });
         if (error) {
-            // Between the #1476 merge and its PO-authorized apply the RPC does not exist yet (PostgREST PGRST202).
-            // That is NO server authority to consult, not an outage: nothing is queued and the caller proceeds.
-            if ((error as { code?: string } | null)?.code === 'PGRST202') return { ok: true, queued: 0 };
+            // Between the #1476 merge and its PO-authorized apply the RPC does not exist yet (PostgREST PGRST202). The
+            // caller proceeds (blocking every Start until an apply would be a deadlock), but only local debt is known.
+            // It is a CAPABILITY GAP — the result says so — never evidence that no cross-device debt exists.
+            if ((error as { code?: string } | null)?.code === 'PGRST202') return { ok: true, queued: 0, authority: 'unavailable' };
             logger.warn('[progress] server obligations unavailable (non-fatal)');
-            return { ok: false, queued: 0 };
+            return { ok: false, queued: 0, authority: 'server' };
         }
         rows = data;
     } catch {
-        return { ok: false, queued: 0 };
+        return { ok: false, queued: 0, authority: 'server' };
     }
-    if (!Array.isArray(rows)) return { ok: false, queued: 0 };
+    if (!Array.isArray(rows)) return { ok: false, queued: 0, authority: 'server' };
 
     let queued = 0;
     for (const row of rows) {
@@ -45,5 +46,5 @@ export async function hydrateServerProgressObligations(
         if (typeof sessionId !== 'string' || sessionId === '') continue;
         if (enqueueProgressReconcile(sessionId, userId, nowIso).ok) queued++;
     }
-    return { ok: true, queued };
+    return { ok: true, queued, authority: 'server' };
 }

@@ -22,7 +22,7 @@ const leaseMock = vi.hoisted(() => ({
 }));
 // #1476: the server's per-session Progress obligations, loaded at Start. Answers "nothing owed" by default.
 const obligationsMock = vi.hoisted(() => ({
-    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number }> => ({ ok: true, queued: 0 })),
+    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable' }> => ({ ok: true, queued: 0, authority: 'server' })),
 }));
 vi.mock('@/services/progress/serverProgressObligations', () => ({
     hydrateServerProgressObligations: (userId: string, nowIso: string) => obligationsMock.hydrate(userId, nowIso),

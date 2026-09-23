@@ -5,14 +5,16 @@
 -- displaced:
 --   1. `create_session_and_update_usage` admits a TAKE only under the caller's live lease (current clients pass it in
 --      `p_session_data.lease_id`); an old client with no lease gets an implicit lease, or `max_concurrent_sessions_reached`
---      while another take is live. Abandoned takes (lease stale, never released) are closed as `abandoned_device` (#1360).
---   2. `_ss_fence_session_writes_1476` rejects every write to a DISPLACED take (another holder is live and this take's
---      lease was never released), every revival of an abandoned take, and any direct insert of an active take that does
---      not carry the caller's live lease. A take released normally (Stop, then its save or Retry Save) is never fenced.
+--      while another take is live. A device that stopped responding holds only a stale lease, which the next Start takes;
+--      its take is left for that device to save (#1360).
+--   2. `_ss_fence_session_writes_1476` refuses any write that keeps a DISPLACED take recording (another holder is live
+--      and this take never released its lease) — but the take may still END: its save or Retry Save is accepted, so
+--      recorded work stays recoverable. It also refuses reviving a failed take and any direct insert of an active take
+--      that does not carry the caller's live lease.
 --   3. `release_recording_lease` stamps its take `lease_released_at`, which is what separates a normal Stop from a
 --      displacement.
--- Offline devices cannot be stopped remotely: what this guarantees is ONE AUTHORIZED engine — the displaced device's
--- server writes are refused when it reconnects.
+-- Offline devices cannot be stopped remotely: what this guarantees is ONE AUTHORIZED engine — a displaced device can no
+-- longer record against the account (its heartbeats are refused), and what it had recorded can still be saved.
 --
 -- Additive and backward compatible: no new RPC argument, so a client that sends `lease_id` works against the previous
 -- definition (which ignores it) and an old client works against this one. Merge is not apply: applying this migration
@@ -162,9 +164,9 @@ BEGIN
      *  - An OLD client sends no lease. If another take is live it is refused with `max_concurrent_sessions_reached`,
      *    the code every shipped bundle already renders; otherwise it records under an IMPLICIT lease keyed to the new
      *    session id, which `_ss_fence_session_writes_1476` keeps alive on its heartbeats and releases on completion.
-     *  - #1360 bounded recovery: a take whose lease was never released and is no longer live belongs to a device that
-     *    stopped responding. It is closed here as `failed`/`abandoned_device` instead of blocking for the full
-     *    session expiry. A take released normally (Stop, then a pending save) is never closed by this.
+     *  - #1360 bounded recovery: a device that stopped responding holds only a STALE lease, which the next Start acquires;
+     *    nothing else blocks the returning user. Its take is never closed here — the device that recorded it can still
+     *    save it when it reconnects (PM directive: a save failure must stay recoverable).
      * Pro and Free alike: this check, not the tier's session cap, is what holds an account to one engine.
      */
     v_is_take := COALESCE((p_session_data->>'duration')::INT, 0) <> 600;
@@ -178,14 +180,6 @@ BEGIN
 
         SELECT * INTO v_lease FROM public.active_recording_lease WHERE user_id = auth.uid() FOR UPDATE;
         v_lease_live := FOUND AND v_lease.heartbeat_at >= now() - interval '15 seconds';
-
-        UPDATE public.sessions
-        SET status = 'failed', status_reason = 'abandoned_device', updated_at = now()
-        WHERE user_id = auth.uid()
-          AND status = 'active'
-          AND lease_id IS NOT NULL
-          AND lease_released_at IS NULL
-          AND NOT (v_lease_live AND lease_id = v_lease.lease_id);
 
         IF v_lease_id IS NOT NULL THEN
             IF NOT (v_lease_live AND v_lease.lease_id = v_lease_id) THEN
@@ -204,10 +198,14 @@ BEGIN
         END IF;
     END IF;
 
+    -- #1476: the tier's session cap now counts only LEGACY takes created before this fence (no lease). A leased take is
+    -- governed by the lease above; counting it would hold a returning user (#1360) or a device that took over behind a
+    -- take that has already stopped and is only saving.
     SELECT COUNT(*) INTO v_active_sessions
     FROM public.sessions
     WHERE user_id = auth.uid()
       AND status = 'active'
+      AND lease_id IS NULL
       AND (expires_at IS NULL OR expires_at > now());
 
     IF v_active_sessions >= v_max_concurrent THEN
@@ -453,18 +451,18 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- The server's own #1360 closure of an abandoned take.
-    IF NEW.status = 'failed' AND NEW.status_reason = 'abandoned_device' THEN
-        RETURN NEW;
-    END IF;
-
     SELECT * INTO v_lease FROM public.active_recording_lease WHERE user_id = OLD.user_id;
     v_found := FOUND;
 
+    -- DISPLACED (another device now holds the account's live lease, and this take never released its own): the take
+    -- may END — completed with what it recorded (its save, or a later Retry Save) or failed (discard) — but it may not
+    -- CONTINUE: a write that keeps it active (a heartbeat, usage accrual) is recording work the account no longer
+    -- authorizes. PM directive on dae853fb: a save failure must stay recoverable, so the save itself is never refused.
     IF v_found AND v_lease.lease_id <> OLD.lease_id
        AND v_lease.heartbeat_at >= now() - interval '15 seconds'
-       AND OLD.lease_released_at IS NULL THEN
-        RAISE EXCEPTION 'lease_revoked: another device took over this recording'
+       AND OLD.lease_released_at IS NULL
+       AND NEW.status IS NOT DISTINCT FROM 'active' THEN
+        RAISE EXCEPTION 'lease_revoked: another device took over this recording; it can be saved but not continued'
             USING ERRCODE = 'P0001';
     END IF;
 
@@ -488,6 +486,65 @@ DROP TRIGGER IF EXISTS fence_session_writes_1476 ON public.sessions;
 CREATE TRIGGER fence_session_writes_1476
     BEFORE INSERT OR UPDATE ON public.sessions
     FOR EACH ROW EXECUTE FUNCTION public._ss_fence_session_writes_1476();
+
+-- #1476 — ACQUIRE MUST NOT OVERWRITE A LIVE HOLDER UNDER A RACE (found on actual PostgreSQL, not PGlite).
+-- The original acquire read the row FOR UPDATE and then upserted. When NO row existed yet, two simultaneous Starts both
+-- read nothing (nothing to lock), both inserted, and the loser's ON CONFLICT DO UPDATE — after waiting for the winner to
+-- commit — overwrote the winner's LIVE lease without re-checking it. Both devices were told `acquired` and both recorded.
+-- The conflict update now applies only when the existing row is this same lease, stale, or explicitly taken over; the
+-- decision is made under the row lock the upsert holds, and a refused upsert reports the live holder.
+CREATE OR REPLACE FUNCTION public.acquire_recording_lease(
+  p_lease_id uuid,
+  p_holder_label text DEFAULT NULL,
+  p_force boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid uuid := (select auth.uid());
+  v_existing public.active_recording_lease%ROWTYPE;
+  v_took_over boolean := false;
+  v_written uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('acquired', false, 'reason', 'unauthenticated');
+  END IF;
+
+  SELECT * INTO v_existing FROM public.active_recording_lease WHERE user_id = v_uid FOR UPDATE;
+  v_took_over := FOUND AND v_existing.lease_id <> p_lease_id
+                 AND v_existing.heartbeat_at >= now() - interval '15 seconds' AND p_force;
+
+  INSERT INTO public.active_recording_lease AS l (user_id, lease_id, holder_label, state, started_at, heartbeat_at)
+  VALUES (v_uid, p_lease_id, p_holder_label, 'recording', now(), now())
+  ON CONFLICT (user_id) DO UPDATE
+    SET lease_id = EXCLUDED.lease_id,
+        holder_label = EXCLUDED.holder_label,
+        state = 'recording',
+        started_at = now(),
+        heartbeat_at = now()
+    WHERE l.lease_id = EXCLUDED.lease_id
+       OR l.heartbeat_at < now() - interval '15 seconds'
+       OR p_force
+  RETURNING l.lease_id INTO v_written;
+
+  IF v_written IS NULL THEN
+    SELECT * INTO v_existing FROM public.active_recording_lease WHERE user_id = v_uid;
+    RETURN jsonb_build_object(
+      'acquired', false,
+      'reason', 'held_by_other',
+      'holder_label', v_existing.holder_label,
+      'started_at', v_existing.started_at
+    );
+  END IF;
+
+  RETURN jsonb_build_object('acquired', true, 'took_over', v_took_over);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.acquire_recording_lease(uuid, text, boolean) TO authenticated;
 
 -- #1476 — A NORMAL STOP IS NOT A DISPLACEMENT. Releasing the lease stamps the take it covered, so its later save (or
 -- Retry Save) is accepted even after another device has started. A displaced holder's release finds no row (the lease

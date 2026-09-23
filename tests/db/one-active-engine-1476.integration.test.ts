@@ -104,6 +104,9 @@ const leaseRow = async (d: PGlite, user = U) =>
 /** An old client's completion: the direct RLS update `storage.ts updateSession` performs. */
 const directComplete = (d: PGlite, id: string) =>
     d.query(`UPDATE public.sessions SET status = 'completed', duration = 60, updated_at = now() WHERE id = $1`, [id]);
+/** What `heartbeat_session` does while recording: accrue duration on a still-active take. */
+const keepRecording = (d: PGlite, id: string) =>
+    d.query(`UPDATE public.sessions SET duration = COALESCE(duration, 0) + 30, updated_at = now() WHERE id = $1`, [id]);
 const statusOf = async (d: PGlite, id: string) =>
     (await d.query<{ status: string; status_reason: string | null }>(`SELECT status, status_reason FROM public.sessions WHERE id = $1`, [id])).rows[0];
 
@@ -124,7 +127,7 @@ describe('#1476 — one account, one authorized active engine (server fence)', (
         expect(second.error).toBe('lease_not_held');
     });
 
-    it('CASUALTY: an explicit takeover displaces device 1, and the SERVER rejects the displaced holder\'s writes', async () => {
+    it('CASUALTY: an explicit takeover displaces device 1 — it can no longer RECORD against the account, but its take can be SAVED', async () => {
         const d = await db();
         await acquire(d, L1);
         const id = sessionId(await start(d, L1)) as string;
@@ -132,9 +135,10 @@ describe('#1476 — one account, one authorized active engine (server fence)', (
 
         expect(await acquire(d, L2, true)).toMatchObject({ acquired: true, took_over: true });
         expect(await heartbeat(d, L1), 'device 1 learns it was displaced').toMatchObject({ valid: false, reason: 'revoked' });
-        await expect(directComplete(d, id), 'the displaced take cannot complete its session').rejects.toThrow(/lease/i);
-        expect((await statusOf(d, id)).status).toBe('active');
+        await expect(keepRecording(d, id), 'continuing the displaced take is refused').rejects.toThrow(/lease/i);
         expect(created(await start(d, L2)), 'the new holder records').toBe(true);
+        await directComplete(d, id);
+        expect((await statusOf(d, id)).status, 'what device 1 recorded is saved (PM directive: recoverable)').toBe('completed');
     });
 
     it('CASUALTY (OLD CLIENT): a Start with no lease is refused with the code old bundles already handle while another take is live', async () => {
@@ -166,40 +170,29 @@ describe('#1476 — one account, one authorized active engine (server fence)', (
         expect(created(await start(d)), 'nor does an old client').toBe(false);
     });
 
-    it('CASUALTY (#1360 bounded recovery): an abandoned device\'s take is released once its lease is stale, not after the 5-minute session expiry', async () => {
+    it('CASUALTY (#1360 bounded recovery): a returning user records at once past an abandoned device, and that device can still SAVE its take', async () => {
         const d = await db();
         await acquire(d, L1);
         const id = sessionId(await start(d, L1)) as string;
         await d.query(`UPDATE public.active_recording_lease SET heartbeat_at = now() - interval '20 seconds' WHERE user_id = $1`, [U]);
 
         expect(await acquire(d, L2), 'a stale lease is free').toMatchObject({ acquired: true });
-        expect(created(await start(d, L2)), 'the returning user records at once').toBe(true);
-        expect(await statusOf(d, id), 'the abandoned take is closed truthfully').toMatchObject({ status: 'failed', status_reason: 'abandoned_device' });
+        expect(created(await start(d, L2)), 'the returning user records at once — no 5-minute lockout').toBe(true);
+        await expect(keepRecording(d, id), 'the abandoned device cannot keep recording').rejects.toThrow(/lease/i);
+        await directComplete(d, id);
+        expect((await statusOf(d, id)).status, 'but reconnecting, it can save what it recorded').toBe('completed');
     });
 
-    it('CASUALTY (Codex P1 on dae853fb): a displaced take can be CLOSED (discarded) but never completed', async () => {
-        // After a forced take-over the displaced device cannot save its take — the server refuses that work — so it
-        // must be able to resolve it by discarding, or it stays locked behind a Retry Save that can never succeed.
+    it('CASUALTY (Free tier, cap 1): the device that took over records although the displaced take is still active and saving', async () => {
         const d = await db();
+        await d.exec(`CREATE OR REPLACE FUNCTION public.effective_subscription_tier(text, timestamptz, text, text, timestamptz)
+            RETURNS text LANGUAGE sql IMMUTABLE AS $fn$ SELECT 'free'::text $fn$;`);
         await acquire(d, L1);
         const id = sessionId(await start(d, L1)) as string;
         await acquire(d, L2, true);
-        await start(d, L2); // device 2 records; device 1's take is closed server-side
-        await expect(directComplete(d, id), 'completing the displaced take stays refused').rejects.toThrow(/lease/i);
-        await d.query(`UPDATE public.sessions SET status = 'failed', status_reason = 'discarded_after_takeover', updated_at = now() WHERE id = $1`, [id]);
-        expect((await statusOf(d, id)).status, 'discard resolves it').toBe('failed');
-        await expect(d.query(`UPDATE public.sessions SET transcript = 'late words' WHERE id = $1`, [id]), 'its transcript can never be written').rejects.toThrow(/lease/i);
-    });
-
-    it('CASUALTY: displaced BEFORE the new holder creates its take, the still-active take can be discarded (not completed)', async () => {
-        const d = await db();
-        await acquire(d, L1);
-        const id = sessionId(await start(d, L1)) as string;
-        await acquire(d, L2, true); // taken over; device 2 has not created its session yet, so the take is still active
-        expect((await statusOf(d, id)).status).toBe('active');
-        await expect(directComplete(d, id), 'completing stays refused').rejects.toThrow(/lease/i);
-        await d.query(`UPDATE public.sessions SET status = 'failed', status_reason = 'discarded_after_takeover', updated_at = now() WHERE id = $1`, [id]);
-        expect((await statusOf(d, id)).status, 'the displaced device resolves its take by discarding it').toBe('failed');
+        expect(created(await start(d, L2)), 'the legacy session cap does not count the displaced leased take').toBe(true);
+        await directComplete(d, id);
+        expect((await statusOf(d, id)).status).toBe('completed');
     });
 
     it('CONTROL (owner isolation): another account\'s live take never blocks this account', async () => {
@@ -225,15 +218,15 @@ describe('#1476 — one account, one authorized active engine (server fence)', (
         expect((await statusOf(d, id)).status, 'the stopped take still completes').toBe('completed');
     });
 
-    it('CASUALTY: an abandoned take closed by the server cannot be revived by its device later', async () => {
+    it('CASUALTY: a take that has FAILED stays closed — no later completion or transcript', async () => {
         const d = await db();
         await acquire(d, L1);
         const id = sessionId(await start(d, L1)) as string;
-        await d.query(`UPDATE public.active_recording_lease SET heartbeat_at = now() - interval '20 seconds' WHERE user_id = $1`, [U]);
-        await acquire(d, L2);
-        await start(d, L2); // closes the abandoned take
-        await expect(directComplete(d, id), 'the offline device reconnecting cannot complete it').rejects.toThrow(/lease/i);
-        expect((await statusOf(d, id)).status).toBe('failed');
+        await acquire(d, L2, true);
+        await d.query(`UPDATE public.sessions SET status = 'failed', status_reason = 'discarded_after_takeover', updated_at = now() WHERE id = $1`, [id]);
+        expect((await statusOf(d, id)).status, 'a displaced take may be discarded').toBe('failed');
+        await expect(directComplete(d, id), 'and then never revived').rejects.toThrow(/lease/i);
+        await expect(d.query(`UPDATE public.sessions SET transcript = 'late words' WHERE id = $1`, [id])).rejects.toThrow(/lease/i);
     });
 
     it('CASUALTY (bypassing client): a direct RLS insert of an active take cannot skip the fence', async () => {

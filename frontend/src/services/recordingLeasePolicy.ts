@@ -36,7 +36,8 @@ export function interpretAcquireResult(result: AcquireLeaseResult | null | undef
             startedAt: result.started_at ?? null,
             // Friendly, no raw ids; offers the take-over path. Default action (no choice) = stay blocked.
             // #1476: a second Start while this notice shows is the explicit take-over (no hidden default).
-            message: `A recording is active on ${holderLabel}. Stop it there, or press Start again to take over here.`,
+            // PM directive on dae853fb: B sees the consequence BEFORE choosing the take-over.
+            message: `A recording is active on ${holderLabel}. Stop it there, or press Start again to take over here — that stops the recording there, and what it recorded so far is saved.`,
         };
     }
     if (result.reason === 'unauthenticated') {
@@ -74,4 +75,4 @@ export const LEASE_NOT_HELD_MESSAGE =
 
 /** #1476: this device's take was displaced — another device took over the account's one engine. */
 export const LEASE_REVOKED_MESSAGE =
-    'This recording stopped because another device took over. It was not saved.';
+    'This recording stopped because another device took over. What was recorded here is being saved.';

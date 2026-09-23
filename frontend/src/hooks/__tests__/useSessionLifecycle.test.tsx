@@ -26,7 +26,7 @@ const leaseMock = vi.hoisted(() => ({
 }));
 // #1476: the server's per-session Progress obligations, loaded at Start. Answers "nothing owed" by default.
 const obligationsMock = vi.hoisted(() => ({
-    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number }> => ({ ok: true, queued: 0 })),
+    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable' }> => ({ ok: true, queued: 0, authority: 'server' })),
 }));
 vi.mock('@/services/progress/serverProgressObligations', () => ({
     hydrateServerProgressObligations: (userId: string, nowIso: string) => obligationsMock.hydrate(userId, nowIso),
@@ -1637,7 +1637,7 @@ describe('useSessionLifecycle - one account, one engine (#1476)', () => {
         wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
     });
     const BLOCKED = { action: 'blocked' as const, holderLabel: 'this browser on MacIntel', startedAt: null,
-        message: 'A recording is active on this browser on MacIntel. Stop it there, or press Start again to take over here.' };
+        message: 'A recording is active on this browser on MacIntel. Stop it there, or press Start again to take over here — that stops the recording there, and what it recorded so far is saved.' };
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -1692,11 +1692,11 @@ describe('useSessionLifecycle - one account, one engine (#1476)', () => {
         const onRevoked = leaseMock.heartbeat.mock.calls[0]?.[0] as (() => void) | undefined;
         expect(onRevoked, 'a heartbeat was started with a revoke handler').toBeTypeOf('function');
         await act(async () => { onRevoked?.(); });
-        await waitFor(() => expect(speechRuntimeController.discardUnresolvedRecording).toHaveBeenCalled());
-        expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
-        // Codex P1 on dae853fb: the server refuses a displaced take's save, so the copy never promises recovery.
+        expect(speechRuntimeController.stopRecording, 'stops — and saves, like a normal Stop').toHaveBeenCalled();
+        // PM directive on dae853fb: the displaced take is PRESERVED (the server accepts its save), never discarded.
+        expect(speechRuntimeController.discardUnresolvedRecording).not.toHaveBeenCalled();
         expect(store.getState().setSTTStatus).toHaveBeenCalledWith({
-            type: 'error', message: 'This recording stopped because another device took over. It was not saved.',
+            type: 'info', message: 'This recording stopped because another device took over. What was recorded here is being saved.',
         });
     });
 
@@ -1711,7 +1711,7 @@ describe('useSessionLifecycle - one account, one engine (#1476)', () => {
 
     it('CASUALTY (Codex P1 on dae853fb): Start loads the SERVER\'s obligations before any engine work, and an unanswerable server fails closed', async () => {
         const store = readyStore();
-        obligationsMock.hydrate.mockImplementationOnce(async () => ({ ok: false, queued: 0 }));
+        obligationsMock.hydrate.mockImplementationOnce(async () => ({ ok: false, queued: 0, authority: 'server' as const }));
         const { result } = render();
         await act(async () => { await result.current.handleStartStop(); });
         expect(obligationsMock.hydrate).toHaveBeenCalled();

@@ -30,7 +30,7 @@ describe('#1476 hydrateServerProgressObligations', () => {
     it('CASUALTY (another device\'s debt): owed AND pending server obligations are queued on this device', async () => {
         const { queue, hydrateServerProgressObligations } = await load();
         const rpc = vi.fn(async () => ({ data: [{ session_id: 's-owed', state: 'owed' }, { session_id: 's-pending', state: 'pending' }], error: null }));
-        await expect(hydrateServerProgressObligations(OWNER, NOW, rpc)).resolves.toEqual({ ok: true, queued: 2 });
+        await expect(hydrateServerProgressObligations(OWNER, NOW, rpc)).resolves.toEqual({ ok: true, queued: 2, authority: 'server' });
         expect(rpc).toHaveBeenCalledWith('get_progress_obligations', { p_limit: 20 });
         expect(idsFor(queue)).toEqual(['s-owed', 's-pending']);
     });
@@ -60,14 +60,14 @@ describe('#1476 hydrateServerProgressObligations', () => {
     it('an unavailable server changes nothing and says so (no fabricated clean state)', async () => {
         const { queue, hydrateServerProgressObligations } = await load();
         await expect(hydrateServerProgressObligations(OWNER, NOW, async () => ({ data: null, error: { message: 'down' } })))
-            .resolves.toEqual({ ok: false, queued: 0 });
+            .resolves.toEqual({ ok: false, queued: 0, authority: 'server' });
         expect(idsFor(queue)).toEqual([]);
     });
 
-    it('CONTROL (merge before apply): a server without the RPC yet (PGRST202) is "no authority", never an outage', async () => {
+    it('CONTROL (merge before apply): a server without the RPC yet (PGRST202) is an explicit CAPABILITY GAP — never "no debt"', async () => {
         const { queue, hydrateServerProgressObligations } = await load();
         await expect(hydrateServerProgressObligations(OWNER, NOW, async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } })))
-            .resolves.toEqual({ ok: true, queued: 0 });
+            .resolves.toEqual({ ok: true, queued: 0, authority: 'unavailable' });
         expect(idsFor(queue)).toEqual([]);
     });
 

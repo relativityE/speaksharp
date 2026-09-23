@@ -55,6 +55,10 @@ export async function acquireTakeLease(opts: { force?: boolean; rpc?: LeaseRpc; 
             p_holder_label: opts.holderLabel ?? buildHolderLabel(),
             p_force: opts.force === true,
         });
+        // A server with NO lease functions (PostgREST PGRST202) has no fence to take part in: that is a CAPABILITY GAP,
+        // not an unanswerable authority. Recording proceeds exactly as it did before #1476, holding no lease. An outage
+        // or any other error still fails closed below.
+        if ((error as { code?: string } | null)?.code === 'PGRST202') return { action: 'start', tookOver: false };
         result = error ? null : (data as AcquireLeaseResult | null);
     } catch {
         result = null;
