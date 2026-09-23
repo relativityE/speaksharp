@@ -39,7 +39,7 @@ import { emitRetentionObservation } from '@/services/telemetry/retentionObservat
 import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { acquireTakeLease, confirmTakeLease, releaseTakeLease, startLeaseHeartbeat } from '@/services/recordingLease';
-import { LEASE_REVOKED_MESSAGE } from '@/services/recordingLeasePolicy';
+import { LEASE_NOT_HELD_MESSAGE, LEASE_REVOKED_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from '@/services/recordingLeasePolicy';
 import { hydrateServerProgressObligations } from '@/services/progress/serverProgressObligations';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
@@ -83,6 +83,28 @@ const START_OBLIGATIONS_TIMEOUT_MS = 5_000;
 /** #1476: a server-confirmed Progress obligation could not be stored on this device (quota or blocked storage). */
 const UNPERSISTED_OBLIGATIONS_MESSAGE =
     'Your earlier session still needs its Progress saved, and this browser could not store it (storage is full or blocked). Free up space or allow site storage, then press Start again.';
+/** #1476: shown when the page went away and this tab could not confirm its recording engine stopped. */
+export const ENGINE_RETIRE_UNCONFIRMED_MESSAGE =
+    'SpeakSharp could not confirm the last recording stopped, so this tab still holds your account\'s recording. Reload or close this tab to end it, or start on another device and take over.';
+
+/**
+ * #1476 PM RETURN on 54576db9 and PM pre-push review — RELEASE ONLY WHEN THE ENGINE IS ACTUALLY TERMINAL. Unmounting the
+ * session page retires the engine through the controller's bounded, explicit route (a Start still preparing never
+ * becomes a recording; a live engine is stopped and saved, and if that fails, destroyed — the Retry Save is kept).
+ * Only a confirmed `terminal` releases the account's lease. Otherwise the lease is KEPT (other devices stay blocked, and
+ * may still take over explicitly) and the unresolved state is reported, never presented as cleaned up.
+ */
+export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise<boolean> {
+    const outcome = await speechRuntimeController.retireEngineForUnmount();
+    if (outcome === 'terminal') {
+        await releaseTakeLease();
+        return true;
+    }
+    logger.warn('[useSessionLifecycle] engine termination not confirmed on unmount; keeping the recording lease');
+    useSessionStore.getState().setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
+    return false;
+}
+
 export function shouldReloadSttOnForegroundReturn(params: {
     visibilityState: DocumentVisibilityState;
     profileReadyForStt: boolean;
@@ -611,8 +633,8 @@ export const useSessionLifecycle = () => {
                 let revokedBeforeEngine = false;
                 let engineStarting = false;
                 startLeaseHeartbeat(() => {
-                    setSTTStatus({ type: 'info', message: LEASE_REVOKED_MESSAGE });
                     if (!engineStarting) { revokedBeforeEngine = true; return; }
+                    setSTTStatus({ type: 'info', message: LEASE_REVOKED_MESSAGE });
                     // Displaced (PM directive on dae853fb): the server no longer lets this take RECORD, but it accepts its
                     // save — so stop and save exactly like a normal Stop. A failed save keeps the normal Retry Save.
                     void speechRuntimeController.stopRecording();
@@ -639,12 +661,19 @@ export const useSessionLifecycle = () => {
                     }
                 }
                 // PM RETURN on 040da46a: revalidate ownership immediately before any model preparation.
-                if (!revokedBeforeEngine && !(await confirmTakeLease())) {
-                    revokedBeforeEngine = true;
-                    setSTTStatus({ type: 'info', message: LEASE_REVOKED_MESSAGE });
+                // PM RETURN on 54576db9: ADMISSION FAILS CLOSED — only a server-confirmed `held` begins engine work.
+                const confirmation = revokedBeforeEngine ? 'revoked' : await confirmTakeLease();
+                if (confirmation === 'revoked' || revokedBeforeEngine) {
+                    // Another device took the account's one engine while this Start was still checking. Nothing was
+                    // recorded here, so say the Start did not happen, and arm the explicit take-over the copy offers.
+                    takeoverArmedUntilRef.current = Date.now() + TAKEOVER_WINDOW_MS;
+                    setSTTStatus({ type: 'error', message: LEASE_NOT_HELD_MESSAGE });
+                    reportIntent('blocked_lock_held');
+                    return;
                 }
-                if (revokedBeforeEngine) {
-                    // Another device took the account's one engine while this Start was still checking: do not prepare.
+                if (confirmation !== 'held') {
+                    void releaseTakeLease();
+                    setSTTStatus({ type: 'error', message: LEASE_UNCONFIRMED_MESSAGE });
                     reportIntent('blocked_lock_held');
                     return;
                 }
@@ -1101,12 +1130,10 @@ export const useSessionLifecycle = () => {
             // leaves STOPPING, so release explicitly — but only AFTER the engine has stopped. Releasing while the queued
             // stop is still running would let a second device start while this engine records or finalizes; until then
             // the heartbeat keeps the account's lease live. Releasing marks the take ended normally, so its save lands.
-            if (isListeningRef.current) {
-                logger.info('[useSessionLifecycle] Session active on unmount - stopping recording');
-                void speechRuntimeController.stopRecording().finally(() => { void releaseTakeLease(); });
-            } else {
-                void releaseTakeLease();
-            }
+            // PM RETURN on 54576db9 + pre-push review: retire the engine explicitly (recording, preparing, or a stop that
+            // rejected) and release the lease only when it is confirmed terminal.
+            if (isListeningRef.current) logger.info('[useSessionLifecycle] Session active on unmount - stopping recording');
+            void releaseTakeLeaseOnUnmount(isListeningRef.current);
             // Explicitly detach to prevent listener accumulation (Invariant #3)
             void speechRuntimeController.reset('subscriber_unmount');
         };

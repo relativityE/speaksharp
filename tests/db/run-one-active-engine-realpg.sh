@@ -143,6 +143,37 @@ for T in "pro:$U" "free:$FR"; do
   st=""
 done
 
+# Case 8 — PM RETURN on 54576db9: an OLD client and a CURRENT client race on an EMPTY account, on separate connections,
+# in both commit orders, Free and Pro. "Authorized" = told it may run an engine: the current client's acquire returned
+# acquired:true, or the old client's create returned a session. Exactly one party may be authorized, and the lease row
+# must belong to that party.
+race8() {  # $1 user, $2 tier label, $3 order: current_first | old_first
+  local usr=$1 tier=$2 order=$3 L=aaaaaaaa-0000-4000-8000-0000000000e1 a b holder
+  reset
+  if [ "$order" = current_first ]; then
+    ( psql -h /tmp -p "$PORT" -U postgres -d fence -AtqX -c "$(as_user $usr) BEGIN; SELECT (public.acquire_recording_lease('$L','current',false))->>'acquired'; SELECT pg_sleep(1); COMMIT;" >/tmp/race8-cur.out 2>&1 || true ) &
+    sleep 0.3
+    ( psql -h /tmp -p "$PORT" -U postgres -d fence -AtqX -c "$(as_user $usr) $(START_SQL)" >/tmp/race8-old.out 2>&1 || true ) &
+  else
+    ( psql -h /tmp -p "$PORT" -U postgres -d fence -AtqX -c "$(as_user $usr) BEGIN; $(START_SQL) SELECT pg_sleep(1); COMMIT;" >/tmp/race8-old.out 2>&1 || true ) &
+    sleep 0.3
+    ( psql -h /tmp -p "$PORT" -U postgres -d fence -AtqX -c "$(as_user $usr) BEGIN; SELECT (public.acquire_recording_lease('$L','current',false))->>'acquired'; COMMIT;" >/tmp/race8-cur.out 2>&1 || true ) &
+  fi
+  wait
+  a=$(grep -xc 'true' /tmp/race8-cur.out || true)
+  b=$(grep -c '"new_session": {' /tmp/race8-old.out || true)
+  holder=$(q fence "SELECT CASE WHEN lease_id='$L' THEN 'current' ELSE 'old' END FROM public.active_recording_lease WHERE user_id='$usr'" | tail -1)
+  if [ "$a" = "1" ]; then q fence "$(as_user $usr) $(START_SQL $L)" >/dev/null 2>&1 || true; fi
+  n=$(active_takes $usr)
+  local owner=none; [ "$a" = "1" ] && owner=current; [ "$b" = "1" ] && owner=old
+  if [ $((a + b)) = "1" ] && [ "$n" = "1" ] && [ "$holder" = "$owner" ]; then
+    pass "[$tier/$order] old vs current client on an empty account: exactly one authorized (current=$a old=$b holder=$holder active=$n)"
+  else
+    fail "[$tier/$order] old vs current race: current=$a old=$b holder=$holder active=$n"
+  fi
+}
+for T in "pro:$U" "free:$FR"; do for ORD in current_first old_first; do race8 "${T#*:}" "${T%%:*}" "$ORD"; done; done
+
 # ---------- DB 2: #1521 applied AFTER #1525 (attribution + progress chain) ----------
 q postgres "CREATE DATABASE progress" >/dev/null
 qf progress tests/db/attribution-authority-bootstrap.sql

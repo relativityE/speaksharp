@@ -23,7 +23,7 @@ export type LeaseDecision =
 /** Interpret an `acquire_recording_lease` RPC result into a client action + user-facing copy. */
 export function interpretAcquireResult(result: AcquireLeaseResult | null | undefined): LeaseDecision {
     if (!result) {
-        return { action: 'error', reason: 'no_response', message: 'Could not check your other devices. Please try again.' };
+        return { action: 'error', reason: 'no_response', message: LEASE_UNCONFIRMED_MESSAGE };
     }
     if (result.acquired) {
         return { action: 'start', tookOver: Boolean(result.took_over) };
@@ -70,6 +70,9 @@ export function buildHolderLabel(platform?: string): string {
  * #1476: the server refused this take's session because another device holds the account's lease (it took over
  * between this device's acquire and its create). Starts with "Recording could not start" so the controller surfaces it.
  */
+/** #1476: the lease authority could not answer, so a Start is not admitted (fail closed). */
+export const LEASE_UNCONFIRMED_MESSAGE = 'Could not check your other devices. Please try again.';
+
 export const LEASE_NOT_HELD_MESSAGE =
     'Recording could not start: another device is recording on this account. Press Start again to take over here.';
 

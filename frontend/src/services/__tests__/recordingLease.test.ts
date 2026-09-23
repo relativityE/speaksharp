@@ -129,18 +129,18 @@ describe('#1476 release — Stop ends the take normally', () => {
     });
 });
 
-describe('#1476 PM RETURN on 040da46a — revalidate ownership before engine work', () => {
-    it('CASUALTY: the server now says the lease is another device\'s — false, and the lease is dropped', async () => {
+describe('#1476 PM RETURN on 040da46a / 54576db9 — admission revalidates ownership and FAILS CLOSED', () => {
+    it('CASUALTY: the server now says the lease is another device\'s — revoked, and the lease is dropped', async () => {
         const { rpc, calls } = fakeRpc({
             acquire_recording_lease: () => ({ acquired: true }),
             heartbeat_recording_lease: () => ({ valid: false, reason: 'revoked' }),
         });
         await acquireTakeLease({ rpc });
         const lease = currentTakeLeaseId();
-        await expect(confirmTakeLease({ rpc })).resolves.toBe(false);
+        await expect(confirmTakeLease({ rpc })).resolves.toBe('revoked');
         expect(calls[calls.length - 1]).toEqual({ fn: 'heartbeat_recording_lease', args: { p_lease_id: lease } });
         expect(currentTakeLeaseId()).toBeNull();
-        await expect(confirmTakeLease({ rpc }), 'stays revoked until the next acquire').resolves.toBe(false);
+        await expect(confirmTakeLease({ rpc }), 'stays revoked until the next acquire').resolves.toBe('revoked');
     });
 
     it('CASUALTY: a revocation the heartbeat already saw is final — no second server round trip needed', async () => {
@@ -152,26 +152,97 @@ describe('#1476 PM RETURN on 040da46a — revalidate ownership before engine wor
         startLeaseHeartbeat(vi.fn(), { rpc, intervalMs: 5000 });
         await vi.advanceTimersByTimeAsync(5000);
         const beats = calls.length;
-        await expect(confirmTakeLease({ rpc })).resolves.toBe(false);
+        await expect(confirmTakeLease({ rpc })).resolves.toBe('revoked');
         expect(calls.length).toBe(beats);
     });
 
-    it('CONTROL: a lease still ours confirms; a transient network failure is not a revocation', async () => {
-        let up = true;
+    it('CONTROL: a lease the server confirms as still ours is held', async () => {
         const { rpc } = fakeRpc({
             acquire_recording_lease: () => ({ acquired: true }),
-            heartbeat_recording_lease: () => { if (!up) throw new Error('offline'); return { valid: true }; },
+            heartbeat_recording_lease: () => ({ valid: true }),
         });
         await acquireTakeLease({ rpc });
-        await expect(confirmTakeLease({ rpc })).resolves.toBe(true);
-        up = false;
-        await expect(confirmTakeLease({ rpc })).resolves.toBe(true);
-        expect(currentTakeLeaseId()).not.toBeNull();
+        await expect(confirmTakeLease({ rpc })).resolves.toBe('held');
+    });
+
+    it('CASUALTY (PM RETURN on 54576db9): a server ERROR is not a confirmation — unconfirmed, never held', async () => {
+        const { rpc } = fakeRpc({ acquire_recording_lease: () => ({ acquired: true }) }); // heartbeat → error response
+        await acquireTakeLease({ rpc });
+        await expect(confirmTakeLease({ rpc })).resolves.toBe('unconfirmed');
+        expect(currentTakeLeaseId(), 'a transient failure is not a revocation: the lease is not dropped here').not.toBeNull();
+    });
+
+    it('CASUALTY (PM RETURN on 54576db9): a THROWN request is not a confirmation either', async () => {
+        const { rpc: base } = fakeRpc({ acquire_recording_lease: () => ({ acquired: true }) });
+        const rpc: LeaseRpc = async (fn, args) => { if (fn === 'heartbeat_recording_lease') throw new Error('offline'); return base(fn, args); };
+        await acquireTakeLease({ rpc });
+        await expect(confirmTakeLease({ rpc })).resolves.toBe('unconfirmed');
+    });
+
+    it('CASUALTY (PM RETURN on 54576db9): an answer that does not affirm the lease is unconfirmed', async () => {
+        const { rpc } = fakeRpc({ acquire_recording_lease: () => ({ acquired: true }), heartbeat_recording_lease: () => null });
+        await acquireTakeLease({ rpc });
+        await expect(confirmTakeLease({ rpc })).resolves.toBe('unconfirmed');
+    });
+
+    it('CASUALTY (PM pre-push review): a revocation during an in-flight confirmation wins over the stale valid:true', async () => {
+        let answer: (v: { data: unknown; error: unknown }) => void = () => undefined;
+        let beats = 0;
+        const rpc: LeaseRpc = async (fn) => {
+            if (fn === 'acquire_recording_lease') return { data: { acquired: true }, error: null };
+            beats += 1;
+            if (beats === 1) return new Promise((resolve) => { answer = resolve; });
+            return { data: { valid: false, reason: 'revoked' }, error: null };
+        };
+        await acquireTakeLease({ rpc });
+        const confirmation = confirmTakeLease({ rpc });
+        const onRevoked = vi.fn();
+        startLeaseHeartbeat(onRevoked, { rpc, intervalMs: 5000 });
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(onRevoked).toHaveBeenCalledTimes(1);
+        answer({ data: { valid: true }, error: null });
+        await expect(confirmation).resolves.toBe('revoked');
+    });
+
+    it('CASUALTY (PM pre-push review): a lease replaced while the confirmation was in flight is not "held"', async () => {
+        let answer: (v: { data: unknown; error: unknown }) => void = () => undefined;
+        const rpc: LeaseRpc = async (fn) => {
+            if (fn === 'heartbeat_recording_lease') return new Promise((resolve) => { answer = resolve; });
+            return { data: fn === 'acquire_recording_lease' ? { acquired: true } : { released: true }, error: null };
+        };
+        await acquireTakeLease({ rpc });
+        const confirmation = confirmTakeLease({ rpc });
+        await releaseTakeLease({ rpc }); // Stop, or a new take, while the answer is pending
+        answer({ data: { valid: true }, error: null });
+        await expect(confirmation, 'not held — and not blamed on another device').resolves.toBe('unconfirmed');
+    });
+
+    it('CASUALTY (PM pre-push RETURN 2): a delayed INVALID answer for lease A does not revoke lease B acquired meanwhile', async () => {
+        let answerA: (v: { data: unknown; error: unknown }) => void = () => undefined;
+        let heartbeats = 0;
+        const rpc: LeaseRpc = async (fn) => {
+            if (fn === 'acquire_recording_lease') return { data: { acquired: true }, error: null };
+            if (fn === 'release_recording_lease') return { data: { released: true }, error: null };
+            heartbeats += 1;
+            if (heartbeats === 1) return new Promise((resolve) => { answerA = resolve; }); // A's confirmation: delayed
+            return { data: { valid: true }, error: null };                                  // B is live
+        };
+        await acquireTakeLease({ rpc });
+        const leaseA = currentTakeLeaseId();
+        const confirmationA = confirmTakeLease({ rpc });
+        await acquireTakeLease({ rpc }); // a new take: A released, B held
+        const leaseB = currentTakeLeaseId();
+        expect(leaseB).not.toBe(leaseA);
+
+        answerA({ data: { valid: false, reason: 'revoked' }, error: null }); // A's stale verdict lands after B exists
+        await expect(confirmationA, 'an answer about A is not a verdict on B').resolves.toBe('unconfirmed');
+        expect(currentTakeLeaseId(), 'B is still held').toBe(leaseB);
+        await expect(confirmTakeLease({ rpc }), 'B confirms as held').resolves.toBe('held');
     });
 
     it('CONTROL: no lease held (a server without the lease functions) has nothing to revalidate', async () => {
         const { rpc, calls } = fakeRpc({});
-        await expect(confirmTakeLease({ rpc })).resolves.toBe(true);
+        await expect(confirmTakeLease({ rpc })).resolves.toBe('held');
         expect(calls).toEqual([]);
     });
 
@@ -182,9 +253,9 @@ describe('#1476 PM RETURN on 040da46a — revalidate ownership before engine wor
             heartbeat_recording_lease: () => ({ valid }),
         });
         await acquireTakeLease({ rpc });
-        await expect(confirmTakeLease({ rpc })).resolves.toBe(false);
+        await expect(confirmTakeLease({ rpc })).resolves.toBe('revoked');
         valid = true;
         await acquireTakeLease({ rpc });
-        await expect(confirmTakeLease({ rpc })).resolves.toBe(true);
+        await expect(confirmTakeLease({ rpc })).resolves.toBe('held');
     });
 });

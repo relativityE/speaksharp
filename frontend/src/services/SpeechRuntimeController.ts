@@ -1,4 +1,4 @@
-import { LEASE_NOT_HELD_MESSAGE } from './recordingLeasePolicy';
+import { LEASE_NOT_HELD_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from './recordingLeasePolicy';
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
@@ -2715,15 +2715,18 @@ export class SpeechRuntimeController {
                 // #1476 PM RETURN on 040da46a: a cold download can outlast the account lease window, and another device
                 // may have taken over meanwhile. Revalidate the lease BEFORE resuming the held Start; a lost lease
                 // refuses the resume with its truthful reason instead of starting a second engine.
+                // PM RETURN on 54576db9: fail closed — a lease the server cannot confirm refuses the resume too.
                 void (async () => {
-                    if (!(await confirmTakeLease())) {
+                    const confirmation = await confirmTakeLease();
+                    if (confirmation !== 'held') {
+                        const message = confirmation === 'revoked' ? LEASE_NOT_HELD_MESSAGE : LEASE_UNCONFIRMED_MESSAGE;
                         pushNativeRuntimeTrace('controller_resume_refused_lease_lost', {
-                            recordingId: resumed.recordingId, intentToken: resumed.token,
+                            recordingId: resumed.recordingId, intentToken: resumed.token, confirmation,
                         });
                         // Same end as every other refused resumed start: truthful status, the click settled, and the
                         // engine-selection lock released so nothing stays locked behind a take that will not happen.
-                        useSessionStore.getState().setSTTStatus({ type: 'error', message: LEASE_NOT_HELD_MESSAGE });
-                        resumed.settlement?.reject(new Error(LEASE_NOT_HELD_MESSAGE));
+                        useSessionStore.getState().setSTTStatus({ type: 'error', message });
+                        resumed.settlement?.reject(new Error(message));
                         this.releaseRefusedStartLock();
                         return;
                     }
@@ -4606,6 +4609,58 @@ export class SpeechRuntimeController {
         }
         await this.transition('TERMINATED');
         await this.transition('IDLE');
+    }
+
+    /**
+     * #1476 PM pre-push review of the 54576db9 correction — RETIRE THE ENGINE WHEN THE SESSION PAGE GOES AWAY.
+     *
+     * The page's unmount reset is deliberately SOFT (it only detaches the subscriber), so without this a Start still
+     * preparing on an unmounted page can begin recording when its model lands, and a stop that rejected before shutdown
+     * leaves the engine live. Bounded, explicit, and it preserves recoverable work:
+     *  1. the pending Start intent is retired (`navigated`), so preparation can never become a recording;
+     *  2. a recording, or a failure still holding the engine, goes through the normal stop-and-save path (bounded);
+     *  3. whatever is not then at rest is cut: in-flight tasks cancelled, the service detached and DESTROYED (the
+     *     microphone stops and the engine is terminated), awaited within the bound.
+     * Unlike a hard reset it does NOT clear `pendingFullSaveRetry`, `pendingAttributionRetry` or the unresolved-recording
+     * flag: the durable Retry Save survives. Returns `terminal` only when no engine can still run here; `unconfirmed`
+     * when destruction was rejected or did not complete in time — the caller must then keep the account's lease and say so.
+     */
+    public async retireEngineForUnmount(boundMs: number = 10_000): Promise<'terminal' | 'unconfirmed'> {
+        // PM pre-push RETURN 2: success, rejection and timeout are different answers. A rejected stop is survivable (the
+        // engine is then destroyed); a rejected DESTROY is not confirmation the engine is off.
+        const within = <T,>(p: Promise<T>): Promise<'ok' | 'rejected' | 'timeout'> => new Promise((resolve) => {
+            const timer = setTimeout(() => resolve('timeout'), boundMs);
+            p.then(() => { clearTimeout(timer); resolve('ok'); }, () => { clearTimeout(timer); resolve('rejected'); });
+        });
+        retireRecordingIntent('navigated');
+        this.releaseRefusedStartLock();
+
+        if (this.state === 'RECORDING' || this.state === 'STOPPING' || this.state === 'FAILED' || this.state === 'FAILED_VISIBLE') {
+            await within(this.stopRecording());
+        }
+        const atRest = (): boolean => this.state === 'IDLE' || this.state === 'READY' || this.state === 'TERMINATED' || this.state === 'DOWNLOAD_REQUIRED';
+        const preparing = this.state === 'INITIATING' || this.state === 'ENGINE_INITIALIZING' || this.state === 'DOWNLOAD_REQUIRED';
+        if (atRest() && !preparing) return 'terminal';
+
+        logger.warn({ state: this.state }, '[SpeechRuntimeController] retiring the engine for unmount');
+        this.lifecycleVersion++;
+        this.activeTasks.forEach((t) => { t.cancelled = true; });
+        this.activeTasks.clear();
+        this.commandQueue = Promise.resolve();
+        const svc = this.detachService();
+        if (svc) {
+            this.stopWatchdog();
+            this.stopHeartbeat();
+            const destroyed = await within(svc.destroy());
+            if (destroyed !== 'ok') {
+                pushNativeRuntimeTrace('controller_unmount_retire_unconfirmed', { state: this.state, destroy: destroyed });
+                return 'unconfirmed';
+            }
+        }
+        this.setEngineReady(false);
+        await this.transition('TERMINATED');
+        await this.transition('IDLE');
+        return 'terminal';
     }
 
     private resetEphemeralState(reason: string = 'unknown'): void {

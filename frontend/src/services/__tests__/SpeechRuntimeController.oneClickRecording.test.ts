@@ -46,11 +46,25 @@ vi.mock('@/services/transcription/runtimeCandidateTakeGate', () => ({
     evaluateRuntimeCandidateTakeGate: () => candidateGate.current,
 }));
 /** #1476 PM RETURN on 040da46a — the account lease as the resumed start revalidates it. Ours unless a case says not. */
-const leaseGate = vi.hoisted(() => ({ confirmed: true, calls: 0 }));
-vi.mock('../recordingLease', () => ({
-    confirmTakeLease: async () => { leaseGate.calls += 1; return leaseGate.confirmed; },
-    currentTakeLeaseId: () => null,
+const leaseGate = vi.hoisted(() => ({
+    confirmed: 'held' as 'held' | 'revoked' | 'unconfirmed',
+    calls: 0,
+    /** When set, the controller's confirmation runs the REAL module against this RPC (interleaving cases). */
+    rpc: null as null | import('../recordingLease').LeaseRpc,
+    actual: null as null | typeof import('../recordingLease'),
 }));
+vi.mock('../recordingLease', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../recordingLease')>();
+    leaseGate.actual = actual;
+    return {
+        ...actual,
+        confirmTakeLease: async () => {
+            leaseGate.calls += 1;
+            return leaseGate.rpc ? actual.confirmTakeLease({ rpc: leaseGate.rpc }) : leaseGate.confirmed;
+        },
+        currentTakeLeaseId: () => null,
+    };
+});
 vi.mock('../../lib/supabaseClient', () => ({
     getSupabaseClient: vi.fn(() => ({
         auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' } } } }) },
@@ -173,7 +187,7 @@ describe('#1415 — one click, one recording', () => {
         });
     });
 
-    afterEach(() => { vi.clearAllMocks(); leaseGate.confirmed = true; leaseGate.calls = 0; });
+    afterEach(() => { vi.clearAllMocks(); leaseGate.confirmed = 'held'; leaseGate.calls = 0; leaseGate.rpc = null; leaseGate.actual?.__resetTakeLeaseForTests(); });
 
     describe('the original failure', () => {
         it('PREPARATION IS NOT A START FAILURE — no error state, no discarded intent', async () => {
@@ -372,7 +386,7 @@ describe('#1415 — one click, one recording', () => {
             await settle();
             expect(pendingRecordingIntent(), 'precondition: the click is waiting on preparation').not.toBeNull();
 
-            leaseGate.confirmed = false; // device B took over while the model downloaded
+            leaseGate.confirmed = 'revoked'; // device B took over while the model downloaded
             engine.downloadEnabled = true;
             await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
             await settle();
@@ -383,6 +397,55 @@ describe('#1415 — one click, one recording', () => {
             expect(useSessionStore.getState().sttStatus).toEqual({ type: 'error', message: 'Recording could not start: another device is recording on this account. Press Start again to take over here.' });
             expect((controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked).toBe(false);
             expect(useSessionStore.getState().engineSelectionLocked).toBe(false);
+        });
+
+        it('CASUALTY (PM RETURN on 54576db9): a lease authority that cannot answer at resume refuses it — no engine, truthful copy, lock released', async () => {
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            started.then(() => outcome.push('resolved'), (e: Error) => outcome.push(`rejected:${e.message}`));
+            await settle();
+            leaseGate.confirmed = 'unconfirmed';
+            engine.downloadEnabled = true;
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            await settle();
+            expect(engine.startCalls).toBe(0);
+            expect(outcome).toEqual(['rejected:Could not check your other devices. Please try again.']);
+            expect(useSessionStore.getState().sttStatus).toEqual({ type: 'error', message: 'Could not check your other devices. Please try again.' });
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(false);
+        });
+
+        it('CASUALTY (PM pre-push review): a revocation that lands WHILE the resume\'s confirmation is in flight wins over its stale valid:true — zero engine work', async () => {
+            const actual = leaseGate.actual!;
+            let answerConfirmation: (v: unknown) => void = () => undefined;
+            let heartbeats = 0;
+            leaseGate.rpc = async (fn) => {
+                if (fn === 'acquire_recording_lease') return { data: { acquired: true }, error: null };
+                if (fn !== 'heartbeat_recording_lease') return { data: null, error: null };
+                heartbeats += 1;
+                if (heartbeats === 1) return new Promise((resolve) => { answerConfirmation = resolve as never; }); // the resume's confirmation: delayed
+                return { data: { valid: false, reason: 'revoked' }, error: null };                                   // the periodic heartbeat: device B took over
+            };
+            await actual.acquireTakeLease({ rpc: leaseGate.rpc });
+
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            started.then(() => outcome.push('resolved'), (e: Error) => outcome.push(`rejected:${e.message}`));
+            await settle();
+            engine.downloadEnabled = true;
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            await settle();
+            expect(heartbeats, 'the resume is waiting on its confirmation').toBe(1);
+
+            const onRevoked = vi.fn();
+            actual.startLeaseHeartbeat(onRevoked, { rpc: leaseGate.rpc, intervalMs: 5 });
+            await vi.waitFor(() => expect(onRevoked).toHaveBeenCalledTimes(1));
+            answerConfirmation({ data: { valid: true }, error: null }); // the stale answer arrives last
+            await settle(30);
+
+            expect(engine.startCalls, 'no engine work after the lease was lost').toBe(0);
+            expect(outcome).toEqual(['rejected:Recording could not start: another device is recording on this account. Press Start again to take over here.']);
         });
 
         it('CONTROL: a lease still held resumes into exactly one recording (the real cold path, not a forced READY)', async () => {

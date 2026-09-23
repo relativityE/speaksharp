@@ -101,26 +101,42 @@ export function startLeaseHeartbeat(onRevoked: () => void, opts: { rpc?: LeaseRp
     }, opts.intervalMs ?? HEARTBEAT_INTERVAL_MS);
 }
 
+/** The answer to "may this device begin engine work now?" — only `held` admits it. */
+export type TakeLeaseConfirmation = 'held' | 'revoked' | 'unconfirmed';
+
 /**
  * #1476 PM RETURN on 040da46a — REVALIDATE BEFORE ENGINE WORK. Called immediately before model preparation and before
- * the controller resumes a held Start after a download: false when this device's lease is no longer its own (already
- * reported revoked, or the server says so now). No lease held (a server without the lease functions) has nothing to
- * revalidate; a transient network failure is not a revocation, exactly as for the heartbeat.
+ * the controller resumes a held Start after a download.
+ * PM RETURN on 54576db9 — ADMISSION FAILS CLOSED. A running take tolerates a transient heartbeat failure; a Start waiting
+ * for final authority does not: a server error or a throw is `unconfirmed`, never `held`. No lease held at all (a server
+ * without the lease functions — the reported capability gap) has nothing to revalidate and stays `held`.
  */
-export async function confirmTakeLease(opts: { rpc?: LeaseRpc } = {}): Promise<boolean> {
-    if (revoked) return false;
+export async function confirmTakeLease(opts: { rpc?: LeaseRpc } = {}): Promise<TakeLeaseConfirmation> {
+    if (revoked) return 'revoked';
     const leaseId = heldLeaseId;
-    if (leaseId === null) return true;
+    if (leaseId === null) return 'held';
     const rpc = opts.rpc ?? defaultRpc;
+    let data: unknown;
     try {
-        const { data, error } = await rpc('heartbeat_recording_lease', { p_lease_id: leaseId });
-        if (!error && isLeaseRevoked(data as { valid?: boolean } | null)) {
-            if (heldLeaseId === leaseId) { stopHeartbeat(); heldLeaseId = null; }
-            revoked = true;
-            return false;
-        }
-    } catch { /* transient: not a revocation */ }
-    return true;
+        const res = await rpc('heartbeat_recording_lease', { p_lease_id: leaseId });
+        if (res.error) return 'unconfirmed';
+        data = res.data;
+    } catch {
+        return 'unconfirmed';
+    }
+    // PM pre-push reviews: the answer is only as fresh as the request, and only about the lease it asked about.
+    //  - A periodic heartbeat reported THIS lease revoked while the request was in flight → `revoked`.
+    //  - The lease is no longer held (this device released it, or acquired a new take B) → the answer is about a lease
+    //    this device no longer holds: `unconfirmed`, and it must NOT touch lease state — a stale invalid answer for A
+    //    would otherwise mark B revoked.
+    if (heldLeaseId !== leaseId) return revoked ? 'revoked' : 'unconfirmed';
+    if (isLeaseRevoked(data as { valid?: boolean } | null)) {
+        stopHeartbeat();
+        heldLeaseId = null;
+        revoked = true;
+        return 'revoked';
+    }
+    return (data as { valid?: boolean } | null)?.valid === true ? 'held' : 'unconfirmed';
 }
 
 /** Release the held lease (Stop, a refused/failed Start, sign-out). Idempotent; never throws. */

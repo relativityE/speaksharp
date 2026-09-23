@@ -19,7 +19,7 @@ const leaseMock = vi.hoisted(() => ({
     acquire: vi.fn(async (_opts?: { force?: boolean }): Promise<import('@/services/recordingLeasePolicy').LeaseDecision> => ({ action: 'start', tookOver: false })),
     release: vi.fn(async () => undefined),
     heartbeat: vi.fn((_onRevoked: () => void) => undefined),
-    confirm: vi.fn(async () => true),
+    confirm: vi.fn(async (): Promise<'held' | 'revoked' | 'unconfirmed'> => 'held'),
 }));
 // #1476: the server's per-session Progress obligations, loaded at Start. Answers "nothing owed" by default.
 const obligationsMock = vi.hoisted(() => ({
@@ -110,6 +110,7 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
     },
     speechRuntimeController: {
         startRecording: vi.fn(),
+        retireEngineForUnmount: vi.fn(async (): Promise<'terminal' | 'unconfirmed'> => 'terminal'),
         stopRecording: vi.fn(async () => ({ 
             transcript: '', 
             total_words: 0, 

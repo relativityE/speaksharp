@@ -53,6 +53,7 @@ DECLARE
     v_lease_text TEXT;
     v_lease_id UUID;
     v_lease public.active_recording_lease%ROWTYPE;
+    v_written UUID;
     v_lease_live BOOLEAN := false;
     v_legacy_take BOOLEAN := false;
 BEGIN
@@ -178,6 +179,9 @@ BEGIN
         END IF;
         v_lease_id := v_lease_text::uuid;
 
+        -- PM RETURN on 54576db9: serialize with `acquire_recording_lease` PER ACCOUNT. On an empty account a row lock
+        -- has nothing to lock, so an old client and a current client could each decide the account was free.
+        PERFORM pg_advisory_xact_lock(hashtextextended('ss_recording_lease_1476:' || auth.uid()::text, 0));
         SELECT * INTO v_lease FROM public.active_recording_lease WHERE user_id = auth.uid() FOR UPDATE;
         v_lease_live := FOUND AND v_lease.heartbeat_at >= now() - interval '15 seconds';
 
@@ -232,11 +236,25 @@ BEGIN
     IF v_legacy_take THEN
         -- The OLD client's implicit lease, written BEFORE the take row so the insert fence sees it. Its heartbeat_session runs every ~30 s, so the lease is kept 30 s ahead of
         -- now; the 15 s staleness window then tolerates the old cadence.
-        INSERT INTO public.active_recording_lease (user_id, lease_id, holder_label, state, started_at, heartbeat_at)
+        -- Never replaces a LIVE holder (PM RETURN on 54576db9): only a stale lease is taken, and a refused upsert refuses
+        -- the take with the code every shipped bundle renders.
+        v_written := NULL;
+        INSERT INTO public.active_recording_lease AS l (user_id, lease_id, holder_label, state, started_at, heartbeat_at)
         VALUES (auth.uid(), v_new_session_id, 'an older version of SpeakSharp', 'recording', now(), now() + interval '30 seconds')
         ON CONFLICT (user_id) DO UPDATE
           SET lease_id = EXCLUDED.lease_id, holder_label = EXCLUDED.holder_label, state = 'recording',
-              started_at = now(), heartbeat_at = EXCLUDED.heartbeat_at;
+              started_at = now(), heartbeat_at = EXCLUDED.heartbeat_at
+          WHERE l.heartbeat_at < now() - interval '15 seconds'
+        RETURNING l.lease_id INTO v_written;
+        IF v_written IS NULL THEN
+            RETURN jsonb_build_object(
+                'new_session', null,
+                'usage_exceeded', true,
+                'error', 'max_concurrent_sessions_reached',
+                'active_sessions', 1,
+                'max_concurrent_sessions', 1
+            );
+        END IF;
     END IF;
 
     INSERT INTO public.sessions (
@@ -538,6 +556,9 @@ BEGIN
     RETURN jsonb_build_object('acquired', false, 'reason', 'unauthenticated');
   END IF;
 
+  -- PM RETURN on 54576db9: the same per-account lock `create_session_and_update_usage` takes for an old client's implicit
+  -- lease, so the two acquisition paths never both find an empty account free.
+  PERFORM pg_advisory_xact_lock(hashtextextended('ss_recording_lease_1476:' || v_uid::text, 0));
   SELECT * INTO v_existing FROM public.active_recording_lease WHERE user_id = v_uid FOR UPDATE;
   v_took_over := FOUND AND v_existing.lease_id <> p_lease_id
                  AND v_existing.heartbeat_at >= now() - interval '15 seconds' AND p_force;
