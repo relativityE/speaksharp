@@ -16,7 +16,6 @@ import InvalidEnvironmentPage from "./pages/InvalidEnvironmentPage";
 import App from './App';
 import { ENV } from './config/TestFlags';
 import { useReadinessStore } from './stores/useReadinessStore';
-import { startRuntimeIfPathNeedsIt } from './lib/runtimeBootGate';
 import { getDevEnvironmentStatus } from './lib/devEnvironmentGuard';
 import { publishAppRuntimeConfig } from './config/appRuntimeConfig';
 import { installStaleChunkRecovery } from './lib/staleChunkRecovery';
@@ -307,10 +306,10 @@ const startInitializing = async () => {
    * installs nothing. Every authorized comparison run would have stopped with "comparison switch
    * surface did not install".
    *
-   * Installing it costs nothing the route gate exists to save: it is a small module that registers one
-   * window function, starts no engine and enters no state machine, so it arms no reclamation timer. The
-   * churn came from `initializeInfrastructure()` alone — so that, and only that, is what the gate holds
-   * back. It has no UI/URL/storage input and accepts only the PO-approved three-model slate.
+   * Installing it costs nothing: it is a small module that registers one window function, starts no engine
+   * and enters no state machine, so it arms no reclamation timer — the churn came from
+   * `initializeInfrastructure()` alone, which main.tsx no longer calls. It has no UI/URL/storage input and
+   * accepts only the PO-approved three-model slate.
    */
   const installComparisonSwitch = () => {
     void import('./services/transcription/installRuntimeSwitch')
@@ -320,29 +319,21 @@ const startInitializing = async () => {
       .catch((err) => logger.warn({ err }, '[main.tsx] runtime model switch unavailable'));
   };
 
-  // Defer heavy WASM initialization to avoid competing with React hydration
-  const initSTT = () => {
-    // Lazy import of SpeechRuntimeController
-    void import('./services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
-      speechRuntimeController.initializeInfrastructure()
-        .then(() => {
-          logger.debug('[main.tsx] STT Infrastructure Ready');
-        })
-        .catch(err => {
-          logger.error({ err }, '[main.tsx] ❌ SpeechRuntimeController failed');
-        });
-    });
-
-  };
+  /*
+   * #1517 (option A): main.tsx does NOT boot the speech runtime. It used to call `initializeInfrastructure()` on
+   * every route, which arms the 5-minute idle-reclamation timer and cycles IDLE→TERMINATED→IDLE forever on a tab
+   * nobody records on. A path gate here could not fix it: this runs before React knows who the user is, so a
+   * signed-out deep link to `/session` still booted it and ProtectedRoute redirected to `/auth` with the timer
+   * running (Codex P2 on 4746c00d). The runtime's ONE initializer is TranscriptionProvider, which mounts only
+   * inside an admitted ProtectedRoute (pinned by runtimeBootOwnership.test.ts).
+   */
 
   if (isTestMode) {
     const { initE2EConfig } = await import('../../tests/types/e2eConfig');
     initE2EConfig({});
 
-    // The switch installs on every route; only the runtime is route-gated.
+    // The switch installs on every route; the runtime is TranscriptionProvider's to boot.
     installComparisonSwitch();
-    // Start STT infrastructure after E2E config is ready — but only on a route that uses it.
-    startRuntimeIfPathNeedsIt(window.location.pathname, initSTT);
 
     const { initializeE2EEnvironment } = await import('./lib/e2e-bridge');
     await initializeE2EEnvironment();
@@ -356,14 +347,8 @@ const startInitializing = async () => {
     }
     await renderApp();
   } else {
-    // Standard Production Path.
-    // Only a runtime route warms the runtime at boot. Booting it on the landing page, /terms or
-    // /auth/* arms the 5-minute idle-reclamation timer on a tab nobody records on, which then
-    // cycles IDLE -> TERMINATED -> IDLE forever: battery on the user's device and lifecycle
-    // telemetry no user produced. TranscriptionProvider initializes the runtime on mount for the
-    // routes that need it, so declining here cannot leave a route without one.
+    // Standard Production Path. The switch installs on every route; the runtime is TranscriptionProvider's to boot.
     installComparisonSwitch();
-    startRuntimeIfPathNeedsIt(window.location.pathname, initSTT);
     useReadinessStore.getState().setReady('msw'); // Always ready in production (no MSW)
     await renderApp();
   }
