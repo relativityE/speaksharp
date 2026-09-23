@@ -378,19 +378,60 @@ describe('#1476 Codex P1 on 4dd2bbb2 (line 403) — a still-open PRE-UPGRADE tab
         expect(sessionIds(await openTab()), 'the authoritative v2 debt is still recorded').toEqual([A]);
     });
 
-    it('CASUALTY: if an old tab immediately overwrites the v1 signal, the enqueue is NOT reported verified', async () => {
+    it('CASUALTY: if an old tab overwrites the v1 signal after EVERY write, the enqueue is NOT reported verified', async () => {
+        const tab = await openTab();
+        const realSet = Storage.prototype.setItem;
+        const hook = { fired: 0 };
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            realSet.call(this, key, value);
+            if (key === V1) { hook.fired++; realSet.call(this, V1, JSON.stringify([])); } // old tab's stale write-back, every time
+        });
+        const result = tab.enqueueProgressReconcile(A, OWNER, T0);
+        vi.restoreAllMocks();
+        expect(hook.fired, 'the interleave was actually exercised').toBeGreaterThan(0);
+        expect(result.ok, 'a signal that never survives is not a verified one').toBe(false);
+        expect(sessionIds(await openTab()), 'the authoritative v2 debt is still recorded').toEqual([A]);
+    });
+
+    it('CONTROL: a single immediate overwrite is detected by the readback and repaired, then verified', async () => {
         const tab = await openTab();
         const realSet = Storage.prototype.setItem;
         const hook = { fired: false };
         vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
             realSet.call(this, key, value);
-            if (!hook.fired && key === V1) { hook.fired = true; realSet.call(this, V1, JSON.stringify([])); } // old tab's stale write-back
+            if (!hook.fired && key === V1) { hook.fired = true; realSet.call(this, V1, JSON.stringify([])); }
         });
         const result = tab.enqueueProgressReconcile(A, OWNER, T0);
         vi.restoreAllMocks();
+        expect(hook.fired).toBe(true);
+        expect(result).toEqual({ ok: true, verified: true });
+        const seen = (await openOldTab()).getQueueEntriesForUser(OWNER);
+        expect(seen.ok ? seen.entries.map((e) => e.sessionId) : seen.failure).toEqual([A]);
+    });
+
+    it('P1 CASUALTY (Codex on d0a2fb01): two NEW tabs publishing concurrently never lose either signal for the old reader', async () => {
+        const tabA = await openTab();
+        const tabB = await openTab();
+        // Tab B has composed its v1 value and is about to write it; in that gap tab A enqueues and verifies A in full,
+        // then B's stale composition lands on top — exactly the read/modify/write race.
+        const realSet = Storage.prototype.setItem;
+        const hook = { fired: false, inA: false, resultA: undefined as unknown };
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            if (!hook.fired && !hook.inA && key === V1) {
+                hook.fired = true;
+                hook.inA = true;
+                hook.resultA = tabA.enqueueProgressReconcile(A, OWNER, T0);
+                hook.inA = false;
+            }
+            return realSet.call(this, key, value);
+        });
+        const resultB = tabB.enqueueProgressReconcile(B, OWNER, T1);
+        vi.restoreAllMocks();
         expect(hook.fired, 'the interleave was actually exercised').toBe(true);
-        expect(result.ok, 'an overwritten signal is not a verified one').toBe(false);
-        expect(sessionIds(await openTab()), 'the authoritative v2 debt is still recorded').toEqual([A]);
+        expect(hook.resultA).toEqual({ ok: true, verified: true });
+        expect(resultB).toEqual({ ok: true, verified: true });
+        const seen = (await openOldTab()).getQueueEntriesForUser(OWNER);
+        expect(seen.ok ? seen.entries.map((e) => e.sessionId).sort() : seen.failure, 'the old reader sees BOTH debts').toEqual([A, B]);
     });
 });
 

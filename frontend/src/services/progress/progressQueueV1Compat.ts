@@ -12,43 +12,65 @@
  *  - A signal that cannot be written, or is overwritten before readback, is NOT verified, and the enqueue must not
  *    report verified success. The v1 read-modify-write can still race an old tab's own write-back — the defect #1476
  *    fixes for new code — which is why the readback, not the write, decides.
- *  - The copy is only ever unreleased debt: an old tab that sees it holds its own Start until its own reconcile
- *    clears it. That errs closed.
+ *  - Each copy carries the v2 state (attempts, release). An old tab that sees an unreleased copy holds its own Start
+ *    until its own reconcile clears it, and a live v2 obligation an old tab already removed from v1 is re-published
+ *    until new code reconciles it. Both err closed; a re-evaluation is idempotent server-side.
  */
 import logger from '@/lib/logger';
 
-type Obligation = { sessionId: string; userId: string; enqueuedAtIso: string };
-type Result = { ok: true; verified: true } | { ok: false; failure: 'corrupt' | 'write_failed' | 'readback_failed' };
+type Obligation = { sessionId: string; userId: string; enqueuedAtIso: string; attempts?: number; lastAttemptAtIso?: string; releasedAtIso?: string };
+type Result = { ok: true; verified: true } | { ok: false; failure: 'corrupt' | 'write_failed' | 'readback_failed' | 'storage_unavailable' };
 
-const hasObligation = (value: unknown, o: Obligation): boolean =>
-    Array.isArray(value) && value.some((e: unknown) => {
-        const r = e as Partial<Obligation> | null;
-        return !!r && typeof r === 'object' && r.sessionId === o.sessionId && r.userId === o.userId;
-    });
+const PUBLISH_PASSES = 3;
 
-/** Publish `o` into the v1 aggregate under `v1Key` and confirm by readback that an old reader will see it. */
-export function publishV1CompatSignal(v1Key: string, o: Obligation): Result {
-    let current: unknown[];
+const same = (e: unknown, o: Obligation): boolean => {
+    const r = e as Partial<Obligation> | null;
+    return !!r && typeof r === 'object' && r.sessionId === o.sessionId && r.userId === o.userId;
+};
+
+function readV1(v1Key: string): unknown[] | 'corrupt' | 'unavailable' {
     try {
         const raw = localStorage.getItem(v1Key);
-        const parsed: unknown = raw === null ? [] : JSON.parse(raw);
-        if (!Array.isArray(parsed)) return { ok: false, failure: 'corrupt' };
-        current = parsed;
-    } catch {
-        return { ok: false, failure: 'corrupt' };
+        if (raw === null) return [];
+        const parsed: unknown = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : 'corrupt';
+    } catch (err) {
+        return err instanceof SyntaxError ? 'corrupt' : 'unavailable';
     }
-    if (!hasObligation(current, o)) {
-        try {
-            localStorage.setItem(v1Key, JSON.stringify([...current, { sessionId: o.sessionId, userId: o.userId, enqueuedAtIso: o.enqueuedAtIso }]));
-        } catch (err) {
-            logger.warn({ err }, '[progress] v1 compatibility signal write failed');
-            return { ok: false, failure: 'write_failed' };
+}
+
+/**
+ * Publish every LIVE v2 obligation into the v1 aggregate under `v1Key`, and verify an old reader will see them all.
+ *
+ * Codex P1 on d0a2fb01 — PRESERVE THE UNION. The v1 aggregate is a shared read/modify/write: tab B can compose from
+ * a stale array, tab A can publish and verify A, and B's write then erases A while B verifies only B. So each pass
+ * writes the UNION of the current v1 entries and every live v2 obligation (all owners), and the readback verifies
+ * that EVERY obligation live at readback time is present — not merely this tab's own. A tab whose stale write erased
+ * another's signal therefore sees the gap and republishes; concurrent new tabs converge on the union, or report
+ * unverified after the bounded passes. Existing v1 entries (an old tab's own data) are never modified or removed.
+ *
+ * `liveObligations` must read v2 FRESH on every call (null when it cannot be read).
+ */
+export function publishV1CompatSignal(v1Key: string, liveObligations: () => Obligation[] | null): Result {
+    for (let pass = 0; pass < PUBLISH_PASSES; pass++) {
+        const live = liveObligations();
+        if (live === null) return { ok: false, failure: 'storage_unavailable' };
+        const current = readV1(v1Key);
+        if (current === 'corrupt') return { ok: false, failure: 'corrupt' };
+        if (current === 'unavailable') return { ok: false, failure: 'storage_unavailable' };
+        const missing = live.filter((o) => !current.some((e) => same(e, o)));
+        if (missing.length > 0) {
+            try {
+                localStorage.setItem(v1Key, JSON.stringify([...current, ...missing]));
+            } catch (err) {
+                logger.warn({ err }, '[progress] v1 compatibility signal write failed');
+                return { ok: false, failure: 'write_failed' };
+            }
         }
+        const after = readV1(v1Key);
+        const liveNow = liveObligations();
+        if (after === 'corrupt' || after === 'unavailable' || liveNow === null) continue;
+        if (liveNow.every((o) => after.some((e) => same(e, o)))) return { ok: true, verified: true };
     }
-    try {
-        const raw = localStorage.getItem(v1Key);
-        return raw !== null && hasObligation(JSON.parse(raw), o) ? { ok: true, verified: true } : { ok: false, failure: 'readback_failed' };
-    } catch {
-        return { ok: false, failure: 'readback_failed' };
-    }
+    return { ok: false, failure: 'readback_failed' };
 }

@@ -413,7 +413,7 @@ export function enqueueProgressReconcile(sessionId: string, userId: string, nowI
     const own = readOwnEntry(userId, sessionId);
     if (!own.ok) return { ok: false, failure: own.failure };
     // Already queued is a durable v2 success; the old readers' signal must still be in place for it to verify.
-    if (own.entry) return publishV1CompatSignal(V1_KEY, own.entry);
+    if (own.entry) return publishV1CompatSignal(V1_KEY, liveV2Obligations);
     const fresh: QueueEntry = { sessionId, userId, enqueuedAtIso: nowIso };
     // A tombstone that would retire THIS new obligation (same stamp, or a clock that moved backwards) is removed first.
     // A stale v1 copy it was guarding carries the same session and a stamp no newer, so it is this same obligation.
@@ -427,7 +427,14 @@ export function enqueueProgressReconcile(sessionId: string, userId: string, nowI
     if (!written.ok) return written;
     // TEMPORARY (#1476 option a): pre-upgrade tabs read only v1, so the obligation is also published there and
     // verified. v2 above is authoritative; an unverified signal means this enqueue is not verified either.
-    return publishV1CompatSignal(V1_KEY, fresh);
+    return publishV1CompatSignal(V1_KEY, liveV2Obligations);
+}
+
+/** Every live (unretired) v2 obligation, all owners, read FRESH — the union the v1 compatibility signal must carry. */
+function liveV2Obligations(): QueueEntry[] | null {
+    const s = takeSnapshot();
+    if (!s.ok) return null;
+    return [...s.snap.entries.entries()].filter(([k, e]) => !retiredBy(e, s.snap.tombs.get(k))).map(([, e]) => e);
 }
 
 /** The session ids queued for THIS user (owner-scoped — never drains another account's entries). */
