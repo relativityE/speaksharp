@@ -95,7 +95,10 @@ describe('#1476 — v1 → v2 migration is idempotent and crash-safe', () => {
         expect(sessionIds(tab), 'the stale copy is not read back into the queue').toEqual([B]);
         expect(tab.recordProgressReconcileAttempt(B, OWNER, T1).ok).toBe(true); // runs the migration
         expect(sessionIds(await openTab())).toEqual([B]);
-        expect(localStorage.getItem(tab.progressQueueEntryKey(OWNER, A)), 'migration did not re-create the retired entry').toBeNull();
+        // A clear is tombstone-only (Codex P1s on 4dd2bbb2): the retired entry is retained, and the migration must not
+        // have replaced it with a live copy.
+        expect(JSON.parse(localStorage.getItem(tab.progressQueueEntryKey(OWNER, A)) as string).enqueuedAtIso,
+            'the retained A is still the retired T0 obligation, not a re-created live one').toBe(T0);
     });
 
     it('CASUALTY: a stale v1 copy never lowers attempts or undoes a release already recorded in v2', async () => {
@@ -252,12 +255,13 @@ describe('#1476 Codex findings on cca8076f', () => {
         expect(entry(await openTab(), A)?.enqueuedAtIso, 'the newer T2 debt survives').toBe(T2);
     });
 
-    it('P1 CONTROL: with no interleave, a clear still removes the retired entry', async () => {
+    it('P1 CONTROL: a clear retires the obligation (hidden, never deleted), and a later newer enqueue is visible', async () => {
         const tab = await openTab();
         expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
         expect(tab.clearProgressReconcileEntry(A, OWNER)).toEqual({ ok: true, verified: true });
-        expect(localStorage.getItem(tab.progressQueueEntryKey(OWNER, A))).toBeNull();
-        expect(sessionIds(await openTab())).toEqual([]);
+        expect(sessionIds(await openTab()), 'retired').toEqual([]);
+        expect(tab.enqueueProgressReconcile(A, OWNER, T2).ok).toBe(true);
+        expect(entry(await openTab(), A)?.enqueuedAtIso).toBe(T2);
     });
 
     it.each([
@@ -281,22 +285,85 @@ describe('#1476 Codex findings on cca8076f', () => {
     });
 });
 
+describe('#1476 Codex P1s on 4dd2bbb2 — no v2 delete races', () => {
+    it('P1 (line 453) CASUALTY: a newer enqueue landing at ANY point during a clear survives it', async () => {
+        const tab = await openTab();
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        // The worst interleave for check-then-remove: the newer obligation lands on the clear's own final read of
+        // the entry key, i.e. after any re-check and before any removal.
+        const realGet = Storage.prototype.getItem;
+        const realSet = Storage.prototype.setItem;
+        const hook = { fired: false, tombSeen: false };
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            realSet.call(this, key, value);
+            if (key.includes('|t|')) hook.tombSeen = true;
+        });
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {
+            const value = realGet.call(this, key);
+            if (!hook.fired && hook.tombSeen && key === tab.progressQueueEntryKey(OWNER, A)) {
+                hook.fired = true;
+                realSet.call(this, key, JSON.stringify({ sessionId: A, userId: OWNER, enqueuedAtIso: T2 }));
+            }
+            return value;
+        });
+
+        const cleared = tab.clearProgressReconcileEntry(A, OWNER);
+        vi.restoreAllMocks();
+        expect(hook.fired, 'the interleave was actually exercised').toBe(true);
+        expect(cleared).toEqual({ ok: true, verified: true });
+        expect(entry(await openTab(), A)?.enqueuedAtIso, 'the newer T2 debt survives').toBe(T2);
+    });
+
+    it('P1 (line 175) CASUALTY: a key removed by another tab mid-enumeration never hides this owner\'s debt', async () => {
+        const tab = await openTab();
+        // Storage order is exactly [victim, this owner's debt]: another owner's tombstone, then A.
+        const victim = `ss_progress_reconcile_queue_v2|t|${encodeURIComponent(OTHER)}|${encodeURIComponent(B)}`;
+        localStorage.setItem(victim, JSON.stringify({ sessionId: B, userId: OTHER, clearedThroughIso: T0 }));
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        const order = [...Array(localStorage.length).keys()].map((i) => localStorage.key(i) as string);
+        expect(order, 'precondition: the removed key sits immediately before this owner\'s debt').toEqual([victim, tab.progressQueueEntryKey(OWNER, A)]);
+
+        // While this tab enumerates, another tab removes that earlier key: every later key shifts down one index.
+        const realKey = Storage.prototype.key;
+        const hook = { fired: false };
+        vi.spyOn(Storage.prototype, 'key').mockImplementation(function (this: Storage, i: number) {
+            const k = realKey.call(this, i);
+            if (!hook.fired && k === victim) { hook.fired = true; localStorage.removeItem(victim); }
+            return k;
+        });
+        const read = tab.getQueueEntriesForUser(OWNER);
+        vi.restoreAllMocks();
+        expect(hook.fired, 'the interleave was actually exercised').toBe(true);
+        // Either the debt is read, or the read fails closed — never an empty "clean" queue.
+        const outcome = read.ok ? read.entries.map((e) => e.sessionId) : read.failure;
+        expect([[A], 'storage_unavailable']).toContainEqual(outcome);
+    });
+});
+
 describe('#1476 — a clear retires the obligation before it removes the entry', () => {
-    it('CASUALTY: a clear interrupted after its tombstone is written still leaves the debt retired', async () => {
+    it('CASUALTY: a clear whose tombstone write fails is reported, and the debt stays owed (the sibling untouched)', async () => {
+        // The tombstone is the ONLY write a clear makes (Codex P1s on 4dd2bbb2), so it is the only place it can fail.
         const tab = await openTab();
         expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
         expect(tab.enqueueProgressReconcile(B, OWNER, T0).ok).toBe(true);
-        const realRemove = Storage.prototype.removeItem;
-        vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, key: string) {
-            if (key === tab.progressQueueEntryKey(OWNER, A)) throw new Error('crash mid-clear');
-            return realRemove.call(this, key);
+        const realSet = Storage.prototype.setItem;
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            if (key.includes('|t|')) throw new Error('crash mid-clear');
+            return realSet.call(this, key, value);
         });
 
         expect(tab.clearProgressReconcileEntry(A, OWNER).ok, 'the incomplete clear is reported, never assumed').toBe(false);
         vi.restoreAllMocks();
+        expect(sessionIds(await openTab()), 'nothing was retired: A is still owed, and B is untouched').toEqual([A, B]);
+    });
 
-        expect(localStorage.getItem(tab.progressQueueEntryKey(OWNER, A)), 'the entry key is still physically present').not.toBeNull();
-        expect(sessionIds(await openTab()), 'but the obligation is retired, and the sibling is untouched').toEqual([B]);
+    it('CONTROL: a completed clear leaves the entry physically present but retired, and the sibling untouched', async () => {
+        const tab = await openTab();
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        expect(tab.enqueueProgressReconcile(B, OWNER, T0).ok).toBe(true);
+        expect(tab.clearProgressReconcileEntry(A, OWNER)).toEqual({ ok: true, verified: true });
+        expect(localStorage.getItem(tab.progressQueueEntryKey(OWNER, A)), 'never deleted').not.toBeNull();
+        expect(sessionIds(await openTab())).toEqual([B]);
     });
 });
 

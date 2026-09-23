@@ -164,15 +164,37 @@ type Snapshot = {
 };
 
 /** Read every queue key once. Pure: never writes, never deletes. */
+const ENUMERATION_PASSES = 4;
+
+function queueKeysOnce(): string[] {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key !== null && key.startsWith(PROGRESS_QUEUE_V2_PREFIX)) keys.push(key);
+    }
+    return keys.sort();
+}
+
+/** The queue's key set, read until two consecutive passes agree; null when it never stabilizes. */
+function stableQueueKeys(): string[] | null {
+    let previous = queueKeysOnce();
+    for (let pass = 1; pass < ENUMERATION_PASSES; pass++) {
+        const next = queueKeysOnce();
+        if (next.length === previous.length && next.every((k, i) => k === previous[i])) return next;
+        previous = next;
+    }
+    return null;
+}
+
 function takeSnapshot(): { ok: true; snap: Snapshot } | { ok: false; failure: QueueFailure } {
     if (typeof localStorage === 'undefined') return { ok: false, failure: 'storage_unavailable' };
     const snap: Snapshot = { entries: new Map(), tombs: new Map(), v1: null, v1Corrupt: false, corruptOwners: new Set(), unattributableCorrupt: false };
     try {
-        const keys: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key !== null && key.startsWith(PROGRESS_QUEUE_V2_PREFIX)) keys.push(key);
-        }
+        // Codex P1 on 4dd2bbb2 — ONE INDEX PASS IS NOT A SNAPSHOT. A key another tab removes mid-loop shifts every
+        // later key down an index and can end the loop early, silently skipping a debt. Enumerate until two
+        // consecutive passes agree; if storage will not hold still, fail closed rather than read a short queue.
+        const keys = stableQueueKeys();
+        if (keys === null) return { ok: false, failure: 'storage_unavailable' };
         for (const key of keys) {
             const isEntry = key.startsWith(ENTRY_PREFIX);
             const rest = key.slice((isEntry ? ENTRY_PREFIX : TOMB_PREFIX).length).split('|');
@@ -436,23 +458,12 @@ export function clearProgressReconcileEntry(sessionId: string, userId: string): 
         } catch { return false; }
     });
     if (!tombWritten.ok) return tombWritten;
-    // Codex P1 on cca8076f — REMOVE ONLY WHAT THIS TOMBSTONE COVERS. Another tab may enqueue a genuinely newer
-    // obligation for this pair after the tombstone lands; deleting it unconditionally lost that debt while both calls
-    // reported success. Re-read immediately before removing: a newer entry is not this clear's to delete (the
-    // tombstone already retires the obligation this clear was for). localStorage has no compare-and-delete, so the
-    // gap between this read and the removal inside this synchronous call is the remaining window.
-    const entryKey = progressQueueEntryKey(userId, sessionId);
-    let current: unknown;
-    try {
-        const raw = localStorage.getItem(entryKey);
-        current = raw === null ? undefined : JSON.parse(raw);
-    } catch { current = undefined; }
-    const newerObligation = validEntry(current) && current.userId === userId && current.sessionId === sessionId
-        && !retiredBy(current, tomb);
-    if (!newerObligation) {
-        const removed = removeVerified(entryKey);
-        if (!removed.ok) return removed;
-    }
+    // Codex P1s on cca8076f and 4dd2bbb2 — A CLEAR NEVER DELETES THE ENTRY. Any delete is check-then-act here:
+    // localStorage has no compare-and-delete, so a genuinely newer obligation another tab enqueues can land between
+    // any re-check and the removal, and would be deleted while both calls report success. The tombstone alone
+    // retires the obligation this clear was for (reads hide every entry it covers via `retiredBy`), and a newer
+    // obligation — enqueued before or after — stays visible because the fresh merge never folds it into a retired
+    // entry. The retired entry and its tombstone remain in storage: one small value per session ever queued here.
     // Verified when no entry this tombstone covers is still visible: either none remains, or the one that does is newer.
     const after = readOwnEntry(userId, sessionId);
     if (!after.ok) return { ok: false, failure: after.failure };
