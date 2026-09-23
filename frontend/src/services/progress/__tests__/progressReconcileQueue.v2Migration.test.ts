@@ -46,7 +46,7 @@ beforeEach(() => { localStorage.clear(); });
 afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
 describe('#1476 — v1 → v2 migration is idempotent and crash-safe', () => {
-    it('v1 debt is visible before any write; a mutation moves every entry to its own key and removes v1 only after verifying them', async () => {
+    it('v1 debt is visible before any write; a mutation copies every entry to its own verified key and RETAINS v1 (PM RETURN P1-A)', async () => {
         oldTabWritesV1([
             { sessionId: A, userId: OWNER, enqueuedAtIso: T0, attempts: 2 },
             { sessionId: B, userId: OTHER, enqueuedAtIso: T0 },
@@ -57,19 +57,19 @@ describe('#1476 — v1 → v2 migration is idempotent and crash-safe', () => {
 
         expect(tab.enqueueProgressReconcile(C, OWNER, T1)).toEqual({ ok: true, verified: true });
 
-        expect(localStorage.getItem(V1), 'v1 is removed once every copy is verified').toBeNull();
+        expect(localStorage.getItem(V1), 'v1 is retained as a compatibility source while old writers may exist').not.toBeNull();
         expect(JSON.parse(localStorage.getItem(tab.progressQueueEntryKey(OWNER, A)) as string)).toMatchObject({ attempts: 2 });
         expect(localStorage.getItem(tab.progressQueueEntryKey(OTHER, B)), 'another owner\'s debt is migrated, not dropped').not.toBeNull();
         expect(sessionIds(await openTab())).toEqual([A, C]);
     });
 
-    it('CASUALTY: an interrupted migration (v1 removal fails) loses no debt, and the next mutation finishes the move', async () => {
+    it('CASUALTY: an interrupted migration (a v2 copy fails) loses no debt, and the next mutation finishes the copy', async () => {
         oldTabWritesV1([{ sessionId: A, userId: OWNER, enqueuedAtIso: T0 }, { sessionId: B, userId: OWNER, enqueuedAtIso: T0 }]);
         const tab = await openTab();
-        const realRemove = Storage.prototype.removeItem;
-        const refuse = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, key: string) {
-            if (key === V1) throw new Error('storage blocked');
-            return realRemove.call(this, key);
+        const realSet = Storage.prototype.setItem;
+        const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            if (key === tab.progressQueueEntryKey(OWNER, B)) throw new Error('storage blocked');
+            return realSet.call(this, key, value);
         });
 
         const interrupted = tab.enqueueProgressReconcile(C, OWNER, T1);
@@ -78,7 +78,7 @@ describe('#1476 — v1 → v2 migration is idempotent and crash-safe', () => {
 
         refuse.mockRestore();
         expect(tab.enqueueProgressReconcile(C, OWNER, T1).ok).toBe(true);
-        expect(localStorage.getItem(V1)).toBeNull();
+        expect(localStorage.getItem(tab.progressQueueEntryKey(OWNER, B)), 'the next mutation finishes the copy').not.toBeNull();
         expect(sessionIds(await openTab())).toEqual([A, B, C]);
     });
 
@@ -122,6 +122,108 @@ describe('#1476 — v1 → v2 migration is idempotent and crash-safe', () => {
 
         expect(sessionIds(await openTab())).toEqual([A]);
         expect(entry(await openTab(), A)?.enqueuedAtIso).toBe(T2);
+    });
+});
+
+describe('#1476 PM RETURN on cd79ba3f — the migration races other tabs without losing, regressing or resurrecting debt', () => {
+    /** Run `act` once, right after this tab's migration snapshot has read v1 (the last read of `takeSnapshot`). */
+    const afterSnapshotReadsV1 = (act: () => void) => {
+        const realGet = Storage.prototype.getItem;
+        const hook = { fired: false };
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {
+            const value = realGet.call(this, key);
+            if (!hook.fired && key === V1) { hook.fired = true; act(); }
+            return value;
+        });
+        return hook;
+    };
+    const rawEntry = (tab: Queue, session: string) => localStorage.getItem(tab.progressQueueEntryKey(OWNER, session));
+
+    it('P1-A CASUALTY: an old tab\'s v1 write landing after the snapshot is never deleted, and a later mutation migrates it', async () => {
+        const tab = await openTab();
+        oldTabWritesV1([{ sessionId: A, userId: OWNER, enqueuedAtIso: T0 }]);
+        // The old tab writes a distinct obligation B right after this tab copied A to v2 — before any cleanup could run.
+        const realSet = Storage.prototype.setItem;
+        const hook = { fired: false };
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            realSet.call(this, key, value);
+            if (!hook.fired && key === tab.progressQueueEntryKey(OWNER, A)) {
+                hook.fired = true;
+                realSet.call(this, V1, JSON.stringify([
+                    { sessionId: A, userId: OWNER, enqueuedAtIso: T0 },
+                    { sessionId: B, userId: OWNER, enqueuedAtIso: T1 },
+                ]));
+            }
+        });
+
+        const result = tab.enqueueProgressReconcile(C, OWNER, T2);
+        vi.restoreAllMocks();
+        expect(hook.fired, 'the interleave was actually exercised').toBe(true);
+        expect(result).toEqual({ ok: true, verified: true });
+        expect(sessionIds(await openTab()), 'both obligations remain readable').toEqual([A, B, C]);
+
+        expect(tab.recordProgressReconcileAttempt(C, OWNER, T2).ok).toBe(true); // a later v2 mutation
+        expect(rawEntry(tab, B), 'the late obligation is migrated to its own v2 key').not.toBeNull();
+        expect(sessionIds(await openTab())).toEqual([A, B, C]);
+    });
+
+    it('P1-B1 CASUALTY: snapshot → concurrent attempt increment → migration write: attempts never decrease', async () => {
+        const tab = await openTab();
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        expect(tab.recordProgressReconcileAttempt(A, OWNER, T1).ok).toBe(true);                // v2 A: attempts 1
+        oldTabWritesV1([{ sessionId: A, userId: OWNER, enqueuedAtIso: T0, attempts: 2 }]);    // v1 contributes attempts 2
+        const hook = afterSnapshotReadsV1(() => localStorage.setItem(tab.progressQueueEntryKey(OWNER, A), JSON.stringify(
+            { sessionId: A, userId: OWNER, enqueuedAtIso: T0, attempts: 5, lastAttemptAtIso: T2 })));
+
+        expect(tab.enqueueProgressReconcile(B, OWNER, T1).ok).toBe(true);
+        vi.restoreAllMocks();
+        expect(hook.fired, 'the interleave was actually exercised').toBe(true);
+        expect(entry(await openTab(), A)?.attempts).toBe(5);
+    });
+
+    it('P1-B2 CASUALTY: snapshot → concurrent release → migration write: the release is never undone', async () => {
+        const tab = await openTab();
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        oldTabWritesV1([{ sessionId: A, userId: OWNER, enqueuedAtIso: T0, attempts: 2 }]);
+        const hook = afterSnapshotReadsV1(() => localStorage.setItem(tab.progressQueueEntryKey(OWNER, A), JSON.stringify(
+            { sessionId: A, userId: OWNER, enqueuedAtIso: T0, releasedAtIso: T2 })));
+
+        expect(tab.enqueueProgressReconcile(B, OWNER, T1).ok).toBe(true);
+        vi.restoreAllMocks();
+        expect(hook.fired, 'the interleave was actually exercised').toBe(true);
+        expect(entry(await openTab(), A)).toMatchObject({ attempts: 2, releasedAtIso: T2 });
+    });
+
+    it('P1-B3 CASUALTY: snapshot → concurrent clear → migration write: retired debt stays retired and is not materialized', async () => {
+        const tab = await openTab();
+        oldTabWritesV1([{ sessionId: A, userId: OWNER, enqueuedAtIso: T0 }]);
+        const other = await openTab();
+        const hook = afterSnapshotReadsV1(() => {
+            // Another new-code tab clears A: tombstone first, then entry removal (its real order).
+            localStorage.setItem(`ss_progress_reconcile_queue_v2|t|${encodeURIComponent(OWNER)}|${encodeURIComponent(A)}`,
+                JSON.stringify({ sessionId: A, userId: OWNER, clearedThroughIso: T0 }));
+            localStorage.removeItem(other.progressQueueEntryKey(OWNER, A));
+        });
+
+        expect(tab.enqueueProgressReconcile(B, OWNER, T1).ok).toBe(true);
+        vi.restoreAllMocks();
+        expect(hook.fired, 'the interleave was actually exercised').toBe(true);
+        expect(rawEntry(tab, A), 'the migration did not materialize retired debt').toBeNull();
+        expect(sessionIds(await openTab())).toEqual([B]);
+    });
+
+    it('P1-B4 CASUALTY: after that clear race, a genuinely newer obligation for the same pair stays visible', async () => {
+        const tab = await openTab();
+        oldTabWritesV1([{ sessionId: A, userId: OWNER, enqueuedAtIso: T0 }]);
+        // An interrupted clear: the tombstone landed, the stale raw v2 entry was never removed.
+        localStorage.setItem(`ss_progress_reconcile_queue_v2|t|${encodeURIComponent(OWNER)}|${encodeURIComponent(A)}`,
+            JSON.stringify({ sessionId: A, userId: OWNER, clearedThroughIso: T0 }));
+        localStorage.setItem(tab.progressQueueEntryKey(OWNER, A), JSON.stringify({ sessionId: A, userId: OWNER, enqueuedAtIso: T0 }));
+        expect(sessionIds(tab), 'precondition: A is retired').toEqual([]);
+
+        expect(tab.enqueueProgressReconcile(A, OWNER, T2).ok).toBe(true); // a genuinely NEWER obligation
+        expect(entry(await openTab(), A)?.enqueuedAtIso, 'not merged into the tombstoned stale entry').toBe(T2);
+        expect(sessionIds(await openTab())).toEqual([A]);
     });
 });
 

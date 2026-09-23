@@ -280,19 +280,44 @@ function removeVerified(key: string): QueueWriteResult {
 }
 
 /**
+ * THE ONE FRESH MERGE AUTHORITY (PM RETURN on cd79ba3f, P1-B). Read the pair's tombstone and entry IMMEDIATELY before a
+ * write — never from an earlier snapshot, which another tab may have moved past:
+ *  - a proposal the fresh tombstone retires is not materialized at all (`retired`): a clear that landed after the
+ *    snapshot keeps the debt retired;
+ *  - the current entry is merged only if the fresh tombstone does NOT retire it. A stale raw entry left behind by an
+ *    interrupted clear must never absorb a genuinely newer obligation — `mergeEntries` keeps the EARLIER enqueue
+ *    time, so that merge would carry the new obligation under the tombstone and hide it.
+ */
+function freshMergeTarget(proposal: QueueEntry): { retired: true } | { retired: false; next: QueueEntry } {
+    let tomb: Tombstone | undefined;
+    try {
+        const rawTomb = localStorage.getItem(tombKey(proposal.userId, proposal.sessionId));
+        const parsed: unknown = rawTomb === null ? undefined : JSON.parse(rawTomb);
+        if (validTomb(parsed) && parsed.userId === proposal.userId && parsed.sessionId === proposal.sessionId) tomb = parsed;
+    } catch { /* an unreadable tombstone retires nothing here; reads of that owner fail closed on it */ }
+    if (retiredBy(proposal, tomb)) return { retired: true };
+    let next = proposal;
+    try {
+        const raw = localStorage.getItem(progressQueueEntryKey(proposal.userId, proposal.sessionId));
+        const current: unknown = raw === null ? undefined : JSON.parse(raw);
+        if (validEntry(current) && current.userId === proposal.userId && current.sessionId === proposal.sessionId
+            && !retiredBy(current, tomb)) {
+            next = mergeEntries(current, proposal);
+        }
+    } catch { /* an unreadable current value is overwritten only by the verified merge below */ }
+    return { retired: false, next };
+}
+
+/**
  * Write one entry MONOTONICALLY: merge the proposal with a fresh read of the same key taken immediately before the
  * write, then confirm by readback that the stored entry satisfies `expect`.
  */
 function writeEntryMonotonic(proposal: QueueEntry, expect: (stored: QueueEntry) => boolean): QueueWriteResult {
     const key = progressQueueEntryKey(proposal.userId, proposal.sessionId);
-    let next = proposal;
-    try {
-        const raw = localStorage.getItem(key);
-        const current: unknown = raw === null ? undefined : JSON.parse(raw);
-        if (validEntry(current) && current.userId === proposal.userId && current.sessionId === proposal.sessionId) {
-            next = mergeEntries(current, proposal);
-        }
-    } catch { /* an unreadable current value is overwritten only by the verified merge below */ }
+    const target = freshMergeTarget(proposal);
+    // A proposal a tombstone already retires is not a new obligation: writing it would only be hidden again.
+    if (target.retired) return { ok: true, verified: true };
+    const next = target.next;
     return setVerified(key, next, () => {
         const own = readOwnEntry(proposal.userId, proposal.sessionId);
         return own.ok && !!own.entry && expect(own.entry);
@@ -300,10 +325,32 @@ function writeEntryMonotonic(proposal: QueueEntry, expect: (stored: QueueEntry) 
 }
 
 /**
- * #1476 v1 → v2 MIGRATION, idempotent and crash-safe. Copies every live v1 entry into its own v2 key (merged with any
- * v2 copy), verifies each, and removes the v1 value only when all are verified. Interrupted at any point, the next
- * read still sees every debt (reads merge v1 and v2) and the next mutation finishes the job.
+ * #1476 v1 → v2 MIGRATION, idempotent and crash-safe: every live v1 entry gets its own verified v2 copy.
+ *
+ * PM RETURN on cd79ba3f — v1 IS RETAINED, NEVER DELETED HERE (P1-A). While a tab still running the old code may exist,
+ * it can append to v1 at any moment, and localStorage offers no compare-and-delete: removing v1 after copying a
+ * snapshot of it deletes whatever an old tab wrote in between — debt this tab never saw. So v1 stays as a read-only
+ * compatibility source. Reads already merge v1 with v2, tombstones keep a retained stale v1 entry from resurrecting
+ * retired debt, and each later mutation re-runs this copy, so a late old-tab obligation reaches v2 too.
+ *
+ * Each copy goes through the fresh merge authority (P1-B), never the snapshot's view of v2, and is confirmed against
+ * its v2 key alone — the retained v1 copy cannot be what satisfies the readback.
  */
+function migrateV1Entry(e: QueueEntry): QueueWriteResult {
+    const key = progressQueueEntryKey(e.userId, e.sessionId);
+    const target = freshMergeTarget(e);
+    if (target.retired) return { ok: true, verified: true }; // retired after the snapshot: stays retired
+    const next = target.next;
+    return setVerified(key, next, () => {
+        try {
+            const raw = localStorage.getItem(key);
+            const back: unknown = raw === null ? undefined : JSON.parse(raw);
+            return validEntry(back) && (back.attempts ?? 0) >= (next.attempts ?? 0)
+                && (next.releasedAtIso === undefined || typeof back.releasedAtIso === 'string');
+        } catch { return false; }
+    });
+}
+
 function migrateV1(): QueueWriteResult {
     const s = takeSnapshot();
     if (!s.ok) return s;
@@ -311,22 +358,15 @@ function migrateV1(): QueueWriteResult {
     if (s.snap.v1 === null) return { ok: true, verified: true };
     for (const e of s.snap.v1) {
         const k = pairKey(e.userId, e.sessionId);
-        if (retiredBy(e, s.snap.tombs.get(k))) continue; // already retired here: a stale copy never resurrects it
+        if (retiredBy(e, s.snap.tombs.get(k))) continue; // retired already: nothing to copy
         const existing = s.snap.entries.get(k);
-        const merged = existing ? mergeEntries(existing, e) : e;
-        if (existing && JSON.stringify(existing) === JSON.stringify(merged)) continue;
-        const written = setVerified(progressQueueEntryKey(e.userId, e.sessionId), merged, () => {
-            try {
-                const raw = localStorage.getItem(progressQueueEntryKey(e.userId, e.sessionId));
-                const back: unknown = raw === null ? undefined : JSON.parse(raw);
-                return validEntry(back) && (back.attempts ?? 0) >= (merged.attempts ?? 0)
-                    && (merged.releasedAtIso === undefined || typeof back.releasedAtIso === 'string');
-            } catch { return false; }
-        });
+        // Already fully represented in v2 (monotonic fields only grow), so there is nothing to write.
+        if (existing && !retiredBy(existing, s.snap.tombs.get(k))
+            && JSON.stringify(existing) === JSON.stringify(mergeEntries(existing, e))) continue;
+        const written = migrateV1Entry(e);
         if (!written.ok) return written;
     }
-    // Every live v1 entry now has a verified v2 copy (or is retired by a tombstone), so dropping v1 loses nothing.
-    return removeVerified(V1_KEY);
+    return { ok: true, verified: true };
 }
 
 /**
