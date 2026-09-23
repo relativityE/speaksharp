@@ -150,8 +150,9 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             await page.getByTestId('practice-card-freeform').click();
             await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
             await selectBenchmarkMode(page, 'private');
-            await preparePrivateModelIfPrompted(page, 180_000);
-            await assertPreStartMode(page, 'private');
+            // A fresh signup is always cold, so the setup press may already be the take (#1519).
+            const setup = await preparePrivateModelIfPrompted(page, 180_000);
+            await assertPreStartMode(page, 'private', { takeAlreadyRunning: setup.recordingAlreadyStarted });
         });
 
         await test.step('Mock-free Private recording — prove Private runtime identity WHILE recording', async () => {

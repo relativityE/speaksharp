@@ -326,7 +326,19 @@ export async function assertNativeSpeechRecognitionIsReal(page: Page, label: str
     }
 }
 
-export async function assertPreStartMode(page: Page, mode: 'native' | 'cloud' | 'private') {
+/**
+ * The mode the take will run in, checked before the harness starts it.
+ *
+ * #1519 (Codex P1 on 1e5420e8): on a cold account `preparePrivateModelIfPrompted` returns with the take
+ * ALREADY RECORDING (the cold press consents, downloads and records). Demanding READY|IDLE then failed
+ * every production proof before it reached the recording-aware start. Pass the setup result: a running
+ * take must be RECORDING, anything else must be READY|IDLE — and the mode policy is enforced in both.
+ */
+export async function assertPreStartMode(
+    page: Page,
+    mode: 'native' | 'cloud' | 'private',
+    { takeAlreadyRunning = false }: { takeAlreadyRunning?: boolean } = {},
+) {
     try {
         await expect(async () => {
             const snapshot = await collectBenchmarkPreconditionSnapshot(page, `pre-start-${mode}`);
@@ -340,7 +352,11 @@ export async function assertPreStartMode(page: Page, mode: 'native' | 'cloud' | 
             if (snapshot.ui?.modeSelectState !== undefined && snapshot.ui?.modeSelectState !== null) {
                 expect(snapshot.ui.modeSelectState, `PRE_START_MODE_STATE selector must remain ${mode}`).toBe(mode);
             }
-            expect(snapshot.root?.runtimeState, 'PRE_START_MODE_STATE runtime should be ready or idle before Start').toMatch(/READY|IDLE/);
+            if (takeAlreadyRunning) {
+                expect(snapshot.root?.runtimeState, 'PRE_START_MODE_STATE setup reported the cold press started the take, so the runtime must be RECORDING').toMatch(/^RECORDING$/);
+            } else {
+                expect(snapshot.root?.runtimeState, 'PRE_START_MODE_STATE runtime should be ready or idle before Start').toMatch(/READY|IDLE/);
+            }
             expect(runtime?.controllerPreferredMode, `PRE_START_MODE_STATE controller policy must prefer ${mode}`).toBe(mode);
             expect(policy?.preferredMode, `PRE_START_MODE_STATE policy preferredMode must be ${mode}`).toBe(mode);
         }).toPass({ timeout: 15_000, intervals: [500, 1_000, 2_000] });
@@ -540,7 +556,7 @@ export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
     }
 }
 
-export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_000) {
+export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_000): Promise<{ recordingAlreadyStarted: boolean }> {
     // STATE-SPECIFIC CONTROL. MicCard renders a DIFFERENT testid per model state:
     //   download-required -> 'mic-download'   (aria-label "Download to start speaking")
     //   init-failed/error -> 'mic-retry'
@@ -561,7 +577,7 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_00
 
     if (!setupNeeded) {
         await logBenchmarkPhase(page, 'SETUP_MODEL_NOT_REQUIRED_WARM_CACHE');
-        return;
+        return { recordingAlreadyStarted: false };
     }
 
     await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_VISIBLE');
@@ -620,10 +636,45 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_00
             `${JSON.stringify(snapshot, null, 2)}`
         );
     }
-    // The journey continues at `ready`, so the START control must now be the rendered one. Proving it
-    // here means a mismatch surfaces in seconds at the end of setup, not minutes later mid-recording.
-    await expectMicControlForState(page, 'ready');
-    await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_READY');
+    // #1416 — SETUP MAY ALREADY HAVE STARTED THE TAKE, AND ASSERTING `mic-start` DENIES IT.
+    //
+    // This used to read `await expectMicControlForState(page, 'ready')`, on the premise stated in its
+    // own comment: "the journey continues at `ready`, so the START control must now be the rendered
+    // one." That premise died with #1415/#1416. The CTA pressed above is ONE activation that consents,
+    // downloads AND records, so when acquisition completes the held intent resumes,
+    // `SessionDuringState` replaces `MicCard`, and `mic-start` correctly stops existing. The canary hit
+    // exactly this on Production: `RECORDING 01:55` with no `mic-start` in the DOM (run 35646081865).
+    //
+    // Two rules, both learned the expensive way on this ticket:
+    //   1. press only the control the CURRENT state renders (this helper already did);
+    //   2. after pressing, wait on PRODUCT STATE — never on the continued existence of that control.
+    //
+    // PM RETURN on `b0695d14a` (P1) — ON THE COLD PATH, ONLY A RUNNING TAKE IS SUCCESS.
+    //
+    // This used to settle on "a running take OR an enabled start control" and report which. But the
+    // cold press is ONE activation that downloads AND starts the take. An enabled, idle Start after it
+    // is a FAILED automatic resume — the product regression this proof exists to catch — and reporting
+    // it as `recordingAlreadyStarted: false` let the consumer press Start a second time and pass.
+    //
+    // So wait (Consultant condition on `76876df3`: a terminal outcome, never a snapshot — `mic-start`
+    // is briefly rendered-but-disabled before the recorder replaces it) for the running take alone, and
+    // otherwise fail with the named status and the content-safe precondition snapshot. Nothing here, and
+    // nothing after it, may press Start: the journey ends in setup. The WARM path (no setup click)
+    // returned above; there an enabled Start is correct and `startBenchmarkRecording` presses it once.
+    const runningTake = page.getByTestId(RECORDER_STOP);
+    try {
+        await expect(runningTake, 'the cold press must start the take').toBeVisible({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'setup-ready-cold-start-did-not-record');
+        throw new Error(
+            `INVALID_SETUP COLD_START_DID_NOT_RECORD state 'ready' after the one cold press, but no take is running ` +
+            `(an idle Start here is a failed automatic resume, never a second press)\n` +
+            `${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`
+        );
+    }
+    const recordingAlreadyStarted = true;
+    await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_READY_TAKE_RUNNING');
+    return { recordingAlreadyStarted };
 }
 
 /**
@@ -697,6 +748,20 @@ export async function expectBenchmarkRecordingStarted(page: Page, label: string)
  * instead of consuming the model budget.
  */
 export async function startBenchmarkRecording(page: Page, label: string): Promise<void> {
+    // #1416 — THE TAKE MAY ALREADY BE RUNNING, BECAUSE SETUP STARTED IT.
+    //
+    // `preparePrivateModelIfPrompted` presses the cold control, and since #1415/#1416 that single
+    // activation consents, downloads AND records. So on a first-run account the take is already
+    // running by the time this is called, `RecorderBar` has replaced `MicCard`, and the start control
+    // this resolves from `data-model-status` no longer exists.
+    //
+    // Pressing anything here would be the worse outcome: a SECOND session row, which corrupts exactly
+    // the count the three-session retention proof exists to measure. Every caller of this helper is
+    // covered by this one check, so no spec has to remember the rule.
+    if ((await page.getByTestId(RECORDER_STOP).count()) > 0) {
+        await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_FROM_SETUP`);
+        return;
+    }
     const status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
     const control = micControlFor(status);
     if (control === null) {

@@ -6,8 +6,8 @@ import {
     expectBenchmarkDraftActivity,
     expectBenchmarkRecordingStarted,
     expectFinalizedTranscriptOutput,
-    expectMicControlForState,
     preparePrivateModelIfPrompted,
+    startBenchmarkRecording,
     selectBenchmarkMode,
     stopBenchmarkRecording,
     waitForBenchmarkSaveCandidate,
@@ -410,39 +410,12 @@ test.describe('#1306 three-session newest-one retention production proof @live',
             await page.getByTestId('practice-card-freeform').click();
             await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
             await selectBenchmarkMode(page, 'private');
-            // CTA EVIDENCE. The closure contract requires the ACTUAL customer path, so record the
-            // model status IMMEDIATELY BEFORE and AFTER the setup CTA. Attempt 4 showed
-            // BUTTON_VISIBLE -> CLICKED -> FORCE_CLICK_RETRY x2 and then a 25-minute stall, which says
-            // the click landed but acquisition never progressed. A before/after pair around the CTA
-            // separates "the click did nothing" from "the click started work that then failed" —
-            // a distinction the phase markers alone could not make.
-            const statusBeforeCta = await page.evaluate(
-                () => document.documentElement.getAttribute('data-model-status'),
-            ).catch(() => null);
-            const ctaRequired = statusBeforeCta === 'download-required';
-
-            // The acquisition diagnosis must survive a stall here, which is exactly where attempt 4 died.
-            try {
-                await preparePrivateModelIfPrompted(page, 600_000);
-            } catch (err) {
-                await emitModelDiagnosis(`${label}:model-prepare-FAILED:ctaRequired=${ctaRequired}:before=${statusBeforeCta}`);
-                throw err;
-            }
-            const statusAfterCta = await page.evaluate(
-                () => document.documentElement.getAttribute('data-model-status'),
-            ).catch(() => null);
-            await emitModelDiagnosis(`${label}:model-prepare-ok:before=${statusBeforeCta}:after=${statusAfterCta}`);
-
-            // When setup WAS required, the CTA must have moved the status off download-required.
-            // Otherwise the customer-visible outcome is a button that does nothing — which is exactly
-            // what the un-`.catch`ed acquisition call sites would produce.
-            if (ctaRequired) {
-                expect(statusAfterCta,
-                    `the setup CTA must move the model off download-required; it stayed at ${String(statusAfterCta)}`,
-                ).not.toBe('download-required');
-            }
-            await assertPreStartMode(page, 'private');
-
+            // BEFORE THE SETUP PRESS (Codex P1 on eaa4d1d3). On a cold account that press IS the take —
+            // it consents, downloads AND records — so a gate placed after it would verify the budget of a
+            // production recording already under way. The check it reads is the page-load
+            // `check-usage-limit` query (useUsageLimit, staleTime 0), which lands on this navigation,
+            // before any press.
+            //
             // ENTITLEMENT GATE, re-evaluated before EVERY recording from the same server authority.
             // `can_start` is checked again ahead of recordings 2 and 3 because a mid-run entitlement
             // change (trial expiry, quota exhaustion) would otherwise surface as an unexplained
@@ -468,13 +441,55 @@ test.describe('#1306 three-session newest-one retention production proof @live',
                 ).toBe(true);
             }
 
+            // CTA EVIDENCE. The closure contract requires the ACTUAL customer path, so record the
+            // model status IMMEDIATELY BEFORE and AFTER the setup CTA. Attempt 4 showed
+            // BUTTON_VISIBLE -> CLICKED -> FORCE_CLICK_RETRY x2 and then a 25-minute stall, which says
+            // the click landed but acquisition never progressed. A before/after pair around the CTA
+            // separates "the click did nothing" from "the click started work that then failed" —
+            // a distinction the phase markers alone could not make.
+            const statusBeforeCta = await page.evaluate(
+                () => document.documentElement.getAttribute('data-model-status'),
+            ).catch(() => null);
+            const ctaRequired = statusBeforeCta === 'download-required';
+
+            // The acquisition diagnosis must survive a stall here, which is exactly where attempt 4 died.
+            let setup: Awaited<ReturnType<typeof preparePrivateModelIfPrompted>>;
+            try {
+                setup = await preparePrivateModelIfPrompted(page, 600_000);
+            } catch (err) {
+                await emitModelDiagnosis(`${label}:model-prepare-FAILED:ctaRequired=${ctaRequired}:before=${statusBeforeCta}`);
+                throw err;
+            }
+            const statusAfterCta = await page.evaluate(
+                () => document.documentElement.getAttribute('data-model-status'),
+            ).catch(() => null);
+            await emitModelDiagnosis(`${label}:model-prepare-ok:before=${statusBeforeCta}:after=${statusAfterCta}`);
+
+            // When setup WAS required, the CTA must have moved the status off download-required.
+            // Otherwise the customer-visible outcome is a button that does nothing — which is exactly
+            // what the un-`.catch`ed acquisition call sites would produce.
+            if (ctaRequired) {
+                expect(statusAfterCta,
+                    `the setup CTA must move the model off download-required; it stayed at ${String(statusAfterCta)}`,
+                ).not.toBe('download-required');
+            }
+            // The cold press may already be the take (#1519, Codex P1 on 1e5420e8).
+            await assertPreStartMode(page, 'private', { takeAlreadyRunning: setup.recordingAlreadyStarted });
+
             // DESKTOP STATE JOURNEY. start and stop are SPLIT controls in different rendered states —
             // MicCard's `mic-start` in `before`, RecorderBar's `recorder-stop` in `during`. There is no
             // combined toggle: `session-start-stop-button` is rendered by nothing on any viewport
             // (MobileActionBar renders the SUFFIXED `-mobile` id), which is why clicking it burned all
             // 40 minutes of attempt 5's budget without ever invoking acquisition.
-            const startControl = await expectMicControlForState(page, 'ready');
-            await startControl.click();
+            // #1519 P1 (Codex + PM RETURN on 85d30695) — THE COLD PRESS MAY ALREADY BE THE TAKE.
+            //
+            // Demanding a ready-state control here contradicted the very change this PR makes:
+            // `preparePrivateModelIfPrompted` can return with the take already running (#1415/#1416
+            // made the cold press consent + download + record), and then `mic-start` correctly no
+            // longer exists. `startBenchmarkRecording` is the one place that knows this — it returns
+            // without pressing when the recorder is up, so a SECOND session row can never be written
+            // into the count this proof exists to measure.
+            await startBenchmarkRecording(page, label);
             await expectBenchmarkRecordingStarted(page, label);
 
             // PHASE CONTRACT. The transcript has TWO distinct lifecycle phases and one assertion cannot

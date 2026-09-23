@@ -4,7 +4,7 @@
 import { test } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, logBenchmarkPhase, waitForBenchmarkSaveCandidate, attachPrivateBenchmarkEvidence } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, startBenchmarkRecording, stopBenchmarkRecording, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, logBenchmarkPhase, waitForBenchmarkSaveCandidate, attachPrivateBenchmarkEvidence } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 const HARVARD_BENCHMARK_AUDIO_MS = 34_600;
@@ -69,7 +69,11 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     // Ensure the Private engine/model is downloaded and fully initialized BEFORE starting.
     await preparePrivateModelIfPrompted(page, 90_000);
 
-    await page.getByTestId('session-start-stop-button').click();
+    // #1519 P1 — `session-start-stop-button` is the RETIRED combined toggle: nothing renders it on any
+    // viewport, so this click never started anything, and after a cold setup press the take is already
+    // running anyway. `startBenchmarkRecording` presses only the control the CURRENT state renders, and
+    // presses nothing when setup already started the take (one click, one session).
+    await startBenchmarkRecording(page, 'private-cpu');
     const recordingStartedAt = Date.now();
     await expectBenchmarkRecordingStarted(page, 'private-cpu');
 
@@ -84,8 +88,9 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     await page.waitForTimeout(Math.max(0, HARVARD_BENCHMARK_AUDIO_MS + AUDIO_COMPLETION_MARGIN_MS - elapsedSinceStartMs));
 
     // Stop and collect transcript
-    await page.getByTestId('session-start-stop-button').click();
-    await logBenchmarkPhase(page, 'PROOF_JOURNEY_STOP_CLICKED_PRIVATE_CPU');
+    // Stop is a SPLIT control too: RecorderBar's `recorder-stop`, which this helper waits on and then
+    // proves the recorder bar actually went away — a stop that did not stop is not a stop.
+    await stopBenchmarkRecording(page, 'private-cpu');
     const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-cpu');
     const transcriptText = (saveCandidate.selectedForSave ?? '')
         .toLowerCase()
