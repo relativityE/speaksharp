@@ -37,6 +37,7 @@
  * every owner and blocks migration, exactly as a corrupt queue always has.
  */
 import logger from '@/lib/logger';
+import { publishV1CompatSignal } from './progressQueueV1Compat';
 
 /**
  * #1354: the SINGLE definition of the v1 aggregate key (still read for compatibility, and still what a tab running
@@ -411,8 +412,8 @@ export function enqueueProgressReconcile(sessionId: string, userId: string, nowI
     if (!migrated.ok) return migrated;
     const own = readOwnEntry(userId, sessionId);
     if (!own.ok) return { ok: false, failure: own.failure };
-    // Already queued is a durable success: the debt is recorded, which is all `queued` claims.
-    if (own.entry) return { ok: true, verified: true };
+    // Already queued is a durable v2 success; the old readers' signal must still be in place for it to verify.
+    if (own.entry) return publishV1CompatSignal(V1_KEY, own.entry);
     const fresh: QueueEntry = { sessionId, userId, enqueuedAtIso: nowIso };
     // A tombstone that would retire THIS new obligation (same stamp, or a clock that moved backwards) is removed first.
     // A stale v1 copy it was guarding carries the same session and a stamp no newer, so it is this same obligation.
@@ -422,7 +423,11 @@ export function enqueueProgressReconcile(sessionId: string, userId: string, nowI
         const removed = removeVerified(tombKey(userId, sessionId));
         if (!removed.ok) return removed;
     }
-    return writeEntryMonotonic(fresh, () => true);
+    const written = writeEntryMonotonic(fresh, () => true);
+    if (!written.ok) return written;
+    // TEMPORARY (#1476 option a): pre-upgrade tabs read only v1, so the obligation is also published there and
+    // verified. v2 above is authoritative; an unverified signal means this enqueue is not verified either.
+    return publishV1CompatSignal(V1_KEY, fresh);
 }
 
 /** The session ids queued for THIS user (owner-scoped — never drains another account's entries). */
