@@ -81,6 +81,23 @@ describe('three-session production proof — assertion contract', () => {
     expect(SPEC).toMatch(/can_start/);
   });
 
+  it('CASUALTY (Codex P1 on eaa4d1d3): the entitlement verdict precedes the cold press that may start the take', () => {
+    // On a cold account the setup press IS the take: it consents, downloads AND records. A gate that
+    // runs after it verifies the budget of a production recording that has already begun, and an
+    // account with room for one take but not three would record, throw, and skip the stop/save path.
+    const body = SPEC.slice(SPEC.indexOf('const recordOneSession = async'));
+    expect(body.length, 'recordOneSession must be locatable').toBeGreaterThan(0);
+    const at = (needle) => {
+      const i = body.indexOf(needle);
+      expect(i, `${needle} must appear in recordOneSession`).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+    const press = at('await preparePrivateModelIfPrompted(');
+    for (const gate of ['usageChecks.length, {', 'usage.can_start', 'evaluateThreeRecordingEntitlement(']) {
+      expect(at(gate), `${gate} must run BEFORE the cold setup press`).toBeLessThan(press);
+    }
+  });
+
   it('cleanup emits an explicit machine-readable verdict only after residue is verified', () => {
     expect(CLEANUP).toMatch(/cleanup_verified/);
     expect(CLEANUP).toMatch(/cleanup_not_required/);

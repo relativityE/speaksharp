@@ -410,6 +410,37 @@ test.describe('#1306 three-session newest-one retention production proof @live',
             await page.getByTestId('practice-card-freeform').click();
             await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
             await selectBenchmarkMode(page, 'private');
+            // BEFORE THE SETUP PRESS (Codex P1 on eaa4d1d3). On a cold account that press IS the take —
+            // it consents, downloads AND records — so a gate placed after it would verify the budget of a
+            // production recording already under way. The check it reads is the page-load
+            // `check-usage-limit` query (useUsageLimit, staleTime 0), which lands on this navigation,
+            // before any press.
+            //
+            // ENTITLEMENT GATE, re-evaluated before EVERY recording from the same server authority.
+            // `can_start` is checked again ahead of recordings 2 and 3 because a mid-run entitlement
+            // change (trial expiry, quota exhaustion) would otherwise surface as an unexplained
+            // recording failure after the run had already written to production.
+            await expect.poll(() => usageChecks.length, {
+                timeout: 45_000,
+                message: `no check-usage-limit response observed before ${label} — the entitlement gate proves nothing`,
+            }).toBeGreaterThan(seenBefore);
+            const usage = usageChecks[usageChecks.length - 1];
+            expect(usage.can_start, `server authority must allow starting ${label}`).toBe(true);
+            if (ordinal === 1) {
+                // Headroom for ALL THREE bounded recordings, not merely for this one. `can_start` alone
+                // is a per-start verdict and would happily allow recording 1 on an account that cannot
+                // finish the journey.
+                // TRIAL HEADROOM FAILS CLOSED — the decision itself lives in entitlementAuthority.ts
+                // so every rejection path (short budget, missing field, non-numeric field, trial that
+                // also reports pro, neither trial nor pro) is falsified by unit tests rather than only
+                // by a live production run.
+                const verdict = evaluateThreeRecordingEntitlement(usage, THREE_RECORDING_BUDGET_SECONDS);
+                expect(verdict.ok,
+                    `entitlement must cover THREE bounded recordings before recording 1 ` +
+                    `(${'reason' in verdict ? verdict.reason : 'ok'})`,
+                ).toBe(true);
+            }
+
             // CTA EVIDENCE. The closure contract requires the ACTUAL customer path, so record the
             // model status IMMEDIATELY BEFORE and AFTER the setup CTA. Attempt 4 showed
             // BUTTON_VISIBLE -> CLICKED -> FORCE_CLICK_RETRY x2 and then a 25-minute stall, which says
@@ -444,31 +475,6 @@ test.describe('#1306 three-session newest-one retention production proof @live',
             }
             // The cold press may already be the take (#1519, Codex P1 on 1e5420e8).
             await assertPreStartMode(page, 'private', { takeAlreadyRunning: setup.recordingAlreadyStarted });
-
-            // ENTITLEMENT GATE, re-evaluated before EVERY recording from the same server authority.
-            // `can_start` is checked again ahead of recordings 2 and 3 because a mid-run entitlement
-            // change (trial expiry, quota exhaustion) would otherwise surface as an unexplained
-            // recording failure after the run had already written to production.
-            await expect.poll(() => usageChecks.length, {
-                timeout: 45_000,
-                message: `no check-usage-limit response observed before ${label} — the entitlement gate proves nothing`,
-            }).toBeGreaterThan(seenBefore);
-            const usage = usageChecks[usageChecks.length - 1];
-            expect(usage.can_start, `server authority must allow starting ${label}`).toBe(true);
-            if (ordinal === 1) {
-                // Headroom for ALL THREE bounded recordings, not merely for this one. `can_start` alone
-                // is a per-start verdict and would happily allow recording 1 on an account that cannot
-                // finish the journey.
-                // TRIAL HEADROOM FAILS CLOSED — the decision itself lives in entitlementAuthority.ts
-                // so every rejection path (short budget, missing field, non-numeric field, trial that
-                // also reports pro, neither trial nor pro) is falsified by unit tests rather than only
-                // by a live production run.
-                const verdict = evaluateThreeRecordingEntitlement(usage, THREE_RECORDING_BUDGET_SECONDS);
-                expect(verdict.ok,
-                    `entitlement must cover THREE bounded recordings before recording 1 ` +
-                    `(${'reason' in verdict ? verdict.reason : 'ok'})`,
-                ).toBe(true);
-            }
 
             // DESKTOP STATE JOURNEY. start and stop are SPLIT controls in different rendered states —
             // MicCard's `mic-start` in `before`, RecorderBar's `recorder-stop` in `during`. There is no
