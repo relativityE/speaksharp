@@ -1,3 +1,4 @@
+import { LEASE_NOT_HELD_MESSAGE } from './recordingLeasePolicy';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
 import logger from '@/lib/logger';
@@ -950,6 +951,8 @@ export class SpeechRuntimeController {
      *  failure than an attribution-only miss (the transcript row itself is not persisted). Stashed so Retry
      *  Save re-runs the ACTUAL failed op — completeSession THEN the attribution write — for the SAME session,
      *  never a duplicate. Distinct from pendingAttributionRetry so each resolution retries only what failed. */
+    /** #1476: the owner whose durable draft armed the current recovery (null when it came from this page's own take). */
+    private rehydratedFor: string | null = null;
     private pendingFullSaveRetry: {
         /** null when the session ROW DOES NOT EXIST YET (pre-session window) — see `initialSave`. */
         sessionId: string | null;
@@ -1559,9 +1562,28 @@ export class SpeechRuntimeController {
             // Progress must remain unavailable rather than writing an immutable partial evaluation.
             progressMetrics: { payload: null, persisted: false },
         };
+        this.rehydratedFor = userId ?? null;
         this.publishLockState();
         logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated FINALIZED unresolved recording for same user (#1306/#1033 C)');
         return true;
+    }
+
+    /**
+     * #1476 Codex P1 on 4a5f0798 — OWNER FENCE for rehydrated recovery. The controller is a singleton: account A's
+     * rehydrated Retry Save kept it locked after the page switched to account B, and B could neither record nor resolve
+     * A's session under owner-scoped persistence. On an account change the departing owner's IN-MEMORY recovery state is
+     * retired here; A's DURABLE draft is untouched, so A returning rehydrates it again. A take that is recording or
+     * stopping is never touched, and a different owner's state never is.
+     */
+    public retireRehydratedRecoveryFor(userId: string | null | undefined): void {
+        if (!userId || this.rehydratedFor !== userId) return;
+        if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) return;
+        this.rehydratedFor = null;
+        this.pendingFullSaveRetry = null;
+        this.recordingStartedUnresolved = false;
+        this.sessionId = null;
+        this.publishLockState();
+        logger.info('[controller] retired the previous owner\'s rehydrated recovery on account change (#1476)');
     }
 
     /** Closed allowlist of engine tokens eligible for a VERIFIED attribution. Anything else → unverified. */
@@ -4301,7 +4323,9 @@ export class SpeechRuntimeController {
                     if (saveResult.status === 'usage_exceeded') {
                         throw new Error(`Usage limit exceeded${saveResult.error ? `: ${saveResult.error}` : ''}`);
                     }
-                    if (saveResult.status === 'failed') throw new Error('Session save failed');
+                    if (saveResult.status === 'failed') {
+                        throw new Error(saveResult.reason === 'lease_not_held' ? LEASE_NOT_HELD_MESSAGE : 'Session save failed');
+                    }
                     const dbSession = saveResult.session;
 
                     // `saveSession` is the second real suspension point, and the mutations below are the
@@ -4810,7 +4834,9 @@ export class SpeechRuntimeController {
                             if (saveResult.status === 'usage_exceeded') {
                                 throw new Error(`Usage limit exceeded${saveResult.error ? `: ${saveResult.error}` : ''}`);
                             }
-                            if (saveResult.status === 'failed') throw new Error('Session save failed');
+                            if (saveResult.status === 'failed') {
+                                throw new Error(saveResult.reason === 'lease_not_held' ? LEASE_NOT_HELD_MESSAGE : 'Session save failed');
+                            }
                             sessionId = saveResult.session.id;
                             // A's late session-create must not become B's controller session.
                             this.publishIfStopOwner(stopAuthority, token, 'late_session_id', () => {

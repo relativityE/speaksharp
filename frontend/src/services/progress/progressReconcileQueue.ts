@@ -37,7 +37,6 @@
  * every owner and blocks migration, exactly as a corrupt queue always has.
  */
 import logger from '@/lib/logger';
-import { publishV1CompatSignal } from './progressQueueV1Compat';
 
 /**
  * #1354: the SINGLE definition of the v1 aggregate key (still read for compatibility, and still what a tab running
@@ -412,8 +411,8 @@ export function enqueueProgressReconcile(sessionId: string, userId: string, nowI
     if (!migrated.ok) return migrated;
     const own = readOwnEntry(userId, sessionId);
     if (!own.ok) return { ok: false, failure: own.failure };
-    // Already queued is a durable v2 success; the old readers' signal must still be in place for it to verify.
-    if (own.entry) return publishV1CompatSignal(V1_KEY, liveV2Obligations);
+    // Already queued is a durable success: the debt is recorded, which is all `queued` claims.
+    if (own.entry) return { ok: true, verified: true };
     const fresh: QueueEntry = { sessionId, userId, enqueuedAtIso: nowIso };
     // A tombstone that would retire THIS new obligation (same stamp, or a clock that moved backwards) is removed first.
     // A stale v1 copy it was guarding carries the same session and a stamp no newer, so it is this same obligation.
@@ -423,18 +422,10 @@ export function enqueueProgressReconcile(sessionId: string, userId: string, nowI
         const removed = removeVerified(tombKey(userId, sessionId));
         if (!removed.ok) return removed;
     }
-    const written = writeEntryMonotonic(fresh, () => true);
-    if (!written.ok) return written;
-    // TEMPORARY (#1476 option a): pre-upgrade tabs read only v1, so the obligation is also published there and
-    // verified. v2 above is authoritative; an unverified signal means this enqueue is not verified either.
-    return publishV1CompatSignal(V1_KEY, liveV2Obligations);
-}
-
-/** Every live (unretired) v2 obligation, all owners, read FRESH — the union the v1 compatibility signal must carry. */
-function liveV2Obligations(): QueueEntry[] | null {
-    const s = takeSnapshot();
-    if (!s.ok) return null;
-    return [...s.snap.entries.entries()].filter(([k, e]) => !retiredBy(e, s.snap.tombs.get(k))).map(([, e]) => e);
+    // #1476: v2 (this browser) is the queue. Cross-device and cross-version truth is the SERVER's
+    // (`get_progress_obligations`), not a shared v1 array: an old tab's later v1 write can erase any signal published
+    // there, so no v1 compatibility write is made or claimed.
+    return writeEntryMonotonic(fresh, () => true);
 }
 
 /** The session ids queued for THIS user (owner-scoped — never drains another account's entries). */
@@ -460,7 +451,17 @@ export function clearProgressReconcileEntry(sessionId: string, userId: string): 
     const entry = viewOf(s.snap, userId).find((e) => e.sessionId === sessionId);
     const stored = s.snap.entries.get(k);
     if (!entry && !stored) return { ok: true, verified: true }; // nothing to remove
-    const stamp = laterIso(entry?.enqueuedAtIso ?? stored?.enqueuedAtIso, s.snap.tombs.get(k)?.clearedThroughIso) as string;
+    let stamp = laterIso(entry?.enqueuedAtIso ?? stored?.enqueuedAtIso, s.snap.tombs.get(k)?.clearedThroughIso) as string;
+    // Codex P2 on 4a5f0798 — A TOMBSTONE ONLY MOVES FORWARD. The stamp above comes from the snapshot; another tab may
+    // have written a NEWER tombstone since (it cleared a newer obligation for this pair). Re-read immediately before
+    // writing and never lower it, or that resolved newer obligation would be resurrected under an older stamp.
+    try {
+        const rawTomb = localStorage.getItem(tombKey(userId, sessionId));
+        const current: unknown = rawTomb === null ? undefined : JSON.parse(rawTomb);
+        if (validTomb(current) && current.userId === userId && current.sessionId === sessionId) {
+            stamp = laterIso(stamp, current.clearedThroughIso) as string;
+        }
+    } catch { /* an unreadable tombstone is overwritten only by the verified write below */ }
     const tomb: Tombstone = { sessionId, userId, clearedThroughIso: stamp };
     const tombWritten = setVerified(tombKey(userId, sessionId), tomb, () => {
         try {

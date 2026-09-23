@@ -2781,3 +2781,49 @@ describe('SpeechRuntimeController — Private-only policy-writer convergence', (
         expect(readPolicy().allowPrivate).toBe(true);
     });
 });
+
+/**
+ * #1476 Codex P1 on 4a5f0798 (useUnresolvedRecovery.ts:58) — an account switch must retire the PREVIOUS owner's
+ * rehydrated recovery state from the singleton controller. Otherwise account B's Start is locked behind account A's
+ * Retry Save, which B cannot resolve under owner-scoped persistence. A's DURABLE draft stays for A's return.
+ */
+describe('SpeechRuntimeController — rehydrated recovery is owner-fenced (#1476)', () => {
+    let controller: SpeechRuntimeController;
+    beforeEach(async () => {
+        window.localStorage.clear();
+        controller = SpeechRuntimeController.getInstance();
+        // The controller is a singleton: start each case from a clean, idle recovery state.
+        const c = controller as unknown as Record<string, unknown>;
+        c.state = 'IDLE';
+        c.pendingFullSaveRetry = null;
+        c.pendingAttributionRetry = null;
+        c.recordingStartedUnresolved = false;
+        c.sessionId = null;
+        c.rehydratedFor = null;
+        const draft = await import('../sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({
+            sessionId: 'sess-A', userId: 'user-A', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+            metrics: { totalWords: 40 },
+            nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+        });
+    });
+
+    it('CASUALTY: retiring the departing owner unlocks the controller and drops the retry, keeping the durable draft', async () => {
+        expect(controller.rehydrateUnresolvedRecording('user-A')).toBe(true);
+        expect(controller.isEngineSelectionLocked(), 'precondition: A\'s retry locks the engine').toBe(true);
+
+        controller.retireRehydratedRecoveryFor('user-A');
+        expect(controller.isEngineSelectionLocked(), 'B is not held behind A\'s save').toBe(false);
+        expect(controller.pendingResolutionKind()).toBeNull();
+        const draft = await import('../sessionRecoveryDraft');
+        expect(draft.getRecoverableDraftForUser('user-A')?.sessionId, 'A keeps its durable draft for its return').toBe('sess-A');
+        expect(controller.rehydrateUnresolvedRecording('user-A'), 'A returning re-arms it').toBe(true);
+    });
+
+    it('CONTROL: retiring a DIFFERENT owner never touches this owner\'s rehydrated retry', () => {
+        expect(controller.rehydrateUnresolvedRecording('user-A')).toBe(true);
+        controller.retireRehydratedRecoveryFor('user-B');
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        expect(controller.pendingResolutionKind()).toBe('full_save');
+    });
+});

@@ -19,6 +19,7 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
             seenAtRehydrate.push({ userId, draftSessionId: getRecoverableDraftForUser(userId)?.sessionId ?? null });
             return true;
         },
+        retireRehydratedRecoveryFor: () => undefined,
     },
 }));
 

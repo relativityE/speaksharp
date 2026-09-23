@@ -255,6 +255,20 @@ export const createMockSupabase = () => {
                 return Promise.resolve({ data: { success: true }, error: null });
             }
 
+            // #1476 account-wide recording lease (single device) and server-owned Progress obligations (none).
+            if (fn === 'acquire_recording_lease') {
+                return Promise.resolve({ data: { acquired: true, took_over: false }, error: null });
+            }
+            if (fn === 'heartbeat_recording_lease') {
+                return Promise.resolve({ data: { valid: true }, error: null });
+            }
+            if (fn === 'release_recording_lease') {
+                return Promise.resolve({ data: { released: true }, error: null });
+            }
+            if (fn === 'get_progress_obligations') {
+                return Promise.resolve({ data: [], error: null });
+            }
+
             return Promise.resolve({ data: null, error: { message: `Unsupported mock RPC: ${fn}` } });
         },
         from: (table: string) => ({

@@ -35,7 +35,8 @@ export function interpretAcquireResult(result: AcquireLeaseResult | null | undef
             holderLabel,
             startedAt: result.started_at ?? null,
             // Friendly, no raw ids; offers the take-over path. Default action (no choice) = stay blocked.
-            message: `You are already recording on ${holderLabel}. Stop it there, or take over on this device.`,
+            // #1476: a second Start while this notice shows is the explicit take-over (no hidden default).
+            message: `A recording is active on ${holderLabel}. Stop it there, or press Start again to take over here.`,
         };
     }
     if (result.reason === 'unauthenticated') {
@@ -63,3 +64,14 @@ export function buildHolderLabel(platform?: string): string {
     const p = (platform ?? (typeof navigator !== 'undefined' ? navigator.platform : '') ?? '').trim();
     return p ? `this browser on ${p}` : 'this browser';
 }
+
+/**
+ * #1476: the server refused this take's session because another device holds the account's lease (it took over
+ * between this device's acquire and its create). Starts with "Recording could not start" so the controller surfaces it.
+ */
+export const LEASE_NOT_HELD_MESSAGE =
+    'Recording could not start: another device is recording on this account. Press Start again to take over here.';
+
+/** #1476: this device's take was displaced — another device took over the account's one engine. */
+export const LEASE_REVOKED_MESSAGE =
+    'This recording stopped because another device took over. Your take here was kept for recovery.';

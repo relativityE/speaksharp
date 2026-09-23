@@ -38,6 +38,8 @@ import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthorit
 import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
 import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
+import { acquireTakeLease, releaseTakeLease, startLeaseHeartbeat } from '@/services/recordingLease';
+import { LEASE_REVOKED_MESSAGE } from '@/services/recordingLeasePolicy';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
     beginSessionReviewLatency,
@@ -72,6 +74,9 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
  * is visible, the profile is STT-ready, a mode is selected, we are not recording, and the engine was reclaimed
  * to a clean idle/needs-load state (never mid-record, never for a still-ready foreground-preserved engine).
  */
+
+/** #1476: how long a refused Start stays armed as an explicit take-over (the user's second press). */
+const TAKEOVER_WINDOW_MS = 60_000;
 export function shouldReloadSttOnForegroundReturn(params: {
     visibilityState: DocumentVisibilityState;
     profileReadyForStt: boolean;
@@ -138,6 +143,13 @@ export const useSessionLifecycle = () => {
 
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const isProcessingRef = useRef(false);
+    /**
+     * #1476 take-over gesture: after a Start is refused because another device holds the account's one engine, a
+     * second Start within this window is the explicit "take over here". Never armed by default.
+     */
+    const takeoverArmedUntilRef = useRef(0);
+    /** #1476: set once the current take reaches RECORDING, so the lease is released when that take ends by any path. */
+    const takeReachedRecordingRef = useRef(false);
     const isMounted = useRef(false);
     const reviewLatencyRef = useRef<SessionLatencyMeasurement<SessionReviewOutcome> | null>(null);
 
@@ -573,6 +585,25 @@ export const useSessionLifecycle = () => {
                     return;
                 }
 
+                // #1476 — ONE ACCOUNT, ONE AUTHORIZED ENGINE. Acquire the account-wide lease BEFORE any engine
+                // preparation (a cold Start downloads first, and the controller resumes the held take afterwards — the
+                // lease covers both). Another live device BLOCKS with truthful copy; pressing Start again while that
+                // notice shows is the explicit take-over. An unanswerable authority fails closed.
+                const takeover = takeoverArmedUntilRef.current > Date.now();
+                takeoverArmedUntilRef.current = 0;
+                const lease = await acquireTakeLease({ force: takeover });
+                if (lease.action !== 'start') {
+                    if (lease.action === 'blocked') takeoverArmedUntilRef.current = Date.now() + TAKEOVER_WINDOW_MS;
+                    setSTTStatus({ type: 'error', message: lease.message });
+                    reportIntent('blocked_lock_held');
+                    return;
+                }
+                startLeaseHeartbeat(() => {
+                    // Displaced: the server now refuses this take's writes. Stop, and say what happened.
+                    setSTTStatus({ type: 'error', message: LEASE_REVOKED_MESSAGE });
+                    void speechRuntimeController.stopRecording();
+                });
+
                 const currentRuntimeState = useSessionStore.getState().runtimeState;
                 if (currentRuntimeState === 'ENGINE_INITIALIZING' || currentRuntimeState === 'INITIATING') {
                     await speechRuntimeController.whenStable();
@@ -625,11 +656,13 @@ export const useSessionLifecycle = () => {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                     if (speechRuntimeController.getState() !== 'RECORDING') {
                         startLatency.settle('refused');
+                        void releaseTakeLease(); // #1476: a take that never started holds no engine
                         return;
                     }
                     startLatency.settle('recording_started');
                 } catch (error) {
                     startLatency.settle('failed');
+                    void releaseTakeLease();
                     throw error;
                 }
                 analyticsBuffer.push('session_started', {
@@ -997,6 +1030,20 @@ export const useSessionLifecycle = () => {
         document.addEventListener('visibilitychange', onVisibilityChange);
         return () => document.removeEventListener('visibilitychange', onVisibilityChange);
     }, [profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate, setSTTStatus]);
+
+    /*
+     * #1476 — a take that reached RECORDING releases the account's lease when it ends by ANY path: Stop and its save,
+     * a too-short discard, an engine or microphone failure, teardown. Releasing marks the take as ended normally, so its
+     * save or Retry Save is still accepted after another device starts. STOPPING is still the take.
+     */
+    const leaseRuntimeState = useSessionStore((state) => state.runtimeState);
+    useEffect(() => {
+        if (leaseRuntimeState === 'RECORDING') { takeReachedRecordingRef.current = true; return; }
+        if (takeReachedRecordingRef.current && leaseRuntimeState !== 'STOPPING') {
+            takeReachedRecordingRef.current = false;
+            void releaseTakeLease();
+        }
+    }, [leaseRuntimeState]);
 
     // UI Cleanup on unmount
     // We ONLY detach listeners (subscriber_unmount) to handle React remounts.

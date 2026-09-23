@@ -755,6 +755,20 @@ export async function setupE2EManifest(
         if (fn === 'heartbeat_session') {
           return { data: { success: true }, error: null };
         }
+        // #1476 account-wide recording lease: a single device holds it. Multi-device fencing is proven against real
+        // PostgreSQL (tests/db/one-active-engine-1476.integration.test.ts), not by this double.
+        if (fn === 'acquire_recording_lease') {
+          return { data: { acquired: true, took_over: false }, error: null };
+        }
+        if (fn === 'heartbeat_recording_lease') {
+          return { data: { valid: true }, error: null };
+        }
+        if (fn === 'release_recording_lease') {
+          return { data: { released: true }, error: null };
+        }
+        if (fn === 'get_progress_obligations') {
+          return { data: [], error: null };
+        }
         // #1264 — accepting "Practice this next": the RPC returns the new pending attempt id (a string),
         // which the client stores as its repeat handoff before routing back into Open Mic.
         if (fn === 'record_recommendation_attempt') {

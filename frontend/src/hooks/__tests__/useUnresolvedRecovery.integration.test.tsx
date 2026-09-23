@@ -17,8 +17,13 @@ import { useSessionStore } from '@/stores/useSessionStore';
 // banner state clears); when a transcript is already on screen it KEEPS the draft for a manual
 // restore/dismiss banner. Tests set transcriptContent accordingly.
 const rehydrate = vi.fn();
+const retire = vi.fn();
 vi.mock('@/services/SpeechRuntimeController', () => ({
-    speechRuntimeController: { rehydrateUnresolvedRecording: (uid: string) => rehydrate(uid) },
+    speechRuntimeController: {
+        rehydrateUnresolvedRecording: (uid: string) => rehydrate(uid),
+        // #1476: an account change retires the departing owner's rehydrated state (its durable draft stays).
+        retireRehydratedRecoveryFor: (uid: string) => retire(uid),
+    },
 }));
 
 const USER_A = 'user-A';

@@ -17,6 +17,20 @@ import { consumeModelComparisonTakeAuthorization } from '@/services/transcriptio
 import { authorizeProduction, resetAuthorization } from '@/services/transcription/__tests__/modelComparisonAuthorization.helper';
 
 // Mock ALL hooks used inside useSessionLifecycle
+// #1476: the account-wide recording lease. Granted by default so these suites exercise the Start flow beyond it;
+// `leaseMock` lets a test script a refusal, a take-over or a revocation.
+const leaseMock = vi.hoisted(() => ({
+    acquire: vi.fn(async (_opts?: { force?: boolean }): Promise<import('@/services/recordingLeasePolicy').LeaseDecision> => ({ action: 'start', tookOver: false })),
+    release: vi.fn(async () => undefined),
+    heartbeat: vi.fn((_onRevoked: () => void) => undefined),
+}));
+vi.mock('@/services/recordingLease', () => ({
+    acquireTakeLease: (opts?: { force?: boolean }) => leaseMock.acquire(opts),
+    releaseTakeLease: () => leaseMock.release(),
+    startLeaseHeartbeat: (onRevoked: () => void) => leaseMock.heartbeat(onRevoked),
+    currentTakeLeaseId: () => null,
+}));
+
 vi.mock('@/hooks/useProfile', () => ({
     useProfile: vi.fn(() => ({
         id: 'test-user',
@@ -1595,5 +1609,92 @@ describe('useSessionLifecycle - foreground-return reload after reclamation (#125
         // A repeat visible event with the SAME token must not retry automatically.
         setVisibility('visible');
         expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+    });
+});
+
+/**
+ * #1476 — ONE ACCOUNT, ONE AUTHORIZED ENGINE: what the user's Start actually does with the account-wide lease.
+ * The server fence is proven in tests/db/one-active-engine-1476.integration.test.ts; these drive the real hook.
+ */
+describe('useSessionLifecycle - one account, one engine (#1476)', () => {
+    const readyStore = () => {
+        const mockStore = createTestSessionStore({ sttMode: 'private', isListening: false, runtimeState: 'READY', elapsedTime: 0, startTime: null });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        return mockStore;
+    };
+    const render = () => renderHook(() => useSessionLifecycle(), {
+        wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+    });
+    const BLOCKED = { action: 'blocked' as const, holderLabel: 'this browser on MacIntel', startedAt: null,
+        message: 'A recording is active on this browser on MacIntel. Stop it there, or press Start again to take over here.' };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        leaseMock.acquire.mockImplementation(async () => ({ action: 'start' as const, tookOver: false }));
+    });
+
+    it('the lease is acquired BEFORE any engine preparation begins', async () => {
+        readyStore();
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(leaseMock.acquire).toHaveBeenCalledTimes(1);
+        expect(speechRuntimeController.startRecording).toHaveBeenCalled();
+        expect(leaseMock.acquire.mock.invocationCallOrder[0])
+            .toBeLessThan(vi.mocked(speechRuntimeController.startRecording).mock.invocationCallOrder[0]);
+        expect(leaseMock.heartbeat).toHaveBeenCalledTimes(1);
+    });
+
+    it('CASUALTY: another live device BLOCKS the Start with truthful copy — no engine starts, nothing is taken over', async () => {
+        const store = readyStore();
+        leaseMock.acquire.mockImplementation(async () => BLOCKED);
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(leaseMock.acquire).toHaveBeenCalledWith({ force: false });
+        expect(store.getState().setSTTStatus).toHaveBeenCalledWith({ type: 'error', message: BLOCKED.message });
+    });
+
+    it('a second Start while that notice shows is the explicit take-over (forced), and only then records', async () => {
+        readyStore();
+        leaseMock.acquire.mockImplementationOnce(async () => BLOCKED);
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(leaseMock.acquire).toHaveBeenLastCalledWith({ force: true });
+        expect(speechRuntimeController.startRecording).toHaveBeenCalled();
+    });
+
+    it('CASUALTY: an unanswerable lease authority FAILS CLOSED — no Start', async () => {
+        const store = readyStore();
+        leaseMock.acquire.mockImplementation(async () => ({ action: 'error' as const, reason: 'no_response', message: 'Could not check your other devices. Please try again.' }));
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(store.getState().setSTTStatus).toHaveBeenCalledWith({ type: 'error', message: 'Could not check your other devices. Please try again.' });
+    });
+
+    it('CASUALTY: when another device takes over, this take stops and says so', async () => {
+        const store = readyStore();
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        const onRevoked = leaseMock.heartbeat.mock.calls[0]?.[0] as (() => void) | undefined;
+        expect(onRevoked, 'a heartbeat was started with a revoke handler').toBeTypeOf('function');
+        await act(async () => { onRevoked?.(); });
+        expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
+        expect(store.getState().setSTTStatus).toHaveBeenCalledWith({
+            type: 'error', message: 'This recording stopped because another device took over. Your take here was kept for recovery.',
+        });
+    });
+
+    it('a Start the controller refuses holds no engine: the lease is released', async () => {
+        readyStore();
+        vi.mocked(speechRuntimeController.getState).mockReturnValue('READY');
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording).toHaveBeenCalled();
+        expect(leaseMock.release).toHaveBeenCalled();
     });
 });

@@ -13,6 +13,20 @@ import type { UserProfile } from '@/types/user';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 // Mock ALL hooks used inside useSessionLifecycle
+// #1476: the account-wide recording lease. Granted by default so these suites exercise the Start flow beyond it;
+// `leaseMock` lets a test script a refusal, a take-over or a revocation.
+const leaseMock = vi.hoisted(() => ({
+    acquire: vi.fn(async (_opts?: { force?: boolean }): Promise<import('@/services/recordingLeasePolicy').LeaseDecision> => ({ action: 'start', tookOver: false })),
+    release: vi.fn(async () => undefined),
+    heartbeat: vi.fn((_onRevoked: () => void) => undefined),
+}));
+vi.mock('@/services/recordingLease', () => ({
+    acquireTakeLease: (opts?: { force?: boolean }) => leaseMock.acquire(opts),
+    releaseTakeLease: () => leaseMock.release(),
+    startLeaseHeartbeat: (onRevoked: () => void) => leaseMock.heartbeat(onRevoked),
+    currentTakeLeaseId: () => null,
+}));
+
 vi.mock('@/hooks/useProfile', () => ({
     useProfile: vi.fn(() => ({
         id: 'test-user',

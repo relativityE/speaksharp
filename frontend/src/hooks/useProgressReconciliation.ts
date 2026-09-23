@@ -4,6 +4,7 @@ import { usePracticeHistory } from './usePracticeHistory';
 import { reconcileProgressEvaluations, type ReconcilableSession } from '../services/progress/recordProgress';
 import { reconstructGateFromQueue, subscribeCrossTabProgressGate } from '../services/progress/progressStartGate';
 import { scheduleProgressDebtRetry } from '../services/progress/progressDebtRetry';
+import { hydrateServerProgressObligations } from '../services/progress/serverProgressObligations';
 import { useSessionStore } from '../stores/useSessionStore';
 import logger from '../lib/logger';
 
@@ -42,6 +43,18 @@ export function useProgressReconciliation(): void {
         // Record WHICH owner this answer belongs to. `''` marks a resolved anonymous visitor, so a
         // signed-out user is not blocked forever, while an account switch invalidates it at once.
         useSessionStore.getState().setProgressGateResolvedFor(userId ?? '');
+    }, [userId]);
+
+    // #1476 — THE SERVER OWNS PER-SESSION OBLIGATIONS. Load them into this device's queue once the owner resolves, so
+    // debt recorded on another device (or erased from this browser by an old tab's v1 write) is owed here too; the
+    // rebuilt gate then runs it through the bounded retry below. Non-fatal: an unavailable server changes nothing.
+    useEffect(() => {
+        if (!userId) return undefined;
+        let current = true;
+        void hydrateServerProgressObligations(userId, new Date().toISOString())
+            .then((r) => { if (current && r.queued > 0) useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId)); })
+            .catch((err) => logger.warn({ err }, '[progress] server obligation load failed (non-fatal)'));
+        return () => { current = false; };
     }, [userId]);
 
     // #1354 CASE 4 — CROSS-TAB. `storage` events reach OTHER tabs, never the writer, so a second

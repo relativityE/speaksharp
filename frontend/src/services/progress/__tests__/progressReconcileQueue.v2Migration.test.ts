@@ -343,95 +343,82 @@ describe('#1476 Codex P1s on 4dd2bbb2 — no v2 delete races', () => {
     });
 });
 
-describe('#1476 Codex P1 on 4dd2bbb2 (line 403) — a still-open PRE-UPGRADE tab sees debt a new tab records', () => {
-    /** The ACTUAL pre-#1476 reader (verbatim from main), loaded as its own tab over the same storage. */
+describe('#1476 — no v1 compatibility claim: the server, not a shared browser array, is cross-version truth', () => {
+    /** The ACTUAL pre-#1476 code (verbatim from main), loaded as its own tab over the same storage. */
     async function openOldTab() {
         vi.resetModules();
         return import('./fixtures/progressReconcileQueue.pre1476');
     }
 
-    it('CONTROL: a v2-era enqueue publishes a v1 signal the old reader sees before Start (empty v1 beforehand)', async () => {
-        const oldTab = await openOldTab();
-        expect(oldTab.getQueueEntriesForUser(OWNER), 'precondition: the old tab sees a clean queue').toEqual({ ok: true, entries: [] });
-
+    it('a v2-era enqueue writes ONLY v2 — v1 is neither created nor rewritten (no unprovable signal is claimed)', async () => {
         const tab = await openTab();
         expect(tab.enqueueProgressReconcile(A, OWNER, T0)).toEqual({ ok: true, verified: true });
+        expect(localStorage.getItem(V1), 'no v1 value is created').toBeNull();
 
-        const seen = (await openOldTab()).getQueueEntriesForUser(OWNER);
-        expect(seen.ok, 'the old reader can read the queue').toBe(true);
-        const pending = seen.ok ? seen.entries.filter((e) => e.sessionId === A && e.releasedAtIso === undefined) : [];
-        expect(pending, 'an unreleased A holds the OLD tab\'s Start too').toHaveLength(1);
+        oldTabWritesV1([{ sessionId: B, userId: OWNER, enqueuedAtIso: T0 }]);
+        const before = localStorage.getItem(V1);
+        expect(tab.enqueueProgressReconcile(C, OWNER, T1).ok).toBe(true);
+        expect(localStorage.getItem(V1), 'an existing v1 value is left exactly as the old tab wrote it').toBe(before);
     });
 
-    it('CASUALTY: if the v1 signal cannot be written, the enqueue is NOT reported verified (v2 debt still recorded)', async () => {
+    it('CASUALTY (the proven old/new race): an old tab\'s later stale v1 write cannot erase a new-client debt', async () => {
+        // The counterexample to any shared-array signal: the old tab composes its v1 write from a stale read, the new
+        // tab records its debt in between, and the old write lands last. The new debt lives in its own v2 key (and on
+        // the server as a per-session obligation), which that write never touches.
+        const oldTab = await openOldTab();
         const tab = await openTab();
         const realSet = Storage.prototype.setItem;
-        const hook = { fired: false };
+        const hook = { fired: false, inNew: false, newResult: undefined as unknown };
         vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-            if (key === V1) { hook.fired = true; throw new Error('quota'); }
-            return realSet.call(this, key, value);
-        });
-        const result = tab.enqueueProgressReconcile(A, OWNER, T0);
-        vi.restoreAllMocks();
-        expect(hook.fired, 'the compatibility write was attempted').toBe(true);
-        expect(result.ok, 'no verified success without the old readers\' signal').toBe(false);
-        expect(sessionIds(await openTab()), 'the authoritative v2 debt is still recorded').toEqual([A]);
-    });
-
-    it('CASUALTY: if an old tab overwrites the v1 signal after EVERY write, the enqueue is NOT reported verified', async () => {
-        const tab = await openTab();
-        const realSet = Storage.prototype.setItem;
-        const hook = { fired: 0 };
-        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-            realSet.call(this, key, value);
-            if (key === V1) { hook.fired++; realSet.call(this, V1, JSON.stringify([])); } // old tab's stale write-back, every time
-        });
-        const result = tab.enqueueProgressReconcile(A, OWNER, T0);
-        vi.restoreAllMocks();
-        expect(hook.fired, 'the interleave was actually exercised').toBeGreaterThan(0);
-        expect(result.ok, 'a signal that never survives is not a verified one').toBe(false);
-        expect(sessionIds(await openTab()), 'the authoritative v2 debt is still recorded').toEqual([A]);
-    });
-
-    it('CONTROL: a single immediate overwrite is detected by the readback and repaired, then verified', async () => {
-        const tab = await openTab();
-        const realSet = Storage.prototype.setItem;
-        const hook = { fired: false };
-        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-            realSet.call(this, key, value);
-            if (!hook.fired && key === V1) { hook.fired = true; realSet.call(this, V1, JSON.stringify([])); }
-        });
-        const result = tab.enqueueProgressReconcile(A, OWNER, T0);
-        vi.restoreAllMocks();
-        expect(hook.fired).toBe(true);
-        expect(result).toEqual({ ok: true, verified: true });
-        const seen = (await openOldTab()).getQueueEntriesForUser(OWNER);
-        expect(seen.ok ? seen.entries.map((e) => e.sessionId) : seen.failure).toEqual([A]);
-    });
-
-    it('P1 CASUALTY (Codex on d0a2fb01): two NEW tabs publishing concurrently never lose either signal for the old reader', async () => {
-        const tabA = await openTab();
-        const tabB = await openTab();
-        // Tab B has composed its v1 value and is about to write it; in that gap tab A enqueues and verifies A in full,
-        // then B's stale composition lands on top — exactly the read/modify/write race.
-        const realSet = Storage.prototype.setItem;
-        const hook = { fired: false, inA: false, resultA: undefined as unknown };
-        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-            if (!hook.fired && !hook.inA && key === V1) {
-                hook.fired = true;
-                hook.inA = true;
-                hook.resultA = tabA.enqueueProgressReconcile(A, OWNER, T0);
-                hook.inA = false;
+            if (!hook.fired && !hook.inNew && key === V1) {
+                hook.fired = true; hook.inNew = true;
+                hook.newResult = tab.enqueueProgressReconcile(A, OWNER, T0);
+                hook.inNew = false;
             }
             return realSet.call(this, key, value);
         });
-        const resultB = tabB.enqueueProgressReconcile(B, OWNER, T1);
+        expect(oldTab.enqueueProgressReconcile(B, OWNER, T1).ok, 'the old tab records its own debt').toBe(true);
         vi.restoreAllMocks();
         expect(hook.fired, 'the interleave was actually exercised').toBe(true);
-        expect(hook.resultA).toEqual({ ok: true, verified: true });
-        expect(resultB).toEqual({ ok: true, verified: true });
-        const seen = (await openOldTab()).getQueueEntriesForUser(OWNER);
-        expect(seen.ok ? seen.entries.map((e) => e.sessionId).sort() : seen.failure, 'the old reader sees BOTH debts').toEqual([A, B]);
+        expect(hook.newResult, 'the new client verified its own debt').toEqual({ ok: true, verified: true });
+        expect(sessionIds(await openTab()), 'a new client still sees BOTH debts').toEqual([A, B]);
+    });
+});
+
+describe('#1476 Codex P2 on 4a5f0798 — tombstones only move forward', () => {
+    const TOMB = (session: string) => `ss_progress_reconcile_queue_v2|t|${encodeURIComponent(OWNER)}|${encodeURIComponent(session)}`;
+
+    it('CASUALTY: an older clear that paused never lowers a newer tombstone, so a resolved newer obligation stays resolved', async () => {
+        const tab = await openTab();
+        const other = await openTab();
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        // This clear snapshots A@T0, then pauses before its tombstone write. Meanwhile another tab clears A@T0, a
+        // genuinely newer A@T2 is enqueued, and that tab clears it too (tombstone T2). Then this clear resumes.
+        const realGet = Storage.prototype.getItem;
+        const realSet = Storage.prototype.setItem;
+        const hook = { fired: false, inOther: false, armed: false };
+        const interleave = () => {
+            hook.fired = true; hook.inOther = true;
+            expect(other.clearProgressReconcileEntry(A, OWNER).ok).toBe(true);
+            expect(other.enqueueProgressReconcile(A, OWNER, T2).ok).toBe(true);
+            expect(other.clearProgressReconcileEntry(A, OWNER).ok).toBe(true);
+            hook.inOther = false;
+        };
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {
+            if (!hook.fired && !hook.inOther && key === TOMB(A) && hook.armed) interleave();
+            return realGet.call(this, key);
+        });
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            if (!hook.fired && !hook.inOther && key === TOMB(A)) interleave();
+            return realSet.call(this, key, value);
+        });
+        hook.armed = true; // only this clear's own accesses, never the setup above
+
+        tab.clearProgressReconcileEntry(A, OWNER);
+        vi.restoreAllMocks();
+        expect(hook.fired, 'the interleave was actually exercised').toBe(true);
+        expect(JSON.parse(localStorage.getItem(TOMB(A)) as string).clearedThroughIso, 'the tombstone never moves backwards').toBe(T2);
+        expect(sessionIds(await openTab()), 'the resolved T2 obligation is not resurrected').toEqual([]);
     });
 });
 
