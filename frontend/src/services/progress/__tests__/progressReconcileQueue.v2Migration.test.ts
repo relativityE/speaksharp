@@ -227,6 +227,60 @@ describe('#1476 PM RETURN on cd79ba3f — the migration races other tabs without
     });
 });
 
+describe('#1476 Codex findings on cca8076f', () => {
+    const TOMB = (owner: string, session: string) =>
+        `ss_progress_reconcile_queue_v2|t|${encodeURIComponent(owner)}|${encodeURIComponent(session)}`;
+
+    it('P1 CASUALTY: a newer obligation another tab enqueues after the clear\'s tombstone is not deleted by the clear', async () => {
+        const tab = await openTab();
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        // Right after this clear writes its tombstone (covering T0), another tab enqueues a genuinely newer A at T2.
+        const realSet = Storage.prototype.setItem;
+        const hook = { fired: false };
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            realSet.call(this, key, value);
+            if (!hook.fired && key === TOMB(OWNER, A)) {
+                hook.fired = true;
+                realSet.call(this, tab.progressQueueEntryKey(OWNER, A), JSON.stringify({ sessionId: A, userId: OWNER, enqueuedAtIso: T2 }));
+            }
+        });
+
+        const cleared = tab.clearProgressReconcileEntry(A, OWNER);
+        vi.restoreAllMocks();
+        expect(hook.fired, 'the interleave was actually exercised').toBe(true);
+        expect(cleared, 'the T0 obligation is retired, which is all this clear claims').toEqual({ ok: true, verified: true });
+        expect(entry(await openTab(), A)?.enqueuedAtIso, 'the newer T2 debt survives').toBe(T2);
+    });
+
+    it('P1 CONTROL: with no interleave, a clear still removes the retired entry', async () => {
+        const tab = await openTab();
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        expect(tab.clearProgressReconcileEntry(A, OWNER)).toEqual({ ok: true, verified: true });
+        expect(localStorage.getItem(tab.progressQueueEntryKey(OWNER, A))).toBeNull();
+        expect(sessionIds(await openTab())).toEqual([]);
+    });
+
+    it.each([
+        ['an undecodable owner', 'ss_progress_reconcile_queue_v2|e|%E0%A4%A|sess-x'],
+        ['a missing owner', 'ss_progress_reconcile_queue_v2|e||sess-x'],
+    ])('P2 CASUALTY: a v2 key with %s cannot be attributed, so it fails closed for EVERY owner', async (_label, key) => {
+        const tab = await openTab();
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        localStorage.setItem(key, JSON.stringify({ sessionId: 'sess-x', userId: 'owner-x', enqueuedAtIso: T0 }));
+        const read = (await openTab()).getQueueEntriesForUser(OWNER);
+        expect(read.ok, 'an unattributable debt may be this owner\'s: the Start gate must not read the queue as clean').toBe(false);
+        expect(read).toMatchObject({ failure: 'corrupt' });
+    });
+
+    it('P2 CONTROL: a malformed key whose OWNER decodes still blocks only that owner', async () => {
+        const tab = await openTab();
+        expect(tab.enqueueProgressReconcile(A, OWNER, T0).ok).toBe(true);
+        localStorage.setItem(`ss_progress_reconcile_queue_v2|e|${encodeURIComponent(OTHER)}`, JSON.stringify({ userId: OTHER }));
+        expect(sessionIds(await openTab()), 'this owner is unaffected').toEqual([A]);
+        expect((await openTab()).getQueueEntriesForUser(OTHER)).toMatchObject({ ok: false, failure: 'corrupt' });
+    });
+});
+
 describe('#1476 — a clear retires the obligation before it removes the entry', () => {
     it('CASUALTY: a clear interrupted after its tombstone is written still leaves the debt retired', async () => {
         const tab = await openTab();

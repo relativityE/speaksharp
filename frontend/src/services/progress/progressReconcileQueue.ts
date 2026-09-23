@@ -155,12 +155,18 @@ type Snapshot = {
     v1Corrupt: boolean;
     /** Owners with at least one unreadable v2 key. Their view fails closed; other owners are unaffected. */
     corruptOwners: Set<string>;
+    /**
+     * A v2 key whose OWNER cannot be decoded (or is empty). Codex P2 on cca8076f: recording it under owner `''` meant
+     * no real user's owner-scoped read ever saw it, so the Start gate read a possibly-lost debt as a clean queue.
+     * Like a corrupt v1 value, unattributable corruption blocks EVERY owner.
+     */
+    unattributableCorrupt: boolean;
 };
 
 /** Read every queue key once. Pure: never writes, never deletes. */
 function takeSnapshot(): { ok: true; snap: Snapshot } | { ok: false; failure: QueueFailure } {
     if (typeof localStorage === 'undefined') return { ok: false, failure: 'storage_unavailable' };
-    const snap: Snapshot = { entries: new Map(), tombs: new Map(), v1: null, v1Corrupt: false, corruptOwners: new Set() };
+    const snap: Snapshot = { entries: new Map(), tombs: new Map(), v1: null, v1Corrupt: false, corruptOwners: new Set(), unattributableCorrupt: false };
     try {
         const keys: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
@@ -189,7 +195,8 @@ function takeSnapshot(): { ok: true; snap: Snapshot } | { ok: false; failure: Qu
             } else {
                 // FAIL CLOSED FOR THIS OWNER ONLY. A dropped entry is a lost debt; an unreadable tombstone means we
                 // cannot tell what is retired. Neither may hide or delete a valid sibling entry.
-                snap.corruptOwners.add(owner);
+                if (owner === '') snap.unattributableCorrupt = true;
+                else snap.corruptOwners.add(owner);
             }
         }
         const rawV1 = localStorage.getItem(V1_KEY);
@@ -236,7 +243,7 @@ function viewOf(snap: Snapshot, ownerId?: string): QueueEntry[] {
 export function readProgressReconcileQueue(): QueueReadResult {
     const s = takeSnapshot();
     if (!s.ok) return s;
-    if (s.snap.v1Corrupt || s.snap.corruptOwners.size > 0) return { ok: false, failure: 'corrupt' };
+    if (s.snap.v1Corrupt || s.snap.unattributableCorrupt || s.snap.corruptOwners.size > 0) return { ok: false, failure: 'corrupt' };
     return { ok: true, entries: viewOf(s.snap) };
 }
 
@@ -244,7 +251,7 @@ export function readProgressReconcileQueue(): QueueReadResult {
 function readOwner(userId: string): QueueReadResult {
     const s = takeSnapshot();
     if (!s.ok) return s;
-    if (s.snap.v1Corrupt || s.snap.corruptOwners.has(userId)) return { ok: false, failure: 'corrupt' };
+    if (s.snap.v1Corrupt || s.snap.unattributableCorrupt || s.snap.corruptOwners.has(userId)) return { ok: false, failure: 'corrupt' };
     return { ok: true, entries: viewOf(s.snap, userId) };
 }
 
@@ -414,7 +421,7 @@ export function clearProgressReconcileEntry(sessionId: string, userId: string): 
     if (!migrated.ok) return migrated;
     const s = takeSnapshot();
     if (!s.ok) return s;
-    if (s.snap.v1Corrupt || s.snap.corruptOwners.has(userId)) return { ok: false, failure: 'corrupt' };
+    if (s.snap.v1Corrupt || s.snap.unattributableCorrupt || s.snap.corruptOwners.has(userId)) return { ok: false, failure: 'corrupt' };
     const k = pairKey(userId, sessionId);
     const entry = viewOf(s.snap, userId).find((e) => e.sessionId === sessionId);
     const stored = s.snap.entries.get(k);
@@ -429,10 +436,27 @@ export function clearProgressReconcileEntry(sessionId: string, userId: string): 
         } catch { return false; }
     });
     if (!tombWritten.ok) return tombWritten;
-    const removed = removeVerified(progressQueueEntryKey(userId, sessionId));
-    if (!removed.ok) return removed;
+    // Codex P1 on cca8076f — REMOVE ONLY WHAT THIS TOMBSTONE COVERS. Another tab may enqueue a genuinely newer
+    // obligation for this pair after the tombstone lands; deleting it unconditionally lost that debt while both calls
+    // reported success. Re-read immediately before removing: a newer entry is not this clear's to delete (the
+    // tombstone already retires the obligation this clear was for). localStorage has no compare-and-delete, so the
+    // gap between this read and the removal inside this synchronous call is the remaining window.
+    const entryKey = progressQueueEntryKey(userId, sessionId);
+    let current: unknown;
+    try {
+        const raw = localStorage.getItem(entryKey);
+        current = raw === null ? undefined : JSON.parse(raw);
+    } catch { current = undefined; }
+    const newerObligation = validEntry(current) && current.userId === userId && current.sessionId === sessionId
+        && !retiredBy(current, tomb);
+    if (!newerObligation) {
+        const removed = removeVerified(entryKey);
+        if (!removed.ok) return removed;
+    }
+    // Verified when no entry this tombstone covers is still visible: either none remains, or the one that does is newer.
     const after = readOwnEntry(userId, sessionId);
-    return after.ok && !after.entry ? { ok: true, verified: true } : { ok: false, failure: after.ok ? 'readback_failed' : after.failure };
+    if (!after.ok) return { ok: false, failure: after.failure };
+    return !after.entry || !retiredBy(after.entry, tomb) ? { ok: true, verified: true } : { ok: false, failure: 'readback_failed' };
 }
 
 /** RWT-20: this owner's entries, released or not — the Start gate and the retry schedule both read these. */
