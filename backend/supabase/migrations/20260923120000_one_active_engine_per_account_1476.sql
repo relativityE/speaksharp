@@ -432,11 +432,20 @@ BEGIN
         RETURN NEW; -- created before this fence: unchanged behaviour
     END IF;
 
-    IF OLD.status = 'failed' AND OLD.status_reason = 'abandoned_device'
+    -- Codex P1 on dae853fb: CLOSING a take is never recording work. A displaced or abandoned take may always be marked
+    -- `failed` (transcript unchanged) — that is how its device resolves it (Discard) instead of being locked behind a
+    -- Retry Save the server will never accept. Completing it, or changing its transcript, stays refused.
+    IF NEW.status = 'failed' AND NEW.transcript IS NOT DISTINCT FROM OLD.transcript THEN
+        RETURN NEW;
+    END IF;
+
+    -- A leased take that has FAILED (abandoned, displaced and discarded, or closed by its own device) stays closed:
+    -- it can never be revived, completed or given a transcript later.
+    IF OLD.status = 'failed'
        AND (NEW.status IS DISTINCT FROM OLD.status
             OR NEW.duration IS DISTINCT FROM OLD.duration
             OR NEW.transcript IS DISTINCT FROM OLD.transcript) THEN
-        RAISE EXCEPTION 'lease_revoked: this take was closed after its device stopped responding'
+        RAISE EXCEPTION 'lease_revoked: this take is closed and cannot be revived'
             USING ERRCODE = 'P0001';
     END IF;
 

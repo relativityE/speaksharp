@@ -177,6 +177,31 @@ describe('#1476 — one account, one authorized active engine (server fence)', (
         expect(await statusOf(d, id), 'the abandoned take is closed truthfully').toMatchObject({ status: 'failed', status_reason: 'abandoned_device' });
     });
 
+    it('CASUALTY (Codex P1 on dae853fb): a displaced take can be CLOSED (discarded) but never completed', async () => {
+        // After a forced take-over the displaced device cannot save its take — the server refuses that work — so it
+        // must be able to resolve it by discarding, or it stays locked behind a Retry Save that can never succeed.
+        const d = await db();
+        await acquire(d, L1);
+        const id = sessionId(await start(d, L1)) as string;
+        await acquire(d, L2, true);
+        await start(d, L2); // device 2 records; device 1's take is closed server-side
+        await expect(directComplete(d, id), 'completing the displaced take stays refused').rejects.toThrow(/lease/i);
+        await d.query(`UPDATE public.sessions SET status = 'failed', status_reason = 'discarded_after_takeover', updated_at = now() WHERE id = $1`, [id]);
+        expect((await statusOf(d, id)).status, 'discard resolves it').toBe('failed');
+        await expect(d.query(`UPDATE public.sessions SET transcript = 'late words' WHERE id = $1`, [id]), 'its transcript can never be written').rejects.toThrow(/lease/i);
+    });
+
+    it('CASUALTY: displaced BEFORE the new holder creates its take, the still-active take can be discarded (not completed)', async () => {
+        const d = await db();
+        await acquire(d, L1);
+        const id = sessionId(await start(d, L1)) as string;
+        await acquire(d, L2, true); // taken over; device 2 has not created its session yet, so the take is still active
+        expect((await statusOf(d, id)).status).toBe('active');
+        await expect(directComplete(d, id), 'completing stays refused').rejects.toThrow(/lease/i);
+        await d.query(`UPDATE public.sessions SET status = 'failed', status_reason = 'discarded_after_takeover', updated_at = now() WHERE id = $1`, [id]);
+        expect((await statusOf(d, id)).status, 'the displaced device resolves its take by discarding it').toBe('failed');
+    });
+
     it('CONTROL (owner isolation): another account\'s live take never blocks this account', async () => {
         const d = await db();
         await as(d, OTHER_USER);

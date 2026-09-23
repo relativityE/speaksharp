@@ -40,6 +40,7 @@ import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { acquireTakeLease, releaseTakeLease, startLeaseHeartbeat } from '@/services/recordingLease';
 import { LEASE_REVOKED_MESSAGE } from '@/services/recordingLeasePolicy';
+import { hydrateServerProgressObligations } from '@/services/progress/serverProgressObligations';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
     beginSessionReviewLatency,
@@ -598,10 +599,26 @@ export const useSessionLifecycle = () => {
                     reportIntent('blocked_lock_held');
                     return;
                 }
+                // #1476 Codex P1 on dae853fb: the SERVER owns per-session Progress debt. Load it now, so the controller's
+                // durable-queue check at Start sees debt recorded on another device (or since this tab loaded). An
+                // unanswerable server fails closed; a server that predates the migration has no authority to consult.
+                if (user?.id) {
+                    const obligations = await hydrateServerProgressObligations(user.id, new Date().toISOString());
+                    if (!obligations.ok) {
+                        void releaseTakeLease();
+                        setSTTStatus({ type: 'error', message: 'Could not check your saved sessions. Please try again.' });
+                        reportIntent('blocked_lock_held');
+                        return;
+                    }
+                }
                 startLeaseHeartbeat(() => {
-                    // Displaced: the server now refuses this take's writes. Stop, and say what happened.
-                    setSTTStatus({ type: 'error', message: LEASE_REVOKED_MESSAGE });
-                    void speechRuntimeController.stopRecording();
+                    // Displaced: the server refuses this take's work (Codex P1 on dae853fb), so a Retry Save could never
+                    // succeed. Stop, resolve the take by discarding it, and say exactly that — never "kept for recovery".
+                    void (async () => {
+                        try { await speechRuntimeController.stopRecording(); } catch { /* the save is refused by design */ }
+                        await speechRuntimeController.discardUnresolvedRecording().catch(() => undefined);
+                        setSTTStatus({ type: 'error', message: LEASE_REVOKED_MESSAGE });
+                    })();
                 });
 
                 const currentRuntimeState = useSessionStore.getState().runtimeState;
@@ -1055,6 +1072,10 @@ export const useSessionLifecycle = () => {
                 logger.info('[useSessionLifecycle] Session active on unmount - stopping recording');
                 void speechRuntimeController.stopRecording();
             }
+            // #1476 Codex P1 on dae853fb: the state-watching release effect is gone before an async stop leaves
+            // STOPPING, so release explicitly here — or the module-level heartbeat keeps the account's one engine held
+            // for the rest of the SPA session. Releasing marks the take ended normally, so its save still lands.
+            void releaseTakeLease();
             // Explicitly detach to prevent listener accumulation (Invariant #3)
             void speechRuntimeController.reset('subscriber_unmount');
         };

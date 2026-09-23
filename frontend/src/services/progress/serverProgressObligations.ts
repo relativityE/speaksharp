@@ -27,6 +27,9 @@ export async function hydrateServerProgressObligations(
     try {
         const { data, error } = await rpc('get_progress_obligations', { p_limit: 20 });
         if (error) {
+            // Between the #1476 merge and its PO-authorized apply the RPC does not exist yet (PostgREST PGRST202).
+            // That is NO server authority to consult, not an outage: nothing is queued and the caller proceeds.
+            if ((error as { code?: string } | null)?.code === 'PGRST202') return { ok: true, queued: 0 };
             logger.warn('[progress] server obligations unavailable (non-fatal)');
             return { ok: false, queued: 0 };
         }

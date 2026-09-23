@@ -74,4 +74,4 @@ export const LEASE_NOT_HELD_MESSAGE =
 
 /** #1476: this device's take was displaced — another device took over the account's one engine. */
 export const LEASE_REVOKED_MESSAGE =
-    'This recording stopped because another device took over. Your take here was kept for recovery.';
+    'This recording stopped because another device took over. It was not saved.';

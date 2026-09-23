@@ -16,6 +16,9 @@ import logger from '../lib/logger';
  * Mounted app-globally (see `ProgressReconciler` in App.tsx). Owner-scoped via a per-user ref guard, the
  * same pattern used by the analytics-identity effect and `useUnresolvedRecovery`.
  */
+/** #1476: how long the initial server obligation load may hold the Start gate unresolved. */
+const SERVER_OBLIGATIONS_TIMEOUT_MS = 4000;
+
 export function useProgressReconciliation(): void {
     const { user } = useAuthProvider();
     const { data: sessions } = usePracticeHistory();
@@ -39,22 +42,27 @@ export function useProgressReconciliation(): void {
         // No owner: the queue is owner-scoped and cannot be read, so there is nothing to reconstruct.
         // That is still a RESOLVED answer — an anonymous user has no readable debt, and a save without
         // an owner already fails closed at the seam. Leaving it unresolved would disable Start forever.
-        if (userId) useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId));
-        // Record WHICH owner this answer belongs to. `''` marks a resolved anonymous visitor, so a
-        // signed-out user is not blocked forever, while an account switch invalidates it at once.
-        useSessionStore.getState().setProgressGateResolvedFor(userId ?? '');
-    }, [userId]);
-
-    // #1476 — THE SERVER OWNS PER-SESSION OBLIGATIONS. Load them into this device's queue once the owner resolves, so
-    // debt recorded on another device (or erased from this browser by an old tab's v1 write) is owed here too; the
-    // rebuilt gate then runs it through the bounded retry below. Non-fatal: an unavailable server changes nothing.
-    useEffect(() => {
-        if (!userId) return undefined;
+        if (!userId) {
+            useSessionStore.getState().setProgressGateResolvedFor('');
+            return undefined;
+        }
+        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId));
+        // #1476 Codex P1 on dae853fb: the owner is RESOLVED only once the server's per-session obligations have been
+        // loaded into this device's queue — otherwise a fresh device with an empty local queue shows an enabled Start
+        // over server-side debt. Bounded: after the timeout the gate resolves from what is known, and Start itself
+        // re-checks the server before any engine work. Records WHICH owner the answer belongs to (`''` = anonymous).
         let current = true;
+        const settle = () => {
+            if (!current) return;
+            current = false;
+            useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId));
+            useSessionStore.getState().setProgressGateResolvedFor(userId);
+        };
+        const timer = setTimeout(settle, SERVER_OBLIGATIONS_TIMEOUT_MS);
         void hydrateServerProgressObligations(userId, new Date().toISOString())
-            .then((r) => { if (current && r.queued > 0) useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId)); })
-            .catch((err) => logger.warn({ err }, '[progress] server obligation load failed (non-fatal)'));
-        return () => { current = false; };
+            .catch((err) => logger.warn({ err }, '[progress] server obligation load failed (non-fatal)'))
+            .finally(() => { clearTimeout(timer); settle(); });
+        return () => { current = false; clearTimeout(timer); };
     }, [userId]);
 
     // #1354 CASE 4 — CROSS-TAB. `storage` events reach OTHER tabs, never the writer, so a second

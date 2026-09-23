@@ -64,6 +64,13 @@ describe('#1476 hydrateServerProgressObligations', () => {
         expect(idsFor(queue)).toEqual([]);
     });
 
+    it('CONTROL (merge before apply): a server without the RPC yet (PGRST202) is "no authority", never an outage', async () => {
+        const { queue, hydrateServerProgressObligations } = await load();
+        await expect(hydrateServerProgressObligations(OWNER, NOW, async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } })))
+            .resolves.toEqual({ ok: true, queued: 0 });
+        expect(idsFor(queue)).toEqual([]);
+    });
+
     it('a malformed server row is ignored, never queued under a guessed id', async () => {
         const { queue, hydrateServerProgressObligations } = await load();
         await hydrateServerProgressObligations(OWNER, NOW, async () => ({ data: [{ session_id: '', state: 'owed' }, { state: 'owed' }, { session_id: 's-ok', state: 'owed' }], error: null }));

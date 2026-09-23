@@ -24,6 +24,13 @@ const leaseMock = vi.hoisted(() => ({
     release: vi.fn(async () => undefined),
     heartbeat: vi.fn((_onRevoked: () => void) => undefined),
 }));
+// #1476: the server's per-session Progress obligations, loaded at Start. Answers "nothing owed" by default.
+const obligationsMock = vi.hoisted(() => ({
+    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number }> => ({ ok: true, queued: 0 })),
+}));
+vi.mock('@/services/progress/serverProgressObligations', () => ({
+    hydrateServerProgressObligations: (userId: string, nowIso: string) => obligationsMock.hydrate(userId, nowIso),
+}));
 vi.mock('@/services/recordingLease', () => ({
     acquireTakeLease: (opts?: { force?: boolean }) => leaseMock.acquire(opts),
     releaseTakeLease: () => leaseMock.release(),
@@ -93,6 +100,8 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
         } as TranscriptStats)),
         reset: vi.fn(),
         warmUp: vi.fn().mockResolvedValue(undefined), // real warmUp is async — the return-reload does `.catch()` on it
+        // #1476: a displaced take resolves by discarding (its save is refused server-side).
+        discardUnresolvedRecording: vi.fn(async () => ({ outcome: 'discarded' as const, sessionId: null })),
         getState: vi.fn(() => 'IDLE'),
         getIdleReclamationGeneration: vi.fn(() => 0),
         getSessionId: vi.fn(() => '22222222-2222-4222-8222-222222222222'),
@@ -1683,10 +1692,40 @@ describe('useSessionLifecycle - one account, one engine (#1476)', () => {
         const onRevoked = leaseMock.heartbeat.mock.calls[0]?.[0] as (() => void) | undefined;
         expect(onRevoked, 'a heartbeat was started with a revoke handler').toBeTypeOf('function');
         await act(async () => { onRevoked?.(); });
+        await waitFor(() => expect(speechRuntimeController.discardUnresolvedRecording).toHaveBeenCalled());
         expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
+        // Codex P1 on dae853fb: the server refuses a displaced take's save, so the copy never promises recovery.
         expect(store.getState().setSTTStatus).toHaveBeenCalledWith({
-            type: 'error', message: 'This recording stopped because another device took over. Your take here was kept for recovery.',
+            type: 'error', message: 'This recording stopped because another device took over. It was not saved.',
         });
+    });
+
+    it('CASUALTY (Codex P1 on dae853fb): unmounting the session page releases the lease, so no device stays blocked', async () => {
+        readyStore();
+        const { result, unmount } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        leaseMock.release.mockClear();
+        unmount();
+        expect(leaseMock.release).toHaveBeenCalled();
+    });
+
+    it('CASUALTY (Codex P1 on dae853fb): Start loads the SERVER\'s obligations before any engine work, and an unanswerable server fails closed', async () => {
+        const store = readyStore();
+        obligationsMock.hydrate.mockImplementationOnce(async () => ({ ok: false, queued: 0 }));
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(obligationsMock.hydrate).toHaveBeenCalled();
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(leaseMock.release, 'the held lease is released').toHaveBeenCalled();
+        expect(store.getState().setSTTStatus).toHaveBeenCalledWith({ type: 'error', message: 'Could not check your saved sessions. Please try again.' });
+    });
+
+    it('CONTROL: server obligations are loaded BEFORE the engine starts, so the controller\'s durable-queue check sees them', async () => {
+        readyStore();
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(obligationsMock.hydrate.mock.invocationCallOrder[0])
+            .toBeLessThan(vi.mocked(speechRuntimeController.startRecording).mock.invocationCallOrder[0]);
     });
 
     it('a Start the controller refuses holds no engine: the lease is released', async () => {
