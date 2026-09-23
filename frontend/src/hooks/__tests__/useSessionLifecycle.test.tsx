@@ -23,10 +23,11 @@ const leaseMock = vi.hoisted(() => ({
     acquire: vi.fn(async (_opts?: { force?: boolean }): Promise<import('@/services/recordingLeasePolicy').LeaseDecision> => ({ action: 'start', tookOver: false })),
     release: vi.fn(async () => undefined),
     heartbeat: vi.fn((_onRevoked: () => void) => undefined),
+    confirm: vi.fn(async () => true),
 }));
 // #1476: the server's per-session Progress obligations, loaded at Start. Answers "nothing owed" by default.
 const obligationsMock = vi.hoisted(() => ({
-    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable' }> => ({ ok: true, queued: 0, authority: 'server' })),
+    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable'; failure?: 'unpersisted' }> => ({ ok: true, queued: 0, authority: 'server' })),
 }));
 vi.mock('@/services/progress/serverProgressObligations', () => ({
     hydrateServerProgressObligations: (userId: string, nowIso: string) => obligationsMock.hydrate(userId, nowIso),
@@ -35,6 +36,7 @@ vi.mock('@/services/recordingLease', () => ({
     acquireTakeLease: (opts?: { force?: boolean }) => leaseMock.acquire(opts),
     releaseTakeLease: () => leaseMock.release(),
     startLeaseHeartbeat: (onRevoked: () => void) => leaseMock.heartbeat(onRevoked),
+    confirmTakeLease: () => leaseMock.confirm(),
     currentTakeLeaseId: () => null,
 }));
 
@@ -1642,6 +1644,7 @@ describe('useSessionLifecycle - one account, one engine (#1476)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         leaseMock.acquire.mockImplementation(async () => ({ action: 'start' as const, tookOver: false }));
+        leaseMock.confirm.mockImplementation(async () => true);
     });
 
     it('the lease is acquired BEFORE any engine preparation begins', async () => {
@@ -1718,6 +1721,104 @@ describe('useSessionLifecycle - one account, one engine (#1476)', () => {
         expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
         expect(leaseMock.release, 'the held lease is released').toHaveBeenCalled();
         expect(store.getState().setSTTStatus).toHaveBeenCalledWith({ type: 'error', message: 'Could not check your saved sessions. Please try again.' });
+    });
+
+    it('CASUALTY (Codex P1 on 040da46a): the heartbeat starts the moment the lease is held — BEFORE the obligation load', async () => {
+        readyStore();
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(leaseMock.heartbeat.mock.invocationCallOrder[0]).toBeLessThan(obligationsMock.hydrate.mock.invocationCallOrder[0]);
+    });
+
+    it('CASUALTY (Codex P1 on 040da46a): a take-over that lands while obligations load aborts the Start — no engine is prepared', async () => {
+        readyStore();
+        obligationsMock.hydrate.mockImplementationOnce(async () => {
+            (leaseMock.heartbeat.mock.calls[0]?.[0] as (() => void) | undefined)?.(); // revoked mid-check
+            return { ok: true, queued: 0, authority: 'server' as const };
+        });
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
+    });
+
+    it('CASUALTY (Codex P1 on 040da46a): a server that never answers fails the Start closed after a bounded wait, and releases the lease', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            const store = readyStore();
+            obligationsMock.hydrate.mockImplementationOnce(() => new Promise(() => undefined));
+            const { result } = render();
+            let settled = false;
+            const start = act(async () => { await result.current.handleStartStop(); settled = true; });
+            await vi.advanceTimersByTimeAsync(5_000);
+            await start;
+            expect(settled).toBe(true);
+            expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+            expect(leaseMock.release).toHaveBeenCalled();
+            expect(store.getState().setSTTStatus).toHaveBeenCalledWith({ type: 'error', message: 'Could not check your saved sessions. Please try again.' });
+        } finally { vi.useRealTimers(); }
+    });
+
+    it('CASUALTY (Codex P1 on 040da46a): unmounting mid-recording releases the lease only AFTER the engine has stopped', async () => {
+        const mockStore = createTestSessionStore({ sttMode: 'private', isListening: true, runtimeState: 'RECORDING', elapsedTime: 30, startTime: Date.now() - 30_000 });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: { transcript: 'words', partial: '' } as never, chunks: [], interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } }, startListening: vi.fn(), stopListening: vi.fn(), isListening: true,
+            isReady: true, isSupported: true, error: null, reset: vi.fn(), pauseMetrics: {} as never, modelLoadingProgress: null,
+            sttStatus: { type: 'recording', message: 'Speak now' }, mode: 'private', micWarning: null, micLevel: 0, hasSpeechActivity: false,
+        } as never);
+        let finishStop: () => void = () => undefined;
+        vi.mocked(speechRuntimeController.stopRecording).mockImplementationOnce(() => new Promise((resolve) => { finishStop = () => resolve(null as never); }));
+        const { unmount } = render();
+        leaseMock.release.mockClear();
+        unmount();
+        await act(async () => { await Promise.resolve(); });
+        expect(leaseMock.release, 'not while the engine may still be recording or finalizing').not.toHaveBeenCalled();
+        await act(async () => { finishStop(); await Promise.resolve(); await Promise.resolve(); });
+        expect(leaseMock.release).toHaveBeenCalled();
+    });
+
+    it('CASUALTY (PM RETURN on 040da46a): an obligation load delayed past the 15 s lease window while device B takes the lease — ownership is revalidated and no engine is prepared', async () => {
+        const store = readyStore();
+        // The heartbeat saw nothing yet (network), but by the time the slow load returns the server has handed the lease
+        // to device B. Only the revalidation immediately before engine work can see that.
+        obligationsMock.hydrate.mockImplementationOnce(async () => ({ ok: true, queued: 0, authority: 'server' as const }));
+        leaseMock.confirm.mockImplementationOnce(async () => false);
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(leaseMock.confirm).toHaveBeenCalledTimes(1);
+        expect(leaseMock.confirm.mock.invocationCallOrder[0]).toBeGreaterThan(obligationsMock.hydrate.mock.invocationCallOrder[0]);
+        expect(speechRuntimeController.startRecording, 'device A must not prepare a second engine').not.toHaveBeenCalled();
+        expect(store.getState().setSTTStatus).toHaveBeenCalledWith({
+            type: 'info', message: 'This recording stopped because another device took over. What was recorded here is being saved.',
+        });
+    });
+
+    it('CONTROL: a confirmed lease proceeds to engine preparation after the revalidation', async () => {
+        readyStore();
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(leaseMock.confirm.mock.invocationCallOrder[0])
+            .toBeLessThan(vi.mocked(speechRuntimeController.startRecording).mock.invocationCallOrder[0]);
+    });
+
+    it('CASUALTY (PM RETURN on 040da46a): a server obligation this browser could not store keeps Start blocked with a truthful, retryable reason', async () => {
+        const store = readyStore();
+        obligationsMock.hydrate.mockImplementationOnce(async () => ({ ok: false, queued: 0, authority: 'server' as const, failure: 'unpersisted' as const }));
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(leaseMock.release).toHaveBeenCalled();
+        expect(store.getState().setSTTStatus).toHaveBeenCalledWith({
+            type: 'error',
+            message: 'Your earlier session still needs its Progress saved, and this browser could not store it (storage is full or blocked). Free up space or allow site storage, then press Start again.',
+        });
+        // Retryable: once storage is available again, the next Start proceeds.
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording).toHaveBeenCalled();
     });
 
     it('CONTROL: server obligations are loaded BEFORE the engine starts, so the controller\'s durable-queue check sees them', async () => {

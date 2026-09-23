@@ -398,6 +398,31 @@ BEGIN
 END;
 $$;
 
+-- #1476 Codex P1 on 040da46a — RECORDINGS ALREADY RUNNING WHEN THIS APPLIES. A take created by the previous function has
+-- no lease_id and no lease row, so it would be invisible to the fence: a new device could take the account's lease and,
+-- on Pro (cap 50), record beside it. Backfill: every still-live legacy take gets an implicit lease id (its own session id,
+-- exactly what the new writer gives an old client), and the NEWEST such take per account holds the account's lease row,
+-- kept 30 s ahead so the old client's own heartbeat (`_ss_fence_session_writes_1476`) keeps it alive. An account that
+-- already has a LIVE lease keeps it. Older concurrent legacy takes on the same account are thereby displaced: they may
+-- still end (save) but not continue.
+UPDATE public.sessions
+SET lease_id = id
+WHERE status = 'active'
+  AND lease_id IS NULL
+  AND (expires_at IS NULL OR expires_at > now());
+
+INSERT INTO public.active_recording_lease (user_id, lease_id, holder_label, state, started_at, heartbeat_at)
+SELECT DISTINCT ON (s.user_id) s.user_id, s.id, 'an older version of SpeakSharp', 'recording', now(), now() + interval '30 seconds'
+FROM public.sessions s
+WHERE s.status = 'active'
+  AND s.lease_id = s.id
+  AND (s.expires_at IS NULL OR s.expires_at > now())
+ORDER BY s.user_id, s.created_at DESC, s.id
+ON CONFLICT (user_id) DO UPDATE
+  SET lease_id = EXCLUDED.lease_id, holder_label = EXCLUDED.holder_label, state = 'recording',
+      started_at = now(), heartbeat_at = EXCLUDED.heartbeat_at
+  WHERE public.active_recording_lease.heartbeat_at < now() - interval '15 seconds';
+
 -- #1476 — FENCE EVERY WRITE PATH. Old clients complete with a direct RLS update and heartbeat through
 -- `heartbeat_session`; `complete_session_v2` updates the same row. One trigger covers them all, including a client that
 -- skips the RPCs entirely.

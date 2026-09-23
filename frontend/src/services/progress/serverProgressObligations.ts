@@ -22,7 +22,7 @@ export async function hydrateServerProgressObligations(
     userId: string,
     nowIso: string,
     rpc: ObligationsRpc = defaultRpc,
-): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable' }> {
+): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable'; failure?: 'unpersisted' }> {
     let rows: unknown = null;
     try {
         const { data, error } = await rpc('get_progress_obligations', { p_limit: 20 });
@@ -41,10 +41,18 @@ export async function hydrateServerProgressObligations(
     if (!Array.isArray(rows)) return { ok: false, queued: 0, authority: 'server' };
 
     let queued = 0;
+    let unpersisted = 0;
     for (const row of rows) {
         const sessionId = (row as { session_id?: unknown } | null)?.session_id;
         if (typeof sessionId !== 'string' || sessionId === '') continue;
         if (enqueueProgressReconcile(sessionId, userId, nowIso).ok) queued++;
+        else unpersisted++;
+    }
+    // #1476 Codex P1 on 040da46a: a server-confirmed obligation this device could not persist (quota, blocked storage)
+    // is NOT settled — the durable-queue check at Start would not see it. Fail closed.
+    if (unpersisted > 0) {
+        logger.warn({ unpersisted }, '[progress] server obligations could not be persisted locally');
+        return { ok: false, queued, authority: 'server', failure: 'unpersisted' };
     }
     return { ok: true, queued, authority: 'server' };
 }

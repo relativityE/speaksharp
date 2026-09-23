@@ -38,7 +38,7 @@ import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthorit
 import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
 import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
-import { acquireTakeLease, releaseTakeLease, startLeaseHeartbeat } from '@/services/recordingLease';
+import { acquireTakeLease, confirmTakeLease, releaseTakeLease, startLeaseHeartbeat } from '@/services/recordingLease';
 import { LEASE_REVOKED_MESSAGE } from '@/services/recordingLeasePolicy';
 import { hydrateServerProgressObligations } from '@/services/progress/serverProgressObligations';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
@@ -78,6 +78,11 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
 
 /** #1476: how long a refused Start stays armed as an explicit take-over (the user's second press). */
 const TAKEOVER_WINDOW_MS = 60_000;
+/** #1476: the most a Start waits for the server's per-session obligations before failing closed. */
+const START_OBLIGATIONS_TIMEOUT_MS = 5_000;
+/** #1476: a server-confirmed Progress obligation could not be stored on this device (quota or blocked storage). */
+const UNPERSISTED_OBLIGATIONS_MESSAGE =
+    'Your earlier session still needs its Progress saved, and this browser could not store it (storage is full or blocked). Free up space or allow site storage, then press Start again.';
 export function shouldReloadSttOnForegroundReturn(params: {
     visibilityState: DocumentVisibilityState;
     profileReadyForStt: boolean;
@@ -599,24 +604,51 @@ export const useSessionLifecycle = () => {
                     reportIntent('blocked_lock_held');
                     return;
                 }
+                // #1476 Codex P1 on 040da46a: heartbeat FROM THE MOMENT THE LEASE IS HELD — anything awaited before the
+                // first beat (the obligation load below can be slow) would let the lease go stale and another device take
+                // it while this tab walks into engine preparation. A revocation that arrives before the engine starts
+                // aborts the Start here; one that arrives later stops and saves the take like a normal Stop.
+                let revokedBeforeEngine = false;
+                let engineStarting = false;
+                startLeaseHeartbeat(() => {
+                    setSTTStatus({ type: 'info', message: LEASE_REVOKED_MESSAGE });
+                    if (!engineStarting) { revokedBeforeEngine = true; return; }
+                    // Displaced (PM directive on dae853fb): the server no longer lets this take RECORD, but it accepts its
+                    // save — so stop and save exactly like a normal Stop. A failed save keeps the normal Retry Save.
+                    void speechRuntimeController.stopRecording();
+                });
                 // #1476 Codex P1 on dae853fb: the SERVER owns per-session Progress debt. Load it now, so the controller's
-                // durable-queue check at Start sees debt recorded on another device (or since this tab loaded). An
-                // unanswerable server fails closed; a server that predates the migration has no authority to consult.
+                // durable-queue check at Start sees debt recorded on another device (or since this tab loaded). Bounded:
+                // an unanswerable or slow server fails closed; a server that predates the migration is a reported gap.
                 if (user?.id) {
-                    const obligations = await hydrateServerProgressObligations(user.id, new Date().toISOString());
+                    let obligationsTimer: ReturnType<typeof setTimeout> | undefined;
+                    const obligations: { ok: boolean; failure?: 'unpersisted' } = await Promise.race([
+                        hydrateServerProgressObligations(user.id, new Date().toISOString()),
+                        new Promise<{ ok: false }>((resolve) => { obligationsTimer = setTimeout(() => resolve({ ok: false }), START_OBLIGATIONS_TIMEOUT_MS); }),
+                    ]).finally(() => clearTimeout(obligationsTimer));
                     if (!obligations.ok) {
                         void releaseTakeLease();
-                        setSTTStatus({ type: 'error', message: 'Could not check your saved sessions. Please try again.' });
+                        // PM RETURN on 040da46a: a server-confirmed obligation this device could not store keeps Start
+                        // blocked with a truthful, retryable reason; an unanswered server says so instead.
+                        setSTTStatus({
+                            type: 'error',
+                            message: obligations.failure === 'unpersisted' ? UNPERSISTED_OBLIGATIONS_MESSAGE : 'Could not check your saved sessions. Please try again.',
+                        });
                         reportIntent('blocked_lock_held');
                         return;
                     }
                 }
-                startLeaseHeartbeat(() => {
-                    // Displaced (PM directive on dae853fb): the server no longer lets this take RECORD, but it does accept
-                    // its save — so stop and save exactly like a normal Stop. A failed save keeps the normal Retry Save.
+                // PM RETURN on 040da46a: revalidate ownership immediately before any model preparation.
+                if (!revokedBeforeEngine && !(await confirmTakeLease())) {
+                    revokedBeforeEngine = true;
                     setSTTStatus({ type: 'info', message: LEASE_REVOKED_MESSAGE });
-                    void speechRuntimeController.stopRecording();
-                });
+                }
+                if (revokedBeforeEngine) {
+                    // Another device took the account's one engine while this Start was still checking: do not prepare.
+                    reportIntent('blocked_lock_held');
+                    return;
+                }
+                engineStarting = true;
 
                 const currentRuntimeState = useSessionStore.getState().runtimeState;
                 if (currentRuntimeState === 'ENGINE_INITIALIZING' || currentRuntimeState === 'INITIATING') {
@@ -1065,14 +1097,16 @@ export const useSessionLifecycle = () => {
     useEffect(() => {
         return () => {
             logger.debug('[useSessionLifecycle] Component unmounting - Detaching listeners');
+            // #1476 Codex P1s on dae853fb / 040da46a: the state-watching release effect is gone before an async stop
+            // leaves STOPPING, so release explicitly — but only AFTER the engine has stopped. Releasing while the queued
+            // stop is still running would let a second device start while this engine records or finalizes; until then
+            // the heartbeat keeps the account's lease live. Releasing marks the take ended normally, so its save lands.
             if (isListeningRef.current) {
                 logger.info('[useSessionLifecycle] Session active on unmount - stopping recording');
-                void speechRuntimeController.stopRecording();
+                void speechRuntimeController.stopRecording().finally(() => { void releaseTakeLease(); });
+            } else {
+                void releaseTakeLease();
             }
-            // #1476 Codex P1 on dae853fb: the state-watching release effect is gone before an async stop leaves
-            // STOPPING, so release explicitly here — or the module-level heartbeat keeps the account's one engine held
-            // for the rest of the SPA session. Releasing marks the take ended normally, so its save still lands.
-            void releaseTakeLease();
             // Explicitly detach to prevent listener accumulation (Invariant #3)
             void speechRuntimeController.reset('subscriber_unmount');
         };

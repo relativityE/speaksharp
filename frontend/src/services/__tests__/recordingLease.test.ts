@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     acquireTakeLease,
+    confirmTakeLease,
     currentTakeLeaseId,
     releaseTakeLease,
     startLeaseHeartbeat,
@@ -125,5 +126,65 @@ describe('#1476 release — Stop ends the take normally', () => {
         await vi.advanceTimersByTimeAsync(20000);
         expect(calls.filter((c) => c.fn === 'heartbeat_recording_lease').length, 'no heartbeat after release').toBe(beats);
         expect(currentTakeLeaseId()).toBeNull();
+    });
+});
+
+describe('#1476 PM RETURN on 040da46a — revalidate ownership before engine work', () => {
+    it('CASUALTY: the server now says the lease is another device\'s — false, and the lease is dropped', async () => {
+        const { rpc, calls } = fakeRpc({
+            acquire_recording_lease: () => ({ acquired: true }),
+            heartbeat_recording_lease: () => ({ valid: false, reason: 'revoked' }),
+        });
+        await acquireTakeLease({ rpc });
+        const lease = currentTakeLeaseId();
+        await expect(confirmTakeLease({ rpc })).resolves.toBe(false);
+        expect(calls[calls.length - 1]).toEqual({ fn: 'heartbeat_recording_lease', args: { p_lease_id: lease } });
+        expect(currentTakeLeaseId()).toBeNull();
+        await expect(confirmTakeLease({ rpc }), 'stays revoked until the next acquire').resolves.toBe(false);
+    });
+
+    it('CASUALTY: a revocation the heartbeat already saw is final — no second server round trip needed', async () => {
+        const { rpc, calls } = fakeRpc({
+            acquire_recording_lease: () => ({ acquired: true }),
+            heartbeat_recording_lease: () => ({ valid: false, reason: 'revoked' }),
+        });
+        await acquireTakeLease({ rpc });
+        startLeaseHeartbeat(vi.fn(), { rpc, intervalMs: 5000 });
+        await vi.advanceTimersByTimeAsync(5000);
+        const beats = calls.length;
+        await expect(confirmTakeLease({ rpc })).resolves.toBe(false);
+        expect(calls.length).toBe(beats);
+    });
+
+    it('CONTROL: a lease still ours confirms; a transient network failure is not a revocation', async () => {
+        let up = true;
+        const { rpc } = fakeRpc({
+            acquire_recording_lease: () => ({ acquired: true }),
+            heartbeat_recording_lease: () => { if (!up) throw new Error('offline'); return { valid: true }; },
+        });
+        await acquireTakeLease({ rpc });
+        await expect(confirmTakeLease({ rpc })).resolves.toBe(true);
+        up = false;
+        await expect(confirmTakeLease({ rpc })).resolves.toBe(true);
+        expect(currentTakeLeaseId()).not.toBeNull();
+    });
+
+    it('CONTROL: no lease held (a server without the lease functions) has nothing to revalidate', async () => {
+        const { rpc, calls } = fakeRpc({});
+        await expect(confirmTakeLease({ rpc })).resolves.toBe(true);
+        expect(calls).toEqual([]);
+    });
+
+    it('a new acquire clears an earlier revocation', async () => {
+        let valid = false;
+        const { rpc } = fakeRpc({
+            acquire_recording_lease: () => ({ acquired: true }),
+            heartbeat_recording_lease: () => ({ valid }),
+        });
+        await acquireTakeLease({ rpc });
+        await expect(confirmTakeLease({ rpc })).resolves.toBe(false);
+        valid = true;
+        await acquireTakeLease({ rpc });
+        await expect(confirmTakeLease({ rpc })).resolves.toBe(true);
     });
 });

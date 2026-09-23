@@ -29,6 +29,7 @@ export const FENCE_MIGRATION = '20260923120000_one_active_engine_per_account_147
 
 const U = '11111111-1111-4111-8111-111111111111';
 const OTHER_USER = '22222222-2222-4222-8222-222222222222';
+const FREE_USER = '33333333-3333-4333-8333-333333333333'; // Free tier (session cap 1)
 const L1 = 'aaaaaaaa-0000-4000-8000-000000000001'; // device 1's lease for its take
 const L2 = 'aaaaaaaa-0000-4000-8000-000000000002'; // device 2's lease
 
@@ -41,16 +42,16 @@ const BOOTSTRAP = `
   END $r$;
   CREATE SCHEMA IF NOT EXISTS auth;
   CREATE TABLE auth.users (id uuid PRIMARY KEY);
-  INSERT INTO auth.users (id) VALUES ('${U}'), ('${OTHER_USER}');
+  INSERT INTO auth.users (id) VALUES ('${U}'), ('${OTHER_USER}'), ('${FREE_USER}');
   CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
     $fn$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $fn$;
   CREATE TABLE public.user_profiles (
     id uuid PRIMARY KEY, subscription_status text, trial_expires_at timestamptz,
     stripe_subscription_id text, subscription_id text, commercial_trial_granted_at timestamptz,
     trial_started_at timestamptz, updated_at timestamptz);
-  INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${U}', 'pro'), ('${OTHER_USER}', 'pro');
+  INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${U}', 'pro'), ('${OTHER_USER}', 'pro'), ('${FREE_USER}', 'free');
   CREATE OR REPLACE FUNCTION public.effective_subscription_tier(text, timestamptz, text, text, timestamptz)
-    RETURNS text LANGUAGE sql IMMUTABLE AS $fn$ SELECT 'pro'::text $fn$;
+    RETURNS text LANGUAGE sql IMMUTABLE AS $fn$ SELECT CASE WHEN $1 = 'pro' THEN 'pro' ELSE 'free' END $fn$;
   CREATE TABLE public.tier_configs (tier_name text PRIMARY KEY, max_concurrent_sessions int);
   -- Pro's session cap is 50: only the account-wide lease can hold Pro to ONE engine.
   INSERT INTO public.tier_configs VALUES ('pro', 50), ('free', 1);
@@ -74,6 +75,16 @@ const BOOTSTRAP = `
   CREATE OR REPLACE FUNCTION public.update_user_usage(int, text, uuid)
     RETURNS jsonb LANGUAGE sql AS $fn$ SELECT jsonb_build_object('success', true) $fn$;
 `;
+
+/** The chain WITHOUT the fence, so a test can create state that exists before the migration applies. */
+async function dbBeforeFence(): Promise<PGlite> {
+    const d = new PGlite();
+    await d.exec(BOOTSTRAP);
+    for (const f of CHAIN) await d.exec(M(f));
+    await d.query('SELECT public.activate_transcript_retention_newest_one()');
+    await as(d, U);
+    return d;
+}
 
 async function db(): Promise<PGlite> {
     const d = new PGlite();
@@ -193,6 +204,29 @@ describe('#1476 — one account, one authorized active engine (server fence)', (
         expect(created(await start(d, L2)), 'the legacy session cap does not count the displaced leased take').toBe(true);
         await directComplete(d, id);
         expect((await statusOf(d, id)).status).toBe('completed');
+    });
+
+    it.each([
+        ['Pro (session cap 50)', U],
+        ['Free (session cap 1)', FREE_USER],
+    ])('CASUALTY (Codex P1 on 040da46a): %s — a take ALREADY RECORDING when the migration applies is fenced; only one engine stays authorized', async (_tier, user) => {
+        const d = await dbBeforeFence();
+        await as(d, user);
+        const legacy = sessionId(await start(d)) as string; // created by the previous writer: no lease, no lease row
+        await d.exec(M(FENCE_MIGRATION));
+
+        expect((await leaseRow(d, user))?.lease_id, 'the migration gives the running take the account lease').toBe(legacy);
+        expect(await acquire(d, L2), 'a new device is blocked without take-over').toMatchObject({ acquired: false, reason: 'held_by_other' });
+        expect(created(await start(d, L2)), 'a current client cannot record beside it').toBe(false);
+        expect(created(await start(d)), 'nor can a second OLD client').toBe(false);
+        await keepRecording(d, legacy); // the old client's own heartbeat keeps its lease alive
+        expect(await acquire(d, L2, true)).toMatchObject({ acquired: true, took_over: true });
+        await expect(keepRecording(d, legacy), 'after a take-over it can no longer record').rejects.toThrow(/lease/i);
+        expect(created(await start(d, L2)), 'the take-over device records').toBe(true);
+        await directComplete(d, legacy);
+        expect((await statusOf(d, legacy)).status, 'but what it recorded is saved').toBe('completed');
+        const live = await d.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.sessions WHERE user_id = $1 AND status = 'active'`, [user]);
+        expect(live.rows[0].n, 'exactly one engine authorized').toBe(1);
     });
 
     it('CONTROL (owner isolation): another account\'s live take never blocks this account', async () => {

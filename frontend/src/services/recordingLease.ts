@@ -26,6 +26,8 @@ const HEARTBEAT_INTERVAL_MS = 5000;
 
 let heldLeaseId: string | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+/** Set when the server reports this device's take lease is no longer its own; cleared by the next acquire. */
+let revoked = false;
 
 const newLeaseId = (): string =>
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -46,6 +48,7 @@ export function currentTakeLeaseId(): string | null {
 export async function acquireTakeLease(opts: { force?: boolean; rpc?: LeaseRpc; holderLabel?: string } = {}): Promise<LeaseDecision> {
     const rpc = opts.rpc ?? defaultRpc;
     if (heldLeaseId !== null) await releaseTakeLease({ rpc });
+    revoked = false;
 
     const leaseId = newLeaseId();
     let result: AcquireLeaseResult | null = null;
@@ -91,10 +94,33 @@ export function startLeaseHeartbeat(onRevoked: () => void, opts: { rpc?: LeaseRp
             if (isLeaseRevoked(result as { valid?: boolean } | null)) {
                 stopHeartbeat();
                 heldLeaseId = null;
+                revoked = true;
                 onRevoked();
             }
         })();
     }, opts.intervalMs ?? HEARTBEAT_INTERVAL_MS);
+}
+
+/**
+ * #1476 PM RETURN on 040da46a — REVALIDATE BEFORE ENGINE WORK. Called immediately before model preparation and before
+ * the controller resumes a held Start after a download: false when this device's lease is no longer its own (already
+ * reported revoked, or the server says so now). No lease held (a server without the lease functions) has nothing to
+ * revalidate; a transient network failure is not a revocation, exactly as for the heartbeat.
+ */
+export async function confirmTakeLease(opts: { rpc?: LeaseRpc } = {}): Promise<boolean> {
+    if (revoked) return false;
+    const leaseId = heldLeaseId;
+    if (leaseId === null) return true;
+    const rpc = opts.rpc ?? defaultRpc;
+    try {
+        const { data, error } = await rpc('heartbeat_recording_lease', { p_lease_id: leaseId });
+        if (!error && isLeaseRevoked(data as { valid?: boolean } | null)) {
+            if (heldLeaseId === leaseId) { stopHeartbeat(); heldLeaseId = null; }
+            revoked = true;
+            return false;
+        }
+    } catch { /* transient: not a revocation */ }
+    return true;
 }
 
 /** Release the held lease (Stop, a refused/failed Start, sign-out). Idempotent; never throws. */
@@ -115,4 +141,5 @@ export async function releaseTakeLease(opts: { rpc?: LeaseRpc } = {}): Promise<v
 export function __resetTakeLeaseForTests(): void {
     stopHeartbeat();
     heldLeaseId = null;
+    revoked = false;
 }

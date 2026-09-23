@@ -71,6 +71,37 @@ describe('#1476 hydrateServerProgressObligations', () => {
         expect(idsFor(queue)).toEqual([]);
     });
 
+    it('CASUALTY (Codex P1 on 040da46a): a server obligation this device cannot persist fails the load closed', async () => {
+        const { queue, hydrateServerProgressObligations } = await load();
+        const realSet = Storage.prototype.setItem;
+        const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            if (key.startsWith('ss_progress_reconcile_queue_v2|e|')) throw new Error('QuotaExceededError');
+            return realSet.call(this, key, value);
+        });
+        try {
+            await expect(hydrateServerProgressObligations(OWNER, NOW, async () => ({ data: [{ session_id: 's-owed', state: 'owed' }], error: null })))
+                .resolves.toEqual({ ok: false, queued: 0, authority: 'server', failure: 'unpersisted' });
+        } finally { spy.mockRestore(); }
+        expect(idsFor(queue)).toEqual([]);
+    });
+
+    it('CASUALTY (PM RETURN on 040da46a): restricted storage (SecurityError) fails closed too — one stored, one not, is still not settled', async () => {
+        const { queue, hydrateServerProgressObligations } = await load();
+        const realSet = Storage.prototype.setItem;
+        const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            if (key.startsWith('ss_progress_reconcile_queue_v2|e|') && key.includes('s-blocked')) {
+                throw new DOMException('The operation is insecure.', 'SecurityError');
+            }
+            return realSet.call(this, key, value);
+        });
+        try {
+            await expect(hydrateServerProgressObligations(OWNER, NOW, async () => ({
+                data: [{ session_id: 's-stored', state: 'owed' }, { session_id: 's-blocked', state: 'pending' }], error: null,
+            }))).resolves.toEqual({ ok: false, queued: 1, authority: 'server', failure: 'unpersisted' });
+        } finally { spy.mockRestore(); }
+        expect(idsFor(queue)).toEqual(['s-stored']);
+    });
+
     it('a malformed server row is ignored, never queued under a guessed id', async () => {
         const { queue, hydrateServerProgressObligations } = await load();
         await hydrateServerProgressObligations(OWNER, NOW, async () => ({ data: [{ session_id: '', state: 'owed' }, { state: 'owed' }, { session_id: 's-ok', state: 'owed' }], error: null }));

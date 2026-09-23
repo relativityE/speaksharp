@@ -19,10 +19,11 @@ const leaseMock = vi.hoisted(() => ({
     acquire: vi.fn(async (_opts?: { force?: boolean }): Promise<import('@/services/recordingLeasePolicy').LeaseDecision> => ({ action: 'start', tookOver: false })),
     release: vi.fn(async () => undefined),
     heartbeat: vi.fn((_onRevoked: () => void) => undefined),
+    confirm: vi.fn(async () => true),
 }));
 // #1476: the server's per-session Progress obligations, loaded at Start. Answers "nothing owed" by default.
 const obligationsMock = vi.hoisted(() => ({
-    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable' }> => ({ ok: true, queued: 0, authority: 'server' })),
+    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable'; failure?: 'unpersisted' }> => ({ ok: true, queued: 0, authority: 'server' })),
 }));
 vi.mock('@/services/progress/serverProgressObligations', () => ({
     hydrateServerProgressObligations: (userId: string, nowIso: string) => obligationsMock.hydrate(userId, nowIso),
@@ -31,6 +32,7 @@ vi.mock('@/services/recordingLease', () => ({
     acquireTakeLease: (opts?: { force?: boolean }) => leaseMock.acquire(opts),
     releaseTakeLease: () => leaseMock.release(),
     startLeaseHeartbeat: (onRevoked: () => void) => leaseMock.heartbeat(onRevoked),
+    confirmTakeLease: () => leaseMock.confirm(),
     currentTakeLeaseId: () => null,
 }));
 

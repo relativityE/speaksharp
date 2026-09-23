@@ -1,4 +1,5 @@
 import { LEASE_NOT_HELD_MESSAGE } from './recordingLeasePolicy';
+import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
 import logger from '@/lib/logger';
@@ -2711,7 +2712,23 @@ export class SpeechRuntimeController {
                 });
                 // Deliberately not awaited: `transition` is called from inside the lifecycle queue,
                 // and `startRecording` enqueues. Awaiting here would deadlock the queue behind itself.
-                void this.startRecording(resumed.policy ?? undefined, [...resumed.userWords], true, resumed.settlement);
+                // #1476 PM RETURN on 040da46a: a cold download can outlast the account lease window, and another device
+                // may have taken over meanwhile. Revalidate the lease BEFORE resuming the held Start; a lost lease
+                // refuses the resume with its truthful reason instead of starting a second engine.
+                void (async () => {
+                    if (!(await confirmTakeLease())) {
+                        pushNativeRuntimeTrace('controller_resume_refused_lease_lost', {
+                            recordingId: resumed.recordingId, intentToken: resumed.token,
+                        });
+                        // Same end as every other refused resumed start: truthful status, the click settled, and the
+                        // engine-selection lock released so nothing stays locked behind a take that will not happen.
+                        useSessionStore.getState().setSTTStatus({ type: 'error', message: LEASE_NOT_HELD_MESSAGE });
+                        resumed.settlement?.reject(new Error(LEASE_NOT_HELD_MESSAGE));
+                        this.releaseRefusedStartLock();
+                        return;
+                    }
+                    void this.startRecording(resumed.policy ?? undefined, [...resumed.userWords], true, resumed.settlement);
+                })();
             }
         }
 

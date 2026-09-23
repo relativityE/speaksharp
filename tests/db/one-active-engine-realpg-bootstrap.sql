@@ -7,16 +7,16 @@ DO $r$ BEGIN
   END $r$;
   CREATE SCHEMA IF NOT EXISTS auth;
   CREATE TABLE auth.users (id uuid PRIMARY KEY);
-  INSERT INTO auth.users (id) VALUES ('11111111-1111-4111-8111-111111111111'), ('22222222-2222-4222-8222-222222222222');
+  INSERT INTO auth.users (id) VALUES ('11111111-1111-4111-8111-111111111111'), ('22222222-2222-4222-8222-222222222222'), ('33333333-3333-4333-8333-333333333333');
   CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
     $fn$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $fn$;
   CREATE TABLE public.user_profiles (
     id uuid PRIMARY KEY, subscription_status text, trial_expires_at timestamptz,
     stripe_subscription_id text, subscription_id text, commercial_trial_granted_at timestamptz,
     trial_started_at timestamptz, updated_at timestamptz);
-  INSERT INTO public.user_profiles (id, subscription_status) VALUES ('11111111-1111-4111-8111-111111111111', 'pro'), ('22222222-2222-4222-8222-222222222222', 'pro');
+  INSERT INTO public.user_profiles (id, subscription_status) VALUES ('11111111-1111-4111-8111-111111111111', 'pro'), ('22222222-2222-4222-8222-222222222222', 'pro'), ('33333333-3333-4333-8333-333333333333', 'free');
   CREATE OR REPLACE FUNCTION public.effective_subscription_tier(text, timestamptz, text, text, timestamptz)
-    RETURNS text LANGUAGE sql IMMUTABLE AS $fn$ SELECT 'pro'::text $fn$;
+    RETURNS text LANGUAGE sql IMMUTABLE AS $fn$ SELECT CASE WHEN $1 = 'pro' THEN 'pro' ELSE 'free' END $fn$;
   CREATE TABLE public.tier_configs (tier_name text PRIMARY KEY, max_concurrent_sessions int);
   -- Pro's session cap is 50: only the account-wide lease can hold Pro to ONE engine.
   INSERT INTO public.tier_configs VALUES ('pro', 50), ('free', 1);

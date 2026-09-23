@@ -45,6 +45,12 @@ const candidateGate = vi.hoisted(() => ({ current: { enabled: false, allowed: tr
 vi.mock('@/services/transcription/runtimeCandidateTakeGate', () => ({
     evaluateRuntimeCandidateTakeGate: () => candidateGate.current,
 }));
+/** #1476 PM RETURN on 040da46a — the account lease as the resumed start revalidates it. Ours unless a case says not. */
+const leaseGate = vi.hoisted(() => ({ confirmed: true, calls: 0 }));
+vi.mock('../recordingLease', () => ({
+    confirmTakeLease: async () => { leaseGate.calls += 1; return leaseGate.confirmed; },
+    currentTakeLeaseId: () => null,
+}));
 vi.mock('../../lib/supabaseClient', () => ({
     getSupabaseClient: vi.fn(() => ({
         auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' } } } }) },
@@ -167,7 +173,7 @@ describe('#1415 — one click, one recording', () => {
         });
     });
 
-    afterEach(() => vi.clearAllMocks());
+    afterEach(() => { vi.clearAllMocks(); leaseGate.confirmed = true; leaseGate.calls = 0; });
 
     describe('the original failure', () => {
         it('PREPARATION IS NOT A START FAILURE — no error state, no discarded intent', async () => {
@@ -354,6 +360,38 @@ describe('#1415 — one click, one recording', () => {
             expect(outcome.length, 'the original caller must be settled, not abandoned').toBe(1);
             expect(outcome[0]).toMatch(/^rejected:/);
             expect(outcome[0]).toContain('RECORDING_START_GATE_CLOSED');
+        });
+    });
+
+    describe('#1476 PM RETURN on 040da46a — a download that outlasts the lease revalidates it before resuming', () => {
+        it('CASUALTY: another device took the account lease during preparation — the resumed start is refused, no engine starts, the lock is released', async () => {
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            started.then(() => outcome.push('resolved'), (e: Error) => outcome.push(`rejected:${e.message}`));
+            await settle();
+            expect(pendingRecordingIntent(), 'precondition: the click is waiting on preparation').not.toBeNull();
+
+            leaseGate.confirmed = false; // device B took over while the model downloaded
+            engine.downloadEnabled = true;
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            await settle();
+
+            expect(leaseGate.calls, 'the resume revalidated the lease').toBeGreaterThanOrEqual(1);
+            expect(engine.startCalls, 'no second engine on this account').toBe(0);
+            expect(outcome).toEqual(['rejected:Recording could not start: another device is recording on this account. Press Start again to take over here.']);
+            expect(useSessionStore.getState().sttStatus).toEqual({ type: 'error', message: 'Recording could not start: another device is recording on this account. Press Start again to take over here.' });
+            expect((controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked).toBe(false);
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(false);
+        });
+
+        it('CONTROL: a lease still held resumes into exactly one recording (the real cold path, not a forced READY)', async () => {
+            const started = controller.startRecording(POLICY as never, []);
+            await settle(60);
+            expect(trail).toContain('DOWNLOAD_REQUIRED');
+            expect(leaseGate.calls).toBeGreaterThanOrEqual(1);
+            expect(engine.startCalls).toBe(1);
+            await expect(started).resolves.toBeUndefined();
         });
     });
 
