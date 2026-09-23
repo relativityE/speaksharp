@@ -22,6 +22,7 @@ on:
           - '20260904150000'
           - '20260910193000'
           - '20260914214307'
+          - '20260923120000'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'

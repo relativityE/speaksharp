@@ -195,7 +195,8 @@ export type SaveSessionResult =
   | { status: 'failed'; reason: 'invalid_input' | 'rpc_error' | 'server_rejected' | 'lease_not_held' };
 
 export const saveSession = async (
-  sessionData: Partial<PracticeSession> & { user_id: string },
+  // `save_only` (#1476): a missing-row Retry Save asks the server for a row that can never record — no lease, no slot.
+  sessionData: Partial<PracticeSession> & { user_id: string; save_only?: boolean },
   profile: UserProfile,
   engineType: string = 'native',
   idempotencyKey?: string,

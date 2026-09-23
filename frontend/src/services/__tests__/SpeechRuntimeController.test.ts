@@ -1632,6 +1632,27 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(controller.isEngineSelectionLocked()).toBe(false);
     });
 
+    it('#1476 PM RETURN on 039043877 (F2): the missing-row Retry Save creates a SAVE-ONLY row with the recording\'s own identity and duration — never a new take', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        vi.mocked(storage.saveSession).mockResolvedValue({ status: 'saved', session: { id: 'new-row-2' } } as never);
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        const completeArgs = PRODUCTION_VALID_COMPLETED_ARGS('early speech', 11);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: null,
+            initialSave: { userId: 'user-early', recordingId: 'rec-idem-2', mode: 'private' },
+            completeArgs,
+            attributionEvidence: null,
+        };
+        setUnresolved(true);
+        await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
+        const [sessionData, , , idempotencyKey] = vi.mocked(storage.saveSession).mock.calls[0];
+        expect(idempotencyKey, 'bound to the original recording identity').toBe('rec-idem-2');
+        expect(sessionData).toMatchObject({ save_only: true, duration: completeArgs.duration });
+        expect(completeArgs.duration, 'precondition: a real recorded duration').toBeGreaterThan(0);
+    });
+
     it('#1033 (1): a FAILED initial_save stays retryable and locked (no duplicate, nothing lost)', async () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.saveSession).mockResolvedValueOnce({ status: 'failed', reason: 'rpc_error' } as never);

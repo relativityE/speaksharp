@@ -1189,13 +1189,17 @@ export class SpeechRuntimeController {
                 if (!targetSessionId) {
                     const ctx = fullSave.initialSave;
                     if (!ctx) return false; // no owner/identity → cannot safely persist; stay retryable
+                    // #1476 PM RETURN on 039043877 (F2): this recording already happened. Ask the server for a SAVE-ONLY
+                    // row — it takes no lease and no recording slot (so another device recording now cannot block it),
+                    // can never record, and bills the recording's own duration once, under its own identity.
                     const created = await saveSession(
                         {
                             user_id: ctx.userId,
                             title: `Session ${new Date().toISOString()}`,
-                            duration: 0,
+                            duration: fullSave.completeArgs.duration ?? 0,
                             total_words: 0,
                             engine: ctx.mode,
+                            save_only: true,
                         },
                         { id: ctx.userId } as UserProfile,
                         ctx.mode as TranscriptionMode,

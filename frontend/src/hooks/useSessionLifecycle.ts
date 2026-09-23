@@ -40,6 +40,7 @@ import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { acquireTakeLease, confirmTakeLease, releaseTakeLease, startLeaseHeartbeat } from '@/services/recordingLease';
 import { LEASE_NOT_HELD_MESSAGE, LEASE_REVOKED_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from '@/services/recordingLeasePolicy';
+import { toast } from '@/lib/toast';
 import { hydrateServerProgressObligations } from '@/services/progress/serverProgressObligations';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
@@ -637,6 +638,10 @@ export const useSessionLifecycle = () => {
                     setSTTStatus({ type: 'info', message: LEASE_REVOKED_MESSAGE });
                     // Displaced (PM directive on dae853fb): the server no longer lets this take RECORD, but it accepts its
                     // save — so stop and save exactly like a normal Stop. A failed save keeps the normal Retry Save.
+                    // PM disposition on 039043877 (two-tab journey): once the take stops, the page shows the stop's own
+                    // outcome in place of the status line, so the user saw their take end with no reason. The same
+                    // approved notice is also raised where it survives the stop.
+                    toast.info(LEASE_REVOKED_MESSAGE, { id: 'recording-lease-revoked-1476', duration: 10_000 });
                     void speechRuntimeController.stopRecording();
                 });
                 // #1476 Codex P1 on dae853fb: the SERVER owns per-session Progress debt. Load it now, so the controller's

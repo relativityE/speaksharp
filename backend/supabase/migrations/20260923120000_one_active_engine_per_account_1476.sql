@@ -22,6 +22,18 @@
 
 ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS lease_id uuid;
 ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS lease_released_at timestamptz;
+-- #1476 PM RETURN on 039043877 — ONE SERVER-OWNED MARK FOR "THIS ROW CAN NEVER RECORD". Set when a take is DISPLACED (another
+-- holder took the account's lease over its take) and when a missing-row Retry Save creates a SAVE-ONLY row. A marked row
+-- may END — completed (its save, or a Retry Save), or failed (discard) — but no write may keep it active: no heartbeat,
+-- no usage accrual, no resume. Permanent: independent of whatever later happens to the successor's lease.
+ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS recording_fenced_at timestamptz;
+ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS recording_fenced_reason text;
+DO $c$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sessions_recording_fenced_reason_1476') THEN
+        ALTER TABLE public.sessions ADD CONSTRAINT sessions_recording_fenced_reason_1476
+            CHECK (recording_fenced_reason IS NULL OR recording_fenced_reason IN ('displaced', 'save_only'));
+    END IF;
+END $c$;
 
 CREATE OR REPLACE FUNCTION public.create_session_and_update_usage(
     p_session_data JSONB,
@@ -56,8 +68,16 @@ DECLARE
     v_written UUID;
     v_lease_live BOOLEAN := false;
     v_legacy_take BOOLEAN := false;
+    -- #1476 PM RETURN on 039043877 (F2): a missing-row Retry Save. It asks for LESS than a take — a row that can never
+    -- record — so the request is not an authority claim: it takes no lease and no slot, bills the recording's duration
+    -- through the ordinary entitlement check, and is bound to the recording's own idempotency identity.
+    v_save_only BOOLEAN := COALESCE(p_session_data->>'save_only', '') = 'true';
 BEGIN
     SET LOCAL statement_timeout = '3000ms';
+
+    IF v_save_only AND p_idempotency_key IS NULL THEN
+        RETURN jsonb_build_object('new_session', null, 'usage_exceeded', false, 'error', 'save_only_requires_recording_identity');
+    END IF;
 
     IF p_idempotency_key IS NOT NULL THEN
         SELECT id INTO v_existing_session_id
@@ -170,7 +190,7 @@ BEGIN
      *    save it when it reconnects (PM directive: a save failure must stay recoverable).
      * Pro and Free alike: this check, not the tier's session cap, is what holds an account to one engine.
      */
-    v_is_take := COALESCE((p_session_data->>'duration')::INT, 0) <> 600;
+    v_is_take := COALESCE((p_session_data->>'duration')::INT, 0) <> 600 AND NOT v_save_only;
     IF v_is_take THEN
         v_lease_text := p_session_data->>'lease_id';
         IF v_lease_text IS NOT NULL
@@ -199,20 +219,39 @@ BEGIN
             );
         ELSE
             v_legacy_take := true;
+            -- PM pre-push RETURN (F4) — AN OLD TAB CANNOT SEE ANOTHER DEVICE'S PROGRESS DEBT. A pre-#1525 bundle reads only
+            -- its v1 queue, and resumes a Start held on model preparation without re-checking freshness, so its placeholder
+            -- create can arrive after a newer device completed a take whose Progress evaluation has not landed. The server
+            -- holds that old client exactly as long as a current client holds its own Start on queued debt: its release
+            -- bound is 60 s (PROGRESS_DEBT_RELEASE_BOUND_MS); 90 s here adds slack. Bounded, so no old tab is locked out by
+            -- a debt that keeps failing; the debt itself stays owed. The old bundle maps this to a failed start (no row).
+            -- A current client (it sends its lease) is governed by its own Start gate, which reads the server's obligations.
+            IF EXISTS (
+                SELECT 1 FROM public.sessions s
+                WHERE s.user_id = auth.uid()
+                  AND s.status = 'completed'
+                  AND GREATEST(COALESCE(s.updated_at, s.created_at),
+                               s.created_at + make_interval(secs => COALESCE(s.duration, 0))) >= now() - interval '90 seconds'
+                  AND NOT EXISTS (SELECT 1 FROM public.session_progress_evaluations e WHERE e.session_id = s.id)
+            ) THEN
+                RETURN jsonb_build_object('new_session', null, 'usage_exceeded', false, 'error', 'progress_evaluation_pending');
+            END IF;
         END IF;
     END IF;
 
     -- #1476: the tier's session cap now counts only LEGACY takes created before this fence (no lease). A leased take is
     -- governed by the lease above; counting it would hold a returning user (#1360) or a device that took over behind a
     -- take that has already stopped and is only saving.
+    -- PM RETURN on 039043877: a fenced row (displaced, or save-only) can never record, so it holds no slot.
     SELECT COUNT(*) INTO v_active_sessions
     FROM public.sessions
     WHERE user_id = auth.uid()
       AND status = 'active'
       AND lease_id IS NULL
+      AND recording_fenced_at IS NULL
       AND (expires_at IS NULL OR expires_at > now());
 
-    IF v_active_sessions >= v_max_concurrent THEN
+    IF NOT v_save_only AND v_active_sessions >= v_max_concurrent THEN
         RETURN jsonb_build_object(
             'new_session', null,
             'usage_exceeded', true,
@@ -231,13 +270,20 @@ BEGIN
             'max_duration_seconds', 600
         );
     END IF;
-    v_initial_at_cap := (v_duration = 600);
+    v_initial_at_cap := (v_duration = 600) AND NOT v_save_only;
 
     IF v_legacy_take THEN
         -- The OLD client's implicit lease, written BEFORE the take row so the insert fence sees it. Its heartbeat_session runs every ~30 s, so the lease is kept 30 s ahead of
         -- now; the 15 s staleness window then tolerates the old cadence.
         -- Never replaces a LIVE holder (PM RETURN on 54576db9): only a stale lease is taken, and a refused upsert refuses
         -- the take with the code every shipped bundle renders.
+        -- A stale holder this take replaces is DISPLACED, permanently (PM RETURN on 039043877, F1).
+        IF v_lease.lease_id IS NOT NULL THEN
+            UPDATE public.sessions
+            SET recording_fenced_at = now(), recording_fenced_reason = 'displaced'
+            WHERE user_id = auth.uid() AND lease_id = v_lease.lease_id AND status = 'active'
+              AND lease_released_at IS NULL AND recording_fenced_at IS NULL;
+        END IF;
         v_written := NULL;
         INSERT INTO public.active_recording_lease AS l (user_id, lease_id, holder_label, state, started_at, heartbeat_at)
         VALUES (auth.uid(), v_new_session_id, 'an older version of SpeakSharp', 'recording', now(), now() + interval '30 seconds')
@@ -260,7 +306,7 @@ BEGIN
     INSERT INTO public.sessions (
         id, user_id, title, duration, total_words, filler_words, accuracy, ground_truth,
         transcript, engine, clarity_score, wpm, idempotency_key, engine_version,
-        model_name, device_type, status, expires_at, lease_id
+        model_name, device_type, status, expires_at, lease_id, recording_fenced_at, recording_fenced_reason
     ) VALUES (
         v_new_session_id,
         auth.uid(),
@@ -282,7 +328,9 @@ BEGIN
         CASE WHEN v_initial_at_cap THEN NULL ELSE now() + interval '1 hour' END,
         CASE WHEN NOT v_is_take THEN NULL
              WHEN v_legacy_take THEN v_new_session_id
-             ELSE v_lease_id END
+             ELSE v_lease_id END,
+        CASE WHEN v_save_only THEN now() END,
+        CASE WHEN v_save_only THEN 'save_only' END
     );
 
     IF v_initial_at_cap THEN
@@ -441,6 +489,16 @@ ON CONFLICT (user_id) DO UPDATE
       started_at = now(), heartbeat_at = EXCLUDED.heartbeat_at
   WHERE public.active_recording_lease.heartbeat_at < now() - interval '15 seconds';
 
+-- PM RETURN on 039043877 (F1): the older concurrent legacy takes above are DISPLACED — record that permanently, so a take
+-- is not revived when the lease holder later releases or goes stale.
+UPDATE public.sessions s
+SET recording_fenced_at = now(), recording_fenced_reason = 'displaced'
+WHERE s.status = 'active'
+  AND s.lease_id = s.id
+  AND s.recording_fenced_at IS NULL
+  AND (s.expires_at IS NULL OR s.expires_at > now())
+  AND NOT EXISTS (SELECT 1 FROM public.active_recording_lease l WHERE l.user_id = s.user_id AND l.lease_id = s.id);
+
 -- #1476 — FENCE EVERY WRITE PATH. Old clients complete with a direct RLS update and heartbeat through
 -- `heartbeat_session`; `complete_session_v2` updates the same row. One trigger covers them all, including a client that
 -- skips the RPCs entirely.
@@ -455,7 +513,9 @@ DECLARE
     v_found BOOLEAN;
 BEGIN
     IF TG_OP = 'INSERT' THEN
-        IF NEW.status = 'active' THEN
+        -- A save-only row (PM RETURN on 039043877, F2) is active only so the ordinary completion path can finish it; it
+        -- can never record, so it needs no lease.
+        IF NEW.status = 'active' AND NEW.recording_fenced_at IS NULL THEN
             SELECT * INTO v_lease FROM public.active_recording_lease WHERE user_id = NEW.user_id;
             v_found := FOUND;
             IF NEW.lease_id IS NULL
@@ -469,8 +529,47 @@ BEGIN
     END IF;
 
     -- UPDATE
+    -- PM RETURN on 039043877 — THE RECORDING FENCE (displaced, or save-only). Checked before every exemption below.
+    IF OLD.recording_fenced_at IS NOT NULL
+       AND (NEW.recording_fenced_at IS DISTINCT FROM OLD.recording_fenced_at
+            OR NEW.recording_fenced_reason IS DISTINCT FROM OLD.recording_fenced_reason) THEN
+        RAISE EXCEPTION 'recording_fenced: this take can no longer record, and that cannot be undone'
+            USING ERRCODE = 'P0001';
+    END IF;
+    IF OLD.recording_fenced_at IS NULL AND NEW.recording_fenced_at IS NOT NULL THEN
+        -- The server marking a take displaced: the mark only, nothing else in the same write.
+        IF NEW.status IS DISTINCT FROM OLD.status OR NEW.duration IS DISTINCT FROM OLD.duration
+           OR NEW.transcript IS DISTINCT FROM OLD.transcript THEN
+            RAISE EXCEPTION 'recording_fenced: a fence mark is written on its own'
+                USING ERRCODE = 'P0001';
+        END IF;
+        RETURN NEW;
+    END IF;
+    IF OLD.recording_fenced_at IS NOT NULL THEN
+        -- Never RESUME: a fenced row that has ended cannot be reopened.
+        IF OLD.status IS DISTINCT FROM 'active' AND NEW.status IS NOT DISTINCT FROM 'active' THEN
+            RAISE EXCEPTION 'lease_revoked: this take can no longer record and cannot be reopened'
+                USING ERRCODE = 'P0001';
+        END IF;
+        IF OLD.status = 'active' AND NEW.status IS NOT DISTINCT FROM 'active' THEN
+            RAISE EXCEPTION 'lease_revoked: this take can no longer record; it can be saved or discarded'
+                USING ERRCODE = 'P0001';
+        END IF;
+        IF OLD.status = 'failed'
+           AND (NEW.status IS DISTINCT FROM OLD.status OR NEW.duration IS DISTINCT FROM OLD.duration
+                OR NEW.transcript IS DISTINCT FROM OLD.transcript) THEN
+            RAISE EXCEPTION 'lease_revoked: this take is closed and cannot be revived'
+                USING ERRCODE = 'P0001';
+        END IF;
+        -- A save-only row was billed at creation for the recording's duration; its save cannot claim more.
+        IF OLD.recording_fenced_reason = 'save_only' AND COALESCE(NEW.duration, 0) > COALESCE(OLD.duration, 0) THEN
+            RAISE EXCEPTION 'recording_fenced: a save-only row cannot save more than the duration it was billed for'
+                USING ERRCODE = 'P0001';
+        END IF;
+    END IF;
+
     IF OLD.lease_id IS NULL THEN
-        RETURN NEW; -- created before this fence: unchanged behaviour
+        RETURN NEW; -- created before this fence (or save-only): unchanged behaviour
     END IF;
 
     -- Codex P1 on dae853fb: CLOSING a take is never recording work. A displaced or abandoned take may always be marked
@@ -562,6 +661,16 @@ BEGIN
   SELECT * INTO v_existing FROM public.active_recording_lease WHERE user_id = v_uid FOR UPDATE;
   v_took_over := FOUND AND v_existing.lease_id <> p_lease_id
                  AND v_existing.heartbeat_at >= now() - interval '15 seconds' AND p_force;
+
+  -- PM RETURN on 039043877 (F1): a lease this acquire REPLACES (forced over a live holder, or a stale one) displaces that
+  -- holder's take permanently. Decided under the per-account lock and the row lock, so the upsert below cannot then refuse.
+  IF v_existing.lease_id IS NOT NULL AND v_existing.lease_id <> p_lease_id
+     AND (p_force OR v_existing.heartbeat_at < now() - interval '15 seconds') THEN
+    UPDATE public.sessions
+    SET recording_fenced_at = now(), recording_fenced_reason = 'displaced'
+    WHERE user_id = v_uid AND lease_id = v_existing.lease_id AND status = 'active'
+      AND lease_released_at IS NULL AND recording_fenced_at IS NULL;
+  END IF;
 
   INSERT INTO public.active_recording_lease AS l (user_id, lease_id, holder_label, state, started_at, heartbeat_at)
   VALUES (v_uid, p_lease_id, p_holder_label, 'recording', now(), now())

@@ -38,6 +38,40 @@ reset() { q fence "DELETE FROM public.sessions; DELETE FROM public.active_record
 active_takes() { q fence "SELECT count(*) FROM public.sessions WHERE user_id='$1' AND status='active'"; }
 START_SQL() { echo "SELECT public.create_session_and_update_usage('{\"title\":\"take\",\"duration\":0,\"total_words\":0$([ -n "${1:-}" ] && echo ",\"lease_id\":\"$1\"")}'::jsonb,'private');"; }
 
+# Case 0 — PM RETURN (pre-push, F4): an OLD tab's held Start resumes after the new release is live, while ANOTHER device
+# has fresh Progress debt. The old bundle does not re-check freshness on resume (main: SpeechRuntimeController resumes at
+# `transition()` with startRecording(..., true, ...)), and it cannot see v2-only or server obligations. What reaches the
+# server is exactly this call: an old-client placeholder create (no lease, duration 0, its idempotency key). It must be
+# refused while that debt is held, for as long as a current client would hold its own Start (the 60 s release bound, plus
+# slack), and allowed once the debt is settled or the bound has passed. Free and Pro.
+EVAL_SQL() { echo "INSERT INTO public.session_progress_evaluations (user_id, session_id, formula_version, duration_seconds, word_count, clarity_evidence_available, eligible, exclusion_reasons) VALUES ('$1','$2','clarity_v1',60,100,false,false,'{too_short}');"; }   # an ineligible evaluation settles the debt too
+f4case() {  # $1 user $2 tier
+  local usr=$1 tier=$2 LB=bbbbbbbb-0000-4000-8000-0000000000a4 B out bad=""
+  reset; q fence "DELETE FROM public.session_progress_evaluations" >/dev/null
+  # Device B (current bundle) records a take and completes it; its Progress evaluation has not landed (debt).
+  B=$(q fence "$(as_user $usr) SELECT public.acquire_recording_lease('$LB','B',false); $(START_SQL $LB)" | tail -1 | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["new_session"]["id"])')
+  q fence "$(as_user $usr) SELECT public.release_recording_lease('$LB'); UPDATE public.sessions SET status='completed', duration=60, updated_at=now() WHERE id='$B';" >/dev/null
+  # Old tab A's resumed Start reaches the server.
+  out=$(q fence "$(as_user $usr) $(START_SQL)" 2>&1 | tail -1 || true)
+  echo "$out" | grep -q '"new_session": {' && bad="$bad old-tab-started-while-debt-held"
+  echo "$out" | grep -q '"error": "progress_evaluation_pending"' || bad="$bad refusal=($out)"
+  [ "$(active_takes $usr)" = "0" ] || bad="$bad active=$(active_takes $usr)"
+  # A current client is governed by its own Start gate (hydrate + bounded release), not by this guard.
+  q fence "$(as_user $usr) SELECT public.acquire_recording_lease('bbbbbbbb-0000-4000-8000-0000000000a5','C',false); $(START_SQL bbbbbbbb-0000-4000-8000-0000000000a5)" 2>/dev/null | tail -1 | grep -q '"new_session": {' || bad="$bad current-client-blocked"
+  q fence "$(as_user $usr) SELECT public.release_recording_lease('bbbbbbbb-0000-4000-8000-0000000000a5'); UPDATE public.sessions SET status='failed' WHERE lease_id='bbbbbbbb-0000-4000-8000-0000000000a5';" >/dev/null
+  # B's evaluation lands: the debt is settled, and A may start.
+  q fence "$(EVAL_SQL $usr $B)" >/dev/null
+  q fence "$(as_user $usr) $(START_SQL)" 2>/dev/null | tail -1 | grep -q '"new_session": {' || bad="$bad blocked-after-settled"
+  [ -z "$bad" ] && pass "[$tier] F4: an old tab's resumed Start is refused while another device's Progress debt is held; allowed once settled; current clients unaffected" || fail "[$tier] F4:$bad"
+  # Bounded: past the release bound the old tab is no longer held (the debt itself stays owed on the server).
+  reset; q fence "DELETE FROM public.session_progress_evaluations" >/dev/null
+  B=$(q fence "$(as_user $usr) SELECT public.acquire_recording_lease('$LB','B',false); $(START_SQL $LB)" | tail -1 | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["new_session"]["id"])')
+  q fence "$(as_user $usr) SELECT public.release_recording_lease('$LB'); UPDATE public.sessions SET status='completed', duration=60 WHERE id='$B';" >/dev/null
+  q fence "UPDATE public.sessions SET updated_at = now() - interval '5 minutes', created_at = now() - interval '7 minutes' WHERE id='$B';" >/dev/null
+  q fence "$(as_user $usr) $(START_SQL)" 2>/dev/null | tail -1 | grep -q '"new_session": {' && pass "[$tier] F4: the hold is bounded — past the release bound an old tab is not locked out" || fail "[$tier] F4: old tab locked out beyond the bound"
+}
+f4case "$U" pro; f4case "$FR" free
+
 # Case 1 — two devices press Start at the same instant (each acquires its own lease, then creates).
 reset
 for L in aaaaaaaa-0000-4000-8000-000000000001 aaaaaaaa-0000-4000-8000-000000000002; do
@@ -125,21 +159,31 @@ for T in "pro:$U" "free:$FR"; do
            20260819120000_complete_session_v2_atomic_retention_1314 20260908120000_transcript_retention_newest_one \
            20260607040000_active_recording_lease; do qf $D "$M/$f.sql"; done
   q $D "SELECT public.activate_transcript_retention_newest_one()" >/dev/null
+  older=""
+  if [ "$tier" = pro ]; then   # Pro's legacy cap (50) let an old client run TWO takes before the fence existed
+    older=$(q $D "$(as_user $usr) $(START_SQL)" | tail -1 | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["new_session"]["id"])')
+    q $D "UPDATE public.sessions SET created_at = now() - interval '1 minute' WHERE id='$older'" >/dev/null
+  fi
   legacy=$(q $D "$(as_user $usr) $(START_SQL)" | tail -1 | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["new_session"]["id"])')
   qf $D "$M/20260923120000_one_active_engine_per_account_1476.sql"
   # A current client (device B) and a second OLD client press Start at the same instant, each on its own connection.
   ( psql -h /tmp -p "$PORT" -U postgres -d $D -AtqX -c "$(as_user $usr) BEGIN; SELECT public.acquire_recording_lease('aaaaaaaa-0000-4000-8000-0000000000c1','B',false); $(START_SQL aaaaaaaa-0000-4000-8000-0000000000c1) COMMIT;" >/dev/null 2>&1 || true ) &
   ( psql -h /tmp -p "$PORT" -U postgres -d $D -AtqX -c "$(as_user $usr) $(START_SQL)" >/dev/null 2>&1 || true ) &
   wait
-  n=$(q $D "SELECT count(*) FROM public.sessions WHERE user_id='$usr' AND status='active'")
+  n=$(q $D "SELECT count(*) FROM public.sessions WHERE user_id='$usr' AND status='active' AND recording_fenced_at IS NULL")
   holder=$(q $D "SELECT lease_id FROM public.active_recording_lease WHERE user_id='$usr'")
   [ "$n" = "1" ] && [ "$holder" = "$legacy" ] && pass "[$tier] migration over a running old take: it holds the account lease; concurrent new + old Starts add no engine (active=$n)" || fail "[$tier] pre-migration take: active=$n holder=$holder legacy=$legacy"
   q $D "$(as_user $usr) UPDATE public.sessions SET duration = 30 WHERE id='$legacy';" >/dev/null && pass "[$tier] the running old take keeps recording (its heartbeat renews its lease)" || fail "[$tier] old take's heartbeat refused before any take-over"
   q $D "$(as_user $usr) SELECT public.acquire_recording_lease('aaaaaaaa-0000-4000-8000-0000000000c2','B',true); $(START_SQL aaaaaaaa-0000-4000-8000-0000000000c2)" >/dev/null
   if q $D "$(as_user $usr) UPDATE public.sessions SET duration = 60 WHERE id='$legacy';" >/dev/null 2>&1; then fail "[$tier] displaced old take kept recording"; else pass "[$tier] after an explicit take-over the old take can no longer record"; fi
   q $D "$(as_user $usr) UPDATE public.sessions SET status='completed', duration=60 WHERE id='$legacy';" >/dev/null 2>&1 && st=$(q $D "SELECT status FROM public.sessions WHERE id='$legacy'" | tail -1)
-  n=$(q $D "SELECT count(*) FROM public.sessions WHERE user_id='$usr' AND status='active'")
+  n=$(q $D "SELECT count(*) FROM public.sessions WHERE user_id='$usr' AND status='active' AND recording_fenced_at IS NULL")
   [ "${st:-}" = "completed" ] && [ "$n" = "1" ] && pass "[$tier] the old take's recording is saved; exactly one engine authorized (the take-over)" || fail "[$tier] after take-over: old=${st:-refused} active=$n"
+  if [ -n "$older" ]; then
+    # The newest take held the lease; the OLDER concurrent one was displaced at apply — permanently, even after both end.
+    if q $D "$(as_user $usr) UPDATE public.sessions SET duration = 45 WHERE id='$older';" >/dev/null 2>&1; then fail "[$tier] older concurrent legacy take kept recording after the migration"; else pass "[$tier] the older concurrent legacy take is fenced by the migration backfill (it may still save)"; fi
+    q $D "$(as_user $usr) UPDATE public.sessions SET status='completed' WHERE id='$older';" >/dev/null 2>&1 && pass "[$tier] the fenced older take's save lands" || fail "[$tier] the fenced older take could not save"
+  fi
   st=""
 done
 
@@ -174,6 +218,100 @@ race8() {  # $1 user, $2 tier label, $3 order: current_first | old_first
 }
 for T in "pro:$U" "free:$FR"; do for ORD in current_first old_first; do race8 "${T#*:}" "${T%%:*}" "$ORD"; done; done
 
+# Case 9 — PM RETURN on 039043877 (F1): DISPLACEMENT IS PERMANENT. Take A is taken over by B; B then ends (release, or its
+# lease goes stale) and C starts. A must never record or accrue again — heartbeat, direct write, or a heartbeat-shaped
+# accrual transaction — while it may still be SAVED, its save RETRIED, or DISCARDED. Old and current clients, Free and Pro.
+f1case() {  # $1 user $2 tier $3 old|current $4 release|stale $5 save|discard
+  local usr=$1 tier=$2 kind=$3 ending=$4 finish=$5 A LA=aaaaaaaa-0000-4000-8000-0000000000f1 LB=bbbbbbbb-0000-4000-8000-0000000000f1 LC=cccccccc-0000-4000-8000-0000000000f1 bad=""
+  reset
+  if [ "$kind" = old ]; then
+    A=$(q fence "$(as_user $usr) $(START_SQL)" | tail -1 | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["new_session"]["id"])')
+  else
+    A=$(q fence "$(as_user $usr) SELECT public.acquire_recording_lease('$LA','A',false); $(START_SQL $LA)" | tail -1 | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["new_session"]["id"])')
+  fi
+  q fence "$(as_user $usr) SELECT public.acquire_recording_lease('$LB','B',true);" >/dev/null
+  q fence "$(as_user $usr) UPDATE public.sessions SET duration = 30 WHERE id='$A';" >/dev/null 2>&1 && bad="$bad hb-while-B"
+  if [ "$ending" = release ]; then q fence "$(as_user $usr) SELECT public.release_recording_lease('$LB');" >/dev/null
+  else q fence "UPDATE public.active_recording_lease SET heartbeat_at = now() - interval '20 seconds' WHERE lease_id='$LB';" >/dev/null; fi
+  q fence "$(as_user $usr) UPDATE public.sessions SET duration = 60 WHERE id='$A';" >/dev/null 2>&1 && bad="$bad hb-after-B-$ending"
+  q fence "$(as_user $usr) BEGIN; INSERT INTO public.usage_checkpoints (session_id,user_id,incremental_seconds,engine_type) VALUES ('$A','$usr',30,'private'); UPDATE public.sessions SET duration = 90 WHERE id='$A'; COMMIT;" >/dev/null 2>&1 && bad="$bad accrual"
+  [ "$(q fence "SELECT count(*) FROM public.usage_checkpoints WHERE session_id='$A' AND incremental_seconds=30")" = "0" ] || bad="$bad usage-accrued"
+  q fence "$(as_user $usr) SELECT public.acquire_recording_lease('$LC','C',false); $(START_SQL $LC)" >/dev/null 2>&1 || bad="$bad C-start"
+  q fence "$(as_user $usr) UPDATE public.sessions SET duration = 120 WHERE id='$A';" >/dev/null 2>&1 && bad="$bad hb-while-C"
+  q fence "$(as_user $usr) UPDATE public.sessions SET recording_fenced_at = NULL, recording_fenced_reason = NULL WHERE id='$A';" >/dev/null 2>&1 && bad="$bad fence-cleared"
+  if [ "$finish" = save ]; then
+    q fence "$(as_user $usr) UPDATE public.sessions SET status='completed', duration=45, transcript='what A captured' WHERE id='$A';" >/dev/null 2>&1 || bad="$bad save"
+    q fence "$(as_user $usr) UPDATE public.sessions SET transcript='what A captured', updated_at=now() WHERE id='$A';" >/dev/null 2>&1 || bad="$bad retry-save"
+    [ "$(q fence "SELECT status FROM public.sessions WHERE id='$A'")" = "completed" ] || bad="$bad not-saved"
+    # A saved, displaced take can never RESUME — not by reopening it, and not by clearing its fence mark in the same write.
+    q fence "$(as_user $usr) UPDATE public.sessions SET status='active' WHERE id='$A';" >/dev/null 2>&1 && bad="$bad resumed"
+    q fence "$(as_user $usr) UPDATE public.sessions SET status='active', recording_fenced_at=NULL, recording_fenced_reason=NULL WHERE id='$A';" >/dev/null 2>&1 && bad="$bad resumed-by-clearing"
+    # Two-step: clear the mark on the saved row first, then reopen it once it no longer looks fenced.
+    q fence "$(as_user $usr) UPDATE public.sessions SET recording_fenced_at=NULL, recording_fenced_reason=NULL WHERE id='$A';" >/dev/null 2>&1 && bad="$bad fence-cleared-after-save"
+    q fence "$(as_user $usr) UPDATE public.sessions SET status='active' WHERE id='$A';" >/dev/null 2>&1 && bad="$bad resumed-after-clearing"
+  else
+    q fence "$(as_user $usr) UPDATE public.sessions SET status='failed' WHERE id='$A';" >/dev/null 2>&1 || bad="$bad discard"
+  fi
+  [ "$(active_takes $usr)" = "1" ] || bad="$bad active=$(active_takes $usr)"
+  [ -z "$bad" ] && pass "[$tier/$kind/B-$ending/$finish] displaced take stays fenced after its successor ends; C records; A's $finish lands" || fail "[$tier/$kind/B-$ending/$finish]:$bad"
+}
+# An OLD client's Start that takes over a STALE lease (the writer's legacy path) displaces that holder permanently too.
+f1legacy() {  # $1 user $2 tier
+  local usr=$1 tier=$2 A C LA=aaaaaaaa-0000-4000-8000-0000000000f7 bad=""
+  reset
+  A=$(q fence "$(as_user $usr) SELECT public.acquire_recording_lease('$LA','A',false); $(START_SQL $LA)" | tail -1 | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["new_session"]["id"])')
+  q fence "UPDATE public.active_recording_lease SET heartbeat_at = now() - interval '20 seconds' WHERE lease_id='$LA';" >/dev/null   # A's device went quiet
+  C=$(q fence "$(as_user $usr) $(START_SQL)" | tail -1 | python3 -c 'import sys,json; print((json.loads(sys.stdin.read()).get("new_session") or {}).get("id",""))')
+  [ -n "$C" ] || bad="$bad old-client-start-refused"
+  q fence "$(as_user $usr) UPDATE public.sessions SET status='completed' WHERE id='$C';" >/dev/null   # C ends (its implicit lease is released)
+  q fence "$(as_user $usr) UPDATE public.sessions SET duration = 60 WHERE id='$A';" >/dev/null 2>&1 && bad="$bad A-revived"
+  q fence "$(as_user $usr) UPDATE public.sessions SET status='completed', duration=40 WHERE id='$A';" >/dev/null 2>&1 || bad="$bad A-save"
+  [ -z "$bad" ] && pass "[$tier] an old client taking over a stale lease displaces its holder permanently; the holder can still save" || fail "[$tier] legacy stale take-over:$bad"
+}
+f1legacy "$U" pro; f1legacy "$FR" free
+for T in "pro:$U" "free:$FR"; do for K in old current; do for E in release stale; do f1case "${T#*:}" "${T%%:*}" $K $E save; done; done; done
+f1case "$U" pro old release discard; f1case "$FR" free current stale discard
+
+# Case 10 — PM RETURN on 039043877 (F2): RETRY SAVE OF A TAKE WHOSE ROW NEVER EXISTED claims no recording slot. Created
+# save-only (never able to record) under the ORIGINAL recording identity and duration, while another device records.
+SAVE_SQL() { echo "SELECT public.create_session_and_update_usage('{\"title\":\"recovered\",\"duration\":93,\"total_words\":0,\"save_only\":true}'::jsonb,'private',$1);"; }
+f2case() {  # $1 user $2 tier
+  local usr=$1 tier=$2 K="'dddddddd-0000-4000-8000-0000000000d1'::uuid" LB=bbbbbbbb-0000-4000-8000-0000000000d1 LC=cccccccc-0000-4000-8000-0000000000d1 R R2 bad="" out
+  reset; q fence "DELETE FROM public.usage_checkpoints" >/dev/null
+  q fence "$(as_user $usr) SELECT public.acquire_recording_lease('$LB','B',false); $(START_SQL $LB)" >/dev/null   # device B records
+  out=$(q fence "$(as_user $usr) $(SAVE_SQL "$K")" 2>&1 | tail -1 || true)   # an SQL error must report, not abort the run
+  R=$(echo "$out" | python3 -c 'import sys,json; d=json.loads(sys.stdin.read()); print((d.get("new_session") or {}).get("id",""))' 2>/dev/null || true)
+  if [ -z "$R" ]; then fail "[$tier] save-only recovery while B records: refused ($out)"; return; fi
+  [ "$(q fence "SELECT status||'/'||coalesce(lease_id::text,'none')||'/'||coalesce(recording_fenced_reason,'unfenced')||'/'||duration FROM public.sessions WHERE id='$R'" 2>/dev/null)" = "active/none/save_only/93" ] || bad="$bad row-shape"
+  [ "$(q fence "SELECT lease_id FROM public.active_recording_lease WHERE user_id='$usr'")" = "$LB" ] || bad="$bad took-B-lease"
+  [ "$(q fence "SELECT coalesce(sum(incremental_seconds),0) FROM public.usage_checkpoints WHERE session_id='$R'")" = "93" ] || bad="$bad not-billed"
+  R2=$(q fence "$(as_user $usr) $(SAVE_SQL "$K")" | tail -1 | python3 -c 'import sys,json; d=json.loads(sys.stdin.read()); print(d["new_session"]["id"], d.get("is_duplicate"))' 2>/dev/null || true)
+  [ "$R2" = "$R True" ] || bad="$bad replay=$R2"
+  [ "$(q fence "SELECT coalesce(sum(incremental_seconds),0) FROM public.usage_checkpoints WHERE session_id='$R'")" = "93" ] || bad="$bad double-billed"
+  q fence "$(as_user $usr) UPDATE public.sessions SET duration = 120 WHERE id='$R';" >/dev/null 2>&1 && bad="$bad heartbeat"
+  q fence "$(as_user $usr) SELECT public.create_session_and_update_usage('{\"title\":\"x\",\"duration\":93,\"total_words\":0,\"save_only\":true}'::jsonb,'private',NULL);" 2>/dev/null | tail -1 | grep -q '"new_session": {' && bad="$bad no-identity-accepted"
+  q fence "$(as_user $usr) SELECT public.release_recording_lease('$LB'); UPDATE public.sessions SET status='completed' WHERE lease_id='$LB';" >/dev/null   # B stops (and saves); C starts while R is still unsaved
+  q fence "$(as_user $usr) SELECT public.acquire_recording_lease('$LC','C',false); $(START_SQL $LC)" 2>/dev/null | tail -1 | grep -q '"new_session": {' || bad="$bad C-blocked-by-recovery"
+  out=$(set +o pipefail; q fence "$(as_user $usr) SELECT public.complete_session_v2('$R','completed',93,NULL,'{\"type\":\"practice\"}'::jsonb,12,0.8,110,'{}'::jsonb,NULL,'the recovered words');" 2>&1 | tail -1)
+  if [ "$tier" = pro ]; then
+    echo "$out" | grep -q '"final_status": "completed"' || bad="$bad complete($out)"
+    [ "$(q fence "SELECT status||'/'||duration||'/'||coalesce(transcript_state,'?') FROM public.sessions WHERE id='$R'")" = "completed/93/available" ] || bad="$bad saved-shape"
+  else
+    # Entitlement is not bypassed: completion applies the SAME tier rule it applies to any take (a Free account
+    # without a trial is refused), and the save-only row stays unable to record.
+    echo "$out" | grep -q '"error": "trial_expired"' || bad="$bad free-completion($out)"
+  fi
+  q fence "$(as_user $usr) UPDATE public.sessions SET duration = 600, status='completed' WHERE id='$R';" >/dev/null 2>&1 && bad="$bad saved-more-than-billed"
+  [ "$(q fence "SELECT count(*) FROM public.sessions WHERE user_id='$usr' AND status='active' AND recording_fenced_at IS NULL")" = "1" ] || bad="$bad recording-rows=$(q fence "SELECT count(*) FROM public.sessions WHERE user_id='$usr' AND status='active' AND recording_fenced_at IS NULL")"
+  [ -z "$bad" ] && pass "[$tier] missing-row Retry Save while another device records: save-only row, original identity+duration billed once, no lease, no heartbeat, no slot; completes via complete_session_v2" || fail "[$tier] save-only recovery:$bad"
+}
+f2case "$U" pro; f2case "$FR" free
+# Ownership: another account presenting the same recording identity never reaches this account's row.
+reset
+own=$(q fence "$(as_user $U) $(SAVE_SQL "'dddddddd-0000-4000-8000-0000000000d2'::uuid")" | tail -1 | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["new_session"]["id"])')
+other=$(q fence "$(as_user $O) $(SAVE_SQL "'dddddddd-0000-4000-8000-0000000000d2'::uuid")" 2>/dev/null | tail -1 | python3 -c 'import sys,json; d=json.loads(sys.stdin.read()); print((d.get("new_session") or {}).get("id",""), (d.get("new_session") or {}).get("user_id",""))' 2>/dev/null || echo "refused")
+case "$other" in "$own"*) fail "save-only ownership: another account received this account's row";; *) pass "save-only ownership: the same recording identity from another account never returns this account's row ($other)";; esac
+
 # ---------- DB 2: #1521 applied AFTER #1525 (attribution + progress chain) ----------
 q postgres "CREATE DATABASE progress" >/dev/null
 qf progress tests/db/attribution-authority-bootstrap.sql
@@ -187,6 +325,9 @@ else
   echo "INFO #1521 migration not in this tree; supply it with MIG1521=path"; [ -n "${MIG1521:-}" ] && { qf progress "$MIG1521" && pass "#1521 migration (from MIG1521) applies cleanly AFTER #1525" || fail "#1521 after #1525 failed to apply"; }
 fi
 q progress "INSERT INTO auth.users (id) VALUES ('$U') ON CONFLICT DO NOTHING;" >/dev/null
+# Writer dependencies the shared attribution bootstrap does not carry (production has them), so the #1476 writer's
+# save-only recovery path can run here against the attribution + Progress chain.
+q progress "CREATE TABLE IF NOT EXISTS public.user_profiles (id uuid PRIMARY KEY, subscription_status text, trial_expires_at timestamptz, stripe_subscription_id text, subscription_id text, commercial_trial_granted_at timestamptz); INSERT INTO public.user_profiles (id, subscription_status) VALUES ('$U','pro') ON CONFLICT DO NOTHING; CREATE OR REPLACE FUNCTION public.effective_subscription_tier(text, timestamptz, text, text, timestamptz) RETURNS text LANGUAGE sql IMMUTABLE AS \$fn\$ SELECT CASE WHEN \$1 = 'pro' THEN 'pro' ELSE 'free' END \$fn\$; CREATE TABLE IF NOT EXISTS public.usage_checkpoints (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid, user_id uuid, incremental_seconds int, engine_type text, created_at timestamptz DEFAULT now()); CREATE OR REPLACE FUNCTION public.update_user_usage(int, text, uuid) RETURNS jsonb LANGUAGE sql AS \$fn\$ SELECT jsonb_build_object('success', true) \$fn\$; ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS idempotency_key uuid;" >/dev/null
 L=aaaaaaaa-0000-4000-8000-000000000008
 sid=$(q progress "$(as_user $U) SELECT public.acquire_recording_lease('$L','dev',false); INSERT INTO public.sessions (user_id,status,duration,total_words,wpm,transcript,engine,engine_version,model_name,device_type,attribution_status,filler_counts,lease_id) VALUES ('$U','active',93,141,91,'a clean transcript with plenty of ordinary words','private','private_v2:whisper-base.en','whisper-base.en','browser','pending','{\"um\":2}'::jsonb,'$L') RETURNING id;" | tail -1)
 q progress "SET ROLE service_role; SELECT public.issue_attribution_intent_v1('$U','rec-$sid','private','base'); SELECT public.bind_attribution_intent_v1('$sid','rec-$sid'); UPDATE public.sessions SET status='completed' WHERE id='$sid'; SELECT public.attest_session_engine_v1('$sid','{\"provider\":\"transformers-js\",\"model_id\":\"base\",\"fallback_occurred\":false,\"cloud_used\":false}'::jsonb); RESET ROLE;" >/dev/null
@@ -195,6 +336,19 @@ owed=$(q progress "$(as_user $U) SELECT public.get_progress_obligations()->0->>'
 evid=$(q progress "$(as_user $U) SELECT public.record_progress_evaluation('$sid');" | tail -1)
 left=$(q progress "$(as_user $U) SELECT jsonb_array_length(public.get_progress_obligations());" | tail -1)
 [ -n "$evid" ] && [ "$left" = "0" ] && pass "#1521's evaluator settles it and the obligation clears (evaluation $evid)" || fail "settle after #1521: eval=$evid left=$left"
+
+# Case 12 — PM RETURN on 039043877 (F2): a recovered (save-only) row owes Progress exactly like any completed take, and
+# #1521's evaluator settles it.
+rec=$(q progress "$(as_user $U) SELECT public.create_session_and_update_usage('{\"title\":\"recovered\",\"duration\":93,\"total_words\":141,\"save_only\":true}'::jsonb,'private','eeeeeeee-0000-4000-8000-0000000000e2'::uuid);" 2>&1 | tail -1 | python3 -c 'import sys,json; print((json.loads(sys.stdin.read()).get("new_session") or {}).get("id",""))' 2>/dev/null || true)
+if [ -n "$rec" ]; then
+  q progress "SET ROLE service_role; UPDATE public.sessions SET status='completed', wpm=91, transcript='a recovered transcript with plenty of ordinary words', filler_counts='{\"um\":2}'::jsonb WHERE id='$rec'; SELECT public.resolve_session_unattributed_v1('$rec'); RESET ROLE;" >/dev/null
+  st=$(q progress "$(as_user $U) SELECT e->>'state' FROM jsonb_array_elements(public.get_progress_obligations()) e WHERE e->>'session_id'='$rec';" | tail -1)
+  ev=$(q progress "$(as_user $U) SELECT public.record_progress_evaluation('$rec');" 2>/dev/null | tail -1 || true)
+  st2=$(q progress "$(as_user $U) SELECT count(*) FROM jsonb_array_elements(public.get_progress_obligations()) e WHERE e->>'session_id'='$rec';" | tail -1)
+  [ "$st" = "owed" ] && [ -n "$ev" ] && [ "$st2" = "0" ] && pass "save-only recovered row: listed as owed Progress, and #1521's evaluator settles it (evaluation $ev)" || fail "recovered row Progress: state=$st eval=$ev left=$st2"
+else
+  fail "recovered row Progress: save-only create refused"
+fi
 
 echo "SUMMARY fails=$FAILS"
 [ "$FAILS" = "0" ]
