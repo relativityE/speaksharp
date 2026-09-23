@@ -22,6 +22,15 @@ describe('runtime boot gate — only the routes that use the runtime may boot it
         }
     });
 
+    it('CASUALTY (Codex P2 on 117e5f2e): a path the router 404s never boots the runtime', () => {
+        // App.tsx declares `/session` EXACTLY and `/analytics/:sessionId` with ONE segment; anything
+        // deeper falls to the `*` NotFoundPage. A prefix rule booted the runtime there anyway, arming the
+        // five-minute reclamation cycle on a 404 tab — the very cost this gate exists to remove.
+        for (const path of ['/session/anything', '/session/a/b', '/analytics/abc-123/extra', '/analytics/a/b/c']) {
+            expect(pathNeedsRuntimeAtBoot(path), `${path} renders NotFoundPage, so it must not boot the runtime`).toBe(false);
+        }
+    });
+
     it('matches on a segment boundary, so a neighbouring path is not swept in', () => {
         expect(pathNeedsRuntimeAtBoot('/sessions-archive')).toBe(false);
         expect(pathNeedsRuntimeAtBoot('/session-notes')).toBe(false);
@@ -73,12 +82,10 @@ describe('runtime boot gate — only the routes that use the runtime may boot it
             expect(pathNeedsRuntimeAtBoot(concrete), `${routePath} mounts TranscriptionProvider, so it must boot the runtime`).toBe(true);
         }
 
-        for (const gated of RUNTIME_BOOT_ROUTES) {
-            expect(
-                runtimeRoutePaths.some((routePath) => routePath === gated || routePath.startsWith(`${gated}/`)),
-                `${gated} is gated in but no route under it mounts TranscriptionProvider any more`,
-            ).toBe(true);
-        }
+        // Exact equality, both ways: the gate lists the router's own patterns, so a pattern that no longer
+        // mounts the provider (or a provider route missing here) is drift, not a prefix to be tolerated.
+        expect([...RUNTIME_BOOT_ROUTES].sort(), 'the gate lists exactly the TranscriptionProvider routes')
+            .toEqual([...runtimeRoutePaths].sort());
     });
 
     it('CASUALTY: the model-comparison switch installs on EVERY route, not only the gated ones', () => {

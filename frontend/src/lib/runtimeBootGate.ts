@@ -22,22 +22,41 @@
  * call costs on the routes that keep it.
  */
 
-/** Route prefixes whose pages mount `TranscriptionProvider` and therefore use the runtime. */
-export const RUNTIME_BOOT_ROUTES = ['/session', '/analytics'] as const;
+/**
+ * The EXACT router patterns (as declared in `App.tsx`) whose pages mount `TranscriptionProvider`.
+ *
+ * Codex P2 on 117e5f2e: these used to be PREFIXES, so `/session/anything` booted the runtime — but
+ * `App.tsx` declares `/session` exactly and `/analytics/:sessionId` with ONE segment, and anything
+ * deeper renders the `*` NotFoundPage. A prefix rule therefore armed the reclamation cycle on a 404
+ * tab. Listing the patterns themselves, matched segment by segment, keeps this list and the router
+ * speaking the same language (the CONTRACT test reads `App.tsx` to hold them equal).
+ */
+export const RUNTIME_BOOT_ROUTES = ['/session', '/analytics', '/analytics/:sessionId'] as const;
+
+const segmentsOf = (path: string) => path.split('/').filter(Boolean);
+
+/** React Router semantics for these patterns: same segment count; `:param` matches one non-empty segment. */
+function matchesRoutePattern(pathSegments: string[], pattern: string): boolean {
+    const patternSegments = segmentsOf(pattern);
+    if (patternSegments.length !== pathSegments.length) return false;
+    return patternSegments.every((seg, i) => seg.startsWith(':') ? pathSegments[i].length > 0 : seg === pathSegments[i]);
+}
 
 /**
  * Does a first paint at `pathname` need the runtime warmed before React mounts?
  *
- * Prefix match on a SEGMENT boundary, so `/analytics/<id>` qualifies while a future
- * `/sessions-archive` does not. Compared case-insensitively because the routes in `App.tsx` are
- * declared without `caseSensitive`, so React Router will render `/Session`.
+ * Only a path the router would actually render a runtime page for: `/analytics/<id>` qualifies, while
+ * `/session/anything`, `/analytics/a/b` (both 404) and a neighbour like `/sessions-archive` do not.
+ * Compared case-insensitively because the routes in `App.tsx` are declared without `caseSensitive`, so
+ * React Router will render `/Session`.
  */
 export function pathNeedsRuntimeAtBoot(pathname: string | null | undefined): boolean {
     if (!pathname) return false;
     // Strip query/hash defensively: callers pass `location.pathname`, but a caller that passes a
     // whole URL must not silently fail the match.
     const path = pathname.toLowerCase().split(/[?#]/)[0].replace(/\/+$/, '') || '/';
-    return RUNTIME_BOOT_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+    const pathSegments = segmentsOf(path);
+    return RUNTIME_BOOT_ROUTES.some((pattern) => matchesRoutePattern(pathSegments, pattern));
 }
 
 /**
