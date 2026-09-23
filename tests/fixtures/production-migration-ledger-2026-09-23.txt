@@ -110,9 +110,3 @@
    20260908120000 | 20260908120000 | 2026-09-08 12:00:00
    20260910193000 |                | 2026-09-10 19:30:00
    20260914214307 |                | 2026-09-14 21:43:07
-
-A new version of Supabase CLI is available: v2.117.0 (currently installed v2.101.0)
-We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
-Using workdir /home/runner/work/speaksharp/speaksharp/backend
-Initialising login role...
-DRY RUN: migrations will *not* be pushed to the database.
