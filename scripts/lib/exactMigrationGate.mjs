@@ -89,6 +89,23 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1432 — server-owned, content-free AI suggestion receipt. Merged (1b311f928) but PENDING in Production
+        // (read-only preflight 35919387314, 2026-09-23). Allowlisted so it can be applied EXACTLY, in the ordered queue
+        // #1432 → #1469 → #1476; allowlisting is not authorization — the PO dispatches it with its derived phrase.
+        version: '20260910193000',
+        file: '20260910193000_ai_suggestion_authority_receipt.sql',
+        sha256: '85bbae6d2b3e69921b1b8419c8de9d6ce0d0f0dddfd7632bb9d04d30a3d49701',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // #1469 (RWT-05) — Focus Points eligibility reads the server-owned attribution authority. Merged (734d045ad),
+        // PENDING in Production (same read). Second in the ordered queue; separately authorized.
+        version: '20260914214307',
+        file: '20260914214307_objective_eligibility_reads_attribution_authority.sql',
+        sha256: 'bdef62768ac61a3c10cac141aa80bcd248cd5ad9f24b0d96cf573cc1b6321e7c',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -370,12 +387,43 @@ function historyMap(rows) {
     return history;
 }
 
+/**
+ * THE REAL LEDGER DECIDES WHICH LATER ALLOWLIST ENTRIES ARE EXCLUDED. A later allowlist entry used to be excluded
+ * unconditionally, and the pre-apply check then demanded it be PENDING. Since 2026-09-12 the commercial-activation
+ * entry is RECORDED applied (without executing, #1282), so no real ledger could satisfy the gate for any target placed
+ * before it — and the isolated workspace dropped an applied migration's file, leaving remote history the checked-out
+ * source lacks. Now, for an allowlisted target:
+ *  - a later entry still PENDING is excluded (it stays pending, exactly as before);
+ *  - a later entry recorded APPLIED is kept in the workspace and must stay applied (the history-delta check);
+ *  - a later entry the ledger does not list at all fails closed.
+ * Nothing else changes: every OTHER pending migration is still refused, BY NAME — none is hidden automatically.
+ */
+export function ledgerAwareConfig(output, config = CONFIG) {
+    if (!config.allowlisted) return config;
+    const history = historyMap(parseMigrationList(output));
+    const stillPending = [];
+    for (const excluded of config.excludedMigrations) {
+        const row = history.get(excluded.version);
+        if (!row || row.local !== excluded.version) {
+            throw new Error(`later allowlisted migration ${excluded.version} is absent from the migration list`);
+        }
+        if (row.remote === null) stillPending.push(excluded);
+        else if (row.remote !== excluded.version) throw new Error(`later allowlisted migration ${excluded.version} has a mismatched history row`);
+    }
+    return { ...config, excludedMigrations: stillPending };
+}
+
 export function assertBeforeApply(output, config = CONFIG) {
+    config = ledgerAwareConfig(output, config);
     const rows = parseMigrationList(output);
     const pending = rows.filter((row) => row.local && !row.remote).map((row) => row.local);
     const expected = new Set([...config.excludedMigrations.map(({ version }) => version), config.targetVersion]);
     if (pending.length !== expected.size || pending.some((version) => !expected.has(version))) {
-        throw new Error(`unexpected pending migration set: ${pending.join(',') || 'none'}`);
+        const unexpected = pending.filter((version) => !expected.has(version));
+        const missing = [...expected].filter((version) => !pending.includes(version));
+        throw new Error(`unexpected pending migration set: ${pending.join(',') || 'none'}`
+            + (unexpected.length ? ` — refused, not selected: ${unexpected.join(',')}` : '')
+            + (missing.length ? ` — expected pending but not: ${missing.join(',')}` : ''));
     }
     const remoteOnly = rows.filter((row) => !row.local && row.remote);
     if (remoteOnly.length > 0) throw new Error('remote migration history is missing from the checked-out source');
@@ -386,7 +434,7 @@ export function assertBeforeApply(output, config = CONFIG) {
             throw new Error(`required prerequisite migration ${version} is not applied`);
         }
     }
-    return { pending };
+    return { pending, excludedVersions: config.excludedMigrations.map(({ version }) => version) };
 }
 
 export function assertExactDryRun(output, config = CONFIG) {
@@ -402,6 +450,7 @@ export function assertExactDryRun(output, config = CONFIG) {
 }
 
 export function assertAfterApply(beforeOutput, afterOutput, config = CONFIG) {
+    config = ledgerAwareConfig(beforeOutput, config);
     const beforeRows = parseMigrationList(beforeOutput);
     const rows = parseMigrationList(afterOutput);
     const remoteOnly = rows.filter((row) => !row.local && row.remote);

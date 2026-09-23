@@ -8,6 +8,7 @@ import {
     assertNoNewLint,
     assertTerminalOutcome,
     expectedAuthorizationPhrase,
+    ledgerAwareConfig,
     prepareExactMigrationWorkspace,
     resolveExactMigrationConfig,
     verifyMigrationSourceIdentity,
@@ -30,9 +31,18 @@ case 'source':
 case 'phrase':
     result = { phrase: expectedAuthorizationPhrase(args[0]) };
     break;
-case 'prepare-workspace':
-    result = prepareExactMigrationWorkspace(args[0], args[1]);
+case 'prepare-workspace': {
+    // prepare-workspace <supabaseDir> <tempRoot> <pre-apply migration list>
+    // An allowlisted target's exclusions come from the REAL pre-apply ledger (ledgerAwareConfig); it is required.
+    const config = resolveExactMigrationConfig(process.env);
+    if (config.allowlisted && !args[2]) {
+        console.error('prepare-workspace: an allowlisted target requires the pre-apply migration list');
+        process.exit(2);
+    }
+    result = prepareExactMigrationWorkspace(args[0], args[1],
+        args[2] ? ledgerAwareConfig(await readFile(args[2], 'utf8'), config) : config);
     break;
+}
 case 'before':
     result = assertBeforeApply(await readFile(args[0], 'utf8'));
     break;
