@@ -1905,6 +1905,46 @@ describe('useSessionLifecycle - one account, one engine (#1476)', () => {
         vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(true);
     });
 
+    it('Codex P1 on 56cc5ad3: a Start that FAILS after engine work began releases the lease only on proof', async () => {
+        readyStore();
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(false);
+        let prove: (o: 'terminal' | 'unconfirmed') => void = () => undefined;
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockImplementation(() => new Promise((resolve) => { prove = resolve; }));
+        vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(new Error('placeholder save rejected'));
+        const { result } = render();
+        // The Start guard proves the prior (none) quickly; make that first call resolve at once.
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValueOnce(true);
+        leaseMock.release.mockClear();
+        await act(async () => { await result.current.handleStartStop().catch(() => undefined); });
+        expect(leaseMock.release, 'not while the failed take\'s engine may run').not.toHaveBeenCalled();
+        await act(async () => { prove('terminal'); await Promise.resolve(); await Promise.resolve(); });
+        expect(leaseMock.release).toHaveBeenCalledTimes(1);
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(true);
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockImplementation(async () => 'terminal');
+    });
+
+    it('Codex P1 on 56cc5ad3: a new Start while the previous engine is UNCONFIRMED is refused and the kept lease is NOT released', async () => {
+        const store = readyStore();
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(false);
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockImplementation(async () => 'unconfirmed');
+        const { result } = render();
+        leaseMock.release.mockClear();
+        leaseMock.acquire.mockClear();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(leaseMock.acquire, 'no acquire — it would release the kept lease first').not.toHaveBeenCalled();
+        expect(leaseMock.release).not.toHaveBeenCalled();
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(store.getState().setSTTStatus).toHaveBeenCalledWith({
+            type: 'error',
+            message: "SpeakSharp could not confirm the last recording stopped, so this tab still holds your account's recording. Reload or close this tab to end it, or start on another device and take over.",
+        });
+        // Once the previous engine is proven off, the Start proceeds.
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockImplementation(async () => 'terminal');
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(leaseMock.acquire).toHaveBeenCalled();
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(true);
+    });
+
     it('CONTROL: a take that ends normally (RECORDING → STOPPING → IDLE) releases once it is at rest', async () => {
         const store = readyStore();
         render();

@@ -166,8 +166,9 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         const started = controller.startRecording(POLICY as never, []);
         const outcome: string[] = [];
         started.then(() => outcome.push('resolved'), (e: Error) => outcome.push(`rejected:${e.message}`));
+        // Wait on the precondition itself (a fixed number of ticks was too few on a slower CI runner).
+        await vi.waitFor(() => expect(engine.initCalls, 'precondition: an engine instance exists').toBeGreaterThanOrEqual(1), { timeout: 5_000 });
         await settle();
-        expect(engine.initCalls, 'precondition: an engine instance exists').toBeGreaterThanOrEqual(1);
         expect((controller as unknown as { service: unknown }).service, 'precondition: the service holds it').not.toBeNull();
 
         const terminatedBefore = engine.terminateCalls;

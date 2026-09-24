@@ -86,6 +86,8 @@ const UNPERSISTED_OBLIGATIONS_MESSAGE =
     'Your earlier session still needs its Progress saved, and this browser could not store it (storage is full or blocked). Free up space or allow site storage, then press Start again.';
 /** #1476: how long an ended take waits for its engine to be confirmed off before keeping the lease instead. */
 const FAILED_TEARDOWN_CONFIRM_MS = 20_000;
+/** #1476: how long a Start waits to prove a previous, unconfirmed engine is off before refusing. */
+const START_PRIOR_ENGINE_CONFIRM_MS = 5_000;
 /** #1476: shown when the page went away and this tab could not confirm its recording engine stopped. */
 export const ENGINE_RETIRE_UNCONFIRMED_MESSAGE =
     'SpeakSharp could not confirm the last recording stopped, so this tab still holds your account\'s recording. Reload or close this tab to end it, or start on another device and take over.';
@@ -104,6 +106,25 @@ export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise
         return true;
     }
     logger.warn('[useSessionLifecycle] engine termination not confirmed on unmount; keeping the recording lease');
+    useSessionStore.getState().setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
+    return false;
+}
+
+/**
+ * #1476 Codex P1s on c4fd77b2 / 56cc5ad3 — RELEASE THE ACCOUNT LEASE ONLY ON PROOF THE ENGINE IS OFF. Every path that
+ * ends a take with an engine that may have started (a stop, a failed stop, a failure, a Start that failed or was refused
+ * after engine work began) goes through here: release when TranscriptionService's registry proves no engine is running,
+ * after the controller's bounded attempt to prove it; otherwise KEEP the lease (other devices stay blocked; this tab's
+ * next Start refuses until it is proven) and say so. Bound to the lease held when called — a newer take's lease is never
+ * released by an older take's proof.
+ */
+export async function releaseTakeLeaseOnProof(): Promise<boolean> {
+    const leaseOfTake = currentTakeLeaseId();
+    if (speechRuntimeController.isEngineTerminal()) { await releaseTakeLease(); return true; }
+    const outcome = await speechRuntimeController.confirmEngineShutdown(FAILED_TEARDOWN_CONFIRM_MS);
+    if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
+    if (outcome === 'terminal') { await releaseTakeLease(); return true; }
+    logger.warn('[useSessionLifecycle] engine not confirmed off; keeping the recording lease');
     useSessionStore.getState().setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
     return false;
 }
@@ -620,6 +641,15 @@ export const useSessionLifecycle = () => {
                 // preparation (a cold Start downloads first, and the controller resumes the held take afterwards — the
                 // lease covers both). Another live device BLOCKS with truthful copy; pressing Start again while that
                 // notice shows is the explicit take-over. An unanswerable authority fails closed.
+                // #1476 Codex P1 on 56cc5ad3: a lease this tab KEPT because its previous engine could not be proven off must
+                // not be released by a new acquire (acquireTakeLease first releases this device's own lease). Refuse the
+                // Start — keeping that lease — until the prior engine is proven stopped.
+                if (!speechRuntimeController.isEngineTerminal()
+                    && await speechRuntimeController.confirmEngineShutdown(START_PRIOR_ENGINE_CONFIRM_MS) !== 'terminal') {
+                    setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
+                    reportIntent('blocked_lock_held');
+                    return;
+                }
                 const takeover = takeoverArmedUntilRef.current > Date.now();
                 takeoverArmedUntilRef.current = 0;
                 const lease = await acquireTakeLease({ force: takeover });
@@ -738,13 +768,16 @@ export const useSessionLifecycle = () => {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                     if (speechRuntimeController.getState() !== 'RECORDING') {
                         startLatency.settle('refused');
-                        void releaseTakeLease(); // #1476: a take that never started holds no engine
+                        // #1476 Codex P1 on 56cc5ad3: engine work may have begun before the refusal — release on proof.
+                        void releaseTakeLeaseOnProof();
                         return;
                     }
                     startLatency.settle('recording_started');
                 } catch (error) {
                     startLatency.settle('failed');
-                    void releaseTakeLease();
+                    // #1476 Codex P1 on 56cc5ad3: a Start can fail after the engine reached RECORDING (e.g. the placeholder
+                    // save rejects), and the start_failed reset does not await its destroy — release only on proof.
+                    void releaseTakeLeaseOnProof();
                     throw error;
                 }
                 analyticsBuffer.push('session_started', {
@@ -1127,15 +1160,8 @@ export const useSessionLifecycle = () => {
         if (leaseRuntimeState === 'RECORDING') { takeReachedRecordingRef.current = true; return; }
         if (!takeReachedRecordingRef.current || leaseRuntimeState === 'STOPPING') return;
         takeReachedRecordingRef.current = false;
-        const leaseOfTake = currentTakeLeaseId();
-        if (speechRuntimeController.isEngineTerminal()) { void releaseTakeLease(); return; }
-        void speechRuntimeController.confirmEngineShutdown(FAILED_TEARDOWN_CONFIRM_MS).then((outcome) => {
-            if (currentTakeLeaseId() !== leaseOfTake) return; // a newer take owns the lease now
-            if (outcome === 'terminal') { void releaseTakeLease(); return; }
-            logger.warn({ state: leaseRuntimeState }, '[useSessionLifecycle] take ended but its engine is not confirmed off; keeping the recording lease');
-            setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
-        });
-    }, [leaseRuntimeState, setSTTStatus]);
+        void releaseTakeLeaseOnProof();
+    }, [leaseRuntimeState]);
 
     // UI Cleanup on unmount
     // We ONLY detach listeners (subscriber_unmount) to handle React remounts.
