@@ -100,7 +100,11 @@ export const ENGINE_RETIRE_UNCONFIRMED_MESSAGE =
  * may still take over explicitly) and the unresolved state is reported, never presented as cleaned up.
  */
 export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise<boolean> {
+    // #1476 Codex P1 on 1414f0c89: bound to the retiring take's lease. A remounted page may acquire a new take's lease
+    // while this retirement is still settling; that lease is never released (or reported as unresolved) from here.
+    const leaseOfTake = currentTakeLeaseId();
     const outcome = await speechRuntimeController.retireEngineForUnmount();
+    if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
     if (outcome === 'terminal') {
         await releaseTakeLease();
         return true;
@@ -697,6 +701,13 @@ export const useSessionLifecycle = () => {
                         return;
                     }
                 }
+                // #1476 Codex P1 on 1414f0c89: wait out an operation already in flight BEFORE the ownership check. A
+                // take-over during this wait marks the Start revoked (no engine of this take is starting yet), and the
+                // check below then refuses it — nothing is awaited between that check and startRecording().
+                const currentRuntimeState = useSessionStore.getState().runtimeState;
+                if (currentRuntimeState === 'ENGINE_INITIALIZING' || currentRuntimeState === 'INITIATING') {
+                    await speechRuntimeController.whenStable();
+                }
                 // PM RETURN on 040da46a: revalidate ownership immediately before any model preparation.
                 // PM RETURN on 54576db9: ADMISSION FAILS CLOSED — only a server-confirmed `held` begins engine work.
                 const confirmation = revokedBeforeEngine ? 'revoked' : await confirmTakeLease();
@@ -715,11 +726,6 @@ export const useSessionLifecycle = () => {
                     return;
                 }
                 engineStarting = true;
-
-                const currentRuntimeState = useSessionStore.getState().runtimeState;
-                if (currentRuntimeState === 'ENGINE_INITIALIZING' || currentRuntimeState === 'INITIATING') {
-                    await speechRuntimeController.whenStable();
-                }
 
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
