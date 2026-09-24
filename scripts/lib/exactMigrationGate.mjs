@@ -117,6 +117,16 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1471 / PR #1521 — Progress evaluation reads the current filler evidence and never writes NULL clarity evidence.
+        // Applied AFTER #1476 (its evaluator settles the per-session obligations #1476 lists), still before the held
+        // commercial-activation entry. Allowlisting is implementation, not authorization: applying it needs the PO's exact
+        // dispatch with the derived phrase.
+        version: '20260924150000',
+        file: '20260924150000_progress_evaluation_filler_counts_authority_1471.sql',
+        sha256: 'd080925041c90fd909ce926a76a2fb2c54dd93d037467b88aa43026205c4c921',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
