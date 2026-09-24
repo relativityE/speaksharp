@@ -183,7 +183,7 @@ function releaseFindingStillBlocks({ thread, comment }) {
  *
  * The disposition is narrow and machine-readable. It lives in the finding's OWN resolved thread, is written by the
  * repository OWNER (GitHub's `authorAssociation`, not a login string), and is exactly one marker
- *   <!-- speaksharp-review-disposition:v1 {"head":"<40 hex>","findingCommentId":<id>,"classification":"P2","transferTarget":"#1399"} -->
+ *   <!-- speaksharp-review-disposition:v1 {"head":"<40 hex>","findingCommentId":<id>,"classification":"P2","transferTarget":"#1491"} -->
  * naming this full head, this finding comment, `P2` and an allowed transfer target. It moves the finding to the
  * advisory count and nothing else: it cannot classify P0/P1 and cannot claim a fix — a fix still needs a
  * replacement head and a fresh review. Top-level or free-form text, a stale head, another finding, a non-owner, an
@@ -194,7 +194,9 @@ function releaseFindingStillBlocks({ thread, comment }) {
 export const REVIEW_DISPOSITION_MARKER = 'speaksharp-review-disposition:v1';
 const REVIEW_DISPOSITION = /<!--\s*speaksharp-review-disposition:v1\s+(\{[^{}]*\})\s*-->/g;
 const REVIEW_DISPOSITION_KEYS = Object.freeze(['classification', 'findingCommentId', 'head', 'transferTarget']);
-export const P2_TRANSFER_TARGETS = Object.freeze(['#1399']);
+// #1399 is the historical hardening ledger (kept so earlier receipts still verify); #1491 is the PO's current catch-all
+// for deferred findings (PO/PM review protocol, 2026-09-24). No other target is accepted.
+export const P2_TRANSFER_TARGETS = Object.freeze(['#1399', '#1491']);
 
 export function authorizedP2Disposition({ thread, finding, head }) {
   if (thread?.isResolved !== true || !/^[0-9a-f]{40}$/.test(head ?? '') || !Number.isInteger(finding?.databaseId)) return false;
