@@ -103,6 +103,44 @@ test.describe('#1476 Start journeys: leaving mid-Start, and a slow saved-session
         });
     }
 
+    test('leave during a saved-session check that FINDS debt, then come back: the retry really ran and settled, and Start records without a reload', async ({ proPage: page }) => {
+        test.setTimeout(120_000);
+        await optIn(page);
+        await navigateToRoute(page, '/session');
+        await waitForModelReady(page);
+        await hold(page, 'get_progress_obligations', true);
+        await page.getByTestId('mic-start').click();
+        await expect.poll(() => heldNow(page, 'get_progress_obligations'), { timeout: 15_000 }).toBe(true);
+        const sessionsCreatedBefore = await calls(page, 'create_session_and_update_usage');
+        // The late answer will report one session another device owes Progress for.
+        await page.evaluate(() => localStorage.setItem('__e2e_progress_obligations_1476', JSON.stringify([
+            { session_id: 'sess-leave-debt-1476', state: 'owed', created_at: '2026-09-24T12:00:00.000Z' },
+        ])));
+
+        await page.getByTestId('nav-products-button').click();
+        await page.getByTestId('nav-products-focus-points').click();
+        await page.waitForURL((url) => url.pathname === '/practice');
+        await hold(page, 'get_progress_obligations', false);
+        await expect(page.getByRole('heading', { name: 'Set your Focus Points' }).first()).toBeVisible({ timeout: 15_000 });
+        await neverRecordsFor(page, 3_000);
+        expect(await calls(page, 'create_session_and_update_usage'), 'no session for the abandoned Start').toBe(sessionsCreatedBefore);
+
+        // The debt that answer queued gets its bounded retry, which really calls the server and settles it.
+        await expect.poll(() => calls(page, 'record_progress_evaluation'), { timeout: 30_000, message: 'the retry actually runs' }).toBeGreaterThan(0);
+        await expect.poll(() => page.evaluate(() => localStorage.getItem('__e2e_progress_obligations_1476')), { timeout: 30_000, message: 'the server records the evaluation' }).toBe('[]');
+
+        // Coming back: no false "automatic retry" wait — the page is at rest and Start records, with no reload.
+        await page.keyboard.press('Escape');
+        await page.getByTestId('nav-products-button').click();
+        await page.getByTestId('nav-products-open-mic').click();
+        await page.waitForURL((url) => url.pathname === '/session');
+        await waitForModelReady(page);
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+        await expect(page.getByText(PROGRESS_HELD)).toHaveCount(0);
+        await page.getByTestId('mic-start').click();
+        await expect.poll(async () => (await engine(page)).controllerState, { timeout: 30_000, message: 'Start records on return' }).toBe('RECORDING');
+    });
+
     test('a slow saved-session check that later FINDS debt: truthful wait copy, then the Progress notice and a retry that really runs', async ({ proPage: page }) => {
         test.setTimeout(90_000);
         await optIn(page);

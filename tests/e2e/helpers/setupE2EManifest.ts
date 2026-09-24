@@ -809,6 +809,18 @@ export async function setupE2EManifest(
           }
           return { data: { released: true }, error: null };
         }
+        if (fn === 'record_progress_evaluation') {
+          // Answers like the server: an `owed` obligation (terminal attribution) is evaluated — an id, and it is no longer
+          // listed; a `pending` one (attribution not terminal) returns NULL and stays owed, which is NOT settlement.
+          const sessionId = String(args?.p_session_id ?? '');
+          try {
+            const listed = JSON.parse(localStorage.getItem('__e2e_progress_obligations_1476') || '[]') as Array<{ session_id?: string; state?: string }>;
+            const seeded = listed.find((o) => o.session_id === sessionId);
+            if (seeded?.state === 'pending') return { data: null, error: null };
+            if (seeded) localStorage.setItem('__e2e_progress_obligations_1476', JSON.stringify(listed.filter((o) => o.session_id !== sessionId)));
+          } catch { /* no seeded obligations */ }
+          return { data: `e2e-evaluation-${sessionId}`, error: null };
+        }
         if (fn === 'get_progress_obligations') {
           // A spec may seed obligations recorded by ANOTHER device (shared per browser context, like the lease).
           try { return { data: JSON.parse(localStorage.getItem('__e2e_progress_obligations_1476') || '[]'), error: null }; }

@@ -91,11 +91,14 @@ test.describe('#1476 one account, one engine — two tabs', () => {
     test('an outstanding Progress obligation from ANOTHER device holds Start in this tab: no engine, no mic, and the copy says why', async ({ proPage: page }) => {
         test.setTimeout(90_000);
         await optIntoSharedLease(page);
-        // The server lists an obligation this browser has never seen (it was recorded on another device).
-        await page.addInitScript(() => {
-            localStorage.setItem('__e2e_progress_obligations_1476', JSON.stringify([{ session_id: 'sess-other-device-1476', state: 'owed', created_at: '2026-09-23T12:00:00.000Z' }]));
-        });
         await navigateToRoute(page, '/session');
+        // Just before this Start, another device records a session whose Progress is still owed and cannot be settled yet
+        // (attribution not terminal: the evaluation returns NULL). This browser has never seen it; the Start's own check
+        // with the server finds it. (Seeded now rather than at page load: the E2E double answers evaluations like the
+        // server, so debt present at load would be retried — and released or settled — before the person presses Start.)
+        await page.evaluate(() => {
+            localStorage.setItem('__e2e_progress_obligations_1476', JSON.stringify([{ session_id: 'sess-other-device-1476', state: 'pending', created_at: '2026-09-23T12:00:00.000Z' }]));
+        });
         await pressStart(page);
         await expect(page.getByText(PROGRESS_HELD)).toBeVisible({ timeout: 15_000 });
         expect(notRecording(await engine(page)), 'Start held before any engine work').toBe(true);

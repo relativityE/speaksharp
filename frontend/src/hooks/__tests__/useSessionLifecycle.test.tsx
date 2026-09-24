@@ -1811,6 +1811,24 @@ describe('useSessionLifecycle - one account, one engine (#1476)', () => {
         },
     );
 
+    it('CASUALTY (Codex P1 on 4227a82): the person leaves while the saved-session check queues debt — the gate is still rebuilt, so the retry can run', async () => {
+        const store = readyStore();
+        const loc = window.location as unknown as { pathname: string };
+        const original = loc.pathname;
+        loc.pathname = '/session';
+        obligationsMock.hydrate.mockImplementationOnce(async () => {
+            expect(enqueueProgressReconcile('sess-left-debt', 'test-user', '2026-09-24T12:00:00.000Z').ok).toBe(true);
+            loc.pathname = '/practice'; // the person left while the check was in flight
+            return { ok: true, queued: 1, authority: 'server' as const };
+        });
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(store.getState().setProgressGate).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'sess-left-debt', ownerId: 'test-user', state: 'queued' }));
+        loc.pathname = original;
+        localStorage.clear();
+    });
+
     it('CASUALTY (browser journey, exit transition): the person navigates away while the page is STILL MOUNTED (its exit animation) — a late answer starts nothing', async () => {
         const store = readyStore();
         let answer: () => void = () => undefined;

@@ -678,8 +678,18 @@ export const useSessionLifecycle = () => {
                 // The lease this Start acquired, captured synchronously. A cancelled Start releases exactly this lease (and
                 // with it the heartbeat) — never a newer take's.
                 const acquiredLeaseId = lease.action === 'start' ? currentTakeLeaseId() : null;
+                // Codex P1 on 4227a82: once this Start's saved-session scan has run, it may have queued real debt. A Start
+                // that is then cancelled still rebuilds the gate from the durable queue for that owner (store state, not
+                // page copy), so the bounded retry runs and the person returns to a truthful, recovering page.
+                let scannedOwner: string | null = null;
                 const abandonStart = () => {
                     if (acquiredLeaseId !== null && currentTakeLeaseId() === acquiredLeaseId) void releaseTakeLease();
+                    if (scannedOwner !== null) {
+                        const resolvedFor = useSessionStore.getState().progressGateResolvedFor;
+                        if (resolvedFor === null || resolvedFor === scannedOwner) {
+                            useSessionStore.getState().setProgressGate(reconstructGateFromQueue(scannedOwner));
+                        }
+                    }
                 };
                 if (startCancelled()) { abandonStart(); return; }
                 if (lease.action !== 'start') {
@@ -725,6 +735,7 @@ export const useSessionLifecycle = () => {
                         scan,
                         new Promise<typeof TIMED_OUT>((resolve) => { obligationsTimer = setTimeout(() => resolve(TIMED_OUT), START_OBLIGATIONS_TIMEOUT_MS); }),
                     ]).finally(() => clearTimeout(obligationsTimer));
+                    if (!('timedOut' in obligations)) scannedOwner = ownerId;
                     if (startCancelled()) { abandonStart(); return; }
                     if ('timedOut' in obligations) {
                         abandonStart();
