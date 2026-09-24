@@ -816,8 +816,15 @@ GRANT EXECUTE ON FUNCTION public.release_recording_lease(uuid) TO authenticated;
 --              stays listed until a real row exists.
 -- A take with an evaluation row is terminal and not listed. Evaluation is order-independent (baseline/previous are
 -- chosen by persisted created_at), so settling late — from any device — yields the same row.
--- Bounded: the caller's own takes only, newest first, at most 50, within the last 14 days.
-CREATE OR REPLACE FUNCTION public.get_progress_obligations(p_limit integer DEFAULT 20)
+-- Bounded: the caller's own takes only, newest first, at most 50 per page, within the last 14 days.
+-- Keyset-paged (Codex P1 on 4ceaccf44): a caller passes the last row's (created_at, session_id) to read the next page,
+-- so debt older than the newest page is reachable even while those newest obligations stay pending or keep failing.
+-- The order stays created_at DESC, id ASC; the cursor matches it (older, or the same instant with a greater id).
+CREATE OR REPLACE FUNCTION public.get_progress_obligations(
+    p_limit integer DEFAULT 20,
+    p_before_created_at timestamptz DEFAULT NULL,
+    p_before_id uuid DEFAULT NULL
+)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
@@ -830,9 +837,13 @@ BEGIN
     IF v_uid IS NULL THEN
         RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501';
     END IF;
+    IF (p_before_created_at IS NULL) <> (p_before_id IS NULL) THEN
+        RAISE EXCEPTION 'cursor requires both p_before_created_at and p_before_id' USING ERRCODE = '22023';
+    END IF;
 
     RETURN COALESCE((
-        SELECT jsonb_agg(jsonb_build_object('session_id', o.id, 'state', o.state) ORDER BY o.created_at DESC, o.id)
+        SELECT jsonb_agg(jsonb_build_object('session_id', o.id, 'state', o.state, 'created_at', o.created_at)
+                         ORDER BY o.created_at DESC, o.id ASC)
         FROM (
             SELECT s.id, s.created_at,
                    CASE WHEN EXISTS (SELECT 1 FROM public.session_attribution_authority a
@@ -845,12 +856,15 @@ BEGIN
               AND s.status = 'completed'
               AND s.created_at >= now() - interval '14 days'
               AND NOT EXISTS (SELECT 1 FROM public.session_progress_evaluations e WHERE e.session_id = s.id)
-            ORDER BY s.created_at DESC, s.id
+              AND (p_before_created_at IS NULL
+                   OR s.created_at < p_before_created_at
+                   OR (s.created_at = p_before_created_at AND s.id > p_before_id))
+            ORDER BY s.created_at DESC, s.id ASC
             LIMIT least(greatest(COALESCE(p_limit, 20), 1), 50)
         ) o
     ), '[]'::jsonb);
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.get_progress_obligations(integer) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_progress_obligations(integer) TO authenticated;
+REVOKE ALL ON FUNCTION public.get_progress_obligations(integer, timestamptz, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_progress_obligations(integer, timestamptz, uuid) TO authenticated;

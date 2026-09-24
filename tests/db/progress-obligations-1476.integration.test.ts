@@ -90,10 +90,18 @@ async function completedTake(db: PGlite, owner: string, attribution: 'attested' 
 }
 
 type Obligation = { session_id: string; state: 'owed' | 'pending' };
+type ObligationRow = Obligation & { created_at: string };
+const obligationRows = async (db: PGlite, limit?: number, cursor?: { at: string; id: string }): Promise<ObligationRow[]> =>
+    (await db.query<{ r: ObligationRow[] }>(
+        cursor ? `SELECT public.get_progress_obligations($1, $2::timestamptz, $3::uuid) AS r`
+            : limit === undefined ? `SELECT public.get_progress_obligations() AS r` : `SELECT public.get_progress_obligations($1) AS r`,
+        cursor ? [limit ?? 20, cursor.at, cursor.id] : limit === undefined ? [] : [limit])).rows[0].r;
+// Every row carries its keyset cursor (Codex P1 on 4ceaccf44); the assertions below are about identity and state.
 const obligations = async (db: PGlite, limit?: number): Promise<Obligation[]> =>
-    (await db.query<{ r: Obligation[] }>(
-        limit === undefined ? `SELECT public.get_progress_obligations() AS r` : `SELECT public.get_progress_obligations($1) AS r`,
-        limit === undefined ? [] : [limit])).rows[0].r;
+    (await obligationRows(db, limit)).map((o) => {
+        if (typeof o.created_at !== 'string') throw new Error('obligation row without its created_at cursor');
+        return { session_id: o.session_id, state: o.state };
+    });
 const evaluate = async (db: PGlite, id: string) =>
     (await db.query<{ id: string | null }>(`SELECT public.record_progress_evaluation($1) AS id`, [id])).rows[0].id;
 
@@ -154,6 +162,19 @@ describe('#1476 — Progress is owed per completed session, owned by the server'
         const newest = await completedTake(db, USER, 'attested', '2026-09-23T09:10:00Z');
         await as(db, USER);
         expect(await obligations(db, 1)).toEqual([{ session_id: newest, state: 'owed' }]);
+    });
+
+    it('CASUALTY (Codex P1 on 4ceaccf44): the keyset cursor reaches debt behind a stuck newest page, each take once', async () => {
+        const db = await makeDb();
+        const oldest = await completedTake(db, USER, 'attested', '2026-09-23T09:00:00Z');
+        const mid = await completedTake(db, USER, 'pending', '2026-09-23T09:10:00Z');
+        const newest = await completedTake(db, USER, 'pending', '2026-09-23T09:20:00Z');
+        await as(db, USER);
+        const first = await obligationRows(db, 2);
+        expect(first.map((o) => o.session_id)).toEqual([newest, mid]);
+        const last = first[first.length - 1];
+        const next = await obligationRows(db, 2, { at: last.created_at, id: last.session_id });
+        expect(next.map((o) => [o.session_id, o.state])).toEqual([[oldest, 'owed']]);
     });
 
     it('CONTROL: no identity, no obligations (fails closed, never another account\'s list)', async () => {

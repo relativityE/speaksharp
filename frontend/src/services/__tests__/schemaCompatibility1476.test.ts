@@ -43,7 +43,7 @@ function postApplySchema(liveLease: () => string | null) {
                 ? { data: { new_session: NEW_SESSION, usage_exceeded: false }, error: null }
                 : { data: { new_session: null, usage_exceeded: false, error: 'lease_not_held' }, error: null };
         }
-        if (fn === 'get_progress_obligations') return { data: [{ session_id: 'sess-remote', state: 'owed' }], error: null };
+        if (fn === 'get_progress_obligations') return { data: [{ session_id: 'sess-remote', state: 'owed', created_at: '2026-09-23T12:00:00.000Z' }], error: null };
         return { data: null, error: null };
     };
     return calls;

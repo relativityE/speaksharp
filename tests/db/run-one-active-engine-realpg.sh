@@ -454,5 +454,41 @@ else
   fail "recovered row Progress: save-only create refused"
 fi
 
+
+# Case 13 — Codex P1 on 4ceaccf44: every per-session debt is reachable. 60 completed takes with no evaluation: the newest
+# 50 stay pending (attribution not terminal), the oldest 10 are owed (a terminal unattributed marker). Walking the keyset
+# cursor from the server must reach all 60, each once, in the frozen order (created_at DESC, id ASC) — a single newest page never reaches the owed.
+# Takes are created in PAIRS sharing one created_at, and the odd page size (7) splits pairs across pages, so the id
+# tie-break is part of the cursor under test.
+P=cccccccc-0000-4000-8000-000000000013
+q progress "INSERT INTO auth.users (id) VALUES ('$P') ON CONFLICT DO NOTHING;" >/dev/null
+q progress "INSERT INTO public.sessions (user_id,status,duration,total_words,wpm,transcript,engine,device_type,attribution_status,created_at)
+  SELECT '$P','completed',60,90,90,'fixture words only','private','browser','pending', now() - (((g + 1) / 2) || ' minutes')::interval
+  FROM generate_series(1,60) g;" >/dev/null
+q progress "SET ROLE service_role; SELECT count(public.resolve_session_unattributed_v1(id)) FROM (SELECT id FROM public.sessions WHERE user_id='$P' ORDER BY created_at ASC LIMIT 10) o; RESET ROLE;" >/dev/null
+walk=$(q progress "$(as_user $P)
+  DO \$w\$ DECLARE pg jsonb; c_at timestamptz; c_id uuid; n int := 0; owed int := 0; pages int := 0; prev_at timestamptz; prev_id uuid; ok boolean := true; seen uuid[] := '{}';
+  BEGIN
+    LOOP
+      pg := public.get_progress_obligations(7, c_at, c_id); pages := pages + 1;
+      FOR i IN 0 .. jsonb_array_length(pg) - 1 LOOP
+        IF (pg->i->>'session_id')::uuid = ANY(seen) THEN ok := false; END IF;
+        IF prev_at IS NOT NULL AND ((pg->i->>'created_at')::timestamptz > prev_at OR ((pg->i->>'created_at')::timestamptz = prev_at AND (pg->i->>'session_id')::uuid <= prev_id)) THEN ok := false; END IF;
+        seen := seen || (pg->i->>'session_id')::uuid; n := n + 1;
+        IF pg->i->>'state' = 'owed' THEN owed := owed + 1; END IF;
+        prev_at := (pg->i->>'created_at')::timestamptz; prev_id := (pg->i->>'session_id')::uuid;
+      END LOOP;
+      EXIT WHEN jsonb_array_length(pg) < 7 OR pages > 12;
+      c_at := (pg->-1->>'created_at')::timestamptz; c_id := (pg->-1->>'session_id')::uuid;
+    END LOOP;
+    RAISE NOTICE 'WALK n=% owed=% pages=% ordered_unique=%', n, owed, pages, ok;
+  END \$w\$;" 2>&1 | grep -o 'WALK .*' || echo "WALK error")
+first=$(q progress "$(as_user $P) SELECT count(*) FILTER (WHERE e->>'state'='owed') FROM jsonb_array_elements(public.get_progress_obligations(50)) e;" | tail -1)
+[ "$walk" = "WALK n=60 owed=10 pages=9 ordered_unique=t" ] && [ "$first" = "0" ] \
+  && pass "keyset walk reaches all 60 obligations (10 owed behind 50 pending; the newest page alone shows owed=$first): $walk" \
+  || fail "obligation paging: $walk first_page_owed=$first"
+half=$(q progress "$(as_user $P) SELECT public.get_progress_obligations(20, now(), NULL);" 2>&1 | grep -c 'cursor requires both' || true)
+[ "$half" = "1" ] && pass "a half cursor (created_at without id) is refused, never read as 'no more debt'" || fail "half cursor accepted"
+
 echo "SUMMARY fails=$FAILS"
 [ "$FAILS" = "0" ]

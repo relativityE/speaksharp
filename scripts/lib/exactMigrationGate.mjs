@@ -113,7 +113,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // authorization: applying it still needs the PO's exact dispatch with the derived phrase.
         version: '20260923120000',
         file: '20260923120000_one_active_engine_per_account_1476.sql',
-        sha256: '84008a90c8589703c76fd3dc7a085abd1a4fb5279a603729cb14efee1497d029',
+        sha256: '94c92e280285816287de54e48e6ec393b16fe0fe54126b7ca5a3b964015b3e5f',
         classification: 'staged',
     }),
     Object.freeze({

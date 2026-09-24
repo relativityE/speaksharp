@@ -35,7 +35,7 @@ describe('#1476 the Start gate waits for the server\'s per-session obligations',
         await waitFor(() => expect(server.answer).not.toBeNull());
         expect(useSessionStore.getState().progressGateResolvedFor, 'no "nothing owed" answer before the server has spoken').not.toBe(OWNER);
 
-        server.answer?.({ data: [{ session_id: 'sess-remote', state: 'owed' }], error: null });
+        server.answer?.({ data: [{ session_id: 'sess-remote', state: 'owed', created_at: '2026-09-23T12:00:00.000Z' }], error: null });
         await waitFor(() => expect(useSessionStore.getState().progressGateResolvedFor).toBe(OWNER));
         expect(useSessionStore.getState().progressGate).toMatchObject({ sessionId: 'sess-remote', ownerId: OWNER, state: 'queued' });
     });

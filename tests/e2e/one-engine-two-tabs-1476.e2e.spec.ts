@@ -93,7 +93,7 @@ test.describe('#1476 one account, one engine — two tabs', () => {
         await optIntoSharedLease(page);
         // The server lists an obligation this browser has never seen (it was recorded on another device).
         await page.addInitScript(() => {
-            localStorage.setItem('__e2e_progress_obligations_1476', JSON.stringify([{ session_id: 'sess-other-device-1476', state: 'owed' }]));
+            localStorage.setItem('__e2e_progress_obligations_1476', JSON.stringify([{ session_id: 'sess-other-device-1476', state: 'owed', created_at: '2026-09-23T12:00:00.000Z' }]));
         });
         await navigateToRoute(page, '/session');
         await pressStart(page);
