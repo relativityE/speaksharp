@@ -4,6 +4,7 @@ import { usePracticeHistory } from './usePracticeHistory';
 import { reconcileProgressEvaluations, type ReconcilableSession } from '../services/progress/recordProgress';
 import { reconstructGateFromQueue, subscribeCrossTabProgressGate } from '../services/progress/progressStartGate';
 import { scheduleProgressDebtRetry } from '../services/progress/progressDebtRetry';
+import { hydrateServerProgressObligations } from '../services/progress/serverProgressObligations';
 import { useSessionStore } from '../stores/useSessionStore';
 import logger from '../lib/logger';
 
@@ -15,6 +16,9 @@ import logger from '../lib/logger';
  * Mounted app-globally (see `ProgressReconciler` in App.tsx). Owner-scoped via a per-user ref guard, the
  * same pattern used by the analytics-identity effect and `useUnresolvedRecovery`.
  */
+/** #1476: how long the initial server obligation load may hold the Start gate unresolved. */
+const SERVER_OBLIGATIONS_TIMEOUT_MS = 4000;
+
 export function useProgressReconciliation(): void {
     const { user } = useAuthProvider();
     const { data: sessions } = usePracticeHistory();
@@ -38,10 +42,33 @@ export function useProgressReconciliation(): void {
         // No owner: the queue is owner-scoped and cannot be read, so there is nothing to reconstruct.
         // That is still a RESOLVED answer — an anonymous user has no readable debt, and a save without
         // an owner already fails closed at the seam. Leaving it unresolved would disable Start forever.
-        if (userId) useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId));
-        // Record WHICH owner this answer belongs to. `''` marks a resolved anonymous visitor, so a
-        // signed-out user is not blocked forever, while an account switch invalidates it at once.
-        useSessionStore.getState().setProgressGateResolvedFor(userId ?? '');
+        if (!userId) {
+            useSessionStore.getState().setProgressGateResolvedFor('');
+            return undefined;
+        }
+        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId));
+        // #1476 Codex P1 on dae853fb: the owner is RESOLVED only once the server's per-session obligations have been
+        // loaded into this device's queue — otherwise a fresh device with an empty local queue shows an enabled Start
+        // over server-side debt. Bounded: after the timeout the gate resolves from what is known, and Start itself
+        // re-checks the server before any engine work. Records WHICH owner the answer belongs to (`''` = anonymous).
+        // Codex P1 on 0200e7829: the timeout RESOLVES the gate, but it no longer abandons the load. The scan keeps running
+        // for this owner while this effect is mounted, and when it lands the gate is republished from the durable queue —
+        // debt it queued after the timeout still gets its bounded retry. After unmount a late answer writes nothing.
+        let mounted = true;
+        let resolved = false;
+        const publish = () => {
+            if (!mounted) return;
+            useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId));
+            if (!resolved) {
+                resolved = true;
+                useSessionStore.getState().setProgressGateResolvedFor(userId);
+            }
+        };
+        const timer = setTimeout(publish, SERVER_OBLIGATIONS_TIMEOUT_MS);
+        void hydrateServerProgressObligations(userId, new Date().toISOString(), undefined, { isLive: () => mounted })
+            .catch((err) => logger.warn({ err }, '[progress] server obligation load failed (non-fatal)'))
+            .finally(() => { clearTimeout(timer); publish(); });
+        return () => { mounted = false; clearTimeout(timer); };
     }, [userId]);
 
     // #1354 CASE 4 — CROSS-TAB. `storage` events reach OTHER tabs, never the writer, so a second

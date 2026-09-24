@@ -13,6 +13,29 @@ import type { UserProfile } from '@/types/user';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 // Mock ALL hooks used inside useSessionLifecycle
+// #1476: the account-wide recording lease. Granted by default so these suites exercise the Start flow beyond it;
+// `leaseMock` lets a test script a refusal, a take-over or a revocation.
+const leaseMock = vi.hoisted(() => ({
+    acquire: vi.fn(async (_opts?: { force?: boolean }): Promise<import('@/services/recordingLeasePolicy').LeaseDecision> => ({ action: 'start', tookOver: false })),
+    release: vi.fn(async () => undefined),
+    heartbeat: vi.fn((_onRevoked: () => void) => undefined),
+    confirm: vi.fn(async (): Promise<'held' | 'revoked' | 'unconfirmed'> => 'held'),
+}));
+// #1476: the server's per-session Progress obligations, loaded at Start. Answers "nothing owed" by default.
+const obligationsMock = vi.hoisted(() => ({
+    hydrate: vi.fn(async (_userId: string, _nowIso: string): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable'; failure?: 'unpersisted' }> => ({ ok: true, queued: 0, authority: 'server' })),
+}));
+vi.mock('@/services/progress/serverProgressObligations', () => ({
+    hydrateServerProgressObligations: (userId: string, nowIso: string) => obligationsMock.hydrate(userId, nowIso),
+}));
+vi.mock('@/services/recordingLease', () => ({
+    acquireTakeLease: (opts?: { force?: boolean }) => leaseMock.acquire(opts),
+    releaseTakeLease: () => leaseMock.release(),
+    startLeaseHeartbeat: (onRevoked: () => void) => leaseMock.heartbeat(onRevoked),
+    confirmTakeLease: () => leaseMock.confirm(),
+    currentTakeLeaseId: () => null,
+}));
+
 vi.mock('@/hooks/useProfile', () => ({
     useProfile: vi.fn(() => ({
         id: 'test-user',
@@ -87,6 +110,9 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
     },
     speechRuntimeController: {
         startRecording: vi.fn(),
+        retireEngineForUnmount: vi.fn(async (): Promise<'terminal' | 'unconfirmed'> => 'terminal'),
+        isEngineTerminal: vi.fn((): boolean => true),
+        confirmEngineShutdown: vi.fn(async (): Promise<'terminal' | 'unconfirmed'> => 'terminal'),
         stopRecording: vi.fn(async () => ({ 
             transcript: '', 
             total_words: 0, 

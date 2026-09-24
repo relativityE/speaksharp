@@ -23,7 +23,7 @@ export type LeaseDecision =
 /** Interpret an `acquire_recording_lease` RPC result into a client action + user-facing copy. */
 export function interpretAcquireResult(result: AcquireLeaseResult | null | undefined): LeaseDecision {
     if (!result) {
-        return { action: 'error', reason: 'no_response', message: 'Could not check your other devices. Please try again.' };
+        return { action: 'error', reason: 'no_response', message: LEASE_UNCONFIRMED_MESSAGE };
     }
     if (result.acquired) {
         return { action: 'start', tookOver: Boolean(result.took_over) };
@@ -35,7 +35,9 @@ export function interpretAcquireResult(result: AcquireLeaseResult | null | undef
             holderLabel,
             startedAt: result.started_at ?? null,
             // Friendly, no raw ids; offers the take-over path. Default action (no choice) = stay blocked.
-            message: `You are already recording on ${holderLabel}. Stop it there, or take over on this device.`,
+            // #1476: a second Start while this notice shows is the explicit take-over (no hidden default).
+            // PM directive on dae853fb: B sees the consequence BEFORE choosing the take-over.
+            message: `A recording is active on ${holderLabel}. Stop it there, or press Start again to take over here — that stops the recording there, and what it recorded so far is saved.`,
         };
     }
     if (result.reason === 'unauthenticated') {
@@ -63,3 +65,17 @@ export function buildHolderLabel(platform?: string): string {
     const p = (platform ?? (typeof navigator !== 'undefined' ? navigator.platform : '') ?? '').trim();
     return p ? `this browser on ${p}` : 'this browser';
 }
+
+/**
+ * #1476: the server refused this take's session because another device holds the account's lease (it took over
+ * between this device's acquire and its create). Starts with "Recording could not start" so the controller surfaces it.
+ */
+/** #1476: the lease authority could not answer, so a Start is not admitted (fail closed). */
+export const LEASE_UNCONFIRMED_MESSAGE = 'Could not check your other devices. Please try again.';
+
+export const LEASE_NOT_HELD_MESSAGE =
+    'Recording could not start: another device is recording on this account. Press Start again to take over here.';
+
+/** #1476: this device's take was displaced — another device took over the account's one engine. */
+export const LEASE_REVOKED_MESSAGE =
+    'This recording stopped because another device took over. What was recorded here is being saved.';

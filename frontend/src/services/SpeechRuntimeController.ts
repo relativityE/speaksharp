@@ -1,3 +1,5 @@
+import { LEASE_NOT_HELD_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from './recordingLeasePolicy';
+import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
 import logger from '@/lib/logger';
@@ -22,7 +24,7 @@ import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
-import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
+import TranscriptionService, { getTranscriptionService, hasEngineNotConfirmedStopped } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 import { getV4FlagState } from '@/services/transcription/privateV4Flags';
@@ -950,6 +952,8 @@ export class SpeechRuntimeController {
      *  failure than an attribution-only miss (the transcript row itself is not persisted). Stashed so Retry
      *  Save re-runs the ACTUAL failed op — completeSession THEN the attribution write — for the SAME session,
      *  never a duplicate. Distinct from pendingAttributionRetry so each resolution retries only what failed. */
+    /** #1476: the owner whose durable draft armed the current recovery (null when it came from this page's own take). */
+    private rehydratedFor: string | null = null;
     private pendingFullSaveRetry: {
         /** null when the session ROW DOES NOT EXIST YET (pre-session window) — see `initialSave`. */
         sessionId: string | null;
@@ -1185,13 +1189,17 @@ export class SpeechRuntimeController {
                 if (!targetSessionId) {
                     const ctx = fullSave.initialSave;
                     if (!ctx) return false; // no owner/identity → cannot safely persist; stay retryable
+                    // #1476 PM RETURN on 039043877 (F2): this recording already happened. Ask the server for a SAVE-ONLY
+                    // row — it takes no lease and no recording slot (so another device recording now cannot block it),
+                    // can never record, and bills the recording's own duration once, under its own identity.
                     const created = await saveSession(
                         {
                             user_id: ctx.userId,
                             title: `Session ${new Date().toISOString()}`,
-                            duration: 0,
+                            duration: fullSave.completeArgs.duration ?? 0,
                             total_words: 0,
                             engine: ctx.mode,
+                            save_only: true,
                         },
                         { id: ctx.userId } as UserProfile,
                         ctx.mode as TranscriptionMode,
@@ -1559,9 +1567,28 @@ export class SpeechRuntimeController {
             // Progress must remain unavailable rather than writing an immutable partial evaluation.
             progressMetrics: { payload: null, persisted: false },
         };
+        this.rehydratedFor = userId ?? null;
         this.publishLockState();
         logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated FINALIZED unresolved recording for same user (#1306/#1033 C)');
         return true;
+    }
+
+    /**
+     * #1476 Codex P1 on 4a5f0798 — OWNER FENCE for rehydrated recovery. The controller is a singleton: account A's
+     * rehydrated Retry Save kept it locked after the page switched to account B, and B could neither record nor resolve
+     * A's session under owner-scoped persistence. On an account change the departing owner's IN-MEMORY recovery state is
+     * retired here; A's DURABLE draft is untouched, so A returning rehydrates it again. A take that is recording or
+     * stopping is never touched, and a different owner's state never is.
+     */
+    public retireRehydratedRecoveryFor(userId: string | null | undefined): void {
+        if (!userId || this.rehydratedFor !== userId) return;
+        if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) return;
+        this.rehydratedFor = null;
+        this.pendingFullSaveRetry = null;
+        this.recordingStartedUnresolved = false;
+        this.sessionId = null;
+        this.publishLockState();
+        logger.info('[controller] retired the previous owner\'s rehydrated recovery on account change (#1476)');
     }
 
     /** Closed allowlist of engine tokens eligible for a VERIFIED attribution. Anything else → unverified. */
@@ -2689,7 +2716,26 @@ export class SpeechRuntimeController {
                 });
                 // Deliberately not awaited: `transition` is called from inside the lifecycle queue,
                 // and `startRecording` enqueues. Awaiting here would deadlock the queue behind itself.
-                void this.startRecording(resumed.policy ?? undefined, [...resumed.userWords], true, resumed.settlement);
+                // #1476 PM RETURN on 040da46a: a cold download can outlast the account lease window, and another device
+                // may have taken over meanwhile. Revalidate the lease BEFORE resuming the held Start; a lost lease
+                // refuses the resume with its truthful reason instead of starting a second engine.
+                // PM RETURN on 54576db9: fail closed — a lease the server cannot confirm refuses the resume too.
+                void (async () => {
+                    const confirmation = await confirmTakeLease();
+                    if (confirmation !== 'held') {
+                        const message = confirmation === 'revoked' ? LEASE_NOT_HELD_MESSAGE : LEASE_UNCONFIRMED_MESSAGE;
+                        pushNativeRuntimeTrace('controller_resume_refused_lease_lost', {
+                            recordingId: resumed.recordingId, intentToken: resumed.token, confirmation,
+                        });
+                        // Same end as every other refused resumed start: truthful status, the click settled, and the
+                        // engine-selection lock released so nothing stays locked behind a take that will not happen.
+                        useSessionStore.getState().setSTTStatus({ type: 'error', message });
+                        resumed.settlement?.reject(new Error(message));
+                        this.releaseRefusedStartLock();
+                        return;
+                    }
+                    void this.startRecording(resumed.policy ?? undefined, [...resumed.userWords], true, resumed.settlement);
+                })();
             }
         }
 
@@ -3800,7 +3846,13 @@ export class SpeechRuntimeController {
             // retired by the terminal transition this refusal produces.
         };
 
-        const startGate = evaluateStartGate(this.capturedUserId, useSessionStore.getState().progressGate);
+        // #1476/#1450: scope the gate to the SIGNED-IN owner. `capturedUserId` belongs to the previous recording and is
+        // only re-resolved later in this pipeline, so after a reload it is still null and after an account switch it
+        // is still the previous account. The app-global reconciliation hook publishes the signed-in owner
+        // synchronously (`''` = signed out); only while that is still undetermined does the captured owner apply.
+        const resolvedOwner = useSessionStore.getState().progressGateResolvedFor;
+        const gateOwner = resolvedOwner === null ? this.capturedUserId : (resolvedOwner || null);
+        const startGate = evaluateStartGate(gateOwner, useSessionStore.getState().progressGate);
         if (!startGate.allowed) {
             logger.warn({ reason: startGate.reason }, '[controller] startRecording blocked on Progress evidence (#1354)');
             refuseStart(startGateMessage(startGate) ?? 'Recording is unavailable right now.');
@@ -4295,7 +4347,9 @@ export class SpeechRuntimeController {
                     if (saveResult.status === 'usage_exceeded') {
                         throw new Error(`Usage limit exceeded${saveResult.error ? `: ${saveResult.error}` : ''}`);
                     }
-                    if (saveResult.status === 'failed') throw new Error('Session save failed');
+                    if (saveResult.status === 'failed') {
+                        throw new Error(saveResult.reason === 'lease_not_held' ? LEASE_NOT_HELD_MESSAGE : 'Session save failed');
+                    }
                     const dbSession = saveResult.session;
 
                     // `saveSession` is the second real suspension point, and the mutations below are the
@@ -4561,6 +4615,100 @@ export class SpeechRuntimeController {
         await this.transition('IDLE');
     }
 
+    /**
+     * #1476 PM RETURN — TRY TO PROVE THE ENGINE IS OFF, WITHOUT DISTURBING THE TAKE'S OUTCOME. Used after a take has ended
+     * (a normal stop, a stop whose engine failed to stop, or a failure) when an engine is not yet confirmed stopped: run the
+     * existing bounded destroy on the attached service if it is the unconfirmed one, then wait (bounded) for the proof.
+     * It changes no runtime state and never touches `pendingFullSaveRetry` / `pendingAttributionRetry`, so Retry Save and
+     * the visible outcome are preserved. `terminal` only when proven; otherwise `unconfirmed` — keep the account lease.
+     */
+    public async confirmEngineShutdown(boundMs: number = 10_000): Promise<'terminal' | 'unconfirmed'> {
+        if (!hasEngineNotConfirmedStopped()) return 'terminal';
+        const deadline = Date.now() + boundMs;
+        const svc = this.service;
+        if (svc && !svc.isServiceDestroyed()) {
+            this.detachService(svc);
+            this.stopWatchdog();
+            this.stopHeartbeat();
+            this.setEngineReady(false);
+            const settled = await new Promise<boolean>((resolve) => {
+                const timer = setTimeout(() => resolve(false), boundMs);
+                svc.destroy().then(() => { clearTimeout(timer); resolve(true); }, () => { clearTimeout(timer); resolve(true); });
+            });
+            if (!settled) return 'unconfirmed';
+        }
+        while (hasEngineNotConfirmedStopped()) {
+            if (Date.now() >= deadline) return 'unconfirmed';
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        return 'terminal';
+    }
+
+    /**
+     * #1476 Codex P1 on c4fd77b2 — IS THIS TAB'S ENGINE CONFIRMED OFF? Read-only. True only when no engine in this tab
+     * awaits a proven stop (TranscriptionService's registry). A failure transition (RECORDING → FAILED) does not stop the engine by
+     * itself — the heartbeat-failure path destroys the service only after that transition — so the account lease must
+     * not be released on the state change alone.
+     */
+    public isEngineTerminal(): boolean {
+        // PM RETURN: not the FSM (destroy() enters TERMINATED before termination finishes) and not attachment (services
+        // are detached before they are destroyed) — only a PROVEN stop, tracked by the service itself.
+        return !hasEngineNotConfirmedStopped();
+    }
+
+    /**
+     * #1476 PM pre-push review of the 54576db9 correction — RETIRE THE ENGINE WHEN THE SESSION PAGE GOES AWAY.
+     *
+     * The page's unmount reset is deliberately SOFT (it only detaches the subscriber), so without this a Start still
+     * preparing on an unmounted page can begin recording when its model lands, and a stop that rejected before shutdown
+     * leaves the engine live. Bounded, explicit, and it preserves recoverable work:
+     *  1. the pending Start intent is retired (`navigated`), so preparation can never become a recording;
+     *  2. a recording, or a failure still holding the engine, goes through the normal stop-and-save path (bounded);
+     *  3. whatever is not then at rest is cut: in-flight tasks cancelled, the service detached and DESTROYED (the
+     *     microphone stops and the engine is terminated), awaited within the bound.
+     * Unlike a hard reset it does NOT clear `pendingFullSaveRetry`, `pendingAttributionRetry` or the unresolved-recording
+     * flag: the durable Retry Save survives. Returns `terminal` only when no engine can still run here; `unconfirmed`
+     * when destruction was rejected or did not complete in time — the caller must then keep the account's lease and say so.
+     */
+    public async retireEngineForUnmount(boundMs: number = 10_000): Promise<'terminal' | 'unconfirmed'> {
+        // PM pre-push RETURN 2: success, rejection and timeout are different answers. A rejected stop is survivable (the
+        // engine is then destroyed); a rejected DESTROY is not confirmation the engine is off.
+        const within = <T,>(p: Promise<T>): Promise<'ok' | 'rejected' | 'timeout'> => new Promise((resolve) => {
+            const timer = setTimeout(() => resolve('timeout'), boundMs);
+            p.then(() => { clearTimeout(timer); resolve('ok'); }, () => { clearTimeout(timer); resolve('rejected'); });
+        });
+        retireRecordingIntent('navigated');
+        this.releaseRefusedStartLock();
+
+        if (this.state === 'RECORDING' || this.state === 'STOPPING' || this.state === 'FAILED' || this.state === 'FAILED_VISIBLE') {
+            await within(this.stopRecording());
+        }
+        const atRest = (): boolean => this.state === 'IDLE' || this.state === 'READY' || this.state === 'TERMINATED' || this.state === 'DOWNLOAD_REQUIRED';
+        const preparing = this.state === 'INITIATING' || this.state === 'ENGINE_INITIALIZING' || this.state === 'DOWNLOAD_REQUIRED';
+        if (atRest() && !preparing && !hasEngineNotConfirmedStopped()) return 'terminal';
+
+        logger.warn({ state: this.state }, '[SpeechRuntimeController] retiring the engine for unmount');
+        this.lifecycleVersion++;
+        this.activeTasks.forEach((t) => { t.cancelled = true; });
+        this.activeTasks.clear();
+        this.commandQueue = Promise.resolve();
+        const svc = this.detachService();
+        if (svc) {
+            this.stopWatchdog();
+            this.stopHeartbeat();
+            const destroyed = await within(svc.destroy());
+            // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside).
+            if (destroyed !== 'ok' || hasEngineNotConfirmedStopped()) {
+                pushNativeRuntimeTrace('controller_unmount_retire_unconfirmed', { state: this.state, destroy: destroyed });
+                return 'unconfirmed';
+            }
+        }
+        this.setEngineReady(false);
+        await this.transition('TERMINATED');
+        await this.transition('IDLE');
+        return hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal';
+    }
+
     private resetEphemeralState(reason: string = 'unknown'): void {
         if (!(ENV.isE2E && reason === 'subscriber_unmount')) {
             this.emissionQueue = [];
@@ -4804,7 +4952,9 @@ export class SpeechRuntimeController {
                             if (saveResult.status === 'usage_exceeded') {
                                 throw new Error(`Usage limit exceeded${saveResult.error ? `: ${saveResult.error}` : ''}`);
                             }
-                            if (saveResult.status === 'failed') throw new Error('Session save failed');
+                            if (saveResult.status === 'failed') {
+                                throw new Error(saveResult.reason === 'lease_not_held' ? LEASE_NOT_HELD_MESSAGE : 'Session save failed');
+                            }
                             sessionId = saveResult.session.id;
                             // A's late session-create must not become B's controller session.
                             this.publishIfStopOwner(stopAuthority, token, 'late_session_id', () => {

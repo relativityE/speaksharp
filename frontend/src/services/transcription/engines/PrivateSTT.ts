@@ -558,7 +558,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     protected async onStop(): Promise<void> {
         if (this.isTerminated) return;
         if (this.engine) {
-            try { await this.engine.stop(); } catch (error) { logger.warn({ error, engineType: this._engineType }, '[PrivateSTT] Engine stop failed during Private STT shutdown'); }
+            // #1476 PM RETURN: a failed engine stop is reported, not swallowed. Swallowing it let STTEngine.stop() mark the
+            // strategy stopped and the service report STOP_COMPLETED while the engine may still be running.
+            try { await this.engine.stop(); } catch (error) { logger.warn({ error, engineType: this._engineType }, '[PrivateSTT] Engine stop failed during Private STT shutdown'); throw error; }
         }
     }
 
@@ -1063,12 +1065,16 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     async terminate(): Promise<void> {
         if (this.isTerminated) return;
 
+        // #1476: a failed engine termination is reported, not swallowed — callers must not read it as "engine off".
+        // Cleanup still completes first; every caller (TranscriptionService destroy/reset/mode switch) handles the throw.
+        let engineFailure: unknown = null;
         if (this.engine) {
-            try { await this.engine.terminate(); } catch (error) { logger.warn({ error, engineType: this._engineType }, '[PrivateSTT] Engine terminate failed during forced termination'); }
+            try { await this.engine.terminate(); } catch (error) { logger.warn({ error, engineType: this._engineType }, '[PrivateSTT] Engine terminate failed during forced termination'); engineFailure = error; }
             this.engine = null;
             this._engineType = null;
         }
         await super.terminate();
+        if (engineFailure !== null) throw engineFailure instanceof Error ? engineFailure : new Error(String(engineFailure));
     }
 }
 

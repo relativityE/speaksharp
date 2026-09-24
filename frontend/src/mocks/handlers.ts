@@ -355,6 +355,12 @@ export const handlers: RequestHandler[] = [
     });
   }),
 
+  // #1476 account-wide recording lease (single device) and server-owned Progress obligations (none).
+  http.post('*/rpc/acquire_recording_lease', () => HttpResponse.json({ acquired: true, took_over: false })),
+  http.post('*/rpc/heartbeat_recording_lease', () => HttpResponse.json({ valid: true })),
+  http.post('*/rpc/release_recording_lease', () => HttpResponse.json({ released: true })),
+  http.post('*/rpc/get_progress_obligations', () => HttpResponse.json([])),
+
   // RPC: heartbeat_session
   http.post('*/rpc/heartbeat_session', async ({ request }) => {
     const { p_session_id } = await request.json() as { p_session_id: string };

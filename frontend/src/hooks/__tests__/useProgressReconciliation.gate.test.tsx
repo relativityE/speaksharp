@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useSessionStore } from '@/stores/useSessionStore';
-import { enqueueProgressReconcile } from '@/services/progress/progressReconcileQueue';
+import { enqueueProgressReconcile, progressQueueEntryKey, PROGRESS_QUEUE_V2_PREFIX } from '@/services/progress/progressReconcileQueue';
 import { PROGRESS_QUEUE_STORAGE_KEY } from '@/services/progress/progressStartGate';
 
 const authUser: { user: { id: string } | null } = { user: null };
@@ -182,7 +182,12 @@ describe('the storage key has ONE production authority', () => {
     it('the key the listener filters on is the key the writer actually writes', () => {
         // Two literals for one key can drift, and a listener filtering on a key the writer no longer
         // uses would silently stop firing while every test that stubs both still passed.
+        // #1476: the writer writes one v2 key per (owner, session); the listener wakes on that prefix (and on the v1
+        // aggregate an older tab may still write).
         expect(enqueueProgressReconcile(SESSION, OWNER, 'now').ok).toBe(true);
-        expect(localStorage.getItem(PROGRESS_QUEUE_STORAGE_KEY)).not.toBeNull();
+        const written = progressQueueEntryKey(OWNER, SESSION);
+        expect(localStorage.getItem(written)).not.toBeNull();
+        expect(written.startsWith(PROGRESS_QUEUE_V2_PREFIX)).toBe(true);
+        expect(PROGRESS_QUEUE_STORAGE_KEY).toBe('ss_progress_reconcile_queue_v1');
     });
 });

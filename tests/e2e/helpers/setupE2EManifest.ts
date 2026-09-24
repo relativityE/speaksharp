@@ -163,7 +163,14 @@ export async function setupE2EManifest(
     // 1. CLEAR: Strict Zero baseline with Origin Guard
     try {
       if (win.location.origin !== 'null' && win.location.origin !== 'about:blank') {
+        // #1476: the shared-lease double models ONE server shared by every tab of the context. This clear runs on every
+        // document load of every page, so without this a second tab's load would wipe the first tab's lease — a thing
+        // real tabs never do. Only these spec-owned keys survive; no other spec writes them.
+        const keep = ['__e2e_shared_lease_1476', '__e2e_progress_obligations_1476']
+          .map((k) => [k, win.localStorage.getItem(k)] as const)
+          .filter(([, v]) => v !== null);
         win.localStorage.clear();
+        keep.forEach(([k, v]) => win.localStorage.setItem(k, v as string));
       }
     } catch (err) {
       console.warn('[E2E] localStorage.clear failed in setupE2EManifest', err);
@@ -622,6 +629,15 @@ export async function setupE2EManifest(
         },
       },
       rpc: async (fn: string, args?: Record<string, unknown>) => {
+        // #1476 journey proofs (opt-in, inert by default): count every RPC this page makes, and HOLD a named RPC unanswered
+        // while `window.__E2E_HOLD_RPC_1476__[fn]` is true — a spec can then navigate away, or outlast a timeout, while the
+        // call is genuinely in flight, and release it to answer late.
+        const e2eWin = window as unknown as { __E2E_RPC_CALLS_1476__?: Record<string, number>; __E2E_HOLD_RPC_1476__?: Record<string, boolean>; __E2E_HELD_RPC_1476__?: string[] };
+        e2eWin.__E2E_RPC_CALLS_1476__ = { ...(e2eWin.__E2E_RPC_CALLS_1476__ ?? {}), [fn]: (e2eWin.__E2E_RPC_CALLS_1476__?.[fn] ?? 0) + 1 };
+        if (e2eWin.__E2E_HOLD_RPC_1476__?.[fn]) {
+          e2eWin.__E2E_HELD_RPC_1476__ = [...(e2eWin.__E2E_HELD_RPC_1476__ ?? []), fn];
+          while (e2eWin.__E2E_HOLD_RPC_1476__?.[fn]) await new Promise((resolve) => setTimeout(resolve, 50));
+        }
         if (fn === 'issue_objective_project_v1') {
           objectiveSequence += 1;
           return { data: `e2e-objective-project-${objectiveSequence}`, error: null };
@@ -754,6 +770,61 @@ export async function setupE2EManifest(
         }
         if (fn === 'heartbeat_session') {
           return { data: { success: true }, error: null };
+        }
+        // #1476 account-wide recording lease. By default a single device holds it (multi-device fencing is proven against
+        // real PostgreSQL: tests/db/run-one-active-engine-realpg.sh). A spec that opts in with
+        // `window.__E2E_SHARED_LEASE_1476__ = true` gets ONE lease shared by every tab of the browser context — kept in
+        // that origin's localStorage, which those tabs share — with the server's rules: a live holder (heartbeat within
+        // 15 s) blocks, an explicit take-over replaces it, and only the holder's heartbeat is valid.
+        const sharedLease = (window as unknown as { __E2E_SHARED_LEASE_1476__?: boolean }).__E2E_SHARED_LEASE_1476__ === true;
+
+        const LEASE_KEY = '__e2e_shared_lease_1476';
+        const readLease = (): { lease_id: string; holder_label: string; heartbeat_at: number; started_at: string } | null => {
+          try { return JSON.parse(localStorage.getItem(LEASE_KEY) || 'null'); } catch { return null; }
+        };
+        if (fn === 'acquire_recording_lease') {
+          if (!sharedLease) return { data: { acquired: true, took_over: false }, error: null };
+          const held = readLease();
+          const live = held !== null && held.lease_id !== args?.p_lease_id && Date.now() - held.heartbeat_at < 15_000;
+          if (live && args?.p_force !== true) {
+            return { data: { acquired: false, reason: 'held_by_other', holder_label: held.holder_label, started_at: held.started_at }, error: null };
+          }
+          localStorage.setItem(LEASE_KEY, JSON.stringify({
+            lease_id: args?.p_lease_id, holder_label: String(args?.p_holder_label ?? 'another tab'),
+            heartbeat_at: Date.now(), started_at: new Date().toISOString(),
+          }));
+          return { data: { acquired: true, took_over: live }, error: null };
+        }
+        if (fn === 'heartbeat_recording_lease') {
+          if (!sharedLease) return { data: { valid: true }, error: null };
+          const held = readLease();
+          if (held === null || held.lease_id !== args?.p_lease_id) return { data: { valid: false, reason: 'revoked' }, error: null };
+          localStorage.setItem(LEASE_KEY, JSON.stringify({ ...held, heartbeat_at: Date.now() }));
+          return { data: { valid: true }, error: null };
+        }
+        if (fn === 'release_recording_lease') {
+          if (sharedLease) {
+            const held = readLease();
+            if (held !== null && held.lease_id === args?.p_lease_id) localStorage.removeItem(LEASE_KEY);
+          }
+          return { data: { released: true }, error: null };
+        }
+        if (fn === 'record_progress_evaluation') {
+          // Answers like the server: an `owed` obligation (terminal attribution) is evaluated — an id, and it is no longer
+          // listed; a `pending` one (attribution not terminal) returns NULL and stays owed, which is NOT settlement.
+          const sessionId = String(args?.p_session_id ?? '');
+          try {
+            const listed = JSON.parse(localStorage.getItem('__e2e_progress_obligations_1476') || '[]') as Array<{ session_id?: string; state?: string }>;
+            const seeded = listed.find((o) => o.session_id === sessionId);
+            if (seeded?.state === 'pending') return { data: null, error: null };
+            if (seeded) localStorage.setItem('__e2e_progress_obligations_1476', JSON.stringify(listed.filter((o) => o.session_id !== sessionId)));
+          } catch { /* no seeded obligations */ }
+          return { data: `e2e-evaluation-${sessionId}`, error: null };
+        }
+        if (fn === 'get_progress_obligations') {
+          // A spec may seed obligations recorded by ANOTHER device (shared per browser context, like the lease).
+          try { return { data: JSON.parse(localStorage.getItem('__e2e_progress_obligations_1476') || '[]'), error: null }; }
+          catch { return { data: [], error: null }; }
         }
         // #1264 — accepting "Practice this next": the RPC returns the new pending attempt id (a string),
         // which the client stores as its repeat handoff before routing back into Open Mic.

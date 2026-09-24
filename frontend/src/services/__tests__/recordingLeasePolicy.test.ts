@@ -15,7 +15,7 @@ describe('interpretAcquireResult', () => {
             action: 'blocked',
             holderLabel: 'this browser on MacIntel',
             startedAt: '2026-06-07T04:00:00Z',
-            message: 'You are already recording on this browser on MacIntel. Stop it there, or take over on this device.',
+            message: 'A recording is active on this browser on MacIntel. Stop it there, or press Start again to take over here — that stops the recording there, and what it recorded so far is saved.',
         });
     });
 
@@ -24,7 +24,7 @@ describe('interpretAcquireResult', () => {
             action: 'blocked',
             holderLabel: 'another device',
             startedAt: null,
-            message: 'You are already recording on another device. Stop it there, or take over on this device.',
+            message: 'A recording is active on another device. Stop it there, or press Start again to take over here — that stops the recording there, and what it recorded so far is saved.',
         });
     });
 

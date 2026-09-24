@@ -51,7 +51,11 @@ export function useUnresolvedRecovery({
      * transcript came back — there is none to come back.
      */
     const acknowledgeRecoveryDraft = React.useCallback((draft: SessionRecoveryDraft) => {
-        clearSessionRecoveryDraft(draft.sessionId);
+        // #1476/#1455: a FINALIZED draft is the only thing a Retry Save can replay. The controller rehydrates it
+        // from durable storage asynchronously and clears it itself on a successful save or an explicit discard, so
+        // deleting it here (before that rehydration ran) armed no retry and lost the saved-able work. Only an
+        // interrupted draft — which can never be completed — is cleared on acknowledgement.
+        if (draft.recoveryState !== 'finalized_pending_save') clearSessionRecoveryDraft(draft.sessionId);
         setRecoveredStatus({
             type: 'warning',
             message: draft.recoveryState === 'finalized_pending_save'
@@ -99,12 +103,16 @@ export function useUnresolvedRecovery({
     const lastRehydratedUserRef = React.useRef<string | null>(null);
     React.useEffect(() => {
         if (lastRehydratedUserRef.current === authUserId) return;
-        const isAccountChange = lastRehydratedUserRef.current !== null;
+        const departing = lastRehydratedUserRef.current;
         lastRehydratedUserRef.current = authUserId;
-        if (isAccountChange) setRecoveryDraft(null); // A6: clear the departing account's projection
-        if (!authUserId) return;                     // no owner => nothing to rehydrate
-        void import('@/services/SpeechRuntimeController')
-            .then((m) => m.speechRuntimeController.rehydrateUnresolvedRecording(authUserId));
+        if (departing !== null) setRecoveryDraft(null); // A6: clear the departing account's projection
+        if (departing === null && !authUserId) return;   // nothing to retire, nothing to rehydrate
+        void import('@/services/SpeechRuntimeController').then((m) => {
+            // #1476 Codex P1: retire the departing owner's rehydrated controller state FIRST (its durable draft stays),
+            // or the next account is locked behind a Retry Save it can neither perform nor discard.
+            if (departing !== null) m.speechRuntimeController.retireRehydratedRecoveryFor(departing);
+            if (authUserId) m.speechRuntimeController.rehydrateUnresolvedRecording(authUserId);
+        });
     }, [authUserId]);
 
     // Owner-scoped dismissal: clear the draft by its own session id and drop the in-memory projection.

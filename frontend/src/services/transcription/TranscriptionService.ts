@@ -166,6 +166,18 @@ export interface TranscriptionServiceOptions {
  * 
  * Goal: Low cognitive load, high testability, single responsibility.
  */
+/**
+ * #1476 PM RETURN on the c4fd77b2 fix — WHICH ENGINES MAY STILL BE RUNNING IN THIS TAB. A service joins when its
+ * engine is started for a take and leaves only when that engine is PROVEN done: a completed normal stop, or a
+ * `destroy()` whose `strategy.terminate()` RESOLVED. The FSM's TERMINATED state is not that proof — `destroy()` enters it
+ * before stopping the mic and awaiting termination — and neither is a detached reference. A rejected or never-settling
+ * termination leaves the service here: its teardown is unconfirmed, and the account lease must be kept.
+ */
+const enginesNotConfirmedStopped = new Set<object>();
+export function hasEngineNotConfirmedStopped(): boolean {
+    return enginesNotConfirmedStopped.size > 0;
+}
+
 export default class TranscriptionService {
   public readonly serviceId: string;
   public fsm: TranscriptionFSM;
@@ -1038,6 +1050,8 @@ export default class TranscriptionService {
       }, '[TranscriptionService] 🚦 Executing strategy start...');
 
       this.attachMicFramePump(mode);
+      // #1476: from here the engine may be running — it counts as live until a proven stop (a start that throws too).
+      enginesNotConfirmedStopped.add(this);
       await this.strategy.start(this.mic!, this.options.userWords ?? []);
 
       // 🛡️ Step 4: Strict Success Coupling
@@ -1261,6 +1275,7 @@ export default class TranscriptionService {
       }, '[DEBUG-STOP] TranscriptionService.stopTranscription returning result');
 
       this.fsm.transition({ type: 'STOP_COMPLETED' });
+      enginesNotConfirmedStopped.delete(this); // the engine stopped normally
       this.isModeLocked = false; // 🔓 Release lock
       const state = (useSessionStore as unknown as { getState: () => { setActiveEngine: (m: string | null) => void; setModelLoadingProgress: (p: number | null) => void } }).getState?.();
       if (state) {
@@ -1366,11 +1381,14 @@ export default class TranscriptionService {
           logger.debug('[TranscriptionService] Calling strategy.terminate()');
           await this.strategy.terminate(); // ← awaited; this is the only async gate
           logger.debug('[TranscriptionService] strategy.terminate() completed');
+          enginesNotConfirmedStopped.delete(this); // termination RESOLVED: the engine is proven done
         } catch (error: unknown) {
           logger.error({ mode: this.mode, error: error as Error }, '[TranscriptionService] Strategy termination failed');
         }
         this.strategy = null;
         this.activeStrategyId = null;
+      } else {
+        enginesNotConfirmedStopped.delete(this); // no engine to terminate; the microphone is stopped above
       }
 
       this.runId = null;
@@ -1639,7 +1657,10 @@ export default class TranscriptionService {
     // Clear strategy reference
     if (this.strategy) {
       this.strategyVersion++;
-      void this.strategy.terminate().catch(e => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during reset'));
+      void this.strategy.terminate().then(
+        () => { enginesNotConfirmedStopped.delete(this); },
+        (e) => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during reset'),
+      );
       this.strategy = null;
       this.activeStrategyId = null;
     }

@@ -54,7 +54,9 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     status_reason      text,
     pause_metrics      jsonb,
     transcript_state   text,
-    ai_suggestions     jsonb
+    ai_suggestions     jsonb,
+    -- production since 20260309000000_phase2_integration (line 37); #1476's apply-time backfill reads it
+    expires_at         timestamptz
 );
 GRANT SELECT, INSERT, DELETE ON public.sessions TO authenticated;
 GRANT UPDATE ON public.sessions TO authenticated;  -- production posture the migration must REVOKE

@@ -219,7 +219,7 @@ describe('#1432 PM RETURN `5652158578` — an owner-authorized P2 disposition is
   it('CONTROL: a resolved exact-head P1 in a COMMENTED review, disposed of as P2 by the owner, is advisory and qualifies', () => {
     const receipt = receiptFor(prWith({ threads: [disposedThread()] }));
     expect(receipt).toMatchObject({ qualified: true, findingCount: 0, advisoryFindingCount: 1, p2DispositionFindingIds: [FINDING_ID] });
-    expect(P2_TRANSFER_TARGETS).toEqual(['#1399']);
+    expect(P2_TRANSFER_TARGETS).toEqual(['#1399', '#1491']); // historical ledger + the current catch-all (2026-09-24)
   });
 
   const blocked = (label, pr) => {

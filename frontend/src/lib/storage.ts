@@ -12,6 +12,7 @@
  * branches land. Tracked as a follow-up.
  */
 import { getSupabaseClient } from './supabaseClient';
+import { currentTakeLeaseId } from '@/services/recordingLease';
 import logger from './logger';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
@@ -191,10 +192,11 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
 export type SaveSessionResult =
   | { status: 'saved'; session: PracticeSession }
   | { status: 'usage_exceeded'; error?: string }
-  | { status: 'failed'; reason: 'invalid_input' | 'rpc_error' | 'server_rejected' };
+  | { status: 'failed'; reason: 'invalid_input' | 'rpc_error' | 'server_rejected' | 'lease_not_held' };
 
 export const saveSession = async (
-  sessionData: Partial<PracticeSession> & { user_id: string },
+  // `save_only` (#1476): a missing-row Retry Save asks the server for a row that can never record — no lease, no slot.
+  sessionData: Partial<PracticeSession> & { user_id: string; save_only?: boolean },
   profile: UserProfile,
   engineType: string = 'native',
   idempotencyKey?: string,
@@ -218,6 +220,10 @@ export const saveSession = async (
   const CONTENT_FIELDS = ['ai_suggestions', 'ground_truth', 'accuracy', 'custom_words', 'filler_words'] as const;
   const contentFreeSessionData = { ...(sessionData as Record<string, unknown>) };
   for (const field of CONTENT_FIELDS) delete contentFreeSessionData[field];
+  // #1476: the account-wide recording lease this take holds. Sent inside the existing JSONB (no new RPC argument), so a
+  // server without the #1476 fence simply ignores it; with the fence, a take must carry the caller's live lease.
+  const takeLease = currentTakeLeaseId();
+  if (takeLease !== null) contentFreeSessionData.lease_id = takeLease;
 
   logger.info({ userId: sessionData.user_id, duration: sessionData.duration, engineType, idempotencyKey }, '[Supabase DB] 💾 Saving session via RPC');
   const { data, error } = await supabase.rpc('create_session_and_update_usage', {
@@ -234,6 +240,7 @@ export const saveSession = async (
     return { status: 'failed', reason: 'rpc_error' };
   }
 
+  if (data?.error === 'lease_not_held') return { status: 'failed', reason: 'lease_not_held' };
   if (data?.usage_exceeded === true) return { status: 'usage_exceeded', error: data?.error };
   if (data?.new_session) return { status: 'saved', session: data.new_session as PracticeSession };
   return { status: 'failed', reason: 'server_rejected' };

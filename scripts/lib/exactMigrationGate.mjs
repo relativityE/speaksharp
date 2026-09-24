@@ -106,6 +106,17 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1476 — one account, one authorized STT engine (account lease fence, permanent displacement, save-only
+        // Retry Save, server Progress obligations, bounded old-client Progress guard). Third in the ordered queue
+        // #1432 → #1469 → #1476, placed BEFORE the held commercial-activation entry, which must remain last; like #1306/#1416 its version is chronologically later,
+        // which this array permits (it encodes operational prerequisite order). Allowlisting is implementation, not
+        // authorization: applying it still needs the PO's exact dispatch with the derived phrase.
+        version: '20260923120000',
+        file: '20260923120000_one_active_engine_per_account_1476.sql',
+        sha256: '94c92e280285816287de54e48e6ec393b16fe0fe54126b7ca5a3b964015b3e5f',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',

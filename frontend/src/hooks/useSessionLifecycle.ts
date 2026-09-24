@@ -38,6 +38,11 @@ import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthorit
 import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
 import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
+import { acquireTakeLease, confirmTakeLease, currentTakeLeaseId, releaseTakeLease, startLeaseHeartbeat } from '@/services/recordingLease';
+import { LEASE_NOT_HELD_MESSAGE, LEASE_REVOKED_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from '@/services/recordingLeasePolicy';
+import { toast } from '@/lib/toast';
+import { hydrateServerProgressObligations } from '@/services/progress/serverProgressObligations';
+import { reconstructGateFromQueue } from '@/services/progress/progressStartGate';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
     beginSessionReviewLatency,
@@ -72,6 +77,68 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
  * is visible, the profile is STT-ready, a mode is selected, we are not recording, and the engine was reclaimed
  * to a clean idle/needs-load state (never mid-record, never for a still-ready foreground-preserved engine).
  */
+
+/** #1476: how long a refused Start stays armed as an explicit take-over (the user's second press). */
+const TAKEOVER_WINDOW_MS = 60_000;
+/** #1476: the most a Start waits for the server's per-session obligations before failing closed. */
+const START_OBLIGATIONS_TIMEOUT_MS = 5_000;
+/** #1476: a server-confirmed Progress obligation could not be stored on this device (quota or blocked storage). */
+const UNPERSISTED_OBLIGATIONS_MESSAGE =
+    'Your earlier session still needs its Progress saved, and this browser could not store it (storage is full or blocked). Free up space or allow site storage, then press Start again.';
+/** #1476 Codex P1 on 0200e7829: the obligation check outlasted the Start's wait; it keeps running and reports back. */
+export const OBLIGATIONS_SLOW_MESSAGE =
+    'Checking your saved sessions is taking longer than usual. Press Start again in a moment.';
+/** The slow check later failed: the person can simply try again. */
+const OBLIGATIONS_FAILED_MESSAGE = 'Could not check your saved sessions. Please try again.';
+/** #1476: how long an ended take waits for its engine to be confirmed off before keeping the lease instead. */
+const FAILED_TEARDOWN_CONFIRM_MS = 20_000;
+/** #1476: how long a Start waits to prove a previous, unconfirmed engine is off before refusing. */
+const START_PRIOR_ENGINE_CONFIRM_MS = 5_000;
+/** #1476: shown when the page went away and this tab could not confirm its recording engine stopped. */
+export const ENGINE_RETIRE_UNCONFIRMED_MESSAGE =
+    'SpeakSharp could not confirm the last recording stopped, so this tab still holds your account\'s recording. Reload or close this tab to end it, or start on another device and take over.';
+
+/**
+ * #1476 PM RETURN on 54576db9 and PM pre-push review — RELEASE ONLY WHEN THE ENGINE IS ACTUALLY TERMINAL. Unmounting the
+ * session page retires the engine through the controller's bounded, explicit route (a Start still preparing never
+ * becomes a recording; a live engine is stopped and saved, and if that fails, destroyed — the Retry Save is kept).
+ * Only a confirmed `terminal` releases the account's lease. Otherwise the lease is KEPT (other devices stay blocked, and
+ * may still take over explicitly) and the unresolved state is reported, never presented as cleaned up.
+ */
+export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise<boolean> {
+    // #1476 Codex P1 on 1414f0c89: bound to the retiring take's lease. A remounted page may acquire a new take's lease
+    // while this retirement is still settling; that lease is never released (or reported as unresolved) from here.
+    const leaseOfTake = currentTakeLeaseId();
+    const outcome = await speechRuntimeController.retireEngineForUnmount();
+    if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
+    if (outcome === 'terminal') {
+        await releaseTakeLease();
+        return true;
+    }
+    logger.warn('[useSessionLifecycle] engine termination not confirmed on unmount; keeping the recording lease');
+    useSessionStore.getState().setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
+    return false;
+}
+
+/**
+ * #1476 Codex P1s on c4fd77b2 / 56cc5ad3 — RELEASE THE ACCOUNT LEASE ONLY ON PROOF THE ENGINE IS OFF. Every path that
+ * ends a take with an engine that may have started (a stop, a failed stop, a failure, a Start that failed or was refused
+ * after engine work began) goes through here: release when TranscriptionService's registry proves no engine is running,
+ * after the controller's bounded attempt to prove it; otherwise KEEP the lease (other devices stay blocked; this tab's
+ * next Start refuses until it is proven) and say so. Bound to the lease held when called — a newer take's lease is never
+ * released by an older take's proof.
+ */
+export async function releaseTakeLeaseOnProof(): Promise<boolean> {
+    const leaseOfTake = currentTakeLeaseId();
+    if (speechRuntimeController.isEngineTerminal()) { await releaseTakeLease(); return true; }
+    const outcome = await speechRuntimeController.confirmEngineShutdown(FAILED_TEARDOWN_CONFIRM_MS);
+    if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
+    if (outcome === 'terminal') { await releaseTakeLease(); return true; }
+    logger.warn('[useSessionLifecycle] engine not confirmed off; keeping the recording lease');
+    useSessionStore.getState().setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
+    return false;
+}
+
 export function shouldReloadSttOnForegroundReturn(params: {
     visibilityState: DocumentVisibilityState;
     profileReadyForStt: boolean;
@@ -138,7 +205,17 @@ export const useSessionLifecycle = () => {
 
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const isProcessingRef = useRef(false);
+    /**
+     * #1476 take-over gesture: after a Start is refused because another device holds the account's one engine, a
+     * second Start within this window is the explicit "take over here". Never armed by default.
+     */
+    const takeoverArmedUntilRef = useRef(0);
+    /** #1476: set once the current take reaches RECORDING, so the lease is released when that take ends by any path. */
+    const takeReachedRecordingRef = useRef(false);
     const isMounted = useRef(false);
+    // #1476 Codex P1 on 4ceaccf44 (PM RETURN on 0200e7829): a Start still in its pre-engine checks when the person leaves
+    // is CANCELLED — on unmount (the generation bumps) or as soon as the URL changes. Every pre-engine await re-checks it.
+    const startGenerationRef = useRef(0);
     const reviewLatencyRef = useRef<SessionLatencyMeasurement<SessionReviewOutcome> | null>(null);
 
     // Pure Projection from FSM (Source of Truth)
@@ -213,6 +290,12 @@ export const useSessionLifecycle = () => {
     });
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
+        const startGeneration = startGenerationRef.current;
+        // The person LEFT when the URL is no longer the page the Start was pressed on — checked directly, because the leaving
+        // page stays mounted through its exit transition, and a late server answer in that window must not start the mic.
+        const startPath = typeof window !== 'undefined' ? window.location.pathname : null;
+        const startCancelled = () => startGenerationRef.current !== startGeneration
+            || (startPath !== null && window.location.pathname !== startPath);
         const latestSessionState = useSessionStore.getState();
         const latestRuntimeState = latestSessionState.runtimeState;
         const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
@@ -561,6 +644,7 @@ export const useSessionLifecycle = () => {
                 // callable, letting an unverifiable client record recreates the exact hazard. Only a local/dev
                 // build (no real release id, nothing to compare against) proceeds unverified.
                 const freshness = await checkClientFreshness();
+                if (startCancelled()) return; // the page went away: publish nothing
                 if (!canRecord(freshness.status)) {
                     analyticsBuffer.push('recording_blocked_stale_client', {
                         status: freshness.status,
@@ -573,10 +657,146 @@ export const useSessionLifecycle = () => {
                     return;
                 }
 
+                // #1476 — ONE ACCOUNT, ONE AUTHORIZED ENGINE. Acquire the account-wide lease BEFORE any engine
+                // preparation (a cold Start downloads first, and the controller resumes the held take afterwards — the
+                // lease covers both). Another live device BLOCKS with truthful copy; pressing Start again while that
+                // notice shows is the explicit take-over. An unanswerable authority fails closed.
+                // #1476 Codex P1 on 56cc5ad3: a lease this tab KEPT because its previous engine could not be proven off must
+                // not be released by a new acquire (acquireTakeLease first releases this device's own lease). Refuse the
+                // Start — keeping that lease — until the prior engine is proven stopped.
+                const priorEngineOff = speechRuntimeController.isEngineTerminal()
+                    || await speechRuntimeController.confirmEngineShutdown(START_PRIOR_ENGINE_CONFIRM_MS) === 'terminal';
+                if (startCancelled()) return;
+                if (!priorEngineOff) {
+                    setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
+                    reportIntent('blocked_lock_held');
+                    return;
+                }
+                const takeover = takeoverArmedUntilRef.current > Date.now();
+                takeoverArmedUntilRef.current = 0;
+                const lease = await acquireTakeLease({ force: takeover });
+                // The lease this Start acquired, captured synchronously. A cancelled Start releases exactly this lease (and
+                // with it the heartbeat) — never a newer take's.
+                const acquiredLeaseId = lease.action === 'start' ? currentTakeLeaseId() : null;
+                // Codex P1 on 4227a82: once this Start's saved-session scan has run, it may have queued real debt. A Start
+                // that is then cancelled still rebuilds the gate from the durable queue for that owner (store state, not
+                // page copy), so the bounded retry runs and the person returns to a truthful, recovering page.
+                let scannedOwner: string | null = null;
+                const abandonStart = () => {
+                    if (acquiredLeaseId !== null && currentTakeLeaseId() === acquiredLeaseId) void releaseTakeLease();
+                    if (scannedOwner !== null) {
+                        const resolvedFor = useSessionStore.getState().progressGateResolvedFor;
+                        if (resolvedFor === null || resolvedFor === scannedOwner) {
+                            useSessionStore.getState().setProgressGate(reconstructGateFromQueue(scannedOwner));
+                        }
+                    }
+                };
+                if (startCancelled()) { abandonStart(); return; }
+                if (lease.action !== 'start') {
+                    if (lease.action === 'blocked') takeoverArmedUntilRef.current = Date.now() + TAKEOVER_WINDOW_MS;
+                    setSTTStatus({ type: 'error', message: lease.message });
+                    reportIntent('blocked_lock_held');
+                    return;
+                }
+                // #1476 Codex P1 on 040da46a: heartbeat FROM THE MOMENT THE LEASE IS HELD — anything awaited before the
+                // first beat (the obligation load below can be slow) would let the lease go stale and another device take
+                // it while this tab walks into engine preparation. A revocation that arrives before the engine starts
+                // aborts the Start here; one that arrives later stops and saves the take like a normal Stop.
+                let revokedBeforeEngine = false;
+                let engineStarting = false;
+                startLeaseHeartbeat(() => {
+                    if (!engineStarting) { revokedBeforeEngine = true; return; }
+                    setSTTStatus({ type: 'info', message: LEASE_REVOKED_MESSAGE });
+                    // Displaced (PM directive on dae853fb): the server no longer lets this take RECORD, but it accepts its
+                    // save — so stop and save exactly like a normal Stop. A failed save keeps the normal Retry Save.
+                    // PM disposition on 039043877 (two-tab journey): once the take stops, the page shows the stop's own
+                    // outcome in place of the status line, so the user saw their take end with no reason. The same
+                    // approved notice is also raised where it survives the stop.
+                    toast.info(LEASE_REVOKED_MESSAGE, { id: 'recording-lease-revoked-1476', duration: 10_000 });
+                    void speechRuntimeController.stopRecording();
+                });
+                // #1476 Codex P1 on dae853fb: the SERVER owns per-session Progress debt. Load it now, so the controller's
+                // durable-queue check at Start sees debt recorded on another device (or since this tab loaded). Bounded:
+                // an unanswerable or slow server fails closed; a server that predates the migration is a reported gap.
+                if (user?.id) {
+                    const ownerId = user.id;
+                    // #1476 Codex P1 on 0200e7829: the scan belongs to the signed-in OWNER, not to this Start. When the
+                    // Start's wait runs out, the scan keeps going; when it lands — success or failure — the gate is rebuilt
+                    // from the durable queue (so any debt it queued gets its bounded retry) and the timeout's message is
+                    // replaced by the real outcome. If the owner changes first, a late answer writes nothing.
+                    const ownerStillCurrent = () => {
+                        const resolvedFor = useSessionStore.getState().progressGateResolvedFor;
+                        return resolvedFor === null || resolvedFor === ownerId;
+                    };
+                    const scan = hydrateServerProgressObligations(ownerId, new Date().toISOString(), undefined, { isLive: ownerStillCurrent });
+                    let obligationsTimer: ReturnType<typeof setTimeout> | undefined;
+                    const TIMED_OUT = { timedOut: true } as const;
+                    const obligations = await Promise.race([
+                        scan,
+                        new Promise<typeof TIMED_OUT>((resolve) => { obligationsTimer = setTimeout(() => resolve(TIMED_OUT), START_OBLIGATIONS_TIMEOUT_MS); }),
+                    ]).finally(() => clearTimeout(obligationsTimer));
+                    if (!('timedOut' in obligations)) scannedOwner = ownerId;
+                    if (startCancelled()) { abandonStart(); return; }
+                    if ('timedOut' in obligations) {
+                        abandonStart();
+                        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(ownerId));
+                        setSTTStatus({ type: 'error', message: OBLIGATIONS_SLOW_MESSAGE });
+                        reportIntent('blocked_lock_held');
+                        void scan.then((late) => {
+                            if (!ownerStillCurrent()) return;
+                            const store = useSessionStore.getState();
+                            const gate = reconstructGateFromQueue(ownerId);
+                            store.setProgressGate(gate);
+                            // Replace our own timeout copy only — never a newer message from something else — and only while
+                            // this page is still here to show it.
+                            if (startCancelled() || store.sttStatus.message !== OBLIGATIONS_SLOW_MESSAGE) return;
+                            // Nothing owed: back to the at-rest page (its mic card says the mic is ready; Start works).
+                            if (late.ok && gate === null) setSTTStatus({ type: 'idle', message: 'Ready to record' });
+                            else if (!late.ok) setSTTStatus({ type: 'error', message: late.failure === 'unpersisted' ? UNPERSISTED_OBLIGATIONS_MESSAGE : OBLIGATIONS_FAILED_MESSAGE });
+                            // Debt found: the gate's Progress notice now explains the wait, and its bounded retry is running.
+                        }, () => undefined);
+                        return;
+                    }
+                    if (!obligations.ok) {
+                        abandonStart();
+                        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(ownerId));
+                        // PM RETURN on 040da46a: a server-confirmed obligation this device could not store keeps Start
+                        // blocked with a truthful, retryable reason; an unanswered server says so instead.
+                        setSTTStatus({
+                            type: 'error',
+                            message: obligations.failure === 'unpersisted' ? UNPERSISTED_OBLIGATIONS_MESSAGE : OBLIGATIONS_FAILED_MESSAGE,
+                        });
+                        reportIntent('blocked_lock_held');
+                        return;
+                    }
+                }
+                // #1476 Codex P1 on 1414f0c89: wait out an operation already in flight BEFORE the ownership check. A
+                // take-over during this wait marks the Start revoked (no engine of this take is starting yet), and the
+                // check below then refuses it — nothing is awaited between that check and startRecording().
                 const currentRuntimeState = useSessionStore.getState().runtimeState;
                 if (currentRuntimeState === 'ENGINE_INITIALIZING' || currentRuntimeState === 'INITIATING') {
                     await speechRuntimeController.whenStable();
+                    if (startCancelled()) { abandonStart(); return; }
                 }
+                // PM RETURN on 040da46a: revalidate ownership immediately before any model preparation.
+                // PM RETURN on 54576db9: ADMISSION FAILS CLOSED — only a server-confirmed `held` begins engine work.
+                const confirmation = revokedBeforeEngine ? 'revoked' : await confirmTakeLease();
+                if (startCancelled()) { abandonStart(); return; }
+                if (confirmation === 'revoked' || revokedBeforeEngine) {
+                    // Another device took the account's one engine while this Start was still checking. Nothing was
+                    // recorded here, so say the Start did not happen, and arm the explicit take-over the copy offers.
+                    takeoverArmedUntilRef.current = Date.now() + TAKEOVER_WINDOW_MS;
+                    setSTTStatus({ type: 'error', message: LEASE_NOT_HELD_MESSAGE });
+                    reportIntent('blocked_lock_held');
+                    return;
+                }
+                if (confirmation !== 'held') {
+                    void releaseTakeLease();
+                    setSTTStatus({ type: 'error', message: LEASE_UNCONFIRMED_MESSAGE });
+                    reportIntent('blocked_lock_held');
+                    return;
+                }
+                engineStarting = true;
 
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
@@ -625,11 +845,16 @@ export const useSessionLifecycle = () => {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                     if (speechRuntimeController.getState() !== 'RECORDING') {
                         startLatency.settle('refused');
+                        // #1476 Codex P1 on 56cc5ad3: engine work may have begun before the refusal — release on proof.
+                        void releaseTakeLeaseOnProof();
                         return;
                     }
                     startLatency.settle('recording_started');
                 } catch (error) {
                     startLatency.settle('failed');
+                    // #1476 Codex P1 on 56cc5ad3: a Start can fail after the engine reached RECORDING (e.g. the placeholder
+                    // save rejects), and the start_failed reset does not await its destroy — release only on proof.
+                    void releaseTakeLeaseOnProof();
                     throw error;
                 }
                 analyticsBuffer.push('session_started', {
@@ -998,16 +1223,38 @@ export const useSessionLifecycle = () => {
         return () => document.removeEventListener('visibilitychange', onVisibilityChange);
     }, [profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate, setSTTStatus]);
 
+    /*
+     * #1476 — a take that reached RECORDING releases the account's lease when it ends by ANY path: Stop and its save,
+     * a too-short discard, an engine or microphone failure, teardown. Releasing marks the take as ended normally, so its
+     * save or Retry Save is still accepted after another device starts. STOPPING is still the take.
+     */
+    // Codex P1 on c4fd77b2 + PM RETURNs: a take's end — a normal stop, a stop whose engine failed to stop, or a failure —
+    // is not proof its engine is off. Release only when the engine is PROVEN stopped (TranscriptionService's registry), after
+    // the controller's bounded attempt to confirm it; otherwise keep the lease (other devices stay blocked; the unmount
+    // retirement or the next take's own acquire resolve it) and say so. Bound to the lease the take held.
+    const leaseRuntimeState = useSessionStore((state) => state.runtimeState);
+    useEffect(() => {
+        if (leaseRuntimeState === 'RECORDING') { takeReachedRecordingRef.current = true; return; }
+        if (!takeReachedRecordingRef.current || leaseRuntimeState === 'STOPPING') return;
+        takeReachedRecordingRef.current = false;
+        void releaseTakeLeaseOnProof();
+    }, [leaseRuntimeState]);
+
     // UI Cleanup on unmount
     // We ONLY detach listeners (subscriber_unmount) to handle React remounts.
     // Hard termination is handled at the Route level.
     useEffect(() => {
         return () => {
             logger.debug('[useSessionLifecycle] Component unmounting - Detaching listeners');
-            if (isListeningRef.current) {
-                logger.info('[useSessionLifecycle] Session active on unmount - stopping recording');
-                void speechRuntimeController.stopRecording();
-            }
+            startGenerationRef.current += 1; // cancel any Start still in its pre-engine checks
+            // #1476 Codex P1s on dae853fb / 040da46a: the state-watching release effect is gone before an async stop
+            // leaves STOPPING, so release explicitly — but only AFTER the engine has stopped. Releasing while the queued
+            // stop is still running would let a second device start while this engine records or finalizes; until then
+            // the heartbeat keeps the account's lease live. Releasing marks the take ended normally, so its save lands.
+            // PM RETURN on 54576db9 + pre-push review: retire the engine explicitly (recording, preparing, or a stop that
+            // rejected) and release the lease only when it is confirmed terminal.
+            if (isListeningRef.current) logger.info('[useSessionLifecycle] Session active on unmount - stopping recording');
+            void releaseTakeLeaseOnUnmount(isListeningRef.current);
             // Explicitly detach to prevent listener accumulation (Invariant #3)
             void speechRuntimeController.reset('subscriber_unmount');
         };

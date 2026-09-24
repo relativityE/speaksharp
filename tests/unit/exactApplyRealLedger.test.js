@@ -3,6 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+    EXACT_MIGRATION_ALLOWLIST,
     assertAfterApply,
     assertBeforeApply,
     assertExactDryRun,
@@ -21,7 +22,17 @@ import {
  */
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
-const LEDGER = readFileSync(resolve(ROOT, 'tests/fixtures/production-migration-ledger-2026-09-23.txt'), 'utf8');
+const READ = readFileSync(resolve(ROOT, 'tests/fixtures/production-migration-ledger-2026-09-23.txt'), 'utf8');
+/**
+ * The ledger as Production will show it once this tree is on main: an allowlisted migration merged AFTER the read
+ * (e.g. #1476's 20260923120000) is present in source and not applied — a pending row the read could not contain.
+ */
+const LEDGER = [READ, ...EXACT_MIGRATION_ALLOWLIST
+    .filter(({ version }) => !new RegExp(`^\\s*${version}\\s*\\|`, 'm').test(READ))
+    .map(({ version }) => ` ${version} |                | x`)].join('\n');
+const MERGED_AFTER_READ = EXACT_MIGRATION_ALLOWLIST
+    .filter(({ version }) => !new RegExp(`^\\s*${version}\\s*\\|`, 'm').test(READ))
+    .map(({ version }) => version);
 const RECEIPT_1432 = '20260910193000';
 const ELIGIBILITY_1469 = '20260914214307';
 const ACTIVATION = '20260812042000';
@@ -42,7 +53,10 @@ describe('exact apply route — the ordered queue against the real 2026-09-23 le
 
     it('STEP 1 (#1432): admitted; #1469 stays pending and excluded; the applied activation entry is KEPT, not excluded', () => {
         const c = cfg(RECEIPT_1432);
-        expect(assertBeforeApply(LEDGER, c)).toEqual({ pending: [RECEIPT_1432, ELIGIBILITY_1469], excludedVersions: [ELIGIBILITY_1469] });
+        expect(assertBeforeApply(LEDGER, c)).toEqual({
+            pending: [RECEIPT_1432, ELIGIBILITY_1469, ...MERGED_AFTER_READ],
+            excludedVersions: [ELIGIBILITY_1469, ...MERGED_AFTER_READ],
+        });
         const root = mkdtempSync(join(tmpdir(), 'exact-ledger-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(LEDGER, c));
@@ -54,15 +68,15 @@ describe('exact apply route — the ordered queue against the real 2026-09-23 le
             rmSync(root, { recursive: true, force: true });
         }
         expect(assertExactDryRun(`Would push these migrations:\n • ${fileOf(RECEIPT_1432)}\n`, c).files).toEqual([fileOf(RECEIPT_1432)]);
-        expect(assertAfterApply(LEDGER, appliedLedger(RECEIPT_1432), c).pending).toEqual([ELIGIBILITY_1469]);
+        expect(assertAfterApply(LEDGER, appliedLedger(RECEIPT_1432), c).pending).toEqual([ELIGIBILITY_1469, ...MERGED_AFTER_READ]);
         expect(() => assertAfterApply(LEDGER, appliedLedger(RECEIPT_1432, ELIGIBILITY_1469), c), 'the push must not apply #1469 too').toThrow();
     });
 
     it('STEP 2 (#1469), after #1432 is applied: admitted with nothing else pending', () => {
         const c = cfg(ELIGIBILITY_1469);
         const before = appliedLedger(RECEIPT_1432);
-        expect(assertBeforeApply(before, c)).toEqual({ pending: [ELIGIBILITY_1469], excludedVersions: [] });
-        expect(assertAfterApply(before, appliedLedger(RECEIPT_1432, ELIGIBILITY_1469), c).pending).toEqual([]);
+        expect(assertBeforeApply(before, c)).toEqual({ pending: [ELIGIBILITY_1469, ...MERGED_AFTER_READ], excludedVersions: [...MERGED_AFTER_READ] });
+        expect(assertAfterApply(before, appliedLedger(RECEIPT_1432, ELIGIBILITY_1469), c).pending).toEqual([...MERGED_AFTER_READ]);
     });
 
     it('ORDER is enforced: #1469 cannot be applied while #1432 is still pending — refused by name', () => {
