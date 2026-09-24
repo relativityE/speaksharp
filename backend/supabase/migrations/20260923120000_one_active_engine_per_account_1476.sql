@@ -20,6 +20,42 @@
 -- definition (which ignores it) and an old client works against this one. Merge is not apply: applying this migration
 -- to Production requires its own exact PO authorization.
 
+-- PM RETURN on the 1ca8d72f backfill — FAIL CLOSED ON AN UNIDENTIFIABLE LIVE LEASE, BEFORE ANY CHANGE. The account-lease
+-- RPCs predate this migration, so a current client can hold a live lease L while the previous writer (which discarded the
+-- payload lease_id) records its take — and on Pro an old client can record beside it, before or after, or while L's holder
+-- is still preparing. Nothing in the pre-#1476 data says which active take belongs to L, and a timestamp guess either
+-- displaces a healthy take or authorizes two. So if any account holds a live lease with an active take created since that
+-- lease started, this migration refuses; retry at a quiet point. Checked first, under the lock and before any DDL, so a
+-- refusal by THIS check changes nothing. The Production route applies the whole file in one transaction (the exact-apply
+-- workflow, Supabase CLI pinned at 2.101.0), where any refusal rolls everything back. Do not hand-apply this file
+-- statement by statement: there, a refusal by the second check below would come after DDL that has already committed.
+DO $guard_1476$
+BEGIN
+    LOCK TABLE public.active_recording_lease IN EXCLUSIVE MODE;
+    IF EXISTS (
+        SELECT 1
+        FROM public.active_recording_lease l
+        JOIN public.sessions s ON s.user_id = l.user_id
+        WHERE l.heartbeat_at >= now() - interval '15 seconds'
+          AND s.status = 'active'
+          AND (s.expires_at IS NULL OR s.expires_at > now())
+          AND (to_jsonb(s) ->> 'lease_id') IS NULL
+          AND s.created_at >= l.started_at - interval '5 seconds'
+    ) THEN
+        RAISE EXCEPTION 'one_active_engine_1476: % account(s) hold a live recording lease with an active take created during it; the pre-#1476 writer did not record which take owns the lease, so it cannot be identified. Nothing was changed — retry this apply at a quiet point (no live lease with an active take).',
+            (SELECT count(DISTINCT l.user_id)
+             FROM public.active_recording_lease l
+             JOIN public.sessions s ON s.user_id = l.user_id
+             WHERE l.heartbeat_at >= now() - interval '15 seconds'
+               AND s.status = 'active'
+               AND (s.expires_at IS NULL OR s.expires_at > now())
+               AND (to_jsonb(s) ->> 'lease_id') IS NULL
+               AND s.created_at >= l.started_at - interval '5 seconds')
+            USING ERRCODE = '55000';
+    END IF;
+END
+$guard_1476$;
+
 ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS lease_id uuid;
 ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS lease_released_at timestamptz;
 -- #1476 PM RETURN on 039043877 — ONE SERVER-OWNED MARK FOR "THIS ROW CAN NEVER RECORD". Set when a take is DISPLACED (another
@@ -471,33 +507,72 @@ $$;
 -- kept 30 s ahead so the old client's own heartbeat (`_ss_fence_session_writes_1476`) keeps it alive. An account that
 -- already has a LIVE lease keeps it. Older concurrent legacy takes on the same account are thereby displaced: they may
 -- still end (save) but not continue.
-UPDATE public.sessions
-SET lease_id = id
-WHERE status = 'active'
-  AND lease_id IS NULL
-  AND (expires_at IS NULL OR expires_at > now());
 
-INSERT INTO public.active_recording_lease (user_id, lease_id, holder_label, state, started_at, heartbeat_at)
-SELECT DISTINCT ON (s.user_id) s.user_id, s.id, 'an older version of SpeakSharp', 'recording', now(), now() + interval '30 seconds'
-FROM public.sessions s
-WHERE s.status = 'active'
-  AND s.lease_id = s.id
-  AND (s.expires_at IS NULL OR s.expires_at > now())
-ORDER BY s.user_id, s.created_at DESC, s.id
-ON CONFLICT (user_id) DO UPDATE
-  SET lease_id = EXCLUDED.lease_id, holder_label = EXCLUDED.holder_label, state = 'recording',
-      started_at = now(), heartbeat_at = EXCLUDED.heartbeat_at
-  WHERE public.active_recording_lease.heartbeat_at < now() - interval '15 seconds';
+-- PM RETURN on 1ca8d72f — ONE SERIALIZED CLASSIFICATION. Taken as a single statement holding the account-lease table in
+-- EXCLUSIVE mode, so no lease can be acquired, forced, heartbeated or released while takes are classified. EXCLUSIVE (not
+-- SHARE ROW EXCLUSIVE) because an in-flight PRE-migration acquire opens with `SELECT … FOR UPDATE` (ROW SHARE): it must wait
+-- here and read the committed state — found on actual PostgreSQL, where a weaker lock let that call overwrite the classified
+-- holder once the migration committed. Plain reads are not blocked. No live lease is ever attached by guessing (see the guard
+-- at the top): takes created BEFORE a live lease started cannot be its holder's and are legacy; an account with a live lease
+-- and an active take created during it refuses this migration.
+DO $backfill_1476$
+BEGIN
+    LOCK TABLE public.active_recording_lease IN EXCLUSIVE MODE;
 
--- PM RETURN on 039043877 (F1): the older concurrent legacy takes above are DISPLACED — record that permanently, so a take
--- is not revived when the lease holder later releases or goes stale.
-UPDATE public.sessions s
-SET recording_fenced_at = now(), recording_fenced_reason = 'displaced'
-WHERE s.status = 'active'
-  AND s.lease_id = s.id
-  AND s.recording_fenced_at IS NULL
-  AND (s.expires_at IS NULL OR s.expires_at > now())
-  AND NOT EXISTS (SELECT 1 FROM public.active_recording_lease l WHERE l.user_id = s.user_id AND l.lease_id = s.id);
+    -- Re-checked under this block's lock: a defence and a clear error if a live lease with a take appeared after the first
+    -- check. It rolls back the whole migration only when the file is applied in one transaction (the Production route); it
+    -- cannot undo statements already committed by a statement-by-statement apply.
+    IF EXISTS (
+        SELECT 1
+        FROM public.active_recording_lease l
+        JOIN public.sessions s ON s.user_id = l.user_id
+        WHERE l.heartbeat_at >= now() - interval '15 seconds'
+          AND s.status = 'active'
+          AND (s.expires_at IS NULL OR s.expires_at > now())
+          AND (to_jsonb(s) ->> 'lease_id') IS NULL
+          AND s.created_at >= l.started_at - interval '5 seconds'
+    ) THEN
+        RAISE EXCEPTION 'one_active_engine_1476: % account(s) hold a live recording lease with an active take created during it; the pre-#1476 writer did not record which take owns the lease, so it cannot be identified. Nothing was changed — retry this apply at a quiet point (no live lease with an active take).',
+            (SELECT count(DISTINCT l.user_id)
+             FROM public.active_recording_lease l
+             JOIN public.sessions s ON s.user_id = l.user_id
+             WHERE l.heartbeat_at >= now() - interval '15 seconds'
+               AND s.status = 'active'
+               AND (s.expires_at IS NULL OR s.expires_at > now())
+               AND (to_jsonb(s) ->> 'lease_id') IS NULL
+               AND s.created_at >= l.started_at - interval '5 seconds')
+            USING ERRCODE = '55000';
+    END IF;
+
+    UPDATE public.sessions
+    SET lease_id = id
+    WHERE status = 'active'
+      AND lease_id IS NULL
+      AND (expires_at IS NULL OR expires_at > now());
+
+    INSERT INTO public.active_recording_lease (user_id, lease_id, holder_label, state, started_at, heartbeat_at)
+    SELECT DISTINCT ON (s.user_id) s.user_id, s.id, 'an older version of SpeakSharp', 'recording', now(), now() + interval '30 seconds'
+    FROM public.sessions s
+    WHERE s.status = 'active'
+      AND s.lease_id = s.id
+      AND (s.expires_at IS NULL OR s.expires_at > now())
+    ORDER BY s.user_id, s.created_at DESC, s.id
+    ON CONFLICT (user_id) DO UPDATE
+      SET lease_id = EXCLUDED.lease_id, holder_label = EXCLUDED.holder_label, state = 'recording',
+          started_at = now(), heartbeat_at = EXCLUDED.heartbeat_at
+      WHERE public.active_recording_lease.heartbeat_at < now() - interval '15 seconds';
+
+    -- PM RETURN on 039043877 (F1): the older concurrent legacy takes above are DISPLACED — record that permanently, so a
+    -- take is not revived when the lease holder later releases or goes stale.
+    UPDATE public.sessions s
+    SET recording_fenced_at = now(), recording_fenced_reason = 'displaced'
+    WHERE s.status = 'active'
+      AND s.lease_id = s.id
+      AND s.recording_fenced_at IS NULL
+      AND (s.expires_at IS NULL OR s.expires_at > now())
+      AND NOT EXISTS (SELECT 1 FROM public.active_recording_lease l WHERE l.user_id = s.user_id AND l.lease_id = s.id);
+END
+$backfill_1476$;
 
 -- #1476 — FENCE EVERY WRITE PATH. Old clients complete with a direct RLS update and heartbeat through
 -- `heartbeat_session`; `complete_session_v2` updates the same row. One trigger covers them all, including a client that

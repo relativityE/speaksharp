@@ -185,6 +185,110 @@ for T in "pro:$U" "free:$FR"; do
     q $D "$(as_user $usr) UPDATE public.sessions SET status='completed' WHERE id='$older';" >/dev/null 2>&1 && pass "[$tier] the fenced older take's save lands" || fail "[$tier] the fenced older take could not save"
   fi
   st=""
+  # PM RETURNs on the 1ca8d72f backfill: the previous writer discarded the payload lease_id, so NO pre-#1476 row can be
+  # proven to be a live lease's take. An account holding a live lease with an active take created during it must make
+  # the migration REFUSE (nothing changed; every take keeps running under the old schema), and the same migration must
+  # apply once that cohort is quiet. Never a guess that fences a healthy take or authorizes two.
+  premig() {  # $1 db name
+    q postgres "CREATE DATABASE $1" >/dev/null
+    qf $1 tests/db/one-active-engine-realpg-bootstrap.sql
+    for f in 20260801000000_sessions_transcript_state 20260803000000_transcript_retention_newest_two 20260731120000_session_progress_evaluations \
+             20260804000000_transcript_retention_converge_on_save 20260805000000_transcript_retention_preflight \
+             20260819120000_complete_session_v2_atomic_retention_1314 20260908120000_transcript_retention_newest_one \
+             20260607040000_active_recording_lease; do qf $1 "$M/$f.sql"; done
+    q $1 "SELECT public.activate_transcript_retention_newest_one()" >/dev/null
+  }
+  newid() { tail -1 | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["new_session"]["id"])'; }
+  state() { q $1 "SELECT coalesce(lease_id::text,'none')||'/'||coalesce(recording_fenced_reason,'unfenced') FROM public.sessions WHERE id='$2'"; }
+  hasfence() { q $1 "SELECT count(*) FROM information_schema.columns WHERE table_name='sessions' AND column_name='recording_fenced_at'"; }
+  refuses() {  # $1 db; the apply must fail with the named reason and leave the schema untouched
+    local out; out=$(psql -h /tmp -p "$PORT" -U postgres -d $1 -v ON_ERROR_STOP=1 -AtqX -f "$M/20260923120000_one_active_engine_per_account_1476.sql" 2>&1 >/dev/null && echo APPLIED || true)
+    echo "$out" | grep -q 'one_active_engine_1476: 1 account(s) hold a live recording lease' && [ "$(hasfence $1)" = "0" ]
+  }
+  quiet_then_apply() {  # $1 db, $2 lease, rest: sessions to end — then the SAME migration applies
+    local db=$1 l=$2; shift 2
+    for sid in "$@"; do q $db "$(as_user $usr) UPDATE public.sessions SET status='completed', duration=30 WHERE id='$sid';" >/dev/null; done
+    q $db "$(as_user $usr) SELECT public.release_recording_lease('$l');" >/dev/null
+    qf $db "$M/20260923120000_one_active_engine_per_account_1476.sql" && [ "$(hasfence $db)" = "1" ]
+  }
+  L1=eeeeeeee-0000-4000-8000-0000000000c9
+  # A — current client, old DB: live L + its take C.
+  premig a_$tier
+  c=$(q a_$tier "$(as_user $usr) SELECT public.acquire_recording_lease('$L1','new frontend',false); $(START_SQL $L1)" | newid)
+  bad=""; refuses a_$tier || bad="$bad not-refused"
+  q a_$tier "$(as_user $usr) SELECT public.heartbeat_recording_lease('$L1'); UPDATE public.sessions SET duration = 30 WHERE id='$c';" >/dev/null 2>&1 || bad="$bad take-disturbed"
+  quiet_then_apply a_$tier $L1 $c || bad="$bad no-apply-at-quiet-point"
+  [ -z "$bad" ] && pass "[$tier] A: live lease + its take — apply REFUSED (schema untouched, the take keeps recording); applies at a quiet point" || fail "[$tier] A:$bad"
+  if [ "$tier" = free ]; then
+    # Free's pre-#1476 cap is 1: a SECOND active take (B, B2, E, and F's legacy-beside-holder) cannot exist. Asserted.
+    premig f_$tier
+    q f_$tier "$(as_user $usr) $(START_SQL)" >/dev/null
+    second=$(q f_$tier "$(as_user $usr) $(START_SQL)" 2>&1 | tail -1 || true)
+    echo "$second" | grep -q '"max_concurrent_sessions_reached"' && pass "[$tier] multi-take cohorts unreachable on Free: the pre-#1476 writer refuses a second active take" || fail "[$tier] Free admitted a second pre-#1476 take: $second"
+  else
+    # B — mixed: an older legacy take O (before L), then L and its take C.
+    premig b_$tier
+    o=$(q b_$tier "$(as_user $usr) $(START_SQL)" | newid); q b_$tier "UPDATE public.sessions SET created_at = now() - interval '2 minutes' WHERE id='$o'" >/dev/null
+    c=$(q b_$tier "$(as_user $usr) SELECT public.acquire_recording_lease('$L1','new frontend',false); $(START_SQL $L1)" | newid)
+    bad=""; refuses b_$tier || bad="$bad not-refused"; quiet_then_apply b_$tier $L1 $o $c || bad="$bad no-apply"
+    [ -z "$bad" ] && pass "[$tier] B: mixed cohort — apply REFUSED untouched; applies at a quiet point" || fail "[$tier] B:$bad"
+    # B2 — a legacy take O inside L's window, BEFORE the current take C.
+    premig b2_$tier
+    q b2_$tier "$(as_user $usr) SELECT public.acquire_recording_lease('$L1','new frontend',false);" >/dev/null
+    o=$(q b2_$tier "$(as_user $usr) $(START_SQL)" | newid); q b2_$tier "UPDATE public.sessions SET created_at = now() - interval '1 second' WHERE id='$o'" >/dev/null
+    c=$(q b2_$tier "$(as_user $usr) $(START_SQL $L1)" | newid)
+    bad=""; refuses b2_$tier || bad="$bad not-refused"; quiet_then_apply b2_$tier $L1 $o $c || bad="$bad no-apply"
+    [ -z "$bad" ] && pass "[$tier] B2: legacy take in the window before the current take — REFUSED untouched; applies when quiet" || fail "[$tier] B2:$bad"
+    # E — PM: the old client starts AFTER the current client (C, then O, both in L's window).
+    premig e_$tier
+    c=$(q e_$tier "$(as_user $usr) SELECT public.acquire_recording_lease('$L1','new frontend',false); $(START_SQL $L1)" | newid)
+    q e_$tier "UPDATE public.sessions SET created_at = now() - interval '1 second' WHERE id='$c'" >/dev/null
+    o=$(q e_$tier "$(as_user $usr) $(START_SQL)" | newid)
+    bad=""; refuses e_$tier || bad="$bad not-refused"
+    for sid in $c $o; do q e_$tier "$(as_user $usr) UPDATE public.sessions SET duration = 30 WHERE id='$sid';" >/dev/null 2>&1 || bad="$bad take-disturbed"; done
+    quiet_then_apply e_$tier $L1 $c $o || bad="$bad no-apply"
+    [ -z "$bad" ] && pass "[$tier] E: old client AFTER the current client — REFUSED untouched (neither healthy take fenced); applies when quiet" || fail "[$tier] E:$bad"
+    # E2 — PM: live L still PREPARING (no take yet) while an old client records O in its window.
+    premig e2_$tier
+    q e2_$tier "$(as_user $usr) SELECT public.acquire_recording_lease('$L1','new frontend',false);" >/dev/null
+    o=$(q e2_$tier "$(as_user $usr) $(START_SQL)" | newid)
+    bad=""; refuses e2_$tier || bad="$bad not-refused"
+    quiet_then_apply e2_$tier $L1 $o || bad="$bad no-apply"
+    [ "$(q e2_$tier "SELECT count(*) FROM public.sessions WHERE user_id='$usr' AND status='active'")" = "0" ] || bad="$bad leftover-active"
+    [ -z "$bad" ] && pass "[$tier] E2: live lease still preparing + an old take in its window — REFUSED untouched (L never attached to O); applies when quiet" || fail "[$tier] E2:$bad"
+    # F — live L with ONLY older legacy takes (all before L started): not ambiguous. Applies; legacy fenced; L kept.
+    premig ff_$tier
+    o=$(q ff_$tier "$(as_user $usr) $(START_SQL)" | newid); q ff_$tier "UPDATE public.sessions SET created_at = now() - interval '2 minutes' WHERE id='$o'" >/dev/null
+    q ff_$tier "$(as_user $usr) SELECT public.acquire_recording_lease('$L1','new frontend',false);" >/dev/null
+    bad=""; qf ff_$tier "$M/20260923120000_one_active_engine_per_account_1476.sql" || bad="$bad refused"
+    [ "$(state ff_$tier $o)" = "$o/displaced" ] || bad="$bad legacy=$(state ff_$tier $o)"
+    [ "$(q ff_$tier "SELECT lease_id FROM public.active_recording_lease WHERE user_id='$usr'")" = "$L1" ] || bad="$bad holder-lost"
+    [ -z "$bad" ] && pass "[$tier] F: live lease + only OLDER legacy takes — applies; the legacy take is fenced (may save); the live holder is kept" || fail "[$tier] F:$bad"
+    # C — legacy only, stale holder: no fresh lease; the newest legacy take becomes the implicit holder; older fenced.
+    premig c_$tier
+    q c_$tier "$(as_user $usr) SELECT public.acquire_recording_lease('eeeeeeee-0000-4000-8000-0000000000c1','gone',false); UPDATE public.active_recording_lease SET heartbeat_at = now() - interval '5 minutes', started_at = now() - interval '10 minutes';" >/dev/null
+    old=$(q c_$tier "$(as_user $usr) $(START_SQL)" | newid); q c_$tier "UPDATE public.sessions SET created_at = now() - interval '3 minutes' WHERE id='$old'" >/dev/null
+    nw=$(q c_$tier "$(as_user $usr) $(START_SQL)" | newid); q c_$tier "UPDATE public.sessions SET created_at = now() - interval '2 minutes' WHERE id='$nw'" >/dev/null
+    qf c_$tier "$M/20260923120000_one_active_engine_per_account_1476.sql"
+    holder=$(q c_$tier "SELECT lease_id FROM public.active_recording_lease WHERE user_id='$usr'")
+    [ "$holder" = "$nw" ] && [ "$(state c_$tier $nw)" = "$nw/unfenced" ] && [ "$(state c_$tier $old)" = "$old/displaced" ] && pass "[$tier] C: legacy only with a stale holder — the newest legacy take holds the implicit lease; the older is fenced" || fail "[$tier] C: holder=$holder newest=$(state c_$tier $nw) older=$(state c_$tier $old)"
+  fi
+  # D — barrier: the classification holds the account-lease table; a concurrent acquire from another connection waits
+  # for the migration to commit, then sees the classified state — exactly one authorized take.
+  premig d_$tier
+  dleg=$(q d_$tier "$(as_user $usr) $(START_SQL)" | newid)
+  ( psql -h /tmp -p "$PORT" -U postgres -d d_$tier -v ON_ERROR_STOP=1 -AtqX -c "BEGIN;" -f "$M/20260923120000_one_active_engine_per_account_1476.sql" -c "SELECT pg_sleep(3);" -c "COMMIT;" >/dev/null 2>&1 ) &
+  mig=$!
+  sleep 1.5
+  lockmode=$(q d_$tier "SELECT string_agg(l.mode, ',') FROM pg_locks l JOIN pg_class c ON c.oid = l.relation WHERE c.relname = 'active_recording_lease' AND l.granted AND l.pid <> pg_backend_pid()")
+  t0=$(python3 -c 'import time; print(time.time())')
+  dres=$(q d_$tier "$(as_user $usr) SELECT coalesce((public.acquire_recording_lease('eeeeeeee-0000-4000-8000-0000000000d9','X',false))->>'reason','acquired');" 2>&1 | tail -1 || true)
+  waited=$(python3 -c "import time; print(round(time.time()-$t0,1))")
+  wait $mig
+  live=$(q d_$tier "SELECT count(*) FROM public.sessions WHERE user_id='$usr' AND status='active' AND recording_fenced_at IS NULL")
+  echo "$lockmode" | grep -q ExclusiveLock && [ "$dres" = "held_by_other" ] && [ "$live" = "1" ] && python3 -c "import sys; sys.exit(0 if $waited >= 1.0 else 1)" \
+    && pass "[$tier] D: the backfill holds the lease table (Exclusive); a concurrent PRE-migration acquire waited ${waited}s for the commit, then held_by_other — one authorized take" \
+    || fail "[$tier] D: lock=[$lockmode] acquire=$dres waited=${waited}s live=$live"
 done
 
 # Case 8 — PM RETURN on 54576db9: an OLD client and a CURRENT client race on an EMPTY account, on separate connections,
