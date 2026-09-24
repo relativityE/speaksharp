@@ -51,18 +51,24 @@ export function useProgressReconciliation(): void {
         // loaded into this device's queue — otherwise a fresh device with an empty local queue shows an enabled Start
         // over server-side debt. Bounded: after the timeout the gate resolves from what is known, and Start itself
         // re-checks the server before any engine work. Records WHICH owner the answer belongs to (`''` = anonymous).
-        let current = true;
-        const settle = () => {
-            if (!current) return;
-            current = false;
+        // Codex P1 on 0200e7829: the timeout RESOLVES the gate, but it no longer abandons the load. The scan keeps running
+        // for this owner while this effect is mounted, and when it lands the gate is republished from the durable queue —
+        // debt it queued after the timeout still gets its bounded retry. After unmount a late answer writes nothing.
+        let mounted = true;
+        let resolved = false;
+        const publish = () => {
+            if (!mounted) return;
             useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId));
-            useSessionStore.getState().setProgressGateResolvedFor(userId);
+            if (!resolved) {
+                resolved = true;
+                useSessionStore.getState().setProgressGateResolvedFor(userId);
+            }
         };
-        const timer = setTimeout(settle, SERVER_OBLIGATIONS_TIMEOUT_MS);
-        void hydrateServerProgressObligations(userId, new Date().toISOString())
+        const timer = setTimeout(publish, SERVER_OBLIGATIONS_TIMEOUT_MS);
+        void hydrateServerProgressObligations(userId, new Date().toISOString(), undefined, { isLive: () => mounted })
             .catch((err) => logger.warn({ err }, '[progress] server obligation load failed (non-fatal)'))
-            .finally(() => { clearTimeout(timer); settle(); });
-        return () => { current = false; clearTimeout(timer); };
+            .finally(() => { clearTimeout(timer); publish(); });
+        return () => { mounted = false; clearTimeout(timer); };
     }, [userId]);
 
     // #1354 CASE 4 — CROSS-TAB. `storage` events reach OTHER tabs, never the writer, so a second

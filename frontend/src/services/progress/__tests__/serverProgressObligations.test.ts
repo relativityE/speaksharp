@@ -164,6 +164,15 @@ describe('#1476 hydrateServerProgressObligations', () => {
         await expect(hydrateServerProgressObligations(OWNER, NOW, flaky)).resolves.toEqual({ ok: false, queued: 0, authority: 'server' });
     });
 
+    it('CASUALTY (Codex P1 on 0200e7829): once the caller stops owning the scan (timeout, page left), a late answer writes NOTHING', async () => {
+        const { queue, hydrateServerProgressObligations } = await load();
+        let live = true;
+        const rpc = vi.fn(async () => { live = false; return { data: [ob('s-late')], error: null }; });
+        await expect(hydrateServerProgressObligations(OWNER, NOW, rpc, { isLive: () => live }))
+            .resolves.toEqual({ ok: false, queued: 0, authority: 'server', failure: 'cancelled' });
+        expect(idsFor(queue)).toEqual([]);
+    });
+
     it.each<[string, Record<string, unknown> | null]>([
         ['empty session_id', { session_id: '', state: 'owed', created_at: NOW }],
         ['missing session_id', { state: 'owed', created_at: NOW }],

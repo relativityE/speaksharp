@@ -629,6 +629,15 @@ export async function setupE2EManifest(
         },
       },
       rpc: async (fn: string, args?: Record<string, unknown>) => {
+        // #1476 journey proofs (opt-in, inert by default): count every RPC this page makes, and HOLD a named RPC unanswered
+        // while `window.__E2E_HOLD_RPC_1476__[fn]` is true — a spec can then navigate away, or outlast a timeout, while the
+        // call is genuinely in flight, and release it to answer late.
+        const e2eWin = window as unknown as { __E2E_RPC_CALLS_1476__?: Record<string, number>; __E2E_HOLD_RPC_1476__?: Record<string, boolean>; __E2E_HELD_RPC_1476__?: string[] };
+        e2eWin.__E2E_RPC_CALLS_1476__ = { ...(e2eWin.__E2E_RPC_CALLS_1476__ ?? {}), [fn]: (e2eWin.__E2E_RPC_CALLS_1476__?.[fn] ?? 0) + 1 };
+        if (e2eWin.__E2E_HOLD_RPC_1476__?.[fn]) {
+          e2eWin.__E2E_HELD_RPC_1476__ = [...(e2eWin.__E2E_HELD_RPC_1476__ ?? []), fn];
+          while (e2eWin.__E2E_HOLD_RPC_1476__?.[fn]) await new Promise((resolve) => setTimeout(resolve, 50));
+        }
         if (fn === 'issue_objective_project_v1') {
           objectiveSequence += 1;
           return { data: `e2e-objective-project-${objectiveSequence}`, error: null };

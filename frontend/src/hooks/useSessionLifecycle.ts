@@ -42,6 +42,7 @@ import { acquireTakeLease, confirmTakeLease, currentTakeLeaseId, releaseTakeLeas
 import { LEASE_NOT_HELD_MESSAGE, LEASE_REVOKED_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from '@/services/recordingLeasePolicy';
 import { toast } from '@/lib/toast';
 import { hydrateServerProgressObligations } from '@/services/progress/serverProgressObligations';
+import { reconstructGateFromQueue } from '@/services/progress/progressStartGate';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
     beginSessionReviewLatency,
@@ -84,6 +85,11 @@ const START_OBLIGATIONS_TIMEOUT_MS = 5_000;
 /** #1476: a server-confirmed Progress obligation could not be stored on this device (quota or blocked storage). */
 const UNPERSISTED_OBLIGATIONS_MESSAGE =
     'Your earlier session still needs its Progress saved, and this browser could not store it (storage is full or blocked). Free up space or allow site storage, then press Start again.';
+/** #1476 Codex P1 on 0200e7829: the obligation check outlasted the Start's wait; it keeps running and reports back. */
+export const OBLIGATIONS_SLOW_MESSAGE =
+    'Checking your saved sessions is taking longer than usual. Press Start again in a moment.';
+/** The slow check later failed: the person can simply try again. */
+const OBLIGATIONS_FAILED_MESSAGE = 'Could not check your saved sessions. Please try again.';
 /** #1476: how long an ended take waits for its engine to be confirmed off before keeping the lease instead. */
 const FAILED_TEARDOWN_CONFIRM_MS = 20_000;
 /** #1476: how long a Start waits to prove a previous, unconfirmed engine is off before refusing. */
@@ -207,6 +213,9 @@ export const useSessionLifecycle = () => {
     /** #1476: set once the current take reaches RECORDING, so the lease is released when that take ends by any path. */
     const takeReachedRecordingRef = useRef(false);
     const isMounted = useRef(false);
+    // #1476 Codex P1 on 4ceaccf44 (PM RETURN on 0200e7829): a Start still in its pre-engine checks when the person leaves
+    // is CANCELLED — on unmount (the generation bumps) or as soon as the URL changes. Every pre-engine await re-checks it.
+    const startGenerationRef = useRef(0);
     const reviewLatencyRef = useRef<SessionLatencyMeasurement<SessionReviewOutcome> | null>(null);
 
     // Pure Projection from FSM (Source of Truth)
@@ -281,6 +290,12 @@ export const useSessionLifecycle = () => {
     });
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
+        const startGeneration = startGenerationRef.current;
+        // The person LEFT when the URL is no longer the page the Start was pressed on — checked directly, because the leaving
+        // page stays mounted through its exit transition, and a late server answer in that window must not start the mic.
+        const startPath = typeof window !== 'undefined' ? window.location.pathname : null;
+        const startCancelled = () => startGenerationRef.current !== startGeneration
+            || (startPath !== null && window.location.pathname !== startPath);
         const latestSessionState = useSessionStore.getState();
         const latestRuntimeState = latestSessionState.runtimeState;
         const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
@@ -629,6 +644,7 @@ export const useSessionLifecycle = () => {
                 // callable, letting an unverifiable client record recreates the exact hazard. Only a local/dev
                 // build (no real release id, nothing to compare against) proceeds unverified.
                 const freshness = await checkClientFreshness();
+                if (startCancelled()) return; // the page went away: publish nothing
                 if (!canRecord(freshness.status)) {
                     analyticsBuffer.push('recording_blocked_stale_client', {
                         status: freshness.status,
@@ -648,8 +664,10 @@ export const useSessionLifecycle = () => {
                 // #1476 Codex P1 on 56cc5ad3: a lease this tab KEPT because its previous engine could not be proven off must
                 // not be released by a new acquire (acquireTakeLease first releases this device's own lease). Refuse the
                 // Start — keeping that lease — until the prior engine is proven stopped.
-                if (!speechRuntimeController.isEngineTerminal()
-                    && await speechRuntimeController.confirmEngineShutdown(START_PRIOR_ENGINE_CONFIRM_MS) !== 'terminal') {
+                const priorEngineOff = speechRuntimeController.isEngineTerminal()
+                    || await speechRuntimeController.confirmEngineShutdown(START_PRIOR_ENGINE_CONFIRM_MS) === 'terminal';
+                if (startCancelled()) return;
+                if (!priorEngineOff) {
                     setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
                     reportIntent('blocked_lock_held');
                     return;
@@ -657,6 +675,13 @@ export const useSessionLifecycle = () => {
                 const takeover = takeoverArmedUntilRef.current > Date.now();
                 takeoverArmedUntilRef.current = 0;
                 const lease = await acquireTakeLease({ force: takeover });
+                // The lease this Start acquired, captured synchronously. A cancelled Start releases exactly this lease (and
+                // with it the heartbeat) — never a newer take's.
+                const acquiredLeaseId = lease.action === 'start' ? currentTakeLeaseId() : null;
+                const abandonStart = () => {
+                    if (acquiredLeaseId !== null && currentTakeLeaseId() === acquiredLeaseId) void releaseTakeLease();
+                };
+                if (startCancelled()) { abandonStart(); return; }
                 if (lease.action !== 'start') {
                     if (lease.action === 'blocked') takeoverArmedUntilRef.current = Date.now() + TAKEOVER_WINDOW_MS;
                     setSTTStatus({ type: 'error', message: lease.message });
@@ -684,18 +709,51 @@ export const useSessionLifecycle = () => {
                 // durable-queue check at Start sees debt recorded on another device (or since this tab loaded). Bounded:
                 // an unanswerable or slow server fails closed; a server that predates the migration is a reported gap.
                 if (user?.id) {
+                    const ownerId = user.id;
+                    // #1476 Codex P1 on 0200e7829: the scan belongs to the signed-in OWNER, not to this Start. When the
+                    // Start's wait runs out, the scan keeps going; when it lands — success or failure — the gate is rebuilt
+                    // from the durable queue (so any debt it queued gets its bounded retry) and the timeout's message is
+                    // replaced by the real outcome. If the owner changes first, a late answer writes nothing.
+                    const ownerStillCurrent = () => {
+                        const resolvedFor = useSessionStore.getState().progressGateResolvedFor;
+                        return resolvedFor === null || resolvedFor === ownerId;
+                    };
+                    const scan = hydrateServerProgressObligations(ownerId, new Date().toISOString(), undefined, { isLive: ownerStillCurrent });
                     let obligationsTimer: ReturnType<typeof setTimeout> | undefined;
-                    const obligations: { ok: boolean; failure?: 'unpersisted' } = await Promise.race([
-                        hydrateServerProgressObligations(user.id, new Date().toISOString()),
-                        new Promise<{ ok: false }>((resolve) => { obligationsTimer = setTimeout(() => resolve({ ok: false }), START_OBLIGATIONS_TIMEOUT_MS); }),
+                    const TIMED_OUT = { timedOut: true } as const;
+                    const obligations = await Promise.race([
+                        scan,
+                        new Promise<typeof TIMED_OUT>((resolve) => { obligationsTimer = setTimeout(() => resolve(TIMED_OUT), START_OBLIGATIONS_TIMEOUT_MS); }),
                     ]).finally(() => clearTimeout(obligationsTimer));
+                    if (startCancelled()) { abandonStart(); return; }
+                    if ('timedOut' in obligations) {
+                        abandonStart();
+                        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(ownerId));
+                        setSTTStatus({ type: 'error', message: OBLIGATIONS_SLOW_MESSAGE });
+                        reportIntent('blocked_lock_held');
+                        void scan.then((late) => {
+                            if (!ownerStillCurrent()) return;
+                            const store = useSessionStore.getState();
+                            const gate = reconstructGateFromQueue(ownerId);
+                            store.setProgressGate(gate);
+                            // Replace our own timeout copy only — never a newer message from something else — and only while
+                            // this page is still here to show it.
+                            if (startCancelled() || store.sttStatus.message !== OBLIGATIONS_SLOW_MESSAGE) return;
+                            // Nothing owed: back to the at-rest page (its mic card says the mic is ready; Start works).
+                            if (late.ok && gate === null) setSTTStatus({ type: 'idle', message: 'Ready to record' });
+                            else if (!late.ok) setSTTStatus({ type: 'error', message: late.failure === 'unpersisted' ? UNPERSISTED_OBLIGATIONS_MESSAGE : OBLIGATIONS_FAILED_MESSAGE });
+                            // Debt found: the gate's Progress notice now explains the wait, and its bounded retry is running.
+                        }, () => undefined);
+                        return;
+                    }
                     if (!obligations.ok) {
-                        void releaseTakeLease();
+                        abandonStart();
+                        useSessionStore.getState().setProgressGate(reconstructGateFromQueue(ownerId));
                         // PM RETURN on 040da46a: a server-confirmed obligation this device could not store keeps Start
                         // blocked with a truthful, retryable reason; an unanswered server says so instead.
                         setSTTStatus({
                             type: 'error',
-                            message: obligations.failure === 'unpersisted' ? UNPERSISTED_OBLIGATIONS_MESSAGE : 'Could not check your saved sessions. Please try again.',
+                            message: obligations.failure === 'unpersisted' ? UNPERSISTED_OBLIGATIONS_MESSAGE : OBLIGATIONS_FAILED_MESSAGE,
                         });
                         reportIntent('blocked_lock_held');
                         return;
@@ -707,10 +765,12 @@ export const useSessionLifecycle = () => {
                 const currentRuntimeState = useSessionStore.getState().runtimeState;
                 if (currentRuntimeState === 'ENGINE_INITIALIZING' || currentRuntimeState === 'INITIATING') {
                     await speechRuntimeController.whenStable();
+                    if (startCancelled()) { abandonStart(); return; }
                 }
                 // PM RETURN on 040da46a: revalidate ownership immediately before any model preparation.
                 // PM RETURN on 54576db9: ADMISSION FAILS CLOSED — only a server-confirmed `held` begins engine work.
                 const confirmation = revokedBeforeEngine ? 'revoked' : await confirmTakeLease();
+                if (startCancelled()) { abandonStart(); return; }
                 if (confirmation === 'revoked' || revokedBeforeEngine) {
                     // Another device took the account's one engine while this Start was still checking. Nothing was
                     // recorded here, so say the Start did not happen, and arm the explicit take-over the copy offers.
@@ -1175,6 +1235,7 @@ export const useSessionLifecycle = () => {
     useEffect(() => {
         return () => {
             logger.debug('[useSessionLifecycle] Component unmounting - Detaching listeners');
+            startGenerationRef.current += 1; // cancel any Start still in its pre-engine checks
             // #1476 Codex P1s on dae853fb / 040da46a: the state-watching release effect is gone before an async stop
             // leaves STOPPING, so release explicitly — but only AFTER the engine has stopped. Releasing while the queued
             // stop is still running would let a second device start while this engine records or finalizes; until then

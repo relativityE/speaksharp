@@ -36,7 +36,11 @@ export async function hydrateServerProgressObligations(
     userId: string,
     nowIso: string,
     rpc: ObligationsRpc = defaultRpc,
-): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable'; failure?: 'unpersisted' }> {
+    opts: { isLive?: () => boolean } = {},
+): Promise<{ ok: boolean; queued: number; authority: 'server' | 'unavailable'; failure?: 'unpersisted' | 'cancelled' }> {
+    // #1476 Codex P1 on 0200e7829: the scan is OWNED by its caller. Once the caller stops owning it (a Start that timed out,
+    // a page that went away) a late answer writes nothing — a write nobody publishes would leave debt with no retry.
+    const isLive = opts.isLive ?? (() => true);
     // #1476 Codex P1 on 4ceaccf44: EVERY per-session debt must be reachable. One newest-first page would re-list the same
     // newest obligations forever while they stay pending or keep failing, and never reach older ones. Page by the server's
     // keyset cursor (the last row's created_at + session_id) until a short page; an account whose debt does not end
@@ -63,6 +67,7 @@ export async function hydrateServerProgressObligations(
                 logger.warn('[progress] server obligations unavailable (non-fatal)');
                 return { ok: false, queued: 0, authority: 'server' };
             }
+            if (!isLive()) return { ok: false, queued: 0, authority: 'server', failure: 'cancelled' };
             data = res.data;
         } catch {
             return { ok: false, queued: 0, authority: 'server' };
