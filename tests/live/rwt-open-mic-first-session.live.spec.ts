@@ -6,8 +6,10 @@
  *   2. reach Open Mic without the microphone opening on navigation;
  *   3. first microphone use — the model the product actually acquires, and how long it takes;
  *   4. speak the pinned corpus — fillers seen vs saved vs the corpus's ground truth;
- *   5. Stop — the session saves and exactly two coaching phrases (≤6 words each) render on their own;
- *   6. the session in Analytics — same transcript (by digest), and a PDF that opens;
+ *   5. Stop — the session saves and exactly two coaching phrases (≤6 words each) render on their own; they are
+ *      distinct and equal the saved coaching response;
+ *   6. the session in Analytics — same transcript (by digest) and both saved AI suggestions, before and after
+ *      a reload; and a PDF that opens;
  *   7. Share feedback — acknowledged and stored once; the marked report is retained by product policy.
  * plus the next Start (no Progress hold) and the telemetry this journey sent, for the PostHog readback.
  *
@@ -56,6 +58,7 @@ import {
     shareFeedbackRows,
     analyticsRows,
     analyticsThroughActions,
+    normalisePhraseText,
     performCandidateSwitch,
     readSttIdentity,
     receiptContentLeaks,
@@ -77,6 +80,12 @@ const SUITE = 'open-mic-first-session';
 const JOURNEY = 'open_mic';
 /** PO script row 5: exactly two phrases, each at most six words (COACHING_WORD_BUDGET). */
 const COACHING_WORD_BUDGET = 6;
+/** Accepted headings (runbook (3) row 5: Akin also accepts "What to try next"). */
+const WELL_HEADINGS = ['What went well'] as const;
+const NEXT_HEADINGS = ['Try this next run', 'What to try next'] as const;
+/** Same phrase, ignoring case, spacing and trailing punctuation. */
+const samePhrase = (a: string, b: string): boolean =>
+    normalisePhraseText(a) !== '' && normalisePhraseText(a) === normalisePhraseText(b);
 /** The words checked per key: spoken form → persisted `filler_counts` key (contracts/fillerCounts.ts). */
 const FILLER_KEY: Record<string, string> = { um: 'um', uh: 'uh', ah: 'ah', 'you know': 'you_know' };
 /**
@@ -156,6 +165,11 @@ test.describe('RWT — Open Mic first session @live', () => {
         let transcriptDigest = ''; // compared in Node only; never written to the receipt
         let transcriptCanonical = ''; // in memory only, for the PDF match; never written anywhere
         let claimed = false;
+        // Coaching text, in memory only for the visible/saved/after-reload comparisons; never written anywhere.
+        let shownWell = '';
+        let shownNext = '';
+        let savedWell = '';
+        let savedNext = '';
         try {
             // ── Row 1 — sign up, then sign back in through the real form ────────────────────────────────
             await test.step('row 1 — sign up and sign in', async () => {
@@ -265,13 +279,20 @@ test.describe('RWT — Open Mic first session @live', () => {
                     .toMatch(/^(ready|error|empty)$/).then(() => true).catch(() => false);
                 const state = await card.getAttribute('data-review-state').catch(() => null);
                 const coachingMs = Date.now() - stoppedAt;
-                const phrase = async (heading: string): Promise<number | null> => {
-                    const block = card.locator('div', { has: page.getByRole('heading', { name: heading, exact: true }) }).last();
-                    const text = await block.locator('p').first().innerText().catch(() => '');
-                    return text.trim() ? countWords(text) : null; // measured, then discarded
+                // The text is held in memory for the Node-side comparisons below and never written to the receipt.
+                const phrase = async (headings: readonly string[]): Promise<string> => {
+                    for (const heading of headings) {
+                        const title = page.getByRole('heading', { name: heading, exact: true });
+                        if ((await title.count()) === 0) continue;
+                        const block = card.locator('div', { has: title }).last();
+                        return (await block.locator('p').first().innerText().catch(() => '')).trim();
+                    }
+                    return '';
                 };
-                const well = await phrase('What went well');
-                const next = await phrase('Try this next run');
+                shownWell = await phrase(WELL_HEADINGS);
+                shownNext = await phrase(NEXT_HEADINGS);
+                const well = shownWell ? countWords(shownWell) : null;
+                const next = shownNext ? countWords(shownNext) : null;
                 const twoPhrases = state === 'ready' && well !== null && next !== null;
                 const withinBudget = twoPhrases && well! <= COACHING_WORD_BUDGET && next! <= COACHING_WORD_BUDGET;
                 receipt.row('coaching rendered', terminal && twoPhrases ? 'PASS' : 'FAIL',
@@ -280,6 +301,24 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('coaching length', withinBudget ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
                     withinBudget ? `both phrases within ${COACHING_WORD_BUDGET} words` : twoPhrases ? `a phrase exceeds ${COACHING_WORD_BUDGET} words` : 'no phrases to measure',
                     { wellWords: well, nextWords: next });
+                const distinct = twoPhrases && samePhrase(shownWell, shownNext) === false;
+                receipt.row('coaching phrases distinct', distinct ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
+                    distinct ? 'the two phrases are different suggestions' : twoPhrases ? 'both headings show the same phrase' : 'no phrases to compare');
+
+                // The visible text must BE the saved coaching response, field for field (compared in Node only).
+                const { data: savedRow, error: savedAiErr } = await admin!.from('sessions').select('ai_suggestions')
+                    .eq('id', persistedId).eq('user_id', capturedUid).single();
+                if (savedAiErr) throw new Error(`saved coaching read failed (fail closed): ${savedAiErr.code ?? 'unknown'}`);
+                const savedAi = (savedRow?.ai_suggestions ?? null) as { what_worked?: unknown; what_to_try_next?: unknown } | null;
+                savedWell = typeof savedAi?.what_worked === 'string' ? savedAi.what_worked.trim() : '';
+                savedNext = typeof savedAi?.what_to_try_next === 'string' ? savedAi.what_to_try_next.trim() : '';
+                const wellMatches = savedWell !== '' && samePhrase(shownWell, savedWell);
+                const nextMatches = savedNext !== '' && samePhrase(shownNext, savedNext);
+                receipt.row('coaching visible = saved', wellMatches && nextMatches ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
+                    wellMatches && nextMatches ? 'both visible phrases equal the saved coaching response'
+                        : savedWell === '' || savedNext === '' ? 'the session row holds no complete saved coaching response'
+                            : 'a visible phrase differs from the saved coaching response',
+                    { wellMatchesSaved: wellMatches, nextMatchesSaved: nextMatches, savedResponsePresent: savedWell !== '' && savedNext !== '' });
                 receipt.row('coaching is about this speech', 'HOLD', 'speech-specificity needs a human reader; the text is never stored in evidence');
 
                 const { data: authority, error } = await admin!.from('ai_suggestion_authority_receipts')
@@ -343,7 +382,10 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Row 6 — Analytics through the on-screen action; a PDF that carries the saved transcript ─
             await test.step('row 6 — Analytics action, session detail, reload and PDF', async () => {
                 if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
-                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest));
+                // With a complete saved response, the detail must also show both suggestions before and after its reload.
+                const savedCoaching = savedWell !== '' && savedNext !== '' ? { well: savedWell, next: savedNext } : undefined;
+                if (!savedCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
+                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest, savedCoaching));
 
                 // The PDF is downloaded from the session's own button on the Analytics list the person uses.
                 const navOk = await page.getByTestId('nav-analytics-link').first().click({ timeout: 20_000 }).then(() => true).catch(() => false);
@@ -409,8 +451,24 @@ test.describe('RWT — Open Mic first session @live', () => {
             receipt.row('telemetry sent', tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0 ? 'PASS' : 'FAIL',
                 'session_saved and feedback_submit left the page (sent, not yet received)',
                 { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length });
-            const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE].filter(Boolean));
-            receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no credential or email in the receipt' : 'the receipt carried a forbidden value');
+            // Coaching telemetry the page SENT. RECEIVED is proven by the PostHog readback of the declared
+            // session_after_open_mic stage: its post-Stop chain requires a received stage_latency "review_rendered", which
+            // the app emits only once a validated two-phrase review is on screen.
+            const reviewRendered = tap.sent('stage_latency').filter((e) => e.stage === 'review_rendered').length;
+            const coachingEvents = {
+                requested: tap.sent('practice_loop_review_requested').length,
+                completed: tap.sent('practice_loop_review_completed').length,
+                persisted: tap.sent('practice_loop_review_persisted').length,
+                rendered: tap.sent('practice_loop_review_rendered').length,
+                failed: tap.sent('practice_loop_review_failed').length,
+                reviewRenderedStage: reviewRendered,
+            };
+            const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
+            receipt.row('coaching telemetry sent', coachingSent ? 'PASS' : 'FAIL',
+                coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
+                    : 'a coaching outcome event did not leave the page', coachingEvents);
+            const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
+            receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no credential, email or coaching text in the receipt' : 'the receipt carried a forbidden value');
             receipt.write(testInfo, canaryJourneys, tap.trafficTypes(), ['session_during', 'session_after_open_mic', 'share_feedback'], userJourneys);
         }
     });

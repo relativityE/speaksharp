@@ -628,16 +628,35 @@ export function nextStartRows(receipt: RwtReceipt, next: Awaited<ReturnType<type
         { stopped: next.stopped, liveTracksAfterStop: next.liveTracksAfterStop });
 }
 
+/** The saved coaching response (`sessions.ai_suggestions`), held in memory only. */
+export interface SavedCoaching { well: string; next: string }
+export interface CoachingShown { well: boolean; next: boolean }
+
+/** Case, spacing and sentence-final punctuation do not change a phrase. */
+export const normalisePhraseText = (t: string): string =>
+    t.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+(\s|$)/g, '$1').trim();
+
+/** Whether each saved phrase is visible on the current page. Compared in Node; only booleans leave. */
+async function coachingShownOnPage(page: Page, saved: SavedCoaching): Promise<CoachingShown> {
+    const body = normalisePhraseText(await page.locator('body').innerText().catch(() => ''));
+    const has = (phrase: string) => phrase.trim() !== '' && body.includes(normalisePhraseText(phrase));
+    return { well: has(saved.well), next: has(saved.next) };
+}
+
 /**
  * ANALYTICS THROUGH THE CONTROLS THE PERSON USES (PM 2026-09-25). From the post-save screen: click the on-screen
  * Analytics action, confirm the destination lists THIS saved session, open it through its own control and compare
  * the rendered transcript to the saved one by digest; then reload and compare again. No direct URL navigation into
  * the detail — that would skip the button the PO clicks. Digests only; the text is never returned.
  */
-export async function analyticsThroughActions(page: Page, sessionId: string, savedDigest: string): Promise<{
+export async function analyticsThroughActions(page: Page, sessionId: string, savedDigest: string, savedCoaching?: SavedCoaching): Promise<{
     actionClicked: boolean; listed: boolean; detailOpened: boolean; detailMatches: boolean; reloadMatches: boolean;
+    coachingBefore: CoachingShown | null; coachingAfter: CoachingShown | null;
 }> {
-    const result = { actionClicked: false, listed: false, detailOpened: false, detailMatches: false, reloadMatches: false };
+    const result = {
+        actionClicked: false, listed: false, detailOpened: false, detailMatches: false, reloadMatches: false,
+        coachingBefore: null as CoachingShown | null, coachingAfter: null as CoachingShown | null,
+    };
     const action = page.getByTestId('post-save-review-session-link');
     if (!(await action.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false))) return result;
     await action.click();
@@ -650,9 +669,11 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     const detail = page.getByTestId('session-detail-transcript');
     const shown = await detail.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     result.detailMatches = shown && savedDigest !== '' && sha256Hex(await detail.innerText()) === savedDigest;
+    if (savedCoaching) result.coachingBefore = await coachingShownOnPage(page, savedCoaching);
     await page.reload({ waitUntil: 'domcontentloaded' });
     const again = await page.getByTestId('session-detail-transcript').waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     result.reloadMatches = again && sha256Hex(await page.getByTestId('session-detail-transcript').innerText()) === savedDigest;
+    if (savedCoaching) result.coachingAfter = await coachingShownOnPage(page, savedCoaching);
     return result;
 }
 
@@ -665,6 +686,16 @@ export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof 
             : a.detailOpened ? 'the opened transcript differs from the saved one' : 'the session detail did not open from its control');
     receipt.row('reopen after reload', a.reloadMatches ? 'PASS' : 'FAIL',
         a.reloadMatches ? 'after a hard reload the detail still shows the saved transcript' : 'after reload the detail was missing or differed');
+    // Runbook (3) row 6 (PM 2026-09-25): the reopened session's Analytics detail shows BOTH saved AI suggestions,
+    // before and after a reload. Home may show only the next-action teaser; it is not checked here.
+    if (a.coachingBefore && a.coachingAfter) {
+        const both = (c: CoachingShown) => c.well && c.next;
+        const ok = both(a.coachingBefore) && both(a.coachingAfter);
+        receipt.row('analytics detail shows both AI suggestions', ok ? 'PASS' : 'FAIL',
+            ok ? 'the session detail shows both saved suggestions, before and after reload'
+                : 'the session detail does not show both saved suggestions (Practice Loop product repair)',
+            { wellBefore: a.coachingBefore.well, nextBefore: a.coachingBefore.next, wellAfterReload: a.coachingAfter.well, nextAfterReload: a.coachingAfter.next });
+    }
 }
 
 /**
