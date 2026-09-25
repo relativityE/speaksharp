@@ -770,6 +770,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 topic={effObjectiveTopic ?? null}
                 sessionState="after"
                 coveragePending
+                checkUnavailable={coverageTerminallyUnavailable}
                 onRetry={chooseRetryPoints}
                 retryDisabled={gateBlocksStart}
                 retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined}

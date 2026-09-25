@@ -248,4 +248,35 @@ describe('FocusPointsRail — state colours, legend and pending label (#1258 RWT
         expect(screen.getByTestId('focus-point-3-status')).toHaveTextContent('Not detected');
         expect(document.querySelectorAll('[data-testid="focus-points-rail-list"] .sr-only')).toHaveLength(0);
     });
+
+    it('G20 B2 — while the after-Stop verdict is computed: "Checking your points", dashed grey rings, no legend, no note', () => {
+        render(<FocusPointsRail rows={during.map((r) => ({ ...r, status: 'missing' as const, covered: false, coveredAtSec: null }))} sessionState="after" coveragePending />);
+        expect(screen.getByText('Checking your points')).toBeInTheDocument();
+        const marker = screen.getByTestId('focus-point-0-marker');
+        expect(marker).toHaveAttribute('data-marker', 'checking');
+        expect(marker).toHaveClass('border-dashed');
+        expect(marker).toHaveTextContent(/^1$/);
+        expect(screen.getByTestId('focus-point-0-pending')).toHaveTextContent('Checking…');
+        expect(screen.queryByTestId('focus-points-legend')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('focus-points-detection-note')).not.toBeInTheDocument();
+    });
+
+    it('G20 B3 — a check that can no longer happen says so, never "Checking…" forever and never a verdict', () => {
+        const pending = during.map((r) => ({ ...r, status: 'missing' as const, covered: false, coveredAtSec: null }));
+        render(<FocusPointsRail rows={pending} sessionState="after" coveragePending checkUnavailable />);
+        expect(screen.getByTestId('focus-points-check-unavailable')).toHaveTextContent('We couldn’t check your points this time. Your session is saved.');
+        expect(screen.getByText('Points to cover')).toBeInTheDocument();
+        expect(screen.queryByText('Checking…')).not.toBeInTheDocument();
+        expect(screen.queryByText('Not detected')).not.toBeInTheDocument();
+        expect(screen.getByTestId('focus-point-0-marker')).toHaveAttribute('data-marker', 'pending');
+        expect(screen.queryByTestId('focus-points-legend')).not.toBeInTheDocument();
+    });
+
+    it('G20 — the detector-uncertainty note appears once, BELOW the list, only with a verdict', () => {
+        render(<FocusPointsRail rows={during} sessionState="after" />);
+        const list = screen.getByTestId('focus-points-rail-list');
+        const note = screen.getByTestId('focus-points-detection-note');
+        expect(list.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(screen.getAllByTestId('focus-points-detection-note')).toHaveLength(1);
+    });
 });

@@ -33,6 +33,11 @@ export interface FocusPointsRailProps {
      * without turning unknown rows into negative coverage claims.
      */
     coveragePending?: boolean;
+    /**
+     * G20 B3: the take is complete and its points can no longer be checked (the transcript is gone or the
+     * finalized verdict is terminally absent). Says so plainly instead of "Checking…", which would never end.
+     */
+    checkUnavailable?: boolean;
     /** #1046 G6/G7: the topic (the `goal`), shown above the points as an unnumbered header — never a point,
      *  never checked for coverage. null/blank ⇒ no topic line (e.g. a set saved before topic was threaded). */
     topic?: string | null;
@@ -52,7 +57,7 @@ function fmtClock(seconds: number): string {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-type MarkerKind = 'pending' | 'covered' | 'partial' | 'next' | 'missed';
+type MarkerKind = 'pending' | 'checking' | 'covered' | 'partial' | 'next' | 'missed';
 
 /**
  * #1258 RWT (PO/PM 2026-09-25) — ONE COLOUR PER STATE, EXPLAINED ON SCREEN: grey = not heard yet, yellow = partly
@@ -65,6 +70,8 @@ const MARKER_STYLE: Record<MarkerKind, string> = {
     missed: 'border-2 border-state-error text-state-error',
     next: 'border-2 border-focus-points text-focus-points',
     pending: 'border-2 border-neutral-border-strong text-neutral-muted',
+    // G20 B2: a dashed grey ring = we haven't finished checking. Never green, yellow or red until a result.
+    checking: 'border-2 border-dashed border-neutral-border-strong text-neutral-muted',
 };
 
 const Marker: React.FC<{ kind: MarkerKind; index: number; testId?: string }> = ({ kind, index, testId }) => {
@@ -95,6 +102,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     rows,
     sessionState,
     coveragePending = false,
+    checkUnavailable = false,
     topic,
     nextIndex,
     onEdit,
@@ -104,8 +112,12 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     onNewSet,
 }) => {
     const isAfter = sessionState === 'after';
-    // §3: the card names the TASK, not ownership. before/during = "Points to cover"; after = "What you covered".
-    const title = isAfter && !coveragePending ? 'What we detected' : 'Points to cover';
+    const unavailable = isAfter && checkUnavailable;
+    const checking = isAfter && coveragePending && !unavailable;
+    const verdict = isAfter && !coveragePending && !unavailable;
+    // §3: the card names the TASK, not ownership. G20: after = "What we detected", or "Checking your points"
+    // while the verdict is still being computed; before/during and an unavailable check = "Points to cover".
+    const title = verdict ? 'What we detected' : checking ? 'Checking your points' : 'Points to cover';
     const topicLabel = (topic ?? '').trim();
 
     return (
@@ -128,26 +140,6 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                 )}
             </div>
 
-            {/*
-              * #1467 — tell the USER what the detector can and cannot do, on the completed verdict only.
-              *
-              * The limitation is documented four times in this codebase and every one of them speaks to
-              * engineers: the header comments in this file and in CoverageRail and
-              * CoveragePace all describe a conservative LOCAL KEYWORD MATCHER. Nothing said it to the person
-              * reading "Not detected", who had no way to tell whether the miss was theirs or the matcher's.
-              *
-              * Shown only when a verdict is actually being presented (`isAfter && !coveragePending`), because
-              * before or during a take there is no verdict for it to qualify.
-              */}
-            {isAfter && !coveragePending && (
-                <p
-                    data-testid="focus-points-detection-note"
-                    className="mt-2 text-[13px] leading-snug text-neutral-secondary"
-                >
-                    We look for your point&rsquo;s words in what you said. If you covered it differently, we may not spot it.
-                </p>
-            )}
-
             {/* The topic is a header, never a point — no marker, no numeral, never checked for coverage.
                 Design Correction Brief F-5: eyebrow above value, always. It used to render the topic and then
                 a `Your topic` caption BENEATH it, which made the topic read as the first item of the list.
@@ -158,6 +150,14 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                 </div>
             )}
 
+            {unavailable && (
+                <p className="mt-3 text-[16px] font-extrabold leading-snug text-neutral-body" data-testid="focus-points-check-unavailable" role="status">
+                    We couldn&rsquo;t check your points this time. Your session is saved.
+                </p>
+            )}
+
+            {/* The key explains result colours; it is omitted while checking or when no check is possible. */}
+            {!checking && !unavailable && (
             <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5" data-testid="focus-points-legend" aria-label="What the colours mean">
                 {LEGEND.map((item) => (
                     <li key={item.kind} className="flex items-center gap-1.5 text-[12px] font-semibold text-neutral-secondary" data-state={item.kind}>
@@ -166,13 +166,14 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                     </li>
                 ))}
             </ul>
+            )}
 
             <ol className="mt-[14px] space-y-[13px]" data-testid="focus-points-rail-list">
                 {rows.map((row, i) => {
                     const isPartial = row.status === 'partial';
                     const isNext = sessionState === 'during' && !row.covered && nextIndex === i;
-                    const isMissed = isAfter && !coveragePending && !row.covered;
-                    const kind = isPartial ? 'partial' : row.covered ? 'covered' : isNext ? 'next' : isMissed ? 'missed' : 'pending';
+                    const isMissed = verdict && !row.covered;
+                    const kind: MarkerKind = isPartial ? 'partial' : row.covered ? 'covered' : isNext ? 'next' : isMissed ? 'missed' : checking ? 'checking' : 'pending';
                     const rowTint = isPartial
                         ? 'rounded-lg border border-signature-border bg-signature-ground px-3 py-2'
                         : isNext
@@ -197,9 +198,9 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                     </p>
                                 )}
                                 {isNext && <p className="mt-0.5 text-[12px] font-bold text-focus-points">Still to cover</p>}
-                                {kind === 'pending' && (
+                                {(kind === 'checking' || (kind === 'pending' && !unavailable)) && (
                                     <p className="mt-0.5 text-[12px] font-semibold text-neutral-muted" data-testid={`focus-point-${i}-pending`}>
-                                        {isAfter ? 'Checking…' : 'Not heard yet'}
+                                        {kind === 'checking' ? 'Checking…' : 'Not heard yet'}
                                     </p>
                                 )}
                                 {/* Reviewer truthfulness fix: the local keyword engine measures whether a point's
@@ -222,6 +223,27 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                     );
                 })}
             </ol>
+
+            {/*
+              * #1467 — tell the USER what the detector can and cannot do, on the completed verdict only.
+              *
+              * The limitation is documented four times in this codebase and every one of them speaks to
+              * engineers: the header comments in this file and in CoverageRail and
+              * CoveragePace all describe a conservative LOCAL KEYWORD MATCHER. Nothing said it to the person
+              * reading "Not detected", who had no way to tell whether the miss was theirs or the matcher's.
+              *
+              * Shown only when a verdict is actually being presented, because before or during a take (or while
+              * checking) there is no verdict for it to qualify. G20: once, below the list.
+              */}
+            {verdict && (
+                <p
+                    data-testid="focus-points-detection-note"
+                    className="mt-4 text-[13px] leading-snug text-neutral-secondary"
+                >
+                    We look for your point&rsquo;s words in what you said. If you covered it differently, we may not spot it.
+                </p>
+            )}
+
 
             {isAfter && (onRetry || onNewSet) && (
                 <div className="mt-auto pt-5">
