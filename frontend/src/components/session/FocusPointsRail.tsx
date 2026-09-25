@@ -183,7 +183,6 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                             : '';
                     // 'Detected', not 'Covered': the matcher reports what it FOUND. 'Still to cover' stays — that is an
     // instruction about what to do next, not an assertion about what the speaker did.
-    const statusWord = isPartial ? 'Partly detected' : row.covered ? 'Detected' : isMissed ? 'Not detected' : isNext ? 'Still to cover' : 'Pending';
                     return (
                         <li key={i} data-testid={`focus-point-${i}`} data-status={isPartial ? 'partial' : row.covered ? 'covered' : isMissed ? 'missing' : 'pending'} className={`flex items-start gap-[11px] ${rowTint}`}>
                             <Marker kind={kind} index={i} testId={`focus-point-${i}-marker`} />
@@ -191,6 +190,13 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                 <p className={`text-[15px] leading-snug ${row.covered && !isPartial ? 'text-neutral-muted line-through' : isPartial || isMissed ? 'font-extrabold text-neutral-body' : 'text-neutral-body'}`}>
                                     {row.label}
                                 </p>
+                                {row.covered && row.coveredAtSec == null && (
+                                    // The finalized authority can mark a point detected without a time; its status must
+                                    // still be visible (G20: a visible status on every row, never colour or sr-only alone).
+                                    <p className={`mt-0.5 text-[12px] font-semibold ${isPartial ? 'text-signature-text' : 'text-status'}`} data-testid={`focus-point-${i}-status`}>
+                                        {isPartial ? 'Partly detected' : 'Detected'}
+                                    </p>
+                                )}
                                 {row.covered && row.coveredAtSec != null && (
                                     <p className={`mt-0.5 text-[12px] font-semibold ${isPartial ? 'text-signature-text' : 'text-status'}`} data-testid={`focus-point-${i}-covered-at`}>
                                         {isAfter && row.quote ? <span className="italic text-neutral-secondary">&ldquo;…{row.quote.trim()}&rdquo;</span> : null}
@@ -216,9 +222,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                     </p>
                                 )}
                             </div>
-                            {/* Every row shows its status visibly, except a detected row without a time; only that one
-                                needs the word for screen readers. */}
-                            {row.covered && row.coveredAtSec == null && <span className="sr-only">{statusWord}</span>}
+
                         </li>
                     );
                 })}

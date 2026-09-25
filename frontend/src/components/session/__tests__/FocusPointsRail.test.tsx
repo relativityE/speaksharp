@@ -279,4 +279,18 @@ describe('FocusPointsRail — state colours, legend and pending label (#1258 RWT
         expect(list.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(screen.getAllByTestId('focus-points-detection-note')).toHaveLength(1);
     });
+
+    it('PM review: a FINAL detected or partly detected point with NO timestamp still shows its status visibly', () => {
+        const finalAuthority: FocusCoverageRow[] = [
+            { label: 'one', status: 'covered', covered: true, coveredAtSec: null, quote: null },
+            { label: 'two', status: 'partial', covered: true, coveredAtSec: null, quote: null },
+            { label: 'three', status: 'missing', covered: false, coveredAtSec: null, quote: null },
+        ];
+        render(<FocusPointsRail rows={finalAuthority} sessionState="after" />);
+        expect(screen.getByTestId('focus-point-0-status')).toHaveTextContent(/^Detected$/);
+        expect(screen.getByTestId('focus-point-0-status')).toBeVisible();
+        expect(screen.getByTestId('focus-point-1-status')).toHaveTextContent(/^Partly detected$/);
+        expect(screen.getByTestId('focus-point-2-status')).toHaveTextContent(/^Not detected$/);
+        expect(document.querySelectorAll('[data-testid="focus-points-rail-list"] .sr-only')).toHaveLength(0);
+    });
 });
