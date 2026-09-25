@@ -123,6 +123,8 @@ export function diagnosticAuthorizationFor(input: {
     readonly origin: string;
     readonly now: number;
     readonly check: RunAuthorityChecker;
+    /** The journey the authorization must name. Defaults to Open Mic, the #1437 diagnostic's journey. */
+    readonly journey?: string;
 }): DiagnosticAuthorization {
     if (!input.authorizationText || !input.runId || !input.runAttempt) {
         return {
@@ -145,7 +147,7 @@ export function diagnosticAuthorizationFor(input: {
     const problems = input.check({
         record: parsed,
         ...input.bundle,
-        expected: { candidateId: input.target, journey: DIAGNOSTIC_JOURNEY, origin: input.origin },
+        expected: { candidateId: input.target, journey: input.journey ?? DIAGNOSTIC_JOURNEY, origin: input.origin },
         at: input.now,
         phase: 'in_run',
     });

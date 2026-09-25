@@ -13,11 +13,10 @@ import { resolvePrivateModel } from './utils/privateModelFlag';
  */
 export class ModelManager {
     private static readonly TRANSFORMERS_CACHE = 'transformers-cache';
-    // Model-aware: track the SELECTED Private model (default tiny.en, or an opt-in candidate
-    // like base.en via ?privateModel=) so cache-detection + size gate the download/ready UX on
-    // what will actually load. The no-flag default path resolves to tiny.en (bundled, ~40MB, no
-    // download wall); base.en opt-in resolves to its own remote ~145MB path. (resolvePrivateModel
-    // is side-effect-free and total — returns the default when no flag is set.)
+    // Model-aware: track the SELECTED Private model so cache-detection + size gate the download/ready
+    // UX on what will actually load. The default is PRIV_STT_MODELS.DEFAULT — v2 whisper-base.en
+    // (~80MB, self-hosted under public/models/, no Hugging Face). tiny.en remains an internal/emergency
+    // CANDIDATE only. (resolvePrivateModel is side-effect-free and total — it returns the default.)
     private static get TRANSFORMERS_MODEL_PATH(): string {
         return PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].localId;
     }
