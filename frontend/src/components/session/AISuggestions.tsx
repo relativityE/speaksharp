@@ -37,6 +37,16 @@ interface AISuggestionsProps {
   onDeviceCounts?: { fillers: number | null; wordsPerMinute: number | null };
   /** S-12 — `Session 6 · Open Mic`, shown opposite the eyebrow when the review is not still coming. */
   sessionLabel?: string | null;
+  /**
+   * #1258 — which product this take was. Sent with the request so the coaching function refuses to write generic
+   * coaching for a Focus Points take whose saved point results are not there yet. It never supplies evidence.
+   */
+  product?: 'open_mic' | 'focus_points';
+  /**
+   * #1258 — why this take's review will NOT be requested (e.g. its Focus Points check ended without results).
+   * Shown in place of the generic not-ready line; nothing is requested or retried while it is set.
+   */
+  blockedReason?: string | null;
 }
 
 interface SafeSuggestionError {
@@ -188,7 +198,7 @@ const getSafeAiSuggestionError = (
 
 const AISuggestions: React.FC<AISuggestionsProps> = ({
   transcript = '', canReview, sessionId, initialSuggestions, retryBackoffMs = AI_REVIEW_AUTO_RETRY_BACKOFF_MS,
-  onDeviceCounts, sessionLabel,
+  onDeviceCounts, sessionLabel, product, blockedReason,
 }) => {
   const activeSessionRef = useRef(sessionId);
   const requestGenerationRef = useRef(0);
@@ -401,7 +411,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
           // The edge function loads transcript and measurements from this authenticated saved session.
           // Never send caller-owned evidence that could be swapped between session ids.
-          body: { sessionId: sessionId || null },
+          body: { sessionId: sessionId || null, ...(product ? { product } : {}) },
         });
 
         if (invokeError) {
@@ -447,7 +457,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: false });
       return;
     }
-  }, [reviewReady, sessionId, retryBackoffMs]);
+  }, [reviewReady, sessionId, retryBackoffMs, product]);
 
   useEffect(() => {
     if (!reviewReady || !sessionId) return;
@@ -626,8 +636,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       )}
 
       {!stillComing && !suggestions && !reviewReady && (
-        <p className="text-[15px] font-semibold text-ink-muted" data-testid="practice-loop-review-not-ready">
-          {sessionId
+        <p className="text-[15px] font-semibold text-ink-muted" data-testid={blockedReason ? 'practice-loop-review-blocked' : 'practice-loop-review-not-ready'}>
+          {blockedReason ? blockedReason : sessionId
             ? 'A review needs a completed session with a saved transcript.'
             : 'Your review will be available after this session finishes saving.'}
         </p>
