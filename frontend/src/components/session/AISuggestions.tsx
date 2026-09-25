@@ -153,6 +153,14 @@ const TERMINAL_REASONS: ReadonlySet<PracticeLoopReviewFailureReason> = new Set<P
   'unavailable',
 ]);
 
+/**
+ * #1258 — how many times a `425 focus_results_pending` answer is waited out. The server sends it BEFORE quota or any
+ * provider call when a Focus Points take's saved point results have not landed yet (a brief read lag after the save),
+ * so waiting costs nothing and does not use one of the two lifecycle attempts. Bounded: after these waits the answer
+ * is the ordinary terminal "unavailable", with the manual retry.
+ */
+export const FOCUS_RESULTS_PENDING_WAITS = 3;
+
 /** #1473 — the bounded backoff before the single automatic retry of a recoverable failure. */
 export const AI_REVIEW_AUTO_RETRY_BACKOFF_MS = 2500;
 
@@ -402,6 +410,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
      * #1422 — A SUPERSEDED REQUEST REPORTS NOTHING AND RENDERS NOTHING: every outcome is checked against the current
      * request first, so a late answer for session A never counts or shows after the user moved to session B.
      */
+    let pendingWaits = 0;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null, retrying: false });
       let failure: SafeSuggestionError;
@@ -435,6 +444,21 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         }
         failure = { reason: 'invalid_response', message: UNAVAILABLE_MESSAGE };
       } catch (err: unknown) {
+        // #1258 — Focus Points results not saved yet: nothing was spent, so wait and ask again (still "coming",
+        // never an error), without consuming a lifecycle attempt. Bounded by FOCUS_RESULTS_PENDING_WAITS.
+        if (errorStatus(err) === 425 && pendingWaits < FOCUS_RESULTS_PENDING_WAITS) {
+          pendingWaits += 1;
+          if (!isCurrentRequest()) return;
+          const proceed = await new Promise<boolean>((resolve) => {
+            retryTimerRef.current = setTimeout(() => {
+              retryTimerRef.current = null;
+              resolve(isCurrentRequest());
+            }, retryBackoffMs);
+          });
+          if (!proceed) return;
+          attempt -= 1;
+          continue;
+        }
         logger.error({ err }, "Error fetching AI suggestions:");
         failure = getSafeAiSuggestionError(err, await readClosedCode(err));
       }
