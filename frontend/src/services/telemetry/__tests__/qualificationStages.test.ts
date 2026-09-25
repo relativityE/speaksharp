@@ -31,6 +31,8 @@ let MODEL: string = MODELS[0];
 const completeRows = (stage: QualificationStage, model: string = MODELS[0]): DecodedTelemetryRow[] => (
     MODEL = model, stage.requiredFamilies.flatMap((family): DecodedTelemetryRow | DecodedTelemetryRow[] => {
     if (family === 'feedback_submit') return row(family, { outcome: 'stored' });
+    // #1258: the coaching card's own receipt — a validated pair on screen (required for Focus Points).
+    if (family === 'practice_loop') return row(family, { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true });
     // `to_state` — the property `emitRecordingState()` actually publishes. The fixture said `state`,
     // which is the same defect the production query had: it decoded null on every real row.
     if (family === 'recording_state') {

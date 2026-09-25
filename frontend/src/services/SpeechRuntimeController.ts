@@ -6147,6 +6147,9 @@ export class SpeechRuntimeController {
                 } else {
                     pushNativeRuntimeTrace('controller_stop_publication_refused', { label: 'objective_coverage' });
                 }
+            } else if (canPublishShared()) {
+                // #1258: the check ended without results. Say so, rather than leaving "still checking" forever.
+                useSessionStore.getState().setObjectiveCoverageFailed();
             }
             // #1354 CASE 5 — `registered: false` has TWO origins and only ONE of them is terminal.
             //
@@ -6167,6 +6170,7 @@ export class SpeechRuntimeController {
             // Ambiguous throw: registration state is UNKNOWN. Fail closed — we cannot claim the take
             // owes nothing, and we cannot claim evidence is durable.
             logger.warn({ objErr, sessionId }, '[controller] objective finalization failed (non-fatal)');
+            if (canPublishShared()) useSessionStore.getState().setObjectiveCoverageFailed();
             return { kind: 'unresolved', reason: 'queue_unavailable' };
         }
     }
