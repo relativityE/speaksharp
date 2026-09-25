@@ -135,7 +135,7 @@ export const PROOF_SELECTOR_EXEMPTIONS: Record<string, string> = {
     'session-detail-transcript': 'AnalyticsDashboard detail view; covered by dashboard component tests',
     'session-detail-transcript-expired': 'AnalyticsDashboard detail view, runtime-composed id '
         + '(`session-detail-transcript-${view.kind}`); covered by dashboard component tests',
-    'session-next-action-title': 'AnalyticsDashboard history row; covered by dashboard component tests',
+    'saved-review-practice': 'AnalyticsDashboard saved review (#1258 G20); covered by SavedPracticeLoopReview component tests',
     'filler-count-value': 'AnalyticsDashboard metrics cell; covered by dashboard component tests',
     'pro-badge': 'global navigation entitlement badge, rendered outside the session surface',
     'nav-upgrade-button': 'global navigation upgrade CTA, rendered outside the session surface',

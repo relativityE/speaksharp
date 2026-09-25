@@ -17,6 +17,11 @@ vi.mock('../analytics/GoalsSection', () => ({ GoalsSection: () => <div data-test
 vi.mock('../analytics/TopFillerWords', () => ({ TopFillerWords: () => <div data-testid="top-filler-words" /> }));
 vi.mock('../analytics/FillerWordTable', () => ({ FillerWordTable: () => <div data-testid="filler-word-table" /> }));
 vi.mock('../analytics/TrendChart', () => ({ TrendChart: () => <div data-testid="trend-chart" /> }));
+// #1258 G20: the saved review has its own tests; here only its placement and ownership of the next action matter.
+vi.mock('../analytics/SavedPracticeLoopReview', () => ({
+    SavedPracticeLoopReview: ({ sessionId, sessionLabel }: { sessionId: string; sessionLabel?: string | null }) =>
+        <section data-testid="saved-review" data-session={sessionId} data-label={sessionLabel ?? ''} />,
+}));
 
 // Mock Recharts to avoid canvas/resize observer issues in JSDOM
 vi.mock('recharts', () => ({
@@ -464,7 +469,7 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent('Legacy recording');
     });
 
-    it('#1306: session detail renders NO transcript pane and NO transcript-quality caveat — and shows the next action', () => {
+    it('#1306: session detail renders NO transcript pane and NO transcript-quality caveat — and the saved review leads', () => {
         renderComponent({
             sessionId: 'native-session',
             sessionHistory: [
@@ -486,9 +491,15 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('session-detail-transcript-unavailable')).toBeInTheDocument();
         expect(screen.queryByTestId('session-detail-transcript-not_captured')).not.toBeInTheDocument();
         expect(screen.queryByTestId('session-detail-quality-caveat')).not.toBeInTheDocument();
-        // The ONE structured next action is shown (content-free coaching), and metrics still render.
-        expect(screen.getByTestId('session-detail-next-action')).toBeInTheDocument();
-        expect(screen.getByTestId('session-next-action-title')).toHaveTextContent('Trim the filler words');
+        // #1258 G20: the saved review is the FIRST block and owns the one next action; the signal's generic copy is
+        // no longer shown beside it. Metrics still render.
+        const review = screen.getByTestId('saved-review');
+        expect(review).toHaveAttribute('data-session', 'native-session');
+        expect(review).toHaveAttribute('data-label', expect.stringMatching(/^Session 1 · /));
+        const detail = review.parentElement!;
+        expect(detail.firstElementChild).toBe(review);
+        expect(screen.queryByTestId('session-detail-next-action')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('session-next-action-title')).not.toBeInTheDocument();
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('1');
     });
 
@@ -586,9 +597,10 @@ describe('AnalyticsDashboard', () => {
             expect(screen.getByTestId('clarity-score-value')).toHaveTextContent(/85/);
         });
 
-        it('a completed session renders exactly one valid next action', () => {
+        it('a completed session with a valid next action: the saved review owns it, and no integrity error shows', () => {
             renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) });
-            expect(screen.getAllByTestId('session-next-action-title')).toHaveLength(1);
+            expect(screen.getAllByTestId('saved-review')).toHaveLength(1);
+            expect(screen.queryByTestId('session-next-action-title')).not.toBeInTheDocument();
             expect(screen.queryByTestId('session-next-action-integrity-error')).not.toBeInTheDocument();
             expect(screen.queryByTestId('session-next-action-none')).not.toBeInTheDocument();
         });

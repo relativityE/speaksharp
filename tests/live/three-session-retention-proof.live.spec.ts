@@ -781,7 +781,8 @@ test.describe('#1306 three-session newest-one retention production proof @live',
                     // text the policy says must be gone.
                     const isExpired = i < ids.length - 1;
                     await page.goto(`/analytics/${id}`);
-                    await expect(page.getByTestId('session-next-action-title'),
+                    // #1258 G20: the saved review owns the session's ONE next action (its single practice control).
+                    await expect(page.getByTestId('saved-review-practice'),
                         `${phase}: session ${i + 1} keeps exactly one next action`).toHaveCount(1);
                     if (isExpired) {
                         await expect(page.getByTestId('session-detail-transcript-expired'),

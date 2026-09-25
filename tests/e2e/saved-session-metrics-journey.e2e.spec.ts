@@ -149,7 +149,10 @@ test.describe('#1306 Step 3 — PRODUCED newest-one retention (authenticated)', 
       await expect(page.getByTestId('session-detail-transcript'), `${id} transcript`).toHaveCount(0);
       await expect(page.locator('body'), `${id} tail leaked`).not.toContainText(tail);
       // Expiry removes the TEXT, never the evidence: the next action and its integrity survive.
-      await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+      // #1258 G20: the saved review owns the ONE next action (its single practice control); the review itself
+      // aged out with the transcript and says so.
+      await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
+      await expect(page.getByTestId('saved-review')).toHaveAttribute('data-review-state', 'expired');
       await expect(page.getByTestId('session-next-action-integrity-error')).toHaveCount(0);
     }
   });
@@ -237,7 +240,8 @@ test.describe('#1306 Step 3 — PRODUCED newest-one retention (authenticated)', 
     await openDetail(page, 'm1-oldest');
     await expect(page.getByTestId('session-detail-transcript-expired')).toHaveCount(1);
     await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
-    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+    // #1258 G20: the saved review owns the ONE next action (its single practice control).
+    await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
     await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toBeVisible();
 
     // ...and the identity claim itself: exactly one persisted row per id after the reload, so the
@@ -380,7 +384,8 @@ test.describe('#1306 E2E mock fidelity — a forbidden content field is REJECTED
       return data as { total_words?: number };
     });
     expect(persisted.total_words, 'metric did not survive reload — the DB was reseeded').toBe(999);
-    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+    // #1258 G20: the saved review owns the ONE next action (its single practice control).
+    await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
     // This session never captured a transcript, so absence is correct here — and the pane must say so
     // honestly rather than simply not rendering.
     await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
