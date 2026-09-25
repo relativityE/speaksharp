@@ -129,6 +129,32 @@ describe('AISuggestions Integration', () => {
             return { data: null, error: err };
         };
 
+        // #1258 (PM review of 2f33457e6) — 425 focus_results_pending is sent before quota or any provider work, so it is
+        // WAITED OUT, not reported: the automatic after-Stop review must survive a brief lag in the saved Focus results.
+        it('#1258: a 425 focus_results_pending is waited out and the next request\'s review renders — no failure reported', async () => {
+            mockSupabaseClient.functions.invoke
+                .mockResolvedValueOnce(httpError(425))
+                .mockResolvedValueOnce(httpError(425))
+                .mockResolvedValueOnce({ data: { suggestions: {
+                    version: 'gemini_coaching_v1', what_worked: 'Clear opening on the problem.', what_to_try_next: 'Signpost the second point.',
+                } }, error: null });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-pending" product="focus_points" retryBackoffMs={10} />);
+            expect(await screen.findByText('Signpost the second point.')).toBeInTheDocument();
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(3);
+            expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalled();
+            expect(screen.queryByTestId('ai-suggestions-retry')).not.toBeInTheDocument();
+        });
+
+        it('#1258: the pending wait is BOUNDED — after it, the ordinary terminal "unavailable" with a manual retry', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(httpError(425));
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-pending-forever" product="focus_points" retryBackoffMs={10} />);
+            expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+            // 3 waited-out 425s + the attempt that ends the lifecycle; never an unbounded loop.
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(4);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable');
+        });
+
         it.each([
             [403, /cannot request a new review/i],
             [401, /cannot request a new review/i],
