@@ -916,6 +916,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     onStart: isObjective ? chooseRetryPoints : choosePracticeAgain,
                     // The before-state mic's gate, verbatim: a press here must be possible exactly when it is there.
                     disabled: Boolean(isButtonDisabled) || gateBlocksStart,
+                    // #1533 (Codex P2, PM FIX NOW): the same owner-scoped reason the `before` mic shows. The refusal
+                    // copy in the recorder status is removed once the gate is published, so without this the held
+                    // after-session mic had no visible explanation on desktop.
+                    blockedReason: gateBlocksStart ? gateNotice : null,
                 }}
                 transcript={{
                     tokens: renderedReviewTokens,

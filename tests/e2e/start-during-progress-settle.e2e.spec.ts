@@ -18,7 +18,7 @@
  */
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { navigateToRoute, waitForModelReady } from './helpers';
+import { navigateToRoute, simulateTranscription, startRecording, stopRecording, waitForModelReady } from './helpers';
 
 const MIC_READY = 'Mic ready on this device';
 const PROGRESS_HELD = 'Finishing up your last session — this will retry automatically. You can start again once it completes.';
@@ -140,6 +140,65 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
         await expect(page.getByText(/Finishing up your last session/), 'the Progress notice clears after the debt settles').toHaveCount(0, { timeout: 15_000 });
         await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
         await page.getByTestId('mic-start').or(page.getByTestId('mic-download')).first().click();
+        await expect.poll(async () => (await engine(page)).controllerState, { timeout: 30_000, message: 'the next Start records without a reload' }).toBe('RECORDING');
+    });
+
+    /**
+     * #1533 Codex P2 (PM FIX NOW) — the AFTER-SESSION desktop path. A take saves while its Progress evaluation is held,
+     * so the gate is genuinely queued on the after-session screen. #1533 removes the refusal copy from the recorder
+     * status once the gate is published; the held after-session mic must still say why, exactly once.
+     */
+    test('after-session "Practice again" while Progress is settling: the held mic says why (once), nothing records, the notice clears and the next Start records', async ({ proPage: page }) => {
+        test.setTimeout(180_000);
+        await optIn(page);
+        await navigateToRoute(page, '/session');
+        await waitForModelReady(page);
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+
+        // A real take, saved normally. (The just-saved session's own evaluation never holds the next Start — that is
+        // the RWT "no false Finishing up" rule; only OWED debt does.)
+        await startRecording(page);
+        await simulateTranscription(page, 'Today I will explain the plan in three clear steps for the team.', true);
+        await page.waitForTimeout(5_200);
+        await stopRecording(page);
+        await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
+        await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
+        await expect.poll(() => page.evaluate((key) => localStorage.getItem(key) ?? '[]', OBLIGATIONS_KEY), { timeout: 30_000, message: 'the saved take evaluated' }).toBe('[]');
+
+        // Then the account owes an evaluation, and the server's evaluation call is held while it settles.
+        await page.evaluate((key) => localStorage.setItem(key, JSON.stringify([
+            { session_id: 'sess-after-owed', state: 'owed', created_at: '2026-09-25T13:39:00.000Z' },
+        ])), OBLIGATIONS_KEY);
+        await hold(page, 'record_progress_evaluation', true);
+        const sessionsAfterSave = await calls(page, 'create_session_and_update_usage');
+
+        // The person presses "Practice again" on the after-session screen; the Start-time scan finds the owed debt.
+        await page.getByTestId('verdict-practice-again').click();
+        for (let i = 0; i < 8; i += 1) {
+            expect(notRecording(await engine(page)), 'no recording while Progress is settling').toBe(true);
+            await page.waitForTimeout(250);
+        }
+        expect(await calls(page, 'create_session_and_update_usage'), 'no session was created for the held Start').toBe(sessionsAfterSave);
+        await expect.poll(() => leaseHeld(page), { timeout: 10_000, message: 'the held Start leaves no lease held' }).toBe(false);
+
+        // The held after-session mic says why — beside the mic, and exactly ONE visible copy on desktop.
+        await expect(page.getByTestId('run-shape-mic'), 'the after-session mic is held').toBeDisabled({ timeout: 10_000 });
+        await expect(page.getByTestId('run-shape-blocked-reason'), 'the held mic says why').toBeVisible({ timeout: 10_000 });
+        await expect(page.getByTestId('run-shape-blocked-reason')).toContainText(/Finishing up your last session/);
+        await expect(page.getByTestId('mobile-start-blocked-reason'), 'the phone bar copy is not shown on desktop').toBeHidden();
+        await expect.poll(() => page.getByText(/Finishing up your last session/).evaluateAll(
+            (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
+        ), { message: 'exactly one visible notice (no duplicate red refusal copy)' }).toBe(1);
+
+        // ── The evaluation completes ─────────────────────────────────────────────────────────────────────────
+        await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 60_000, message: 'the bounded retry really calls the server' }).toBe(true);
+        await hold(page, 'record_progress_evaluation', false);
+        await expect.poll(() => page.evaluate((key) => localStorage.getItem(key) ?? '[]', OBLIGATIONS_KEY), { timeout: 60_000, message: 'nothing is owed any more' }).toBe('[]');
+
+        // The notice clears on its own (no stale copy), the mic is available, and the next Start records — no reload.
+        await expect(page.getByText(/Finishing up your last session/), 'the notice clears after the debt settles').toHaveCount(0, { timeout: 30_000 });
+        await expect(page.getByTestId('run-shape-mic')).toBeEnabled({ timeout: 15_000 });
+        await page.getByTestId('run-shape-mic').click();
         await expect.poll(async () => (await engine(page)).controllerState, { timeout: 30_000, message: 'the next Start records without a reload' }).toBe('RECORDING');
     });
 });

@@ -95,4 +95,22 @@ describe('RunShape — the mic returns and the run is a picture (S-11)', () => {
         fireEvent.click(mic);
         expect(onStart).not.toHaveBeenCalled();
     });
+
+    // #1533 Codex P2 (PM FIX NOW): the held after-session mic says why, beside it, on desktop.
+    it('a held mic shows its reason beside it (desktop only; the phone bar carries it on mobile) and describes the button', () => {
+        render(<RunShape durationSeconds={42} amplitudes={[0.2, 0.5]} onStart={() => undefined} disabled blockedReason="Finishing up your last session — this will retry automatically." />);
+        const reason = screen.getByTestId('run-shape-blocked-reason');
+        expect(reason).toHaveTextContent('Finishing up your last session');
+        expect(reason).toHaveAttribute('role', 'status');
+        expect(reason).toHaveClass('hidden', 'md:block');
+        expect(screen.getByTestId('run-shape-mic')).toHaveAttribute('aria-describedby', 'run-shape-blocked-reason');
+    });
+
+    it('no reason when the mic is available, or when it is disabled without one', () => {
+        const { rerender } = render(<RunShape durationSeconds={42} amplitudes={[0.2]} onStart={() => undefined} blockedReason="stale copy" />);
+        expect(screen.queryByTestId('run-shape-blocked-reason')).not.toBeInTheDocument();
+        expect(screen.getByTestId('run-shape-mic')).not.toHaveAttribute('aria-describedby');
+        rerender(<RunShape durationSeconds={42} amplitudes={[0.2]} onStart={() => undefined} disabled />);
+        expect(screen.queryByTestId('run-shape-blocked-reason')).not.toBeInTheDocument();
+    });
 });
