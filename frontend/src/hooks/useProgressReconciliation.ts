@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { usePracticeHistory } from './usePracticeHistory';
 import { reconcileProgressEvaluations, type ReconcilableSession } from '../services/progress/recordProgress';
-import { reconstructGateFromQueue, subscribeCrossTabProgressGate } from '../services/progress/progressStartGate';
+import { isProgressGateRefusalMessage, reconstructGateFromQueue, subscribeCrossTabProgressGate } from '../services/progress/progressStartGate';
 import { scheduleProgressDebtRetry } from '../services/progress/progressDebtRetry';
 import { hydrateServerProgressObligations } from '../services/progress/serverProgressObligations';
 import { useSessionStore } from '../stores/useSessionStore';
@@ -102,6 +102,21 @@ export function useProgressReconciliation(): void {
             .catch((err) => logger.warn({ err }, '[progress] bounded debt retry failed (non-fatal)'));
         return () => { current = false; };
     }, [userId, queuedSessionId]);
+
+    // Canary 36142201470 — THE GATE'S OWN REFUSAL COPY NEVER OUTLIVES OR DUPLICATES THE GATE. A Start refused on Progress
+    // debt writes the gate's copy ("Finishing up your last session — …") into the recorder status as an error. For the
+    // resolved owner that copy is removed from the status as soon as the gate is published:
+    //   - gate present → the gate's own notice already says exactly this, once, in the recorder (no red duplicate);
+    //   - gate cleared → the copy is stale; it sat beside "Mic ready" promising a start that never came.
+    // Only the gate's own refusal copy is touched; the page returns to rest and the person presses Start again (nothing
+    // records on its own).
+    const gateResolvedFor = useSessionStore((st) => st.progressGateResolvedFor);
+    const sttMessage = useSessionStore((st) => (st.sttStatus.type === 'error' ? st.sttStatus.message : null));
+    useEffect(() => {
+        if (!userId || gateResolvedFor !== userId) return;
+        if (!isProgressGateRefusalMessage(sttMessage)) return;
+        useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready to record' });
+    }, [userId, gateResolvedFor, progressGate, sttMessage]);
 
     useEffect(() => {
         const userId = user?.id;

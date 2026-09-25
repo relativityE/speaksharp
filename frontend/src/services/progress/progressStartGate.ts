@@ -109,6 +109,20 @@ export function startGateMessage(verdict: StartGateVerdict): string | null {
 }
 
 /**
+ * Canary 36142201470 — is this recorder message a refusal the Progress gate itself produced? Used to clear exactly that
+ * copy once the same owner's gate clears, and never anything else (a mic, model or save error keeps its message).
+ */
+const GATE_REFUSAL_MESSAGES: ReadonlySet<string> = new Set(
+    (['in_flight', 'queued_debt', 'unresolved_evidence', 'queue_unreadable'] as const)
+        .map((reason) => startGateMessage(reason === 'queue_unreadable'
+            ? { allowed: false, reason, failure: 'corrupt' }
+            : { allowed: false, reason, sessionId: '' }) as string),
+);
+export function isProgressGateRefusalMessage(message: string | null | undefined): boolean {
+    return typeof message === 'string' && GATE_REFUSAL_MESSAGES.has(message);
+}
+
+/**
  * The user-facing notice for the CURRENT gate, or null when nothing is blocking.
  *
  * Shares `startGateMessage` so the rendered copy and the controller's refusal message can never drift
