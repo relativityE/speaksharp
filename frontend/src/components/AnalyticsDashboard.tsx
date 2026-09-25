@@ -21,6 +21,7 @@ import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
+import { SavedFocusPointsCoverage } from './analytics/SavedFocusPointsCoverage';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
@@ -885,6 +886,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </div>
                                     );
                                 })()}
+                                {/* #1258 / #1407: the saved Focus Points result, read-only; nothing for Open Mic. */}
+                                <SavedFocusPointsCoverage sessionId={targetSession.id} />
                             </CardContent>
                         </Card>
                     </div>
