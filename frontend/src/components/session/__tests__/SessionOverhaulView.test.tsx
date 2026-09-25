@@ -351,11 +351,32 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
             .toEqual(['pending', 'pending']);
         expect(screen.queryByTestId('coverage-pace-count')).toBeNull();
         expect(screen.queryByText(/not detected/i)).toBeNull();
-        expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
-        // #1258 G20: a null result may still be finalizing — the rail says "Checking…", never "couldn't check".
+        // #1258 (PM review of c1fb43379): a null result with an available transcript is the normal window while
+        // the point results are still saving — "Checking", never "unavailable" or "couldn't check".
+        expect(screen.getByTestId('coverage-checking')).toHaveTextContent('Checking your points…');
+        expect(screen.queryByTestId('coverage-unavailable')).toBeNull();
         expect(screen.queryByTestId('focus-points-check-unavailable')).toBeNull();
         expect(screen.getAllByText('Checking…')).toHaveLength(2);
         expect(screen.queryByTestId('clarity-vs-last-session')).toBeNull();
+    });
+
+    it('#1258: a check that ENDED without results says so — detection unavailable, and the rail says it could not check', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={null}
+                objectiveCoverageFailed
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            />,
+        );
+        expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
+        expect(screen.queryByTestId('coverage-checking')).toBeNull();
+        expect(screen.getByTestId('focus-points-check-unavailable')).toHaveTextContent('We couldn’t check your points this time.');
+        expect(screen.queryByText('Checking…')).toBeNull();
+        expect(screen.queryByText(/not detected/i)).toBeNull();
     });
 
     it.each(['expired', 'not_captured'] as const)(

@@ -149,6 +149,12 @@ export interface SessionOverhaulViewProps {
      *  Retained for the SessionPage contract; the view now derives its own live+final coverage from the
      *  transcript (see focusCoverage) so slot C, slot D, and the highlights share one source. */
     objectiveCoverage?: CoverageRailPoint[] | null;
+    /**
+     * #1258 — the finished take's Focus Points check ENDED without results. Without it, a null `objectiveCoverage`
+     * with an available transcript is still being finalized (results are written after the save) — "Checking",
+     * never "couldn't check".
+     */
+    objectiveCoverageFailed?: boolean;
     /** #1046 Focus Points slot-D actions. Edit → point editor (before); Retry → same set again (after);
      *  New set → fresh brief (after). Retry falls back to a plain restart when no handler is supplied. */
     onEditPoints?: () => void;
@@ -209,6 +215,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     completedObjectiveTopic,
     completedObjectivePaceGuideSecPerPoint,
     objectiveCoverage,
+    objectiveCoverageFailed = false,
     onEditPoints,
     onRetryPoints,
     onNewSet,
@@ -744,14 +751,24 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const gateNotice = progressGateNotice(progressGate, gateResolvedForViewer);
 
     const reviewIsTerminal = effectiveReview.kind === 'expired' || effectiveReview.kind === 'not_captured';
+    // #1258 (PM review of c1fb43379): a null result is terminal only when the check has ENDED without results
+    // (`objectiveCoverageFailed`). Otherwise it is the normal window while the point results are still saving.
     const coverageTerminallyUnavailable = isObjective
         && terminalAuthorityExpected
-        && (reviewIsTerminal || objectiveCoverage === null)
+        && (reviewIsTerminal || (objectiveCoverage === null && objectiveCoverageFailed))
         && (effectiveReview.kind === 'available' || reviewIsTerminal);
+    const coverageStillChecking = isObjective
+        && terminalAuthorityExpected
+        && effectiveReview.kind === 'available'
+        && objectiveCoverage === null
+        && !objectiveCoverageFailed;
     const objectiveAfterSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
         : isObjective && coverageMayBecomeAvailable
             ? <section data-testid="coverage-awaiting-transcript" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-neutral-secondary">Coverage will appear when your transcript is available.</section>
+            : coverageStillChecking
+                // Never undefined here: an empty slot C falls back to the Open Mic card (#1427).
+                ? <section data-testid="coverage-checking" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-neutral-secondary">Checking your points…</section>
             : coverageTerminallyUnavailable
                 ? <section data-testid="coverage-unavailable" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-neutral-secondary">Focus Points detection is unavailable for this take.</section>
             : undefined;
@@ -770,9 +787,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 topic={effObjectiveTopic ?? null}
                 sessionState="after"
                 coveragePending
-                // G20 B3 only when the check truly cannot happen (the transcript is gone). A null result with an
-                // available transcript may still be finalizing, so the rail keeps saying "Checking…" there.
-                checkUnavailable={reviewIsTerminal}
+                // G20 B3 only when the check truly cannot happen: the transcript is gone, or the check ended without
+                // results. While results are still saving, the rail keeps saying "Checking…".
+                checkUnavailable={coverageTerminallyUnavailable}
                 onRetry={chooseRetryPoints}
                 retryDisabled={gateBlocksStart}
                 retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined}
