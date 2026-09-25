@@ -68,7 +68,10 @@ function readAllTsx(dir, acc = []) {
   return acc;
 }
 
-const TSX_SOURCE = readAllTsx('frontend/src').join('\n');
+// The header renders its section links from this config (`Navigation.tsx`: `data-testid={item.testId}`), so
+// the constants it names are rendered by a component even though the reference sits in a `.ts` file.
+const RENDERED_CONFIG = ['frontend/src/config/navSections.ts'];
+const TSX_SOURCE = [...readAllTsx('frontend/src'), ...RENDERED_CONFIG.map((f) => readFileSync(f, 'utf8'))].join('\n');
 const CONSTANTS_SOURCE = readFileSync('frontend/src/constants/testIds.ts', 'utf8');
 
 /**
