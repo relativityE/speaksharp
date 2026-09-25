@@ -1,0 +1,127 @@
+{
+  "description": "RWT two-product journey fixtures (PO script 2026-09-24). The suites refuse to run a fixture whose sha256 differs from this manifest.",
+  "generator": "tests/fixtures/rwt/generate-rwt-tts-fixtures.sh (macOS say, voice Samantha, rate 150; ffmpeg 16 kHz mono s16, bitexact; deterministic)",
+  "fixtures": {
+    "open_mic_tts": {
+      "file": "open_mic_tts.wav",
+      "sha256": "7f4d6bb6073b580acca4630fef04b74e04279098458782b87598099ae8b19867",
+      "kind": "synthetic",
+      "speechSeconds": 45.7,
+      "trailingSilenceSeconds": 15,
+      "script": "PO Open Mic corpus (RWT_TWO_PRODUCT_USER_JOURNEY, Product 1)",
+      "groundTruthFillers": {
+        "um": 4,
+        "uh": 3,
+        "you know": 1
+      },
+      "knownFixtureLimits": [
+        "Local whisper-base.en baseline hears every macOS TTS voice's 'uh' as 'ah' (or drops it): 0/3 uh. um 4/4 and you know 1/1 are recognized. The filler ground-truth row is FIXTURE-LIMITED with this file and needs a human recording, which must never be committed to this public repository."
+      ],
+      "localV2Baseline": {
+        "model": "whisper-base.en (transformers.js 2.17.2, offline)",
+        "words": 129,
+        "um": 4,
+        "uh": 0,
+        "ah": 3,
+        "you know": 1
+      }
+    },
+    "focus_points_tts": {
+      "file": "focus_points_tts.wav",
+      "sha256": "528cac3c11ca5cd18df119636212e654d4fcc6643f0e4b0bf943d581c1b42ccc",
+      "kind": "synthetic",
+      "speechSeconds": 46.2,
+      "trailingSilenceSeconds": 15,
+      "script": "PO Focus Points corpus (RWT_TWO_PRODUCT_USER_JOURNEY, Product 2)",
+      "topic": "A better weekly team handoff",
+      "points": [
+        "Updates get lost across scattered tools.",
+        "A shared board assigns an owner and deadline.",
+        "Pilot the board with one team for two weeks.",
+        "Measure missed deadlines and time spent on status requests."
+      ],
+      "expectedFinal": [
+        "covered",
+        "covered",
+        "covered",
+        "covered"
+      ],
+      "localV2Baseline": {
+        "model": "whisper-base.en (transformers.js 2.17.2, offline)",
+        "words": 129,
+        "pointPhrasesPresent": [
+          true,
+          true,
+          true,
+          true
+        ]
+      },
+      "pointAudioWindows": [
+        [
+          2.91,
+          6.21
+        ],
+        [
+          11.98,
+          16.16
+        ],
+        [
+          21.64,
+          25.16
+        ],
+        [
+          32.22,
+          36.91
+        ]
+      ],
+      "pointAudioWindowsProvenance": "Pinned from the WAV waveform: each window runs from the end of the sentence-boundary pause before the point's sentence to the start of the pause after it (ffmpeg silencedetect noise=-45dB d=0.18 over this exact file; the comma pause after 'First,/Second,/Third,/Fourth,' falls inside the window). Corroborated against the script order and offline whisper-base.en segment timestamps (transformers.js 2.17.2, self-hosted model): starts agree within 0.06 s; whisper ends run up to 0.27 s later because they include the trailing pause. Seconds from audio start."
+    },
+    "focus_points_partial_tts": {
+      "file": "focus_points_partial_tts.wav",
+      "sha256": "206e90977bcc17d0097fc76645520cea83305e6ba1ee81a10bc71dc73658a9e4",
+      "kind": "synthetic",
+      "speechSeconds": 22.3,
+      "trailingSilenceSeconds": 15,
+      "script": "Dev fixture (not the PO script): points 1 and 2 in full, point 3 only paraphrased, point 4 absent",
+      "topic": "A better weekly team handoff",
+      "points": [
+        "Updates get lost across scattered tools.",
+        "A shared board assigns an owner and deadline.",
+        "Pilot the board with one team for two weeks.",
+        "Measure missed deadlines and time spent on status requests."
+      ],
+      "expectedFinal": [
+        "covered",
+        "covered",
+        "not-covered-or-partial",
+        "missing"
+      ],
+      "localV2Baseline": {
+        "model": "whisper-base.en (transformers.js 2.17.2, offline)",
+        "words": 62,
+        "pointPhrasesPresent": [
+          true,
+          true,
+          false,
+          false
+        ]
+      },
+      "pointAudioWindows": [
+        [
+          2.91,
+          6.21
+        ],
+        [
+          9.02,
+          13.2
+        ],
+        [
+          16.36,
+          20.86
+        ],
+        null
+      ],
+      "pointAudioWindowsProvenance": "Pinned from the WAV waveform: each window runs from the end of the sentence-boundary pause before the point's sentence to the start of the pause after it (ffmpeg silencedetect noise=-45dB d=0.18 over this exact file; the comma pause after 'First,/Second,/Third,/Fourth,' falls inside the window). Corroborated against the script order and offline whisper-base.en segment timestamps (transformers.js 2.17.2, self-hosted model): starts agree within 0.06 s; whisper ends run up to 0.27 s later because they include the trailing pause. Seconds from audio start. Point 3 is the paraphrase sentence; point 4 is never spoken (null) and must never be marked."
+    }
+  }
+}
