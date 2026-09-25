@@ -398,12 +398,12 @@ export async function setupAuthenticatedUser(page: Page, userIndex: number): Pro
     await page.getByRole('button', { name: /sign in/i }).click();
 
     try {
-        await page.waitForSelector(`[data-testid="${TEST_IDS.NAV_SIGN_OUT_BUTTON}"]`, {
+        await page.waitForSelector('[data-testid="nav-account-avatar"]', {
             state: 'visible',
             timeout: 60000 // Increased for concurrent load
         });
     } catch (error) {
-        console.error(`[Auth FAIL] User ${userIndex} (${credentials.email}): Timeout waiting for auth completion (nav-sign-out-button)`);
+        console.error(`[Auth FAIL] User ${userIndex} (${credentials.email}): Timeout waiting for auth completion (nav-account-avatar)`);
         const screenshotPath = `test-results/soak/auth-failure-${userIndex}.png`;
         if (!fs.existsSync(path.dirname(screenshotPath))) fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
         await page.screenshot({ path: screenshotPath });
@@ -417,7 +417,7 @@ export async function setupAuthenticatedUser(page: Page, userIndex: number): Pro
     }
 
     // Verify application auth state
-    await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 30000 });
 
     // Verify session page readiness. Current session shell: the readied recorder control is `mic-start`
     // (or the one-time `mic-download` model gate) — the combined start/stop selector was retired.
@@ -504,12 +504,12 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
         // DIAGNOSTIC: Verify auth state before starting journeys
         for (let i = 0; i < userPages.length; i++) {
             const page = userPages[i];
-            const signOutVisible = await page.locator('[data-testid="nav-sign-out-button"]').isVisible().catch(() => false);
+            const signOutVisible = await page.locator('[data-testid="nav-account-avatar"]').isVisible().catch(() => false);
 
             if (!signOutVisible) {
                 // Capture screenshot for debugging
                 await page.screenshot({ path: `test-results/soak/debug-user-${i}-auth-state.png` });
-                throw new Error(`[Browser Endurance] ⚠️ User ${i}: nav-sign-out-button NOT visible - auth may have failed!`);
+                throw new Error(`[Browser Endurance] ⚠️ User ${i}: nav-account-avatar NOT visible - auth may have failed!`);
             }
         }
 

@@ -46,8 +46,9 @@ test.describe('Authenticated home → /practice (root route + Navigation)', () =
     // pre-existing redirect race and not what this hotfix test asserts. #1061: that anonymous `/` renders
     // the SHARED PracticePage without continuity is proven deterministically in public-product-discovery.e2e.)
     await navigateToRoute(page, '/practice');
+    await page.getByTestId('nav-account-avatar').click();
     await page.getByTestId('nav-sign-out-button').click();
-    await expect(page.getByTestId('nav-sign-out-button')).toHaveCount(0, { timeout: 30000 });
+    await expect(page.getByTestId('nav-account-avatar')).toHaveCount(0, { timeout: 30000 });
     await expect(page.getByRole('link', { name: /get started/i }).first()).toBeVisible();
     await page.screenshot({ path: 'test-results/authenticated-home/02-signed-out-anonymous-surface.png', fullPage: true });
   });
