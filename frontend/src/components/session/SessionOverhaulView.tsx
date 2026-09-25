@@ -770,7 +770,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 topic={effObjectiveTopic ?? null}
                 sessionState="after"
                 coveragePending
-                checkUnavailable={coverageTerminallyUnavailable}
+                // G20 B3 only when the check truly cannot happen (the transcript is gone). A null result with an
+                // available transcript may still be finalizing, so the rail keeps saying "Checking…" there.
+                checkUnavailable={reviewIsTerminal}
                 onRetry={chooseRetryPoints}
                 retryDisabled={gateBlocksStart}
                 retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined}

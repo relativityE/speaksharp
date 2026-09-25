@@ -352,6 +352,9 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('coverage-pace-count')).toBeNull();
         expect(screen.queryByText(/not detected/i)).toBeNull();
         expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
+        // #1258 G20: a null result may still be finalizing — the rail says "Checking…", never "couldn't check".
+        expect(screen.queryByTestId('focus-points-check-unavailable')).toBeNull();
+        expect(screen.getAllByText('Checking…')).toHaveLength(2);
         expect(screen.queryByTestId('clarity-vs-last-session')).toBeNull();
     });
 
@@ -392,6 +395,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 />,
             );
             expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
+            // #1258 G20 B3: here the check truly cannot happen, and the rail says so.
+            expect(screen.getByTestId('focus-points-check-unavailable')).toHaveTextContent('We couldn’t check your points this time.');
             // The specific wrong outcome, asserted directly: the Open Mic summary must not stand in.
             expect(screen.queryByTestId('clarity-vs-last-session')).toBeNull();
             // And it must not claim coverage is still coming — this transcript is never coming back.
