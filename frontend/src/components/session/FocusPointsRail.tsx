@@ -19,7 +19,7 @@ import type { FocusCoverageRow } from '@/utils/focusCoverage';
  *   - pending  — grey ring + numeral
          *   - covered  — green ✓, struck-through label, "Detected at m:ss" (+ the covering phrase in `after`)
  *   - next-up  — (during only) purple ring on a tinted row, "Still to cover"
- *   - missed   — (after only) amber ✕ on a tinted row; the rail's most important line names where the
+ *   - missed   — (after only) red ✕ on a tinted row, "Not detected"; the rail's most important line names where the
  *                time went, because that is the only feedback that changes the next attempt.
  *
  * Colour is never the sole signal: every row carries an sr-only status word and the marker glyph changes.
@@ -52,22 +52,43 @@ function fmtClock(seconds: number): string {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-const Marker: React.FC<{ kind: 'pending' | 'covered' | 'partial' | 'next' | 'missed'; index: number }> = ({ kind, index }) => {
-    const base = 'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[12px] font-extrabold';
-    if (kind === 'covered') {
-        return <span className={`${base} bg-progress-bar text-white`} aria-hidden="true">✓</span>;
-    }
-    if (kind === 'missed') {
-        return <span className={`${base} border-2 border-signature text-signature-text`} aria-hidden="true">✕</span>;
-    }
-    if (kind === 'partial') {
-        return <span className={`${base} border-2 border-signature text-signature-text`} aria-hidden="true">≈</span>;
-    }
-    if (kind === 'next') {
-        return <span className={`${base} border-2 border-focus-points text-focus-points`} aria-hidden="true">{index + 1}</span>;
-    }
-    return <span className={`${base} border-2 border-neutral-border-strong text-neutral-muted`} aria-hidden="true">{index + 1}</span>;
+type MarkerKind = 'pending' | 'covered' | 'partial' | 'next' | 'missed';
+
+/**
+ * #1258 RWT (PO/PM 2026-09-25) — ONE COLOUR PER STATE, EXPLAINED ON SCREEN: grey = not heard yet, yellow = partly
+ * detected, green = detected during speech, red = Not detected, a FINAL verdict shown only after Stop. The glyph
+ * and a visible word carry each state too, so colour is never the only signal.
+ */
+const MARKER_STYLE: Record<MarkerKind, string> = {
+    covered: 'bg-progress-bar text-white',
+    partial: 'border-2 border-signature bg-signature text-ink',
+    missed: 'border-2 border-state-error text-state-error',
+    next: 'border-2 border-focus-points text-focus-points',
+    pending: 'border-2 border-neutral-border-strong text-neutral-muted',
 };
+
+const Marker: React.FC<{ kind: MarkerKind; index: number; testId?: string }> = ({ kind, index, testId }) => {
+    // A negative index is the legend's empty circle: a key, not a numbered point.
+    const glyph = kind === 'covered' ? '✓' : kind === 'missed' ? '✕' : kind === 'partial' ? '≈' : index < 0 ? '' : String(index + 1);
+    return (
+        <span
+            className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[12px] font-extrabold ${MARKER_STYLE[kind]}`}
+            aria-hidden="true"
+            data-testid={testId}
+            data-marker={kind}
+        >
+            {glyph}
+        </span>
+    );
+};
+
+/** The on-screen key for the four states. "Not detected" is labelled as an after-Stop verdict. */
+const LEGEND: ReadonlyArray<{ kind: MarkerKind; label: string }> = [
+    { kind: 'pending', label: 'Not heard yet' },
+    { kind: 'partial', label: 'Partly detected' },
+    { kind: 'covered', label: 'Detected' },
+    { kind: 'missed', label: 'Not detected (after you stop)' },
+];
 
 export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     rows,
@@ -136,6 +157,15 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                 </div>
             )}
 
+            <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5" data-testid="focus-points-legend" aria-label="What the colours mean">
+                {LEGEND.map((item) => (
+                    <li key={item.kind} className="flex items-center gap-1.5 text-[12px] font-semibold text-neutral-secondary" data-state={item.kind}>
+                        <Marker kind={item.kind} index={-1} />
+                        <span>{item.label}</span>
+                    </li>
+                ))}
+            </ul>
+
             <ol className="mt-[14px] space-y-[13px]" data-testid="focus-points-rail-list">
                 {rows.map((row, i) => {
                     const isPartial = row.status === 'partial';
@@ -147,14 +177,14 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                         : isNext
                         ? 'rounded-lg border border-focus-points-border bg-focus-points-ground px-3 py-2'
                         : isMissed
-                            ? 'rounded-lg border border-signature-border bg-signature-ground px-3 py-2'
+                            ? 'rounded-lg border border-state-error-border bg-state-error-ground px-3 py-2'
                             : '';
                     // 'Detected', not 'Covered': the matcher reports what it FOUND. 'Still to cover' stays — that is an
     // instruction about what to do next, not an assertion about what the speaker did.
     const statusWord = isPartial ? 'Partly detected' : row.covered ? 'Detected' : isMissed ? 'Not detected' : isNext ? 'Still to cover' : 'Pending';
                     return (
                         <li key={i} data-testid={`focus-point-${i}`} data-status={isPartial ? 'partial' : row.covered ? 'covered' : isMissed ? 'missing' : 'pending'} className={`flex items-start gap-[11px] ${rowTint}`}>
-                            <Marker kind={kind} index={i} />
+                            <Marker kind={kind} index={i} testId={`focus-point-${i}-marker`} />
                             <div className="min-w-0 flex-1">
                                 <p className={`text-[15px] leading-snug ${row.covered && !isPartial ? 'text-neutral-muted line-through' : isPartial || isMissed ? 'font-extrabold text-neutral-body' : 'text-neutral-body'}`}>
                                     {row.label}
@@ -166,17 +196,23 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                     </p>
                                 )}
                                 {isNext && <p className="mt-0.5 text-[12px] font-bold text-focus-points">Still to cover</p>}
+                                {kind === 'pending' && (
+                                    <p className="mt-0.5 text-[12px] font-semibold text-neutral-muted" data-testid={`focus-point-${i}-pending`}>
+                                        {isAfter ? 'Checking…' : 'Not heard yet'}
+                                    </p>
+                                )}
                                 {/* Reviewer truthfulness fix: the local keyword engine measures whether a point's
                                     words appeared, NOT how time was spent. So a point it couldn't verify is
                                     "Not detected" (a paraphrase may have covered it) — never a "Missed"
                                     accusation — and the feedback is an ACTION for the retry, not a made-up cause. */}
                                 {isMissed && (
-                                    <p className="mt-1 text-[13px] leading-snug text-signature-text" data-testid={`focus-point-${i}-not-detected`}>
+                                    <p className="mt-1 text-[13px] leading-snug text-state-error" data-testid={`focus-point-${i}-not-detected`}>
                                         We couldn’t detect this point in the transcript. You may have covered it in different words.
                                     </p>
                                 )}
                             </div>
-                            <span className="sr-only">{statusWord}</span>
+                            {/* A pending row already shows its word ("Not heard yet" / "Checking…"); don't read it twice. */}
+                            {kind !== 'pending' && <span className="sr-only">{statusWord}</span>}
                         </li>
                     );
                 })}
