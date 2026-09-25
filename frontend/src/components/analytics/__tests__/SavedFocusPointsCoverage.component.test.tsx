@@ -13,7 +13,7 @@ beforeEach(() => load.mockReset());
 describe('SavedFocusPointsCoverage (Analytics session detail)', () => {
     it('shows every saved point with its verdict in words and the detected total', async () => {
         load.mockResolvedValue({
-            kind: 'coverage', detected: 2, total: 4,
+            kind: 'coverage', detected: 2, total: 4, brief: null,
             points: [
                 { label: 'Updates get lost', status: 'detected', detectedAtSeconds: 5 },
                 { label: 'Shared board', status: 'detected', detectedAtSeconds: 74 },
@@ -54,7 +54,7 @@ describe('SavedFocusPointsCoverage (Analytics session detail)', () => {
 describe('SavedFocusPointsCoverage colours match the live rail (#1258 RWT)', () => {
     it('green Detected, red Not detected, grey Not evaluated', async () => {
         load.mockResolvedValue({
-            kind: 'coverage', detected: 1, total: 3,
+            kind: 'coverage', detected: 1, total: 3, brief: null,
             points: [
                 { label: 'a', status: 'detected', detectedAtSeconds: 5 },
                 { label: 'b', status: 'not_detected', detectedAtSeconds: null },

@@ -39,9 +39,9 @@ const VIEW = {
     recommendationId: 'rec-1',
 };
 
-function renderPanel() {
+function renderPanel(nextActionOwnedByReview = false) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return render(<QueryClientProvider client={qc}><MemoryRouter><ProgressPanel session={{ id: 's1' }} /></MemoryRouter></QueryClientProvider>);
+    return render(<QueryClientProvider client={qc}><MemoryRouter><ProgressPanel session={{ id: 's1' }} nextActionOwnedByReview={nextActionOwnedByReview} /></MemoryRouter></QueryClientProvider>);
 }
 
 beforeEach(() => {
@@ -271,5 +271,16 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(await screen.findByText(/local handoff could not be cleared/i)).toBeTruthy();
         expect(loadSessionProgress).toHaveBeenCalledTimes(1);
         expect(screen.queryByTestId('progress-accept')).toBeNull();
+    });
+
+    // #1258 G20 (PM 2026-09-25): the saved review owns the page's ONE next action; the panel keeps its metrics.
+    it('when the review owns the next action: metrics stay, the competing sentence and button do not', async () => {
+        loadSessionProgress.mockResolvedValue(VIEW);
+        renderPanel(true);
+        expect(await screen.findByTestId('progress-direction')).toHaveTextContent('Clearer than your previous comparable session');
+        expect(screen.getByTestId('progress-what-worked')).toBeInTheDocument();
+        expect(screen.queryByTestId('progress-practice-next')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
+        expect(screen.queryAllByRole('button')).toHaveLength(0);
     });
 });

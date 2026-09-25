@@ -76,7 +76,7 @@ test.describe('Private mode trust-state + save/detail', () => {
     await expect(page.getByTestId('session-detail-transcript')).toContainText(/private on device transcript/i);
     // The Private trust signal is unaffected and still verified here.
     await expect(page.getByTestId('session-engine-metadata')).toContainText(/private/i);
-    // The saved review still presents exactly ONE structured next action.
-    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+    // #1258 G20: the saved review owns the ONE next action (its single practice control).
+    await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
   });
 });

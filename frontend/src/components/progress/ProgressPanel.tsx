@@ -1,14 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import type { PracticeSession } from '@/types/session';
-import { useAuthProvider } from '@/contexts/AuthProvider';
-import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 import { PRACTICE_THIS_NEXT_LABEL } from '@/services/progress/progressPresentation';
-import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
-import { clearOpenAttemptIfMatches, setOpenAttempt } from '@/services/progress/openAttempt';
-import logger from '@/lib/logger';
+import { abandonRecommendationAttempt } from '@/services/progress/recordProgress';
+import { useLinkedRepeat } from '@/hooks/useLinkedRepeat';
+import { clearOpenAttemptIfMatches } from '@/services/progress/openAttempt';
 import type { ExclusionReason } from '@/services/progress/buildProgressEvaluation';
 
 const REASON_LABELS: Record<ExclusionReason, string> = {
@@ -22,58 +19,25 @@ const REASON_LABELS: Record<ExclusionReason, string> = {
     unknown: 'This session did not meet the comparison evidence requirements.',
 };
 
-export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> = ({ session }) => {
+/**
+ * `nextActionOwnedByReview` (#1258 G20, PM 2026-09-25): when the saved review at the top of the page shows, it owns
+ * the page's ONE next action. The panel then keeps its metrics and evidence but drops its competing "Practice this
+ * next" sentence and button (and the practice buttons of its no-comparison states). The linked repeat itself is not
+ * lost: the review's button runs the same `useLinkedRepeat`.
+ */
+export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'>; nextActionOwnedByReview?: boolean }> = ({ session, nextActionOwnedByReview = false }) => {
     const navigate = useNavigate();
-    const { user } = useAuthProvider();
-    const userId = user?.id ?? null;
-    const [accepting, setAccepting] = useState(false);
-    const [actionError, setActionError] = useState<string | null>(null);
-    const [retryBlocked, setRetryBlocked] = useState(false);
     const [reconcilingPending, setReconcilingPending] = useState(false);
     const headingRef = useRef<HTMLHeadingElement>(null);
     const retryRef = useRef<HTMLButtonElement>(null);
-    const query = useQuery({
-        queryKey: ['sessionProgress', session.id, userId],
-        queryFn: () => loadSessionProgress(session.id),
-        enabled: !!session.id,
-        staleTime: 60 * 1000,
-    });
+    const { query, view, userId, accept, accepting, actionError, setActionError, retryBlocked, setRetryBlocked } = useLinkedRepeat(session.id);
 
     useEffect(() => {
         if (query.isSuccess && query.data?.status !== 'error') headingRef.current?.focus();
     }, [query.isSuccess, query.data]);
     useEffect(() => { if (actionError) retryRef.current?.focus(); }, [actionError]);
 
-    const view = query.data;
-    const onAccept = async () => {
-        if (view?.status !== 'eligible' || !view.recommendationId || !userId || accepting) return;
-        setAccepting(true);
-        setActionError(null);
-        setRetryBlocked(false);
-        try {
-            const pending = await readPendingRecommendationAttempt(view.recommendationId);
-            if (pending.status === 'blocked') throw new Error('pending-attempt-readback-failed');
-            const attemptId = pending.status === 'one'
-                ? pending.attemptId
-                : await recordRecommendationAttempt(view.recommendationId);
-            if (!attemptId) throw new Error('server-attempt-failed');
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: session.id });
-            if (!handoffStored) {
-                const abandoned = await abandonRecommendationAttempt(attemptId);
-                setActionError(abandoned
-                    ? 'The repeat could not be linked. Nothing was left pending; please try again.'
-                    : 'The repeat could not be linked or safely closed. Retry is unavailable until the pending attempt is reconciled.');
-                setRetryBlocked(!abandoned);
-                return;
-            }
-            navigate('/session');
-        } catch (err) {
-            logger.warn({ err, sessionId: session.id }, '[progress] accept recommendation failed');
-            setActionError('The repeat could not be linked. Stay on this review and try again.');
-        } finally {
-            setAccepting(false);
-        }
-    };
+    const onAccept = () => accept(() => navigate('/session'));
 
     const onReconcilePending = async (attemptId: string) => {
         if (reconcilingPending) return;
@@ -110,20 +74,20 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
         </div>,
     );
     if (!view || view.status === 'insufficient') return shell(
-        <div className="space-y-3"><p>More evidence is needed before a reliable comparison is available.</p><Button type="button" onClick={() => { navigate('/session'); }}>Practice again</Button></div>,
+        <div className="space-y-3"><p>More evidence is needed before a reliable comparison is available.</p>{!nextActionOwnedByReview && <Button type="button" onClick={() => { navigate('/session'); }}>Practice again</Button>}</div>,
     );
     if (view.status === 'ineligible') return shell(
         <div className="space-y-2">
             <p>Comparison is unavailable for this session.</p>
             <ul className="list-disc pl-5">{view.reasons.map((reason) => <li key={reason}>{REASON_LABELS[reason]}</li>)}</ul>
-            <Button type="button" onClick={() => { navigate('/session'); }}>Collect more evidence</Button>
+            {!nextActionOwnedByReview && <Button type="button" onClick={() => { navigate('/session'); }}>Collect more evidence</Button>}
         </div>,
     );
 
     const outcome = view.latestAttempt?.outcome;
     const pendingAttemptId = view.latestAttempt?.lifecycle === 'pending' ? view.latestAttempt.id : null;
     return shell(<>
-        <div className="rounded-lg border border-primary/25 bg-background p-4" data-testid="progress-practice-next">
+        {!nextActionOwnedByReview && <div className="rounded-lg border border-primary/25 bg-background p-4" data-testid="progress-practice-next">
             <p className="text-xs font-bold uppercase tracking-wide text-foreground">{PRACTICE_THIS_NEXT_LABEL}</p>
             <p className="mt-1 text-lg font-semibold text-foreground">{view.takeaways.practiceThisNext}</p>
             {!pendingAttemptId && !actionError && (
@@ -131,7 +95,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
                     {accepting ? 'Linking repeat…' : PRACTICE_THIS_NEXT_LABEL}
                 </Button>
             )}
-        </div>
+        </div>}
         <div className="space-y-1" aria-label="Supporting comparison evidence">
             <p className="text-sm text-foreground/80" data-testid="progress-direction">{view.direction.text}</p>
             <p className="text-xs text-foreground/80" data-testid="progress-baseline-context">{view.baselineContext}</p>

@@ -20,9 +20,16 @@ export interface SavedFocusPoint {
     detectedAtSeconds: number | null;
 }
 
+/** The saved point set, so "Practise this again" can rebind exactly this set (never a different one). */
+export interface SavedFocusBrief {
+    briefId: string;
+    projectId: string;
+    topic: string;
+}
+
 export type SavedFocusPointsCoverage =
     | { kind: 'none' }
-    | { kind: 'coverage'; points: SavedFocusPoint[]; detected: number; total: number }
+    | { kind: 'coverage'; points: SavedFocusPoint[]; detected: number; total: number; brief: SavedFocusBrief | null }
     | { kind: 'error' };
 
 const STATUSES: ReadonlySet<string> = new Set(['detected', 'not_detected', 'unavailable']);
@@ -44,12 +51,15 @@ export async function loadSavedFocusPointsCoverage(sourceSessionId: string): Pro
         }
         if (!session) return { kind: 'none' };
 
-        const [{ data: points, error: pointsError }, { data: evidence, error: evidenceError }] = await Promise.all([
+        const briefId = (session as { brief_id: string }).brief_id;
+        const [{ data: points, error: pointsError }, { data: evidence, error: evidenceError }, { data: brief }] = await Promise.all([
             supabase.from('objective_brief_point').select('id, label, sort_order')
                 .eq('brief_id', (session as { brief_id: string }).brief_id)
                 .order('sort_order', { ascending: true }),
             supabase.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds')
                 .eq('session_id', (session as { id: string }).id),
+            // Only for rebinding the set on "Practise this again"; a failed read leaves the results intact.
+            supabase.from('objective_brief').select('project_id, event_goal').eq('id', briefId).maybeSingle(),
         ]);
         if (pointsError || evidenceError) {
             logger.warn({ error: pointsError ?? evidenceError }, '[savedFocusPointsCoverage] point/evidence read failed');
@@ -66,7 +76,11 @@ export async function loadSavedFocusPointsCoverage(sourceSessionId: string): Pro
             return { label: point.label, status, detectedAtSeconds: at };
         });
         if (rows.length === 0) return { kind: 'error' }; // a saved Focus Points session always has its points
-        return { kind: 'coverage', points: rows, detected: rows.filter((r) => r.status === 'detected').length, total: rows.length };
+        const briefRow = brief as { project_id?: unknown; event_goal?: unknown } | null;
+        const savedBrief: SavedFocusBrief | null = briefRow && typeof briefRow.project_id === 'string' && typeof briefRow.event_goal === 'string'
+            ? { briefId, projectId: briefRow.project_id, topic: briefRow.event_goal }
+            : null;
+        return { kind: 'coverage', points: rows, detected: rows.filter((r) => r.status === 'detected').length, total: rows.length, brief: savedBrief };
     } catch (error) {
         logger.warn({ error }, '[savedFocusPointsCoverage] read threw');
         return { kind: 'error' };

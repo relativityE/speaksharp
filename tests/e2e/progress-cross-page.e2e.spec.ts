@@ -180,12 +180,15 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await navigateToRoute(page, `/analytics/${SESSION_ID}`);
     await expect(page.getByTestId('progress-panel')).toBeVisible();
     await expect(page.getByTestId('progress-what-worked')).toHaveCount(1);
-    await expect(page.getByTestId('progress-practice-next')).toHaveCount(1);
+    // #1258 G20 (PM 2026-09-25): the saved review at the top owns the ONE next action; Progress keeps its metrics
+    // and drops its competing sentence and button. The linked repeat runs through the review's control.
+    await expect(page.getByTestId('progress-practice-next')).toHaveCount(0);
+    await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
     // G18: the panel states the MOVE in the app's own clarity unit (`84% → 90%`), never a percent-of-previous.
     await expect(page.getByTestId('progress-direction')).toHaveText(/Clearer than your previous comparable session: \d+% → \d+%\./);
     await expect(page.getByTestId('progress-direction')).not.toHaveText(/7\.3%/);
     await expect(page.getByTestId('progress-baseline-context')).toHaveText(/previous comparable session is also your first-session baseline/i);
-    await expect(page.getByTestId('progress-accept')).toHaveText(/Practice this next/i);
+    await expect(page.getByTestId('progress-accept')).toHaveCount(0);
     await expect(page.getByText(/SpeakSharp Score/i)).toHaveCount(0);
     // #1306 Step 3: absence is correct HERE for a specific reason — this journey's session is seeded
     // with no transcript and no transcript_state (see the fixture above), so it is genuinely
@@ -196,8 +199,8 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await expect(page.getByTestId('session-detail-transcript-unavailable')).toHaveCount(1);
     await expect(page.getByText(/same saved session truth with clear evidence/i)).toHaveCount(0);
     await expect(page.getByText('The saved-session evidence made the recommendation concrete.')).toHaveCount(0);
-    // The ONE durable next action (from the server-owned Progress read model) still renders.
-    await expect(page.getByTestId('progress-practice-next').getByText('Close the next attempt with the requested decision and owner.')).toBeVisible();
+    // The ONE next action is the review's control, not a second Progress sentence beside it.
+    await expect(page.getByText('Close the next attempt with the requested decision and owner.')).toHaveCount(0);
     await assertAxe(page);
     await screenshotMatrix(page, 'review-progress');
 

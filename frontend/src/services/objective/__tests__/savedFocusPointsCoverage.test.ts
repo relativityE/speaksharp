@@ -36,6 +36,7 @@ beforeEach(() => {
     calls.length = 0;
     tables.objective_session = { data: { id: 'os1', brief_id: 'b1' }, error: null };
     tables.objective_brief_point = { data: POINTS, error: null };
+    tables.objective_brief = { data: { project_id: 'proj1', event_goal: 'A better weekly team handoff' }, error: null };
     tables.objective_evidence = {
         data: [
             { brief_point_id: 'p1', verdict: 'detected', detected_at_seconds: 5 },
@@ -60,7 +61,15 @@ describe('loadSavedFocusPointsCoverage', () => {
                 { label: POINTS[2].label, status: 'not_detected', detectedAtSeconds: null },
                 { label: POINTS[3].label, status: 'unavailable', detectedAtSeconds: null },
             ],
+            // The saved set, so "Practice this again" rebinds exactly these points.
+            brief: { briefId: 'b1', projectId: 'proj1', topic: 'A better weekly team handoff' },
         });
+    });
+
+    it('a failed or unreadable brief keeps the results and reports no brief (never an invented set)', async () => {
+        tables.objective_brief = { data: null, error: { code: '42501' } };
+        const result = await loadSavedFocusPointsCoverage('s1');
+        expect(result).toMatchObject({ kind: 'coverage', detected: 2, total: 4, brief: null });
     });
 
     it('reads the objective session for exactly this saved take, newest first', async () => {
