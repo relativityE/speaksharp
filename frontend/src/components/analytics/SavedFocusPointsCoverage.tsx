@@ -7,7 +7,8 @@ import { PRODUCT_NAMES } from '@/constants/productNames';
  * #1258 / #1407 — the saved Focus Points result on the Analytics session detail.
  *
  * Shows exactly what the save persisted: each point the person entered, whether it was detected (and when), and the
- * detected total. Words, not colour alone, carry every state. The wording matches the live rail so the review and
+ * detected total. Words, not colour alone, carry every state; the colours match the live rail (green Detected, red
+ * Not detected, grey Not evaluated). The wording matches the live rail so the review and
  * Analytics never describe the same take differently. Renders nothing for an Open Mic session.
  */
 export const SavedFocusPointsCoverage: React.FC<{ sessionId: string }> = ({ sessionId }) => {
@@ -50,13 +51,13 @@ export const SavedFocusPointsCoverage: React.FC<{ sessionId: string }> = ({ sess
                             className="text-sm leading-snug"
                         >
                             <p className="text-neutral-body">{point.label}</p>
-                            <p className={`mt-0.5 text-[12px] font-semibold ${covered ? 'text-status' : 'text-signature-text'}`}>
+                            <p className={`mt-0.5 text-[12px] font-semibold ${covered ? 'text-status' : missing ? 'text-state-error' : 'text-neutral-muted'}`} data-testid={`focus-point-${i}-verdict`}>
                                 {covered
                                     ? `Detected${point.detectedAtSeconds !== null ? ` at ${fmtDuration(point.detectedAtSeconds)}` : ''}`
                                     : missing ? 'Not detected' : 'Not evaluated'}
                             </p>
                             {missing && (
-                                <p className="mt-1 text-[13px] leading-snug text-signature-text">
+                                <p className="mt-1 text-[13px] leading-snug text-state-error">
                                     We couldn’t detect this point in the transcript. You may have covered it in different words.
                                 </p>
                             )}

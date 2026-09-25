@@ -50,3 +50,21 @@ describe('SavedFocusPointsCoverage (Analytics session detail)', () => {
         await waitFor(() => expect(screen.getByTestId('saved-focus-points-error')).toHaveTextContent('couldn’t be loaded'));
     });
 });
+
+describe('SavedFocusPointsCoverage colours match the live rail (#1258 RWT)', () => {
+    it('green Detected, red Not detected, grey Not evaluated', async () => {
+        load.mockResolvedValue({
+            kind: 'coverage', detected: 1, total: 3,
+            points: [
+                { label: 'a', status: 'detected', detectedAtSeconds: 5 },
+                { label: 'b', status: 'not_detected', detectedAtSeconds: null },
+                { label: 'c', status: 'unavailable', detectedAtSeconds: null },
+            ],
+        });
+        render(<SavedFocusPointsCoverage sessionId="s4" />);
+        await waitFor(() => expect(screen.getByTestId('saved-focus-points')).toBeInTheDocument());
+        expect(screen.getByTestId('focus-point-0-verdict')).toHaveClass('text-status');
+        expect(screen.getByTestId('focus-point-1-verdict')).toHaveClass('text-state-error');
+        expect(screen.getByTestId('focus-point-2-verdict')).toHaveClass('text-neutral-muted');
+    });
+});
