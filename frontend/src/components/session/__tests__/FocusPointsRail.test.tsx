@@ -213,12 +213,17 @@ describe('FocusPointsRail — state colours, legend and pending label (#1258 RWT
         expect(rail.querySelector('.text-state-error, .border-state-error')).toBeNull();
     });
 
-    it('after Stop: an undetected point is a red ✕ "Not detected" verdict and keeps the paraphrase caveat', () => {
+    it('after Stop: an undetected point is a red numbered ring with a VISIBLE "Not detected" and keeps the paraphrase caveat', () => {
         render(<FocusPointsRail rows={during} sessionState="after" />);
         const marker = screen.getByTestId('focus-point-3-marker');
         expect(marker).toHaveAttribute('data-marker', 'missed');
         expect(marker).toHaveClass('border-state-error', 'text-state-error');
-        expect(marker).toHaveTextContent('✕');
+        // The point's number, not a "wrong answer" ✕.
+        expect(marker).toHaveTextContent(/^4$/);
+        const status = screen.getByTestId('focus-point-3-status');
+        expect(status).toHaveTextContent(/^Not detected$/);
+        expect(status).toBeVisible();
+        expect(status).not.toHaveClass('sr-only');
         expect(screen.getByTestId('focus-point-3')).toHaveClass('bg-state-error-ground');
         expect(screen.getByTestId('focus-point-3-not-detected')).toHaveTextContent('You may have covered it in different words.');
         expect(screen.getByTestId('focus-points-detection-note')).toBeInTheDocument();
@@ -229,5 +234,18 @@ describe('FocusPointsRail — state colours, legend and pending label (#1258 RWT
         render(<FocusPointsRail rows={during} sessionState="after" coveragePending />);
         expect(screen.getByTestId('focus-point-3-pending')).toHaveTextContent('Checking…');
         expect(screen.getByTestId('focus-points-rail-list').querySelector('[data-marker="missed"]')).toBeNull();
+    });
+
+    it('every row carries a visible status word in each state (not screen-reader-only)', () => {
+        const { unmount } = render(<FocusPointsRail rows={during} sessionState="during" nextIndex={2} />);
+        expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Detected at');
+        expect(screen.getByTestId('focus-point-1')).toHaveTextContent('Partly detected at');
+        expect(screen.getByTestId('focus-point-2')).toHaveTextContent('Still to cover');
+        expect(screen.getByTestId('focus-point-3')).toHaveTextContent('Not heard yet');
+        unmount();
+        render(<FocusPointsRail rows={during} sessionState="after" />);
+        expect(screen.getByTestId('focus-point-2-status')).toHaveTextContent('Not detected');
+        expect(screen.getByTestId('focus-point-3-status')).toHaveTextContent('Not detected');
+        expect(document.querySelectorAll('[data-testid="focus-points-rail-list"] .sr-only')).toHaveLength(0);
     });
 });

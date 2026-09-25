@@ -19,7 +19,7 @@ import type { FocusCoverageRow } from '@/utils/focusCoverage';
  *   - pending  — grey ring + numeral
          *   - covered  — green ✓, struck-through label, "Detected at m:ss" (+ the covering phrase in `after`)
  *   - next-up  — (during only) purple ring on a tinted row, "Still to cover"
- *   - missed   — (after only) red ✕ on a tinted row, "Not detected"; the rail's most important line names where the
+ *   - missed   — (after only) red numbered ring on a tinted row, a visible "Not detected"; the rail's most important line names where the
  *                time went, because that is the only feedback that changes the next attempt.
  *
  * Colour is never the sole signal: every row carries an sr-only status word and the marker glyph changes.
@@ -68,8 +68,9 @@ const MARKER_STYLE: Record<MarkerKind, string> = {
 };
 
 const Marker: React.FC<{ kind: MarkerKind; index: number; testId?: string }> = ({ kind, index, testId }) => {
-    // A negative index is the legend's empty circle: a key, not a numbered point.
-    const glyph = kind === 'covered' ? '✓' : kind === 'missed' ? '✕' : kind === 'partial' ? '≈' : index < 0 ? '' : String(index + 1);
+    // A negative index is the legend's empty circle: a key, not a numbered point. "Not detected" keeps the point's
+    // number in a red ring — a detector result, never a "wrong answer" ✕ (PM review of G20, 2026-09-25).
+    const glyph = kind === 'covered' ? '✓' : kind === 'partial' ? '≈' : index < 0 ? '' : String(index + 1);
     return (
         <span
             className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[12px] font-extrabold ${MARKER_STYLE[kind]}`}
@@ -206,13 +207,17 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                     "Not detected" (a paraphrase may have covered it) — never a "Missed"
                                     accusation — and the feedback is an ACTION for the retry, not a made-up cause. */}
                                 {isMissed && (
+                                    <p className="mt-0.5 text-[12px] font-bold text-state-error" data-testid={`focus-point-${i}-status`}>Not detected</p>
+                                )}
+                                {isMissed && (
                                     <p className="mt-1 text-[13px] leading-snug text-state-error" data-testid={`focus-point-${i}-not-detected`}>
                                         We couldn’t detect this point in the transcript. You may have covered it in different words.
                                     </p>
                                 )}
                             </div>
-                            {/* A pending row already shows its word ("Not heard yet" / "Checking…"); don't read it twice. */}
-                            {kind !== 'pending' && <span className="sr-only">{statusWord}</span>}
+                            {/* Every row shows its status visibly, except a detected row without a time; only that one
+                                needs the word for screen readers. */}
+                            {row.covered && row.coveredAtSec == null && <span className="sr-only">{statusWord}</span>}
                         </li>
                     );
                 })}
