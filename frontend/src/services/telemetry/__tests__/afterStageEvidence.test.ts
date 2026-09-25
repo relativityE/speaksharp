@@ -34,6 +34,12 @@ const chainRows = (chain: readonly string[], start = 1_000, attemptId: string | 
 const reviewReceipt = (over: Record<string, unknown> = {}) =>
     row('transcript_authority', { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true, ...over });
 
+const COACHING_RENDERED = { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true };
+const RAIL_ONLY = {
+    phase: 'rendered', review_surface: 'focus_points_rail', suggestions_present: false,
+    what_went_well_source: 'not_applicable', what_to_improve_source: 'not_applicable',
+};
+
 /** Everything an After stage needs besides the two families under test. */
 const base = (s: typeof OPEN_MIC): DecodedTelemetryRow[] => [
     row('session_saved', { attempt_id: 'attempt-1', attempt_seq: 1 }, { journeyId: 'journey-1', bootId: 'boot-1' }),
@@ -43,7 +49,8 @@ const base = (s: typeof OPEN_MIC): DecodedTelemetryRow[] => [
     }, { journeyId: 'journey-1', bootId: 'boot-1' }),
     ...s.requiredFamilies
         .filter((f) => !['session_saved', 'model_attribution_receipt', 'transcript_authority', 'stage_latency'].includes(f))
-        .map((f) => row(f)),
+        // #1258: the coaching card's own receipt — a validated pair on screen (required for Focus Points).
+        .map((f) => (f === 'practice_loop' ? row(f, COACHING_RENDERED) : row(f))),
 ];
 const journey = (s: typeof OPEN_MIC, chain: readonly string[], review: DecodedTelemetryRow[] = [reviewReceipt()]) =>
     [...base(s), ...review, ...chainRows(chain)];
@@ -169,5 +176,33 @@ describe('#1421 — the readback selects and decodes what these invariants read'
         expect(script).toContain('stage: cells[18] ?? null');
         expect(script).toContain('transcript_visibly_present: cells[19] ?? null');
         expect(script).toContain('digests_match: cells[20] ?? null');
+    });
+});
+
+describe('#1258 — a Focus Points review must include its AI coaching (runbook v12, PM order item 4)', () => {
+    const withLoop = (s: typeof OPEN_MIC, chain: readonly string[], loopRows: DecodedTelemetryRow[]) =>
+        journey(s, chain).filter((r) => r.event !== 'practice_loop').concat(loopRows);
+
+    it('CASUALTY: the rail\'s not_applicable receipt alone no longer qualifies Focus Points', () => {
+        const rows = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY)]);
+        expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/rendered no AI coaching/);
+    });
+
+    it('CASUALTY: a coaching receipt that failed, or rendered no phrases, does not qualify', () => {
+        for (const bad of [
+            { ...COACHING_RENDERED, phase: 'failed' },
+            { ...COACHING_RENDERED, suggestions_present: false },
+            { ...COACHING_RENDERED, phase: 'requested' },
+        ]) {
+            const rows = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', bad)]);
+            expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/rendered no AI coaching/);
+        }
+    });
+
+    it('CONTROL: rail + rendered coaching qualifies Focus Points; Open Mic is unaffected (string booleans read too)', () => {
+        const focus = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN,
+            [row('practice_loop', RAIL_ONLY), row('practice_loop', { ...COACHING_RENDERED, suggestions_present: 'true' })]);
+        expect(evaluateQualificationStage(FOCUS_POINTS, focus)).toEqual([]);
+        expect(evaluateQualificationStage(OPEN_MIC, journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN))).toEqual([]);
     });
 });

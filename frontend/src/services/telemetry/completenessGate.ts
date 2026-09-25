@@ -419,6 +419,25 @@ export const postStopChainInOrder = (chain: readonly string[]) => (rows: readonl
     return null;
 };
 
+/**
+ * #1258 (runbook v12, PM order item 4) — A FOCUS POINTS REVIEW MUST INCLUDE ITS COACHING.
+ *
+ * The Focus stage's `practice_loop` family was satisfied by the RAIL's receipt, which by design reports its coaching
+ * phrases as `not_applicable`. A Focus Points run whose AI coaching never rendered therefore qualified. The coaching
+ * card sends its own receipt (`review_surface: coaching_verdict`, `phase: rendered`, `suggestions_present: true`)
+ * only once a validated pair is on screen; the Focus stage now requires that receipt too.
+ */
+export const focusCoachingRendered = (rows: readonly DecodedTelemetryRow[]): string | null =>
+    propsOf(rows, 'practice_loop').some((p) => p?.review_surface === 'coaching_verdict'
+        && p?.phase === 'rendered' && isTrue(p?.suggestions_present))
+        ? null
+        : 'the Focus Points review rendered no AI coaching (only the points rail reported)';
+
+const FOCUS_COACHING_RENDERED = {
+    name: 'focus_points_coaching_rendered',
+    check: focusCoachingRendered,
+} as const;
+
 const POST_STOP_CHAIN_OPEN_MIC = {
     name: 'open_mic_post_stop_chain_in_order',
     check: postStopChainInOrder(OPEN_MIC_POST_STOP_CHAIN),
@@ -494,7 +513,7 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
             check: (rows) => (has(rows, 'coverage_evaluation') && !has(rows, 'coverage_point')
                 ? 'a coverage evaluation published no per-point verdicts'
                 : null),
-        }, ATTRIBUTION_BINDING, REVIEW_TRANSCRIPT_RECEIPT, POST_STOP_CHAIN_FOCUS_POINTS],
+        }, ATTRIBUTION_BINDING, REVIEW_TRANSCRIPT_RECEIPT, POST_STOP_CHAIN_FOCUS_POINTS, FOCUS_COACHING_RENDERED],
     },
 ]);
 
