@@ -423,8 +423,8 @@ qf progress "$M/20260731120000_session_progress_evaluations.sql"; qf progress "$
 q progress "CREATE TABLE IF NOT EXISTS public.objective_source_recording (session_id uuid PRIMARY KEY, user_id uuid NOT NULL, registered_at timestamptz NOT NULL DEFAULT now()); CREATE TABLE IF NOT EXISTS public.tier_configs (tier_name text PRIMARY KEY, max_concurrent_sessions int);" >/dev/null
 for f in 20260812030000_progress_cohort_mode_separation_1265 20260816223606_metrics_only_additive_1306 20260817140000_repoint_analytics_summary_flat_1306 \
          20260607040000_active_recording_lease 20260923120000_one_active_engine_per_account_1476; do qf progress "$M/$f.sql"; done
-if [ -f "$M/20260915130000_progress_evaluation_filler_counts_authority_1471.sql" ]; then
-  qf progress "$M/20260915130000_progress_evaluation_filler_counts_authority_1471.sql" && pass "#1521 migration applies cleanly AFTER #1525" || fail "#1521 after #1525 failed to apply"
+if [ -f "$M/20260924150000_progress_evaluation_filler_counts_authority_1471.sql" ]; then
+  qf progress "$M/20260924150000_progress_evaluation_filler_counts_authority_1471.sql" && pass "#1521 migration applies cleanly AFTER #1525" || fail "#1521 after #1525 failed to apply"
 else
   echo "INFO #1521 migration not in this tree; supply it with MIG1521=path"; [ -n "${MIG1521:-}" ] && { qf progress "$MIG1521" && pass "#1521 migration (from MIG1521) applies cleanly AFTER #1525" || fail "#1521 after #1525 failed to apply"; }
 fi
@@ -454,6 +454,31 @@ else
   fail "recovered row Progress: save-only create refused"
 fi
 
+
+# Case 14 — #1471 / PR #1521 JOURNEY: a saved Private session → its Progress evaluation → the next Start, on the combined
+# #1476 + #1521 migrations. The take is saved in the CURRENT client's shape: filler evidence only in `filler_counts`
+# ({"um":2}); legacy `filler_words` left at its '{}' default. Before #1521 the evaluator reads only `filler_words`, its
+# predicate goes NULL and the insert fails with 23502 — so the session stays an owed obligation, every Start's bounded
+# Progress retry fails again, and the person is held behind "Finishing up your last session" for nothing. Every step's
+# outcome is captured (an SQL error is reported, never aborts the run).
+J=cccccccc-0000-4000-8000-000000000014; LJ=aaaaaaaa-0000-4000-8000-0000000000a9
+q progress "INSERT INTO auth.users (id) VALUES ('$J') ON CONFLICT DO NOTHING; INSERT INTO public.user_profiles (id, subscription_status) VALUES ('$J','pro') ON CONFLICT DO NOTHING;" >/dev/null
+js=$(q progress "$(as_user $J) SELECT public.acquire_recording_lease('$LJ','journey',false); INSERT INTO public.sessions (user_id,status,duration,total_words,wpm,transcript,engine,engine_version,model_name,device_type,attribution_status,filler_counts,lease_id) VALUES ('$J','active',93,141,91,'a clean transcript with plenty of ordinary words','private','private_v2:whisper-base.en','whisper-base.en','browser','pending','{\"um\":2}'::jsonb,'$LJ') RETURNING id;" | tail -1)
+q progress "SET ROLE service_role; SELECT public.issue_attribution_intent_v1('$J','rec-$js','private','base'); SELECT public.bind_attribution_intent_v1('$js','rec-$js'); UPDATE public.sessions SET status='completed' WHERE id='$js'; SELECT public.attest_session_engine_v1('$js','{\"provider\":\"transformers-js\",\"model_id\":\"base\",\"fallback_occurred\":false,\"cloud_used\":false}'::jsonb); RESET ROLE;" >/dev/null
+q progress "$(as_user $J) SELECT public.release_recording_lease('$LJ');" >/dev/null
+shape=$(q progress "SELECT filler_words::text||' | '||filler_counts::text FROM public.sessions WHERE id='$js'" | tail -1)
+evout=$(q progress "$(as_user $J) SELECT 'EVAL=' || coalesce(public.record_progress_evaluation('$js')::text, 'NULL');" 2>&1 || true)
+ev=$(printf '%s\n' "$evout" | grep -oE 'EVAL=[0-9a-fA-FNUL-]+|null value in column "[a-z_]+"' | head -1)
+owed=$(q progress "$(as_user $J) SELECT count(*) FROM jsonb_array_elements(public.get_progress_obligations()) e WHERE e->>'session_id'='$js';" | tail -1)
+nextcur=$( (q progress "$(as_user $J) SELECT (public.acquire_recording_lease('aaaaaaaa-0000-4000-8000-0000000000aa','journey',false))->>'acquired';" 2>&1 || true) | tail -1)
+q progress "$(as_user $J) SELECT public.release_recording_lease('aaaaaaaa-0000-4000-8000-0000000000aa');" >/dev/null 2>&1 || true
+nextold=$( (q progress "$(as_user $J) SELECT public.create_session_and_update_usage('{\"title\":\"next\",\"duration\":0,\"total_words\":0}'::jsonb,'private');" 2>&1 || true) | grep -oE '"error": "[a-z_]+"|"new_session": \{' | head -1)
+echo "JOURNEY saved_shape=[$shape] evaluation=[$ev] still_owed=[$owed] next_start_current_lease=[$nextcur] next_start_old_client=[$nextold]"
+if printf '%s' "$ev" | grep -qE '^EVAL=[0-9a-f-]{36}$' && [ "$owed" = "0" ] && [ "$nextcur" = "true" ] && [ "$nextold" = '"new_session": {' ]; then
+  pass "#1521 journey: saved Private session (filler_counts only) → evaluation $ev recorded → no longer owed → the next Start is admitted (no Progress hold)"
+else
+  fail "#1521 journey: evaluation=[$ev] owed=[$owed] next_current=[$nextcur] next_old=[$nextold]"
+fi
 
 # Case 13 — Codex P1 on 4ceaccf44: every per-session debt is reachable. 60 completed takes with no evaluation: the newest
 # 50 stay pending (attribution not terminal), the oldest 10 are owed (a terminal unattributed marker). Walking the keyset
