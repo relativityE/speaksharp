@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '../../../tests/support/test-utils';
-import AccountPage, { membershipPresentation } from '../AccountPage';
+import AccountPage from '../AccountPage';
+import { membershipPresentation } from '../membershipPresentation';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
