@@ -58,6 +58,7 @@ import {
     shareFeedbackRows,
     analyticsRows,
     analyticsThroughActions,
+    humanObservation,
     normalisePhraseText,
     performCandidateSwitch,
     readSttIdentity,
@@ -320,7 +321,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                         : savedWell === '' || savedNext === '' ? 'the session row holds no complete saved coaching response'
                             : 'a visible phrase differs from the saved coaching response',
                     { wellMatchesSaved: wellMatches, nextMatchesSaved: nextMatches, savedResponsePresent: savedWell !== '' && savedNext !== '' });
-                receipt.row('coaching is about this speech', 'HOLD', 'speech-specificity needs a human reader; the text is never stored in evidence');
+                humanObservation(receipt, 'open_mic_coaching_relevant', 'Product 1 row 5', 'coaching is about this speech',
+                    'each phrase relates to what was said in this take — not generic advice');
 
                 const { data: authority, error } = await admin!.from('ai_suggestion_authority_receipts')
                     .select('session_id,provider_request_made').eq('session_id', persistedId).eq('user_id', capturedUid).maybeSingle();
@@ -373,9 +375,14 @@ test.describe('RWT — Open Mic first session @live', () => {
                 for (const [spoken, expected] of Object.entries(fixture.entry.groundTruthFillers ?? {})) {
                     const inTranscript = occurrences(transcript, spoken);
                     const limited = fixture.entry.kind === 'synthetic' && spoken === 'uh';
-                    receipt.row(`filler "${spoken}" vs corpus`, limited ? 'HOLD' : inTranscript === expected ? 'PASS' : 'FAIL',
-                        limited ? 'fixture-limited: synthetic "uh" measured 0/3 locally; needs the private human recording'
-                            : inTranscript === expected ? 'the transcript holds every spoken instance' : 'the transcript misses or adds instances',
+                    if (limited) {
+                        // Synthetic audio cannot prove "uh"; the human-spoken take is the acceptance check (runbook row 4).
+                        humanObservation(receipt, 'open_mic_uh_detected', 'Product 1 row 4', 'spoken "uh" detected and saved (human speech)',
+                            `every spoken "uh" (${expected}) is marked live and saved`);
+                        continue;
+                    }
+                    receipt.row(`filler "${spoken}" vs corpus`, inTranscript === expected ? 'PASS' : 'FAIL',
+                        inTranscript === expected ? 'the transcript holds every spoken instance' : 'the transcript misses or adds instances',
                         { expected, transcript: inTranscript });
                 }
             });
