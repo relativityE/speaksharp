@@ -25,6 +25,7 @@ import {
     EntitlementTap,
     RWT_ACCOUNT_PREFIX,
     RwtReceipt,
+    humanObservation,
     approvedSurfaceFailures,
     installMicAcquisitionCounter,
     micAcquisitions,
@@ -163,6 +164,15 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                     listed > 0 ? 'Analytics lists the returning user\'s saved sessions' : 'the account has saved sessions but Analytics lists none',
                     { listed, priorCompletedSessions: completedBefore });
             });
+
+            // ── Release-level real-phone check (PM plan decision 5849354099) ────────────────────────────────
+            // Once per release, in this suite only (it runs once against the final deployed SHA; the worksheet binds that
+            // SHA). #1536's momentum-guard evidence is Chrome/CDP simulation; a real phone's fling is a human observation.
+            humanObservation(receipt, 'mobile_stop_confirmation_visible', 'mobile Stop (#1536)',
+                'On a real phone, does the saved confirmation stay visible when Stop is tapped during a flick?',
+                'On a real phone at the deployed SHA: start a take, flick the recording page, tap Stop while it is still moving, '
+                + 'wait for it to rest. PASS only if the saved confirmation is within the viewport. Record the phone, OS and '
+                + 'browser in the Observer cell.');
 
             // A returning user must have history to return to; without it the history half of this proof is missing,
             // and the run ends visibly HOLD/red rather than green (PM r4 review). Other rows above are still recorded.

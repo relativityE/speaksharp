@@ -651,6 +651,8 @@ export async function entitlementRow(receipt: RwtReceipt, tap: EntitlementTap, r
 export interface PracticeAgainEvidence {
     analyticsActionOpened: boolean | null; sameSetPending: boolean | null;
     reviewReached: boolean | null; afterActionEnabledMs: number | null; holdSeen: boolean;
+    /** The session id of the short take this pass saved (for the saved-product-marker row); null when not reached. */
+    savedSessionId: string | null;
     afterStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
 }
 export async function practiceAgainEvidence(
@@ -659,7 +661,7 @@ export async function practiceAgainEvidence(
     const FINISHING_UP = /Finishing up your last session/;
     const ev: PracticeAgainEvidence = {
         analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null,
-        holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: null,
+        holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: null, savedSessionId: null,
     };
     await page.goto(`/analytics/${sessionId}`);
     const practice = page.getByTestId('saved-review-practice');
@@ -692,6 +694,7 @@ export async function practiceAgainEvidence(
         await stopBenchmarkRecording(page, `${label}-save`);
         await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });
         ev.reviewReached = true;
+        ev.savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
     } catch {
         ev.reviewReached = false;
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-save`);
@@ -730,6 +733,36 @@ export async function practiceAgainEvidence(
     ev.liveTracksAfterStop = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
     if (ev.liveTracksAfterStop !== 0) ev.reason = 'the microphone stayed live after Stop';
     return ev;
+}
+
+/**
+ * #1258 / #1537 — THE SAVED PRODUCT MARKER, on Production. Every session row this run-owned journey created and evaluated
+ * (the journey's take, and the Practice-again pass's take when it saved one) must carry exactly the journey's product.
+ * Read through the existing service-role seam, scoped to the disposable run-owned account and these ids only; the receipt
+ * carries counts and a boolean — never row content.
+ */
+export async function productMarkerRows(
+    receipt: RwtReceipt,
+    admin: { from: (t: string) => { select: (c: string) => { eq: (k: string, v: string) => { in: (k: string, v: string[]) => PromiseLike<{ data: Array<{ id: string; product: string | null }> | null; error: { code?: string } | null }> } } } } | null,
+    ownerUid: string | null,
+    expected: 'open_mic' | 'focus_points',
+    sessionIds: ReadonlyArray<string | null | undefined>,
+): Promise<void> {
+    const ids = [...new Set(sessionIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+    if (!admin || !ownerUid || ids.length === 0) {
+        receipt.row('saved product marker', 'HOLD', !admin ? 'no service-role seam in this run' : 'no saved session id to check', { checked: ids.length });
+        return;
+    }
+    const { data, error } = await admin.from('sessions').select('id,product').eq('user_id', ownerUid).in('id', ids);
+    if (error || !data) {
+        receipt.row('saved product marker', 'FAIL', `the saved-product read failed (fail closed): ${error?.code ?? 'no data'}`, { checked: ids.length });
+        return;
+    }
+    const matched = data.filter((r) => r.product === expected).length;
+    const ok = data.length === ids.length && matched === ids.length;
+    receipt.row('saved product marker', ok ? 'PASS' : 'FAIL',
+        ok ? `every session this journey saved carries product ${expected}` : `a saved session is missing or does not carry product ${expected}`,
+        { checked: ids.length, found: data.length, matched, expected });
 }
 
 /** Rows from one Practice-again pass: the Analytics action, the review's repeat action, and the microphone off. */

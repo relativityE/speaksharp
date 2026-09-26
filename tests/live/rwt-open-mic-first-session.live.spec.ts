@@ -56,6 +56,7 @@ import {
     nextStartRows,
     practiceAgainEvidence,
     practiceAgainRows,
+    productMarkerRows,
     modelIdentityRow,
     shareFeedbackRows,
     analyticsRows,
@@ -463,10 +464,14 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('Practice again — Analytics action, then the completed review\'s repeat action', async () => {
                 generationsForTake = tap.sent('practice_loop_review_requested').length;
                 if (!persistedId) {
-                    practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session' });
+                    practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null });
+                    await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', []);
                     return;
                 }
-                practiceAgainRows(receipt, 'open_mic', await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic'));
+                const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic');
+                practiceAgainRows(receipt, 'open_mic', again);
+                // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Open Mic.
+                await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', [persistedId, again.savedSessionId]);
             });
 
             await test.step('next Start without a hold', async () => {

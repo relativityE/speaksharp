@@ -32,6 +32,7 @@ import {
     nextStartRows,
     practiceAgainEvidence,
     practiceAgainRows,
+    productMarkerRows,
     modelIdentityRow,
     shareFeedbackRows,
     analyticsRows,
@@ -380,10 +381,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await test.step('Practice again — Analytics action, then the completed review\'s Retry this set', async () => {
             generationsForTake = tap.sent('practice_loop_review_requested').length;
             if (!persistedId) {
-                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session' });
+                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null });
+                await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', []);
                 return;
             }
-            practiceAgainRows(receipt, 'focus_points', await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points));
+            const again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points);
+            practiceAgainRows(receipt, 'focus_points', again);
+            // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Focus Points.
+            await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', [persistedId, again.savedSessionId]);
         });
 
         await test.step('next Start without a hold', async () => {
