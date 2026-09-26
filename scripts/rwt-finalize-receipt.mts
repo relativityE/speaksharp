@@ -4,8 +4,8 @@
  *
  *   pnpm rwt:finalize -- --receipt test-results/rwt/<suite>.receipt.json --worksheet <completed>.human-worksheet.md
  *
- * Binds the worksheet to the SAME suite, deployed SHA, journey ids and receipt, requires PASS/FAIL (and an observer for
- * PASS) for exactly the receipt's human observations, recomputes acceptance over ALL rows, and writes
+ * Binds the worksheet to the SAME suite, deployed SHA, journey ids and receipt, requires PASS/FAIL and a named observer
+ * for exactly the receipt's human observations, recomputes acceptance over ALL rows, and writes
  * `<suite>.final.json` beside the receipt with both input digests. Exit 0 = PASS, 1 = FAIL, 2 = INCOMPLETE / binding
  * error. Content-free: nothing but ids, verdicts, SHAs, digests and observer names is read or written.
  */

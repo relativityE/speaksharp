@@ -100,6 +100,12 @@ describe('finalization: the completed worksheet produces the final verdict', () 
         expect(finalizeReceipt(receipt, parseHumanWorksheet(extra)).errors.join(' ')).toMatch(/not in this receipt: invented_check/);
         const anonymous = complete(blank, { open_mic_coaching_relevant: 'PASS', open_mic_uh_detected: 'PASS' }, '');
         expect(finalizeReceipt(receipt, parseHumanWorksheet(anonymous)).errors.join(' ')).toMatch(/has no observer/);
+        // PO 2026-09-26: an unsigned FAIL is refused too — the run stays INCOMPLETE rather than failing on an unsigned entry.
+        const unsignedFail = complete(blank, { open_mic_coaching_relevant: 'FAIL', open_mic_uh_detected: 'FAIL' }, '');
+        const r = finalizeReceipt(receipt, parseHumanWorksheet(unsignedFail));
+        expect(r.status).toBe('binding_error');
+        expect(r.finalAcceptance).toBe('INCOMPLETE');
+        expect(r.errors.join(' ')).toMatch(/open_mic_coaching_relevant FAIL has no observer/);
     });
 });
 
