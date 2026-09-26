@@ -305,19 +305,58 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * scrolled away, and the contract is both. A top-of-page user is never moved. The flag resets only when the
      * view leaves `after`, so loading → rendered → failed transitions and rerenders never jump the page again;
      * the next take may reveal once.
+     *
+     * #1258 RWT (PM: VALID P2) — MOMENTUM. On a phone, Stop tapped during a fling leaves the momentum scroll running,
+     * and it carried the page past this reveal to the bottom (the saved confirmation ~757 px off screen). So when the
+     * reveal moves the page, it arms a bounded re-check: each time scrolling comes to rest (150 ms idle) away from the
+     * top, the page is returned there — at most 3 times, because a fling can pause and then resume after a correction
+     * (traced). It ends as soon as the page rests at its top, at the first touch, wheel, key or pointer input from the
+     * person (their own scrolling is never fought), or after 3 s, whichever comes first.
      */
     const practiceLoopBandRef = React.useRef<HTMLDivElement | null>(null);
     const practiceLoopRevealedRef = React.useRef(false);
+    const momentumGuardRef = React.useRef<(() => void) | null>(null);
+    const endMomentumGuard = React.useCallback(() => {
+        momentumGuardRef.current?.();
+        momentumGuardRef.current = null;
+    }, []);
+    React.useEffect(() => endMomentumGuard, [endMomentumGuard]);
     React.useEffect(() => {
         if (!inAfter) {
             practiceLoopRevealedRef.current = false;
+            endMomentumGuard();
             return;
         }
         if (!reviewSettled || !practiceLoopBandRef.current || practiceLoopRevealedRef.current) return;
         practiceLoopRevealedRef.current = true;
         if (window.scrollY <= 0) return;
         window.scrollTo({ top: 0, behavior: 'auto' });
-    }, [inAfter, reviewSettled, practiceLoopReview]);
+
+        let idleTimer: ReturnType<typeof setTimeout> | undefined;
+        let corrections = 0;
+        const MAX_CORRECTIONS = 3;
+        const USER_INPUT = ['touchstart', 'wheel', 'keydown', 'pointerdown'] as const;
+        const onScroll = () => {
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+                if (window.scrollY <= 0 || corrections >= MAX_CORRECTIONS) {
+                    endMomentumGuard();
+                    return;
+                }
+                corrections += 1;
+                window.scrollTo({ top: 0, behavior: 'auto' });
+            }, 150);
+        };
+        const deadline = setTimeout(endMomentumGuard, 3000);
+        window.addEventListener('scroll', onScroll, { passive: true });
+        USER_INPUT.forEach((type) => window.addEventListener(type, endMomentumGuard, { capture: true, passive: true }));
+        momentumGuardRef.current = () => {
+            clearTimeout(idleTimer);
+            clearTimeout(deadline);
+            window.removeEventListener('scroll', onScroll);
+            USER_INPUT.forEach((type) => window.removeEventListener(type, endMomentumGuard, { capture: true }));
+        };
+    }, [inAfter, reviewSettled, practiceLoopReview, endMomentumGuard]);
 
     /**
      * #1259 — WHICH option the user chose, not only which were offered.

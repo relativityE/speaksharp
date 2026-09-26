@@ -1,5 +1,5 @@
 import { render, screen } from '../../../../tests/support/test-utils';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -228,5 +228,88 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
             view.rerender(<SessionOverhaulView {...base} isListening transcriptContent="so hello" elapsedTime={20} practiceLoopReview={REVIEW_STATES[1][1]} />);
             expect(layout.scrollTo).not.toHaveBeenCalled();
         } finally { layout.restore(); }
+    });
+});
+
+// #1258 RWT (PM: VALID P2) — a Stop tapped during a phone fling: the momentum carried the page past the one reveal.
+// The reveal now arms a bounded re-check. These pin its bounds: a correction each time scrolling comes to rest away from
+// the top (a fling can pause and resume), at most 3; it ends at rest-at-top, at the person's own input, or after 3 s.
+describe('#1258 Practice Loop reveal — momentum after the reveal (bounded re-check)', () => {
+    let y = 0;
+    let scrollTo: ReturnType<typeof vi.spyOn>;
+    let position: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+        vi.useFakeTimers();
+        y = 900;
+        scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(((opts: ScrollToOptions) => { y = opts.top ?? y; }) as typeof window.scrollTo);
+        position = vi.spyOn(window, 'scrollY', 'get').mockImplementation(() => y);
+    });
+    afterEach(() => { scrollTo.mockRestore(); position.mockRestore(); vi.useRealTimers(); });
+    const momentum = (to: number) => { y = to; window.dispatchEvent(new Event('scroll')); };
+
+    it('CASUALTY: momentum that carries the page off its top after the reveal is returned there when it comes to rest', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        momentum(300); vi.advanceTimersByTime(50); momentum(700); vi.advanceTimersByTime(50); momentum(837);
+        vi.advanceTimersByTime(149);
+        expect(scrollTo, 'not while still moving').toHaveBeenCalledTimes(1);
+        vi.advanceTimersByTime(1);
+        expect(scrollTo).toHaveBeenCalledTimes(2);
+        expect(y).toBe(0);
+        // Resting at the top ends the guard: a later drift is not chased.
+        momentum(0); vi.advanceTimersByTime(200);
+        momentum(50); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(2);
+    });
+
+    it('CASUALTY (traced): a fling that pauses, is corrected, then resumes is corrected again when it rests', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        momentum(335); vi.advanceTimersByTime(150);          // a pause that looks like rest → first correction
+        expect(scrollTo).toHaveBeenCalledTimes(2);
+        momentum(75); vi.advanceTimersByTime(20); momentum(96); // the remaining fling resumes after the correction
+        vi.advanceTimersByTime(150);
+        expect(scrollTo).toHaveBeenCalledTimes(3);
+        expect(y).toBe(0);
+    });
+
+    it('CONTROL: never a loop — at most 3 corrections even if the page keeps drifting', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        for (let i = 0; i < 6; i += 1) { momentum(200); vi.advanceTimersByTime(150); }
+        expect(scrollTo).toHaveBeenCalledTimes(1 + 3);
+    });
+
+    it.each(['touchstart', 'wheel', 'keydown', 'pointerdown'])('CONTROL: after the reveal, the person\'s own %s disarms it — their scrolling is never fought', (type) => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        window.dispatchEvent(new Event(type));
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        expect(y).toBe(400);
+    });
+
+    it('CONTROL: bounded in time — scrolling that starts after 3 s is left alone', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        vi.advanceTimersByTime(3000);
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+    });
+
+    it('CONTROL: momentum that comes to rest AT the top needs no second scroll', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        momentum(0); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+    });
+
+    it('CONTROL: a top-of-page user arms nothing (no reveal, no re-check)', () => {
+        y = 0;
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('CONTROL: leaving the review (unmount) removes the guard — no scroll after it is gone', () => {
+        const view = render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        view.unmount();
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
     });
 });
