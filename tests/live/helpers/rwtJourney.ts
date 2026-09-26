@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import {
     AUDIO_ARGS,
     expectBenchmarkRecordingStarted,
@@ -39,13 +40,7 @@ export const RWT_ACCOUNT_PREFIX = 'rwt-journey-';
  */
 export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 
-/**
- * `HUMAN` (PO 2026-09-25): a named human RWT observation — a runbook check no automation can judge (is the coaching
- * about this speech, was a spoken "uh" heard). It is never a permanent HOLD: it names the question, the pass
- * criterion and where the human records pass/fail, and it becomes PASS or FAIL when that result is supplied
- * (`RWT_HUMAN_RESULTS`, see `humanObservation`).
- */
-export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'HUMAN';
+export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
 export type FixtureKey = 'open_mic_tts' | 'focus_points_tts' | 'focus_points_partial_tts';
 
 const FIXTURE_DIR = fileURLToPath(new URL('../../fixtures/rwt/', import.meta.url));
@@ -436,7 +431,6 @@ export async function readSttIdentity(page: Page): Promise<Record<string, unknow
 
 export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
 
-export interface ReceiptRow { step: string; verdict: Verdict; detail: string; evidence?: Record<string, string | number | boolean | null> }
 
 /**
  * One product's receipt. A FAIL is recorded AND raised as a soft expectation, so the suite keeps collecting the
@@ -483,60 +477,16 @@ export class RwtReceipt {
     }
 }
 
-/** PO 2026-09-25 — acceptance over ALL rows, the automated part alone, and the named human observations' state. */
-export function receiptAcceptance(rows: readonly ReceiptRow[]): {
-    acceptance: 'PASS' | 'FAIL' | 'INCOMPLETE';
-    automatedRowsAllPass: boolean;
-    humanObservations: Array<{ id: unknown; runbookRow: unknown; result: string }>;
-} {
-    return {
-        acceptance: rows.some((r) => r.verdict === 'FAIL') ? 'FAIL'
-            : rows.some((r) => r.verdict === 'HOLD' || r.verdict === 'HUMAN') ? 'INCOMPLETE' : 'PASS',
-        automatedRowsAllPass: rows.filter((r) => r.verdict !== 'HUMAN' && r.verdict !== 'HOLD').every((r) => r.verdict === 'PASS'),
-        humanObservations: rows.filter((r) => r.evidence && typeof r.evidence.observationId === 'string')
-            .map((r) => ({ id: r.evidence!.observationId, runbookRow: r.evidence!.runbookRow, result: r.verdict === 'HUMAN' ? 'pending' : r.verdict })),
-    };
-}
-
-/**
- * PO 2026-09-25 — the human-check worksheet for THIS run, read together with its receipt. One row per named human
- * observation, pre-filled with the suite, deployed SHA, journey id(s), runbook row, question and pass criterion; the
- * RESULT and OBSERVER columns are blank for the human (a row already recorded via RWT_HUMAN_RESULTS shows it). The
- * receipt's `acceptance` stays INCOMPLETE until every row here is PASS. Content-free: no speech, coaching or point text.
- */
-export function humanWorksheet(suite: string, release: string, journeyIds: readonly string[], rows: readonly ReceiptRow[]): string {
-    const human = rows.filter((r) => r.evidence && typeof r.evidence.observationId === 'string');
-    const cell = (v: unknown) => String(v ?? '').replace(/\|/g, '/');
-    const lines = [
-        `# RWT human-check worksheet — ${suite}`,
-        '',
-        `Deployed SHA: \`${release || '(unset)'}\` · Journey id(s): ${journeyIds.length > 0 ? journeyIds.map((j) => `\`${j}\``).join(', ') : '(none)'} · Receipt: \`${suite}.receipt.json\``,
-        '',
-        'An automated PASS is not a human check. The runbook is complete only when every row below is PASS and the receipt\'s `acceptance` is PASS.',
-        '',
-        '| Observation id | Runbook row | Question | Observation needed to decide (pass criterion) | Result (PASS/FAIL) | Observer · date |',
-        '|---|---|---|---|---|---|',
-        ...human.map((r) => `| \`${cell(r.evidence!.observationId)}\` | ${cell(r.evidence!.runbookRow)} | ${cell(r.step.replace(/^human: /, ''))} | ${cell(r.evidence!.passCriterion)} | ${r.verdict === 'HUMAN' ? '' : r.verdict} |  |`),
-        '',
-    ];
-    if (human.length === 0) lines.splice(lines.length - 1, 0, '_No human observations in this run._');
-    return lines.join('\n');
-}
-
 /**
  * A named human RWT observation. Content-free: the question and criterion are product copy, never the speech or the
- * coaching text. The human records PASS/FAIL against `passCriterion` in the PO RWT worksheet, keyed by
- * `observationId`; until then the row stays `HUMAN` (to be judged), which is not a pass. A local or rehearsal run may
- * supply recorded results through `RWT_HUMAN_RESULTS` (JSON `{ "<id>": "PASS" | "FAIL" }`, ids and PASS/FAIL only);
- * rc-gates deliberately takes no such dispatch input (its 10-input contract).
+ * coaching text. The run always writes it as `HUMAN` (to be judged — not a pass). The human records PASS/FAIL and an
+ * observer in the run's worksheet, and `pnpm rwt:finalize` binds that worksheet to this receipt (suite, deployed SHA,
+ * journey ids) and emits the final verdict. There is deliberately NO in-run shortcut: a result supplied during the
+ * run would skip that binding.
  */
 export function humanObservation(receipt: RwtReceipt, id: string, runbookRow: string, question: string, passCriterion: string): void {
-    let result: string | undefined;
-    try { result = (JSON.parse(process.env.RWT_HUMAN_RESULTS ?? '{}') as Record<string, string>)[id]; } catch { result = undefined; }
-    const recorded = result === 'PASS' || result === 'FAIL' ? result : null;
-    receipt.row(`human: ${question}`, recorded ?? 'HUMAN',
-        recorded ? `recorded by the human reviewer: ${recorded}` : 'named human RWT observation; record pass/fail in the PO worksheet',
-        { observationId: id, runbookRow, passCriterion, recorded: recorded ?? 'pending' });
+    receipt.row(`human: ${question}`, 'HUMAN', 'named human RWT observation; record PASS/FAIL in this run\'s worksheet, then run pnpm rwt:finalize',
+        { observationId: id, runbookRow, passCriterion, recorded: 'pending' });
 }
 
 /** Serialized evidence must never carry these; a match is itself a FAIL row. */
