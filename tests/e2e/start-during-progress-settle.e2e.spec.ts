@@ -201,4 +201,75 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
         await page.getByTestId('run-shape-mic').click();
         await expect.poll(async () => (await engine(page)).controllerState, { timeout: 30_000, message: 'the next Start records without a reload' }).toBe('RECORDING');
     });
+
+    /**
+     * #1533 Codex P2 #2 (PM FIX NOW) — durable same-owner debt this tab never PROJECTED (written in-tab, so no storage
+     * event reaches this page's gate). The controller re-reads durable debt at Start and refuses. The page must never go
+     * silent: while blocked a reason is always visible and nothing records; a cross-tab projection then shows the gate
+     * notice once; settlement leaves no stale reason and the next Start records. The exact interleaving "refusal while the
+     * page gate is null" is pinned deterministically by useProgressReconciliation.gate.test.tsx; here the browser proves
+     * the real click path, and records whether that interleaving occurred (evidence, not a claim).
+     */
+    test('durable debt the page never projected: the refused Start is never silent, projection then settlement clear it, the next Start records', async ({ proPage: page }) => {
+        test.setTimeout(180_000);
+        await optIn(page);
+        await navigateToRoute(page, '/session');
+        await waitForModelReady(page);
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+
+        // Watch every store state: record any "refusal shown while the page gate is null" state (the P2 window).
+        await page.evaluate(() => {
+            const w = window as unknown as { __SESSION_STORE_API__?: { getState: () => { sttStatus: { type: string; message: string }; progressGate: unknown }; subscribe: (fn: (st: { sttStatus: { type: string; message: string }; progressGate: unknown }) => void) => void }; __p2Log?: string[] };
+            w.__p2Log = [];
+            w.__SESSION_STORE_API__?.subscribe((st) => {
+                if (st.sttStatus.type === 'error' && /Finishing up your last session/.test(st.sttStatus.message)) {
+                    w.__p2Log!.push(st.progressGate === null ? 'refusal-null-gate' : 'refusal-with-gate');
+                }
+            });
+        });
+        // Durable same-owner debt written IN THIS TAB: no storage event, so the page's gate projection stays null.
+        const owner = await page.evaluate(() => (window as unknown as { __SESSION_STORE_API__: { getState: () => { progressGateResolvedFor: string | null } } }).__SESSION_STORE_API__.getState().progressGateResolvedFor);
+        expect(owner, 'resolved owner').toBeTruthy();
+        const entryKey = `ss_progress_reconcile_queue_v2|e|${encodeURIComponent(owner!)}|${encodeURIComponent('sess-unprojected')}`;
+        await page.evaluate(([key, uid]) => localStorage.setItem(key, JSON.stringify({ sessionId: 'sess-unprojected', userId: uid, enqueuedAtIso: new Date().toISOString() })), [entryKey, owner!] as const);
+        await page.evaluate((key) => localStorage.setItem(key, JSON.stringify([
+            { session_id: 'sess-unprojected', state: 'owed', created_at: '2026-09-26T06:00:00.000Z' },
+        ])), OBLIGATIONS_KEY);
+        await hold(page, 'record_progress_evaluation', true);
+        const sessionsBefore = await calls(page, 'create_session_and_update_usage');
+
+        await page.getByTestId('mic-start').click();
+
+        // While blocked: never silent, never recording, no mic, no lease, no session.
+        for (let i = 0; i < 12; i += 1) {
+            const visibleReasons = await page.getByText(/Finishing up your last session/).evaluateAll(
+                (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
+            );
+            expect(visibleReasons, 'a reason is always visible while the Start is refused').toBeGreaterThan(0);
+            expect(notRecording(await engine(page)), 'no recording while blocked').toBe(true);
+            await page.waitForTimeout(250);
+        }
+        expect(await calls(page, 'create_session_and_update_usage'), 'no session for the refused Start').toBe(sessionsBefore);
+        await expect.poll(() => leaseHeld(page), { timeout: 10_000, message: 'no lease held while blocked' }).toBe(false);
+
+        // Projection (as another tab's write would arrive): the gate notice shows, and there is no duplicate red copy.
+        await page.evaluate((key) => window.dispatchEvent(new StorageEvent('storage', { key })), entryKey);
+        await expect.poll(() => page.getByText(/Finishing up your last session/).evaluateAll(
+            (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
+        ), { timeout: 15_000, message: 'exactly one visible reason once the gate is projected' }).toBe(1);
+
+        // Settlement: the evaluation completes and the durable entry drains; no stale reason; the next Start records.
+        await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 60_000, message: 'the bounded retry really calls the server' }).toBe(true);
+        await hold(page, 'record_progress_evaluation', false);
+        await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), OBLIGATIONS_KEY), { timeout: 60_000, message: 'the server records the owed evaluation' }).toBe('[]');
+        await expect.poll(() => page.evaluate(() => (window as unknown as { __SESSION_STORE_API__: { getState: () => { progressGate: unknown } } }).__SESSION_STORE_API__.getState().progressGate), { timeout: 60_000, message: 'the page gate clears on settlement' }).toBeNull();
+        await expect(page.getByText(/Finishing up your last session/), 'no stale reason after settlement').toHaveCount(0, { timeout: 30_000 });
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+        await page.getByTestId('mic-start').click();
+        await expect.poll(async () => (await engine(page)).controllerState, { timeout: 30_000, message: 'the next Start records without a reload' }).toBe('RECORDING');
+
+        // Evidence only: did this run hit the exact "refusal while page gate is null" interleaving?
+        const log = await page.evaluate(() => (window as unknown as { __p2Log?: string[] }).__p2Log ?? []);
+        test.info().annotations.push({ type: 'p2-interleaving', description: log.includes('refusal-null-gate') ? 'observed' : 'not observed (scan published first)' });
+    });
 });

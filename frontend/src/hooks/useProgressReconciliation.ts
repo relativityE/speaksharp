@@ -105,17 +105,22 @@ export function useProgressReconciliation(): void {
 
     // Canary 36142201470 — THE GATE'S OWN REFUSAL COPY NEVER OUTLIVES OR DUPLICATES THE GATE. A Start refused on Progress
     // debt writes the gate's copy ("Finishing up your last session — …") into the recorder status as an error. For the
-    // resolved owner that copy is removed from the status as soon as the gate is published:
-    //   - gate present → the gate's own notice already says exactly this, once, in the recorder (no red duplicate);
-    //   - gate cleared → the copy is stale; it sat beside "Mic ready" promising a start that never came.
-    // Only the gate's own refusal copy is touched; the page returns to rest and the person presses Start again (nothing
-    // records on its own).
+    // resolved owner that copy is removed ONLY while a same-owner gate is published: the gate's own notice then says
+    // exactly this, once, in the recorder (no red duplicate). Because publication removes it, no refusal from before a
+    // gate can survive that gate; when the gate later clears, the notice and the reason go together (nothing stale).
+    // #1533 Codex P2 (PM FIX NOW): never while the page's gate is null. The controller re-reads DURABLE debt at Start,
+    // so it can refuse before this tab's projection arrives (debt landing between hydration and admission, or a delayed
+    // / missed cross-tab projection) — or in the SAME update in which an earlier gate clears. A refusal present with no
+    // published gate is therefore always the only reason on screen; clearing it would leave an enabled Start that
+    // silently does nothing. Only the gate's own refusal copy is ever touched; unrelated errors are kept.
     const gateResolvedFor = useSessionStore((st) => st.progressGateResolvedFor);
     const sttMessage = useSessionStore((st) => (st.sttStatus.type === 'error' ? st.sttStatus.message : null));
     useEffect(() => {
         if (!userId || gateResolvedFor !== userId) return;
-        if (!isProgressGateRefusalMessage(sttMessage)) return;
-        useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready to record' });
+        const ownGatePublished = progressGate !== null && progressGate.ownerId === userId;
+        if (ownGatePublished && isProgressGateRefusalMessage(sttMessage)) {
+            useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready to record' });
+        }
     }, [userId, gateResolvedFor, progressGate, sttMessage]);
 
     useEffect(() => {
