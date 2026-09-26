@@ -118,7 +118,7 @@ export interface FinalizationResult {
 /**
  * Apply a completed worksheet to its receipt. Every binding is checked before anything is applied: suite, deployed
  * SHA, journey ids and receipt name must equal the receipt's; the worksheet must list exactly the receipt's human
- * observations; every row needs Result PASS or FAIL. A PASS additionally needs an Observer. Any binding error leaves
+ * observations; every row needs Result PASS or FAIL and a named Observer (a FAIL is signed as much as a PASS). Any binding error leaves
  * the run INCOMPLETE (never a guess). Otherwise the human rows take the recorded verdicts and acceptance is
  * recomputed over ALL rows — so an automated FAIL still fails a run whose human checks all passed.
  */
@@ -141,7 +141,7 @@ export function finalizeReceipt(receipt: ReceiptForFinalization, worksheet: Pars
         const entry = seen.get(id);
         if (!entry) { errors.push(`observation missing from worksheet: ${id}`); continue; }
         if (entry.result !== 'PASS' && entry.result !== 'FAIL') errors.push(`observation ${id} has no PASS/FAIL result`);
-        if (entry.result === 'PASS' && entry.observer.trim() === '') errors.push(`observation ${id} PASS has no observer`);
+        if ((entry.result === 'PASS' || entry.result === 'FAIL') && entry.observer.trim() === '') errors.push(`observation ${id} ${entry.result} has no observer`);
     }
 
     if (errors.length > 0) {
