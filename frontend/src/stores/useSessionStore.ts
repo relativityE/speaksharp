@@ -168,6 +168,12 @@ export interface SessionState {
      * linger onto a later Open Mic session (the isolation invariant, at the UI layer).
      */
     objectiveCoverageResult: ObjectiveCoverageRow[] | null;
+    /**
+     * #1258 — the finished take's Focus Points check ENDED without results (finalization failed). Distinguishes
+     * "still checking" from "will not arrive", so coaching that needs those results is reported truthfully instead of
+     * waiting forever. Any published or reset result clears it.
+     */
+    objectiveCoverageFailed: boolean;
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
     nativeFormatting: NativeFormattingUiState;
@@ -226,6 +232,7 @@ interface SessionActions {
     setProgressGate: (gate: { sessionId: string; ownerId: string | null; state: 'resolving' | 'queued' | 'unresolved' } | null) => void;
     setProgressGateResolvedFor: (ownerId: string | null) => void;
     setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
+    setObjectiveCoverageFailed: () => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
@@ -291,6 +298,7 @@ const initialState: SessionState = {
     progressGate: null,
     progressGateResolvedFor: null,
     objectiveCoverageResult: null,
+    objectiveCoverageFailed: false,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -565,6 +573,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
             // beside a set they were never measured against.
             completedObjectiveBrief: null,
             objectiveCoverageResult: null,
+            objectiveCoverageFailed: false,
             activeObjectiveBrief: null,
             // DELIBERATELY PRESERVED — app-global authority, not take state:
             //   progressGate / progressGateResolvedFor  (clearing them re-blocks Start with no rerun)
@@ -612,7 +621,8 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),
     setProgressGate: (progressGate) => set({ progressGate }),
     setProgressGateResolvedFor: (progressGateResolvedFor) => set({ progressGateResolvedFor }),
-    setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
+    setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult, objectiveCoverageFailed: false }),
+    setObjectiveCoverageFailed: () => set({ objectiveCoverageFailed: true }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) => {
         // #1259 F05 — FINALIZATION ENDS HERE, and only here. The controller flips this flag false from

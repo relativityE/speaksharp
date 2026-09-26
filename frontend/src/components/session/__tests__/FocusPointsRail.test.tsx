@@ -46,7 +46,7 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         ];
         render(<FocusPointsRail rows={afterRows} topic="Micro-Decisions" sessionState="after" />);
         const missed = screen.getByTestId('focus-point-2-not-detected');
-        expect(missed).toHaveTextContent('We couldn’t detect this point in the transcript. You may have covered it in different words.');
+        expect(missed).toHaveTextContent(/^We couldn’t detect this point in the transcript\.$/);
         // Honest: no "waste"/"behind"/"seconds off-point" phrasing.
         for (const b of ['wasted', 'behind', 'off-point', 'seconds off']) expect(missed.textContent!.toLowerCase()).not.toContain(b);
     });
@@ -178,5 +178,125 @@ describe('FocusPointsRail — the matcher limit is explained on the completed ve
         // presented would attach the caveat to a result the user cannot see.
         render(<FocusPointsRail rows={rows} topic="T" sessionState="after" coveragePending />);
         expect(screen.queryByTestId(NOTE)).not.toBeInTheDocument();
+    });
+});
+
+// #1258 RWT (PO/PM 2026-09-25): yellow = partly detected, green = detected during speech, red = a FINAL "Not detected"
+// after Stop, grey = not heard yet — each explained by a visible legend and a visible word, never colour alone.
+describe('FocusPointsRail — state colours, legend and pending label (#1258 RWT)', () => {
+    const during: FocusCoverageRow[] = [
+        { label: 'one', status: 'covered', covered: true, coveredAtSec: 5, quote: null },
+        { label: 'two', status: 'partial', covered: true, coveredAtSec: 14, quote: null },
+        { label: 'three', status: 'missing', covered: false, coveredAtSec: null, quote: null },
+        { label: 'four', status: 'missing', covered: false, coveredAtSec: null, quote: null },
+    ];
+
+    it('shows a visible legend for all four states, naming "Not detected" as an after-Stop verdict', () => {
+        render(<FocusPointsRail rows={during} sessionState="before" />);
+        const legend = screen.getByTestId('focus-points-legend');
+        expect([...legend.querySelectorAll('li')].map((li) => li.getAttribute('data-state'))).toEqual(['pending', 'partial', 'covered', 'missed']);
+        expect(legend).toHaveTextContent('Not heard yet');
+        expect(legend).toHaveTextContent('Partly detected');
+        expect(legend).toHaveTextContent('Detected');
+        expect(legend).toHaveTextContent('Not detected (after you stop)');
+    });
+
+    it('during: green detected, yellow partial, and not-yet-heard points say so visibly — never red before Stop', () => {
+        render(<FocusPointsRail rows={during} sessionState="during" nextIndex={2} />);
+        expect(screen.getByTestId('focus-point-0-marker')).toHaveClass('bg-progress-bar');
+        expect(screen.getByTestId('focus-point-1-marker')).toHaveClass('bg-signature');
+        expect(screen.getByTestId('focus-point-2-marker')).toHaveAttribute('data-marker', 'next');
+        expect(screen.getByTestId('focus-point-3-marker')).toHaveAttribute('data-marker', 'pending');
+        expect(screen.getByTestId('focus-point-3-pending')).toHaveTextContent('Not heard yet');
+        const rail = screen.getByTestId('focus-points-rail-list');
+        expect(rail.querySelector('[data-marker="missed"]')).toBeNull();
+        expect(rail.querySelector('.text-state-error, .border-state-error')).toBeNull();
+    });
+
+    it('after Stop: an undetected point is a red numbered ring with a VISIBLE "Not detected"; the paraphrase caveat is stated ONCE, below the list (G20)', () => {
+        render(<FocusPointsRail rows={during} sessionState="after" />);
+        const marker = screen.getByTestId('focus-point-3-marker');
+        expect(marker).toHaveAttribute('data-marker', 'missed');
+        expect(marker).toHaveClass('border-state-error', 'text-state-error');
+        // The point's number, not a "wrong answer" ✕.
+        expect(marker).toHaveTextContent(/^4$/);
+        const status = screen.getByTestId('focus-point-3-status');
+        expect(status).toHaveTextContent(/^Not detected$/);
+        expect(status).toBeVisible();
+        expect(status).not.toHaveClass('sr-only');
+        expect(screen.getByTestId('focus-point-3')).toHaveClass('bg-state-error-ground');
+        expect(screen.getByTestId('focus-point-3-not-detected')).toHaveTextContent(/^We couldn’t detect this point in the transcript\.$/);
+        // PM RETURN (G20): no row repeats the paraphrase caveat; the limitation note appears exactly once, after the list.
+        expect(screen.queryAllByText(/different words|covered it differently/i)).toHaveLength(1);
+        const notes = screen.getAllByTestId('focus-points-detection-note');
+        expect(notes).toHaveLength(1);
+        const list = screen.getByTestId('focus-points-rail-list');
+        expect(list.compareDocumentPosition(notes[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(list).not.toContainElement(notes[0]);
+        expect(screen.queryByTestId('focus-point-3-pending')).not.toBeInTheDocument();
+    });
+
+    it('after Stop, while the verdict is still being computed, points read "Checking…", not a verdict', () => {
+        render(<FocusPointsRail rows={during} sessionState="after" coveragePending />);
+        expect(screen.getByTestId('focus-point-3-pending')).toHaveTextContent('Checking…');
+        expect(screen.getByTestId('focus-points-rail-list').querySelector('[data-marker="missed"]')).toBeNull();
+    });
+
+    it('every row carries a visible status word in each state (not screen-reader-only)', () => {
+        const { unmount } = render(<FocusPointsRail rows={during} sessionState="during" nextIndex={2} />);
+        expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Detected at');
+        expect(screen.getByTestId('focus-point-1')).toHaveTextContent('Partly detected at');
+        expect(screen.getByTestId('focus-point-2')).toHaveTextContent('Still to cover');
+        expect(screen.getByTestId('focus-point-3')).toHaveTextContent('Not heard yet');
+        unmount();
+        render(<FocusPointsRail rows={during} sessionState="after" />);
+        expect(screen.getByTestId('focus-point-2-status')).toHaveTextContent('Not detected');
+        expect(screen.getByTestId('focus-point-3-status')).toHaveTextContent('Not detected');
+        expect(document.querySelectorAll('[data-testid="focus-points-rail-list"] .sr-only')).toHaveLength(0);
+    });
+
+    it('G20 B2 — while the after-Stop verdict is computed: "Checking your points", dashed grey rings, no legend, no note', () => {
+        render(<FocusPointsRail rows={during.map((r) => ({ ...r, status: 'missing' as const, covered: false, coveredAtSec: null }))} sessionState="after" coveragePending />);
+        expect(screen.getByText('Checking your points')).toBeInTheDocument();
+        const marker = screen.getByTestId('focus-point-0-marker');
+        expect(marker).toHaveAttribute('data-marker', 'checking');
+        expect(marker).toHaveClass('border-dashed');
+        expect(marker).toHaveTextContent(/^1$/);
+        expect(screen.getByTestId('focus-point-0-pending')).toHaveTextContent('Checking…');
+        expect(screen.queryByTestId('focus-points-legend')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('focus-points-detection-note')).not.toBeInTheDocument();
+    });
+
+    it('G20 B3 — a check that can no longer happen says so, never "Checking…" forever and never a verdict', () => {
+        const pending = during.map((r) => ({ ...r, status: 'missing' as const, covered: false, coveredAtSec: null }));
+        render(<FocusPointsRail rows={pending} sessionState="after" coveragePending checkUnavailable />);
+        expect(screen.getByTestId('focus-points-check-unavailable')).toHaveTextContent('We couldn’t check your points this time. Your session is saved.');
+        expect(screen.getByText('Points to cover')).toBeInTheDocument();
+        expect(screen.queryByText('Checking…')).not.toBeInTheDocument();
+        expect(screen.queryByText('Not detected')).not.toBeInTheDocument();
+        expect(screen.getByTestId('focus-point-0-marker')).toHaveAttribute('data-marker', 'pending');
+        expect(screen.queryByTestId('focus-points-legend')).not.toBeInTheDocument();
+    });
+
+    it('G20 — the detector-uncertainty note appears once, BELOW the list, only with a verdict', () => {
+        render(<FocusPointsRail rows={during} sessionState="after" />);
+        const list = screen.getByTestId('focus-points-rail-list');
+        const note = screen.getByTestId('focus-points-detection-note');
+        expect(list.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(screen.getAllByTestId('focus-points-detection-note')).toHaveLength(1);
+    });
+
+    it('PM review: a FINAL detected or partly detected point with NO timestamp still shows its status visibly', () => {
+        const finalAuthority: FocusCoverageRow[] = [
+            { label: 'one', status: 'covered', covered: true, coveredAtSec: null, quote: null },
+            { label: 'two', status: 'partial', covered: true, coveredAtSec: null, quote: null },
+            { label: 'three', status: 'missing', covered: false, coveredAtSec: null, quote: null },
+        ];
+        render(<FocusPointsRail rows={finalAuthority} sessionState="after" />);
+        expect(screen.getByTestId('focus-point-0-status')).toHaveTextContent(/^Detected$/);
+        expect(screen.getByTestId('focus-point-0-status')).toBeVisible();
+        expect(screen.getByTestId('focus-point-1-status')).toHaveTextContent(/^Partly detected$/);
+        expect(screen.getByTestId('focus-point-2-status')).toHaveTextContent(/^Not detected$/);
+        expect(document.querySelectorAll('[data-testid="focus-points-rail-list"] .sr-only')).toHaveLength(0);
     });
 });
