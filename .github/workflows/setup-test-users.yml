@@ -96,8 +96,17 @@ jobs:
         run: |
           echo "🔐 Generating new SOAK_TEST_PASSWORD..."
           
-          # Generate a secure random password
-          NEW_PASSWORD=$(openssl rand -base64 16 | tr -d '/+=' | head -c 20)
+          # openssl is captured on its own, so its failure fails this step before any secret is written. The
+          # former `openssl | tr | head -c 20` masked that failure behind head's success, leaving an empty
+          # password for `gh secret set`. 32 bytes, not 16: after dropping `/+=`, 16 bytes left fewer than 20
+          # characters in ~3% of runs, which head then truncated silently. #1315.
+          RAW=$(openssl rand -base64 32)
+          NEW_PASSWORD=${RAW//[\/+=]/}
+          NEW_PASSWORD=${NEW_PASSWORD:0:20}
+          if [ "${#NEW_PASSWORD}" -ne 20 ]; then
+            echo "::error::generated password has ${#NEW_PASSWORD} characters, expected 20"
+            exit 1
+          fi
           
           # Set it as a GitHub secret
           gh secret set SOAK_TEST_PASSWORD --body "$NEW_PASSWORD"
