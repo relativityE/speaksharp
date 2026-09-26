@@ -114,6 +114,7 @@ globalThis.fetch = async (url, init) => {
 function mockSupabase(options: MockOptions = {}) {
   const state = {
     updated: null as unknown,
+    fromTables: [] as string[],
     filters: [] as Array<[string, unknown]>,
     rpcCount: 0,
     authorityRpcCount: 0,
@@ -174,6 +175,7 @@ function mockSupabase(options: MockOptions = {}) {
     },
     from: (table: string) => ({
       select: (_columns: string) => {
+        state.fromTables.push(table);
         // #1258: the Focus Points reads (objective tables) resolve from `options.focus`.
         const focusResult = (): { data: unknown; error: unknown } => {
           const f = options.focus;
@@ -950,6 +952,39 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const mock = mockSupabase({ session: savedSession(), focus: FOCUS });
     assertEquals((await handler(request(), mock.create)).status, 200);
     assertStringIncludes(lastPrompt, 'Focus Points session.');
+  });
+
+  // PM 2026-09-26 — the Focus coaching CACHE-BINDING casualty. The saved review is bound to its session and replayed
+  // exactly as saved: a Focus request with a cached pair neither re-reads Focus results nor spends quota or a provider
+  // call, and cannot be regenerated with different context. (The one path that could cache a pair WITHOUT Focus
+  // context — a pre-deploy tab's product-less request racing its own Focus save across the deploy — is reported to the
+  // PM as a named residual; the stale-client guard stops old tabs from starting new takes.)
+  await t.step('#1258 CASUALTY (cache binding): a Focus request with a saved pair replays it exactly — no Focus read, no quota, no provider', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), focus: FOCUS });
+    const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).suggestions, suggestionA);
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.quotaCount, 0);
+    assertEquals(mock.state.updated, null);
+    assertEquals(mock.state.fromTables.filter((t) => t.startsWith('objective_')), []);
+  });
+
+  await t.step('#1258 CASUALTY (cache binding): a Focus pair is generated only WITH the saved results, then that pair is what replays', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession(), focus: FOCUS });
+    const first = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
+    assertEquals(first.status, 200);
+    assertStringIncludes(lastPrompt, 'Focus Points session.');
+    const persisted = (mock.state.updated as { ai_suggestions?: unknown })?.ai_suggestions;
+    assertEquals(persisted !== undefined && persisted !== null, true);
+    // The replay of that session returns the persisted Focus-aware pair without another generation.
+    resetProvider();
+    const replay = mockSupabase({ session: savedSession({ ai_suggestions: persisted }), focus: FOCUS });
+    const second = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), replay.create);
+    assertEquals((await second.json()).suggestions, persisted);
+    assertEquals(fetchCount, 0);
   });
 
   await t.step('#1258 CASUALTY: a Focus take whose results are not saved yet is refused 425 — no quota, no provider, nothing cached', async () => {
