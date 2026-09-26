@@ -102,7 +102,68 @@ export interface ReceiptForFinalization {
     suite: string;
     release: string;
     rows: ReceiptRow[];
+    meta?: Record<string, unknown>;
     readback?: { journeyIds?: string[] };
+}
+
+const VERDICTS: ReadonlySet<string> = new Set(['PASS', 'FAIL', 'HOLD', 'HUMAN']);
+
+/**
+ * PM RETURN 2026-09-26 — the human observations each RWT suite MUST carry. A receipt missing one of them cannot be
+ * finalized: an empty or truncated receipt would otherwise have nothing to fail and read PASS.
+ */
+export function requiredHumanObservations(receipt: ReceiptForFinalization): string[] | null {
+    switch (receipt.suite) {
+        case 'open-mic-first-session':
+            // Synthetic audio cannot prove "uh"; a human recording's transcript row can (automated).
+            return ['open_mic_coaching_relevant', ...(receipt.meta?.fixtureKind === 'synthetic' ? ['open_mic_uh_detected'] : [])];
+        case 'focus-points-session':
+        case 'focus-points-partial':
+            return ['focus_coaching_covers_points'];
+        case 'returning-user-navigation':
+            return [];
+        default:
+            return null; // not an RWT suite this finalizer knows
+    }
+}
+
+/**
+ * PM RETURN 2026-09-26 — the receipt is untrusted input. Validate its structure, every row's verdict, the run identity
+ * and the suite's required human observations BEFORE anything is applied; any error means no final PASS.
+ */
+export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization | null; errors: string[] } {
+    const errors: string[] = [];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { receipt: null, errors: ['receipt is not a JSON object'] };
+    const r = raw as Record<string, unknown>;
+    if (typeof r.suite !== 'string' || r.suite.trim() === '') errors.push('receipt has no suite');
+    if (typeof r.release !== 'string' || !/^[0-9a-f]{40}$/.test(r.release)) errors.push('receipt release is not a 40-character SHA');
+    const readback = r.readback as { journeyIds?: unknown } | undefined;
+    if (!readback || !Array.isArray(readback.journeyIds) || !readback.journeyIds.every((j) => typeof j === 'string')) {
+        errors.push('receipt has no readback.journeyIds list');
+    }
+    if (!Array.isArray(r.rows) || r.rows.length === 0) {
+        errors.push('receipt has no rows');
+    } else {
+        r.rows.forEach((row, i) => {
+            const x = row as Record<string, unknown> | null;
+            if (!x || typeof x !== 'object' || typeof x.step !== 'string' || x.step.trim() === '' || typeof x.detail !== 'string') {
+                errors.push(`row ${i} is malformed`);
+            } else if (typeof x.verdict !== 'string' || !VERDICTS.has(x.verdict)) {
+                errors.push(`row ${i} has an unknown verdict ${JSON.stringify(x.verdict)}`);
+            } else if (x.evidence !== undefined && (typeof x.evidence !== 'object' || x.evidence === null || Array.isArray(x.evidence))) {
+                errors.push(`row ${i} evidence is malformed`);
+            }
+        });
+        const rows = r.rows as ReceiptRow[];
+        if (errors.length === 0 && !rows.some((row) => !isHumanObservation(row))) errors.push('receipt has no automated rows');
+    }
+    if (errors.length > 0) return { receipt: null, errors };
+    const receipt = r as unknown as ReceiptForFinalization;
+    const required = requiredHumanObservations(receipt);
+    if (required === null) return { receipt: null, errors: [`unknown RWT suite ${receipt.suite}`] };
+    const present = receipt.rows.filter(isHumanObservation).map((row) => String(row.evidence!.observationId));
+    for (const id of required) if (!present.includes(id)) errors.push(`receipt is missing the required human observation ${id}`);
+    return { receipt, errors };
 }
 
 export interface FinalizationResult {
@@ -122,8 +183,14 @@ export interface FinalizationResult {
  * the run INCOMPLETE (never a guess). Otherwise the human rows take the recorded verdicts and acceptance is
  * recomputed over ALL rows — so an automated FAIL still fails a run whose human checks all passed.
  */
-export function finalizeReceipt(receipt: ReceiptForFinalization, worksheet: ParsedWorksheet): FinalizationResult {
-    const errors: string[] = [];
+export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet): FinalizationResult {
+    const validated = validateReceipt(raw);
+    if (!validated.receipt) {
+        // Unusable receipt: nothing can be finalized from it — INCOMPLETE, never PASS.
+        return { status: 'binding_error', finalAcceptance: 'INCOMPLETE', errors: validated.errors, rows: [], humanObservations: [], automatedRowsAllPass: false };
+    }
+    const receipt = validated.receipt;
+    const errors: string[] = [...validated.errors];
     const expectedJourneys = [...(receipt.readback?.journeyIds ?? [])].sort();
     if (worksheet.suite !== receipt.suite) errors.push(`suite mismatch: worksheet ${String(worksheet.suite)} vs receipt ${receipt.suite}`);
     if (!receipt.release || worksheet.release !== receipt.release) errors.push(`deployed SHA mismatch: worksheet ${String(worksheet.release)} vs receipt ${receipt.release || '(unset)'}`);

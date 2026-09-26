@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { finalizeReceipt, parseHumanWorksheet, type ReceiptForFinalization } from '../tests/live/helpers/rwtAcceptance.ts';
+import { finalizeReceipt, parseHumanWorksheet } from '../tests/live/helpers/rwtAcceptance.ts';
 
 const arg = (name: string): string | null => {
     const i = process.argv.indexOf(`--${name}`);
@@ -27,13 +27,17 @@ if (!receiptPath || !worksheetPath) {
 const receiptBytes = readFileSync(receiptPath);
 const worksheetBytes = readFileSync(worksheetPath);
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
-const receipt = JSON.parse(receiptBytes.toString('utf8')) as ReceiptForFinalization;
-const result = finalizeReceipt(receipt, parseHumanWorksheet(worksheetBytes.toString('utf8')));
+// The receipt is untrusted input: finalizeReceipt validates its structure, verdicts and required observations.
+let raw: unknown;
+try { raw = JSON.parse(receiptBytes.toString('utf8')); } catch { raw = null; }
+const result = finalizeReceipt(raw, parseHumanWorksheet(worksheetBytes.toString('utf8')));
+const receipt = (raw && typeof raw === 'object' ? raw : {}) as { suite?: unknown; release?: unknown; readback?: { journeyIds?: unknown } };
+const suite = typeof receipt.suite === 'string' && /^[a-z0-9-]+$/.test(receipt.suite) ? receipt.suite : 'invalid-receipt';
 
 const final = {
-    suite: receipt.suite,
-    release: receipt.release,
-    journeyIds: receipt.readback?.journeyIds ?? [],
+    suite,
+    release: typeof receipt.release === 'string' ? receipt.release : null,
+    journeyIds: Array.isArray(receipt.readback?.journeyIds) ? receipt.readback!.journeyIds : [],
     receiptSha256: sha256(receiptBytes),
     worksheetSha256: sha256(worksheetBytes),
     status: result.status,
@@ -42,7 +46,7 @@ const final = {
     humanObservations: result.humanObservations,
     errors: result.errors,
 };
-const out = path.join(path.dirname(receiptPath), `${receipt.suite}.final.json`);
+const out = path.join(path.dirname(receiptPath), `${suite}.final.json`);
 writeFileSync(out, `${JSON.stringify(final, null, 2)}\n`);
 console.log(`RWT_FINAL ${JSON.stringify(final)}`);
 if (result.errors.length > 0) for (const e of result.errors) console.error(`binding error: ${e}`);
