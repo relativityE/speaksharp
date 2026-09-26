@@ -9,7 +9,7 @@
  *
  * Decoded, an entire product looked like a review whose generation had failed.
  */
-import { render, screen } from '../../../../tests/support/test-utils';
+import { act, render, screen } from '../../../../tests/support/test-utils';
 import { fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
@@ -65,6 +65,8 @@ const renderFocusPointsReview = (extra: Partial<SessionOverhaulViewProps> = {}) 
 );
 
 describe('#1421 P1 — Focus Points review receipts', () => {
+    // #1533 P2 #3: after-session actions share the mic's live gate — resolve it for this owner, nothing owed.
+    beforeEach(() => { useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'user-1' }); });
     it('CASUALTY: the rail is reported as the rail, not as coaching that fell back', () => {
         renderFocusPointsReview();
 
@@ -214,5 +216,56 @@ describe('S-11 P1 — the after-state mic restarts the same product, and says so
         const selected = last(rows('journey_step').filter((r) => r.step === 'option_selected'));
         expect({ delegated: onStartStop.mock.calls.length, chosen: selected?.option_selected })
             .toEqual({ delegated: 1, chosen: 'practice_next' });
+    });
+});
+
+// #1533 Codex P2 #3 — a fenced after-session action records NO choice: while the live Progress gate is published a
+// stale activation reaches the handler but emits no `option_selected` (a receipt for a Start that never happened
+// would be false telemetry). After settlement one deliberate press emits exactly one, then delegates.
+describe('#1533 P2 #3 — no option_selected receipt while the after-session action is fenced', () => {
+    const selections = () => rows('journey_step').filter((r) => r.step === 'option_selected');
+    const stale = (el: HTMLElement) => { (el as HTMLButtonElement).disabled = false; fireEvent.click(el); };
+
+    it.each([
+        ['Open Mic Practice again', 'verdict-practice-again', 'practice_next', {}],
+        ['Focus Points Retry this set', 'focus-points-retry', 'retry_points', { objectivePoints: null, completedObjectivePoints: POINTS }],
+    ] as const)('%s', (_name, testId, chosen, extra) => {
+        const onStartStop = vi.fn();
+        const onRetryPoints = vi.fn();
+        useSessionStore.setState({ progressGate: { sessionId: 's-prev', ownerId: 'user-1', state: 'queued' }, progressGateResolvedFor: 'user-1' });
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            onStartStop={onStartStop} onRetryPoints={onRetryPoints} {...extra} />);
+
+        stale(screen.getByTestId(testId));
+        expect({ receipts: selections().length, starts: onStartStop.mock.calls.length + onRetryPoints.mock.calls.length })
+            .toEqual({ receipts: 0, starts: 0 });
+
+        act(() => { useSessionStore.getState().setProgressGate(null); });
+        fireEvent.click(screen.getByTestId(testId));
+        expect({ receipts: selections().map((r) => r.option_selected), starts: onStartStop.mock.calls.length + onRetryPoints.mock.calls.length })
+            .toEqual({ receipts: [chosen], starts: 1 });
+    });
+
+    // PM RETURN on 121d0f9a6: the gate is published AFTER the last render and the click lands BEFORE React re-renders.
+    // The button is still enabled on screen, so only the handler's live read of the store can stop it.
+    it.each([
+        ['Open Mic Practice again', 'verdict-practice-again', {}],
+        ['Focus Points Retry this set', 'focus-points-retry', { objectivePoints: null, completedObjectivePoints: POINTS }],
+    ] as const)('%s — a click between gate publication and the rerender starts nothing and records nothing', (_name, testId, extra) => {
+        const onStartStop = vi.fn();
+        const onRetryPoints = vi.fn();
+        useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'user-1' });
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            onStartStop={onStartStop} onRetryPoints={onRetryPoints} {...extra} />);
+        const action = screen.getByTestId(testId);
+        expect(action).toBeEnabled();
+
+        // Published synchronously, outside act: no render has run between this line and the click.
+        useSessionStore.setState({ progressGate: { sessionId: 's-prev', ownerId: 'user-1', state: 'queued' } });
+        expect(action, 'precondition: still the pre-gate render').toBeEnabled();
+        action.click();
+
+        expect({ receipts: selections().length, starts: onStartStop.mock.calls.length + onRetryPoints.mock.calls.length })
+            .toEqual({ receipts: 0, starts: 0 });
     });
 });

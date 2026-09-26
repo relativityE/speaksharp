@@ -100,7 +100,9 @@ test.describe('#1476 one account, one engine — two tabs', () => {
             localStorage.setItem('__e2e_progress_obligations_1476', JSON.stringify([{ session_id: 'sess-other-device-1476', state: 'pending', created_at: '2026-09-23T12:00:00.000Z' }]));
         });
         await pressStart(page);
-        await expect(page.getByText(PROGRESS_HELD)).toBeVisible({ timeout: 15_000 });
+        // The Start's scan now publishes the gate (canary 36142201470), so the reason is the gate's own notice: rendered
+        // in the recorder and, for small screens, in the mobile bar's blocked reason — hence the first visible match.
+        await expect(page.getByText(PROGRESS_HELD).first()).toBeVisible({ timeout: 15_000 });
         expect(notRecording(await engine(page)), 'Start held before any engine work').toBe(true);
     });
 });

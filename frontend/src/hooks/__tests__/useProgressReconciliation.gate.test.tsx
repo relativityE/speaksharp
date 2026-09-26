@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { enqueueProgressReconcile, progressQueueEntryKey, PROGRESS_QUEUE_V2_PREFIX } from '@/services/progress/progressReconcileQueue';
-import { PROGRESS_QUEUE_STORAGE_KEY } from '@/services/progress/progressStartGate';
+import { PROGRESS_QUEUE_STORAGE_KEY, progressGateNotice, startGateMessage } from '@/services/progress/progressStartGate';
 
 const authUser: { user: { id: string } | null } = { user: null };
 vi.mock('../../contexts/AuthProvider', () => ({ useAuthProvider: () => authUser }));
@@ -189,5 +189,109 @@ describe('the storage key has ONE production authority', () => {
         expect(localStorage.getItem(written)).not.toBeNull();
         expect(written.startsWith(PROGRESS_QUEUE_V2_PREFIX)).toBe(true);
         expect(PROGRESS_QUEUE_STORAGE_KEY).toBe('ss_progress_reconcile_queue_v1');
+    });
+});
+
+/**
+ * #1533 Codex P2 (PM FIX NOW, 2026-09-26) — a refusal from DURABLE debt while this page's gate is still null. The
+ * controller re-reads durable debt at Start, so it can refuse before the per-tab projection arrives. The refusal is
+ * the only reason on screen then; it must stay until the same-owner gate notice is published (then it is a duplicate)
+ * or until a gate this page observed has cleared (then it is stale). Unrelated errors are never touched.
+ */
+describe('#1533 — the refusal reason survives a null page gate', () => {
+    const REFUSAL = startGateMessage({ allowed: false, reason: 'queued_debt', sessionId: SESSION })!;
+    const status = () => useSessionStore.getState().sttStatus;
+    const refuse = (message = REFUSAL) => act(() => { useSessionStore.getState().setSTTStatus({ type: 'error', message }); });
+
+    beforeEach(() => { useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready to record' }); });
+
+    it('refused while the page gate is null: the reason stays (no silent click); projection makes it a duplicate and removes it; settlement leaves nothing stale', async () => {
+        authUser.user = { id: OWNER };
+        renderHook(() => useProgressReconciliation());
+        await waitFor(() => expect(resolved()).toBe(true));
+        expect(gate()).toBeNull();
+
+        // The controller refused from durable debt this tab has not projected yet.
+        refuse();
+        await new Promise((r) => setTimeout(r, 20));
+        expect(status()).toEqual({ type: 'error', message: REFUSAL });
+
+        // The same-owner gate is projected: its notice now says this once, so the red copy goes.
+        act(() => { useSessionStore.getState().setProgressGate({ sessionId: SESSION, ownerId: OWNER, state: 'queued' }); });
+        await waitFor(() => expect(status().type).toBe('idle'));
+
+        // Settlement precondition, asserted (not vacuous): immediately before the gate clears, the ONLY reason on
+        // screen is the gate's own notice — the refusal is absent because publication removed it.
+        expect(progressGateNotice(gate(), true)).toBe(REFUSAL);
+        expect(status()).toEqual({ type: 'idle', message: 'Ready to record' });
+
+        // Settlement: the gate clears; its notice goes with it and no refusal lingers.
+        act(() => { useSessionStore.getState().setProgressGate(null); });
+        await new Promise((r) => setTimeout(r, 20));
+        expect(progressGateNotice(gate(), true)).toBeNull();
+        expect(status()).toEqual({ type: 'idle', message: 'Ready to record' });
+    });
+
+    it('PM casualty — BATCHED: an observed gate A clears in the SAME act that a new durable-debt refusal appears → the refusal stays with the page gate null', async () => {
+        authUser.user = { id: OWNER };
+        renderHook(() => useProgressReconciliation());
+        await waitFor(() => expect(resolved()).toBe(true));
+        // This page observes same-owner gate A.
+        act(() => { useSessionStore.getState().setProgressGate({ sessionId: SESSION, ownerId: OWNER, state: 'queued' }); });
+        expect(progressGateNotice(gate(), true)).not.toBeNull();
+        expect(status().type).toBe('idle');
+
+        // One update: A clears AND the controller publishes a NEW refusal from durable debt.
+        act(() => {
+            useSessionStore.getState().setProgressGate(null);
+            useSessionStore.getState().setSTTStatus({ type: 'error', message: REFUSAL });
+        });
+        await new Promise((r) => setTimeout(r, 20));
+        expect(gate()).toBeNull();
+        expect(status(), 'the new refusal is the only reason on screen and must stay').toEqual({ type: 'error', message: REFUSAL });
+    });
+
+    it('BATCHED, the other way: a refusal and its same-owner gate published in the same act → the duplicate refusal goes, the notice shows', async () => {
+        authUser.user = { id: OWNER };
+        renderHook(() => useProgressReconciliation());
+        await waitFor(() => expect(resolved()).toBe(true));
+        act(() => {
+            useSessionStore.getState().setSTTStatus({ type: 'error', message: REFUSAL });
+            useSessionStore.getState().setProgressGate({ sessionId: SESSION, ownerId: OWNER, state: 'queued' });
+        });
+        await waitFor(() => expect(status().type).toBe('idle'));
+        expect(progressGateNotice(gate(), true)).toBe(REFUSAL);
+    });
+
+    it('a NEW refusal after the earlier gate already settled (gate still null) keeps its reason — no stale observation clears it', async () => {
+        authUser.user = { id: OWNER };
+        renderHook(() => useProgressReconciliation());
+        await waitFor(() => expect(resolved()).toBe(true));
+        act(() => { useSessionStore.getState().setProgressGate({ sessionId: SESSION, ownerId: OWNER, state: 'queued' }); });
+        act(() => { useSessionStore.getState().setProgressGate(null); });
+        refuse();
+        await new Promise((r) => setTimeout(r, 20));
+        expect(status()).toEqual({ type: 'error', message: REFUSAL });
+    });
+
+    it('another owner\'s gate never clears this owner\'s refusal', async () => {
+        authUser.user = { id: OWNER };
+        renderHook(() => useProgressReconciliation());
+        await waitFor(() => expect(resolved()).toBe(true));
+        refuse();
+        act(() => { useSessionStore.getState().setProgressGate({ sessionId: 'x', ownerId: OTHER, state: 'queued' }); });
+        await new Promise((r) => setTimeout(r, 20));
+        expect(status()).toEqual({ type: 'error', message: REFUSAL });
+    });
+
+    it('unrelated errors are preserved through gate publication and settlement', async () => {
+        authUser.user = { id: OWNER };
+        renderHook(() => useProgressReconciliation());
+        await waitFor(() => expect(resolved()).toBe(true));
+        refuse('Microphone access was denied.');
+        act(() => { useSessionStore.getState().setProgressGate({ sessionId: SESSION, ownerId: OWNER, state: 'queued' }); });
+        act(() => { useSessionStore.getState().setProgressGate(null); });
+        await new Promise((r) => setTimeout(r, 20));
+        expect(status()).toEqual({ type: 'error', message: 'Microphone access was denied.' });
     });
 });

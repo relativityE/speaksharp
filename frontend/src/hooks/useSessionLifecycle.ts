@@ -757,6 +757,12 @@ export const useSessionLifecycle = () => {
                         }, () => undefined);
                         return;
                     }
+                    // Canary 36142201470: a successful scan that QUEUED debt must publish the gate too. The controller would
+                    // refuse this Start from the durable queue, but with the store gate left empty the page's bounded retry
+                    // (keyed on a `queued` gate) never ran, so "this will retry automatically" was untrue and the refusal copy
+                    // stayed on screen until a reload. Publishing from the durable queue starts that retry; nothing owed
+                    // publishes null and changes nothing.
+                    if (obligations.ok) useSessionStore.getState().setProgressGate(reconstructGateFromQueue(ownerId));
                     if (!obligations.ok) {
                         abandonStart();
                         useSessionStore.getState().setProgressGate(reconstructGateFromQueue(ownerId));

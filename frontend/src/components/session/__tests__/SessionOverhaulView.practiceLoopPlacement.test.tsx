@@ -1,7 +1,8 @@
 import { render, screen } from '../../../../tests/support/test-utils';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 // #1466 PM acceptance lock (P1, PO evidence on 576c4712): after a completed session the Practice Loop must be
 // at eye level — ahead of transcript detail and secondary session actions — in every review state, on phones
@@ -38,6 +39,8 @@ const REVIEW_STATES = [
 ] as const;
 
 describe('#1466 Practice Loop placement — Open Mic after state', () => {
+    // #1533 P2 #3: after-session actions share the mic's live gate — resolve it for this owner, nothing owed.
+    beforeEach(() => { useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'user-1' }); });
     it.each(REVIEW_STATES)('CASUALTY: the %s review sits in slot B, ahead of the transcript and the rail', (_state, review) => {
         render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={review} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');

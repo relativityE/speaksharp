@@ -1,8 +1,9 @@
 import { render, screen } from '../../../../tests/support/test-utils';
 import { fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
+import { useSessionStore } from '@/stores/useSessionStore';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { deriveFocusCoverage } from '@/utils/focusCoverage';
 
@@ -219,6 +220,8 @@ describe('SessionOverhaulView filler consistency (#1314 C3)', () => {
 // the prompt offer + filler chrome, and highlights coverage in the transcript. Coverage is derived from
 // the transcript by the local keyword matcher, so these tests drive it with real covering text.
 describe('SessionOverhaulView Focus Points (#1046)', () => {
+    // #1533 P2 #3: after-session actions share the mic's live gate — resolve it for this owner, nothing owed.
+    beforeEach(() => { useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'user-1' }); });
     const POINTS = ['Name the price', 'State the guarantee'];
 
     // F-1 / F-2: the rail (slot D) states the plan above the points, and scores nothing before the run.

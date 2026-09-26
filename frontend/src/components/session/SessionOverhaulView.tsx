@@ -159,6 +159,16 @@ export interface SessionOverhaulViewProps {
     onSelectFocus?: (focus: PracticeFocus) => void;
 }
 
+/**
+ * The ONE Start-gate predicate, shared by the rendered controls and the after-session handlers' live read: Start is
+ * blocked until the Progress question is answered for THIS owner, and while any gate is published.
+ */
+const gateBlocksStartFor = (
+    gate: unknown,
+    resolvedFor: string | null | undefined,
+    authUserId: string | null | undefined,
+): boolean => resolvedFor !== (authUserId ?? '') || gate !== null;
+
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     authUserId,
     isListening,
@@ -312,19 +322,33 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      *
      * Emitted BEFORE delegating, so a handler that navigates or throws cannot swallow the fact.
      */
+    /**
+     * #1533 Codex P2 #3 (PM FIX NOW) — the after-session Start entry points are fenced by the SAME live same-owner
+     * Progress gate as the mic. While a gate is published the actions are disabled, and a stale click or keyboard
+     * activation that still arrives does nothing: no choice receipt, no brief rebind, no controller Start, and so no
+     * second refusal that could outlive the gate's settlement and replace the completed review. The handlers read the
+     * STORE at activation, not a value from the last render: a gate published after that render but before React
+     * re-renders must still stop a click that lands in between (PM RETURN on 121d0f9a6).
+     */
+    const liveGateBlocksStart = React.useCallback(() => {
+        const st = useSessionStore.getState();
+        return gateBlocksStartFor(st.progressGate, st.progressGateResolvedFor, authUserId);
+    }, [authUserId]);
     const choosePracticeAgain = React.useCallback(() => {
+        if (liveGateBlocksStart()) return;
         emitJourneyStep({ step: 'option_selected', optionSelected: 'practice_next' });
         onStartStop();
-    }, [onStartStop]);
+    }, [liveGateBlocksStart, onStartStop]);
 
     // The rail's two actions were passed through unwrapped, so the Focus Points review recorded which
     // options were offered and never which one was taken — the same gap `option_selected` was added to
     // close for the coaching review. Emitted before delegating, so a handler that navigates or throws
     // cannot swallow the fact.
     const chooseRetryPoints = React.useCallback(() => {
+        if (liveGateBlocksStart()) return;
         emitJourneyStep({ step: 'option_selected', optionSelected: 'retry_points' });
         (onRetryPoints ?? onStartStop)();
-    }, [onRetryPoints, onStartStop]);
+    }, [liveGateBlocksStart, onRetryPoints, onStartStop]);
 
     const chooseNewSet = React.useCallback(() => {
         emitJourneyStep({ step: 'option_selected', optionSelected: 'new_set' });
@@ -702,6 +726,23 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * The transcript's terminal state is the authority here. A coverage array that outlived the
      * transcript it described is stale by definition and cannot make the result available.
      */
+    // #1354 CASE 4/6 — the rendered gate. Open Mic and Focus Points render through THIS component and
+    // this single `mic.disabled`, so both entry points inherit the identical gate by construction rather
+    // than by two copies kept in step by hand.
+    //
+    // `!progressGateResolved` is deliberate: a null gate means both "nothing owed" and "not looked yet",
+    // and on reload we have not looked until the durable queue has been read. Disabling during that
+    // window is what removes the enabled frame. The button is a CUE, never the gate — `startRecording`
+    // re-reads the durable queue on every attempt regardless of what is rendered.
+    const progressGate = useSessionStore((st) => st.progressGate);
+    const progressGateResolvedFor = useSessionStore((st) => st.progressGateResolvedFor);
+    // Owner-scoped: an answer determined for a DIFFERENT account is not an answer for this one, so an
+    // account transition reverts to "not determined" immediately rather than inheriting an enabled
+    // Start from the previous owner.
+    const gateResolvedForViewer = progressGateResolvedFor === (authUserId ?? '');
+    const gateBlocksStart = gateBlocksStartFor(progressGate, progressGateResolvedFor, authUserId);
+    const gateNotice = progressGateNotice(progressGate, gateResolvedForViewer);
+
     const reviewIsTerminal = effectiveReview.kind === 'expired' || effectiveReview.kind === 'not_captured';
     const coverageTerminallyUnavailable = isObjective
         && terminalAuthorityExpected
@@ -721,7 +762,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="during" nextIndex={coverage.nextIndex} />
         : undefined;
     const objectiveAfterSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={chooseRetryPoints} onNewSet={onNewSet ? chooseNewSet : undefined} />
+        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={chooseRetryPoints} onNewSet={onNewSet ? chooseNewSet : undefined}
+            retryDisabled={gateBlocksStart} retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
         : isObjective
             ? <FocusPointsRail
                 rows={pendingObjectiveRows}
@@ -729,26 +771,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 sessionState="after"
                 coveragePending
                 onRetry={chooseRetryPoints}
+                retryDisabled={gateBlocksStart}
+                retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined}
                 onNewSet={onNewSet ? chooseNewSet : undefined}
             />
             : undefined;
 
-    // #1354 CASE 4/6 — the rendered gate. Open Mic and Focus Points render through THIS component and
-    // this single `mic.disabled`, so both entry points inherit the identical gate by construction rather
-    // than by two copies kept in step by hand.
-    //
-    // `!progressGateResolved` is deliberate: a null gate means both "nothing owed" and "not looked yet",
-    // and on reload we have not looked until the durable queue has been read. Disabling during that
-    // window is what removes the enabled frame. The button is a CUE, never the gate — `startRecording`
-    // re-reads the durable queue on every attempt regardless of what is rendered.
-    const progressGate = useSessionStore((st) => st.progressGate);
-    const progressGateResolvedFor = useSessionStore((st) => st.progressGateResolvedFor);
-    // Owner-scoped: an answer determined for a DIFFERENT account is not an answer for this one, so an
-    // account transition reverts to "not determined" immediately rather than inheriting an enabled
-    // Start from the previous owner.
-    const gateResolvedForViewer = progressGateResolvedFor === (authUserId ?? '');
-    const gateBlocksStart = !gateResolvedForViewer || progressGate !== null;
-    const gateNotice = progressGateNotice(progressGate, gateResolvedForViewer);
 
     if (sessionState === 'before') {
         // Slot D. Focus Points stacks its plan above its points (F-1); Open Mic states its baseline in one
@@ -872,7 +900,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             )}
             {!isObjective && (
                 <div className={practiceLoopReview ? 'mt-4' : undefined}>
-                    <SessionVerdict verdictLine={null} fix={null} onPracticeAgain={choosePracticeAgain} onSeeAllSessions={chooseSeeAllSessions} />
+                    <SessionVerdict verdictLine={null} fix={null} onPracticeAgain={choosePracticeAgain} onSeeAllSessions={chooseSeeAllSessions}
+                        practiceAgainDisabled={gateBlocksStart} practiceAgainDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
                 </div>
             )}
         </>
@@ -916,6 +945,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     onStart: isObjective ? chooseRetryPoints : choosePracticeAgain,
                     // The before-state mic's gate, verbatim: a press here must be possible exactly when it is there.
                     disabled: Boolean(isButtonDisabled) || gateBlocksStart,
+                    // #1533 (Codex P2, PM FIX NOW): the same owner-scoped reason the `before` mic shows. The refusal
+                    // copy in the recorder status is removed once the gate is published, so without this the held
+                    // after-session mic had no visible explanation on desktop.
+                    blockedReason: gateBlocksStart ? gateNotice : null,
                 }}
                 transcript={{
                     tokens: renderedReviewTokens,

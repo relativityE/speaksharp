@@ -1,4 +1,4 @@
-import { render, screen } from '../../../../tests/support/test-utils';
+import { act, fireEvent, render, screen } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -96,5 +96,70 @@ describe('the rendered Start control reflects the Progress gate', () => {
 
         render(<SessionOverhaulView {...base} objectiveTopic="my topic" objectivePoints={['a', 'b']} />);
         expect(startButton(), 'Focus Points must not be startable while Open Mic is blocked').toBeDisabled();
+    });
+});
+
+/**
+ * #1533 Codex P2 #3 (PM FIX NOW) — the after-session Start entry points are fenced by the SAME live same-owner gate as
+ * the mic. A Practice-again reaching the controller while a gate is published could race its settlement and leave a
+ * refusal over the completed review. While the gate is published the action is disabled, a stale activation that still
+ * reaches the handler does nothing, and once the gate settles the review stays and one deliberate press starts.
+ */
+describe('#1533 — after-session Practice again / Retry are fenced by the live Progress gate', () => {
+    const after = {
+        ...base,
+        showAnalyticsPrompt: true,
+        reviewTranscript: { kind: 'available' as const, text: 'I will name the price now.' },
+    };
+    const OWNED = { sessionId: 's-prev', ownerId: 'user-1', state: 'queued' as const };
+    /** A stale activation: the button was rendered enabled, then the gate appeared before the press was handled. */
+    const staleActivate = (el: HTMLElement) => { (el as HTMLButtonElement).disabled = false; fireEvent.click(el); };
+
+    it('Open Mic: disabled with the visible reason while the gate is published; a stale activation starts nothing; settlement re-enables and one press starts', () => {
+        const onStartStop = vi.fn();
+        useSessionStore.getState().setProgressGateResolvedFor('user-1');
+        useSessionStore.getState().setProgressGate(OWNED);
+        render(<SessionOverhaulView {...after} onStartStop={onStartStop} />);
+
+        const practice = screen.getByTestId('verdict-practice-again');
+        expect(practice).toBeDisabled();
+        expect(practice).toHaveAttribute('aria-describedby', 'run-shape-blocked-reason');
+        expect(screen.getByTestId('run-shape-blocked-reason')).toHaveTextContent(/Finishing up your last session/);
+        staleActivate(practice);
+        expect(onStartStop, 'no controller Start while the gate is published').not.toHaveBeenCalled();
+
+        // Settlement: the completed review remains; the action is enabled; the next deliberate press starts.
+        act(() => { useSessionStore.getState().setProgressGate(null); });
+        expect(screen.getByTestId('verdict-practice-again')).toBeEnabled();
+        expect(screen.queryByTestId('run-shape-blocked-reason')).not.toBeInTheDocument();
+        expect(screen.getByTestId('verdict-practice-again')).not.toHaveAttribute('aria-describedby');
+        fireEvent.click(screen.getByTestId('verdict-practice-again'));
+        expect(onStartStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('Focus Points: Retry this set is fenced the same way (no rebind, no Start) and re-enables on settlement', () => {
+        const onRetryPoints = vi.fn();
+        useSessionStore.getState().setProgressGateResolvedFor('user-1');
+        useSessionStore.getState().setProgressGate(OWNED);
+        render(<SessionOverhaulView {...after} objectivePoints={['Name the price', 'State the guarantee']}
+            objectiveCoverage={[{ id: 'p1', label: 'Name the price', status: 'covered' }, { id: 'p2', label: 'State the guarantee', status: 'missing' }]}
+            onRetryPoints={onRetryPoints} />);
+
+        const retry = screen.getByTestId('focus-points-retry');
+        expect(retry).toBeDisabled();
+        expect(retry).toHaveAttribute('aria-describedby', 'run-shape-blocked-reason');
+        staleActivate(retry);
+        expect(onRetryPoints, 'no rebind / Start while the gate is published').not.toHaveBeenCalled();
+
+        act(() => { useSessionStore.getState().setProgressGate(null); });
+        expect(screen.getByTestId('focus-points-retry')).toBeEnabled();
+        fireEvent.click(screen.getByTestId('focus-points-retry'));
+        expect(onRetryPoints).toHaveBeenCalledTimes(1);
+    });
+
+    it('an unresolved owner also fences the action (the mic\'s predicate, not a new one)', () => {
+        useSessionStore.getState().setProgressGateResolvedFor(null);
+        render(<SessionOverhaulView {...after} />);
+        expect(screen.getByTestId('verdict-practice-again')).toBeDisabled();
     });
 });

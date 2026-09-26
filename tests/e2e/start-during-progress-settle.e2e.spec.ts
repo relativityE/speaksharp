@@ -1,0 +1,296 @@
+/**
+ * Production canary 36142201470, attempt 1 (#1521 verification, PM classification: pre-RWT) — a Start pressed while the
+ * account's owed Progress evaluations are still SETTLING.
+ *
+ * Observed on Production: the click took the recording lease, the lease was released a moment later while the owed
+ * evaluations finished (all 200), and then nothing happened — no model download, no session, no network for 150 s —
+ * while the page kept saying "Finishing up your last session — … You can start again once it completes." with Start
+ * enabled, although nothing was owed any more.
+ *
+ * This journey reproduces that window deterministically: the account owes one evaluation, the server's
+ * `record_progress_evaluation` is HELD (the E2E double's opt-in switch, as in start-journeys-1476), the person presses
+ * Start during the hold, then the evaluation is released and settles. The acceptable outcome (PM):
+ *   1. the first click is handled TRUTHFULLY — no recording, no microphone, the lease it took is released, and the page
+ *      says why;
+ *   2. once the debt settles, the notice CLEARS on its own (no stale "Finishing up");
+ *   3. the NEXT Start records, with no reload.
+ * The oracle is the rendered page, the engine's own state and mic handle, the lease, and the RPCs the page made.
+ */
+import type { Page } from '@playwright/test';
+import { test, expect } from './fixtures';
+import { navigateToRoute, simulateTranscription, startRecording, stopRecording, waitForModelReady } from './helpers';
+
+const MIC_READY = 'Mic ready on this device';
+const PROGRESS_HELD = 'Finishing up your last session — this will retry automatically. You can start again once it completes.';
+const LEASE_KEY = '__e2e_shared_lease_1476';
+const OBLIGATIONS_KEY = '__e2e_progress_obligations_1476';
+
+type Engine = { controllerState: string | null; serviceState: string | null; micHeld: boolean };
+const engine = (page: Page): Promise<Engine> => page.evaluate(() => {
+    const w = window as unknown as {
+        __SPEECH_RUNTIME_DEBUG__?: () => { controllerState?: string; serviceState?: string | null };
+        __TRANSCRIPTION_SERVICE__?: { service?: { mic?: unknown } | null };
+    };
+    const dbg = w.__SPEECH_RUNTIME_DEBUG__?.() ?? {};
+    return { controllerState: dbg.controllerState ?? null, serviceState: dbg.serviceState ?? null, micHeld: w.__TRANSCRIPTION_SERVICE__?.service?.mic != null };
+});
+const notRecording = (e: Engine) => e.controllerState !== 'RECORDING' && e.serviceState !== 'RECORDING' && !e.micHeld;
+
+async function optIn(page: Page) {
+    await page.addInitScript(() => { (window as unknown as { __E2E_SHARED_LEASE_1476__?: boolean }).__E2E_SHARED_LEASE_1476__ = true; });
+    await page.evaluate(() => { (window as unknown as { __E2E_SHARED_LEASE_1476__?: boolean }).__E2E_SHARED_LEASE_1476__ = true; }).catch(() => undefined);
+}
+const hold = (page: Page, fn: string, on: boolean) => page.evaluate(([name, value]) => {
+    const w = window as unknown as { __E2E_HOLD_RPC_1476__?: Record<string, boolean> };
+    w.__E2E_HOLD_RPC_1476__ = { ...(w.__E2E_HOLD_RPC_1476__ ?? {}), [name as string]: value as boolean };
+}, [fn, on] as const);
+const heldNow = (page: Page, fn: string) => page.evaluate((name) =>
+    ((window as unknown as { __E2E_HELD_RPC_1476__?: string[] }).__E2E_HELD_RPC_1476__ ?? []).includes(name), fn);
+const calls = (page: Page, fn: string) => page.evaluate((name) =>
+    (window as unknown as { __E2E_RPC_CALLS_1476__?: Record<string, number> }).__E2E_RPC_CALLS_1476__?.[name] ?? 0, fn);
+const leaseHeld = (page: Page) => page.evaluate((key) => localStorage.getItem(key) !== null, LEASE_KEY);
+
+test.describe('Start pressed while owed Progress is settling (canary 36142201470)', () => {
+    test('debt FOUND AT Start: refused truthfully, the owed evaluation is retried and settles, the notice clears, the next Start records without a reload', async ({ proPage: page }) => {
+        test.setTimeout(180_000);
+        await optIn(page);
+        await navigateToRoute(page, '/session');
+        await waitForModelReady(page);
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+
+        // The account owes one evaluation, and the server's evaluation call will be held open while it settles.
+        await page.evaluate((key) => localStorage.setItem(key, JSON.stringify([
+            { session_id: 'sess-settle-window', state: 'owed', created_at: '2026-09-25T13:39:00.000Z' },
+        ])), OBLIGATIONS_KEY);
+        await hold(page, 'record_progress_evaluation', true);
+        const sessionsBefore = await calls(page, 'create_session_and_update_usage');
+
+        // ── The person presses Start during the settling window ────────────────────────────────────────────
+        await page.getByTestId('mic-start').click();
+
+        // 1. Handled truthfully: never records, no microphone, the lease it took is released, and the page says why.
+        for (let i = 0; i < 8; i += 1) {
+            expect(notRecording(await engine(page)), 'no recording while Progress is settling').toBe(true);
+            await page.waitForTimeout(250);
+        }
+        expect(await calls(page, 'create_session_and_update_usage'), 'no session was created for the refused Start').toBe(sessionsBefore);
+        await expect.poll(() => leaseHeld(page), { timeout: 10_000, message: 'the refused Start leaves no lease held' }).toBe(false);
+        await expect(page.getByText(PROGRESS_HELD).first(), 'the page says why Start is waiting').toBeVisible({ timeout: 10_000 });
+
+        // ── The evaluation completes ─────────────────────────────────────────────────────────────────────────
+        // The page's bounded retry decides WHEN it calls; the call is held until released here, then recorded.
+        await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 60_000, message: 'the bounded retry really calls the server' }).toBe(true);
+        await hold(page, 'record_progress_evaluation', false);
+        await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), OBLIGATIONS_KEY), { timeout: 30_000, message: 'the server records the owed evaluation' }).toBe('[]');
+
+        // 2. The notice clears on its own — no stale "Finishing up" once nothing is owed.
+        await expect(page.getByText(PROGRESS_HELD), 'the Progress notice clears after the debt settles').toHaveCount(0, { timeout: 15_000 });
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+
+        // 3. The next Start records, with no reload.
+        await page.getByTestId('mic-start').click();
+        await expect.poll(async () => (await engine(page)).controllerState, { timeout: 30_000, message: 'the next Start records without a reload' }).toBe('RECORDING');
+    });
+
+    test('debt found AT LOAD and still settling: Start is truthfully blocked, the notice clears on settle, and the next Start records without a reload', async ({ proPage: page }) => {
+        test.setTimeout(180_000);
+        await optIn(page);
+        // The account already owes one evaluation when the page loads, and the page's own load-time evaluation is held
+        // from its first instant.
+        await page.evaluate((key) => localStorage.setItem(key, JSON.stringify([
+            { session_id: 'sess-settle-at-load', state: 'owed', created_at: '2026-09-25T13:39:00.000Z' },
+        ])), OBLIGATIONS_KEY);
+        await page.addInitScript(() => {
+            const w = window as unknown as { __E2E_HOLD_RPC_1476__?: Record<string, boolean> };
+            if (sessionStorage.getItem('__settle_hold_released') !== '1') {
+                w.__E2E_HOLD_RPC_1476__ = { ...(w.__E2E_HOLD_RPC_1476__ ?? {}), record_progress_evaluation: true };
+            }
+        });
+        await navigateToRoute(page, '/session');
+        await page.reload();
+        await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 30_000, message: 'the load-time evaluation of the owed session is in flight' }).toBe(true);
+
+        // PRECONDITION (PM): the Start gate genuinely sees same-owner owed debt, still inside its retry bound. (A hold
+        // that never completes is released by the bounded retry at ~60 s by design, after which Start is allowed — so
+        // this is asserted, not assumed.)
+        const gateNow = () => page.evaluate(() => {
+            const w = window as unknown as { __SESSION_STORE_API__?: { getState: () => { progressGate?: { ownerId?: string | null; state?: string } | null; progressGateResolvedFor?: string | null } } };
+            const st = w.__SESSION_STORE_API__?.getState();
+            const entries = Object.keys(localStorage).filter((k) => k.startsWith('ss_progress_reconcile_queue'))
+                .map((k) => JSON.parse(localStorage.getItem(k) ?? '{}') as { releasedAtIso?: string });
+            return { state: st?.progressGate?.state ?? null, sameOwner: Boolean(st?.progressGate?.ownerId) && st?.progressGate?.ownerId === st?.progressGateResolvedFor,
+                unreleased: entries.length > 0 && entries.every((e) => !e.releasedAtIso) };
+        });
+        await expect.poll(gateNow, { timeout: 15_000, message: 'precondition: same-owner queued debt, unreleased' })
+            .toEqual({ state: 'queued', sameOwner: true, unreleased: true });
+
+        // Truthful blocked state: Start cannot be pressed, the page says why, nothing records and no lease is held.
+        const startControl = page.getByTestId('mic-start').or(page.getByTestId('mic-download')).first();
+        await expect(startControl, 'Start is blocked while Progress is settling').toBeDisabled({ timeout: 15_000 });
+        await expect(page.getByText(/Finishing up your last session/).first(), 'the page says why Start is waiting').toBeVisible({ timeout: 10_000 });
+        expect(notRecording(await engine(page))).toBe(true);
+        expect(await leaseHeld(page), 'no lease while blocked').toBe(false);
+
+        // ── The evaluation completes ─────────────────────────────────────────────────────────────────────────
+        await page.evaluate(() => sessionStorage.setItem('__settle_hold_released', '1'));
+        await hold(page, 'record_progress_evaluation', false);
+        await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), OBLIGATIONS_KEY), { timeout: 30_000, message: 'the server records the owed evaluation' }).toBe('[]');
+
+        // The notice clears on its own, Start is available, and the next click records — no reload.
+        await expect(page.getByText(/Finishing up your last session/), 'the Progress notice clears after the debt settles').toHaveCount(0, { timeout: 15_000 });
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+        await page.getByTestId('mic-start').or(page.getByTestId('mic-download')).first().click();
+        await expect.poll(async () => (await engine(page)).controllerState, { timeout: 30_000, message: 'the next Start records without a reload' }).toBe('RECORDING');
+    });
+
+    /**
+     * #1533 Codex P2 #3 (PM FIX NOW) — the AFTER-SESSION entry point is fenced by the SAME live same-owner gate as the mic.
+     * A take saves; then same-owner debt is published to this page's gate (as another tab's write arrives) while the
+     * server's evaluation is held. On the completed-session review "Practice again" is disabled with the one visible
+     * reason, and a stale activation that still reaches it (click or keyboard) starts nothing and writes no refusal. On
+     * settlement the review remains, the reason clears, the action enables, and the next deliberate press records.
+     */
+    test('after-session "Practice again" is fenced while Progress is settling: disabled with one reason, a stale activation starts nothing, settlement enables it and the next press records', async ({ proPage: page }) => {
+        test.setTimeout(180_000);
+        await optIn(page);
+        await navigateToRoute(page, '/session');
+        await waitForModelReady(page);
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+
+        // A real take, saved normally. (The just-saved session's own evaluation never holds the next Start — that is
+        // the RWT "no false Finishing up" rule; only OWED debt does.)
+        await startRecording(page);
+        await simulateTranscription(page, 'Today I will explain the plan in three clear steps for the team.', true);
+        await page.waitForTimeout(5_200);
+        await stopRecording(page);
+        await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
+        const review = page.locator('[data-testid="session-shell"][data-session-state="after"]');
+        await expect(review).toBeVisible({ timeout: 15_000 });
+        await expect.poll(() => page.evaluate((key) => localStorage.getItem(key) ?? '[]', OBLIGATIONS_KEY), { timeout: 30_000, message: 'the saved take evaluated' }).toBe('[]');
+
+        // Then the account owes an evaluation (held on the server) and the gate is PUBLISHED to this page.
+        const owner = await page.evaluate(() => (window as unknown as { __SESSION_STORE_API__: { getState: () => { progressGateResolvedFor: string | null } } }).__SESSION_STORE_API__.getState().progressGateResolvedFor);
+        expect(owner, 'resolved owner').toBeTruthy();
+        const entryKey = `ss_progress_reconcile_queue_v2|e|${encodeURIComponent(owner!)}|${encodeURIComponent('sess-after-owed')}`;
+        await page.evaluate(([key, uid]) => localStorage.setItem(key, JSON.stringify({ sessionId: 'sess-after-owed', userId: uid, enqueuedAtIso: new Date().toISOString() })), [entryKey, owner!] as const);
+        await page.evaluate((key) => localStorage.setItem(key, JSON.stringify([
+            { session_id: 'sess-after-owed', state: 'owed', created_at: '2026-09-25T13:39:00.000Z' },
+        ])), OBLIGATIONS_KEY);
+        await hold(page, 'record_progress_evaluation', true);
+        await page.evaluate((key) => window.dispatchEvent(new StorageEvent('storage', { key })), entryKey);
+        await expect.poll(() => page.evaluate(() => {
+            const st = (window as unknown as { __SESSION_STORE_API__: { getState: () => { progressGate: { ownerId?: string } | null; progressGateResolvedFor: string | null } } }).__SESSION_STORE_API__.getState();
+            return st.progressGate !== null && st.progressGate.ownerId === st.progressGateResolvedFor;
+        }), { timeout: 15_000, message: 'precondition: the same-owner gate is published' }).toBe(true);
+        const sessionsBefore = await calls(page, 'create_session_and_update_usage');
+
+        // Published gate: the completed review stays; "Practice again" and the mic are disabled; ONE visible reason.
+        const practice = page.getByTestId('verdict-practice-again');
+        await expect(review).toBeVisible();
+        await expect(practice, 'Practice again is fenced by the live gate').toBeDisabled({ timeout: 10_000 });
+        await expect(practice).toHaveAttribute('aria-describedby', 'run-shape-blocked-reason');
+        await expect(page.getByTestId('run-shape-mic'), 'the after-session mic is held').toBeDisabled();
+        await expect(page.getByTestId('run-shape-blocked-reason')).toContainText(/Finishing up your last session/);
+        const visibleReasons = () => page.getByText(/Finishing up your last session/).evaluateAll(
+            (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
+        );
+        await expect.poll(visibleReasons, { message: 'exactly one visible reason' }).toBe(1);
+
+        // A STALE activation (the control was rendered enabled a frame before the gate): click and keyboard both reach
+        // the handler — and start nothing, write no second refusal, take no mic, lease or session.
+        await practice.evaluate((el) => { (el as HTMLButtonElement).disabled = false; (el as HTMLButtonElement).click(); });
+        await practice.evaluate((el) => { (el as HTMLButtonElement).disabled = false; (el as HTMLButtonElement).focus(); });
+        await page.keyboard.press('Enter');
+        for (let i = 0; i < 8; i += 1) {
+            expect(notRecording(await engine(page)), 'no controller Start / mic while the gate is published').toBe(true);
+            await page.waitForTimeout(250);
+        }
+        expect(await leaseHeld(page), 'no lease').toBe(false);
+        expect(await calls(page, 'create_session_and_update_usage'), 'no session').toBe(sessionsBefore);
+        expect(await page.evaluate(() => (window as unknown as { __SESSION_STORE_API__: { getState: () => { sttStatus: { type: string } } } }).__SESSION_STORE_API__.getState().sttStatus.type), 'no second refusal written').not.toBe('error');
+        await expect.poll(visibleReasons, { message: 'still exactly one visible reason' }).toBe(1);
+
+        // ── Settlement ─────────────────────────────────────────────────────────────────────────────────────
+        await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 60_000, message: 'the bounded retry really calls the server' }).toBe(true);
+        await hold(page, 'record_progress_evaluation', false);
+        await expect.poll(() => page.evaluate((key) => localStorage.getItem(key) ?? '[]', OBLIGATIONS_KEY), { timeout: 60_000, message: 'nothing is owed any more' }).toBe('[]');
+
+        // The review remains, the reason clears, the action enables — and the next deliberate press records, no reload.
+        await expect(page.getByText(/Finishing up your last session/), 'the reason clears after the debt settles').toHaveCount(0, { timeout: 30_000 });
+        await expect(review, 'the completed review remains').toBeVisible();
+        await expect(practice).toBeEnabled({ timeout: 15_000 });
+        await practice.click();
+        await expect.poll(async () => (await engine(page)).controllerState, { timeout: 30_000, message: 'the next deliberate Start records without a reload' }).toBe('RECORDING');
+    });
+
+    /**
+     * #1533 Codex P2 #2 (PM FIX NOW) — durable same-owner debt this tab never PROJECTED (written in-tab, so no storage
+     * event reaches this page's gate). The controller re-reads durable debt at Start and refuses. The page must never go
+     * silent: while blocked a reason is always visible and nothing records; a cross-tab projection then shows the gate
+     * notice once; settlement leaves no stale reason and the next Start records. The exact interleaving "refusal while the
+     * page gate is null" is pinned deterministically by useProgressReconciliation.gate.test.tsx; here the browser proves
+     * the real click path, and records whether that interleaving occurred (evidence, not a claim).
+     */
+    test('durable debt the page never projected: the refused Start is never silent, projection then settlement clear it, the next Start records', async ({ proPage: page }) => {
+        test.setTimeout(180_000);
+        await optIn(page);
+        await navigateToRoute(page, '/session');
+        await waitForModelReady(page);
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+
+        // Watch every store state: record any "refusal shown while the page gate is null" state (the P2 window).
+        await page.evaluate(() => {
+            const w = window as unknown as { __SESSION_STORE_API__?: { getState: () => { sttStatus: { type: string; message: string }; progressGate: unknown }; subscribe: (fn: (st: { sttStatus: { type: string; message: string }; progressGate: unknown }) => void) => void }; __p2Log?: string[] };
+            w.__p2Log = [];
+            w.__SESSION_STORE_API__?.subscribe((st) => {
+                if (st.sttStatus.type === 'error' && /Finishing up your last session/.test(st.sttStatus.message)) {
+                    w.__p2Log!.push(st.progressGate === null ? 'refusal-null-gate' : 'refusal-with-gate');
+                }
+            });
+        });
+        // Durable same-owner debt written IN THIS TAB: no storage event, so the page's gate projection stays null.
+        const owner = await page.evaluate(() => (window as unknown as { __SESSION_STORE_API__: { getState: () => { progressGateResolvedFor: string | null } } }).__SESSION_STORE_API__.getState().progressGateResolvedFor);
+        expect(owner, 'resolved owner').toBeTruthy();
+        const entryKey = `ss_progress_reconcile_queue_v2|e|${encodeURIComponent(owner!)}|${encodeURIComponent('sess-unprojected')}`;
+        await page.evaluate(([key, uid]) => localStorage.setItem(key, JSON.stringify({ sessionId: 'sess-unprojected', userId: uid, enqueuedAtIso: new Date().toISOString() })), [entryKey, owner!] as const);
+        await page.evaluate((key) => localStorage.setItem(key, JSON.stringify([
+            { session_id: 'sess-unprojected', state: 'owed', created_at: '2026-09-26T06:00:00.000Z' },
+        ])), OBLIGATIONS_KEY);
+        await hold(page, 'record_progress_evaluation', true);
+        const sessionsBefore = await calls(page, 'create_session_and_update_usage');
+
+        await page.getByTestId('mic-start').click();
+
+        // While blocked: never silent, never recording, no mic, no lease, no session.
+        for (let i = 0; i < 12; i += 1) {
+            const visibleReasons = await page.getByText(/Finishing up your last session/).evaluateAll(
+                (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
+            );
+            expect(visibleReasons, 'a reason is always visible while the Start is refused').toBeGreaterThan(0);
+            expect(notRecording(await engine(page)), 'no recording while blocked').toBe(true);
+            await page.waitForTimeout(250);
+        }
+        expect(await calls(page, 'create_session_and_update_usage'), 'no session for the refused Start').toBe(sessionsBefore);
+        await expect.poll(() => leaseHeld(page), { timeout: 10_000, message: 'no lease held while blocked' }).toBe(false);
+
+        // Projection (as another tab's write would arrive): the gate notice shows, and there is no duplicate red copy.
+        await page.evaluate((key) => window.dispatchEvent(new StorageEvent('storage', { key })), entryKey);
+        await expect.poll(() => page.getByText(/Finishing up your last session/).evaluateAll(
+            (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
+        ), { timeout: 15_000, message: 'exactly one visible reason once the gate is projected' }).toBe(1);
+
+        // Settlement: the evaluation completes and the durable entry drains; no stale reason; the next Start records.
+        await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 60_000, message: 'the bounded retry really calls the server' }).toBe(true);
+        await hold(page, 'record_progress_evaluation', false);
+        await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), OBLIGATIONS_KEY), { timeout: 60_000, message: 'the server records the owed evaluation' }).toBe('[]');
+        await expect.poll(() => page.evaluate(() => (window as unknown as { __SESSION_STORE_API__: { getState: () => { progressGate: unknown } } }).__SESSION_STORE_API__.getState().progressGate), { timeout: 60_000, message: 'the page gate clears on settlement' }).toBeNull();
+        await expect(page.getByText(/Finishing up your last session/), 'no stale reason after settlement').toHaveCount(0, { timeout: 30_000 });
+        await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
+        await page.getByTestId('mic-start').click();
+        await expect.poll(async () => (await engine(page)).controllerState, { timeout: 30_000, message: 'the next Start records without a reload' }).toBe('RECORDING');
+
+        // Evidence only: did this run hit the exact "refusal while page gate is null" interleaving?
+        const log = await page.evaluate(() => (window as unknown as { __p2Log?: string[] }).__p2Log ?? []);
+        test.info().annotations.push({ type: 'p2-interleaving', description: log.includes('refusal-null-gate') ? 'observed' : 'not observed (scan published first)' });
+    });
+});

@@ -35,11 +35,19 @@ export interface RunShapeProps {
      * swallowed — and never emits a choice receipt or rebinds a brief for a start that does not happen.
      */
     disabled?: boolean;
+    /**
+     * #1533 (Codex P2, PM FIX NOW) — WHY the mic is held, shown beside it: the owner-scoped Progress-gate notice
+     * ("Finishing up your last session…"), the same copy the `before` mic shows. Desktop only: on phones the fixed
+     * `MobileActionBar` already shows this exact notice, and a second copy would be a duplicate.
+     */
+    blockedReason?: string | null;
 }
 
 export const RunShape: React.FC<RunShapeProps> = ({
-    durationSeconds, amplitudes, fillerBars, onStart, showFillerLegend = true, disabled = false,
-}) => (
+    durationSeconds, amplitudes, fillerBars, onStart, showFillerLegend = true, disabled = false, blockedReason = null,
+}) => {
+    const showBlockedReason = disabled && !!blockedReason;
+    return (
     <div
         className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-[14px] border border-neutral-border bg-white px-[22px] py-3.5"
         data-testid="run-shape"
@@ -50,6 +58,7 @@ export const RunShape: React.FC<RunShapeProps> = ({
             disabled={disabled}
             data-testid="run-shape-mic"
             aria-label={disabled ? 'Start recording — unavailable while your last session finishes' : 'Start recording'}
+            aria-describedby={showBlockedReason ? 'run-shape-blocked-reason' : undefined}
             aria-pressed={false}
             className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-signature disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2"
             // The same halo as `before`, one step tighter (5px against 8px). Derived from the signature
@@ -91,5 +100,18 @@ export const RunShape: React.FC<RunShapeProps> = ({
                 ▮ marks a filler
             </span>
         )}
+
+        {showBlockedReason && (
+            // `role="status"`: a held start is a condition to read, not an interruption. Its own line under the row.
+            <p
+                id="run-shape-blocked-reason"
+                role="status"
+                data-testid="run-shape-blocked-reason"
+                className="hidden basis-full text-[13px] font-semibold text-neutral-secondary md:block"
+            >
+                {blockedReason}
+            </p>
+        )}
     </div>
-);
+    );
+};

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { usePracticeHistory } from './usePracticeHistory';
 import { reconcileProgressEvaluations, type ReconcilableSession } from '../services/progress/recordProgress';
-import { reconstructGateFromQueue, subscribeCrossTabProgressGate } from '../services/progress/progressStartGate';
+import { isProgressGateRefusalMessage, reconstructGateFromQueue, subscribeCrossTabProgressGate } from '../services/progress/progressStartGate';
 import { scheduleProgressDebtRetry } from '../services/progress/progressDebtRetry';
 import { hydrateServerProgressObligations } from '../services/progress/serverProgressObligations';
 import { useSessionStore } from '../stores/useSessionStore';
@@ -102,6 +102,26 @@ export function useProgressReconciliation(): void {
             .catch((err) => logger.warn({ err }, '[progress] bounded debt retry failed (non-fatal)'));
         return () => { current = false; };
     }, [userId, queuedSessionId]);
+
+    // Canary 36142201470 — THE GATE'S OWN REFUSAL COPY NEVER OUTLIVES OR DUPLICATES THE GATE. A Start refused on Progress
+    // debt writes the gate's copy ("Finishing up your last session — …") into the recorder status as an error. For the
+    // resolved owner that copy is removed ONLY while a same-owner gate is published: the gate's own notice then says
+    // exactly this, once, in the recorder (no red duplicate). Because publication removes it, no refusal from before a
+    // gate can survive that gate; when the gate later clears, the notice and the reason go together (nothing stale).
+    // #1533 Codex P2 (PM FIX NOW): never while the page's gate is null. The controller re-reads DURABLE debt at Start,
+    // so it can refuse before this tab's projection arrives (debt landing between hydration and admission, or a delayed
+    // / missed cross-tab projection) — or in the SAME update in which an earlier gate clears. A refusal present with no
+    // published gate is therefore always the only reason on screen; clearing it would leave an enabled Start that
+    // silently does nothing. Only the gate's own refusal copy is ever touched; unrelated errors are kept.
+    const gateResolvedFor = useSessionStore((st) => st.progressGateResolvedFor);
+    const sttMessage = useSessionStore((st) => (st.sttStatus.type === 'error' ? st.sttStatus.message : null));
+    useEffect(() => {
+        if (!userId || gateResolvedFor !== userId) return;
+        const ownGatePublished = progressGate !== null && progressGate.ownerId === userId;
+        if (ownGatePublished && isProgressGateRefusalMessage(sttMessage)) {
+            useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready to record' });
+        }
+    }, [userId, gateResolvedFor, progressGate, sttMessage]);
 
     useEffect(() => {
         const userId = user?.id;
