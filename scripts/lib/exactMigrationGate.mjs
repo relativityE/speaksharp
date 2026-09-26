@@ -557,6 +557,8 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_1314', targetFile: '20260819120000_complete_session_v2_atomic_retention_1314' }),
     Object.freeze({ id: 'postflight_1306', targetFile: '20260829120000_retire_complete_session_v1_1306' }),
     Object.freeze({ id: 'postflight_1416', targetFile: '20260904150000_share_feedback_redesign' }),
+    // #1537: PostgREST reload + a no-row read of `sessions.product` through the client's REST API.
+    Object.freeze({ id: 'postflight_20260926190000', targetFile: '20260926190000_session_product_marker_1258' }),
 ]);
 
 /**

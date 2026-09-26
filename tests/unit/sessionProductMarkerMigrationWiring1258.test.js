@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
     EXACT_MIGRATION_ALLOWLIST,
+    TARGET_POSTFLIGHT_GATES,
     assertAfterApply,
+    assertTerminalOutcome,
     assertBeforeApply,
     assertExactDryRun,
     expectedAuthorizationPhrase,
@@ -87,5 +89,80 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
         expect(assertAfterApply(before, after, config).pending).toEqual([]);
+    });
+});
+
+/**
+ * #1537 (Codex P1 r4112619095, PM RETURN 5849624832) — generic history + lint can report success while PostgREST still
+ * cannot serve `sessions.product`, and the #1535 reader would then silently fall back to the legacy read. So this target
+ * carries a MANDATORY postflight: credentials and the DB path proven BEFORE the irreversible apply; after it, a PostgREST
+ * reload and a bounded, no-row, fail-closed read of `sessions.product` through the client's REST API; and the outcome
+ * passed BY NAME to the terminal authority, so a missing, skipped or failed postflight can never read as success.
+ */
+describe('#1537 product-marker target has a mandatory PostgREST postflight', () => {
+    const GATE = 'postflight_20260926190000';
+    const base = { apply: 'success', verify: 'success', lint: 'success', targetFile: FILE };
+    const step = (marker) => {
+        const start = WORKFLOW.indexOf(marker);
+        if (start === -1) throw new Error(`workflow step not found: ${marker}`);
+        const next = WORKFLOW.indexOf('\n      - name:', start + 1);
+        return WORKFLOW.slice(start, next === -1 ? undefined : next);
+    };
+
+    it('CASUALTY (missing registration): the gate is registered for exactly this target file', () => {
+        expect(TARGET_POSTFLIGHT_GATES.filter((g) => g.id === GATE)).toEqual([{ id: GATE, targetFile: FILE.replace(/\.sql$/, '') }]);
+    });
+
+    it.each([['missing', {}], ['skipped', { [GATE]: 'skipped' }], ['failure', { [GATE]: 'failure' }], ['cancelled', { [GATE]: 'cancelled' }]])(
+        'CASUALTY: a %s postflight can never yield terminal success', (_label, postflights) => {
+            expect(() => assertTerminalOutcome({ ...base, postflights })).toThrow(new RegExp(GATE));
+        });
+
+    it('POSITIVE CONTROL: a successful postflight is reported as target-specific coverage', () => {
+        expect(assertTerminalOutcome({ ...base, postflights: { [GATE]: 'success', postflight_1314: 'skipped' } })).toEqual({
+            terminal: 'success', enforcedPostflights: [GATE], postflightCoverage: 'target_specific',
+        });
+    });
+
+    it('the gate never applies to another target (drift is an error, absence is not)', () => {
+        const other = { ...base, targetFile: '20260924150000_progress_evaluation_1471.sql' };
+        expect(() => assertTerminalOutcome({ ...other, postflights: { [GATE]: 'success' } })).toThrow(/does not verify/);
+        expect(assertTerminalOutcome({ ...other, postflights: { [GATE]: 'skipped' } }).terminal).toBe('success');
+    });
+
+    it('BEFORE the apply: credentials are required and the DB path is proven reachable for this target', () => {
+        const pre = step(`Preflight ${VERSION} product-marker postflight`);
+        expect(pre).toContain(`contains(steps.contract.outputs.target_file, '${FILE.replace(/\.sql$/, '')}')`);
+        for (const name of ['SUPABASE_DB_PASSWORD', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_PROJECT_ID']) expect(pre).toContain(name);
+        expect(pre).toContain('refusing to apply');
+        // The API path the postflight reads through is proven BEFORE the apply, with a column that already exists.
+        expect(pre).toContain('select=id&id=eq.00000000-0000-0000-0000-000000000000&limit=0');
+        expect(pre).toContain('scripts/postgrest-column-readable.sh');
+        const reach = step('id: connectivity_preflight');
+        expect(reach).toContain(FILE.replace(/\.sql$/, ''));
+        expect(WORKFLOW.indexOf(`Preflight ${VERSION} product-marker postflight`)).toBeLessThan(WORKFLOW.indexOf('- name: Apply the exact reviewed migration'));
+    });
+
+    it('AFTER the apply: reloads PostgREST, then a bounded no-row read of sessions.product decided fail-closed', () => {
+        const post = step(`id: ${GATE}`);
+        expect(post).toContain("steps.apply.outcome == 'success'");
+        expect(post).toContain("NOTIFY pgrst, 'reload schema';");
+        expect(post).toContain('export PGPASSWORD="${SUPABASE_DB_PASSWORD}"');
+        expect(post).toContain('unset DB_URL');
+        expect(post).toContain('/rest/v1/sessions?select=id,product&id=eq.00000000-0000-0000-0000-000000000000&limit=0');
+        expect(post).toMatch(/for i in \$\(seq 1 \d+\)/);
+        expect(post).toContain('--max-time');
+        expect(post).toContain('bash scripts/postgrest-column-readable.sh');
+        // Never logs a response body: only the HTTP status and an error code are reported on failure.
+        expect(post).not.toMatch(/head -c|cat \/tmp|\$\(cat/);
+        expect(post.indexOf('NOTIFY pgrst')).toBeLessThan(post.indexOf('/rest/v1/sessions'));
+    });
+
+    it('a Require step enforces it, and the terminal step and the summary receive it BY NAME', () => {
+        const req = step(`Require ${VERSION} product-marker postflight when applicable`);
+        expect(req).toContain(`steps.${GATE}.outcome`);
+        expect(req).toContain("!= 'success'");
+        expect(WORKFLOW).toContain(`"${GATE}=\${{ steps.${GATE}.outcome }}"`);
+        expect(WORKFLOW.slice(WORKFLOW.indexOf('- name: Publish sanitized result'))).toContain(`steps.${GATE}.outcome`);
     });
 });
