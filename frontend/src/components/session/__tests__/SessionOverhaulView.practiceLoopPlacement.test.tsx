@@ -241,7 +241,13 @@ describe('#1258 Practice Loop reveal — momentum after the reveal (bounded re-c
     beforeEach(() => {
         vi.useFakeTimers();
         y = 900;
-        scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(((opts: ScrollToOptions) => { y = opts.top ?? y; }) as typeof window.scrollTo);
+        // Browser-faithful (Codex P2 r4112253576): a programmatic scrollTo that moves the page emits its own `scroll`.
+        scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(((opts: ScrollToOptions) => {
+            const target = opts.top ?? y;
+            const moved = target !== y;
+            y = target;
+            if (moved) window.dispatchEvent(new Event('scroll'));
+        }) as typeof window.scrollTo);
         position = vi.spyOn(window, 'scrollY', 'get').mockImplementation(() => y);
     });
     afterEach(() => { scrollTo.mockRestore(); position.mockRestore(); vi.useRealTimers(); });
@@ -256,10 +262,17 @@ describe('#1258 Practice Loop reveal — momentum after the reveal (bounded re-c
         vi.advanceTimersByTime(1);
         expect(scrollTo).toHaveBeenCalledTimes(2);
         expect(y).toBe(0);
-        // Resting at the top ends the guard: a later drift is not chased.
-        momentum(0); vi.advanceTimersByTime(200);
-        momentum(50); vi.advanceTimersByTime(500);
+    });
+
+    it('CASUALTY (Codex P2 r4112253576): the correction\'s own scroll event does not disarm it — a fling that pauses >150 ms at the top and then resumes is corrected again', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        momentum(700); vi.advanceTimersByTime(150);   // rests off the top → correction; its own scroll event fires at y=0
         expect(scrollTo).toHaveBeenCalledTimes(2);
+        expect(y).toBe(0);
+        vi.advanceTimersByTime(400);                  // a pause longer than 150 ms, resting at the top
+        momentum(300); vi.advanceTimersByTime(150);   // the fling resumes and rests again
+        expect(scrollTo, 'the resumed fling is corrected').toHaveBeenCalledTimes(3);
+        expect(y).toBe(0);
     });
 
     it('CASUALTY (traced): a fling that pauses, is corrected, then resumes is corrected again when it rests', () => {

@@ -310,8 +310,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * and it carried the page past this reveal to the bottom (the saved confirmation ~757 px off screen). So when the
      * reveal moves the page, it arms a bounded re-check: each time scrolling comes to rest (150 ms idle) away from the
      * top, the page is returned there — at most 3 times, because a fling can pause and then resume after a correction
-     * (traced). It ends as soon as the page rests at its top, at the first touch, wheel, key or pointer input from the
-     * person (their own scrolling is never fought), or after 3 s, whichever comes first.
+     * (traced). Resting AT the top does not end it (Codex P2 r4112253576): the correction's own scrollTo(0) emits a
+     * scroll event, and a fling that pauses >150 ms and then resumes must still be caught. It ends only at the first
+     * touch, wheel, key or pointer input from the person (their own scrolling is never fought), after 3 corrections,
+     * after 3 s, or when the view leaves `after`/unmounts.
      */
     const practiceLoopBandRef = React.useRef<HTMLDivElement | null>(null);
     const practiceLoopRevealedRef = React.useRef(false);
@@ -339,7 +341,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const onScroll = () => {
             clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {
-                if (window.scrollY <= 0 || corrections >= MAX_CORRECTIONS) {
+                if (window.scrollY <= 0) return; // at rest at the top: nothing to do, stay armed for a resumed fling
+                if (corrections >= MAX_CORRECTIONS) {
                     endMomentumGuard();
                     return;
                 }
