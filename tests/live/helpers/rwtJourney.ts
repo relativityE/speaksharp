@@ -467,13 +467,60 @@ export class RwtReceipt {
                 hold: this.rows.filter((r) => r.verdict === 'HOLD').length,
                 human: this.rows.filter((r) => r.verdict === 'HUMAN').length,
             },
+            /**
+             * PO 2026-09-25 — ACCEPTANCE, not a count. PASS only when every row passed, including every named human
+             * observation (recorded PASS). Any open HOLD or HUMAN row makes it INCOMPLETE, so an all-green automated
+             * part can never be read as a completed runbook. `automatedRowsAllPass` states the automated part alone.
+             */
+            ...receiptAcceptance(this.rows),
             // For the readback step: which journeys to read back, under which traffic class and declared stages.
             readback: { journeyIds, trafficType: 'canary', trafficTypes, stages, userStageJourneyIds },
             testStatus: testInfo.status ?? null,
         };
         writeFileSync(path.join(dir, `${this.suite}.receipt.json`), `${JSON.stringify(body, null, 2)}\n`);
+        writeFileSync(path.join(dir, `${this.suite}.human-worksheet.md`), humanWorksheet(this.suite, body.release, journeyIds, this.rows));
         console.log(`RWT_RECEIPT ${JSON.stringify(body)}`);
     }
+}
+
+/** PO 2026-09-25 — acceptance over ALL rows, the automated part alone, and the named human observations' state. */
+export function receiptAcceptance(rows: readonly ReceiptRow[]): {
+    acceptance: 'PASS' | 'FAIL' | 'INCOMPLETE';
+    automatedRowsAllPass: boolean;
+    humanObservations: Array<{ id: unknown; runbookRow: unknown; result: string }>;
+} {
+    return {
+        acceptance: rows.some((r) => r.verdict === 'FAIL') ? 'FAIL'
+            : rows.some((r) => r.verdict === 'HOLD' || r.verdict === 'HUMAN') ? 'INCOMPLETE' : 'PASS',
+        automatedRowsAllPass: rows.filter((r) => r.verdict !== 'HUMAN' && r.verdict !== 'HOLD').every((r) => r.verdict === 'PASS'),
+        humanObservations: rows.filter((r) => r.evidence && typeof r.evidence.observationId === 'string')
+            .map((r) => ({ id: r.evidence!.observationId, runbookRow: r.evidence!.runbookRow, result: r.verdict === 'HUMAN' ? 'pending' : r.verdict })),
+    };
+}
+
+/**
+ * PO 2026-09-25 — the human-check worksheet for THIS run, read together with its receipt. One row per named human
+ * observation, pre-filled with the suite, deployed SHA, journey id(s), runbook row, question and pass criterion; the
+ * RESULT and OBSERVER columns are blank for the human (a row already recorded via RWT_HUMAN_RESULTS shows it). The
+ * receipt's `acceptance` stays INCOMPLETE until every row here is PASS. Content-free: no speech, coaching or point text.
+ */
+export function humanWorksheet(suite: string, release: string, journeyIds: readonly string[], rows: readonly ReceiptRow[]): string {
+    const human = rows.filter((r) => r.evidence && typeof r.evidence.observationId === 'string');
+    const cell = (v: unknown) => String(v ?? '').replace(/\|/g, '/');
+    const lines = [
+        `# RWT human-check worksheet — ${suite}`,
+        '',
+        `Deployed SHA: \`${release || '(unset)'}\` · Journey id(s): ${journeyIds.length > 0 ? journeyIds.map((j) => `\`${j}\``).join(', ') : '(none)'} · Receipt: \`${suite}.receipt.json\``,
+        '',
+        'An automated PASS is not a human check. The runbook is complete only when every row below is PASS and the receipt\'s `acceptance` is PASS.',
+        '',
+        '| Observation id | Runbook row | Question | Observation needed to decide (pass criterion) | Result (PASS/FAIL) | Observer · date |',
+        '|---|---|---|---|---|---|',
+        ...human.map((r) => `| \`${cell(r.evidence!.observationId)}\` | ${cell(r.evidence!.runbookRow)} | ${cell(r.step.replace(/^human: /, ''))} | ${cell(r.evidence!.passCriterion)} | ${r.verdict === 'HUMAN' ? '' : r.verdict} |  |`),
+        '',
+    ];
+    if (human.length === 0) lines.splice(lines.length - 1, 0, '_No human observations in this run._');
+    return lines.join('\n');
 }
 
 /**
