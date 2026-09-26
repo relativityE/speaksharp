@@ -14,6 +14,9 @@ import type { PersistedFillerCounts } from '@/contracts/fillerCounts';
  * accuracy, no custom words, and no loosely-typed legacy `filler_words` blob. Those were not part of the
  * superseding contract, so post-session code still cannot receive them at compile time.
  */
+/** #1258 — the closed product marker a saved session carries (see migration 20260926190000). */
+export type SessionProduct = 'open_mic' | 'focus_points';
+
 export interface PracticeSession {
   id: string;
   user_id: string;
@@ -28,6 +31,8 @@ export interface PracticeSession {
   engine?: string;
   engine_version?: string;
   model_name?: string;
+  /** #1258: the recording's product at creation (durable marker, #1537); NULL/absent = not recorded (legacy). */
+  product?: SessionProduct | null;
   device_type?: string;
   /** #1033 STT attribution lifecycle: legacy_unknown | pending | verified | unverified. */
   attribution_status?: import('@/constants/attributionStatus').AttributionStatus;

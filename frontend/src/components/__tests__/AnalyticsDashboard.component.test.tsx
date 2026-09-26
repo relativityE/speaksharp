@@ -497,7 +497,8 @@ describe('AnalyticsDashboard', () => {
         // no longer shown beside it. Metrics still render.
         const review = screen.getByTestId('saved-review');
         expect(review).toHaveAttribute('data-session', 'native-session');
-        expect(review).toHaveAttribute('data-label', expect.stringMatching(/^Session 1 · /));
+        // #1535 Codex P2 r4112111970: no ordinal on the detail route (the prop holds only this session) — the date alone.
+        expect(review.getAttribute('data-label')).not.toMatch(/Session \d/);
         const detail = review.parentElement!;
         expect(detail.firstElementChild).toBe(review);
         expect(screen.queryByTestId('session-detail-next-action')).not.toBeInTheDocument();
@@ -639,6 +640,15 @@ describe('AnalyticsDashboard', () => {
                 });
             }
         }
+
+        it('CASUALTY (#1535 Codex P2 r4112111970): a LATER saved session opened on its detail never reads "Session 1" — the exact label is its date', () => {
+            // useAnalytics passes ONLY the opened session on /analytics/:id, so its index is always 0.
+            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({ created_at: '2026-09-24T10:00:00Z' }) });
+            const label = screen.getByTestId('saved-review').getAttribute('data-label');
+            const date = new Date('2026-09-24T10:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+            expect(label).toBe(date); // e.g. "24 Sept" — the date alone
+            expect(label).not.toMatch(/Session \d/);
+        });
 
         it('a completed session with a valid next action: the saved review owns it, and no integrity error shows', () => {
             renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) });

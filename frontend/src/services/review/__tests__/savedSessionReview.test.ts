@@ -7,43 +7,50 @@ import type { SavedFocusPointsCoverage } from '@/services/objective/savedFocusPo
  */
 type Result = { data: unknown; error: unknown };
 let row: Result = { data: null, error: null };
+/** Answers to successive `sessions` reads BEFORE `row` (models the pre-migration missing-column retry). */
+let sessionsQueue: Result[] = [];
+/** `objective_source_recording` — the durable "this was a Focus take" row, read only for legacy (unmarked) sessions. */
+let source: Result = { data: null, error: null };
 let focus: SavedFocusPointsCoverage = { kind: 'none' };
 const calls: Array<{ op: string; args: unknown[] }> = [];
 
-function builder() {
+function builder(table: string) {
     const chain: Record<string, unknown> = {};
     for (const op of ['select', 'eq']) chain[op] = (...args: unknown[]) => { calls.push({ op, args }); return chain; };
-    chain.maybeSingle = () => Promise.resolve(row);
+    chain.maybeSingle = () => Promise.resolve(
+        table === 'objective_source_recording' ? source : (sessionsQueue.length ? sessionsQueue.shift()! : row));
     return chain;
 }
 vi.mock('@/lib/supabaseClient', () => ({
     getSupabaseClient: () => ({
-        from: (table: string) => { calls.push({ op: 'from', args: [table] }); return builder(); },
+        from: (table: string) => { calls.push({ op: 'from', args: [table] }); return builder(table); },
         functions: { invoke: (name: string) => { calls.push({ op: 'invoke', args: [name] }); return Promise.resolve({ data: null, error: null }); } },
     }),
 }));
 vi.mock('@/services/objective/savedFocusPointsCoverage', () => ({ loadSavedFocusPointsCoverage: () => Promise.resolve(focus) }));
 vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
 
-const { loadSavedSessionReview } = await import('../savedSessionReview');
+const { loadSavedSessionReview, FOCUS_RESULTS_NOT_SAVED } = await import('../savedSessionReview');
 
 const PAIR = { version: 'gemini_coaching_v1', what_worked: 'Risk-first opening clarified it.', what_to_try_next: 'Pause instead of filling the gap.' };
 const SIGNAL = { reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate', value: 6.2, comparator: 'above_target', templateVersion: 'rec_v1' };
 
-beforeEach(() => { calls.length = 0; focus = { kind: 'none' }; });
+beforeEach(() => { calls.length = 0; focus = { kind: 'none' }; sessionsQueue = []; source = { data: null, error: null }; });
+const tablesRead = () => calls.filter((c) => c.op === 'from').map((c) => c.args[0]);
 
 describe('loadSavedSessionReview', () => {
-    it('Open Mic: the saved pair, and evidence from the stored measured signal', async () => {
-        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60 }, error: null };
+    it('Open Mic (durable marker): the saved pair, and evidence from the stored measured signal', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'open_mic' }, error: null };
         const r = await loadSavedSessionReview('s1');
         expect(r.product).toBe('open_mic');
         expect(r.coaching).toEqual({ kind: 'review', review: { whatWorked: PAIR.what_worked, whatToTryNext: PAIR.what_to_try_next } });
         expect(r.evidence).toEqual(['6.2 filler words a minute, above your target.']);
         expect(calls.slice(0, 3)).toEqual([
             { op: 'from', args: ['sessions'] },
-            { op: 'select', args: ['ai_suggestions, transcript_state, next_action_signal, duration'] },
+            { op: 'select', args: ['ai_suggestions, transcript_state, next_action_signal, duration, product'] },
             { op: 'eq', args: ['id', 's1'] },
         ]);
+        expect(tablesRead(), 'a marked session needs no legacy source read').not.toContain('objective_source_recording');
     });
 
     it('Focus Points: evidence from the saved point results — never the Open Mic filler signal', async () => {
@@ -59,6 +66,45 @@ describe('loadSavedSessionReview', () => {
         expect(r.evidence.join(' ')).not.toMatch(/filler/);
         expect(r.focusBrief).toEqual({ briefId: 'b1', projectId: 'p1', topic: 'T' });
         expect(r.focusPoints).toEqual(['One', 'Two']);
+    });
+
+    // #1535 Codex P2 r4112111974 — the product is never inferred from an ABSENCE of Focus rows.
+    it('CASUALTY: marked focus_points with NO saved results is Focus Points (results not saved) — never Open Mic, no brief', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'focus_points' }, error: null };
+        const r = await loadSavedSessionReview('s1');
+        expect(r).toMatchObject({ product: 'focus_points', evidence: [FOCUS_RESULTS_NOT_SAVED], focusBrief: null, focusPoints: [] });
+        expect(r.evidence.join(' ')).not.toMatch(/filler/);
+    });
+
+    it('CASUALTY (legacy, no marker): a durable source-recording row makes it Focus Points (results not saved)', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: null }, error: null };
+        source = { data: { session_id: 's1' }, error: null };
+        const r = await loadSavedSessionReview('s1');
+        expect(r).toMatchObject({ product: 'focus_points', evidence: [FOCUS_RESULTS_NOT_SAVED], focusBrief: null });
+    });
+
+    it('CASUALTY (legacy, no marker, no Focus row): UNKNOWN — never guessed as Open Mic, no evidence', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: null }, error: null };
+        const r = await loadSavedSessionReview('s1');
+        expect(r).toMatchObject({ product: 'unknown', evidence: [], focusBrief: null });
+    });
+
+    it('a failed source-recording read is UNKNOWN (no evidence), never Open Mic', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60 }, error: null };
+        source = { data: null, error: { code: '42501' } };
+        expect(await loadSavedSessionReview('s1')).toMatchObject({ product: 'unknown', evidence: [] });
+    });
+
+    it('before the marker migration is applied (column missing): reads the row without it and treats it as legacy', async () => {
+        sessionsQueue = [{ data: null, error: { code: '42703', message: 'column sessions.product does not exist' } }];
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60 }, error: null };
+        const r = await loadSavedSessionReview('s1');
+        expect(r.coaching).toEqual({ kind: 'review', review: { whatWorked: PAIR.what_worked, whatToTryNext: PAIR.what_to_try_next } });
+        expect(r.product).toBe('unknown');
+        expect(calls.filter((c) => c.op === 'select' && c.args[0] !== 'session_id').map((c) => c.args[0])).toEqual([
+            'ai_suggestions, transcript_state, next_action_signal, duration, product',
+            'ai_suggestions, transcript_state, next_action_signal, duration',
+        ]);
     });
 
     it('a failed Focus Points read shows no evidence rather than the wrong product’s', async () => {

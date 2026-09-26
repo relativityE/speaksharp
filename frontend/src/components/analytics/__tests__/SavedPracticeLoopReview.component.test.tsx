@@ -71,6 +71,16 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         expect(navigate).toHaveBeenCalledWith('/practice?product=focus-points');
     });
 
+    it('#1535 Codex P2: an UNKNOWN product (no durable authority) opens the product chooser — never Open Mic, and no brief is cleared', async () => {
+        load.mockResolvedValue({ ...base, product: 'unknown', evidence: [] });
+        render(<SavedPracticeLoopReview sessionId="s1" />);
+        fireEvent.click(await screen.findByTestId('saved-review-practice'));
+        expect(navigate).toHaveBeenCalledWith('/practice');
+        expect(navigate).not.toHaveBeenCalledWith('/session');
+        expect(setActiveObjectiveBrief).not.toHaveBeenCalled();
+        expect(screen.queryByText(/Open Mic/), 'no product is claimed').toBeNull();
+    });
+
     it('with a valid linked recommendation, the linked repeat runs first and then opens the session’s product', async () => {
         recommendationId = 'rec1';
         load.mockResolvedValue({ ...base, product: 'focus_points', focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'] });

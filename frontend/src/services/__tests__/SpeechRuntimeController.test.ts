@@ -1653,6 +1653,47 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(completeArgs.duration, 'precondition: a real recorded duration').toBeGreaterThan(0);
     });
 
+    it.each([
+        ['focus_points', { mode: 'focus_points', brief: { projectId: 'p1', briefId: 'b1', points: ['One'] }, segments: [], durationSeconds: 11 }, { product: 'focus_points' }],
+        ['open_mic', { mode: 'open_mic' }, { product: 'open_mic' }],
+    ] as const)('#1258: the Retry Save (save-only) carries the product LOCKED AT RECORDING — %s', async (_label, progressContext, expected) => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        vi.mocked(storage.saveSession).mockResolvedValue({ status: 'saved', session: { id: 'new-row-3' } } as never);
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: null,
+            initialSave: { userId: 'user-early', recordingId: 'rec-idem-3', mode: 'private' },
+            completeArgs: PRODUCTION_VALID_COMPLETED_ARGS('early speech', 11),
+            attributionEvidence: null,
+            progressContext,
+        };
+        // The live mode has since moved on (the next take was reset): the retry must NOT read it.
+        (controller as unknown as { recordingProgressMode: unknown }).recordingProgressMode = { mode: 'unknown' };
+        setUnresolved(true);
+        await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
+        expect(vi.mocked(storage.saveSession).mock.calls[0][0]).toMatchObject({ save_only: true, ...expected });
+    });
+
+    it('#1258: a Retry Save whose recording mode is UNKNOWN sends NO product (the row is created NULL, never a guess)', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        vi.mocked(storage.saveSession).mockResolvedValue({ status: 'saved', session: { id: 'new-row-4' } } as never);
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: null,
+            initialSave: { userId: 'user-early', recordingId: 'rec-idem-4', mode: 'private' },
+            completeArgs: PRODUCTION_VALID_COMPLETED_ARGS('early speech', 11),
+            attributionEvidence: null,
+            progressContext: { mode: 'unknown' },
+        };
+        setUnresolved(true);
+        await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
+        expect(vi.mocked(storage.saveSession).mock.calls[0][0]).not.toHaveProperty('product');
+    });
+
     it('#1033 (1): a FAILED initial_save stays retryable and locked (no duplicate, nothing lost)', async () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.saveSession).mockResolvedValueOnce({ status: 'failed', reason: 'rpc_error' } as never);

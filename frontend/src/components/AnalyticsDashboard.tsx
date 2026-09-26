@@ -755,16 +755,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         if (!targetSession || targetSession.status !== 'completed') return false;
         return !validateNextActionSignal(targetSession.next_action_signal).ok;
     }, [targetSession]);
-    // #1258 G20: "Session 6 · 24 Sep" — its position in this account's history (oldest = 1) and its date.
+    // #1258 G20: the saved session's date ("24 Sep"; the product is appended by the review header). NO ordinal on the
+    // detail route (#1535 Codex P2 r4112111970): `useAnalytics` passes only the opened session there, so a position in
+    // "this account's history" cannot be known — every detail would read "Session 1". Nothing shown beats a wrong number.
     const targetSessionLabel = useMemo(() => {
-        if (!targetSession || !sessionHistory) return null;
-        const newestFirst = sessionHistory.findIndex((s) => s.id === targetSession.id);
-        const number = newestFirst >= 0 ? sessionHistory.length - newestFirst : null;
+        if (!targetSession) return null;
         const created = new Date(targetSession.created_at);
         // G20's short date ("24 Sep"): the header must fit a 320px phone beside its eyebrow.
-        const date = Number.isNaN(created.getTime()) ? null : created.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-        return [number !== null ? `Session ${number}` : null, date].filter(Boolean).join(' · ');
-    }, [targetSession, sessionHistory]);
+        return Number.isNaN(created.getTime()) ? null : created.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    }, [targetSession]);
 
     return (
         <div className="space-y-6" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
