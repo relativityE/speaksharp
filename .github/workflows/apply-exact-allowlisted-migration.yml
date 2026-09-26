@@ -24,6 +24,7 @@ on:
           - '20260914214307'
           - '20260923120000'
           - '20260924150000'
+          - '20260926190000'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
@@ -160,7 +161,7 @@ jobs:
         # ONE resolution serves both. Stage B originally resolved the pooler a second time, which the
         # SEC-002 contract rejects: two resolutions can drift, leaving this proof attesting to parameters
         # the postflight never uses.
-        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') }}
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') }}
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
@@ -227,6 +228,36 @@ jobs:
           # THE PREMISE. If the column and the exact pairing are already present there is nothing to
           # apply, and continuing would report a success this migration did not cause.
           bash scripts/postflight-gate-1416.sh before
+
+      - name: Preflight 20260926190000 product-marker postflight credentials and API path (before the irreversible apply)
+        # #1537 (Codex P1 r4112619095): the postflight reloads PostgREST through raw psql and then reads
+        # `sessions.product` through the client's REST API. Both paths are proven here, BEFORE the apply, so an unusable
+        # verification path stops the apply instead of stranding a change that cannot be confirmed (SEC-002).
+        if: ${{ contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_URL:-}" ] || missing+=(SUPABASE_URL)
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || missing+=(SUPABASE_SERVICE_ROLE_KEY)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::20260926190000 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          # The raw-psql reload path was proven by the shared reachability step above; fail closed if it did not run.
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          # The REST path, with a column that already exists: a no-row read (nonexistent id, limit=0) must return
+          # exactly `[]`. No response body is ever printed.
+          code=$(curl -sS --max-time 10 -o "$RUNNER_TEMP/pre-product-probe.json" -w '%{http_code}' \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/sessions?select=id&id=eq.00000000-0000-0000-0000-000000000000&limit=0") || code=000
+          if ! bash scripts/postgrest-column-readable.sh "$code" "$RUNNER_TEMP/pre-product-probe.json"; then
+            echo "::error::REST path to sessions is not usable BEFORE apply (http=$code) — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          echo "20260926190000 postflight credentials and both verification paths present"
 
       - name: Revalidate main IMMEDIATELY before the irreversible apply
         env:
@@ -414,6 +445,51 @@ jobs:
           fi
           echo "#1416 postflight enforced: success"
 
+      # #1537-KEYED POSTFLIGHT (Codex P1 r4112619095). The generic history + lint proofs above can pass while PostgREST
+      # still cannot serve `sessions.product`, and the #1535 reader would then silently fall back to its legacy read.
+      # Reload PostgREST, then read the new column through the SAME REST API the client uses — a NO-ROW read (nonexistent
+      # id, limit=0), so no user session data is ever read or logged. Fail closed: only HTTP 200 with exactly `[]`.
+      - name: Enforce reviewed 20260926190000 product-marker operation (PostgREST reload + sessions.product read)
+        id: postflight_20260926190000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          psql -v ON_ERROR_STOP=1 -qAtc "NOTIFY pgrst, 'reload schema';"
+          ok=no
+          code=000
+          for i in $(seq 1 15); do
+            code=$(curl -sS --max-time 10 -o "$RUNNER_TEMP/product-probe.json" -w '%{http_code}' \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              "${SUPABASE_URL}/rest/v1/sessions?select=id,product&id=eq.00000000-0000-0000-0000-000000000000&limit=0") || { code=000; sleep 2; continue; }
+            if bash scripts/postgrest-column-readable.sh "$code" "$RUNNER_TEMP/product-probe.json"; then ok=yes; break; fi
+            sleep 2
+          done
+          if [ "$ok" != yes ]; then
+            # Status and error code only — never the response body.
+            err=$(grep -oE '"code":"[A-Z0-9]{1,10}"' "$RUNNER_TEMP/product-probe.json" 2>/dev/null | head -n 1 || true)
+            echo "::error::sessions.product not readable through PostgREST after reload (last http=$code ${err})"
+            exit 1
+          fi
+          echo "20260926190000 postflight passed: PostgREST reloaded and sessions.product resolves through the REST API"
+
+      - name: Require 20260926190000 product-marker postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_20260926190000.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::20260926190000 applied but its postflight outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "20260926190000 postflight enforced: success"
+
       - name: Require unambiguous exact-operation success
         id: terminal
         if: always()
@@ -427,7 +503,8 @@ jobs:
             "${{ steps.contract.outputs.target_file }}" \
             "postflight_1314=${{ steps.postflight_1314.outcome }}" \
             "postflight_1306=${{ steps.postflight_1306.outcome }}" \
-            "postflight_1416=${{ steps.postflight_1416.outcome }}"
+            "postflight_1416=${{ steps.postflight_1416.outcome }}" \
+            "postflight_20260926190000=${{ steps.postflight_20260926190000.outcome }}"
 
       - name: Publish sanitized result
         if: always()
@@ -445,5 +522,6 @@ jobs:
           echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- #1314 postflight outcome: \`${{ steps.postflight_1314.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- #1306 Stage B postflight outcome: \`${{ steps.postflight_1306.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 20260926190000 product-marker postflight outcome: \`${{ steps.postflight_20260926190000.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo '- The selected migration is the only authorized mutation. `--include-all` is permitted only for the isolated #1276 target and must be disclosed by its exact authorization phrase. No repair, broad-directory application, Edge deployment, payment configuration, or secrets/config change is performed.' >> "$GITHUB_STEP_SUMMARY"

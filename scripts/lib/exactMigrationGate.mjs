@@ -127,6 +127,15 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1258 — the durable session product marker (PO-authorized design, PM-accepted 2026-09-26). Applied AFTER #1471,
+        // before the held commercial-activation entry, and BEFORE any client that reads `sessions.product` ships.
+        // Allowlisting is implementation, not authorization: applying it needs the PO's exact dispatch with the phrase.
+        version: '20260926190000',
+        file: '20260926190000_session_product_marker_1258.sql',
+        sha256: 'b576f0d888fde0217911f9022c2dad4710e2314a6cb963344c6cfa8e11da101f',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -548,6 +557,8 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_1314', targetFile: '20260819120000_complete_session_v2_atomic_retention_1314' }),
     Object.freeze({ id: 'postflight_1306', targetFile: '20260829120000_retire_complete_session_v1_1306' }),
     Object.freeze({ id: 'postflight_1416', targetFile: '20260904150000_share_feedback_redesign' }),
+    // #1537: PostgREST reload + a no-row read of `sessions.product` through the client's REST API.
+    Object.freeze({ id: 'postflight_20260926190000', targetFile: '20260926190000_session_product_marker_1258' }),
 ]);
 
 /**
