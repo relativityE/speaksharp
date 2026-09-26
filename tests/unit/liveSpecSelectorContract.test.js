@@ -23,6 +23,11 @@ import { join } from 'node:path';
  * guard.
  */
 const KNOWN_STALE = {
+  // #1258 RWT: rendered by the pending product repairs this suite rehearses. They self-expire: once those land and
+  // #1532 is rebased, `the known-stale quarantine self-expires` fails until these three lines are deleted.
+  'saved-review': 'rendered by fix/analytics-saved-review-g20 (G20 saved review, RWT PM order item 3); pending merge',
+  'saved-review-practice': 'rendered by fix/analytics-saved-review-g20 (G20 single practice action, item 3); pending merge',
+  'focus-points-legend': 'rendered by fix/focus-points-state-legend (rail legend, RWT PM order item 2); pending merge',
   'guided-unavailable-notice':
     'report-page-context §C (#1018 Issue-Report proof) asserts a "guided rehearsal unavailable" flow '
     + 'that no longer exists: the objective card now renders WITHOUT the soon badge and starts a session. '
@@ -68,7 +73,10 @@ function readAllTsx(dir, acc = []) {
   return acc;
 }
 
-const TSX_SOURCE = readAllTsx('frontend/src').join('\n');
+// The header renders its section links from this config (`Navigation.tsx`: `data-testid={item.testId}`), so
+// the constants it names are rendered by a component even though the reference sits in a `.ts` file.
+const RENDERED_CONFIG = ['frontend/src/config/navSections.ts'];
+const TSX_SOURCE = [...readAllTsx('frontend/src'), ...RENDERED_CONFIG.map((f) => readFileSync(f, 'utf8'))].join('\n');
 const CONSTANTS_SOURCE = readFileSync('frontend/src/constants/testIds.ts', 'utf8');
 
 /**

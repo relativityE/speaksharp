@@ -258,7 +258,7 @@ export const PRIV_STT_MODELS = {
   // FAIL to load on v2 with "Unsupported model type: whisper" (test-confirmed). distil-whisper
   // (distil-small.en) only exists in v3 form, so it is NOT loadable on v2 — replaced here by
   // whisper-small.en (Xenova/whisper-small.en, v2-native), giving a clean tiny→base→small
-  // accuracy ladder. Default tiny loads from local public/models/ (flag-off byte-identical);
+  // accuracy ladder. The DEFAULT (base.en) and tiny.en load from local public/models/;
   // these remoteIds only matter for the candidate downloads. approxMB are best-effort; the A/B
   // captures the real downloaded size.
   CANDIDATES: {

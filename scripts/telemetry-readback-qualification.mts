@@ -150,7 +150,14 @@ async function main(): Promise<void> {
      * That leaves the two classes a controlled Production run genuinely carries: the automated
      * qualification canary, and a human dogfood session.
      */
-    if (!(CONTROLLED_EVIDENCE_TRAFFIC as readonly string[]).includes(trafficType)) {
+    /**
+     * RWT USER-STAGE RECEIPT (opt-in, report-only). A first visit signs up as ordinary `user` traffic before the
+     * run-owned canary claim exists. That stage can never QUALIFY anything — the refusal above stays — but the PO
+     * asked what PostHog actually RECEIVED from it. With this flag, and only for `user`, the script reports
+     * per-family received counts for the one journey and exits without a verdict.
+     */
+    const userStageReport = process.env.TELEMETRY_READBACK_USER_STAGE_REPORT === '1' && trafficType === 'user';
+    if (!userStageReport && !(CONTROLLED_EVIDENCE_TRAFFIC as readonly string[]).includes(trafficType)) {
         hold(`--traffic-type ${trafficType} is not a controlled evidence class; only ${CONTROLLED_EVIDENCE_TRAFFIC.join(' or ')} may qualify a release`);
     }
     if (!Number.isFinite(windowHours) || windowHours <= 0) hold(`--window-hours ${windowHours} is not a positive number`);
@@ -202,6 +209,29 @@ async function main(): Promise<void> {
     // anyway: a vocabulary is a thing people edit, and the escaping must not depend on nobody ever
     // adding a name with a quote in it.
     const sql = (value: string) => `'${value.replace(/'/g, "''")}'`;
+
+    if (userStageReport) {
+        // Event NAMES and counts only, for governed families; never a property.
+        const rows = await runQuery(`
+            SELECT event, count() AS received
+            FROM events
+            WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
+              AND properties.release_sha = ${sql(releaseSha)}
+              AND properties.traffic_type = 'user'
+              AND properties.journey_id = ${sql(journeyId)}
+              AND event IN (${GOVERNED_EVENTS.map(sql).join(', ')})
+            GROUP BY event
+        `, 'the user-stage receipt');
+        const received: Record<string, number> = {};
+        for (const row of rows) {
+            const c = Array.isArray(row) ? row : [];
+            if (typeof c[0] === 'string' && typeof c[1] === 'number') received[c[0]] = c[1];
+        }
+        const state = Object.keys(received).length > 0 ? 'RECEIVED' : 'NOT_RECEIVED';
+        console.log(`USER_STAGE_RECEIPT ${JSON.stringify({ release_sha: releaseSha, journey_id: journeyId, traffic_type: 'user', state, received, qualifies: false })}`);
+        // Never a pass: the receipt is reported, and the run still ends as a HOLD because user traffic cannot qualify.
+        hold('user-stage receipt reported above; `user` traffic is report-only and never qualifies a release');
+    }
     // TWO SCOPES, because the required families do not all live in one journey.
     //
     // The identity receipts are emitted at sign-in, under the pre-product journey; the product journey is
@@ -378,6 +408,58 @@ async function main(): Promise<void> {
         reasons: [...result.reasons, ...delivery.reasons],
     };
     console.log(`TELEMETRY_READBACK_QUALIFICATION_EVIDENCE ${JSON.stringify(evidence)}`);
+
+    /**
+     * RWT FIRST-DOWNLOAD RECEIPT (opt-in; set only for first-visit RWT journeys, where it is REQUIRED evidence).
+     * The PO asked for the actual first-visit model acquisition time as RECEIVED, not the event name alone. Bound to
+     * the same journey, release, traffic class and qualifying identity as the readback above, and selecting only named
+     * governed fields from the allowlist — never the property bag. Network download, init and total setup time stay
+     * separate fields: a total setup timer is not network download time. Only a measured cold download passes; a cache
+     * hit, a partial or unobservable measurement, or no receipt at all ends the run as a HOLD.
+     */
+    if (process.env.TELEMETRY_READBACK_ACQUISITION_RECEIPT === '1') {
+        const acquisitionRows = await runQuery(`
+            SELECT properties.model_identity, properties.acquired_candidate_id, properties.cache_result,
+                   properties.measurement_completeness, properties.measurement_reason_code, properties.network_used,
+                   properties.download_ms, properties.init_ms, properties.total_ms, properties.network_bytes,
+                   properties.partial_download_ms
+            FROM events
+            WHERE event = 'private_model_acquisition_success'
+              AND timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
+              AND properties.release_sha = ${sql(releaseSha)}
+              AND properties.traffic_type = ${sql(trafficType)}
+              AND properties.journey_id = ${sql(journeyId)}
+              AND distinct_id = ${sql(qualifyingIdentity)}
+            ORDER BY timestamp ASC
+        `, 'the acquisition receipt');
+        const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+        const str = (v: unknown) => (typeof v === 'string' ? v : null);
+        const receipts = acquisitionRows.map((row) => {
+            const c = Array.isArray(row) ? row : [];
+            return {
+                model_identity: str(c[0]), acquired_candidate_id: str(c[1]), cache_result: str(c[2]),
+                measurement_completeness: str(c[3]), measurement_reason_code: str(c[4]),
+                network_used: typeof c[5] === 'boolean' ? c[5] : null,
+                download_ms: num(c[6]), init_ms: num(c[7]), total_ms: num(c[8]), network_bytes: num(c[9]),
+                partial_download_ms: num(c[10]),
+            };
+        });
+        const first = receipts[0];
+        // A FIRST download is proven only by a complete measurement of a cache MISS that used the network, with a
+        // measured download_ms. A cache hit is a warm load, never first-visit download time (PM r4 review).
+        const state = !first ? 'NOT_RECEIVED'
+            : first.measurement_completeness === 'unobservable' ? 'UNOBSERVABLE'
+                : first.measurement_completeness !== 'complete' ? 'RECEIVED_PARTIAL'
+                    : first.cache_result === 'hit' ? 'RECEIVED_CACHE_HIT'
+                        : first.cache_result === 'miss' && first.network_used === true && first.download_ms !== null ? 'RECEIVED_COLD_DOWNLOAD'
+                            : 'RECEIVED_INCONCLUSIVE';
+        console.log(`ACQUISITION_RECEIPT ${JSON.stringify({ release_sha: releaseSha, journey_id: journeyId, traffic_type: trafficType, state, received: receipts.length, first: first ?? null })}`);
+        // Required evidence for a first-visit RWT journey: anything but a measured cold download is a HOLD, so a green
+        // event-family qualification can never stand in for the download timing the PO asked for.
+        if (state !== 'RECEIVED_COLD_DOWNLOAD') {
+            hold(`first-download receipt is ${state}: a measured cold network download (cache miss, network used, download_ms) was not received for journey ${journeyId}`);
+        }
+    }
 
     if (verdict !== 'QUALIFIED') {
         console.error(`HOLD — ${[...result.reasons, ...delivery.reasons, ...stageReasons].join('; ')}`);

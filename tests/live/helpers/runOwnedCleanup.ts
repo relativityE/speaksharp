@@ -90,6 +90,15 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
     { table: 'session_progress_evaluations', column: 'user_id' },
     { table: 'progress_recommendations', column: 'user_id' },
     { table: 'progress_recommendation_attempts', column: 'user_id' },
+    // Coaching and Focus Points surfaces the RWT journey suites produce (all ON DELETE CASCADE; residue-checked so
+    // a regression that dropped a cascade fails the proof instead of orphaning rows).
+    { table: 'ai_suggestion_authority_receipts', column: 'user_id' },
+    { table: 'objective_project', column: 'user_id' },
+    { table: 'objective_brief', column: 'user_id' },
+    { table: 'objective_brief_point', column: 'user_id' },
+    { table: 'objective_session', column: 'user_id' },
+    { table: 'objective_source_recording', column: 'user_id' },
+    { table: 'objective_evidence', column: 'user_id' },
 ]);
 
 /**
@@ -98,7 +107,7 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
  */
 const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_entitlements']);
 
-export const RUN_OWNED_PREFIX_RE = /^(private-proof-|retention-proof-)/;
+export const RUN_OWNED_PREFIX_RE = /^(private-proof-|retention-proof-|rwt-journey-)/;
 
 /**
  * Delete exactly the run-owned account and prove no residue remains. Fail-closed throughout.
