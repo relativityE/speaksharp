@@ -124,12 +124,17 @@ const writePaginatedText = (
   return y;
 };
 
+/**
+ * Generates and saves the session PDF. Resolves `true` only once the file has been handed to the browser to save,
+ * and `false` when generation failed (the failure is already shown to the person as a toast). #1258 (PM RETURN,
+ * #1535): a caller must not report a download that did not happen — `session_pdf_downloaded` is emitted only on `true`.
+ */
 export const generateSessionPdf = async (
   session: Session,
   username: string = 'User',
   _isPro: boolean = false,
   sessionsForDay: Session[] = []
-) => {
+): Promise<boolean> => {
   try {
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
@@ -314,6 +319,7 @@ export const generateSessionPdf = async (
       document.body.setAttribute('data-pdf-token', 'watermarked');
       setTimeout(() => document.body.removeAttribute('data-pdf-token'), 5000);
     }
+    return true;
   } catch (error: unknown) {
     logger.error({
       error,
@@ -321,5 +327,6 @@ export const generateSessionPdf = async (
       message: error instanceof Error ? error.message : String(error)
     }, '[pdfGenerator] Error in PDF generation');
     toast.error('Failed to generate PDF report. Please try again.', { id: 'pdf-gen' });
+    return false;
   }
 };

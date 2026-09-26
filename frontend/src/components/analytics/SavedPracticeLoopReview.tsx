@@ -72,23 +72,41 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
         }
         navigate('/practice');
     };
+    // #1258 (PM RETURN, #1535 cycle 1): act only on a KNOWN progress answer. While it is loading nothing navigates (a
+    // fast click must not skip a valid linked repeat); a failed read stays here with its error and a retry; an eligible
+    // recommendation runs its one linked attempt first; only a terminal "nothing to link" opens the product directly.
     const practise = () => {
-        trackSavedReviewPracticeSelected(review?.product ?? 'unknown', Boolean(repeat.recommendationId));
-        if (repeat.recommendationId) void repeat.accept(openProduct);
+        if (!review || repeat.linkState === 'pending' || repeat.accepting) return;
+        if (repeat.linkState === 'error') {
+            void repeat.query.refetch();
+            return;
+        }
+        trackSavedReviewPracticeSelected(review.product, repeat.linkState === 'linked');
+        if (repeat.linkState === 'linked') void repeat.accept(openProduct);
         else openProduct();
     };
+    const progressReadFailed = repeat.linkState === 'error' && !repeat.query.isFetching;
 
     const action = (
         <div>
             <button
                 type="button"
                 onClick={practise}
-                disabled={!review || repeat.accepting || repeat.retryBlocked}
+                disabled={!review || repeat.accepting || repeat.retryBlocked || repeat.linkState === 'pending' || (repeat.linkState === 'error' && repeat.query.isFetching)}
                 data-testid="saved-review-practice"
+                data-link-state={repeat.linkState}
                 className="rounded-lg bg-ink px-5 py-3 text-[15px] font-bold text-ink-text hover:brightness-110 disabled:opacity-60"
             >
-                {repeat.accepting ? 'Linking repeat…' : PRACTICE_AGAIN}
+                {repeat.accepting ? 'Linking repeat…'
+                    : repeat.linkState === 'pending' || (repeat.linkState === 'error' && repeat.query.isFetching) ? 'Checking your next practice…'
+                        : progressReadFailed ? 'Try again'
+                            : PRACTICE_AGAIN}
             </button>
+            {progressReadFailed && (
+                <p role="alert" className="mt-2 text-[13px] font-semibold text-ink" data-testid="saved-review-progress-error">
+                    Your next practice couldn’t be checked, so it wasn’t started. Try again.
+                </p>
+            )}
             {repeat.actionError && (
                 <p role="alert" className="mt-2 text-[13px] font-semibold text-ink" data-testid="saved-review-practice-error">{repeat.actionError}</p>
             )}

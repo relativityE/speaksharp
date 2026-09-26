@@ -160,9 +160,21 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(Clearer than your first comparable session: 80% -> 90%.) Tj');
   });
 
+  // #1258 (PM RETURN, #1535): callers report `session_pdf_downloaded` only on a real save, so the generator says which.
+  it('resolves true once the PDF is handed to the browser, and false (with the failure toast) when generation fails', async () => {
+    const { toast } = await import('sonner');
+    await expect(generateSessionPdf(mockSession, 'TestUser')).resolves.toBe(true);
+    expect(saveAs).toHaveBeenCalled();
+    vi.mocked(saveAs).mockClear();
+    vi.mocked(saveAs).mockImplementationOnce(() => { throw new Error('blocked by the browser'); });
+    await expect(generateSessionPdf(mockSession, 'TestUser')).resolves.toBe(false);
+    // The person still sees the failure (the generator's toast wrapper forwards to sonner's error toast).
+    expect(vi.mocked(toast.error).mock.calls.some((c) => String(c[0]).includes('Failed to generate PDF report'))).toBe(true);
+  });
+
   it('still exports the session when comparable Progress cannot be loaded', async () => {
     loadSessionProgress.mockRejectedValue(new Error('offline'));
-    await expect(generateSessionPdf(mockSession, 'TestUser')).resolves.toBeUndefined();
+    await expect(generateSessionPdf(mockSession, 'TestUser')).resolves.toBe(true);
     const savedPdf = await getSavedPdf();
     expect(savedPdf.text).toContain('(SpeakSharp Session Report) Tj');
     expect(savedPdf.text).not.toContain('(Comparable Progress) Tj');

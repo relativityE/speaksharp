@@ -23,7 +23,7 @@ import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
 import { SavedFocusPointsCoverage } from './analytics/SavedFocusPointsCoverage';
 import { SavedPracticeLoopReview } from './analytics/SavedPracticeLoopReview';
-import { trackSessionPdfDownloaded } from '@/services/reviewSurfaceTelemetry';
+import { trackSessionPdfDownloaded, type PdfSurface } from '@/services/reviewSurfaceTelemetry';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
@@ -58,6 +58,17 @@ import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
  * 
  * @see AnalyticsPage.tsx - Container component that fetches and passes data
  */
+/**
+ * #1258 (PM RETURN, #1535): the success-named `session_pdf_downloaded` is sent only after the PDF was actually handed
+ * to the browser to save. A failed generation (already shown as a toast) or a rejection sends nothing.
+ */
+const downloadSessionPdf = (surface: PdfSurface, ...args: Parameters<typeof generateSessionPdf>): void => {
+    void generateSessionPdf(...args).then(
+        (saved) => { if (saved) trackSessionPdfDownloaded(surface); },
+        () => undefined,
+    );
+};
+
 interface AnalyticsDashboardProps {
     profile: UserProfile | null;
     isProUser?: boolean;
@@ -496,8 +507,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            trackSessionPdfDownloaded('history_list');
-                            void generateSessionPdf(session, profileName, _isPro, sessionHistory);
+                            downloadSessionPdf('history_list', session, profileName, _isPro, sessionHistory);
                         }}
                         title="Download Session PDF"
                         data-testid={`download-pdf-btn-${session.id}`}
@@ -524,8 +534,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            trackSessionPdfDownloaded('history_list_mobile');
-                            void generateSessionPdf(session, profileName, _isPro, sessionHistory);
+                            downloadSessionPdf('history_list_mobile', session, profileName, _isPro, sessionHistory);
                         }}
                         data-testid={`download-pdf-btn-mobile-${session.id}`}
                         className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] bg-signature px-[14px] py-[9px] text-[13px] font-bold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -829,7 +838,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => { trackSessionPdfDownloaded('session_detail'); void generateSessionPdf(targetSession, profile?.email || 'User', isProUser, sessionHistory); }}
+                                        onClick={() => { downloadSessionPdf('session_detail', targetSession, profile?.email || 'User', isProUser, sessionHistory); }}
                                         className="gap-2"
                                     >
                                         <Download className="h-4 w-4" />

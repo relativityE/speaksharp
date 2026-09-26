@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
@@ -14,7 +14,17 @@ import logger from '@/lib/logger';
  * It records (or reuses) the recommendation attempt, stores the open-attempt handoff, and only then hands over to
  * `afterLinked` — which navigates into the SESSION'S OWN product. A handoff that cannot be stored is abandoned
  * server-side rather than left pending. The progress query key is shared, so both users read one cached result.
+ *
+ * #1258 (PM RETURN, #1535 cycle 1): `recommendationId === null` does NOT mean "no linked repeat" — it is also null
+ * while the progress query is still loading and when it failed. `linkState` says which it is, so a caller never
+ * navigates unlinked on a guess:
+ *   - `pending`: the answer is not known yet — no navigation of any kind;
+ *   - `error`: the progress read failed (or is not available yet) — stay on the review, show it, offer a retry;
+ *   - `linked`: an eligible recommendation exists — run exactly one linked attempt/handoff, then open the product;
+ *   - `direct`: ONLY a terminal `insufficient` or `ineligible` answer — open directly.
+ * `eligible` without a recommendation is not a permission to skip the link (PM RETURN cycle 2): it is `error`.
  */
+export type LinkState = 'pending' | 'error' | 'linked' | 'direct';
 export function useLinkedRepeat(sessionId: string) {
     const { user } = useAuthProvider();
     const userId = user?.id ?? null;
@@ -29,9 +39,16 @@ export function useLinkedRepeat(sessionId: string) {
     });
     const view = query.data;
     const recommendationId = view?.status === 'eligible' ? view.recommendationId : null;
+    const linkState: LinkState = query.isPending ? 'pending'
+        : !query.isError && (view?.status === 'insufficient' || view?.status === 'ineligible') ? 'direct'
+            : !query.isError && view?.status === 'eligible' && typeof recommendationId === 'string' && recommendationId.length > 0 ? 'linked'
+                : 'error';
+    // A second press in the same frame reads the same `accepting` state; the ref makes the attempt single-flight.
+    const acceptingRef = useRef(false);
 
     const accept = async (afterLinked: () => void): Promise<void> => {
-        if (!recommendationId || !userId || accepting) return;
+        if (!recommendationId || !userId || accepting || acceptingRef.current) return;
+        acceptingRef.current = true;
         setAccepting(true);
         setActionError(null);
         setRetryBlocked(false);
@@ -56,9 +73,10 @@ export function useLinkedRepeat(sessionId: string) {
             logger.warn({ err, sessionId }, '[progress] accept recommendation failed');
             setActionError('The repeat could not be linked. Stay on this review and try again.');
         } finally {
+            acceptingRef.current = false;
             setAccepting(false);
         }
     };
 
-    return { query, view, userId, recommendationId, accept, accepting, actionError, setActionError, retryBlocked, setRetryBlocked };
+    return { query, view, userId, recommendationId, linkState, accept, accepting, actionError, setActionError, retryBlocked, setRetryBlocked };
 }
