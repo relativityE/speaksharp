@@ -14,8 +14,9 @@ import {
  *
  *   DURING: a spoken point is green "Detected at m:ss"; the unspoken one is NOT red — it is "Still to cover" /
  *           "Not heard yet" (a verdict before Stop would accuse the speaker mid-take).
- *   AFTER:  the unspoken point turns red with a visible "Not detected" and the paraphrase caveat; the colour key and
- *           the one detection note appear; the spoken points stay Detected; the one next action (Retry) is there.
+ *   AFTER:  the unspoken point turns red (numbered ring) with a visible "Not detected"; the colour key and exactly ONE
+ *           detector-limitation note below the list appear — no row repeats the paraphrase caveat (G20); the spoken
+ *           points stay Detected; the one next action (Retry) is there.
  *
  * Synthetic speech proves the WIRING from transcript to rendered rail. It is not a judgement of the matcher on real
  * speech, and this local build cannot observe RECEIVED telemetry (posthog-js is not a readable stub here) — both
@@ -67,10 +68,19 @@ test.describe('RWT item 2 — the Focus Points rail during and after a take', ()
     }
     await expect(page.getByTestId('focus-point-2'), 'the unspoken point is red after Stop').toHaveAttribute('data-status', 'missing', { timeout: 15_000 });
     await expect(page.getByTestId('focus-point-2-status')).toHaveText('Not detected');
-    await expect(page.getByTestId('focus-point-2-not-detected')).toContainText('You may have covered it in different words.');
+    await expect(page.getByTestId('focus-point-2-not-detected')).toHaveText('We couldn’t detect this point in the transcript.');
     await expect(page.getByTestId('focus-point-2-marker')).toBeVisible();
+    await expect(page.getByTestId('focus-point-2-marker')).toHaveAttribute('data-marker', 'missed');
+    await expect(page.getByTestId('focus-point-2-marker')).toHaveText('3');
     await expect(page.getByTestId('focus-points-legend'), 'the colour key is shown with the verdict').toBeVisible();
-    await expect(page.getByTestId('focus-points-detection-note'), 'one detection note').toHaveCount(1);
+    // G20: the limitation is stated ONCE, below the list — never repeated inside a row.
+    await expect(page.getByTestId('focus-points-detection-note'), 'exactly one detection note').toHaveCount(1);
+    await expect(page.getByTestId('focus-points-rail-list').getByText(/different words|covered it differently/i), 'no row repeats the caveat').toHaveCount(0);
+    expect(await page.evaluate(() => {
+      const list = document.querySelector('[data-testid="focus-points-rail-list"]');
+      const note = document.querySelector('[data-testid="focus-points-detection-note"]');
+      return Boolean(list && note && (list.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING) && !list.contains(note));
+    }), 'the note sits below the list').toBe(true);
     await expect(page.getByTestId('focus-points-retry'), 'the next action').toBeEnabled();
   });
 });

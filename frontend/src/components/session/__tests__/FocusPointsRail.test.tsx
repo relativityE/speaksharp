@@ -46,7 +46,7 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         ];
         render(<FocusPointsRail rows={afterRows} topic="Micro-Decisions" sessionState="after" />);
         const missed = screen.getByTestId('focus-point-2-not-detected');
-        expect(missed).toHaveTextContent('We couldn’t detect this point in the transcript. You may have covered it in different words.');
+        expect(missed).toHaveTextContent(/^We couldn’t detect this point in the transcript\.$/);
         // Honest: no "waste"/"behind"/"seconds off-point" phrasing.
         for (const b of ['wasted', 'behind', 'off-point', 'seconds off']) expect(missed.textContent!.toLowerCase()).not.toContain(b);
     });
@@ -213,7 +213,7 @@ describe('FocusPointsRail — state colours, legend and pending label (#1258 RWT
         expect(rail.querySelector('.text-state-error, .border-state-error')).toBeNull();
     });
 
-    it('after Stop: an undetected point is a red numbered ring with a VISIBLE "Not detected" and keeps the paraphrase caveat', () => {
+    it('after Stop: an undetected point is a red numbered ring with a VISIBLE "Not detected"; the paraphrase caveat is stated ONCE, below the list (G20)', () => {
         render(<FocusPointsRail rows={during} sessionState="after" />);
         const marker = screen.getByTestId('focus-point-3-marker');
         expect(marker).toHaveAttribute('data-marker', 'missed');
@@ -225,8 +225,14 @@ describe('FocusPointsRail — state colours, legend and pending label (#1258 RWT
         expect(status).toBeVisible();
         expect(status).not.toHaveClass('sr-only');
         expect(screen.getByTestId('focus-point-3')).toHaveClass('bg-state-error-ground');
-        expect(screen.getByTestId('focus-point-3-not-detected')).toHaveTextContent('You may have covered it in different words.');
-        expect(screen.getByTestId('focus-points-detection-note')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-point-3-not-detected')).toHaveTextContent(/^We couldn’t detect this point in the transcript\.$/);
+        // PM RETURN (G20): no row repeats the paraphrase caveat; the limitation note appears exactly once, after the list.
+        expect(screen.queryAllByText(/different words|covered it differently/i)).toHaveLength(1);
+        const notes = screen.getAllByTestId('focus-points-detection-note');
+        expect(notes).toHaveLength(1);
+        const list = screen.getByTestId('focus-points-rail-list');
+        expect(list.compareDocumentPosition(notes[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(list).not.toContainElement(notes[0]);
         expect(screen.queryByTestId('focus-point-3-pending')).not.toBeInTheDocument();
     });
 

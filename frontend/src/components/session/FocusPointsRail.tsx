@@ -218,7 +218,8 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                 )}
                                 {isMissed && (
                                     <p className="mt-1 text-[13px] leading-snug text-state-error" data-testid={`focus-point-${i}-not-detected`}>
-                                        We couldn’t detect this point in the transcript. You may have covered it in different words.
+                                        {/* G20: the paraphrase caveat is stated ONCE, below the list (focus-points-detection-note). */}
+                                        We couldn’t detect this point in the transcript.
                                     </p>
                                 )}
                             </div>
