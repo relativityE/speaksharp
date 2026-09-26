@@ -17,6 +17,13 @@ vi.mock('../analytics/GoalsSection', () => ({ GoalsSection: () => <div data-test
 vi.mock('../analytics/TopFillerWords', () => ({ TopFillerWords: () => <div data-testid="top-filler-words" /> }));
 vi.mock('../analytics/FillerWordTable', () => ({ FillerWordTable: () => <div data-testid="filler-word-table" /> }));
 vi.mock('../analytics/TrendChart', () => ({ TrendChart: () => <div data-testid="trend-chart" /> }));
+const pdfDownloaded = vi.fn();
+vi.mock('@/services/reviewSurfaceTelemetry', () => ({ trackSessionPdfDownloaded: (...args: unknown[]) => pdfDownloaded(...args) }));
+// #1258 G20: the saved review has its own tests; here only its placement and ownership of the next action matter.
+vi.mock('../analytics/SavedPracticeLoopReview', () => ({
+    SavedPracticeLoopReview: ({ sessionId, sessionLabel }: { sessionId: string; sessionLabel?: string | null }) =>
+        <section data-testid="saved-review" data-session={sessionId} data-label={sessionLabel ?? ''} />,
+}));
 
 // Mock Recharts to avoid canvas/resize observer issues in JSDOM
 vi.mock('recharts', () => ({
@@ -464,7 +471,7 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent('Legacy recording');
     });
 
-    it('#1306: session detail renders NO transcript pane and NO transcript-quality caveat — and shows the next action', () => {
+    it('#1306: session detail renders NO transcript pane and NO transcript-quality caveat — and the saved review leads', () => {
         renderComponent({
             sessionId: 'native-session',
             sessionHistory: [
@@ -486,9 +493,15 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('session-detail-transcript-unavailable')).toBeInTheDocument();
         expect(screen.queryByTestId('session-detail-transcript-not_captured')).not.toBeInTheDocument();
         expect(screen.queryByTestId('session-detail-quality-caveat')).not.toBeInTheDocument();
-        // The ONE structured next action is shown (content-free coaching), and metrics still render.
-        expect(screen.getByTestId('session-detail-next-action')).toBeInTheDocument();
-        expect(screen.getByTestId('session-next-action-title')).toHaveTextContent('Trim the filler words');
+        // #1258 G20: the saved review is the FIRST block and owns the one next action; the signal's generic copy is
+        // no longer shown beside it. Metrics still render.
+        const review = screen.getByTestId('saved-review');
+        expect(review).toHaveAttribute('data-session', 'native-session');
+        expect(review).toHaveAttribute('data-label', expect.stringMatching(/^Session 1 · /));
+        const detail = review.parentElement!;
+        expect(detail.firstElementChild).toBe(review);
+        expect(screen.queryByTestId('session-detail-next-action')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('session-next-action-title')).not.toBeInTheDocument();
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('1');
     });
 
@@ -586,9 +599,51 @@ describe('AnalyticsDashboard', () => {
             expect(screen.getByTestId('clarity-score-value')).toHaveTextContent(/85/);
         });
 
-        it('a completed session renders exactly one valid next action', () => {
+        // #1258 (PM RETURN, #1535 cycle 1): `session_pdf_downloaded` names a SUCCESS. It is sent only after the PDF was
+        // actually handed to the browser (the generator resolves true) — never before generation, never on a failed
+        // generation (resolves false; the toast already tells the person) and never on a rejection. Exactly one event,
+        // carrying only its closed-enum surface.
+        type Surface = 'history_list' | 'history_list_mobile' | 'session_detail';
+        const press: Record<Surface, () => void> = {
+            history_list: () => fireEvent.click(screen.getByTestId('download-pdf-btn-sx')),
+            history_list_mobile: () => fireEvent.click(screen.getByTestId('download-pdf-btn-mobile-sx')),
+            session_detail: () => fireEvent.click(screen.getByRole('button', { name: /Export PDF/i })),
+        };
+        const renderFor = (surface: Surface) => surface === 'session_detail'
+            ? renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) })
+            : renderComponent({ sessionHistory: detailSession({}) });
+        const outcomes = [
+            ['saved (resolves true)', () => Promise.resolve(true), 1],
+            ['failed inside the generator (resolves false)', () => Promise.resolve(false), 0],
+            ['rejected', () => Promise.reject(new Error('boom')), 0],
+        ] as const;
+
+        for (const surface of ['history_list', 'history_list_mobile', 'session_detail'] as const) {
+            for (const [label, result, events] of outcomes) {
+                it(`#1258: PDF from ${surface}, ${label} → ${events} session_pdf_downloaded`, async () => {
+                    const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                    let settle!: () => void;
+                    const gate = new Promise<void>((resolve) => { settle = resolve; });
+                    vi.mocked(generateSessionPdf).mockReset().mockImplementation(() => gate.then(result) as Promise<boolean>);
+                    pdfDownloaded.mockReset();
+                    renderFor(surface);
+                    press[surface]();
+                    expect(generateSessionPdf).toHaveBeenCalledTimes(1);
+                    // Nothing is reported while the PDF is still being generated.
+                    expect(pdfDownloaded).not.toHaveBeenCalled();
+                    settle();
+                    await vi.waitFor(() => expect(vi.mocked(generateSessionPdf).mock.results[0]).toBeDefined());
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                    // Exactly `events` success events, each carrying only its closed-enum surface.
+                    expect(pdfDownloaded.mock.calls).toEqual(Array.from({ length: events }, () => [surface]));
+                });
+            }
+        }
+
+        it('a completed session with a valid next action: the saved review owns it, and no integrity error shows', () => {
             renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) });
-            expect(screen.getAllByTestId('session-next-action-title')).toHaveLength(1);
+            expect(screen.getAllByTestId('saved-review')).toHaveLength(1);
+            expect(screen.queryByTestId('session-next-action-title')).not.toBeInTheDocument();
             expect(screen.queryByTestId('session-next-action-integrity-error')).not.toBeInTheDocument();
             expect(screen.queryByTestId('session-next-action-none')).not.toBeInTheDocument();
         });

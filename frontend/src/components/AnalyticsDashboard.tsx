@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { resolveTranscriptView } from '@/lib/storage';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
-import { validateNextActionSignal, renderNextActionCopy } from '@/contracts/nextActionSignal';
+import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Eye, ChevronDown, AudioLines } from 'lucide-react';
@@ -21,6 +21,9 @@ import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
+import { SavedFocusPointsCoverage } from './analytics/SavedFocusPointsCoverage';
+import { SavedPracticeLoopReview } from './analytics/SavedPracticeLoopReview';
+import { trackSessionPdfDownloaded, type PdfSurface } from '@/services/reviewSurfaceTelemetry';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
@@ -55,6 +58,17 @@ import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
  * 
  * @see AnalyticsPage.tsx - Container component that fetches and passes data
  */
+/**
+ * #1258 (PM RETURN, #1535): the success-named `session_pdf_downloaded` is sent only after the PDF was actually handed
+ * to the browser to save. A failed generation (already shown as a toast) or a rejection sends nothing.
+ */
+const downloadSessionPdf = (surface: PdfSurface, ...args: Parameters<typeof generateSessionPdf>): void => {
+    void generateSessionPdf(...args).then(
+        (saved) => { if (saved) trackSessionPdfDownloaded(surface); },
+        () => undefined,
+    );
+};
+
 interface AnalyticsDashboardProps {
     profile: UserProfile | null;
     isProUser?: boolean;
@@ -493,7 +507,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            void generateSessionPdf(session, profileName, _isPro, sessionHistory);
+                            downloadSessionPdf('history_list', session, profileName, _isPro, sessionHistory);
                         }}
                         title="Download Session PDF"
                         data-testid={`download-pdf-btn-${session.id}`}
@@ -520,7 +534,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            void generateSessionPdf(session, profileName, _isPro, sessionHistory);
+                            downloadSessionPdf('history_list_mobile', session, profileName, _isPro, sessionHistory);
                         }}
                         data-testid={`download-pdf-btn-mobile-${session.id}`}
                         className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] bg-signature px-[14px] py-[9px] text-[13px] font-bold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -734,14 +748,23 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         () => targetSession ? getSessionAnalysisMetrics(targetSession) : null,
         [targetSession]
     );
-    // #1306 metrics-only: the review surface shows the structured next action, never a transcript or coaching
-    // prose. Validate the stored signal and render copy from code (copy never lives in the database).
-    const targetNextAction = useMemo(() => {
-        const signal = targetSession?.next_action_signal;
-        if (!signal) return null;
-        const v = validateNextActionSignal(signal);
-        return v.ok ? renderNextActionCopy(v.value) : null;
+    // #1306: a COMPLETED session must carry exactly one valid next-action signal. The saved review now owns the
+    // page's next action (#1258 G20), so the signal's generic copy is no longer shown; a missing or invalid signal on a
+    // completed session stays a visible data-integrity error (PM 2026-09-25).
+    const targetMissingNextAction = useMemo(() => {
+        if (!targetSession || targetSession.status !== 'completed') return false;
+        return !validateNextActionSignal(targetSession.next_action_signal).ok;
     }, [targetSession]);
+    // #1258 G20: "Session 6 · 24 Sep" — its position in this account's history (oldest = 1) and its date.
+    const targetSessionLabel = useMemo(() => {
+        if (!targetSession || !sessionHistory) return null;
+        const newestFirst = sessionHistory.findIndex((s) => s.id === targetSession.id);
+        const number = newestFirst >= 0 ? sessionHistory.length - newestFirst : null;
+        const created = new Date(targetSession.created_at);
+        // G20's short date ("24 Sep"): the header must fit a 320px phone beside its eyebrow.
+        const date = Number.isNaN(created.getTime()) ? null : created.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        return [number !== null ? `Session ${number}` : null, date].filter(Boolean).join(' · ');
+    }, [targetSession, sessionHistory]);
 
     return (
         <div className="space-y-6" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
@@ -752,9 +775,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             ) : targetSession && targetSessionMetrics ? (
                 /* Session Detail View */
                 <div className="space-y-6">
-                    {/* #1045: the Progress loop — direction + two takeaways + "Practice this next".
-                        Renders nothing until an eligible evaluation exists for this session. */}
-                    <ProgressPanel session={targetSession} />
+                    {/* #1258 G20 (Where A): the session's saved review is the FIRST block, and owns the ONE next action. */}
+                    <SavedPracticeLoopReview sessionId={targetSession.id} sessionLabel={targetSessionLabel} />
+                    {/* #1045: the Progress loop keeps its metrics and evidence; its competing "Practice this next"
+                        sentence and button give way to the review's single action (PM 2026-09-25). */}
+                    <ProgressPanel session={targetSession} nextActionOwnedByReview />
 
                     {/* #1306 metrics-only: no transcript is stored, so there is no transcript-quality caveat. */}
 
@@ -813,7 +838,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => { void generateSessionPdf(targetSession, profile?.email || 'User', isProUser, sessionHistory); }}
+                                        onClick={() => { downloadSessionPdf('session_detail', targetSession, profile?.email || 'User', isProUser, sessionHistory); }}
                                         className="gap-2"
                                     >
                                         <Download className="h-4 w-4" />
@@ -834,28 +859,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         {formatSessionRecordingMode(targetSession)}
                                     </span>
                                 </div>
-                                {/* #1306 metrics-only: NO transcript is stored or shown. The review surface
-                                    presents the ONE structured next action derived from this session's metrics. */}
-                                <div
-                                    className="p-4 bg-muted rounded-lg border border-[hsl(var(--border))] min-h-[150px] text-sm leading-relaxed"
-                                    data-testid="session-detail-next-action"
-                                >
-                                    {targetNextAction ? (
-                                        <>
-                                            <div className="font-semibold text-base mb-1" data-testid="session-next-action-title">{targetNextAction.title}</div>
-                                            <div className="text-muted-foreground">{targetNextAction.body}</div>
-                                        </>
-                                    ) : targetSession.status === 'completed' ? (
-                                        // #1306: a COMPLETED session MUST carry exactly one valid next action. Its absence is a
-                                        // data-integrity failure, never a friendly empty state.
-                                        <div className="text-destructive font-medium" data-testid="session-next-action-integrity-error">
-                                            Data integrity error: this completed session is missing its next action.
-                                        </div>
-                                    ) : (
-                                        // Incomplete / failed sessions legitimately have no next action.
-                                        <div className="text-muted-foreground" data-testid="session-next-action-none">No next action — this session was not completed.</div>
-                                    )}
-                                </div>
+                                {targetMissingNextAction && (
+                                    // #1306: never a friendly empty state — a completed session without its next action is a
+                                    // data-integrity failure, and it stays visible beside the saved review.
+                                    <div className="p-4 rounded-lg border border-[hsl(var(--border))] text-destructive font-medium text-sm" data-testid="session-next-action-integrity-error" role="alert">
+                                        Data integrity error: this completed session is missing its next action.
+                                    </div>
+                                )}
                                 {/* #1306 Step 3: the retained transcript. Rendering is gated on the SERVER's
                                     transcript_state via resolveTranscriptView — never on whether text happens
                                     to be present, which would make "expired" and "failed to load" identical
@@ -885,6 +895,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </div>
                                     );
                                 })()}
+                                {/* #1258 / #1407: the saved Focus Points result, read-only; nothing for Open Mic. */}
+                                <SavedFocusPointsCoverage sessionId={targetSession.id} />
                             </CardContent>
                         </Card>
                     </div>

@@ -6,7 +6,7 @@
  * facts. These pin the exact key set, both non-empty halves, and every rejection path.
  */
 import { describe, it, expect } from 'vitest';
-import { readLastSessionFix } from '../lastSessionFix';
+import { readLastSessionFix, readSavedReview } from '../lastSessionFix';
 
 const VALID = {
     version: 'gemini_coaching_v1',
@@ -55,5 +55,21 @@ describe('readLastSessionFix', () => {
         for (const raw of [null, undefined, '', 'not json', '{"broken":', [VALID], 7, true]) {
             expect(readLastSessionFix(raw)).toBeNull();
         }
+    });
+});
+
+describe('readSavedReview (#1258 — the Analytics detail shows the whole saved review)', () => {
+    it('returns both halves, trimmed, from a contract-valid review', () => {
+        expect(readSavedReview({ ...VALID, what_worked: '  Clear opening.  ' }))
+            .toEqual({ whatWorked: 'Clear opening.', whatToTryNext: VALID.what_to_try_next });
+    });
+
+    it('fails closed exactly like the fix reader: partial, extra-key, wrong-version and non-object values are null', () => {
+        expect(readSavedReview({ ...VALID, what_worked: ' ' })).toBeNull();
+        expect(readSavedReview({ ...VALID, extra: 'x' })).toBeNull();
+        expect(readSavedReview({ ...VALID, version: 'v0' })).toBeNull();
+        expect(readSavedReview('not json')).toBeNull();
+        expect(readSavedReview([VALID])).toBeNull();
+        expect(readSavedReview(null)).toBeNull();
     });
 });
