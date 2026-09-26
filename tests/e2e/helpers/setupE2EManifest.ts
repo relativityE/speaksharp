@@ -612,7 +612,30 @@ export async function setupE2EManifest(
       },
       from: (table: string) => makeQueryBuilder(table),
       functions: {
-        invoke: async (name: string) => {
+        invoke: async (name: string, options?: { body?: unknown }) => {
+          // #1258 RWT item 4 (opt-in, inert by default): serve the coaching contract the real Edge function serves.
+          // `__E2E_COACHING_1258__ = { pending, suggestions }` answers 425 focus_results_pending `pending` times (as the
+          // function does before a Focus take's point results are saved), then the persisted pair; every request body
+          // is recorded so a journey can assert what the client asked for.
+          const coachingWin = window as unknown as {
+            __E2E_COACHING_1258__?: { pending?: number; suggestions?: unknown };
+            __E2E_COACHING_REQUESTS_1258__?: unknown[];
+          };
+          if (name === 'get-ai-suggestions' && coachingWin.__E2E_COACHING_1258__) {
+            const cfg = coachingWin.__E2E_COACHING_1258__;
+            // With each request, what the review card was SHOWING at that instant — the rendered state a person saw
+            // during the previous 425 wait, captured atomically rather than raced against the client's backoff.
+            const shown = (id: string) => document.querySelectorAll(`[data-testid="${id}"]`).length;
+            coachingWin.__E2E_COACHING_REQUESTS_1258__ = [...(coachingWin.__E2E_COACHING_REQUESTS_1258__ ?? []), {
+              body: options?.body ?? null,
+              shown: { stillComing: shown('ai-suggestions-still-coming'), retry: shown('ai-suggestions-retry'), pair: shown('ai-suggestions-pair') },
+            }];
+            if ((cfg.pending ?? 0) > 0) {
+              cfg.pending = (cfg.pending ?? 0) - 1;
+              return { data: null, error: { name: 'FunctionsHttpError', message: 'focus_results_pending', context: { status: 425 } } };
+            }
+            return { data: { suggestions: cfg.suggestions }, error: null };
+          }
           if (name === 'check-usage-limit') {
             const data = buildUsageLimitResponse();
             win.__SS_E2E_DEBUG__ = {

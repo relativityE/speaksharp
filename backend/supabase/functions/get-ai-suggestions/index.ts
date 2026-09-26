@@ -94,6 +94,8 @@ interface SessionEvidence {
   duration: number | null;
   total_words: number | null;
   filler_words: unknown;
+  /** #1258: the per-word counts saves now write; `filler_words` is stripped on save and kept only for legacy rows. */
+  filler_counts: unknown;
   clarity_score: number | null;
   wpm: number | null;
   pause_metrics: unknown;
@@ -153,6 +155,99 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
  * Replacements happen before caller content is inserted, so transcript text that happens to contain a
  * placeholder cannot alter the metrics boundary.
  */
+/**
+ * #1258 — FOCUS POINTS CONTEXT FOR COACHING (runbook v12, PM order item 4).
+ *
+ * A Focus Points session's coaching must help the person cover THEIR chosen points. The saved results live in the
+ * objective tables linked to this session (`objective_session.source_session_id`), read here under the caller's RLS.
+ * `none` means the session is not a Focus Points take (no objective session is linked to it); `pending` means it IS
+ * one but its point results are not saved yet; `error` means the read failed. Neither `pending` nor `error` may ever
+ * become generic coaching.
+ */
+export interface FocusPointEvidence {
+  label: string;
+  verdict: 'detected' | 'not_detected' | 'unavailable';
+  detectedAtSeconds: number | null;
+}
+export type FocusContext =
+  | { kind: 'none' }
+  | { kind: 'pending' }
+  | { kind: 'focus'; topic: string | null; points: FocusPointEvidence[] }
+  | { kind: 'error' };
+
+const FOCUS_VERDICTS = new Set(['detected', 'not_detected', 'unavailable']);
+const MAX_FOCUS_LABEL_CHARS = 200;
+
+export async function loadFocusContext(client: SupabaseClient, sessionId: string): Promise<FocusContext> {
+  const { data: objective, error: objectiveError } = await client
+    .from('objective_session')
+    .select('id, brief_id')
+    .eq('source_session_id', sessionId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (objectiveError) return { kind: 'error' };
+  if (!objective) return { kind: 'none' };
+  const { id: objectiveId, brief_id: briefId } = objective as { id: string; brief_id: string };
+  const [brief, points, evidence] = await Promise.all([
+    client.from('objective_brief').select('event_goal').eq('id', briefId).maybeSingle(),
+    client.from('objective_brief_point').select('id, label, sort_order').eq('brief_id', briefId).order('sort_order', { ascending: true }),
+    client.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds').eq('session_id', objectiveId),
+  ]);
+  if (brief.error || points.error || evidence.error) return { kind: 'error' };
+  const pointRows = (points.data ?? []) as Array<{ id: string; label: string }>;
+  const evidenceRows = (evidence.data ?? []) as Array<{ brief_point_id: string; verdict: string; detected_at_seconds: number | null }>;
+  // A linked Focus take with no points or no evidence yet has no result: it is pending, never an Open Mic take.
+  if (pointRows.length === 0 || evidenceRows.length === 0) return { kind: 'pending' };
+  const byPoint = new Map(evidenceRows.map((row) => [row.brief_point_id, row]));
+  const topic = typeof (brief.data as { event_goal?: unknown } | null)?.event_goal === 'string'
+    ? (brief.data as { event_goal: string }).event_goal
+    : null;
+  return {
+    kind: 'focus',
+    topic,
+    points: pointRows.map((point) => {
+      const row = byPoint.get(point.id);
+      const verdict = row && FOCUS_VERDICTS.has(row.verdict) ? row.verdict as FocusPointEvidence['verdict'] : 'unavailable';
+      const at = verdict === 'detected' && typeof row?.detected_at_seconds === 'number' ? row.detected_at_seconds : null;
+      return { label: point.label, verdict, detectedAtSeconds: at };
+    }),
+  };
+}
+
+const clockText = (seconds: number): string => {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+// The person's own point text, bounded and flattened so it cannot restructure the prompt around it.
+const quoteLabel = (text: string): string => `"${text.replace(/[\r\n"]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_FOCUS_LABEL_CHARS)}"`;
+
+/**
+ * The Focus Points section appended to the metrics block. It states each chosen point, in order, with what the
+ * keyword matcher found, and the rules that make the two phrases about COVERING THESE POINTS: supported pace and
+ * placement advice, no invented misses, and "not detected" never presented as proof a point was skipped.
+ */
+export function buildFocusCoachingText(context: FocusContext): string {
+  if (context.kind !== 'focus') return '';
+  const lines = context.points.map((point, index) => {
+    const result = point.verdict === 'detected'
+      ? `detected${point.detectedAtSeconds !== null ? ` at ${clockText(point.detectedAtSeconds)}` : ''}`
+      : point.verdict === 'not_detected'
+        ? 'not detected by the keyword matcher (the speaker may have covered it in other words)'
+        : 'not checked';
+    return `      ${index + 1}. ${quoteLabel(point.label)}: ${result}`;
+  });
+  const allDetected = context.points.every((point) => point.verdict === 'detected');
+  return `
+      Focus Points session. The speaker chose these points to cover, in this order${context.topic ? `, for the topic ${quoteLabel(context.topic)}` : ''}. A keyword matcher checked the transcript for each:
+${lines.join('\n')}
+
+      Focus Points coaching rules:
+      - Both phrases must help the speaker cover THESE chosen points in the next run: which point to open, introduce or signpost, where it belongs, or pacing between points, when this transcript and these results support it.
+      - "Not detected" is only what the matcher found. Never say a point was missed, skipped or not mentioned; suggest how to make it unmistakable instead.
+${allDetected ? '      - Every point was detected. Do not suggest covering a point as if it were missing; coach placement, transitions or pace between points.\n' : ''}`;
+}
+
 export function buildCoachingPrompt(transcriptForPrompt: string, metricsText: string): string {
   return coachingContract.promptTemplate.replace(
     /\{\{(TRANSCRIPT|METRICS)\}\}/g,
@@ -215,8 +310,11 @@ export async function handler(
       });
     }
 
-    const body = await req.json() as { sessionId?: unknown };
+    const body = await req.json() as { sessionId?: unknown; product?: unknown };
     const sessionId = body.sessionId;
+    // #1258: the page's statement that this take was Focus Points. It can only make the request STRICTER (refuse
+    // generic coaching when the saved results are missing); it never supplies evidence.
+    const expectsFocusPoints = body.product === 'focus_points';
     if (typeof sessionId !== 'string' || !sessionId.trim()) {
       return new Response(JSON.stringify({ error: 'Session ID is required' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
@@ -237,7 +335,7 @@ export async function handler(
     // transcript/metrics are deliberately ignored so one session cannot be relabelled as another.
     const { data: sessionData, error: sessionError } = await supabaseClient
       .from('sessions')
-      .select('transcript, transcript_state, duration, total_words, filler_words, clarity_score, wpm, pause_metrics, ai_suggestions')
+      .select('transcript, transcript_state, duration, total_words, filler_words, filler_counts, clarity_score, wpm, pause_metrics, ai_suggestions')
       .eq('id', sessionId)
       .eq('user_id', userId)
       .single();
@@ -250,6 +348,34 @@ export async function handler(
     }
 
     const session = sessionData as SessionEvidence;
+
+    // #1258 (PM 2026-09-26) — FOCUS RESULTS ARE CHECKED BEFORE ANY CACHED PAIR IS RETURNED AS FOCUS COACHING. A pair
+    // cached for this session is replayed to a Focus Points request only once its saved point results exist; until
+    // then the request is refused 425 (nothing spent, nothing replayed), exactly as a first request would be.
+    const focusResultsUnready = (context: FocusContext) =>
+      context.kind === 'pending' || (expectsFocusPoints && context.kind !== 'focus');
+    const refuseFocusRead = (context: FocusContext): Response | null => {
+      if (context.kind === 'error') {
+        return new Response(JSON.stringify({ error: 'AI coaching is unavailable right now. Please try again.' }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 503,
+        });
+      }
+      if (focusResultsUnready(context)) {
+        return new Response(JSON.stringify({ error: 'Focus Points results are not ready yet. Please try again.', code: 'focus_results_pending' }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 425,
+        });
+      }
+      return null;
+    };
+    let focusContext: FocusContext | null = null;
+    if (expectsFocusPoints) {
+      focusContext = await loadFocusContext(supabaseClient, sessionId);
+      const refused = refuseFocusRead(focusContext);
+      if (refused) return refused;
+    }
+
     const cachedSuggestions = session.ai_suggestions
       ? parseSuggestions(JSON.stringify(session.ai_suggestions))
       : null;
@@ -276,6 +402,17 @@ export async function handler(
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 409,
       });
+    }
+
+    // #1258 — the session's saved Focus Points results, read BEFORE entitlement and quota so a refusal spends nothing.
+    // A failed read, or a Focus Points take whose results are not saved yet, must never become generic coaching:
+    // the answer would be cached on the row and the person could never get coaching about their points. `pending` is
+    // refused even when the request names no product (a tab loaded before this deploy), so no generic pair can be
+    // cached for a Focus take and later replayed as its Focus coaching.
+    if (!focusContext) {
+      focusContext = await loadFocusContext(supabaseClient, sessionId);
+      const refused = refuseFocusRead(focusContext);
+      if (refused) return refused;
     }
 
     // Generating new coaching is an analysis operation, so it uses the same server-authoritative
@@ -333,6 +470,9 @@ export async function handler(
       });
     }
 
+    // #1258: saves write `filler_counts` and strip `filler_words`, so reading only the legacy field told the model
+    // "N/A" for every new session. The legacy field remains the fallback for rows saved before the switch.
+    const fillerEvidence = session.filler_counts ?? session.filler_words;
     const metricsText = `
       Metrics:
       - Words Per Minute (WPM): ${session.wpm ?? 'N/A'}
@@ -340,8 +480,8 @@ export async function handler(
       - Total Words: ${session.total_words ?? 'N/A'}
       - Duration: ${session.duration ?? 'N/A'} seconds
       - Pause Metrics: ${session.pause_metrics == null ? 'N/A' : JSON.stringify(session.pause_metrics)}
-      - Filler Words: ${session.filler_words == null ? 'N/A' : JSON.stringify(session.filler_words)}
-    `;
+      - Filler Words: ${fillerEvidence == null ? 'N/A' : JSON.stringify(fillerEvidence)}
+    ` + buildFocusCoachingText(focusContext);
 
     const prompt = buildCoachingPrompt(transcriptForPrompt, metricsText);
 
