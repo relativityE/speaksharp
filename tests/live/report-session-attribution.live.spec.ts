@@ -94,7 +94,7 @@ test.describe('Live report→session attribution (free account)', () => {
     await page.getByTestId(TEST_IDS.EMAIL_INPUT).fill(FREE_EMAIL);
     await page.getByTestId(TEST_IDS.PASSWORD_INPUT).fill(FREE_PASSWORD);
     await page.getByTestId(TEST_IDS.SIGN_IN_SUBMIT).click();
-    await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 20000 });
   }
 
   // #1416 — REWRITTEN FOR THE REDESIGNED FORM.

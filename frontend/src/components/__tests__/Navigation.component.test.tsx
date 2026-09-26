@@ -115,13 +115,14 @@ describe('Navigation', () => {
             expect(screen.getByTestId('nav-mobile-focus-points-link')).toHaveTextContent('Focus Points');
         });
 
-        it('should render Sign Out button when authenticated', () => {
+        it('should render Sign Out in the account menu when authenticated', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
             expect(screen.getByTestId('nav-sign-out-button')).toBeInTheDocument();
         });
 
@@ -130,7 +131,7 @@ describe('Navigation', () => {
          * action group into the nav links and overflowed the bar. The avatar has a fixed width — but
          * an initial is not an accessible name, so the identity must still be announced.
          */
-        it('shows an avatar with a real accessible name and keeps the email out of the visual header', () => {
+        it('shows an account menu with a real accessible name and keeps the email out of the visual header', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user', email: 'averyveryverylongaddress@example.com' } },
                 signOut: mockSignOut,
@@ -138,10 +139,12 @@ describe('Navigation', () => {
 
             renderNavigation();
             const avatar = screen.getByTestId('nav-account-avatar');
-            expect(avatar).toHaveAccessibleName('Signed in as averyveryverylongaddress@example.com');
+            expect(avatar).toHaveAccessibleName('Account · signed in as averyveryverylongaddress@example.com');
             // Visible content is the initial only.
             expect(avatar).toHaveTextContent('A');
             expect(screen.queryByText('averyveryverylongaddress@example.com')).not.toBeInTheDocument();
+            await userEvent.click(avatar);
+            expect(screen.getByTestId('nav-account-link')).toHaveAttribute('href', '/account');
         });
     });
 
@@ -154,6 +157,7 @@ describe('Navigation', () => {
 
             renderNavigation();
 
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
             const signOutButton = screen.getByTestId('nav-sign-out-button');
             fireEvent.click(signOutButton);
 

@@ -49,7 +49,7 @@ test.describe('Simulated stale-chunk response recovery', () => {
       const startStop = page.getByTestId(TEST_IDS.MIC_START);
       await expect(startStop).toBeVisible({ timeout: 30000 });
       await expect(startStop).toHaveAccessibleName(/start/i); // recording did NOT auto-start
-      await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible(); // auth retained
+      await expect(page.getByTestId('nav-account-avatar')).toBeVisible(); // auth retained
       await expect(page.getByText(/something went wrong/i)).toHaveCount(0); // no generic Oops
       await expect(page.locator('#ss-stale-chunk-recovery')).toHaveCount(0); // no persistent recovery overlay
       expect(await loads(page), 'exactly one recovery reload (no loop)').toBe(1);

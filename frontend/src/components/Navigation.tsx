@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, LogOut, Mic, Target, Zap } from "lucide-react";
+import { ChevronDown, LogOut, Mic, Target, UserRound, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
 import { NAV_SECTIONS, navItemClassName, normalizeNavPath, resolveNavSectionId } from "@/config/navSections";
@@ -392,34 +392,27 @@ const Navigation = () => {
                       className="bg-signature-ground text-signature-text border border-signature-border shadow-none animate-in fade-in zoom-in duration-300 px-3 py-1"
                       data-testid={TEST_IDS.PRO_BADGE}
                     >
-                      <Zap className="w-3 h-3 mr-1 fill-current" />
-                      PRO
+                      <Link to="/account" aria-label="Pro membership · Account"><Zap className="w-3 h-3 mr-1 fill-current" />PRO</Link>
                     </Badge>
                   )}
-                  {/*
-                    * Account identity. The full email used to be printed here; at realistic address
-                    * lengths it pushed the right-hand action group into the primary nav links and
-                    * overflowed the bar horizontally on narrow desktops. An avatar has a fixed width,
-                    * so the header geometry no longer depends on how long a user's address is.
-                    *
-                    * The initial alone is not an accessible name, and a `title` attribute is not a
-                    * reliable one, so the element is an image with an explicit aria-label: assistive
-                    * tech gets "Signed in as <email>" while the visual header shows only the letter.
-                    */}
-                  <span
-                    role="img"
-                    aria-label={`Signed in as ${session.user?.email ?? 'your account'}`}
-                    data-testid="nav-account-avatar"
-                    className="hidden md:grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--nav-avatar-bg))] text-[hsl(var(--nav-avatar-fg))] text-sm font-bold"
-                  >
-                    <span aria-hidden="true">
-                      {(session.user?.email ?? '?').trim().charAt(0).toUpperCase() || '?'}
-                    </span>
-                  </span>
-                  <Button variant="ghost" size="sm" onClick={() => { void handleSignOut(); }} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON} aria-label="Sign Out" className="shrink-0 px-2 sm:px-3">
-                    <LogOut className="h-4 w-4 sm:mr-2" />
-                    <span className="hidden sm:inline">Sign Out</span>
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" aria-label={`Account · signed in as ${session.user?.email ?? 'your account'}`}
+                        data-testid="nav-account-avatar"
+                        className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[hsl(var(--nav-avatar-bg))] text-[hsl(var(--nav-avatar-fg))] text-sm font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                        <span aria-hidden="true">{(session.user?.email ?? '?').trim().charAt(0).toUpperCase() || '?'}</span>
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)] min-w-48" opaque>
+                      <div className="max-w-64 truncate border-b border-border px-2 py-2 text-xs text-muted-foreground" title={session.user?.email}>
+                        {session.user?.email ?? 'Your account'} · {isConfirmedPaidUser ? 'Pro' : 'Free'}
+                      </div>
+                      <DropdownMenuItem asChild><Link to="/account" data-testid="nav-account-link"><UserRound className="mr-2 h-4 w-4" />Account</Link></DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { void handleSignOut(); }} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON}>
+                        <LogOut className="mr-2 h-4 w-4" />Sign Out
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </>
               ) : (
                 // Signed-out visitors have no primary nav; these are their only nav links, so

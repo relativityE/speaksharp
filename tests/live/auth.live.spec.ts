@@ -58,6 +58,6 @@ test.describe('Real Authentication Flow', () => {
         await page.waitForURL(ROUTES.SESSION);
 
         // 🚨 HYDRATION GUARD 🚨
-        await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 15000 });
+        await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 15000 });
     });
 });

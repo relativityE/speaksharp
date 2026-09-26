@@ -94,7 +94,7 @@ test.describe('Genuine two-build rollover (Build A tab → Build B server)', () 
     const startStop = page.getByTestId(TEST_IDS.MIC_START);
     await expect(startStop, 'transcription interface renders').toBeVisible({ timeout: 30000 });
     await expect(startStop).toHaveAccessibleName(/start/i);                 // no auto-record
-    await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible(); // auth retained
+    await expect(page.getByTestId('nav-account-avatar')).toBeVisible(); // auth retained
     await expect(page.getByText(/something went wrong/i)).toHaveCount(0);   // no generic Oops
     await expect(page.locator('#ss-stale-chunk-recovery')).toHaveCount(0);  // no persistent overlay
 
