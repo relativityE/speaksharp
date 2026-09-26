@@ -160,8 +160,9 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
  *
  * A Focus Points session's coaching must help the person cover THEIR chosen points. The saved results live in the
  * objective tables linked to this session (`objective_session.source_session_id`), read here under the caller's RLS.
- * `none` means the session has no saved Focus Points results (an Open Mic take, or results not written yet);
- * `error` means the read failed, and no generic coaching may be generated in its place.
+ * `none` means the session is not a Focus Points take (no objective session is linked to it); `pending` means it IS
+ * one but its point results are not saved yet; `error` means the read failed. Neither `pending` nor `error` may ever
+ * become generic coaching.
  */
 export interface FocusPointEvidence {
   label: string;
@@ -170,6 +171,7 @@ export interface FocusPointEvidence {
 }
 export type FocusContext =
   | { kind: 'none' }
+  | { kind: 'pending' }
   | { kind: 'focus'; topic: string | null; points: FocusPointEvidence[] }
   | { kind: 'error' };
 
@@ -195,8 +197,8 @@ export async function loadFocusContext(client: SupabaseClient, sessionId: string
   if (brief.error || points.error || evidence.error) return { kind: 'error' };
   const pointRows = (points.data ?? []) as Array<{ id: string; label: string }>;
   const evidenceRows = (evidence.data ?? []) as Array<{ brief_point_id: string; verdict: string; detected_at_seconds: number | null }>;
-  // No points, or no evidence yet, is not a result: the caller decides whether that means "not ready".
-  if (pointRows.length === 0 || evidenceRows.length === 0) return { kind: 'none' };
+  // A linked Focus take with no points or no evidence yet has no result: it is pending, never an Open Mic take.
+  if (pointRows.length === 0 || evidenceRows.length === 0) return { kind: 'pending' };
   const byPoint = new Map(evidenceRows.map((row) => [row.brief_point_id, row]));
   const topic = typeof (brief.data as { event_goal?: unknown } | null)?.event_goal === 'string'
     ? (brief.data as { event_goal: string }).event_goal
@@ -346,6 +348,34 @@ export async function handler(
     }
 
     const session = sessionData as SessionEvidence;
+
+    // #1258 (PM 2026-09-26) — FOCUS RESULTS ARE CHECKED BEFORE ANY CACHED PAIR IS RETURNED AS FOCUS COACHING. A pair
+    // cached for this session is replayed to a Focus Points request only once its saved point results exist; until
+    // then the request is refused 425 (nothing spent, nothing replayed), exactly as a first request would be.
+    const focusResultsUnready = (context: FocusContext) =>
+      context.kind === 'pending' || (expectsFocusPoints && context.kind !== 'focus');
+    const refuseFocusRead = (context: FocusContext): Response | null => {
+      if (context.kind === 'error') {
+        return new Response(JSON.stringify({ error: 'AI coaching is unavailable right now. Please try again.' }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 503,
+        });
+      }
+      if (focusResultsUnready(context)) {
+        return new Response(JSON.stringify({ error: 'Focus Points results are not ready yet. Please try again.', code: 'focus_results_pending' }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 425,
+        });
+      }
+      return null;
+    };
+    let focusContext: FocusContext | null = null;
+    if (expectsFocusPoints) {
+      focusContext = await loadFocusContext(supabaseClient, sessionId);
+      const refused = refuseFocusRead(focusContext);
+      if (refused) return refused;
+    }
+
     const cachedSuggestions = session.ai_suggestions
       ? parseSuggestions(JSON.stringify(session.ai_suggestions))
       : null;
@@ -376,19 +406,13 @@ export async function handler(
 
     // #1258 — the session's saved Focus Points results, read BEFORE entitlement and quota so a refusal spends nothing.
     // A failed read, or a Focus Points take whose results are not saved yet, must never become generic coaching:
-    // the answer would be cached on the row and the person could never get coaching about their points.
-    const focusContext = await loadFocusContext(supabaseClient, sessionId);
-    if (focusContext.kind === 'error') {
-      return new Response(JSON.stringify({ error: 'AI coaching is unavailable right now. Please try again.' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 503,
-      });
-    }
-    if (expectsFocusPoints && focusContext.kind !== 'focus') {
-      return new Response(JSON.stringify({ error: 'Focus Points results are not ready yet. Please try again.', code: 'focus_results_pending' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 425,
-      });
+    // the answer would be cached on the row and the person could never get coaching about their points. `pending` is
+    // refused even when the request names no product (a tab loaded before this deploy), so no generic pair can be
+    // cached for a Focus take and later replayed as its Focus coaching.
+    if (!focusContext) {
+      focusContext = await loadFocusContext(supabaseClient, sessionId);
+      const refused = refuseFocusRead(focusContext);
+      if (refused) return refused;
     }
 
     // Generating new coaching is an analysis operation, so it uses the same server-authoritative
