@@ -299,6 +299,32 @@ describe('#1258 Practice Loop reveal — momentum after the reveal (bounded re-c
         expect(y).toBe(400);
     });
 
+    it('CASUALTY (Codex P2 r4112400154): a touch that began BEFORE the guard armed — only moves after — is the person\'s scroll, never fought', () => {
+        window.dispatchEvent(new Event('touchstart')); // the finger went down before the review settled (no listener yet)
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        expect(scrollTo).toHaveBeenCalledTimes(1);       // the one reveal
+        window.dispatchEvent(new Event('touchmove'));     // the same finger keeps moving
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        expect(y).toBe(400);
+    });
+
+    it('CASUALTY (Codex P2 r4112400154): a pointer moving WITH a pressed contact disarms it', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        window.dispatchEvent(new MouseEvent('pointermove', { buttons: 1 }));
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        expect(y).toBe(400);
+    });
+
+    it('CONTROL: hover (a pointer move with no contact) does NOT disable the guard — momentum after it is still corrected', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        window.dispatchEvent(new MouseEvent('pointermove', { buttons: 0 }));
+        momentum(700); vi.advanceTimersByTime(150);
+        expect(scrollTo).toHaveBeenCalledTimes(2);
+        expect(y).toBe(0);
+    });
+
     it('CONTROL: bounded in time — scrolling that starts after 3 s is left alone', () => {
         render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
         vi.advanceTimersByTime(3000);
