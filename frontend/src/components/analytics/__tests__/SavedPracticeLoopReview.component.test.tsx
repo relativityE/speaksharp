@@ -12,6 +12,12 @@ let recommendationId: string | null = null;
 vi.mock('@/hooks/useLinkedRepeat', () => ({
     useLinkedRepeat: () => ({ recommendationId, accept, accepting: false, actionError: null, retryBlocked: false }),
 }));
+const revisited = vi.fn();
+const practiceSelected = vi.fn();
+vi.mock('@/services/reviewSurfaceTelemetry', () => ({
+    trackSavedReviewRevisited: (...args: unknown[]) => revisited(...args),
+    trackSavedReviewPracticeSelected: (...args: unknown[]) => practiceSelected(...args),
+}));
 const setActiveObjectiveBrief = vi.fn();
 vi.mock('@/stores/useSessionStore', () => ({ useSessionStore: { getState: () => ({ setActiveObjectiveBrief }) } }));
 
@@ -20,7 +26,7 @@ const { SavedPracticeLoopReview } = await import('../SavedPracticeLoopReview');
 const PAIR = { kind: 'review' as const, review: { whatWorked: 'Opening definition landed clearly.', whatToTryNext: 'Name point three before point two.' } };
 const base: SavedSessionReview = { coaching: PAIR, product: 'open_mic', evidence: ['6.2 filler words a minute, above your target.'], focusBrief: null, focusPoints: [] };
 
-beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); recommendationId = null; });
+beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); revisited.mockReset(); practiceSelected.mockReset(); recommendationId = null; });
 
 describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
     it('shows the saved pair word for word, the product label, evidence and ONE practice action', async () => {
@@ -81,5 +87,24 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         expect(screen.queryByTestId('review-try-next')).not.toBeInTheDocument();
         expect(screen.queryByTestId('review-evidence')).not.toBeInTheDocument();
         expect(screen.getAllByRole('button')).toHaveLength(1);
+    });
+
+    // #1258 (PM 2026-09-25): a saved review shown on Analytics is a REVISIT — once per session per view, never a generation.
+    it('sends ONE content-free revisit per session view, and the practice action names its linked-repeat path', async () => {
+        load.mockResolvedValue({ ...base, product: 'focus_points', evidence: ['Detected: point 1 at 0:21.'], focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'] });
+        const { rerender } = render(<SavedPracticeLoopReview sessionId="s1" sessionLabel="Session 1" />);
+        await waitFor(() => expect(revisited).toHaveBeenCalledWith('focus_points', 'review', true));
+        rerender(<SavedPracticeLoopReview sessionId="s1" sessionLabel="Session 1 · again" />);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(revisited).toHaveBeenCalledTimes(1);
+        recommendationId = null;
+        fireEvent.click(screen.getByTestId('saved-review-practice'));
+        expect(practiceSelected).toHaveBeenCalledWith('focus_points', false);
+    });
+
+    it('a state without a review is still a revisit of THAT state (no evidence claimed)', async () => {
+        load.mockResolvedValue({ ...base, coaching: { kind: 'expired' } });
+        render(<SavedPracticeLoopReview sessionId="s2" />);
+        await waitFor(() => expect(revisited).toHaveBeenCalledWith('open_mic', 'expired', false));
     });
 });

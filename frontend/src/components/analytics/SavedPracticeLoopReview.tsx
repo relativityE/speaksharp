@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
@@ -6,6 +6,7 @@ import { loadSavedSessionReview, type SavedSessionReview } from '@/services/revi
 import { useLinkedRepeat } from '@/hooks/useLinkedRepeat';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { PRODUCT_NAMES } from '@/constants/productNames';
+import { trackSavedReviewPracticeSelected, trackSavedReviewRevisited } from '@/services/reviewSurfaceTelemetry';
 
 const PRACTICE_AGAIN = 'Practice this again';
 
@@ -33,6 +34,15 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
     }, [sessionId]);
 
     const review = saved && saved.sessionId === sessionId ? saved.value : null;
+
+    // #1258 (PM 2026-09-25): showing the SAVED review is a revisit, once per session per page view — its own event,
+    // never a generation. Content-free: product, which state showed, and whether an evidence line showed.
+    const revisitSentFor = useRef<string | null>(null);
+    useEffect(() => {
+        if (!review || revisitSentFor.current === sessionId) return;
+        revisitSentFor.current = sessionId;
+        trackSavedReviewRevisited(review.product, review.coaching.kind, review.coaching.kind === 'review' && review.evidence.length > 0);
+    }, [review, sessionId]);
     const productName = review?.product === 'focus_points' ? PRODUCT_NAMES.objective
         : review?.product === 'open_mic' ? PRODUCT_NAMES.freeform : null;
     const label = [sessionLabel, productName].filter(Boolean).join(' · ');
@@ -63,6 +73,7 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
         navigate('/practice');
     };
     const practise = () => {
+        trackSavedReviewPracticeSelected(review?.product ?? 'unknown', Boolean(repeat.recommendationId));
         if (repeat.recommendationId) void repeat.accept(openProduct);
         else openProduct();
     };
