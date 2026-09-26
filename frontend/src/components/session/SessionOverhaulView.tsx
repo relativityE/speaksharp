@@ -704,7 +704,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const objectiveDuringSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" />
         : undefined;
-    const coverageMayBecomeAvailable = effectiveReview.kind === 'unavailable';
+    // #1258 (Codex P2 r4111548230): a Focus check that has ENDED without results (`objectiveCoverageFailed`) is terminal
+    // whether or not the saved transcript can be read — it must never promise that coverage will appear later.
+    const focusCheckEnded = isObjective && objectiveCoverage === null && objectiveCoverageFailed;
+    const coverageMayBecomeAvailable = effectiveReview.kind === 'unavailable' && !focusCheckEnded;
     /**
      * #1427 P1, shipped and corrected here — EVERY terminal state routes to the honest slot.
      *
@@ -755,8 +758,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // (`objectiveCoverageFailed`). Otherwise it is the normal window while the point results are still saving.
     const coverageTerminallyUnavailable = isObjective
         && terminalAuthorityExpected
-        && (reviewIsTerminal || (objectiveCoverage === null && objectiveCoverageFailed))
-        && (effectiveReview.kind === 'available' || reviewIsTerminal);
+        && (reviewIsTerminal || focusCheckEnded);
     const coverageStillChecking = isObjective
         && terminalAuthorityExpected
         && effectiveReview.kind === 'available'

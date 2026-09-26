@@ -379,6 +379,46 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByText(/not detected/i)).toBeNull();
     });
 
+    // Codex P2 r4111548230 (PM: VALID, CURRENT_PR) — the ENDED check is terminal even when the saved transcript cannot be
+    // read (still pending, malformed, or its bounded attempts exhausted all surface as `unavailable`). Before the fix the
+    // page promised "Coverage will appear…" and the rail said "Checking…" for as long as the page stayed open.
+    it('CASUALTY: a check that ENDED is terminal even while the transcript read is unavailable — no promise, no endless Checking', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={null}
+                objectiveCoverageFailed
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'unavailable' }}
+            />,
+        );
+        expect(screen.getByTestId('coverage-unavailable')).toHaveTextContent(/unavailable for this take/i);
+        expect(screen.queryByTestId('coverage-awaiting-transcript')).toBeNull();
+        expect(screen.queryByTestId('coverage-checking')).toBeNull();
+        expect(screen.getByTestId('focus-points-check-unavailable')).toHaveTextContent('We couldn’t check your points this time.');
+        expect(screen.queryByText('Checking…')).toBeNull();
+        expect(screen.queryByText(/not detected/i)).toBeNull();
+    });
+
+    it('CONTROL: a check that has NOT ended keeps its honest waiting states (transcript unavailable → coverage will appear; available → Checking)', () => {
+        const { unmount } = render(
+            <SessionOverhaulView {...base} objectivePoints={POINTS} objectiveCoverage={null} showAnalyticsPrompt transcriptContent=""
+                reviewTranscript={{ kind: 'unavailable' }} />,
+        );
+        expect(screen.getByTestId('coverage-awaiting-transcript')).toHaveTextContent(/when your transcript is available/i);
+        expect(screen.queryByTestId('coverage-unavailable')).toBeNull();
+        expect(screen.queryByTestId('focus-points-check-unavailable')).toBeNull();
+        unmount();
+        render(
+            <SessionOverhaulView {...base} objectivePoints={POINTS} objectiveCoverage={null} showAnalyticsPrompt transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }} />,
+        );
+        expect(screen.getByTestId('coverage-checking')).toHaveTextContent('Checking your points…');
+        expect(screen.queryByTestId('coverage-unavailable')).toBeNull();
+    });
+
     it.each(['expired', 'not_captured'] as const)(
         'CASUALTY: a terminally %s transcript renders coverage-unavailable, never the Open Mic card',
         (kind) => {
