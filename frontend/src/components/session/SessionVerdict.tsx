@@ -48,12 +48,18 @@ export interface SessionVerdictProps {
     excerpts?: VerdictExcerpt[] | null;
     onPracticeAgain: () => void;
     onSeeAllSessions: () => void;
+    /** #1533: true while the live same-owner Progress gate holds Start (the same predicate as the mic). */
+    practiceAgainDisabled?: boolean;
+    /** The id of the visible reason for the hold, announced with the disabled action. */
+    practiceAgainDescribedBy?: string;
 }
 
 /** Shared focus treatment: visible on the dark surface, and never removed without a replacement. */
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2 focus-visible:ring-offset-ink';
 
-export const SessionVerdict: React.FC<SessionVerdictProps> = ({ verdictLine, fix, excerpts, onPracticeAgain, onSeeAllSessions }) => {
+export const SessionVerdict: React.FC<SessionVerdictProps> = ({
+    verdictLine, fix, excerpts, onPracticeAgain, onSeeAllSessions, practiceAgainDisabled = false, practiceAgainDescribedBy,
+}) => {
     const line = verdictLine?.trim() || null;
     const fixLine = fix?.trim() || null;
     const spans = (excerpts ?? []).filter((e) => e.text?.trim());
@@ -99,8 +105,10 @@ export const SessionVerdict: React.FC<SessionVerdictProps> = ({ verdictLine, fix
                 <button
                     type="button"
                     onClick={onPracticeAgain}
+                    disabled={practiceAgainDisabled}
+                    aria-describedby={practiceAgainDisabled ? practiceAgainDescribedBy : undefined}
                     data-testid="verdict-practice-again"
-                    className={`rounded-lg bg-signature px-4 py-2 text-[14px] font-bold text-ink hover:brightness-95 ${FOCUS}`}
+                    className={`rounded-lg bg-signature px-4 py-2 text-[14px] font-bold text-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`}
                 >
                     Practice this again
                 </button>

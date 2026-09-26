@@ -282,6 +282,8 @@ describe('#1407 Start a new set — reachable after review', () => {
 });
 
 describe('#1407 — Retry and Open Mic are untouched', () => {
+    // #1533 P2 #3: after-session actions share the mic's live gate — resolve it for this owner, nothing owed.
+    beforeEach(() => { useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'user-1' }); });
     it('"Retry these points" still rebinds the completed brief and starts a take', async () => {
         const user = userEvent.setup();
         givenAfterReview();
