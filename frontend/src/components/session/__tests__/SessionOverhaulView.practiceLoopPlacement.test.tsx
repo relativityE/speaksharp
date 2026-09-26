@@ -1,5 +1,5 @@
 import { render, screen } from '../../../../tests/support/test-utils';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -228,5 +228,127 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
             view.rerender(<SessionOverhaulView {...base} isListening transcriptContent="so hello" elapsedTime={20} practiceLoopReview={REVIEW_STATES[1][1]} />);
             expect(layout.scrollTo).not.toHaveBeenCalled();
         } finally { layout.restore(); }
+    });
+});
+
+// #1258 RWT (PM: VALID P2) — a Stop tapped during a phone fling: the momentum carried the page past the one reveal.
+// The reveal now arms a bounded re-check. These pin its bounds: a correction each time scrolling comes to rest away from
+// the top (a fling can pause and resume), at most 3; it ends at rest-at-top, at the person's own input, or after 3 s.
+describe('#1258 Practice Loop reveal — momentum after the reveal (bounded re-check)', () => {
+    let y = 0;
+    let scrollTo: ReturnType<typeof vi.spyOn>;
+    let position: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+        vi.useFakeTimers();
+        y = 900;
+        // Browser-faithful (Codex P2 r4112253576): a programmatic scrollTo that moves the page emits its own `scroll`.
+        scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(((opts: ScrollToOptions) => {
+            const target = opts.top ?? y;
+            const moved = target !== y;
+            y = target;
+            if (moved) window.dispatchEvent(new Event('scroll'));
+        }) as typeof window.scrollTo);
+        position = vi.spyOn(window, 'scrollY', 'get').mockImplementation(() => y);
+    });
+    afterEach(() => { scrollTo.mockRestore(); position.mockRestore(); vi.useRealTimers(); });
+    const momentum = (to: number) => { y = to; window.dispatchEvent(new Event('scroll')); };
+
+    it('CASUALTY: momentum that carries the page off its top after the reveal is returned there when it comes to rest', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        momentum(300); vi.advanceTimersByTime(50); momentum(700); vi.advanceTimersByTime(50); momentum(837);
+        vi.advanceTimersByTime(149);
+        expect(scrollTo, 'not while still moving').toHaveBeenCalledTimes(1);
+        vi.advanceTimersByTime(1);
+        expect(scrollTo).toHaveBeenCalledTimes(2);
+        expect(y).toBe(0);
+    });
+
+    it('CASUALTY (Codex P2 r4112253576): the correction\'s own scroll event does not disarm it — a fling that pauses >150 ms at the top and then resumes is corrected again', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        momentum(700); vi.advanceTimersByTime(150);   // rests off the top → correction; its own scroll event fires at y=0
+        expect(scrollTo).toHaveBeenCalledTimes(2);
+        expect(y).toBe(0);
+        vi.advanceTimersByTime(400);                  // a pause longer than 150 ms, resting at the top
+        momentum(300); vi.advanceTimersByTime(150);   // the fling resumes and rests again
+        expect(scrollTo, 'the resumed fling is corrected').toHaveBeenCalledTimes(3);
+        expect(y).toBe(0);
+    });
+
+    it('CASUALTY (traced): a fling that pauses, is corrected, then resumes is corrected again when it rests', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        momentum(335); vi.advanceTimersByTime(150);          // a pause that looks like rest → first correction
+        expect(scrollTo).toHaveBeenCalledTimes(2);
+        momentum(75); vi.advanceTimersByTime(20); momentum(96); // the remaining fling resumes after the correction
+        vi.advanceTimersByTime(150);
+        expect(scrollTo).toHaveBeenCalledTimes(3);
+        expect(y).toBe(0);
+    });
+
+    it('CONTROL: never a loop — at most 3 corrections even if the page keeps drifting', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        for (let i = 0; i < 6; i += 1) { momentum(200); vi.advanceTimersByTime(150); }
+        expect(scrollTo).toHaveBeenCalledTimes(1 + 3);
+    });
+
+    it.each(['touchstart', 'wheel', 'keydown', 'pointerdown'])('CONTROL: after the reveal, the person\'s own %s disarms it — their scrolling is never fought', (type) => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        window.dispatchEvent(new Event(type));
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        expect(y).toBe(400);
+    });
+
+    it('CASUALTY (Codex P2 r4112400154): a touch that began BEFORE the guard armed — only moves after — is the person\'s scroll, never fought', () => {
+        window.dispatchEvent(new Event('touchstart')); // the finger went down before the review settled (no listener yet)
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        expect(scrollTo).toHaveBeenCalledTimes(1);       // the one reveal
+        window.dispatchEvent(new Event('touchmove'));     // the same finger keeps moving
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        expect(y).toBe(400);
+    });
+
+    it('CASUALTY (Codex P2 r4112400154): a pointer moving WITH a pressed contact disarms it', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        window.dispatchEvent(new MouseEvent('pointermove', { buttons: 1 }));
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        expect(y).toBe(400);
+    });
+
+    it('CONTROL: hover (a pointer move with no contact) does NOT disable the guard — momentum after it is still corrected', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        window.dispatchEvent(new MouseEvent('pointermove', { buttons: 0 }));
+        momentum(700); vi.advanceTimersByTime(150);
+        expect(scrollTo).toHaveBeenCalledTimes(2);
+        expect(y).toBe(0);
+    });
+
+    it('CONTROL: bounded in time — scrolling that starts after 3 s is left alone', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        vi.advanceTimersByTime(3000);
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+    });
+
+    it('CONTROL: momentum that comes to rest AT the top needs no second scroll', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        momentum(0); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+    });
+
+    it('CONTROL: a top-of-page user arms nothing (no reveal, no re-check)', () => {
+        y = 0;
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('CONTROL: leaving the review (unmount) removes the guard — no scroll after it is gone', () => {
+        const view = render(<SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />);
+        view.unmount();
+        momentum(400); vi.advanceTimersByTime(500);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
     });
 });

@@ -305,19 +305,67 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * scrolled away, and the contract is both. A top-of-page user is never moved. The flag resets only when the
      * view leaves `after`, so loading → rendered → failed transitions and rerenders never jump the page again;
      * the next take may reveal once.
+     *
+     * #1258 RWT (PM: VALID P2) — MOMENTUM. On a phone, Stop tapped during a fling leaves the momentum scroll running,
+     * and it carried the page past this reveal to the bottom (the saved confirmation ~757 px off screen). So when the
+     * reveal moves the page, it arms a bounded re-check: each time scrolling comes to rest (150 ms idle) away from the
+     * top, the page is returned there — at most 3 times, because a fling can pause and then resume after a correction
+     * (traced). Resting AT the top does not end it (Codex P2 r4112253576): the correction's own scrollTo(0) emits a
+     * scroll event, and a fling that pauses >150 ms and then resumes must still be caught. It ends only at the first
+     * touch, wheel, key or pointer input from the person (their own scrolling is never fought), after 3 corrections,
+     * after 3 s, or when the view leaves `after`/unmounts. A finger that went down BEFORE the guard armed only sends
+     * move events afterwards (Codex P2 r4112400154), so `touchmove` and a pointer move WITH a pressed contact also count;
+     * hover (no button/contact) does not, so it cannot silently disable the guard. Momentum itself sends neither.
      */
     const practiceLoopBandRef = React.useRef<HTMLDivElement | null>(null);
     const practiceLoopRevealedRef = React.useRef(false);
+    const momentumGuardRef = React.useRef<(() => void) | null>(null);
+    const endMomentumGuard = React.useCallback(() => {
+        momentumGuardRef.current?.();
+        momentumGuardRef.current = null;
+    }, []);
+    React.useEffect(() => endMomentumGuard, [endMomentumGuard]);
     React.useEffect(() => {
         if (!inAfter) {
             practiceLoopRevealedRef.current = false;
+            endMomentumGuard();
             return;
         }
         if (!reviewSettled || !practiceLoopBandRef.current || practiceLoopRevealedRef.current) return;
         practiceLoopRevealedRef.current = true;
         if (window.scrollY <= 0) return;
         window.scrollTo({ top: 0, behavior: 'auto' });
-    }, [inAfter, reviewSettled, practiceLoopReview]);
+
+        let idleTimer: ReturnType<typeof setTimeout> | undefined;
+        let corrections = 0;
+        const MAX_CORRECTIONS = 3;
+        const USER_INPUT = ['touchstart', 'touchmove', 'wheel', 'keydown', 'pointerdown'] as const;
+        // A pointer that is MOVING with a pressed contact (touch, pen or held mouse) is the person scrolling; hover is not.
+        const onPointerMove = (event: PointerEvent) => { if (event.buttons !== 0) endMomentumGuard(); };
+        const onScroll = () => {
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+                if (window.scrollY <= 0) return; // at rest at the top: nothing to do, stay armed for a resumed fling
+                if (corrections >= MAX_CORRECTIONS) {
+                    endMomentumGuard();
+                    return;
+                }
+                corrections += 1;
+                window.scrollTo({ top: 0, behavior: 'auto' });
+            }, 150);
+        };
+        const deadline = setTimeout(endMomentumGuard, 3000);
+        window.addEventListener('scroll', onScroll, { passive: true });
+        USER_INPUT.forEach((type) => window.addEventListener(type, endMomentumGuard, { capture: true, passive: true }));
+        window.addEventListener('pointermove', onPointerMove, { capture: true, passive: true });
+        momentumGuardRef.current = () => {
+            clearTimeout(idleTimer);
+            clearTimeout(deadline);
+            window.removeEventListener('scroll', onScroll);
+            USER_INPUT.forEach((type) => window.removeEventListener(type, endMomentumGuard, { capture: true }));
+            window.removeEventListener('pointermove', onPointerMove, { capture: true });
+        };
+    }, [inAfter, reviewSettled, practiceLoopReview, endMomentumGuard]);
 
     /**
      * #1259 — WHICH option the user chose, not only which were offered.
