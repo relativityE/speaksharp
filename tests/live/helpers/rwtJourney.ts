@@ -39,7 +39,13 @@ export const RWT_ACCOUNT_PREFIX = 'rwt-journey-';
  */
 export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 
-export type Verdict = 'PASS' | 'FAIL' | 'HOLD';
+/**
+ * `HUMAN` (PO 2026-09-25): a named human RWT observation — a runbook check no automation can judge (is the coaching
+ * about this speech, was a spoken "uh" heard). It is never a permanent HOLD: it names the question, the pass
+ * criterion and where the human records pass/fail, and it becomes PASS or FAIL when that result is supplied
+ * (`RWT_HUMAN_RESULTS`, see `humanObservation`).
+ */
+export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'HUMAN';
 export type FixtureKey = 'open_mic_tts' | 'focus_points_tts' | 'focus_points_partial_tts';
 
 const FIXTURE_DIR = fileURLToPath(new URL('../../fixtures/rwt/', import.meta.url));
@@ -459,6 +465,7 @@ export class RwtReceipt {
                 pass: this.rows.filter((r) => r.verdict === 'PASS').length,
                 fail: this.rows.filter((r) => r.verdict === 'FAIL').length,
                 hold: this.rows.filter((r) => r.verdict === 'HOLD').length,
+                human: this.rows.filter((r) => r.verdict === 'HUMAN').length,
             },
             // For the readback step: which journeys to read back, under which traffic class and declared stages.
             readback: { journeyIds, trafficType: 'canary', trafficTypes, stages, userStageJourneyIds },
@@ -467,6 +474,22 @@ export class RwtReceipt {
         writeFileSync(path.join(dir, `${this.suite}.receipt.json`), `${JSON.stringify(body, null, 2)}\n`);
         console.log(`RWT_RECEIPT ${JSON.stringify(body)}`);
     }
+}
+
+/**
+ * A named human RWT observation. Content-free: the question and criterion are product copy, never the speech or the
+ * coaching text. The human records PASS/FAIL against `passCriterion` in the PO RWT worksheet, keyed by
+ * `observationId`; until then the row stays `HUMAN` (to be judged), which is not a pass. A local or rehearsal run may
+ * supply recorded results through `RWT_HUMAN_RESULTS` (JSON `{ "<id>": "PASS" | "FAIL" }`, ids and PASS/FAIL only);
+ * rc-gates deliberately takes no such dispatch input (its 10-input contract).
+ */
+export function humanObservation(receipt: RwtReceipt, id: string, runbookRow: string, question: string, passCriterion: string): void {
+    let result: string | undefined;
+    try { result = (JSON.parse(process.env.RWT_HUMAN_RESULTS ?? '{}') as Record<string, string>)[id]; } catch { result = undefined; }
+    const recorded = result === 'PASS' || result === 'FAIL' ? result : null;
+    receipt.row(`human: ${question}`, recorded ?? 'HUMAN',
+        recorded ? `recorded by the human reviewer: ${recorded}` : 'named human RWT observation; record pass/fail in the PO worksheet',
+        { observationId: id, runbookRow, passCriterion, recorded: recorded ?? 'pending' });
 }
 
 /** Serialized evidence must never carry these; a match is itself a FAIL row. */
@@ -870,7 +893,8 @@ export async function focusCoachingRows(
     const claims = OMISSION_CLAIM.test(well) || OMISSION_CLAIM.test(next);
     receipt.row('Focus coaching makes no omission claim', claims ? 'FAIL' : 'PASS',
         claims ? 'a phrase claims a point was missed or skipped (the matcher cannot know that)' : 'neither phrase claims a point was missed or skipped');
-    receipt.row('Focus coaching helps cover the chosen points', 'HOLD', 'relevance to the chosen points needs a human reader; the text is never stored in evidence');
+    humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
+        'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');
 
     const { data: row, error } = await admin.from('sessions').select('ai_suggestions').eq('id', sessionId).eq('user_id', uid).single();
     if (error) throw new Error(`saved coaching read failed (fail closed): ${error.code ?? 'unknown'}`);
