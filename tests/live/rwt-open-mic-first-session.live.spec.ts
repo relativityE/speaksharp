@@ -54,6 +54,8 @@ import {
     newDisposableEmail,
     nextStartEvidence,
     nextStartRows,
+    practiceAgainEvidence,
+    practiceAgainRows,
     modelIdentityRow,
     shareFeedbackRows,
     analyticsRows,
@@ -163,6 +165,8 @@ test.describe('RWT — Open Mic first session @live', () => {
         await suppressPageSnapshot(testInfo);
 
         let persistedId: string | null = null;
+        // The take's own generation count, snapshotted before the Practice-again pass records more takes.
+        let generationsForTake: number | null = null;
         let stoppedAt = 0;
         let transcriptDigest = ''; // compared in Node only; never written to the receipt
         let transcriptCanonical = ''; // in memory only, for the PDF match; never written anywhere
@@ -455,6 +459,16 @@ test.describe('RWT — Open Mic first session @live', () => {
                     owed === 0 ? 'no completed session is still owed an evaluation' : 'a completed session is still owed an evaluation', { owed });
             });
 
+            // ── Practice again through the rendered controls: Analytics → take → the review's own repeat (#1533) ───
+            await test.step('Practice again — Analytics action, then the completed review\'s repeat action', async () => {
+                generationsForTake = tap.sent('practice_loop_review_requested').length;
+                if (!persistedId) {
+                    practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session' });
+                    return;
+                }
+                practiceAgainRows(receipt, 'open_mic', await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic'));
+            });
+
             await test.step('next Start without a hold', async () => {
                 const next = await nextStartEvidence(page, `${SUITE}-next`);
                 nextStartRows(receipt, next);
@@ -491,9 +505,11 @@ test.describe('RWT — Open Mic first session @live', () => {
             };
             receipt.row('inventory events sent', inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
                 'products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received = readback)', inventory);
-            receipt.row('revisit is not a generation', inventory.reviewGenerationsRequested === 1 ? 'PASS' : 'FAIL',
-                inventory.reviewGenerationsRequested === 1 ? 'one generated review for the take; the Analytics revisits added none'
-                    : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: inventory.reviewGenerationsRequested });
+            // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
+            const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
+            receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : 'FAIL',
+                generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none'
+                    : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake });
             // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
             // "analytics detail shows both AI suggestions").
             const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));

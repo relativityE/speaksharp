@@ -30,6 +30,8 @@ import {
     newDisposableEmail,
     nextStartEvidence,
     nextStartRows,
+    practiceAgainEvidence,
+    practiceAgainRows,
     modelIdentityRow,
     shareFeedbackRows,
     analyticsRows,
@@ -137,6 +139,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let savedCoaching: SavedCoaching | null = null;
 
     let persistedId: string | null = null;
+    // The take's own generation count, snapshotted before the Practice-again pass records more takes.
+    let generationsForTake: number | null = null;
     let claimed = false;
     try {
         await test.step('account — sign up, canary claim (if authorized), sign back in', async () => {
@@ -372,6 +376,16 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             });
         }
 
+        // ── Practice again through the rendered controls: Analytics → the same set → the review's Retry (#1533) ──
+        await test.step('Practice again — Analytics action, then the completed review\'s Retry this set', async () => {
+            generationsForTake = tap.sent('practice_loop_review_requested').length;
+            if (!persistedId) {
+                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session' });
+                return;
+            }
+            practiceAgainRows(receipt, 'focus_points', await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points));
+        });
+
         await test.step('next Start without a hold', async () => {
             const next = await nextStartEvidence(page, `${suite}-next`);
             nextStartRows(receipt, next);
@@ -390,8 +404,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         };
         receipt.row('Focus coaching telemetry sent', focusTelemetry.reviewRendered > 0 ? 'PASS' : 'FAIL',
             'the coaching review rendered receipt left the page (sent; received = session_after_focus_points readback)', focusTelemetry);
-        receipt.row('revisit is not a generation', focusTelemetry.reviewRequested === 1 ? 'PASS' : 'FAIL',
-            focusTelemetry.reviewRequested === 1 ? 'one generated review for the take; the Analytics revisits added none' : 'the generation count is not exactly one for this take');
+        // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
+        const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
+        receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : 'FAIL',
+            generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none' : 'the generation count is not exactly one for this take',
+            { reviewRequested: generationsForFirstTake });
         receipt.row('inventory events sent', focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
             'products_menu_opened and saved_review_revisited left the page (sent; received = readback)', focusTelemetry);
         // Point text and topic are the person's content: they must never reach the receipt.

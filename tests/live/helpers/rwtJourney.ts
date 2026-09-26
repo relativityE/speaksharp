@@ -634,6 +634,133 @@ export async function entitlementRow(receipt: RwtReceipt, tap: EntitlementTap, r
         { canStart, trialActive: first.trial_active === true, isPro: first.is_pro === true });
 }
 
+/**
+ * "PRACTICE AGAIN", THROUGH THE CONTROLS A PERSON PRESSES (PM 2026-09-26, after #1533).
+ *
+ * The fresh-session next Start (`nextStartEvidence`) never touches the two repeat actions the runbook uses, and
+ * #1533 showed that is where a stale "Finishing up" could land. So, from the saved session's Analytics detail:
+ *   1. press the ONE practice action (`saved-review-practice`): the same product opens — for Focus Points the same set,
+ *      every point pending again (compared in memory; only booleans reach the receipt);
+ *   2. record a short take that SAVES (≥ the 5 s no-persist guard), so the completed-session review appears;
+ *   3. press that review's own repeat action (Open Mic "Practice this again" / Focus "Retry this set") at once — the
+ *      just-saved take's own evaluation must not hold it: it is enabled, no "Finishing up" shows, recording starts;
+ *   4. stop within the no-persist guard (nothing more is saved) and confirm every microphone track ended.
+ * A step the page never reached is a HOLD with its reason — never a PASS. The detail is opened by URL; the list path
+ * into it is proven by the reopen rows.
+ */
+export interface PracticeAgainEvidence {
+    analyticsActionOpened: boolean | null; sameSetPending: boolean | null;
+    reviewReached: boolean | null; afterActionEnabledMs: number | null; holdSeen: boolean;
+    afterStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
+}
+export async function practiceAgainEvidence(
+    page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
+): Promise<PracticeAgainEvidence> {
+    const FINISHING_UP = /Finishing up your last session/;
+    const ev: PracticeAgainEvidence = {
+        analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null,
+        holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: null,
+    };
+    await page.goto(`/analytics/${sessionId}`);
+    const practice = page.getByTestId('saved-review-practice');
+    try {
+        await expect(practice).toBeEnabled({ timeout: 30_000 });
+    } catch {
+        ev.reason = 'the Analytics detail showed no enabled practice action';
+        return ev;
+    }
+    await practice.click();
+    ev.analyticsActionOpened = await page.waitForURL('**/session', { timeout: 30_000 }).then(() => true).catch(() => false);
+    if (!ev.analyticsActionOpened) { ev.reason = 'the practice action did not open the session page'; return ev; }
+    if (product === 'focus_points') {
+        const rail = page.getByTestId('focus-points-rail');
+        const shown = await rail.waitFor({ timeout: 30_000 }).then(async () => {
+            const rows = await rail.getByTestId(/^focus-point-\d+$/).all();
+            const labels = await Promise.all(rows.map(async (r) => (await r.innerText()).trim()));
+            const statuses = await Promise.all(rows.map((r) => r.getAttribute('data-status')));
+            return rows.length === pointLabels.length
+                && pointLabels.every((l, i) => labels[i]?.startsWith(l))
+                && statuses.every((st) => st === 'pending');
+        }).catch(() => false);
+        ev.sameSetPending = shown;
+    }
+    try {
+        await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
+        await startBenchmarkRecording(page, `${label}-save`);
+        await expectBenchmarkRecordingStarted(page, `${label}-save`);
+        await page.waitForTimeout(7_000); // past the 5 s no-persist guard, so this take saves
+        await stopBenchmarkRecording(page, `${label}-save`);
+        await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });
+        ev.reviewReached = true;
+    } catch {
+        ev.reviewReached = false;
+        ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-save`);
+        ev.reason = 'the practice take did not reach the completed-session review';
+        return ev;
+    }
+    // The completed review's own repeat action, pressed as soon as it is offered.
+    const again = page.getByTestId(product === 'focus_points' ? 'focus-points-retry' : 'verdict-practice-again');
+    ev.holdSeen = (await page.getByText(FINISHING_UP).count()) > 0;
+    const watch = setInterval(() => {
+        void page.getByText(FINISHING_UP).count().then((n) => { if (n > 0) ev.holdSeen = true; }).catch(() => undefined);
+    }, 250);
+    const offeredAt = Date.now();
+    try {
+        await expect(again).toBeEnabled({ timeout: 15_000 });
+        ev.afterActionEnabledMs = Date.now() - offeredAt;
+        const pressedAt = Date.now();
+        await again.click();
+        await expectBenchmarkRecordingStarted(page, `${label}-again`);
+        ev.afterStartMs = Date.now() - pressedAt;
+    } catch {
+        clearInterval(watch);
+        ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
+        ev.reason = ev.afterActionEnabledMs === null ? 'the review\'s repeat action was not enabled within 15 s' : 'the repeat action did not begin recording';
+        return ev;
+    }
+    clearInterval(watch);
+    try {
+        await stopBenchmarkRecording(page, `${label}-again`);
+    } catch {
+        ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
+        ev.reason = 'the repeated take could not be stopped';
+        return ev;
+    }
+    ev.stopped = true;
+    ev.liveTracksAfterStop = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
+    if (ev.liveTracksAfterStop !== 0) ev.reason = 'the microphone stayed live after Stop';
+    return ev;
+}
+
+/** Rows from one Practice-again pass: the Analytics action, the review's repeat action, and the microphone off. */
+export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'focus_points', ev: PracticeAgainEvidence): void {
+    if (ev.analyticsActionOpened === null) {
+        receipt.row('Analytics Practice again opens the product', 'HOLD', ev.reason ?? 'not reached');
+    } else {
+        const ok = ev.analyticsActionOpened && (product === 'open_mic' || ev.sameSetPending === true);
+        receipt.row('Analytics Practice again opens the product', ok ? 'PASS' : 'FAIL',
+            ok ? (product === 'focus_points' ? 'the same Focus set opened, every point pending' : 'Open Mic opened, ready to record')
+                : !ev.analyticsActionOpened ? (ev.reason ?? 'the session page did not open') : 'the Focus set that opened was not the saved set, or not pending',
+            { sameSetPending: ev.sameSetPending });
+    }
+    if (ev.reviewReached !== true) {
+        receipt.row('review Practice again starts, no hold', 'HOLD', ev.reason ?? 'the completed-session review was not reached');
+        receipt.row('repeated take stopped, microphone off', 'HOLD', ev.reason ?? 'not reached', { liveTracksAfterStop: ev.liveTracksAfterStop });
+        return;
+    }
+    const startOk = ev.afterStartMs !== null && !ev.holdSeen && (ev.afterActionEnabledMs ?? Infinity) < 5_000 && ev.afterStartMs < 15_000;
+    receipt.row('review Practice again starts, no hold', startOk ? 'PASS' : 'FAIL',
+        startOk ? 'the completed review\'s repeat action was offered at once and recording began, with no "Finishing up"'
+            : ev.holdSeen ? '"Finishing up" was shown after the take saved'
+                : ev.afterStartMs === null ? (ev.reason ?? 'recording did not begin')
+                    : (ev.afterActionEnabledMs ?? Infinity) >= 5_000 ? 'the repeat action stayed disabled after the take saved' : 'recording exceeded the 15 s ceiling',
+        { afterActionEnabledMs: ev.afterActionEnabledMs, afterStartMs: ev.afterStartMs, holdSeen: ev.holdSeen });
+    const offOk = ev.stopped && ev.liveTracksAfterStop === 0;
+    receipt.row('repeated take stopped, microphone off', offOk ? 'PASS' : 'FAIL',
+        offOk ? 'the take stopped and every microphone track ended' : (ev.reason ?? 'the take could not be stopped'),
+        { stopped: ev.stopped, liveTracksAfterStop: ev.liveTracksAfterStop });
+}
+
 /** Two rows from one next-Start attempt: the Start itself, and the Stop with the microphone confirmed off. */
 export function nextStartRows(receipt: RwtReceipt, next: Awaited<ReturnType<typeof nextStartEvidence>>): void {
     const started = next.nextStartMs !== null;
