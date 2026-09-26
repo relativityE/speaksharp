@@ -159,6 +159,16 @@ export interface SessionOverhaulViewProps {
     onSelectFocus?: (focus: PracticeFocus) => void;
 }
 
+/**
+ * The ONE Start-gate predicate, shared by the rendered controls and the after-session handlers' live read: Start is
+ * blocked until the Progress question is answered for THIS owner, and while any gate is published.
+ */
+const gateBlocksStartFor = (
+    gate: unknown,
+    resolvedFor: string | null | undefined,
+    authUserId: string | null | undefined,
+): boolean => resolvedFor !== (authUserId ?? '') || gate !== null;
+
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     authUserId,
     isListening,
@@ -316,25 +326,29 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * #1533 Codex P2 #3 (PM FIX NOW) — the after-session Start entry points are fenced by the SAME live same-owner
      * Progress gate as the mic. While a gate is published the actions are disabled, and a stale click or keyboard
      * activation that still arrives does nothing: no choice receipt, no brief rebind, no controller Start, and so no
-     * second refusal that could outlive the gate's settlement and replace the completed review. Read through a ref so
-     * a handler created before the gate appeared still sees the live value.
+     * second refusal that could outlive the gate's settlement and replace the completed review. The handlers read the
+     * STORE at activation, not a value from the last render: a gate published after that render but before React
+     * re-renders must still stop a click that lands in between (PM RETURN on 121d0f9a6).
      */
-    const gateBlocksStartRef = React.useRef(false);
+    const liveGateBlocksStart = React.useCallback(() => {
+        const st = useSessionStore.getState();
+        return gateBlocksStartFor(st.progressGate, st.progressGateResolvedFor, authUserId);
+    }, [authUserId]);
     const choosePracticeAgain = React.useCallback(() => {
-        if (gateBlocksStartRef.current) return;
+        if (liveGateBlocksStart()) return;
         emitJourneyStep({ step: 'option_selected', optionSelected: 'practice_next' });
         onStartStop();
-    }, [onStartStop]);
+    }, [liveGateBlocksStart, onStartStop]);
 
     // The rail's two actions were passed through unwrapped, so the Focus Points review recorded which
     // options were offered and never which one was taken — the same gap `option_selected` was added to
     // close for the coaching review. Emitted before delegating, so a handler that navigates or throws
     // cannot swallow the fact.
     const chooseRetryPoints = React.useCallback(() => {
-        if (gateBlocksStartRef.current) return;
+        if (liveGateBlocksStart()) return;
         emitJourneyStep({ step: 'option_selected', optionSelected: 'retry_points' });
         (onRetryPoints ?? onStartStop)();
-    }, [onRetryPoints, onStartStop]);
+    }, [liveGateBlocksStart, onRetryPoints, onStartStop]);
 
     const chooseNewSet = React.useCallback(() => {
         emitJourneyStep({ step: 'option_selected', optionSelected: 'new_set' });
@@ -726,9 +740,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // account transition reverts to "not determined" immediately rather than inheriting an enabled
     // Start from the previous owner.
     const gateResolvedForViewer = progressGateResolvedFor === (authUserId ?? '');
-    const gateBlocksStart = !gateResolvedForViewer || progressGate !== null;
+    const gateBlocksStart = gateBlocksStartFor(progressGate, progressGateResolvedFor, authUserId);
     const gateNotice = progressGateNotice(progressGate, gateResolvedForViewer);
-    gateBlocksStartRef.current = gateBlocksStart;
 
     const reviewIsTerminal = effectiveReview.kind === 'expired' || effectiveReview.kind === 'not_captured';
     const coverageTerminallyUnavailable = isObjective

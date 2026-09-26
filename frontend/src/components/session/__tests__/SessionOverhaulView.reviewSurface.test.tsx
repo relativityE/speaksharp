@@ -245,4 +245,27 @@ describe('#1533 P2 #3 — no option_selected receipt while the after-session act
         expect({ receipts: selections().map((r) => r.option_selected), starts: onStartStop.mock.calls.length + onRetryPoints.mock.calls.length })
             .toEqual({ receipts: [chosen], starts: 1 });
     });
+
+    // PM RETURN on 121d0f9a6: the gate is published AFTER the last render and the click lands BEFORE React re-renders.
+    // The button is still enabled on screen, so only the handler's live read of the store can stop it.
+    it.each([
+        ['Open Mic Practice again', 'verdict-practice-again', {}],
+        ['Focus Points Retry this set', 'focus-points-retry', { objectivePoints: null, completedObjectivePoints: POINTS }],
+    ] as const)('%s — a click between gate publication and the rerender starts nothing and records nothing', (_name, testId, extra) => {
+        const onStartStop = vi.fn();
+        const onRetryPoints = vi.fn();
+        useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'user-1' });
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            onStartStop={onStartStop} onRetryPoints={onRetryPoints} {...extra} />);
+        const action = screen.getByTestId(testId);
+        expect(action).toBeEnabled();
+
+        // Published synchronously, outside act: no render has run between this line and the click.
+        useSessionStore.setState({ progressGate: { sessionId: 's-prev', ownerId: 'user-1', state: 'queued' } });
+        expect(action, 'precondition: still the pre-gate render').toBeEnabled();
+        action.click();
+
+        expect({ receipts: selections().length, starts: onStartStop.mock.calls.length + onRetryPoints.mock.calls.length })
+            .toEqual({ receipts: 0, starts: 0 });
+    });
 });
