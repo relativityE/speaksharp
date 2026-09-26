@@ -599,14 +599,46 @@ describe('AnalyticsDashboard', () => {
             expect(screen.getByTestId('clarity-score-value')).toHaveTextContent(/85/);
         });
 
-        it('#1258: Export PDF on the detail sends one content-free session_pdf_downloaded and still exports', async () => {
-            const { generateSessionPdf } = await import('../../lib/pdfGenerator');
-            pdfDownloaded.mockReset();
-            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) });
-            fireEvent.click(screen.getByRole('button', { name: /Export PDF/i }));
-            expect(pdfDownloaded).toHaveBeenCalledWith('session_detail');
-            expect(generateSessionPdf).toHaveBeenCalled();
-        });
+        // #1258 (PM RETURN, #1535 cycle 1): `session_pdf_downloaded` names a SUCCESS. It is sent only after the PDF was
+        // actually handed to the browser (the generator resolves true) — never before generation, never on a failed
+        // generation (resolves false; the toast already tells the person) and never on a rejection. Exactly one event,
+        // carrying only its closed-enum surface.
+        type Surface = 'history_list' | 'history_list_mobile' | 'session_detail';
+        const press: Record<Surface, () => void> = {
+            history_list: () => fireEvent.click(screen.getByTestId('download-pdf-btn-sx')),
+            history_list_mobile: () => fireEvent.click(screen.getByTestId('download-pdf-btn-mobile-sx')),
+            session_detail: () => fireEvent.click(screen.getByRole('button', { name: /Export PDF/i })),
+        };
+        const renderFor = (surface: Surface) => surface === 'session_detail'
+            ? renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) })
+            : renderComponent({ sessionHistory: detailSession({}) });
+        const outcomes = [
+            ['saved (resolves true)', () => Promise.resolve(true), 1],
+            ['failed inside the generator (resolves false)', () => Promise.resolve(false), 0],
+            ['rejected', () => Promise.reject(new Error('boom')), 0],
+        ] as const;
+
+        for (const surface of ['history_list', 'history_list_mobile', 'session_detail'] as const) {
+            for (const [label, result, events] of outcomes) {
+                it(`#1258: PDF from ${surface}, ${label} → ${events} session_pdf_downloaded`, async () => {
+                    const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                    let settle!: () => void;
+                    const gate = new Promise<void>((resolve) => { settle = resolve; });
+                    vi.mocked(generateSessionPdf).mockReset().mockImplementation(() => gate.then(result) as Promise<boolean>);
+                    pdfDownloaded.mockReset();
+                    renderFor(surface);
+                    press[surface]();
+                    expect(generateSessionPdf).toHaveBeenCalledTimes(1);
+                    // Nothing is reported while the PDF is still being generated.
+                    expect(pdfDownloaded).not.toHaveBeenCalled();
+                    settle();
+                    await vi.waitFor(() => expect(vi.mocked(generateSessionPdf).mock.results[0]).toBeDefined());
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                    // Exactly `events` success events, each carrying only its closed-enum surface.
+                    expect(pdfDownloaded.mock.calls).toEqual(Array.from({ length: events }, () => [surface]));
+                });
+            }
+        }
 
         it('a completed session with a valid next action: the saved review owns it, and no integrity error shows', () => {
             renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) });

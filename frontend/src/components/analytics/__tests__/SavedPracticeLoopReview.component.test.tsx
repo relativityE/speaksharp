@@ -10,7 +10,12 @@ vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
 const accept = vi.fn(async (after: () => void) => { after(); });
 let recommendationId: string | null = null;
 vi.mock('@/hooks/useLinkedRepeat', () => ({
-    useLinkedRepeat: () => ({ recommendationId, accept, accepting: false, actionError: null, retryBlocked: false }),
+    // A settled progress answer: `linked` when an eligible recommendation exists, else a terminal `direct`. The
+    // pending/error/single-flight paths run against the REAL hook in SavedPracticeLoopReview.linkedRepeat.test.tsx.
+    useLinkedRepeat: () => ({
+        recommendationId, linkState: recommendationId ? 'linked' : 'direct', query: { refetch: vi.fn(), isFetching: false },
+        accept, accepting: false, actionError: null, retryBlocked: false,
+    }),
 }));
 const revisited = vi.fn();
 const practiceSelected = vi.fn();
