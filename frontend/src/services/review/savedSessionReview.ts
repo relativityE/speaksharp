@@ -7,9 +7,11 @@
  * regenerates the review, resends the transcript or spends coaching quota (runbook v12).
  *
  * The product follows the SESSION, never the page, and is never inferred from an ABSENCE (#1535 Codex P2): the durable
- * `sessions.product` marker (#1537, written at creation) decides; a row without it (created before the marker) is
- * Focus Points only when a durable Focus row exists (`objective_session` or `objective_source_recording`), and is
- * otherwise `unknown` — never guessed as Open Mic.
+ * `sessions.product` marker (#1537, written at creation) decides, and a failed Focus results read never overrides it
+ * (PM RETURN 5849471237): a marked Focus take whose results can't be read stays Focus Points with a retryable read
+ * error, and a marked Open Mic take stays Open Mic. A row without the marker (created before it) is Focus Points only
+ * when a durable Focus row exists (`objective_session` or `objective_source_recording`), and is otherwise `unknown` —
+ * never guessed as Open Mic.
  * The review ages out with the transcript (migration 20260810120000), so an expired row says so.
  */
 import { getSupabaseClient } from '@/lib/supabaseClient';
@@ -36,6 +38,8 @@ export interface SavedSessionReview {
     /** The saved point set (brief + labels in order), for the practice action on a Focus Points session. */
     focusBrief: SavedFocusBrief | null;
     focusPoints: string[];
+    /** A marked Focus Points take whose saved results couldn't be read: its point set is unknown until a re-read. */
+    focusReadFailed?: true;
 }
 
 export async function loadSavedSessionReview(sessionId: string): Promise<SavedSessionReview> {
@@ -81,7 +85,7 @@ export async function loadSavedSessionReview(sessionId: string): Promise<SavedSe
             coaching, product: 'focus_points', evidence: [FOCUS_RESULTS_NOT_SAVED], focusBrief: null, focusPoints: []
         };
 
-        if (focus.kind === 'error') return unknown; // no evidence rather than the wrong kind
+        // The stored marker is the product identity; a failed Focus results read never erases it.
         if (marker === 'open_mic') {
             return { coaching, product: 'open_mic', evidence: openMicEvidence(row.next_action_signal), focusBrief: null, focusPoints: [] };
         }
@@ -91,7 +95,12 @@ export async function loadSavedSessionReview(sessionId: string): Promise<SavedSe
                 focusBrief: focus.brief, focusPoints: focus.points.map((p) => p.label)
             };
         }
-        if (marker === 'focus_points') return focusWithoutResults;
+        if (marker === 'focus_points') {
+            return focus.kind === 'error'
+                ? { coaching, product: 'focus_points', evidence: [], focusBrief: null, focusPoints: [], focusReadFailed: true }
+                : focusWithoutResults;
+        }
+        if (focus.kind === 'error') return unknown; // legacy row: no evidence rather than the wrong kind
 
         // Legacy row (no marker): only a durable Focus row may say Focus Points; absence proves nothing.
         const { data: source, error: sourceError } = await supabase

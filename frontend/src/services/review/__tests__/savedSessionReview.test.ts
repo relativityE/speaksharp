@@ -115,6 +115,35 @@ describe('loadSavedSessionReview', () => {
         expect(r.evidence).toEqual([]);
     });
 
+    // PM RETURN 5849471237 — the stored marker is the product identity; a failed Focus results read never erases it.
+    it('CASUALTY: marked focus_points + a failed Focus results read stays Focus Points (read failed, no point set) — never unknown/Open Mic', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'focus_points' }, error: null };
+        focus = { kind: 'error' };
+        const r = await loadSavedSessionReview('s1');
+        expect(r).toEqual({
+            coaching: { kind: 'review', review: { whatWorked: PAIR.what_worked, whatToTryNext: PAIR.what_to_try_next } },
+            product: 'focus_points', evidence: [], focusBrief: null, focusPoints: [], focusReadFailed: true,
+        });
+        expect(tablesRead(), 'a marked session needs no legacy source read').not.toContain('objective_source_recording');
+    });
+
+    it('CASUALTY: marked open_mic + a failed Focus results read stays Open Mic with its own evidence', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'open_mic' }, error: null };
+        focus = { kind: 'error' };
+        const r = await loadSavedSessionReview('s1');
+        expect(r).toMatchObject({ product: 'open_mic', evidence: ['6.2 filler words a minute, above your target.'], focusBrief: null });
+        expect(r.focusReadFailed).toBeUndefined();
+    });
+
+    it('CASUALTY: legacy NULL + a failed Focus results read stays UNKNOWN (never Focus, never Open Mic)', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: null }, error: null };
+        focus = { kind: 'error' };
+        source = { data: { session_id: 's1' }, error: null };
+        const r = await loadSavedSessionReview('s1');
+        expect(r).toMatchObject({ product: 'unknown', evidence: [], focusBrief: null });
+        expect(r.focusReadFailed).toBeUndefined();
+    });
+
     it('states: expired with the transcript, none saved, invalid stored value, failed read', async () => {
         row = { data: { ai_suggestions: null, transcript_state: 'expired' }, error: null };
         expect((await loadSavedSessionReview('s1')).coaching).toEqual({ kind: 'expired' });

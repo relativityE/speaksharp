@@ -151,6 +151,39 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(setOpenAttempt).not.toHaveBeenCalled();
     });
 
+    // PM RETURN 5849471237 (#1535): a MARKED Focus take whose point set couldn't be read.
+    it('CASUALTY: marked Focus + failed results read never launches practice; the retry re-reads and restores the linked repeat exactly once', async () => {
+        loadReview.mockResolvedValueOnce({ ...FOCUS, evidence: [], focusBrief: null, focusPoints: [], focusReadFailed: true });
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        renderReview();
+        await waitFor(() => expect(screen.getByTestId('saved-review-focus-error')).toBeInTheDocument());
+        expect(screen.getByTestId('saved-review')).toHaveAttribute('data-product', 'focus_points');
+        expect(screen.getByTestId('saved-review-label')).toHaveTextContent('Focus Points');
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        expect(action()).toHaveTextContent('Try again');
+        expect(screen.getByTestId('saved-review-focus-error')).toHaveTextContent('couldn’t be loaded, so practice wasn’t started');
+
+        fireEvent.click(action()); // "Try again": re-read, never a generic, unlinked or linked launch
+        expect(navigate).not.toHaveBeenCalled();
+        expect(practiceSelected).not.toHaveBeenCalled();
+        expect(readPending).not.toHaveBeenCalled();
+        expect(recordAttempt).not.toHaveBeenCalled();
+        expect(setActiveObjectiveBrief).not.toHaveBeenCalled();
+        await waitFor(() => expect(loadReview).toHaveBeenCalledTimes(2));
+
+        // The re-read returns the saved set: the review is Focus again and the repeat runs once, on THIS set.
+        await waitFor(() => expect(screen.queryByTestId('saved-review-focus-error')).not.toBeInTheDocument());
+        await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
+        fireEvent.click(action());
+        fireEvent.click(action());
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        expect(navigate).toHaveBeenCalledTimes(1);
+        expect(recordAttempt).toHaveBeenCalledTimes(1);
+        expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
+        expect(practiceSelected).toHaveBeenCalledWith('focus_points', true);
+        expect(loadReview).toHaveBeenCalledTimes(2);
+    });
+
     it('CASUALTY: a repeated click while linking starts ONE attempt and ONE navigation', async () => {
         loadProgress.mockResolvedValue(ELIGIBLE);
         const attempt = deferred<string>();

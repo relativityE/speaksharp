@@ -9,6 +9,8 @@ import { PRODUCT_NAMES } from '@/constants/productNames';
 import { trackSavedReviewPracticeSelected, trackSavedReviewRevisited } from '@/services/reviewSurfaceTelemetry';
 
 const PRACTICE_AGAIN = 'Practice this again';
+/** A MARKED Focus Points take whose saved results couldn't be read; its practice action retries the read. */
+const FOCUS_RESULTS_READ_FAILED = 'This take’s Focus Points couldn’t be loaded, so practice wasn’t started. Try again.';
 
 /**
  * #1258 G20 — the saved Practice Loop review, first on the Analytics session detail (Where A).
@@ -25,13 +27,14 @@ const PRACTICE_AGAIN = 'Practice this again';
 export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel?: string | null }> = ({ sessionId, sessionLabel }) => {
     const navigate = useNavigate();
     const [saved, setSaved] = useState<{ sessionId: string; value: SavedSessionReview } | null>(null);
+    const [readAttempt, setReadAttempt] = useState(0);
     const repeat = useLinkedRepeat(sessionId);
 
     useEffect(() => {
         let active = true;
         void loadSavedSessionReview(sessionId).then((value) => { if (active) setSaved({ sessionId, value }); });
         return () => { active = false; };
-    }, [sessionId]);
+    }, [sessionId, readAttempt]);
 
     const review = saved && saved.sessionId === sessionId ? saved.value : null;
 
@@ -77,6 +80,13 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
     // recommendation runs its one linked attempt first; only a terminal "nothing to link" opens the product directly.
     const practise = () => {
         if (!review || repeat.linkState === 'pending' || repeat.accepting) return;
+        // PM RETURN 5849471237: a marked Focus take whose point set couldn't be read never opens a generic or unlinked
+        // practice; the action re-reads the saved review, and the repeat runs only once the set is back.
+        if (review.focusReadFailed) {
+            setSaved(null);
+            setReadAttempt((n) => n + 1);
+            return;
+        }
         if (repeat.linkState === 'error') {
             void repeat.query.refetch();
             return;
@@ -97,12 +107,18 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
                 data-link-state={repeat.linkState}
                 className="rounded-lg bg-ink px-5 py-3 text-[15px] font-bold text-ink-text hover:brightness-110 disabled:opacity-60"
             >
-                {repeat.accepting ? 'Linking repeat…'
+                {review?.focusReadFailed ? 'Try again'
+                    : repeat.accepting ? 'Linking repeat…'
                     : repeat.linkState === 'pending' || (repeat.linkState === 'error' && repeat.query.isFetching) ? 'Checking your next practice…'
                         : progressReadFailed ? 'Try again'
                             : PRACTICE_AGAIN}
             </button>
-            {progressReadFailed && (
+            {review?.focusReadFailed && (
+                <p role="alert" className="mt-2 text-[13px] font-semibold text-ink" data-testid="saved-review-focus-error">
+                    {FOCUS_RESULTS_READ_FAILED}
+                </p>
+            )}
+            {!review?.focusReadFailed && progressReadFailed && (
                 <p role="alert" className="mt-2 text-[13px] font-semibold text-ink" data-testid="saved-review-progress-error">
                     Your next practice couldn’t be checked, so it wasn’t started. Try again.
                 </p>
