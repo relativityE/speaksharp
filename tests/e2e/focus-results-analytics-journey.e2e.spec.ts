@@ -45,7 +45,10 @@ async function assertSavedResults(page: Page, when: string) {
   await expect(saved.getByTestId('focus-point-2')).toContainText(POINTS[2]);
   await expect(saved.getByTestId('focus-point-2'), `unspoken point ${when}`).toHaveAttribute('data-status', 'missing');
   await expect(saved.getByTestId('focus-point-2-verdict')).toHaveText('Not detected');
-  await expect(saved.getByTestId('focus-point-2')).toContainText('You may have covered it in different words.');
+  await expect(saved.getByTestId('focus-point-2-not-detected')).toHaveText('We couldn’t detect this point in the transcript.');
+  // G20: one limitation note below the saved list; no row repeats the caveat.
+  await expect(saved.getByTestId('saved-focus-points-note'), `one note ${when}`).toHaveCount(1);
+  await expect(saved.locator('ol').getByText(/different words|covered it differently/i), `no row repeats the caveat ${when}`).toHaveCount(0);
   await expect(page.getByTestId('saved-focus-points-error')).toHaveCount(0);
   await expect(page.getByTestId('saved-review'), `the saved review is Focus Points ${when}`).toHaveAttribute('data-product', 'focus_points');
   await expect(page.getByTestId('saved-review-practice'), 'the ONE practice action').toHaveCount(1);

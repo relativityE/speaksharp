@@ -57,14 +57,18 @@ export const SavedFocusPointsCoverage: React.FC<{ sessionId: string }> = ({ sess
                                     : missing ? 'Not detected' : 'Not evaluated'}
                             </p>
                             {missing && (
-                                <p className="mt-1 text-[13px] leading-snug text-state-error">
-                                    We couldn’t detect this point in the transcript. You may have covered it in different words.
+                                <p className="mt-1 text-[13px] leading-snug text-state-error" data-testid={`focus-point-${i}-not-detected`}>
+                                    We couldn’t detect this point in the transcript.
                                 </p>
                             )}
                         </li>
                     );
                 })}
             </ol>
+            {/* G20 (as on the live rail, #1534): the detector's limitation is stated ONCE, below the list — never in a row. */}
+            <p className="mt-3 text-[13px] leading-snug text-neutral-secondary" data-testid="saved-focus-points-note">
+                We look for your point&rsquo;s words in what you said. If you covered it differently, we may not spot it.
+            </p>
         </section>
     );
 };
