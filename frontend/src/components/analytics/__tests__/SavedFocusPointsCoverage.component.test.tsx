@@ -30,7 +30,13 @@ describe('SavedFocusPointsCoverage (Analytics session detail)', () => {
         expect(screen.getByTestId('focus-point-1')).toHaveTextContent('Detected at 1:14');
         expect(screen.getByTestId('focus-point-2')).toHaveAttribute('data-status', 'missing');
         expect(screen.getByTestId('focus-point-2')).toHaveTextContent('Not detected');
-        expect(screen.getByTestId('focus-point-2')).toHaveTextContent('You may have covered it in different words.');
+        expect(screen.getByTestId('focus-point-2-not-detected')).toHaveTextContent(/^We couldn’t detect this point in the transcript\.$/);
+        // G20: the limitation is stated once, below the list; no row repeats it.
+        expect(screen.getAllByTestId('saved-focus-points-note')).toHaveLength(1);
+        expect(screen.queryAllByText(/different words|covered it differently/i)).toHaveLength(1);
+        const list = screen.getByTestId('focus-point-0').closest('ol')!;
+        expect(list).not.toContainElement(screen.getByTestId('saved-focus-points-note'));
+        expect(list.compareDocumentPosition(screen.getByTestId('saved-focus-points-note')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(screen.getByTestId('focus-point-3')).toHaveAttribute('data-status', 'pending');
         expect(screen.getByTestId('focus-point-3')).toHaveTextContent('Not evaluated');
         // No point is shown as detected unless it was saved as detected.
