@@ -17,6 +17,8 @@ vi.mock('../analytics/GoalsSection', () => ({ GoalsSection: () => <div data-test
 vi.mock('../analytics/TopFillerWords', () => ({ TopFillerWords: () => <div data-testid="top-filler-words" /> }));
 vi.mock('../analytics/FillerWordTable', () => ({ FillerWordTable: () => <div data-testid="filler-word-table" /> }));
 vi.mock('../analytics/TrendChart', () => ({ TrendChart: () => <div data-testid="trend-chart" /> }));
+const pdfDownloaded = vi.fn();
+vi.mock('@/services/reviewSurfaceTelemetry', () => ({ trackSessionPdfDownloaded: (...args: unknown[]) => pdfDownloaded(...args) }));
 // #1258 G20: the saved review has its own tests; here only its placement and ownership of the next action matter.
 vi.mock('../analytics/SavedPracticeLoopReview', () => ({
     SavedPracticeLoopReview: ({ sessionId, sessionLabel }: { sessionId: string; sessionLabel?: string | null }) =>
@@ -595,6 +597,15 @@ describe('AnalyticsDashboard', () => {
             // Measurements remain visible.
             expect(screen.getAllByText('Speaking Pace').length).toBeGreaterThan(0);
             expect(screen.getByTestId('clarity-score-value')).toHaveTextContent(/85/);
+        });
+
+        it('#1258: Export PDF on the detail sends one content-free session_pdf_downloaded and still exports', async () => {
+            const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+            pdfDownloaded.mockReset();
+            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) });
+            fireEvent.click(screen.getByRole('button', { name: /Export PDF/i }));
+            expect(pdfDownloaded).toHaveBeenCalledWith('session_detail');
+            expect(generateSessionPdf).toHaveBeenCalled();
         });
 
         it('a completed session with a valid next action: the saved review owns it, and no integrity error shows', () => {

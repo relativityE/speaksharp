@@ -23,6 +23,7 @@ import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
 import { SavedFocusPointsCoverage } from './analytics/SavedFocusPointsCoverage';
 import { SavedPracticeLoopReview } from './analytics/SavedPracticeLoopReview';
+import { trackSessionPdfDownloaded } from '@/services/reviewSurfaceTelemetry';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
@@ -495,6 +496,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
+                            trackSessionPdfDownloaded('history_list');
                             void generateSessionPdf(session, profileName, _isPro, sessionHistory);
                         }}
                         title="Download Session PDF"
@@ -522,6 +524,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
+                            trackSessionPdfDownloaded('history_list_mobile');
                             void generateSessionPdf(session, profileName, _isPro, sessionHistory);
                         }}
                         data-testid={`download-pdf-btn-mobile-${session.id}`}
@@ -826,7 +829,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => { void generateSessionPdf(targetSession, profile?.email || 'User', isProUser, sessionHistory); }}
+                                        onClick={() => { trackSessionPdfDownloaded('session_detail'); void generateSessionPdf(targetSession, profile?.email || 'User', isProUser, sessionHistory); }}
                                         className="gap-2"
                                     >
                                         <Download className="h-4 w-4" />
