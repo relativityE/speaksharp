@@ -100,7 +100,18 @@ interface SessionEvidence {
   wpm: number | null;
   pause_metrics: unknown;
   ai_suggestions: unknown;
+  /** #1537: the durable product marker written at session creation; absent/NULL on rows created before it. */
+  product?: unknown;
 }
+
+type SessionProduct = 'open_mic' | 'focus_points';
+const asProduct = (value: unknown): SessionProduct | null =>
+  value === 'open_mic' || value === 'focus_points' ? value : null;
+const SESSION_EVIDENCE_COLUMNS =
+  'transcript, transcript_state, duration, total_words, filler_words, filler_counts, clarity_score, wpm, pause_metrics, ai_suggestions';
+/** Before migration 20260926190000 is applied the marker column does not exist; the row is then read as legacy. */
+const isMissingProductColumn = (error: { code?: string; message?: string } | null | undefined): boolean =>
+  Boolean(error && (error.code === '42703' || error.code === 'PGRST204') && /product/.test(error.message ?? ''));
 
 /** Only deployment skew (Edge published before its migration) may use the legacy authenticated write. */
 function authorityRpcUnavailable(error: unknown): boolean {
@@ -312,9 +323,9 @@ export async function handler(
 
     const body = await req.json() as { sessionId?: unknown; product?: unknown };
     const sessionId = body.sessionId;
-    // #1258: the page's statement that this take was Focus Points. It can only make the request STRICTER (refuse
-    // generic coaching when the saved results are missing); it never supplies evidence.
-    const expectsFocusPoints = body.product === 'focus_points';
+    // #1258 / #1538 (PM RETURN 5849473254): the page's product is only a CONSISTENCY ASSERTION. The server-owned
+    // `sessions.product` marker decides; the request can never downgrade or supply it.
+    const requestedProduct = asProduct(body.product);
     if (typeof sessionId !== 'string' || !sessionId.trim()) {
       return new Response(JSON.stringify({ error: 'Session ID is required' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
@@ -333,12 +344,16 @@ export async function handler(
 
     // The saved, RLS-owned session is the only coaching evidence authority. Caller-supplied
     // transcript/metrics are deliberately ignored so one session cannot be relabelled as another.
-    const { data: sessionData, error: sessionError } = await supabaseClient
+    const readSession = (columns: string) => supabaseClient
       .from('sessions')
-      .select('transcript, transcript_state, duration, total_words, filler_words, filler_counts, clarity_score, wpm, pause_metrics, ai_suggestions')
+      .select(columns)
       .eq('id', sessionId)
       .eq('user_id', userId)
       .single();
+    let { data: sessionData, error: sessionError } = await readSession(`${SESSION_EVIDENCE_COLUMNS}, product`);
+    if (isMissingProductColumn(sessionError as { code?: string; message?: string } | null)) {
+      ({ data: sessionData, error: sessionError } = await readSession(SESSION_EVIDENCE_COLUMNS));
+    }
 
     if (sessionError || !sessionData) {
       return new Response(JSON.stringify({ error: 'Session was not found' }), {
@@ -347,7 +362,23 @@ export async function handler(
       });
     }
 
-    const session = sessionData as SessionEvidence;
+    const session = sessionData as unknown as SessionEvidence;
+
+    // #1538 — THE STORED MARKER IS THE PRODUCT AUTHORITY.
+    //  - open_mic: never reads the objective tables, so an objective-table failure cannot break Open Mic coaching;
+    //  - focus_points: saved Focus results are required before any cache replay or generation (425/503 otherwise);
+    //  - NULL (a row created before the marker): decided only by durable Focus evidence, never by the caller's hint or
+    //    by an absence, and no generic pair is ever generated and cached for it.
+    // A request naming a different product than the stored one fails closed before any cache, quota or provider work.
+    const marker = asProduct(session.product);
+    if (marker && requestedProduct && marker !== requestedProduct) {
+      return new Response(JSON.stringify({ error: 'This session was saved as a different product.', code: 'product_mismatch' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 409,
+      });
+    }
+    // Legacy rows keep the strictness the page's statement already had: it can only make the request stricter.
+    const expectsFocusPoints = marker ? marker === 'focus_points' : requestedProduct === 'focus_points';
 
     // #1258 (PM 2026-09-26) — FOCUS RESULTS ARE CHECKED BEFORE ANY CACHED PAIR IS RETURNED AS FOCUS COACHING. A pair
     // cached for this session is replayed to a Focus Points request only once its saved point results exist; until
@@ -369,11 +400,20 @@ export async function handler(
       }
       return null;
     };
-    let focusContext: FocusContext | null = null;
-    if (expectsFocusPoints) {
+    let focusContext: FocusContext | null = marker === 'open_mic' ? { kind: 'none' } : null;
+    // An unmarked row asserted as Open Mic is checked against its durable Focus evidence BEFORE any cache replay:
+    // evidence that it was a Focus take makes the assertion a mismatch (PM RETURN 5850253992), never Focus coaching
+    // handed to an Open Mic caller.
+    if (expectsFocusPoints || (!marker && requestedProduct === 'open_mic')) {
       focusContext = await loadFocusContext(supabaseClient, sessionId);
       const refused = refuseFocusRead(focusContext);
       if (refused) return refused;
+      if (!marker && requestedProduct === 'open_mic' && focusContext.kind === 'focus') {
+        return new Response(JSON.stringify({ error: 'This session was saved as a different product.', code: 'product_mismatch' }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 409,
+        });
+      }
     }
 
     const cachedSuggestions = session.ai_suggestions
@@ -413,6 +453,14 @@ export async function handler(
       focusContext = await loadFocusContext(supabaseClient, sessionId);
       const refused = refuseFocusRead(focusContext);
       if (refused) return refused;
+    }
+    // A legacy (unmarked) row with no durable Focus evidence is of UNKNOWN product: generating would guess Open Mic
+    // from an absence and cache that guess on the row. Refused before entitlement, quota and provider work.
+    if (!marker && focusContext.kind === 'none') {
+      return new Response(JSON.stringify({ error: 'Coaching isn’t available for this older session.', code: 'product_unknown' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 409,
+      });
     }
 
     // Generating new coaching is an analysis operation, so it uses the same server-authoritative

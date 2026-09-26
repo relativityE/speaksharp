@@ -31,6 +31,8 @@ interface MockOptions {
   userId?: string | null;
   session?: Record<string, unknown> | null;
   sessionError?: unknown;
+  /** #1538: errors for successive `sessions` reads BEFORE the normal answer (models the pre-migration column retry). */
+  sessionSelectErrors?: unknown[];
   quota?: Record<string, unknown>;
   quotaError?: unknown;
   updateError?: unknown;
@@ -59,8 +61,14 @@ const savedSession = (overrides: Record<string, unknown> = {}) => ({
   wpm: 0,
   pause_metrics: { extendedPauses: 0 },
   ai_suggestions: null,
+  // #1538: every session created after the marker migration carries its product; Open Mic by default here.
+  product: 'open_mic',
   ...overrides,
 });
+/** A Focus Points take: the stored marker says so. */
+const focusSession = (overrides: Record<string, unknown> = {}) => savedSession({ product: 'focus_points', ...overrides });
+/** A row created before the marker existed. */
+const legacySession = (overrides: Record<string, unknown> = {}) => savedSession({ product: null, ...overrides });
 
 let fetchCount = 0;
 let fetchStatus = 200;
@@ -123,7 +131,9 @@ function mockSupabase(options: MockOptions = {}) {
     // #1486 — counted on its own. `rpcCount` also counts other rpc traffic, so it cannot answer
     // "how many slots did this one generation action spend?".
     quotaCount: 0,
+    sessionColumns: [] as string[],
   };
+  const sessionSelectErrors = [...(options.sessionSelectErrors ?? [])];
   const profile = options.profile ?? 'pro';
   const userId = options.userId === undefined ? 'pro-user' : options.userId;
   const session = options.session === undefined ? savedSession() : options.session;
@@ -174,8 +184,9 @@ function mockSupabase(options: MockOptions = {}) {
       });
     },
     from: (table: string) => ({
-      select: (_columns: string) => {
+      select: (columns: string) => {
         state.fromTables.push(table);
+        if (table === 'sessions') state.sessionColumns.push(columns);
         // #1258: the Focus Points reads (objective tables) resolve from `options.focus`.
         const focusResult = (): { data: unknown; error: unknown } => {
           const f = options.focus;
@@ -200,6 +211,7 @@ function mockSupabase(options: MockOptions = {}) {
                 : Promise.resolve({ data: { subscription_status: profile }, error: null });
             }
             if (table === 'sessions') {
+              if (sessionSelectErrors.length > 0) return Promise.resolve({ data: null, error: sessionSelectErrors.shift() });
               return Promise.resolve({ data: session, error: options.sessionError ?? (session ? null : { code: 'PGRST116' }) });
             }
             return Promise.resolve({ data: null, error: null });
@@ -924,7 +936,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
 
   await t.step('#1258 a Focus Points take sends its chosen points, in order, with what the matcher found', async () => {
     resetProvider();
-    const mock = mockSupabase({ session: savedSession(), focus: FOCUS });
+    const mock = mockSupabase({ session: focusSession(), focus: FOCUS });
     assertEquals((await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create)).status, 200);
     assertStringIncludes(lastPrompt, 'for the topic "A better weekly team handoff"');
     assertStringIncludes(lastPrompt, '1. "Updates get lost across scattered tools.": detected at 0:05');
@@ -942,14 +954,14 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   await t.step('#1258 4/4 detected: the prompt forbids inventing a missed point', async () => {
     resetProvider();
     const all = { ...FOCUS, evidence: FOCUS.points.map((p, i) => ({ brief_point_id: p.id, verdict: 'detected', detected_at_seconds: (i + 1) * 20 })) };
-    const mock = mockSupabase({ session: savedSession(), focus: all });
+    const mock = mockSupabase({ session: focusSession(), focus: all });
     assertEquals((await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create)).status, 200);
     assertStringIncludes(lastPrompt, 'Every point was detected. Do not suggest covering a point as if it were missing');
   });
 
-  await t.step('#1258 the session truth wins: saved Focus results are used even if the page did not say Focus', async () => {
+  await t.step('#1258 the session truth wins (legacy, unmarked row): saved Focus results are used even if the page did not say Focus', async () => {
     resetProvider();
-    const mock = mockSupabase({ session: savedSession(), focus: FOCUS });
+    const mock = mockSupabase({ session: legacySession(), focus: FOCUS });
     assertEquals((await handler(request(), mock.create)).status, 200);
     assertStringIncludes(lastPrompt, 'Focus Points session.');
   });
@@ -960,7 +972,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   // a Focus take in the first place — `pending` is refused even for a request that names no product (a stale tab).
   await t.step('#1258 CASUALTY (cache binding): a Focus request with a saved pair replays it exactly — AFTER the Focus results are read; no quota, no provider', async () => {
     resetProvider();
-    const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), focus: FOCUS });
+    const mock = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus: FOCUS });
     const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
     assertEquals(res.status, 200);
     assertEquals((await res.json()).suggestions, suggestionA);
@@ -977,7 +989,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // are not saved yet (linked objective session, no evidence). Before the fix this returned 200 with that pair.
     for (const focus of [{ ...FOCUS, evidence: [] }, { objective: null }]) {
       resetProvider();
-      const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), focus });
+      const mock = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus });
       const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
       assertEquals(res.status, 425);
       const body = await res.json();
@@ -990,7 +1002,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     }
     // A failed Focus read is 503 — never the cached pair either.
     resetProvider();
-    const failed = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), focus: { objectiveError: { code: '42501' } } });
+    const failed = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus: { objectiveError: { code: '42501' } } });
     const res503 = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), failed.create);
     assertEquals(res503.status, 503);
     assertEquals((await res503.json()).suggestions, undefined);
@@ -998,7 +1010,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
 
   await t.step('#1258 REGRESSION: a request naming no product cannot cache a generic pair for a Focus take whose results are pending (stale tab) — 425, nothing cached', async () => {
     resetProvider();
-    const mock = mockSupabase({ session: savedSession(), focus: { ...FOCUS, evidence: [] } });
+    const mock = mockSupabase({ session: legacySession(), focus: { ...FOCUS, evidence: [] } });
     const res = await handler(request({ sessionId: 'session-a' }), mock.create);
     assertEquals(res.status, 425);
     assertEquals((await res.json()).code, 'focus_results_pending');
@@ -1024,7 +1036,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
 
   await t.step('#1258 CASUALTY (cache binding): a Focus pair is generated only WITH the saved results, then that pair is what replays', async () => {
     resetProvider();
-    const mock = mockSupabase({ session: savedSession(), focus: FOCUS });
+    const mock = mockSupabase({ session: focusSession(), focus: FOCUS });
     const first = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
     assertEquals(first.status, 200);
     assertStringIncludes(lastPrompt, 'Focus Points session.');
@@ -1032,7 +1044,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(persisted !== undefined && persisted !== null, true);
     // The replay of that session returns the persisted Focus-aware pair without another generation.
     resetProvider();
-    const replay = mockSupabase({ session: savedSession({ ai_suggestions: persisted }), focus: FOCUS });
+    const replay = mockSupabase({ session: focusSession({ ai_suggestions: persisted }), focus: FOCUS });
     const second = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), replay.create);
     assertEquals((await second.json()).suggestions, persisted);
     assertEquals(fetchCount, 0);
@@ -1040,7 +1052,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
 
   await t.step('#1258 CASUALTY: a Focus take whose results are not saved yet is refused 425 — no quota, no provider, nothing cached', async () => {
     resetProvider();
-    const mock = mockSupabase({ session: savedSession(), focus: { objective: null } });
+    const mock = mockSupabase({ session: focusSession(), focus: { objective: null } });
     const response = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
     assertEquals(response.status, 425);
     assertEquals((await response.json()).code, 'focus_results_pending');
@@ -1049,21 +1061,160 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.updated, null);
     // Registered but not yet evaluated is the same: no evidence rows is not a result.
     resetProvider();
-    const noEvidence = mockSupabase({ session: savedSession(), focus: { ...FOCUS, evidence: [] } });
+    const noEvidence = mockSupabase({ session: focusSession(), focus: { ...FOCUS, evidence: [] } });
     assertEquals((await handler(request({ sessionId: 'session-a', product: 'focus_points' }), noEvidence.create)).status, 425);
     assertEquals(noEvidence.state.quotaCount, 0);
   });
 
   await t.step('#1258 CASUALTY: a failed Focus results read is 503 and never becomes generic coaching', async () => {
     resetProvider();
-    const mock = mockSupabase({ session: savedSession(), focus: { objectiveError: { code: '42501' } } });
+    const mock = mockSupabase({ session: legacySession(), focus: { objectiveError: { code: '42501' } } });
     assertEquals((await handler(request(), mock.create)).status, 503);
     assertEquals(mock.state.quotaCount, 0);
     assertEquals(fetchCount, 0);
     resetProvider();
-    const pointsFail = mockSupabase({ session: savedSession(), focus: { ...FOCUS, pointsError: { code: '500' } } });
+    const pointsFail = mockSupabase({ session: focusSession(), focus: { ...FOCUS, pointsError: { code: '500' } } });
     assertEquals((await handler(request({ sessionId: 'session-a', product: 'focus_points' }), pointsFail.create)).status, 503);
     assertEquals(fetchCount, 0);
+  });
+
+  // #1538 (PM RETURN 5849473254) — the STORED product marker is the authority; the request product is only an assertion.
+  await t.step('#1538 CASUALTY: an authoritative Focus take cannot be downgraded by product:open_mic — 409, no cache, quota or provider', async () => {
+    for (const session of [focusSession(), focusSession({ ai_suggestions: suggestionA })]) {
+      resetProvider();
+      const mock = mockSupabase({ session, focus: { objective: null } });
+      const res = await handler(request({ sessionId: 'session-a', product: 'open_mic' }), mock.create);
+      assertEquals(res.status, 409);
+      const body = await res.json();
+      assertEquals(body.code, 'product_mismatch');
+      assertEquals(body.suggestions, undefined);
+      assertEquals(mock.state.authorityRpcCount, 0);
+      assertEquals(mock.state.quotaCount, 0);
+      assertEquals(fetchCount, 0);
+      assertEquals(mock.state.updated, null);
+      assertEquals(mock.state.fromTables.filter((t) => t.startsWith('objective_')), []);
+    }
+  });
+
+  await t.step('#1538 CASUALTY: a marked Open Mic take requested as focus_points fails closed the same way', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), focus: FOCUS });
+    const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
+    assertEquals(res.status, 409);
+    assertEquals((await res.json()).code, 'product_mismatch');
+    assertEquals(mock.state.authorityRpcCount, 0);
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1538 CASUALTY: authoritative Open Mic succeeds while the objective tables are DENIED — never read (cache replay and generation)', async () => {
+    for (const body of [{ sessionId: 'session-a' }, { sessionId: 'session-a', product: 'open_mic' }]) {
+      resetProvider();
+      const replay = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), focus: { objectiveError: { code: '42501' }, pointsError: { code: '42501' } } });
+      const r = await handler(request(body), replay.create);
+      assertEquals(r.status, 200);
+      assertEquals((await r.json()).suggestions, suggestionA);
+      assertEquals(replay.state.fromTables.filter((t) => t.startsWith('objective_')), []);
+
+      resetProvider();
+      const fresh = mockSupabase({ session: savedSession(), focus: { objectiveError: { code: '42501' } } });
+      assertEquals((await handler(request(body), fresh.create)).status, 200);
+      assertEquals(fetchCount, 1);
+      assertEquals(fresh.state.quotaCount, 1);
+      assertEquals(lastPrompt.includes('Focus Points session.'), false);
+      assertEquals(fresh.state.fromTables.filter((t) => t.startsWith('objective_')), []);
+    }
+  });
+
+  await t.step('#1538 CASUALTY: a NULL legacy row cannot cache generic coaching — no hint or absence decides; 409 before quota/provider', async () => {
+    for (const body of [{ sessionId: 'session-a' }, { sessionId: 'session-a', product: 'open_mic' }]) {
+      resetProvider();
+      const mock = mockSupabase({ session: legacySession(), focus: { objective: null } });
+      const res = await handler(request(body), mock.create);
+      assertEquals(res.status, 409);
+      assertEquals((await res.json()).code, 'product_unknown');
+      assertEquals(mock.state.quotaCount, 0);
+      assertEquals(fetchCount, 0);
+      assertEquals(mock.state.updated, null);
+      assertEquals(mock.state.authorityRpcCount, 0);
+    }
+    // CONTROLS: durable Focus evidence on a legacy row decides Focus (not a guess) for a request naming no product or
+    // asserting focus_points.
+    for (const body of [{ sessionId: 'session-a' }, { sessionId: 'session-a', product: 'focus_points' }]) {
+      resetProvider();
+      const focusLegacy = mockSupabase({ session: legacySession(), focus: FOCUS });
+      assertEquals((await handler(request(body), focusLegacy.create)).status, 200);
+      assertStringIncludes(lastPrompt, 'Focus Points session.');
+    }
+  });
+
+  await t.step('#1538 CASUALTY (PM RETURN 5850253992): a legacy row with durable Focus evidence asserted as open_mic is a mismatch — 409, zero receipt/quota/provider/write', async () => {
+    for (const session of [legacySession(), legacySession({ ai_suggestions: suggestionA })]) {
+      resetProvider();
+      const mock = mockSupabase({ session, focus: FOCUS });
+      const res = await handler(request({ sessionId: 'session-a', product: 'open_mic' }), mock.create);
+      assertEquals(res.status, 409);
+      const body = await res.json();
+      assertEquals(body.code, 'product_mismatch');
+      assertEquals(body.suggestions, undefined);
+      assertEquals(mock.state.authorityRpcCount, 0);
+      assertEquals(mock.state.quotaCount, 0);
+      assertEquals(fetchCount, 0);
+      assertEquals(mock.state.updated, null);
+    }
+    // CONTROL: a legacy row with NO durable Focus evidence asserted as open_mic still replays its existing pair, and
+    // still never generates one (409 product_unknown).
+    resetProvider();
+    const cached = mockSupabase({ session: legacySession({ ai_suggestions: suggestionA }), focus: { objective: null } });
+    const replay = await handler(request({ sessionId: 'session-a', product: 'open_mic' }), cached.create);
+    assertEquals(replay.status, 200);
+    assertEquals((await replay.json()).suggestions, suggestionA);
+  });
+
+  await t.step('#1538 CASUALTY: a cached Focus pair on a marked Focus take replays ONLY after its saved results — pending 425, failed 503', async () => {
+    const cases: Array<[MockOptions['focus'], number]> = [[{ ...FOCUS, evidence: [] }, 425], [{ objective: null }, 425], [{ objectiveError: { code: '42501' } }, 503]];
+    for (const [focus, status] of cases) {
+      for (const body of [{ sessionId: 'session-a' }, { sessionId: 'session-a', product: 'focus_points' }]) {
+        resetProvider();
+        const mock = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus });
+        const res = await handler(request(body), mock.create);
+        assertEquals(res.status, status);
+        assertEquals((await res.json()).suggestions, undefined);
+        assertEquals(mock.state.authorityRpcCount, 0);
+        assertEquals(mock.state.quotaCount, 0);
+        assertEquals(fetchCount, 0);
+      }
+    }
+    resetProvider();
+    const ready = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus: FOCUS });
+    const ok = await handler(request({ sessionId: 'session-a' }), ready.create);
+    assertEquals(ok.status, 200);
+    assertEquals((await ok.json()).suggestions, suggestionA);
+    assertEquals(ready.state.fromTables.includes('objective_evidence'), true);
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1538 the saved session read selects the server-owned product; before the migration it retries without it (legacy)', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession() });
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(mock.state.sessionColumns.length, 1);
+    assertStringIncludes(mock.state.sessionColumns[0], ', product');
+
+    resetProvider();
+    const pre = mockSupabase({
+      session: legacySession({ ai_suggestions: suggestionA }),
+      sessionSelectErrors: [{ code: '42703', message: 'column sessions.product does not exist' }],
+    });
+    const r = await handler(request(), pre.create);
+    assertEquals(r.status, 200);
+    assertEquals(pre.state.sessionColumns.length, 2);
+    assertEquals(pre.state.sessionColumns[1].includes('product'), false);
+
+    // Any OTHER session read error is not treated as a missing column.
+    resetProvider();
+    const other = mockSupabase({ session: savedSession(), sessionSelectErrors: [{ code: '42501', message: 'permission denied' }] });
+    assertEquals((await handler(request(), other.create)).status, 404);
+    assertEquals(other.state.sessionColumns.length, 1);
   });
 
   await t.step('#1258 a point label cannot restructure the prompt (quotes and newlines are flattened)', () => {
