@@ -19,6 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Page, type TestInfo } from '@playwright/test';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
     AUDIO_ARGS,
     expectBenchmarkRecordingStarted,
@@ -630,17 +631,48 @@ export function nextStartRows(receipt: RwtReceipt, next: Awaited<ReturnType<type
 
 /** The saved coaching response (`sessions.ai_suggestions`), held in memory only. */
 export interface SavedCoaching { well: string; next: string }
-export interface CoachingShown { well: boolean; next: boolean }
+export interface CoachingShown {
+    /** Each saved phrase is the text inside the saved review block, word for word (G20). */
+    well: boolean; next: boolean;
+    /** The saved review is the FIRST block of the detail, ahead of the Progress panel. */
+    first: boolean;
+    /** A "From this session" evidence line is shown, and matches the product's expected measurement. */
+    evidenceShown: boolean; evidenceMatches: boolean;
+    /** ONE practice action: the review's own, with no competing Progress sentence or button. */
+    oneAction: boolean;
+}
 
 /** Case, spacing and sentence-final punctuation do not change a phrase. */
 export const normalisePhraseText = (t: string): string =>
     t.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+(\s|$)/g, '$1').trim();
 
-/** Whether each saved phrase is visible on the current page. Compared in Node; only booleans leave. */
-async function coachingShownOnPage(page: Page, saved: SavedCoaching): Promise<CoachingShown> {
-    const body = normalisePhraseText(await page.locator('body').innerText().catch(() => ''));
-    const has = (phrase: string) => phrase.trim() !== '' && body.includes(normalisePhraseText(phrase));
-    return { well: has(saved.well), next: has(saved.next) };
+/**
+ * The saved review on the Analytics detail (G20), read from its own block. Compared in Node; only booleans leave.
+ * `evidencePattern` is the product's measurement shape (Open Mic: per-minute delivery; Focus Points: detected points).
+ */
+async function coachingShownOnPage(page: Page, saved: SavedCoaching, evidencePattern?: RegExp): Promise<CoachingShown> {
+    const none: CoachingShown = { well: false, next: false, first: false, evidenceShown: false, evidenceMatches: false, oneAction: false };
+    const block = page.getByTestId('saved-review');
+    if (!(await block.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false))) return none;
+    await expect.poll(async () => block.getAttribute('data-review-state'), { timeout: 30_000 }).not.toBe('loading').catch(() => undefined);
+    const text = async (id: string) => (await block.getByTestId(id).innerText().catch(() => '')).trim();
+    const same = (a: string, b: string) => a !== '' && normalisePhraseText(a) === normalisePhraseText(b);
+    const evidence = await text('review-evidence');
+    const first = await page.evaluate(() => {
+        const review = document.querySelector('[data-testid="saved-review"]');
+        const progress = document.querySelector('[data-testid="progress-panel"]');
+        return Boolean(review) && (!progress || Boolean(review!.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING));
+    });
+    const actions = await page.getByTestId('saved-review-practice').count();
+    const competing = (await page.getByTestId('progress-accept').count()) + (await page.getByTestId('progress-practice-next').count());
+    return {
+        well: same(await text('review-what-went-well'), saved.well),
+        next: same(await text('review-try-next'), saved.next),
+        first,
+        evidenceShown: /From this session/i.test(evidence),
+        evidenceMatches: evidencePattern ? evidencePattern.test(evidence) : evidence !== '',
+        oneAction: actions === 1 && competing === 0,
+    };
 }
 
 /**
@@ -649,7 +681,7 @@ async function coachingShownOnPage(page: Page, saved: SavedCoaching): Promise<Co
  * the rendered transcript to the saved one by digest; then reload and compare again. No direct URL navigation into
  * the detail — that would skip the button the PO clicks. Digests only; the text is never returned.
  */
-export async function analyticsThroughActions(page: Page, sessionId: string, savedDigest: string, savedCoaching?: SavedCoaching): Promise<{
+export async function analyticsThroughActions(page: Page, sessionId: string, savedDigest: string, savedCoaching?: SavedCoaching, evidencePattern?: RegExp): Promise<{
     actionClicked: boolean; listed: boolean; detailOpened: boolean; detailMatches: boolean; reloadMatches: boolean;
     coachingBefore: CoachingShown | null; coachingAfter: CoachingShown | null;
 }> {
@@ -669,11 +701,11 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     const detail = page.getByTestId('session-detail-transcript');
     const shown = await detail.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     result.detailMatches = shown && savedDigest !== '' && sha256Hex(await detail.innerText()) === savedDigest;
-    if (savedCoaching) result.coachingBefore = await coachingShownOnPage(page, savedCoaching);
+    if (savedCoaching) result.coachingBefore = await coachingShownOnPage(page, savedCoaching, evidencePattern);
     await page.reload({ waitUntil: 'domcontentloaded' });
     const again = await page.getByTestId('session-detail-transcript').waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     result.reloadMatches = again && sha256Hex(await page.getByTestId('session-detail-transcript').innerText()) === savedDigest;
-    if (savedCoaching) result.coachingAfter = await coachingShownOnPage(page, savedCoaching);
+    if (savedCoaching) result.coachingAfter = await coachingShownOnPage(page, savedCoaching, evidencePattern);
     return result;
 }
 
@@ -695,6 +727,17 @@ export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof 
             ok ? 'the session detail shows both saved suggestions, before and after reload'
                 : 'the session detail does not show both saved suggestions (Practice Loop product repair)',
             { wellBefore: a.coachingBefore.well, nextBefore: a.coachingBefore.next, wellAfterReload: a.coachingAfter.well, nextAfterReload: a.coachingAfter.next });
+        // G20 (runbook v12 row 6): the saved review leads the page, carries a product-specific "From this session"
+        // measurement, and owns the ONE next action — before and after the reload.
+        const after = a.coachingAfter;
+        receipt.row('saved review is the first block', a.coachingBefore.first && after.first ? 'PASS' : 'FAIL',
+            after.first ? 'the saved review sits above the Progress panel' : 'the saved review is not the first block');
+        receipt.row('"From this session" evidence', after.evidenceShown && after.evidenceMatches ? 'PASS' : after.evidenceShown ? 'FAIL' : 'HOLD',
+            after.evidenceShown ? (after.evidenceMatches ? 'a product-specific measured line is shown' : 'the evidence line is not this product\'s measurement')
+                : 'no evidence line (acceptable only when no truthful persisted signal exists; reviewed by PM)',
+            { evidenceShown: after.evidenceShown, evidenceMatches: after.evidenceMatches });
+        receipt.row('one practice action', a.coachingBefore.oneAction && after.oneAction ? 'PASS' : 'FAIL',
+            after.oneAction ? 'exactly one practice action, with no competing Progress sentence or button' : 'zero or several practice actions, or a competing Progress action');
     }
 }
 
@@ -778,4 +821,123 @@ export function modelIdentityRow(receipt: RwtReceipt, run: RunTarget, identity: 
         return;
     }
     receipt.row('model identity', 'PASS', 'the deployed default ran and identified itself (diagnostic; not base_q4 evidence)', evidence);
+}
+
+/** Words the coaching must never use about a point the matcher did not detect (runbook v12: no certainty of omission). */
+const OMISSION_CLAIM = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t (mention|cover|say)|never (mentioned|covered|said))\b/i;
+
+/**
+ * #1258 (runbook v12 Product 2 row 5) — the Focus Points coaching pair after Stop, as the person sees it. The same
+ * contract as Open Mic (two distinct phrases ≤ 6 words, visible = saved, server receipt) plus the Focus rules: the
+ * request is marked focus_points, and neither phrase claims a point was missed or skipped. Relevance to the chosen
+ * points stays a human judgement (HOLD). Text is compared in Node and returned only for the Analytics comparison.
+ */
+export async function focusCoachingRows(
+    page: Page,
+    receipt: RwtReceipt,
+    admin: SupabaseClient,
+    sessionId: string,
+    uid: string,
+    request: { product: string | null; status: number | null },
+): Promise<SavedCoaching | null> {
+    const card = page.getByTestId('ai-suggestions-card');
+    const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
+        .toMatch(/^(ready|error|empty)$/).then(() => true).catch(() => false);
+    const state = await card.getAttribute('data-review-state').catch(() => null);
+    const phrase = async (headings: readonly string[]): Promise<string> => {
+        for (const heading of headings) {
+            const title = card.getByRole('heading', { name: heading, exact: true });
+            if ((await title.count()) === 0) continue;
+            return (await card.locator('div', { has: title }).last().locator('p').first().innerText().catch(() => '')).trim();
+        }
+        return '';
+    };
+    const well = await phrase(['What went well']);
+    const next = await phrase(['Try this next run', 'What to try next']);
+    const two = terminal && state === 'ready' && well !== '' && next !== '';
+    receipt.row('Focus coaching rendered', two ? 'PASS' : 'FAIL',
+        two ? 'two coaching phrases rendered after Stop without any click' : `coaching did not render (state=${String(state)}, http=${String(request.status)})`,
+        { reviewState: state, httpStatus: request.status });
+    receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
+        request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
+        { requestProduct: request.product });
+    if (!two) return null;
+    const within = countWords(well) <= 6 && countWords(next) <= 6;
+    receipt.row('Focus coaching length', within ? 'PASS' : 'FAIL', within ? 'both phrases within 6 words' : 'a phrase exceeds 6 words',
+        { wellWords: countWords(well), nextWords: countWords(next) });
+    const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
+    receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');
+    const claims = OMISSION_CLAIM.test(well) || OMISSION_CLAIM.test(next);
+    receipt.row('Focus coaching makes no omission claim', claims ? 'FAIL' : 'PASS',
+        claims ? 'a phrase claims a point was missed or skipped (the matcher cannot know that)' : 'neither phrase claims a point was missed or skipped');
+    receipt.row('Focus coaching helps cover the chosen points', 'HOLD', 'relevance to the chosen points needs a human reader; the text is never stored in evidence');
+
+    const { data: row, error } = await admin.from('sessions').select('ai_suggestions').eq('id', sessionId).eq('user_id', uid).single();
+    if (error) throw new Error(`saved coaching read failed (fail closed): ${error.code ?? 'unknown'}`);
+    const saved = (row?.ai_suggestions ?? null) as { what_worked?: unknown; what_to_try_next?: unknown } | null;
+    const savedWell = typeof saved?.what_worked === 'string' ? saved.what_worked.trim() : '';
+    const savedNext = typeof saved?.what_to_try_next === 'string' ? saved.what_to_try_next.trim() : '';
+    const matches = savedWell !== '' && savedNext !== ''
+        && normalisePhraseText(well) === normalisePhraseText(savedWell) && normalisePhraseText(next) === normalisePhraseText(savedNext);
+    receipt.row('Focus coaching visible = saved', matches ? 'PASS' : 'FAIL',
+        matches ? 'both visible phrases equal the saved coaching response' : 'a visible phrase differs from, or is missing in, the saved response');
+    const { data: authority, error: aErr } = await admin.from('ai_suggestion_authority_receipts')
+        .select('session_id,provider_request_made').eq('session_id', sessionId).eq('user_id', uid).maybeSingle();
+    if (aErr) throw new Error(`coaching receipt query failed (fail closed): ${aErr.code ?? 'unknown'}`);
+    receipt.row('Focus coaching server receipt', authority?.provider_request_made ? 'PASS' : 'FAIL',
+        authority ? 'the server recorded the provider request for this session' : 'no server receipt for this session');
+    return savedWell !== '' && savedNext !== '' ? { well: savedWell, next: savedNext } : null;
+}
+
+/**
+ * #1258 (runbook v12 Product 2 row 3) — the rail's visible states: each marker's RENDERED colour (not only
+ * data-status) against the product's colour roles, and its visible status word. Colours are read from the page's own
+ * `--brand-*` roles so a palette change is followed, not hard-coded.
+ */
+export async function railStateRows(page: Page, receipt: RwtReceipt, count: number, phase: 'before' | 'after'): Promise<void> {
+    const observed = await page.evaluate(({ n }) => {
+        const toRgb = (value: string) => {
+            const probe = document.createElement('span');
+            probe.style.color = value.trim();
+            document.body.appendChild(probe);
+            const rgb = getComputedStyle(probe).color;
+            probe.remove();
+            return rgb;
+        };
+        const root = getComputedStyle(document.documentElement);
+        const roles = {
+            green: toRgb(root.getPropertyValue('--brand-progress-bar')),
+            yellow: toRgb(root.getPropertyValue('--brand-signature')),
+            red: toRgb(root.getPropertyValue('--brand-error')),
+        };
+        const rows = Array.from({ length: n }, (_, i) => {
+            const marker = document.querySelector(`[data-testid="focus-point-${i}-marker"]`) as HTMLElement | null;
+            const row = document.querySelector(`[data-testid="focus-point-${i}"]`) as HTMLElement | null;
+            if (!marker || !row) return null;
+            const cs = getComputedStyle(marker);
+            return { kind: marker.getAttribute('data-marker'), bg: cs.backgroundColor, border: cs.borderTopColor, text: row.innerText };
+        });
+        const legend = document.querySelector('[data-testid="focus-points-legend"]') as HTMLElement | null;
+        return { roles, rows, legend: legend ? legend.innerText : null };
+    }, { n: count });
+    const rows = observed.rows;
+    if (phase === 'before') {
+        const legendOk = observed.legend !== null
+            && ['Not heard yet', 'Partly detected', 'Detected', 'Not detected'].every((w) => observed.legend!.includes(w));
+        receipt.row('rail legend', legendOk ? 'PASS' : 'FAIL', legendOk ? 'a visible legend explains every state' : 'the legend is missing or incomplete');
+        const pendingOk = rows.every((r) => r !== null && r.kind === 'pending' && /Not heard yet/.test(r.text));
+        receipt.row('pending points labelled', pendingOk ? 'PASS' : 'FAIL', pendingOk ? 'each point starts pending with a visible "Not heard yet"' : 'a point lacks its visible pending label');
+        return;
+    }
+    const ok = rows.map((r) => {
+        if (!r) return false;
+        if (r.kind === 'covered') return r.bg === observed.roles.green && /Detected/.test(r.text);
+        if (r.kind === 'partial') return r.bg === observed.roles.yellow && /Partly detected/.test(r.text);
+        if (r.kind === 'missed') return r.border === observed.roles.red && /Not detected/.test(r.text);
+        return false; // a final row may not stay pending
+    });
+    receipt.row('final rail colours and words', ok.every(Boolean) ? 'PASS' : 'FAIL',
+        ok.every(Boolean) ? 'green Detected, yellow Partly detected, red Not detected — each with its visible word'
+            : 'a final row\'s rendered colour or visible word is wrong',
+        { rows: rows.map((r) => r?.kind ?? 'absent').join(','), matching: ok.filter(Boolean).length });
 }

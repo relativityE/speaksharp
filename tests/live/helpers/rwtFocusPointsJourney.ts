@@ -18,6 +18,9 @@ import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
 import {
     AnalyticsTap,
     RwtReceipt,
+    focusCoachingRows,
+    railStateRows,
+    type SavedCoaching,
     approvedSurfaceFailures,
     armCandidateSwitch,
     installMicAcquisitionCounter,
@@ -120,6 +123,18 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     await installMicAcquisitionCounter(page);
     await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
     await suppressPageSnapshot(testInfo);
+    // #1258: the coaching request as sent (its product marker only) and every coaching request of the journey —
+    // Analytics must never request coaching again.
+    const coaching: { product: string | null; status: number | null; requests: number } = { product: null, status: null, requests: 0 };
+    page.on('request', (request) => {
+        if (!request.url().includes('/functions/v1/get-ai-suggestions') || request.method() !== 'POST') return;
+        coaching.requests += 1;
+        try { coaching.product = (request.postDataJSON() as { product?: string } | null)?.product ?? null; } catch { coaching.product = null; }
+    });
+    page.on('response', (response) => {
+        if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') coaching.status = response.status();
+    });
+    let savedCoaching: SavedCoaching | null = null;
 
     let persistedId: string | null = null;
     let claimed = false;
@@ -194,6 +209,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const neutral = before.statuses.every((s) => s === 'pending');
             receipt.row('rail before speaking', neutral ? 'PASS' : 'FAIL', neutral ? 'every point starts pending' : 'a point was marked before any speech',
                 { rows: before.statuses.length });
+            await railStateRows(page, receipt, points.length, 'before');
 
             const acquisitionStarted = Date.now();
             await selectBenchmarkMode(page, 'private');
@@ -252,6 +268,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     ok ? 'each marker changed while its point was spoken or within 5 s after, before the next point' : 'a marker changed before its point was spoken, more than 5 s after it or after the next point began, or for an unspoken point',
                     { perPoint: verdicts.join(','), maxAfterPointSec: LIVE_MARKER_MAX_AFTER_SECONDS });
             }
+            // Runbook v12: red "Not detected" is a FINAL, after-Stop verdict only — never during speech.
+            const redDuring = await page.locator('[data-testid="focus-points-rail-list"] [data-marker="missed"]').count();
+            receipt.row('no red before Stop', redDuring === 0 ? 'PASS' : 'FAIL',
+                redDuring === 0 ? 'no point shows the final red verdict while speaking' : 'a point showed red "Not detected" during the take', { redDuring });
         });
 
         // ── Row 11 — Stop: verdicts, n/4, average ───────────────────────────────────────────────────────
@@ -275,6 +295,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 || (await page.getByTestId(`focus-point-${i}-not-detected`).count()) > 0));
             receipt.row('not-detected explained', notDetectedExplained.every(Boolean) ? 'PASS' : 'FAIL',
                 'every not-detected point carries its explanation (colour never alone)');
+            await railStateRows(page, receipt, points.length, 'after');
 
             const covered = Number(await page.getByTestId('coverage-pace-covered').innerText().catch(() => 'NaN'));
             const total = Number((await page.getByTestId('coverage-pace-total').innerText().catch(() => '')).replace('/', ''));
@@ -305,6 +326,12 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 { rows: (evidence ?? []).length, detected, shown: covered, budgetSec: session.time_budget_seconds as number | null, durationSec: session.actual_duration_seconds as number | null });
         });
 
+        // ── Row 11 (continued) — the Focus Points coaching pair after Stop ─────────────────────────────────
+        await test.step('row 11 — Focus Points coaching after Stop', async () => {
+            if (!persistedId) { receipt.row('Focus coaching rendered', 'HOLD', 'no saved session'); return; }
+            savedCoaching = await focusCoachingRows(page, receipt, admin as never, persistedId, owner.uid, coaching);
+        });
+
         // ── Row 12 — Analytics ──────────────────────────────────────────────────────────────────────────
         await test.step('row 12 — the saved session in Analytics', async () => {
             if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
@@ -312,7 +339,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             if (error) throw new Error(`session read failed (fail closed): ${error.code ?? 'unknown'}`);
             const digest = sha256Hex(row?.transcript);
             // Through the on-screen Analytics action the person clicks after Stop, then the session's own control.
-            analyticsRows(receipt, await analyticsThroughActions(page, persistedId, digest));
+            const requestsBefore = coaching.requests;
+            if (!savedCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
+            // Focus Points evidence is the saved point results ("Detected: point 1 at 0:21." / "Not detected: point 3.").
+            analyticsRows(receipt, await analyticsThroughActions(page, persistedId, digest, savedCoaching ?? undefined, /(Detected|Not detected): point \d/));
+            receipt.row('Analytics generates no coaching', coaching.requests === requestsBefore ? 'PASS' : 'FAIL',
+                coaching.requests === requestsBefore ? 'opening and reloading Analytics requested no new review' : 'Analytics requested coaching again (regeneration / quota)',
+                { coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests });
             // Point-level detail as the customer sees it on the reopened session. The current Analytics detail renders
             // transcript availability only and reads no Focus Points data, so its absence is recorded as a named
             // product gap (HOLD) — never a pass. If coverage does render, it must agree with the saved verdicts.
@@ -347,6 +380,20 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         const { canaryJourneys, userJourneys } = telemetryClassRows(receipt, tap, claimed);
         receipt.row('coverage_evaluation sent', tap.sent('coverage_evaluation').length > 0 ? 'PASS' : 'FAIL',
             'the coverage evaluation left the page (sent, not yet received)', { sent: tap.sent('coverage_evaluation').length });
+        // The Focus review's coaching receipts (the readback's Focus stage now requires the coaching card's rendered
+        // receipt, not only the rail's) and the PM's inventory events. SENT here; RECEIVED = the PostHog readback.
+        const focusTelemetry = {
+            reviewRequested: tap.sent('practice_loop_review_requested').length,
+            reviewRendered: tap.sent('practice_loop_review_rendered').length,
+            productsMenuOpened: tap.sent('products_menu_opened').length,
+            savedReviewRevisited: tap.sent('saved_review_revisited').length,
+        };
+        receipt.row('Focus coaching telemetry sent', focusTelemetry.reviewRendered > 0 ? 'PASS' : 'FAIL',
+            'the coaching review rendered receipt left the page (sent; received = session_after_focus_points readback)', focusTelemetry);
+        receipt.row('revisit is not a generation', focusTelemetry.reviewRequested === 1 ? 'PASS' : 'FAIL',
+            focusTelemetry.reviewRequested === 1 ? 'one generated review for the take; the Analytics revisits added none' : 'the generation count is not exactly one for this take');
+        receipt.row('inventory events sent', focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
+            'products_menu_opened and saved_review_revisited left the page (sent; received = readback)', focusTelemetry);
         // Point text and topic are the person's content: they must never reach the receipt.
         const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));
         receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no point text, topic or credential in the receipt' : 'the receipt carried a forbidden value');
