@@ -151,10 +151,11 @@ test.describe('RWT — Open Mic first session @live', () => {
         entitlement.attach(page);
         await installMicAcquisitionCounter(page);
         await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
-        const coaching: { status: number | null } = { status: null };
+        const coaching: { status: number | null; requests: number } = { status: null, requests: 0 };
         page.on('response', (response: Response) => {
             if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
                 coaching.status = response.status();
+                coaching.requests += 1; // runbook v12: Analytics must never request coaching again
             }
         });
 
@@ -385,7 +386,13 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // With a complete saved response, the detail must also show both suggestions before and after its reload.
                 const savedCoaching = savedWell !== '' && savedNext !== '' ? { well: savedWell, next: savedNext } : undefined;
                 if (!savedCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
-                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest, savedCoaching));
+                const requestsBeforeAnalytics = coaching.requests;
+                // Open Mic evidence is the stored delivery measurement ("6.2 filler words a minute, above your target").
+                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest, savedCoaching, /\ba minute\b/i));
+                receipt.row('Analytics generates no coaching', coaching.requests === requestsBeforeAnalytics ? 'PASS' : 'FAIL',
+                    coaching.requests === requestsBeforeAnalytics ? 'opening and reloading Analytics requested no new review'
+                        : 'Analytics requested coaching again (regeneration / quota)',
+                    { coachingRequestsBefore: requestsBeforeAnalytics, coachingRequestsAfter: coaching.requests });
 
                 // The PDF is downloaded from the session's own button on the Analytics list the person uses.
                 const navOk = await page.getByTestId('nav-analytics-link').first().click({ timeout: 20_000 }).then(() => true).catch(() => false);
@@ -467,6 +474,21 @@ test.describe('RWT — Open Mic first session @live', () => {
             receipt.row('coaching telemetry sent', coachingSent ? 'PASS' : 'FAIL',
                 coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
                     : 'a coaching outcome event did not leave the page', coachingEvents);
+            // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
+            // RECEIVED is the deployed PostHog readback for this journey.
+            const inventory = {
+                productsMenuOpened: tap.sent('products_menu_opened').length,
+                pdfDownloaded: tap.sent('session_pdf_downloaded').length,
+                savedReviewRevisited: tap.sent('saved_review_revisited').length,
+                reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
+            };
+            receipt.row('inventory events sent', inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
+                'products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received = readback)', inventory);
+            receipt.row('revisit is not a generation', inventory.reviewGenerationsRequested === 1 ? 'PASS' : 'FAIL',
+                inventory.reviewGenerationsRequested === 1 ? 'one generated review for the take; the Analytics revisits added none'
+                    : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: inventory.reviewGenerationsRequested });
+            // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
+            // "analytics detail shows both AI suggestions").
             const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
             receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no credential, email or coaching text in the receipt' : 'the receipt carried a forbidden value');
             receipt.write(testInfo, canaryJourneys, tap.trafficTypes(), ['session_during', 'session_after_open_mic', 'share_feedback'], userJourneys);
