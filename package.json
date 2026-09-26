@@ -107,6 +107,7 @@
     "evidence:stt:private-worker": "tsx scripts/private-v2-worker-evidence.mts",
     "evidence:stt:browser": "tsx scripts/browser-webspeech-evidence.mts",
     "telemetry:readback-qualification": "tsx scripts/telemetry-readback-qualification.mts",
+    "rwt:finalize": "tsx scripts/rwt-finalize-receipt.mts",
     "prepare": "HUSKY=0 husky install",
     "preinstall": "npx only-allow pnpm",
     "benchmark:verify-cache": "tsx scripts/verify-asset-cache.mts",
