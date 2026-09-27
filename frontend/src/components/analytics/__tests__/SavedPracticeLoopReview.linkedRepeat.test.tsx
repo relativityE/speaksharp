@@ -56,8 +56,9 @@ const FOCUS: SavedSessionReview = {
 };
 const ELIGIBLE = { status: 'eligible', sessionId: 's1', recommendationId: 'rec-1' };
 
+let client: QueryClient;
 const renderReview = () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(<QueryClientProvider client={client}><SavedPracticeLoopReview sessionId="s1" /></QueryClientProvider>);
 };
 const action = () => screen.getByTestId('saved-review-practice') as HTMLButtonElement;
@@ -203,6 +204,34 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
+    });
+
+    // #1535 Codex P2 r4116741455 (PM RETURN 5859371590): the pre-#1535 ProgressPanel guard — no new take while the
+    // previous linked repeat is still pending; the person closes it (Progress's Close pending repeat) first.
+    it('CASUALTY: a PENDING previous repeat blocks the action — no accept, navigation or attempt; after reconciliation ONE linked repeat', async () => {
+        loadProgress.mockResolvedValue({ ...ELIGIBLE, latestAttempt: { id: 'att-0', lifecycle: 'pending', outcome: null } });
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'blocked'));
+        expect(action()).toBeDisabled();
+        expect(screen.getByTestId('saved-review-pending-attempt')).toHaveTextContent('A previous repeat is still pending');
+        staleClick(action());
+        expect(navigate).not.toHaveBeenCalled();
+        expect(practiceSelected).not.toHaveBeenCalled();
+        expect(readPending).not.toHaveBeenCalled();
+        expect(recordAttempt).not.toHaveBeenCalled();
+        expect(setOpenAttempt).not.toHaveBeenCalled();
+
+        // Progress's "Close pending repeat" reconciles it and refetches the SHARED progress query.
+        loadProgress.mockResolvedValue({ ...ELIGIBLE, latestAttempt: { id: 'att-0', lifecycle: 'closed', outcome: 'not_completed' } });
+        await act(async () => { await client.refetchQueries({ queryKey: ['sessionProgress', 's1'] }); });
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        expect(screen.queryByTestId('saved-review-pending-attempt')).not.toBeInTheDocument();
+        fireEvent.click(action());
+        fireEvent.click(action());
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        expect(navigate).toHaveBeenCalledTimes(1);
+        expect(recordAttempt).toHaveBeenCalledTimes(1);
+        expect(setOpenAttempt).toHaveBeenCalledTimes(1);
     });
 
     it('CASUALTY: a repeated click while linking starts ONE attempt and ONE navigation', async () => {

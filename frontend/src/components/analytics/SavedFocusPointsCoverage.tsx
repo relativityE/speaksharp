@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { loadSavedFocusPointsCoverage, type SavedFocusPointsCoverage as Coverage } from '@/services/objective/savedFocusPointsCoverage';
+import { loadSavedFocusPointsCoverage, readSavedSessionProduct, type SavedFocusPointsCoverage as Coverage } from '@/services/objective/savedFocusPointsCoverage';
 import { fmtDuration } from '@/utils/focusPace';
 import { PRODUCT_NAMES } from '@/constants/productNames';
 
@@ -17,7 +17,17 @@ export const SavedFocusPointsCoverage: React.FC<{ sessionId: string }> = ({ sess
     useEffect(() => {
         let active = true;
         setCoverage(null);
-        void loadSavedFocusPointsCoverage(sessionId).then((result) => { if (active) setCoverage(result); });
+        void (async () => {
+            const result = await loadSavedFocusPointsCoverage(sessionId);
+            // #1535 (Codex P2 r4116741461): a failed Focus read is shown unless the durable product says this take was
+            // Open Mic — then no Focus result is expected and the error would contradict the Open Mic review above it.
+            // Focus Points, a legacy row without the marker, and a failed product read all keep the visible error.
+            if (result.kind === 'error' && (await readSavedSessionProduct(sessionId)) === 'open_mic') {
+                if (active) setCoverage({ kind: 'none' });
+                return;
+            }
+            if (active) setCoverage(result);
+        })();
         return () => { active = false; };
     }, [sessionId]);
 

@@ -4,11 +4,15 @@ import { render, screen, waitFor } from '@testing-library/react';
 import type { SavedFocusPointsCoverage as Coverage } from '@/services/objective/savedFocusPointsCoverage';
 
 const load = vi.fn<(id: string) => Promise<Coverage>>();
-vi.mock('@/services/objective/savedFocusPointsCoverage', () => ({ loadSavedFocusPointsCoverage: (id: string) => load(id) }));
+const readProduct = vi.fn<(id: string) => Promise<'open_mic' | 'focus_points' | 'unknown' | 'error'>>();
+vi.mock('@/services/objective/savedFocusPointsCoverage', () => ({
+    loadSavedFocusPointsCoverage: (id: string) => load(id),
+    readSavedSessionProduct: (id: string) => readProduct(id),
+}));
 
 const { SavedFocusPointsCoverage } = await import('../SavedFocusPointsCoverage');
 
-beforeEach(() => load.mockReset());
+beforeEach(() => { load.mockReset(); readProduct.mockReset(); });
 
 describe('SavedFocusPointsCoverage (Analytics session detail)', () => {
     it('shows every saved point with its verdict in words and the detected total', async () => {
@@ -58,6 +62,36 @@ describe('SavedFocusPointsCoverage (Analytics session detail)', () => {
 });
 
 describe('SavedFocusPointsCoverage colours match the live rail (#1258 RWT)', () => {
+    // #1535 Codex P2 r4116741461 (PM RETURN 5859371590): a Focus read failure is not shown under a KNOWN Open Mic take.
+    it('CASUALTY: a Focus read failure on a durable Open Mic session shows NO Focus Points error', async () => {
+        load.mockResolvedValue({ kind: 'error' });
+        readProduct.mockResolvedValue('open_mic');
+        const { container } = render(<SavedFocusPointsCoverage sessionId="s1" />);
+        await waitFor(() => expect(readProduct).toHaveBeenCalledWith('s1'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(screen.queryByTestId('saved-focus-points-error')).not.toBeInTheDocument();
+        expect(container).toBeEmptyDOMElement();
+    });
+
+    it.each([
+        ['a Focus Points session', 'focus_points'],
+        ['an unknown (legacy NULL) product', 'unknown'],
+        ['a failed product read', 'error'],
+    ] as const)('CONTROL: a Focus read failure on %s still shows the error', async (_label, product) => {
+        load.mockResolvedValue({ kind: 'error' });
+        readProduct.mockResolvedValue(product);
+        render(<SavedFocusPointsCoverage sessionId="s1" />);
+        await waitFor(() => expect(screen.getByTestId('saved-focus-points-error')).toBeInTheDocument());
+    });
+
+    it('CONTROL: the product is read ONLY when the Focus read failed', async () => {
+        load.mockResolvedValue({ kind: 'none' });
+        render(<SavedFocusPointsCoverage sessionId="s1" />);
+        await waitFor(() => expect(load).toHaveBeenCalled());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(readProduct).not.toHaveBeenCalled();
+    });
+
     it('green Detected, red Not detected, grey Not evaluated', async () => {
         load.mockResolvedValue({
             kind: 'coverage', detected: 1, total: 3, brief: null,

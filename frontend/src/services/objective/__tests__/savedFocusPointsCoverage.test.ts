@@ -23,7 +23,7 @@ function builder(table: string) {
 vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ from: (table: string) => builder(table) }) }));
 vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
 
-const { loadSavedFocusPointsCoverage } = await import('../savedFocusPointsCoverage');
+const { loadSavedFocusPointsCoverage, readSavedSessionProduct } = await import('../savedFocusPointsCoverage');
 
 const POINTS = [
     { id: 'p1', label: 'Updates get lost across scattered tools.', sort_order: 0 },
@@ -114,5 +114,21 @@ describe('loadSavedFocusPointsCoverage', () => {
     it('is `error`, not an empty result, when a saved Focus Points session has no points', async () => {
         tables.objective_brief_point = { data: [], error: null };
         await expect(loadSavedFocusPointsCoverage('s1')).resolves.toEqual({ kind: 'error' });
+    });
+});
+
+// #1535 Codex P2 r4116741461: the durable product, read only to decide whether a Focus read failure is relevant.
+describe('readSavedSessionProduct', () => {
+    it.each([
+        ['open_mic', { data: { product: 'open_mic' }, error: null }, 'open_mic'],
+        ['focus_points', { data: { product: 'focus_points' }, error: null }, 'focus_points'],
+        ['legacy NULL', { data: { product: null }, error: null }, 'unknown'],
+        ['no row', { data: null, error: null }, 'unknown'],
+        ['a read failure', { data: null, error: { code: '503' } }, 'error'],
+        ['a missing column (pre-migration)', { data: null, error: { code: '42703', message: 'column sessions.product does not exist' } }, 'error'],
+    ])('%s → %s', async (_label, result, expected) => {
+        tables.sessions = result as { data: unknown; error: unknown };
+        expect(await readSavedSessionProduct('s1')).toBe(expected);
+        expect(calls.filter((c) => c.table === 'sessions').map((c) => [c.op, c.args[0]])).toEqual([['select', 'product'], ['eq', 'id']]);
     });
 });

@@ -23,8 +23,10 @@ import logger from '@/lib/logger';
  *   - `linked`: an eligible recommendation exists — run exactly one linked attempt/handoff, then open the product;
  *   - `direct`: ONLY a terminal `insufficient` or `ineligible` answer — open directly.
  * `eligible` without a recommendation is not a permission to skip the link (PM RETURN cycle 2): it is `error`.
+ *   - `blocked` (#1535 Codex P2 r4116741455): the previous linked repeat is still PENDING — no new take may reuse it;
+ *     the person closes it with Progress's "Close pending repeat", whose refetch of this shared query restores `linked`.
  */
-export type LinkState = 'pending' | 'error' | 'linked' | 'direct';
+export type LinkState = 'pending' | 'error' | 'blocked' | 'linked' | 'direct';
 export function useLinkedRepeat(sessionId: string) {
     const { user } = useAuthProvider();
     const userId = user?.id ?? null;
@@ -39,7 +41,9 @@ export function useLinkedRepeat(sessionId: string) {
     });
     const view = query.data;
     const recommendationId = view?.status === 'eligible' ? view.recommendationId : null;
+    const pendingPreviousAttempt = view?.status === 'eligible' && view.latestAttempt?.lifecycle === 'pending';
     const linkState: LinkState = query.isPending ? 'pending'
+        : !query.isError && pendingPreviousAttempt ? 'blocked'
         : !query.isError && (view?.status === 'insufficient' || view?.status === 'ineligible') ? 'direct'
             : !query.isError && view?.status === 'eligible' && typeof recommendationId === 'string' && recommendationId.length > 0 ? 'linked'
                 : 'error';
@@ -47,7 +51,7 @@ export function useLinkedRepeat(sessionId: string) {
     const acceptingRef = useRef(false);
 
     const accept = async (afterLinked: () => void): Promise<void> => {
-        if (!recommendationId || !userId || accepting || acceptingRef.current) return;
+        if (!recommendationId || !userId || accepting || acceptingRef.current || pendingPreviousAttempt) return;
         acceptingRef.current = true;
         setAccepting(true);
         setActionError(null);

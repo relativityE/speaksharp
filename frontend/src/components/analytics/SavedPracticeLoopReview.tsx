@@ -79,7 +79,7 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
     // fast click must not skip a valid linked repeat); a failed read stays here with its error and a retry; an eligible
     // recommendation runs its one linked attempt first; only a terminal "nothing to link" opens the product directly.
     const practise = () => {
-        if (!review || repeat.linkState === 'pending' || repeat.accepting) return;
+        if (!review || repeat.linkState === 'pending' || repeat.linkState === 'blocked' || repeat.accepting) return;
         // PM RETURN 5849471237: a marked Focus take whose point set couldn't be read never opens a generic or unlinked
         // practice; the action re-reads the saved review, and the repeat runs only once the set is back.
         if (review.focusReadFailed) {
@@ -102,7 +102,7 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
             <button
                 type="button"
                 onClick={practise}
-                disabled={!review || repeat.accepting || repeat.retryBlocked || repeat.linkState === 'pending' || (repeat.linkState === 'error' && repeat.query.isFetching)}
+                disabled={!review || repeat.accepting || repeat.retryBlocked || repeat.linkState === 'pending' || repeat.linkState === 'blocked' || (repeat.linkState === 'error' && repeat.query.isFetching)}
                 data-testid="saved-review-practice"
                 data-link-state={repeat.linkState}
                 className="rounded-lg bg-ink px-5 py-3 text-[15px] font-bold text-ink-text hover:brightness-110 disabled:opacity-60"
@@ -113,6 +113,11 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
                         : progressReadFailed ? 'Try again'
                             : PRACTICE_AGAIN}
             </button>
+            {repeat.linkState === 'blocked' && (
+                <p role="alert" className="mt-2 text-[13px] font-semibold text-ink" data-testid="saved-review-pending-attempt">
+                    A previous repeat is still pending. Close it in Progress below before starting another.
+                </p>
+            )}
             {review?.focusReadFailed && (
                 <p role="alert" className="mt-2 text-[13px] font-semibold text-ink" data-testid="saved-review-focus-error">
                     {FOCUS_RESULTS_READ_FAILED}

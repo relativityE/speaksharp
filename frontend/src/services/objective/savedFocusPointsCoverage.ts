@@ -96,3 +96,23 @@ export async function loadSavedFocusPointsCoverage(sourceSessionId: string): Pro
         return { kind: 'error' };
     }
 }
+
+/**
+ * #1535 (Codex P2 r4116741461) — the session's durable product (`sessions.product`, #1537), read ONLY to decide whether
+ * a failed Focus Points read is relevant to show. `open_mic` means no Focus result is expected; `unknown` is a legacy
+ * row without the marker; `error` is a failed read (including a pre-migration missing column) — never guessed.
+ */
+export async function readSavedSessionProduct(sessionId: string): Promise<'open_mic' | 'focus_points' | 'unknown' | 'error'> {
+    try {
+        const { data, error } = await getSupabaseClient().from('sessions').select('product').eq('id', sessionId).maybeSingle();
+        if (error) {
+            logger.warn({ error }, '[savedFocusPointsCoverage] session product read failed');
+            return 'error';
+        }
+        const product = (data as { product?: unknown } | null)?.product;
+        return product === 'open_mic' || product === 'focus_points' ? product : 'unknown';
+    } catch (error) {
+        logger.warn({ error }, '[savedFocusPointsCoverage] session product read threw');
+        return 'error';
+    }
+}
