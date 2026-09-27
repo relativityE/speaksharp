@@ -23,15 +23,19 @@ import {
  */
 const POINTS = ['Name the price', 'State the guarantee', 'Explain the timeline'] as const;
 const PAIR = {
-  version: 'gemini_coaching_v1',
+  version: 'gemini_coaching_focus_v1',
   what_worked: 'You named the price early and plainly.',
   what_to_try_next: 'Explain the timeline before you close.',
 };
 
-async function enableCoaching(page: Page, pending: number) {
+/**
+ * #1538 (PM RETURN 5861000210): the stored version is bound to the product — a Focus take's pair carries
+ * `gemini_coaching_focus_v1`, an Open Mic take's `gemini_coaching_v1` — exactly as the real function persists them.
+ */
+async function enableCoaching(page: Page, pending: number, version: 'gemini_coaching_focus_v1' | 'gemini_coaching_v1' = 'gemini_coaching_focus_v1') {
   await page.evaluate((cfg) => {
     (window as unknown as { __E2E_COACHING_1258__?: unknown }).__E2E_COACHING_1258__ = cfg;
-  }, { pending, suggestions: PAIR });
+  }, { pending, suggestions: { ...PAIR, version } });
 }
 type Shown = { stillComing: number; retry: number; pair: number };
 type Sent = { body: { sessionId?: string | null; product?: string } | null; shown: Shown };
@@ -90,7 +94,7 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
     test.setTimeout(120_000);
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
-    await enableCoaching(page, 0);
+    await enableCoaching(page, 0, 'gemini_coaching_v1');
     await recordAndSave(page, 'Today I will explain the plan in three clear steps for the team.');
 
     await expect(page.getByTestId('ai-suggestions-pair')).toBeVisible({ timeout: 30_000 });

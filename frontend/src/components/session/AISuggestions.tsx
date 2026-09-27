@@ -63,11 +63,23 @@ interface SafeSuggestionError {
   reason: PracticeLoopReviewFailureReason;
 }
 
-const parseAISuggestions = (value: unknown): AISuggestionsData | null => {
+/**
+ * #1538 Codex P2 r4117513455 (PM RETURN 5861000210): the version is bound to the requested product. A Focus Points take
+ * accepts only `gemini_coaching_focus_v1` and an Open Mic take only `gemini_coaching_v1`, so a generic pair returned for
+ * a Focus take (e.g. by a not-yet-deployed Edge function) is never rendered or receipted as Focus coaching. With no
+ * product, either accepted version is read.
+ */
+const VERSION_FOR_PRODUCT: Record<'open_mic' | 'focus_points', CoachingVersion> = {
+  open_mic: 'gemini_coaching_v1',
+  focus_points: 'gemini_coaching_focus_v1',
+};
+
+const parseAISuggestions = (value: unknown, product?: 'open_mic' | 'focus_points'): AISuggestionsData | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
   if (JSON.stringify(Object.keys(candidate).sort()) !== JSON.stringify(['version', 'what_to_try_next', 'what_worked'])) return null;
   if (typeof candidate.version !== 'string' || !COACHING_VERSIONS.has(candidate.version)) return null;
+  if (product && candidate.version !== VERSION_FOR_PRODUCT[product]) return null;
   if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
   if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
   return {
@@ -225,7 +237,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   }
   const [view, setView] = useState(() => ({
     sessionId,
-    suggestions: parseAISuggestions(initialSuggestions),
+    suggestions: parseAISuggestions(initialSuggestions, product),
     isLoading: false,
     error: null as string | null,
     /** #1473 — a recoverable failure is showing and ONE automatic retry is scheduled; no attempt is in flight. */
@@ -236,7 +248,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   // immediately and invalidate every request captured for the previous session.
   const currentView = view.sessionId === sessionId
     ? view
-    : { sessionId, suggestions: parseAISuggestions(initialSuggestions), isLoading: false, error: null, retrying: false };
+    : { sessionId, suggestions: parseAISuggestions(initialSuggestions, product), isLoading: false, error: null, retrying: false };
   const { suggestions, isLoading, error, retrying } = currentView;
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
   const reviewCardRef = useRef<HTMLDivElement>(null);
@@ -262,12 +274,12 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   useEffect(() => {
     setView({
       sessionId,
-      suggestions: parseAISuggestions(initialSuggestions),
+      suggestions: parseAISuggestions(initialSuggestions, product),
       isLoading: false,
       error: null,
       retrying: false,
     });
-  }, [sessionId, initialSuggestions]);
+  }, [sessionId, initialSuggestions, product]);
 
   /**
    * #1422 Codex P1 `3994409733` (PM RETURN `5642224586`, option (b)) — THE RECEIPT IS EMITTED WHERE THE
@@ -458,7 +470,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
           throw new Error(data.error);
         }
 
-        const persistedSuggestions = parseAISuggestions(data?.suggestions);
+        const persistedSuggestions = parseAISuggestions(data?.suggestions, product);
         if (persistedSuggestions) {
           if (isCurrentRequest()) {
             // Success from this endpoint means the exact result was persisted and read back server-side.

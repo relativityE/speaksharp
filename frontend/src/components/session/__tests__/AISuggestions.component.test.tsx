@@ -135,8 +135,9 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke
                 .mockResolvedValueOnce(httpError(425))
                 .mockResolvedValueOnce(httpError(425))
+                // #1538: a Focus take's coaching carries Focus provenance.
                 .mockResolvedValueOnce({ data: { suggestions: {
-                    version: 'gemini_coaching_v1', what_worked: 'Clear opening on the problem.', what_to_try_next: 'Signpost the second point.',
+                    version: 'gemini_coaching_focus_v1', what_worked: 'Clear opening on the problem.', what_to_try_next: 'Signpost the second point.',
                 } }, error: null });
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-pending" product="focus_points" retryBackoffMs={10} />);
             expect(await screen.findByText('Signpost the second point.')).toBeInTheDocument();
@@ -1135,6 +1136,30 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         });
         // #1466 — placement provides visibility; the card never scrolls the page (and the saved confirmation with it).
         expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    // #1538 Codex P2 r4117513455 (PM RETURN 5861000210): the response version must match the requested product. During a
+    // frontend-first rollout the old Edge can return generic coaching for a Focus take; it must not render or qualify.
+    it.each([
+        ['focus_points', 'gemini_coaching_v1'],
+        ['open_mic', 'gemini_coaching_focus_v1'],
+    ] as const)('#1538 CASUALTY: a %s take given a %s pair shows the unavailable state and emits NO qualifying receipt', async (product, version) => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: { ...VALID, version } }, error: null });
+        render(<AISuggestions transcript="hello" sessionId={`session-mismatch-${product}`} product={product} retryBackoffMs={1} />);
+        expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+        expect(screen.queryByText('Clear opening.')).not.toBeInTheDocument();
+        expect(receipts().filter((r) => r?.review_surface === 'coaching_verdict' && r?.phase === 'rendered')).toEqual([]);
+    });
+
+    it.each([
+        ['focus_points', 'gemini_coaching_focus_v1'],
+        ['open_mic', 'gemini_coaching_v1'],
+    ] as const)('#1538 CONTROL: a %s take given a %s pair renders and emits its receipt', async (product, version) => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: { ...VALID, version } }, error: null });
+        render(<AISuggestions transcript="hello" sessionId={`session-match-${product}`} product={product} />);
+        await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
+        revealReview();
+        expect(receipts().filter((r) => r?.review_surface === 'coaching_verdict' && r?.phase === 'rendered')).toHaveLength(1);
     });
 
     it('CASUALTY: a review still in flight emits no receipt and marks neither stage', async () => {
