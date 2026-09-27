@@ -7,6 +7,7 @@ import {
   AI_SUGGESTION_DAILY_LIMIT,
   buildCoachingPrompt,
   buildFocusCoachingText,
+  parseSuggestions,
 } from './index.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
@@ -16,6 +17,8 @@ const suggestionA = {
   what_worked: 'Risk-first opening clarified the launch decision.',
   what_to_try_next: 'Move the support bottleneck later.',
 } as const;
+/** #1538 (Codex P1 r4117321439): a pair PROVEN to be generated from the saved Focus results. */
+const focusSuggestionA = { ...suggestionA, version: 'gemini_coaching_focus_v1' } as const;
 const suggestionB = {
   version: 'gemini_coaching_v1',
   what_worked: 'Customer story made renewal risk concrete.',
@@ -972,10 +975,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   // a Focus take in the first place — `pending` is refused even for a request that names no product (a stale tab).
   await t.step('#1258 CASUALTY (cache binding): a Focus request with a saved pair replays it exactly — AFTER the Focus results are read; no quota, no provider', async () => {
     resetProvider();
-    const mock = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus: FOCUS });
+    const mock = mockSupabase({ session: focusSession({ ai_suggestions: focusSuggestionA }), focus: FOCUS });
     const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
     assertEquals(res.status, 200);
-    assertEquals((await res.json()).suggestions, suggestionA);
+    assertEquals((await res.json()).suggestions, focusSuggestionA);
     assertEquals(fetchCount, 0);
     assertEquals(mock.state.quotaCount, 0);
     assertEquals(mock.state.updated, null);
@@ -1185,10 +1188,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       }
     }
     resetProvider();
-    const ready = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus: FOCUS });
+    const ready = mockSupabase({ session: focusSession({ ai_suggestions: focusSuggestionA }), focus: FOCUS });
     const ok = await handler(request({ sessionId: 'session-a' }), ready.create);
     assertEquals(ok.status, 200);
-    assertEquals((await ok.json()).suggestions, suggestionA);
+    assertEquals((await ok.json()).suggestions, focusSuggestionA);
     assertEquals(ready.state.fromTables.includes('objective_evidence'), true);
     assertEquals(fetchCount, 0);
   });
@@ -1233,6 +1236,63 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     resetProvider();
     const noTranscript = mockSupabase({ session: savedSession({ transcript: null, transcript_state: 'expired' }) });
     assertEquals((await handler(request(), noTranscript.create)).status, 409);
+  });
+
+  // #1538 Codex P1 r4117321439 (PM RETURN 5860537369): a cached pair is Focus coaching only if it was GENERATED from the
+  // saved Focus results — proven by its version. A generic v1 pair on a Focus take is regenerated once, never replayed.
+  await t.step('#1538 CASUALTY: a Focus take with a cached GENERIC v1 pair regenerates once from the saved results and persists focus_v1', async () => {
+    for (const session of [focusSession({ ai_suggestions: suggestionA }), legacySession({ ai_suggestions: suggestionA })]) {
+      resetProvider();
+      geminiText = JSON.stringify(suggestionB);
+      const mock = mockSupabase({ session, focus: FOCUS });
+      const res = await handler(request({ sessionId: 'session-a' }), mock.create);
+      assertEquals(res.status, 200);
+      const returned = (await res.json()).suggestions;
+      assertNotEquals(returned, suggestionA); // the generic pair is never replayed as Focus coaching
+      assertEquals(fetchCount, 1);
+      assertEquals(mock.state.quotaCount, 1);
+      assertStringIncludes(lastPrompt, 'Focus Points session.');
+      const persisted = (mock.state.updated as { ai_suggestions?: { version?: string } })?.ai_suggestions;
+      assertEquals(persisted?.version, 'gemini_coaching_focus_v1');
+      assertEquals(returned, persisted);
+    }
+  });
+
+  await t.step('#1538 CASUALTY: after the repair, a reload replays the persisted focus_v1 pair unchanged — zero provider', async () => {
+    resetProvider();
+    geminiText = JSON.stringify(suggestionB);
+    const first = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus: FOCUS });
+    const repaired = (await (await handler(request({ sessionId: 'session-a', product: 'focus_points' }), first.create)).json()).suggestions;
+    resetProvider();
+    const reload = mockSupabase({ session: focusSession({ ai_suggestions: repaired }), focus: FOCUS });
+    const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), reload.create);
+    assertEquals((await res.json()).suggestions, repaired);
+    assertEquals(fetchCount, 0);
+    assertEquals(reload.state.quotaCount, 0);
+    assertEquals(reload.state.updated, null);
+  });
+
+  await t.step('#1538 CONTROL: Open Mic replays its cached v1 pair unchanged, and new Open Mic generations stay v1', async () => {
+    resetProvider();
+    const cached = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }) });
+    assertEquals((await (await handler(request(), cached.create)).json()).suggestions, suggestionA);
+    assertEquals(fetchCount, 0);
+    resetProvider();
+    const fresh = mockSupabase({ session: savedSession() });
+    await handler(request(), fresh.create);
+    assertEquals((fresh.state.updated as { ai_suggestions?: { version?: string } })?.ai_suggestions?.version, 'gemini_coaching_v1');
+  });
+
+  await t.step('#1538 the server parser accepts exactly gemini_coaching_v1 and gemini_coaching_focus_v1 — nothing else', () => {
+    const body = { what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.' };
+    assertEquals(parseSuggestions(JSON.stringify({ ...body, version: 'gemini_coaching_v1' }))?.version, 'gemini_coaching_v1');
+    assertEquals(parseSuggestions(JSON.stringify({ ...body, version: 'gemini_coaching_focus_v1' }))?.version, 'gemini_coaching_focus_v1');
+    for (const bad of [
+      { ...body, version: 'gemini_coaching_v2' },
+      { ...body, version: 'gemini_coaching_focus_v2' },
+      { ...body, version: 'GEMINI_COACHING_FOCUS_V1' },
+      { ...body, version: 'gemini_coaching_focus_v1', focus: true },
+    ]) assertEquals(parseSuggestions(JSON.stringify(bad)), null);
   });
 
   await t.step('#1258 a point label cannot restructure the prompt (quotes and newlines are flattened)', () => {

@@ -73,3 +73,19 @@ describe('readSavedReview (#1258 — the Analytics detail shows the whole saved 
         expect(readSavedReview(null)).toBeNull();
     });
 });
+
+// #1538 (Codex P1 r4117321439, PM RETURN 5860537369): the Focus-provenance version is a second accepted literal — exactly two.
+describe('#1538 — the saved-review readers accept exactly gemini_coaching_v1 and gemini_coaching_focus_v1', () => {
+    it('reads a Focus-provenance pair like a v1 pair', () => {
+        const focus = { ...VALID, version: 'gemini_coaching_focus_v1' };
+        expect(readSavedReview(focus)).toEqual({ whatWorked: VALID.what_worked, whatToTryNext: VALID.what_to_try_next });
+        expect(readLastSessionFix(focus)).toBe(VALID.what_to_try_next);
+        expect(readSavedReview(JSON.stringify(focus))).not.toBeNull();
+    });
+    it('rejects any other version and any extra key', () => {
+        for (const version of ['gemini_coaching_v2', 'gemini_coaching_focus_v2', 'GEMINI_COACHING_FOCUS_V1', '']) {
+            expect(readSavedReview({ ...VALID, version })).toBeNull();
+        }
+        expect(readSavedReview({ ...VALID, version: 'gemini_coaching_focus_v1', focus: true })).toBeNull();
+    });
+});

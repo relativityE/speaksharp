@@ -16,8 +16,15 @@ import {
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 
+/**
+ * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
+ * a Focus Points take's saved results; everything else is `gemini_coaching_v1`.
+ */
+type CoachingVersion = 'gemini_coaching_v1' | 'gemini_coaching_focus_v1';
+const COACHING_VERSIONS: ReadonlySet<string> = new Set<CoachingVersion>(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
+
 interface AISuggestionsData {
-  version: 'gemini_coaching_v1';
+  version: CoachingVersion;
   what_worked: string;
   what_to_try_next: string;
 }
@@ -60,11 +67,11 @@ const parseAISuggestions = (value: unknown): AISuggestionsData | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
   if (JSON.stringify(Object.keys(candidate).sort()) !== JSON.stringify(['version', 'what_to_try_next', 'what_worked'])) return null;
-  if (candidate.version !== 'gemini_coaching_v1') return null;
+  if (typeof candidate.version !== 'string' || !COACHING_VERSIONS.has(candidate.version)) return null;
   if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
   if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
   return {
-    version: 'gemini_coaching_v1',
+    version: candidate.version as CoachingVersion,
     what_worked: candidate.what_worked.trim(),
     what_to_try_next: candidate.what_to_try_next.trim(),
   };

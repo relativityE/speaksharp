@@ -74,8 +74,16 @@ export const AI_SUGGESTION_DAILY_LIMIT = coachingContract.uncachedGenerationCapP
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 type ServiceRoleClientFactory = () => SupabaseClient;
 
+/**
+ * #1538 (Codex P1 r4117321439) — the stored version is the pair's PROVENANCE. `gemini_coaching_focus_v1` is written only
+ * for a pair generated from a Focus Points take's saved results; Open Mic (and every pair written before this change)
+ * is `gemini_coaching_v1`. Exactly these two are accepted — no arbitrary version widening, no extra key.
+ */
+export type CoachingVersion = 'gemini_coaching_v1' | 'gemini_coaching_focus_v1';
+const COACHING_VERSIONS: ReadonlySet<string> = new Set<CoachingVersion>(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
+
 interface AISuggestions {
-  version: 'gemini_coaching_v1';
+  version: CoachingVersion;
   what_worked: string;
   what_to_try_next: string;
 }
@@ -139,7 +147,7 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
 
     const candidate = parsed as Record<string, unknown>;
     if (JSON.stringify(Object.keys(candidate).sort()) !== JSON.stringify(['version', 'what_to_try_next', 'what_worked'])) return null;
-    if (candidate.version !== 'gemini_coaching_v1') return null;
+    if (typeof candidate.version !== 'string' || !COACHING_VERSIONS.has(candidate.version)) return null;
     if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
     if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
     // #1424 A2: the word budget is REFUSED, not truncated. Cutting a coaching phrase mid-sentence produces
@@ -151,7 +159,7 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
     }
 
     return {
-      version: 'gemini_coaching_v1',
+      version: candidate.version as CoachingVersion,
       what_worked: candidate.what_worked.trim(),
       what_to_try_next: candidate.what_to_try_next.trim(),
     };
@@ -418,9 +426,21 @@ export async function handler(
       }
     }
 
-    const cachedSuggestions = session.ai_suggestions
+    let cachedSuggestions = session.ai_suggestions
       ? parseSuggestions(JSON.stringify(session.ai_suggestions))
       : null;
+    // #1538 (Codex P1 r4117321439, PM RETURN 5860537369): a cached pair replays as Focus coaching only when its version
+    // proves it was generated from the saved Focus results. A generic v1 pair on a Focus take (written before this
+    // change) is unproven: it is regenerated once below and overwritten through the existing authority RPC. An unmarked
+    // legacy row's Focus identity comes only from its durable evidence, read here before any replay.
+    if (cachedSuggestions && cachedSuggestions.version === 'gemini_coaching_v1' && marker !== 'open_mic') {
+      if (!focusContext) {
+        focusContext = await loadFocusContext(supabaseClient, sessionId);
+        const refused = refuseFocusRead(focusContext);
+        if (refused) return refused;
+      }
+      if (focusContext.kind === 'focus') cachedSuggestions = null;
+    }
     if (cachedSuggestions) {
       // A cache replay is evidence only when the server-owned receipt records that the request really
       // returned before quota/provider work. The browser packet cannot assert this fact for itself.
@@ -575,6 +595,11 @@ export async function handler(
       // A complete answer ends the loop. So does a failure a second ask cannot change.
       if (suggestions && observedProviderModel) break;
       if (!providerFailureIsRetryable) break;
+    }
+
+    // #1538: a pair generated from the saved Focus results carries that provenance in its version.
+    if (suggestions) {
+      suggestions = { ...suggestions, version: focusContext?.kind === 'focus' ? 'gemini_coaching_focus_v1' : 'gemini_coaching_v1' };
     }
 
     if (!suggestions || !observedProviderModel) {

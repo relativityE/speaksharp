@@ -710,6 +710,21 @@ describe('AISuggestions Integration', () => {
         });
     });
 
+    // #1538 (Codex P1 r4117321439, PM RETURN 5860537369): the Session reader accepts exactly the two coaching versions.
+    describe('#1538 coaching version provenance', () => {
+        it('renders a Focus-provenance (gemini_coaching_focus_v1) pair from the saved value', () => {
+            render(<AISuggestions transcript="Hello world" sessionId="session-focus-v1"
+                initialSuggestions={{ version: 'gemini_coaching_focus_v1', what_worked: 'Point two landed.', what_to_try_next: 'State point three earlier.' } as never} />);
+            expect(screen.getByText('Point two landed.')).toBeInTheDocument();
+            expect(screen.getByText('State point three earlier.')).toBeInTheDocument();
+        });
+        it('does not render an unknown version as coaching', () => {
+            render(<AISuggestions transcript="Hello world" sessionId="session-v2"
+                initialSuggestions={{ version: 'gemini_coaching_v2', what_worked: 'Unknown A.', what_to_try_next: 'Unknown B.' } as never} />);
+            expect(screen.queryByText('Unknown A.')).not.toBeInTheDocument();
+        });
+    });
+
     describe('Initial Suggestions', () => {
         it('renders with initial suggestions if provided', () => {
             const initialSuggestions = {
