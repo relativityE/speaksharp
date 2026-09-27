@@ -71,8 +71,18 @@ describe('v12 — download vs setup timing from the app\'s own acquisition recei
         expect(v.verdict).toBe('PASS');
         expect(v.evidence).toMatchObject({ cacheResult: 'miss', downloadMs: 41_200, initMs: 3_100, totalMs: 44_500 });
     });
-    it('PASS for a warm cache (hit) with setup measured and no download', () => {
-        expect(acquisitionTimingVerdict([{ cacheResult: 'hit', completeness: 'complete', downloadMs: 0, initMs: 2_000, totalMs: 2_000 }]).verdict).toBe('PASS');
+    it('HOLD for a warm cache (hit): a first-use download claim needs a proven COLD acquisition (PM 5860859136)', () => {
+        const v = acquisitionTimingVerdict([{ cacheResult: 'hit', completeness: 'complete', downloadMs: 0, initMs: 2_000, totalMs: 2_000 }]);
+        expect(v.verdict).toBe('HOLD');
+        expect(v.detail).toMatch(/not a cold/);
+    });
+    it('HOLD for partial / unobservable cache results — never a download inferred from total time', () => {
+        for (const cacheResult of ['partial', 'unobservable', undefined]) {
+            expect(acquisitionTimingVerdict([{ cacheResult, completeness: 'complete', downloadMs: 10, initMs: 5, totalMs: 15 }]).verdict).toBe('HOLD');
+        }
+    });
+    it('the evidence says it is browser-sent, not a PostHog receipt', () => {
+        expect(acquisitionTimingVerdict([{ cacheResult: 'miss', completeness: 'complete', downloadMs: 1, initMs: 1, totalMs: 2 }]).evidence.evidenceClass).toBe('browser_sent');
     });
     it('HOLD (never PASS) when no receipt was sent, or it was only partially measured, or a split is missing', () => {
         expect(acquisitionTimingVerdict([]).verdict).toBe('HOLD');

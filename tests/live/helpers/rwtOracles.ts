@@ -80,13 +80,19 @@ export function acquisitionTimingVerdict(receipts: readonly AcquisitionTiming[])
     const first = receipts[0];
     const count = receipts.length;
     if (!first) return { verdict: 'HOLD', detail: 'no model acquisition receipt was sent, so download vs setup timing is unobserved', evidence: { acquisitions: 0 } };
+    // Browser-sent receipt fields (what the page sent to PostHog), not the PostHog-received readback.
+    const evidence = {
+        evidenceClass: 'browser_sent', acquisitions: count, cacheResult: first.cacheResult ?? null,
+        completeness: first.completeness ?? null, downloadMs: first.downloadMs ?? null, initMs: first.initMs ?? null,
+        totalMs: first.totalMs ?? null,
+    };
+    // PM 5860859136: a first-use DOWNLOAD claim needs a proven cold acquisition (`cache_result: miss`).
+    if (first.cacheResult !== 'miss') {
+        return { verdict: 'HOLD', detail: `the first acquisition was not a cold download (cache_result ${first.cacheResult ?? 'absent'}), so first-use download timing is not shown`, evidence };
+    }
     const measured = first.completeness === 'complete'
         && typeof first.downloadMs === 'number' && typeof first.initMs === 'number';
-    const evidence = {
-        acquisitions: count, cacheResult: first.cacheResult ?? null, completeness: first.completeness ?? null,
-        downloadMs: first.downloadMs ?? null, initMs: first.initMs ?? null, totalMs: first.totalMs ?? null,
-    };
     return measured
-        ? { verdict: 'PASS', detail: 'first-use model download and engine setup were measured separately by the app', evidence }
+        ? { verdict: 'PASS', detail: 'the cold first-use model download and engine setup were measured separately by the app', evidence }
         : { verdict: 'HOLD', detail: 'the first acquisition was not completely measured, so download vs setup cannot be separated', evidence };
 }

@@ -505,8 +505,12 @@ export function humanObservation(receipt: RwtReceipt, id: string, runbookRow: st
 }
 
 /** v12 preflight: first-use model download vs engine setup timing, from the app's own acquisition receipt(s). */
-export function acquisitionTimingRow(receipt: RwtReceipt, tap: AnalyticsTap): void {
-    const v = acquisitionTimingVerdict(tap.sent('private_model_acquisition_success').map((e) => e.acquisition ?? {}));
+export function acquisitionTimingRow(receipt: RwtReceipt, tap: AnalyticsTap, journeyIds: readonly string[]): void {
+    // Bound to the deployed release and to this run's own journeys (PM 5860859136).
+    const release = expectedReleaseSha();
+    const own = tap.sent('private_model_acquisition_success')
+        .filter((e) => e.releaseSha === release && typeof e.journeyId === 'string' && journeyIds.includes(e.journeyId));
+    const v = acquisitionTimingVerdict(own.map((e) => e.acquisition ?? {}));
     receipt.row('model download vs setup timing', v.verdict, v.detail, v.evidence);
 }
 
