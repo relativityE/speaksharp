@@ -158,6 +158,18 @@ describe('#1537 product-marker target has a mandatory PostgREST postflight', () 
         expect(post.indexOf('NOTIFY pgrst')).toBeLessThan(post.indexOf('/rest/v1/sessions'));
     });
 
+    it('#1537 (Codex P1 r4115978885): BOTH REST probes are bound to SUPABASE_PROJECT_ID before any request is sent', () => {
+        const pre = step(`Preflight ${VERSION} product-marker postflight`);
+        const post = step(`id: ${GATE}`);
+        for (const body of [pre, post]) {
+            const bind = body.indexOf('bash scripts/assert-rest-url-bound.sh');
+            expect(bind).toBeGreaterThan(-1);
+            expect(bind).toBeLessThan(body.indexOf('curl '));
+        }
+        // Pre-apply the binding runs BEFORE the irreversible apply; post-apply BEFORE the reload and the retried read.
+        expect(post.indexOf('bash scripts/assert-rest-url-bound.sh')).toBeLessThan(post.indexOf('NOTIFY pgrst'));
+    });
+
     it('a Require step enforces it, and the terminal step and the summary receive it BY NAME', () => {
         const req = step(`Require ${VERSION} product-marker postflight when applicable`);
         expect(req).toContain(`steps.${GATE}.outcome`);

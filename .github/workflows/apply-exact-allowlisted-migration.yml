@@ -247,6 +247,8 @@ jobs:
           fi
           # The raw-psql reload path was proven by the shared reachability step above; fail closed if it did not run.
           [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          # #1537 (Codex P1 r4115978885): the REST path must be the migrated project's, or a passing probe proves nothing.
+          bash scripts/assert-rest-url-bound.sh
           # The REST path, with a column that already exists: a no-row read (nonexistent id, limit=0) must return
           # exactly `[]`. No response body is ever printed.
           code=$(curl -sS --max-time 10 -o "$RUNNER_TEMP/pre-product-probe.json" -w '%{http_code}' \
@@ -454,6 +456,8 @@ jobs:
         if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') }}
         run: |
           set -euo pipefail
+          # #1537 (Codex P1 r4115978885): bind the REST read to the migrated project BEFORE the reload and any request.
+          bash scripts/assert-rest-url-bound.sh
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
           # REUSE the parameters proven reachable before the apply — never re-resolve (SEC-002).
           [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
