@@ -187,18 +187,24 @@ export function decodePostHogRows(rows) {
   });
 }
 
+const COACHING_VERSIONS = new Set(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
+
 export function geminiSessionReadback(rows) {
   if (!Array.isArray(rows)) throw new Error('Supabase response is not an array');
   return rows.map((row, index) => {
     const value = row?.ai_suggestions;
+    // #1538 (Codex P1 r4117321439, PM 5860714332): exactly two stored versions — `gemini_coaching_focus_v1` marks a
+    // pair generated from a Focus Points take's saved results. The exact three-key shape is required.
     if (!value || typeof value !== 'object' || Array.isArray(value)
-      || value.version !== 'gemini_coaching_v1'
+      || !COACHING_VERSIONS.has(value.version)
+      || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(['version', 'what_to_try_next', 'what_worked'])
       || typeof value.what_worked !== 'string' || !value.what_worked.trim()
       || typeof value.what_to_try_next !== 'string' || !value.what_to_try_next.trim()) {
       throw new Error(`persisted session ${index} has no readable coaching readback`);
     }
     const normalized = {
-      version: 'gemini_coaching_v1',
+      // The ACTUAL stored version: it is part of what was persisted, so it is part of what the digest covers.
+      version: value.version,
       what_worked: value.what_worked.trim(),
       what_to_try_next: value.what_to_try_next.trim(),
     };

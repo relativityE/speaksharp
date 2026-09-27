@@ -119,7 +119,8 @@ describe('loadSavedSessionReview', () => {
 
     // PM RETURN 5849471237 — the stored marker is the product identity; a failed Focus results read never erases it.
     it('CASUALTY: marked focus_points + a failed Focus results read stays Focus Points (read failed, no point set) — never unknown/Open Mic', async () => {
-        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'focus_points' }, error: null };
+        // #1538: a Focus take's coaching is Focus-provenance (focus_v1); a generic v1 pair would be `unverified`.
+        row = { data: { ai_suggestions: { ...PAIR, version: 'gemini_coaching_focus_v1' }, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'focus_points' }, error: null };
         focus = { kind: 'error' };
         const r = await loadSavedSessionReview('s1');
         expect(r).toEqual({
@@ -192,6 +193,41 @@ describe('loadSavedSessionReview', () => {
         expect((await loadSavedSessionReview('s1')).coaching).toEqual({ kind: 'error' });
         row = { data: null, error: { code: '42501' } };
         expect((await loadSavedSessionReview('s1')).coaching).toEqual({ kind: 'error' });
+    });
+
+    // #1538 (Codex P1 r4117321439, PM 5860714332): a Focus take's stored generic v1 pair is NOT Focus-aware coaching.
+    const COVERAGE = {
+        kind: 'coverage' as const, detected: 1, total: 2, brief: { briefId: 'b1', projectId: 'p1', topic: 'T' },
+        points: [{ label: 'One', status: 'detected' as const, detectedAtSeconds: 21 }, { label: 'Two', status: 'not_detected' as const, detectedAtSeconds: null }],
+    };
+    it('CASUALTY: a Focus take holding an old generic v1 pair shows it as UNVERIFIED, never as a Focus review (evidence kept)', async () => {
+        for (const product of ['focus_points', null] as const) {
+            row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 204, product }, error: null };
+            focus = COVERAGE;
+            const r = await loadSavedSessionReview('s1');
+            expect(r.product).toBe('focus_points');
+            expect(r.coaching).toEqual({ kind: 'unverified' });
+            expect(r.evidence.length).toBeGreaterThan(0);
+        }
+    });
+
+    it('CONTROL: a Focus take holding a focus_v1 pair shows the review unchanged', async () => {
+        row = { data: { ai_suggestions: { ...PAIR, version: 'gemini_coaching_focus_v1' }, transcript_state: 'available', next_action_signal: SIGNAL, duration: 204, product: 'focus_points' }, error: null };
+        focus = COVERAGE;
+        expect((await loadSavedSessionReview('s1')).coaching).toEqual({ kind: 'review', review: { whatWorked: PAIR.what_worked, whatToTryNext: PAIR.what_to_try_next } });
+    });
+
+    it('CONTROL: an Open Mic take holding a v1 pair shows the review unchanged', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'open_mic' }, error: null };
+        expect((await loadSavedSessionReview('s1')).coaching).toEqual({ kind: 'review', review: { whatWorked: PAIR.what_worked, whatToTryNext: PAIR.what_to_try_next } });
+    });
+
+    it('CONTROL: reloading the unverified state generates nothing (read-only)', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 204, product: 'focus_points' }, error: null };
+        focus = COVERAGE;
+        await loadSavedSessionReview('s1');
+        await loadSavedSessionReview('s1');
+        expect(calls.filter((c) => c.op === 'invoke')).toEqual([]);
     });
 
     it('NEVER generates a review: no function is invoked, whatever the row holds', async () => {

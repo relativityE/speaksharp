@@ -68,6 +68,17 @@ export function readSavedReview(raw: unknown): SavedReview | null {
     return { whatWorked: worked.trim(), whatToTryNext: fix.trim() };
 }
 
+/**
+ * #1538 (Codex P1 r4117321439, PM 5860714332) — the stored version of a contract-valid review (its provenance), or
+ * `null` when there is no contract-valid review. `gemini_coaching_focus_v1` means it was generated from a Focus Points
+ * take's saved results; a Focus take holding `gemini_coaching_v1` holds generic coaching.
+ */
+export function savedReviewVersion(raw: unknown): 'gemini_coaching_v1' | 'gemini_coaching_focus_v1' | null {
+    if (!readSavedReview(raw)) return null;
+    const candidate = typeof raw === 'string' ? safeParse(raw) : raw;
+    return (candidate as { version: 'gemini_coaching_v1' | 'gemini_coaching_focus_v1' }).version;
+}
+
 function safeParse(text: string): unknown {
     try {
         return JSON.parse(text);

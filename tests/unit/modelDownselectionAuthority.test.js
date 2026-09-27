@@ -243,6 +243,28 @@ describe('#1432 trusted model-downselection authority collector', () => {
     expect(JSON.stringify(authority)).not.toMatch(/Clear concise|Pause before/);
   });
 
+  // #1538 (Codex P1 r4117321439, PM 5860714332): exactly two stored coaching versions, preserved in the digest.
+  it('#1538 reads a Focus-provenance pair and digests its ACTUAL stored version', () => {
+    const base = { what_worked: 'Clear concise opening', what_to_try_next: 'Pause before your recommendation' };
+    const v1 = geminiSessionReadback([authorityRow({ ai_suggestions: { version: 'gemini_coaching_v1', ...base } })])[0];
+    const focus = geminiSessionReadback([authorityRow({ ai_suggestions: { version: 'gemini_coaching_focus_v1', ...base } })])[0];
+    expect(focus.readable).toBe(true);
+    expect(focus.suggestionDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(focus.suggestionDigest).not.toBe(v1.suggestionDigest); // the version is part of what was persisted
+  });
+
+  it('#1538 still refuses any other version, an extra key, or a malformed pair', () => {
+    const base = { what_worked: 'Clear concise opening', what_to_try_next: 'Pause before your recommendation' };
+    for (const ai_suggestions of [
+      { version: 'gemini_coaching_v2', ...base },
+      { version: 'gemini_coaching_focus_v2', ...base },
+      { version: 'gemini_coaching_focus_v1', what_worked: ' ', what_to_try_next: 'x' },
+      { version: 'gemini_coaching_focus_v1', ...base, extra: 'x' },
+    ]) {
+      expect(() => geminiSessionReadback([authorityRow({ ai_suggestions })])).toThrow(/no readable coaching readback/);
+    }
+  });
+
   it('refuses persisted coaching without its server-owned authority receipt', () => {
     expect(() => geminiSessionReadback([authorityRow({
       provider: null, model: null, provider_request_made: null, quota_scope: null, quota_utc_date: null,

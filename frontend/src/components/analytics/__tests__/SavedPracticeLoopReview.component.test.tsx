@@ -34,6 +34,18 @@ const base: SavedSessionReview = { coaching: PAIR, product: 'open_mic', evidence
 beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); revisited.mockReset(); practiceSelected.mockReset(); recommendationId = null; });
 
 describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
+    // #1538 (Codex P1 r4117321439, PM 5860714332): an old generic pair on a Focus take is never shown as its Focus review.
+    it('#1538 CASUALTY: an UNVERIFIED Focus coaching state shows the truthful notice, no pair, a non-qualifying revisit, and the practice action', async () => {
+        load.mockResolvedValue({ ...base, product: 'focus_points', coaching: { kind: 'unverified' }, evidence: ['Detected: point 1 at 0:21.'], focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'] });
+        render(<SavedPracticeLoopReview sessionId="s1" />);
+        await waitFor(() => expect(screen.getByTestId('saved-review')).toHaveAttribute('data-review-state', 'unverified'));
+        expect(screen.getByTestId('saved-review-unverified')).toHaveTextContent('saved before Focus Points coaching was available');
+        expect(screen.queryByTestId('review-what-went-well')).not.toBeInTheDocument();
+        expect(revisited).toHaveBeenCalledWith('focus_points', 'none', false);
+        expect(screen.getByTestId('saved-review-practice')).toBeInTheDocument();
+        expect(load).toHaveBeenCalledTimes(1);
+    });
+
     it('shows the saved pair word for word, the product label, evidence and ONE practice action', async () => {
         load.mockResolvedValue(base);
         render(<SavedPracticeLoopReview sessionId="s1" sessionLabel="Session 6 · 24 Sep" />);

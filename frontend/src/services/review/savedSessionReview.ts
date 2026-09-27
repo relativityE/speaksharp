@@ -16,7 +16,7 @@
  */
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
-import { readSavedReview, type SavedReview } from '@/components/practice/lastSessionFix';
+import { readSavedReview, savedReviewVersion, type SavedReview } from '@/components/practice/lastSessionFix';
 import { loadSavedFocusPointsCoverage, type SavedFocusBrief } from '@/services/objective/savedFocusPointsCoverage';
 import { focusPointsEvidence, openMicEvidence } from './sessionEvidence';
 
@@ -27,7 +27,13 @@ export type SavedCoaching =
     | { kind: 'review'; review: SavedReview }
     | { kind: 'expired' }
     | { kind: 'none' }
-    | { kind: 'error' };
+    | { kind: 'error' }
+    /**
+     * #1538 (Codex P1 r4117321439, PM 5860714332): a Focus Points take whose stored pair is the generic
+     * `gemini_coaching_v1` (written before Focus-aware coaching). It is not shown as this take's Focus review; Analytics
+     * stays read-only and never regenerates it.
+     */
+    | { kind: 'unverified' };
 
 export interface SavedSessionReview {
     coaching: SavedCoaching;
@@ -80,13 +86,17 @@ export async function loadSavedSessionReview(sessionId: string): Promise<SavedSe
                     ? { kind: 'error' }
                     : { kind: 'none' };
 
+        // #1538: the coaching a FOCUS take may show — its stored generic v1 pair is unverified, never Focus coaching.
+        const focusCoaching: SavedCoaching = coaching.kind === 'review' && savedReviewVersion(row.ai_suggestions) === 'gemini_coaching_v1'
+            ? { kind: 'unverified' }
+            : coaching;
         const duration = typeof row.duration === 'number' ? row.duration : null;
         const marker = row.product === 'open_mic' || row.product === 'focus_points' ? row.product : null;
         const unknown: SavedSessionReview = { coaching, product: 'unknown', evidence: [], focusBrief: null, focusPoints: [] };
         // A Focus Points take whose point results were not saved: truthful, and its practice action opens Focus setup
         // (no brief to restore) — never Open Mic, never a cleared brief.
         const focusWithoutResults: SavedSessionReview = {
-            coaching, product: 'focus_points', evidence: [FOCUS_RESULTS_NOT_SAVED], focusBrief: null, focusPoints: []
+            coaching: focusCoaching, product: 'focus_points', evidence: [FOCUS_RESULTS_NOT_SAVED], focusBrief: null, focusPoints: []
         };
 
         // The stored marker is the product identity; a failed Focus results read never erases it.
@@ -95,7 +105,7 @@ export async function loadSavedSessionReview(sessionId: string): Promise<SavedSe
         }
         if (focus.kind === 'coverage') {
             return {
-                coaching, product: 'focus_points', evidence: focusPointsEvidence(focus.points, duration),
+                coaching: focusCoaching, product: 'focus_points', evidence: focusPointsEvidence(focus.points, duration),
                 focusBrief: focus.brief, focusPoints: focus.points.map((p) => p.label),
                 // #1535 Codex P2 r4116626850: the results render, but the point set failed to READ — the practice action
                 // re-reads (the same retry/no-launch state as a failed results read), never generic Focus setup.
@@ -104,7 +114,7 @@ export async function loadSavedSessionReview(sessionId: string): Promise<SavedSe
         }
         if (marker === 'focus_points') {
             return focus.kind === 'error'
-                ? { coaching, product: 'focus_points', evidence: [], focusBrief: null, focusPoints: [], focusReadFailed: true }
+                ? { coaching: focusCoaching, product: 'focus_points', evidence: [], focusBrief: null, focusPoints: [], focusReadFailed: true }
                 : focusWithoutResults;
         }
         if (focus.kind === 'error') return unknown; // legacy row: no evidence rather than the wrong kind
