@@ -59,6 +59,7 @@ import {
     productMarkerRows,
     modelIdentityRow,
     shareFeedbackRows,
+    feedbackRetentionAfterDeletionRow,
     analyticsRows,
     analyticsThroughActions,
     humanObservation,
@@ -124,13 +125,20 @@ test.use({
 test.describe('RWT — Open Mic first session @live', () => {
     let createdEmail = '';
     let capturedUid = '';
+    let feedbackReportId: string | null = null;
+    let accountDeletedInTest = false;
 
     test.afterEach(async () => {
         // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product
-        // policy (user_issue_reports.user_id is SET NULL on account deletion) and is reported as retained, never as deleted.
-        await cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+        // policy (user_issue_reports.user_id is SET NULL on account deletion); the test body deletes the account first
+        // and proves that retention (#1532 Codex P1 r4105978630). This is the fallback when the body did not.
+        if (!accountDeletedInTest) {
+            await cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+        }
         createdEmail = '';
         capturedUid = '';
+        feedbackReportId = null;
+        accountDeletedInTest = false;
     });
 
     test('a new person completes a first Open Mic session end to end', async ({ page }, testInfo) => {
@@ -430,7 +438,7 @@ test.describe('RWT — Open Mic first session @live', () => {
 
             // ── Row 7 — Share feedback ──────────────────────────────────────────────────────────────────
             await test.step('row 7 — share feedback', async () => {
-                await shareFeedbackRows(page, receipt, admin as never, capturedUid);
+                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid);
             });
 
             // ── The next Start is not held behind the Progress evaluation (#1471) ───────────────────────
@@ -519,6 +527,9 @@ test.describe('RWT — Open Mic first session @live', () => {
             // "analytics detail shows both AI suggestions").
             const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
             receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no credential, email or coaching text in the receipt' : 'the receipt carried a forbidden value');
+            // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
+            accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
             receipt.write(testInfo, canaryJourneys, tap.trafficTypes(), ['session_during', 'session_after_open_mic', 'share_feedback'], userJourneys);
         }
     });

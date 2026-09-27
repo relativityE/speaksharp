@@ -28,6 +28,8 @@ import {
     stopBenchmarkRecording,
 } from './benchmark-utils';
 import { extractUidFromAuthStorage } from './proofAuthority';
+import { waitForAppVisibleReady } from '../../e2e/helpers';
+import { feedbackRetentionVerdict, surfaceReadinessFailures } from './rwtOracles';
 import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
@@ -276,8 +278,13 @@ export class EntitlementTap {
     async settle(): Promise<void> { await Promise.all(this.pending); }
 }
 
-/** The pre-credential surface: exact origin, exact deployed SHA, no test/mock injection. Returns failures, content-free. */
+/**
+ * The pre-credential surface: exact origin, exact deployed SHA, no test/mock injection — and, first, the app's own
+ * centralized readiness authority (`data-app-visible-ready`; #1532 Codex P1 r4105978609): a visible form on a route the
+ * app has not committed is not an approved surface. Returns failures, content-free.
+ */
 export async function approvedSurfaceFailures(page: Page): Promise<string[]> {
+    const appVisibleReady = await waitForAppVisibleReady(page, 45_000).then(() => true, () => false);
     const surface = await page.evaluate(() => {
         const w = window as unknown as Record<string, unknown> & { __APP_RELEASE__?: string; __APP_RUNTIME_CONFIG__?: { testMode?: boolean } };
         return {
@@ -287,7 +294,7 @@ export async function approvedSurfaceFailures(page: Page): Promise<string[]> {
             injected: Object.keys(w).some((k) => /__E2E|__MOCK|__MSW|TEST_MODE/i.test(k)),
         };
     });
-    const failures: string[] = [];
+    const failures: string[] = [...surfaceReadinessFailures(appVisibleReady)];
     if (surface.origin !== APPROVED_ORIGIN) failures.push('origin is not the approved Production origin');
     if (surface.release !== expectedReleaseSha()) failures.push(`deployed release ${String(surface.release)} != EXPECTED_RELEASE_SHA`);
     if (surface.injected) failures.push('a test/mock injection surface is present');
@@ -940,15 +947,15 @@ export async function canaryClaimRow(page: Page, receipt: RwtReceipt, claimed: b
 
 /**
  * SHARE FEEDBACK through the product's own dialog: acknowledgement shown, stored exactly once for this account.
- * The marked automated report is retained by product policy after account deletion (user_id SET NULL) and is
- * reported as retained — never deleted by the run, never reported as deleted.
+ * Returns the stored report's id (kept in memory only) so retention can be proven AFTER the account is deleted
+ * (`feedbackRetentionAfterDeletionRow`, #1532 Codex P1 r4105978630) — a pre-deletion read proves only insertion.
  */
 export async function shareFeedbackRows(
     page: Page,
     receipt: RwtReceipt,
     admin: { from: (t: string) => { select: (c: string) => { eq: (c: string, v: string) => { gte: (c: string, v: string) => Promise<{ data: Array<{ id: unknown }> | null; error: { code?: string } | null }> } } } },
     uid: string,
-): Promise<void> {
+): Promise<string | null> {
     const since = new Date(Date.now() - 1_000).toISOString();
     await page.getByTestId('nav-report-issue-button').first().click();
     await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 20_000 });
@@ -963,9 +970,34 @@ export async function shareFeedbackRows(
     receipt.row('feedback', acknowledged && storedOnce ? 'PASS' : 'FAIL',
         acknowledged ? (storedOnce ? 'acknowledged and stored once' : 'acknowledged but not stored exactly once') : 'no acknowledgement shown',
         { stored: data?.length ?? 0 });
-    receipt.row('feedback retention', storedOnce ? 'PASS' : 'HOLD',
-        'the marked automated report is retained by product policy after account deletion (not deleted by this run)',
-        { retainedReports: data?.length ?? 0 });
+    const id = storedOnce ? data?.[0]?.id : null;
+    return typeof id === 'string' || typeof id === 'number' ? String(id) : null;
+}
+
+/**
+ * FEEDBACK RETENTION, proven after deletion (#1532 Codex P1 r4105978630). Deletes the run-owned account (the shared
+ * `cleanupRunOwnedAccount`, via `deleteAccount`), then reads the stored report by its id: PASS only when it still
+ * exists with its user link cleared (user_issue_reports.user_id ON DELETE SET NULL, product policy). Returns whether
+ * the deletion completed, so the caller's afterEach does not repeat it. The report is never deleted by this run.
+ */
+export async function feedbackRetentionAfterDeletionRow(
+    receipt: RwtReceipt,
+    admin: { from: (t: string) => { select: (c: string) => { eq: (c: string, v: string) => Promise<{ data: Array<{ user_id: unknown }> | null; error: { code?: string } | null }> } } },
+    reportId: string | null,
+    deleteAccount: () => Promise<unknown>,
+): Promise<boolean> {
+    let deleted = false;
+    if (reportId) {
+        try { await deleteAccount(); deleted = true; } catch { deleted = false; }
+    }
+    let read: { error: boolean; rows: Array<{ user_id: unknown }> } | null = null;
+    if (reportId && deleted) {
+        const { data, error } = await admin.from('user_issue_reports').select('user_id').eq('id', reportId);
+        read = { error: Boolean(error), rows: data ?? [] };
+    }
+    const v = feedbackRetentionVerdict({ reportId, deletion: deleted ? 'deleted' : 'failed', read });
+    receipt.row('feedback retention', v.verdict, v.detail, v.evidence);
+    return deleted;
 }
 
 /**

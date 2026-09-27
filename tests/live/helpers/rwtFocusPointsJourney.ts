@@ -15,6 +15,8 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
+import { detectedCountExpected, focusPointMeetsExpectation } from './rwtOracles';
+import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import {
     AnalyticsTap,
     RwtReceipt,
@@ -35,6 +37,8 @@ import {
     productMarkerRows,
     modelIdentityRow,
     shareFeedbackRows,
+    feedbackRetentionAfterDeletionRow,
+    RWT_ACCOUNT_PREFIX,
     analyticsRows,
     analyticsThroughActions,
     performCandidateSwitch,
@@ -93,13 +97,8 @@ const parseClock = (text: string): number | null => {
     return match ? Number(match[1]) * 60 + Number(match[2]) : null;
 };
 
-/** Does the final rail state satisfy the fixture's expectation for this point? */
-const meetsExpectation = (expected: string, got: RailStatus | null): boolean => {
-    if (expected === 'covered') return got === 'covered';
-    if (expected === 'missing') return got === 'missing';
-    if (expected === 'not-covered-or-partial') return got === 'partial' || got === 'missing';
-    return false;
-};
+/** Does the final rail state satisfy the fixture's expectation for this point? Exact (#1532 Codex P1 r4105978619). */
+const meetsExpectation = (expected: string, got: RailStatus | null): boolean => focusPointMeetsExpectation(expected, got);
 
 export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }) {
     const preconditions = rwtPreconditionFailures();
@@ -111,6 +110,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const expectedFinal = fixture.entry.expectedFinal ?? [];
 
     const receipt = new RwtReceipt(suite);
+    let feedbackReportId: string | null = null;
     receipt.meta.fixture = fixture.key;
     receipt.meta.fixtureKind = fixture.entry.kind;
     receipt.meta.fixtureSha256 = fixture.entry.sha256;
@@ -304,7 +304,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
             const covered = Number(await page.getByTestId('coverage-pace-covered').innerText().catch(() => 'NaN'));
             const total = Number((await page.getByTestId('coverage-pace-total').innerText().catch(() => '')).replace('/', ''));
-            const detectedExpected = expectedFinal.filter((e) => e === 'covered').length;
+            // The product persists covered OR partial evidence as detected (#1532 Codex P1 r4105978619).
+            const detectedExpected = detectedCountExpected(expectedFinal);
             receipt.row('coverage count', covered === detectedExpected && total === points.length ? 'PASS' : 'FAIL',
                 `${covered}/${total} detected`, { covered, total, expected: detectedExpected });
 
@@ -373,7 +374,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // Share Feedback belongs to the full journey only; the partial fixture stays a coverage probe.
         if (fixtureKey === 'focus_points_tts') {
             await test.step('share feedback', async () => {
-                await shareFeedbackRows(page, receipt, admin as never, owner.uid);
+                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, owner.uid);
             });
         }
 
@@ -419,6 +420,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // Point text and topic are the person's content: they must never reach the receipt.
         const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));
         receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no point text, topic or credential in the receipt' : 'the receipt carried a forbidden value');
+        if (fixtureKey === 'focus_points_tts') {
+            // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
+            // On success the owner is cleared so the spec's afterEach does not repeat the deletion.
+            const deleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+            if (deleted) { owner.uid = ''; owner.email = ''; }
+        }
         receipt.write(testInfo, canaryJourneys, tap.trafficTypes(),
             fixtureKey === 'focus_points_tts' ? ['session_during', 'session_after_focus_points', 'share_feedback'] : ['session_during', 'session_after_focus_points'],
             userJourneys);

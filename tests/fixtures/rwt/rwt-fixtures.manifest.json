@@ -93,7 +93,7 @@
       "expectedFinal": [
         "covered",
         "covered",
-        "not-covered-or-partial",
+        "partial",
         "missing"
       ],
       "localV2Baseline": {
