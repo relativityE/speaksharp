@@ -4735,6 +4735,10 @@ export class SpeechRuntimeController {
         // is always disposed by the next startShadowMetricsEngine.
         return this.enqueue(async (token) => {
             const stopEntryMode = this.service?.getMode?.() ?? this.policy?.preferredMode ?? null;
+            // #1535 (Codex P2 r4116626845): the STOPPED take's product, captured before any suspension. `sessions.product`
+            // is immutable, and a hard reset or a successor recording rewrites the shared `recordingProgressMode` while
+            // stopTranscription() is pending — the late-create fallback below must never write theirs.
+            const stopProductMarker = productMarkerFor(this.recordingProgressMode);
 
             const canStop =
                 this.state === 'RECORDING' ||
@@ -4950,7 +4954,7 @@ export class SpeechRuntimeController {
                                 transcript: fallbackTranscript,
                                 total_words: 0,
                                 engine: mode,
-                                ...productMarkerFor(this.recordingProgressMode),
+                                ...stopProductMarker,
                             };
                             const saveResult = await saveSession(
                                 fallbackSessionData,

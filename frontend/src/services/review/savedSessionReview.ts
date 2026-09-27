@@ -92,7 +92,10 @@ export async function loadSavedSessionReview(sessionId: string): Promise<SavedSe
         if (focus.kind === 'coverage') {
             return {
                 coaching, product: 'focus_points', evidence: focusPointsEvidence(focus.points, duration),
-                focusBrief: focus.brief, focusPoints: focus.points.map((p) => p.label)
+                focusBrief: focus.brief, focusPoints: focus.points.map((p) => p.label),
+                // #1535 Codex P2 r4116626850: the results render, but the point set failed to READ — the practice action
+                // re-reads (the same retry/no-launch state as a failed results read), never generic Focus setup.
+                ...(focus.briefReadFailed ? { focusReadFailed: true as const } : {}),
             };
         }
         if (marker === 'focus_points') {

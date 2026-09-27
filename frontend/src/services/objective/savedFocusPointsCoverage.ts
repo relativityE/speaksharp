@@ -29,7 +29,11 @@ export interface SavedFocusBrief {
 
 export type SavedFocusPointsCoverage =
     | { kind: 'none' }
-    | { kind: 'coverage'; points: SavedFocusPoint[]; detected: number; total: number; brief: SavedFocusBrief | null }
+    | {
+        kind: 'coverage'; points: SavedFocusPoint[]; detected: number; total: number; brief: SavedFocusBrief | null;
+        /** #1535: the point set could not be READ (a failed request, not an absent brief) — retryable, never "no set". */
+        briefReadFailed?: true;
+    }
     | { kind: 'error' };
 
 const STATUSES: ReadonlySet<string> = new Set(['detected', 'not_detected', 'unavailable']);
@@ -52,13 +56,14 @@ export async function loadSavedFocusPointsCoverage(sourceSessionId: string): Pro
         if (!session) return { kind: 'none' };
 
         const briefId = (session as { brief_id: string }).brief_id;
-        const [{ data: points, error: pointsError }, { data: evidence, error: evidenceError }, { data: brief }] = await Promise.all([
+        const [{ data: points, error: pointsError }, { data: evidence, error: evidenceError }, { data: brief, error: briefError }] = await Promise.all([
             supabase.from('objective_brief_point').select('id, label, sort_order')
                 .eq('brief_id', (session as { brief_id: string }).brief_id)
                 .order('sort_order', { ascending: true }),
             supabase.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds')
                 .eq('session_id', (session as { id: string }).id),
-            // Only for rebinding the set on "Practise this again"; a failed read leaves the results intact.
+            // Only for rebinding the set on "Practise this again": a failed read leaves the results intact but is carried
+            // as `briefReadFailed` (#1535 Codex P2 r4116626850), so the action retries instead of opening generic setup.
             supabase.from('objective_brief').select('project_id, event_goal').eq('id', briefId).maybeSingle(),
         ]);
         if (pointsError || evidenceError) {
@@ -80,7 +85,12 @@ export async function loadSavedFocusPointsCoverage(sourceSessionId: string): Pro
         const savedBrief: SavedFocusBrief | null = briefRow && typeof briefRow.project_id === 'string' && typeof briefRow.event_goal === 'string'
             ? { briefId, projectId: briefRow.project_id, topic: briefRow.event_goal }
             : null;
-        return { kind: 'coverage', points: rows, detected: rows.filter((r) => r.status === 'detected').length, total: rows.length, brief: savedBrief };
+        if (briefError) logger.warn({ error: briefError }, '[savedFocusPointsCoverage] brief read failed');
+        return {
+            kind: 'coverage', points: rows, detected: rows.filter((r) => r.status === 'detected').length, total: rows.length,
+            brief: briefError ? null : savedBrief,
+            ...(briefError ? { briefReadFailed: true as const } : {}),
+        };
     } catch (error) {
         logger.warn({ error }, '[savedFocusPointsCoverage] read threw');
         return { kind: 'error' };

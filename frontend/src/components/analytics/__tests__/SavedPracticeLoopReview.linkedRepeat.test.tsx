@@ -184,6 +184,27 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(loadReview).toHaveBeenCalledTimes(2);
     });
 
+    // #1535 Codex P2 r4116626850: brief-ONLY failure — the saved results stay visible, the action never launches.
+    it('CASUALTY: a brief-only read failure shows the saved results, never launches practice, and a re-read restores ONE linked repeat on the same set', async () => {
+        loadReview.mockResolvedValueOnce({ ...FOCUS, evidence: ['Detected: point 1 at 0:21.'], focusBrief: null, focusReadFailed: true });
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        renderReview();
+        await waitFor(() => expect(screen.getByTestId('saved-review-focus-error')).toBeInTheDocument());
+        expect(screen.getByTestId('review-evidence')).toHaveTextContent('Detected: point 1 at 0:21.');
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        fireEvent.click(action());
+        expect(navigate).not.toHaveBeenCalled();
+        expect(recordAttempt).not.toHaveBeenCalled();
+        expect(setActiveObjectiveBrief).not.toHaveBeenCalled();
+        await waitFor(() => expect(loadReview).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
+        fireEvent.click(action());
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        expect(navigate).toHaveBeenCalledTimes(1);
+        expect(recordAttempt).toHaveBeenCalledTimes(1);
+        expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
+    });
+
     it('CASUALTY: a repeated click while linking starts ONE attempt and ONE navigation', async () => {
         loadProgress.mockResolvedValue(ELIGIBLE);
         const attempt = deferred<string>();

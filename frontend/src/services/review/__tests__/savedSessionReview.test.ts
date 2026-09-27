@@ -127,6 +127,26 @@ describe('loadSavedSessionReview', () => {
         expect(tablesRead(), 'a marked session needs no legacy source read').not.toContain('objective_source_recording');
     });
 
+    // #1535 Codex P2 r4116626850: the saved results render, but the point set could not be read — retry, never setup.
+    it.each([['focus_points'], [null]] as const)('CASUALTY: a failed BRIEF read (%s marker) keeps the saved results visible but is a retryable read failure', async (product) => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 204, product }, error: null };
+        focus = {
+            kind: 'coverage', detected: 1, total: 2, briefReadFailed: true, brief: null,
+            points: [{ label: 'One', status: 'detected', detectedAtSeconds: 21 }, { label: 'Two', status: 'not_detected', detectedAtSeconds: null }],
+        };
+        const r = await loadSavedSessionReview('s1');
+        expect(r).toMatchObject({ product: 'focus_points', focusBrief: null, focusReadFailed: true });
+        expect(r.evidence).toEqual(['Detected: point 1 at 0:21.', 'Not detected: point 2.', 'Recorded for 3:24.']);
+    });
+
+    it('CONTROL: a genuinely absent brief (no read failure) is NOT a read failure — practice opens Focus setup as before', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 204, product: 'focus_points' }, error: null };
+        focus = { kind: 'coverage', detected: 1, total: 1, brief: null, points: [{ label: 'One', status: 'detected', detectedAtSeconds: 21 }] };
+        const r = await loadSavedSessionReview('s1');
+        expect(r).toMatchObject({ product: 'focus_points', focusBrief: null });
+        expect(r.focusReadFailed).toBeUndefined();
+    });
+
     it('CASUALTY: marked open_mic + a failed Focus results read stays Open Mic with its own evidence', async () => {
         row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'open_mic' }, error: null };
         focus = { kind: 'error' };

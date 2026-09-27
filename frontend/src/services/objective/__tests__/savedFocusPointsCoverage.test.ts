@@ -66,10 +66,20 @@ describe('loadSavedFocusPointsCoverage', () => {
         });
     });
 
-    it('a failed or unreadable brief keeps the results and reports no brief (never an invented set)', async () => {
-        tables.objective_brief = { data: null, error: { code: '42501' } };
+    // #1535 Codex P2 r4116626850 (PM RETURN 5859089409): a FAILED brief read is not a missing brief.
+    it('CASUALTY: a failed brief read keeps the results but flags the read as failed (retryable), never a missing set', async () => {
+        tables.objective_brief = { data: null, error: { code: '503' } };
         const result = await loadSavedFocusPointsCoverage('s1');
-        expect(result).toMatchObject({ kind: 'coverage', detected: 2, total: 4, brief: null });
+        expect(result).toMatchObject({ kind: 'coverage', detected: 2, total: 4, brief: null, briefReadFailed: true });
+    });
+
+    it('CONTROL: a genuinely absent or unusable brief (no error) reports no brief and NO read failure', async () => {
+        for (const data of [null, { project_id: null, event_goal: 'x' }]) {
+            tables.objective_brief = { data, error: null };
+            const result = await loadSavedFocusPointsCoverage('s1');
+            expect(result).toMatchObject({ kind: 'coverage', detected: 2, total: 4, brief: null });
+            expect(result).not.toHaveProperty('briefReadFailed');
+        }
     });
 
     it('reads the objective session for exactly this saved take, newest first', async () => {
