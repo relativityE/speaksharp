@@ -160,6 +160,8 @@ describe('AISuggestions Integration', () => {
             [401, /cannot request a new review/i],
             [429, /temporarily limited/i],
             [409, /does not have a transcript available/i],
+            // #1538: a product refusal (422) is "unavailable" — never the transcript-missing claim.
+            [422, /unavailable right now/i],
             [404, /could not be found/i],
             [500, /unavailable right now/i],
             [502, /unavailable right now/i],

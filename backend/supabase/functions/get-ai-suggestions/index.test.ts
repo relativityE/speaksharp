@@ -1079,12 +1079,12 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   // #1538 (PM RETURN 5849473254) — the STORED product marker is the authority; the request product is only an assertion.
-  await t.step('#1538 CASUALTY: an authoritative Focus take cannot be downgraded by product:open_mic — 409, no cache, quota or provider', async () => {
+  await t.step('#1538 CASUALTY: an authoritative Focus take cannot be downgraded by product:open_mic — 422, no cache, quota or provider', async () => {
     for (const session of [focusSession(), focusSession({ ai_suggestions: suggestionA })]) {
       resetProvider();
       const mock = mockSupabase({ session, focus: { objective: null } });
       const res = await handler(request({ sessionId: 'session-a', product: 'open_mic' }), mock.create);
-      assertEquals(res.status, 409);
+      assertEquals(res.status, 422);
       const body = await res.json();
       assertEquals(body.code, 'product_mismatch');
       assertEquals(body.suggestions, undefined);
@@ -1100,7 +1100,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     resetProvider();
     const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), focus: FOCUS });
     const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
-    assertEquals(res.status, 409);
+    assertEquals(res.status, 422);
     assertEquals((await res.json()).code, 'product_mismatch');
     assertEquals(mock.state.authorityRpcCount, 0);
     assertEquals(fetchCount, 0);
@@ -1125,12 +1125,12 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     }
   });
 
-  await t.step('#1538 CASUALTY: a NULL legacy row cannot cache generic coaching — no hint or absence decides; 409 before quota/provider', async () => {
+  await t.step('#1538 CASUALTY: a NULL legacy row cannot cache generic coaching — no hint or absence decides; 422 before quota/provider', async () => {
     for (const body of [{ sessionId: 'session-a' }, { sessionId: 'session-a', product: 'open_mic' }]) {
       resetProvider();
       const mock = mockSupabase({ session: legacySession(), focus: { objective: null } });
       const res = await handler(request(body), mock.create);
-      assertEquals(res.status, 409);
+      assertEquals(res.status, 422);
       assertEquals((await res.json()).code, 'product_unknown');
       assertEquals(mock.state.quotaCount, 0);
       assertEquals(fetchCount, 0);
@@ -1147,12 +1147,12 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     }
   });
 
-  await t.step('#1538 CASUALTY (PM RETURN 5850253992): a legacy row with durable Focus evidence asserted as open_mic is a mismatch — 409, zero receipt/quota/provider/write', async () => {
+  await t.step('#1538 CASUALTY (PM RETURN 5850253992): a legacy row with durable Focus evidence asserted as open_mic is a mismatch — 422, zero receipt/quota/provider/write', async () => {
     for (const session of [legacySession(), legacySession({ ai_suggestions: suggestionA })]) {
       resetProvider();
       const mock = mockSupabase({ session, focus: FOCUS });
       const res = await handler(request({ sessionId: 'session-a', product: 'open_mic' }), mock.create);
-      assertEquals(res.status, 409);
+      assertEquals(res.status, 422);
       const body = await res.json();
       assertEquals(body.code, 'product_mismatch');
       assertEquals(body.suggestions, undefined);
@@ -1215,6 +1215,24 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const other = mockSupabase({ session: savedSession(), sessionSelectErrors: [{ code: '42501', message: 'permission denied' }] });
     assertEquals((await handler(request(), other.create)).status, 404);
     assertEquals(other.state.sessionColumns.length, 1);
+  });
+
+  // #1538 Codex P2 r4117187862 (PM RETURN 5860276061): 409 means ONLY "no available transcript" — the client tells
+  // the user their transcript is missing on 409. Product refusals are 422, which the client shows as "unavailable".
+  await t.step('#1538 CASUALTY: product refusals are 422 (never 409), and a missing transcript is still the only 409', async () => {
+    resetProvider();
+    const unknown = mockSupabase({ session: legacySession(), focus: { objective: null } });
+    const u = await handler(request({ sessionId: 'session-a' }), unknown.create);
+    assertEquals(u.status, 422);
+    assertEquals((await u.json()).code, 'product_unknown');
+    resetProvider();
+    const mismatch = mockSupabase({ session: focusSession(), focus: { objective: null } });
+    const m = await handler(request({ sessionId: 'session-a', product: 'open_mic' }), mismatch.create);
+    assertEquals(m.status, 422);
+    assertEquals((await m.json()).code, 'product_mismatch');
+    resetProvider();
+    const noTranscript = mockSupabase({ session: savedSession({ transcript: null, transcript_state: 'expired' }) });
+    assertEquals((await handler(request(), noTranscript.create)).status, 409);
   });
 
   await t.step('#1258 a point label cannot restructure the prompt (quotes and newlines are flattened)', () => {

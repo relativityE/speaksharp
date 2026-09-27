@@ -34,7 +34,7 @@ const chainRows = (chain: readonly string[], start = 1_000, attemptId: string | 
 const reviewReceipt = (over: Record<string, unknown> = {}) =>
     row('transcript_authority', { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true, ...over });
 
-const COACHING_RENDERED = { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true };
+const COACHING_RENDERED = { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true, attempt_id: 'attempt-1' };
 const RAIL_ONLY = {
     phase: 'rendered', review_surface: 'focus_points_rail', suggestions_present: false,
     what_went_well_source: 'not_applicable', what_to_improve_source: 'not_applicable',
@@ -197,6 +197,21 @@ describe('#1258 — a Focus Points review must include its AI coaching (runbook 
             const rows = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', bad)]);
             expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/rendered no AI coaching/);
         }
+    });
+
+    // #1538 Codex P1 r4117187855 (PM RETURN 5860276061): the coaching receipt must belong to the SAVED take.
+    it('CASUALTY: a rendered coaching receipt with NO attempt, or ANOTHER attempt, does not qualify the saved take', () => {
+        const noAttempt = { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true };
+        for (const coaching of [noAttempt, { ...noAttempt, attempt_id: 'attempt-2' }, { ...noAttempt, attempt_id: '' }]) {
+            const rows = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', coaching)]);
+            expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/saved take's attempt/);
+        }
+    });
+
+    it('HOLD: with no saved take to name the attempt, the coaching receipt cannot be bound (the existing hold reason)', () => {
+        const rows = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', COACHING_RENDERED)])
+            .filter((r) => r.event !== 'session_saved');
+        expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/coaching receipt cannot be bound to the saved take: the post-Stop chain has no session_saved row/);
     });
 
     it('CONTROL: rail + rendered coaching qualifies Focus Points; Open Mic is unaffected (string booleans read too)', () => {

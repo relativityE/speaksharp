@@ -370,11 +370,13 @@ export async function handler(
     //  - NULL (a row created before the marker): decided only by durable Focus evidence, never by the caller's hint or
     //    by an absence, and no generic pair is ever generated and cached for it.
     // A request naming a different product than the stored one fails closed before any cache, quota or provider work.
+    // Product refusals are 422, never 409: the client reads 409 as "this saved session has no transcript" (#1538
+    // Codex P2 r4117187862), which would be false here; 422 is its truthful, terminal "unavailable".
     const marker = asProduct(session.product);
     if (marker && requestedProduct && marker !== requestedProduct) {
       return new Response(JSON.stringify({ error: 'This session was saved as a different product.', code: 'product_mismatch' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 409,
+        status: 422,
       });
     }
     // Legacy rows keep the strictness the page's statement already had: it can only make the request stricter.
@@ -411,7 +413,7 @@ export async function handler(
       if (!marker && requestedProduct === 'open_mic' && focusContext.kind === 'focus') {
         return new Response(JSON.stringify({ error: 'This session was saved as a different product.', code: 'product_mismatch' }), {
           headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-          status: 409,
+          status: 422,
         });
       }
     }
@@ -459,7 +461,7 @@ export async function handler(
     if (!marker && focusContext.kind === 'none') {
       return new Response(JSON.stringify({ error: 'Coaching isn’t available for this older session.', code: 'product_unknown' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 409,
+        status: 422,
       });
     }
 

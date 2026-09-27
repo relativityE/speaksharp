@@ -427,11 +427,18 @@ export const postStopChainInOrder = (chain: readonly string[]) => (rows: readonl
  * card sends its own receipt (`review_surface: coaching_verdict`, `phase: rendered`, `suggestions_present: true`)
  * only once a validated pair is on screen; the Focus stage now requires that receipt too.
  */
-export const focusCoachingRendered = (rows: readonly DecodedTelemetryRow[]): string | null =>
-    propsOf(rows, 'practice_loop').some((p) => p?.review_surface === 'coaching_verdict'
-        && p?.phase === 'rendered' && isTrue(p?.suggestions_present))
+export const focusCoachingRendered = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const rendered = rows.filter((r) => r?.event === 'practice_loop' && r?.properties?.review_surface === 'coaching_verdict'
+        && r?.properties?.phase === 'rendered' && isTrue(r?.properties?.suggestions_present));
+    if (rendered.length === 0) return 'the Focus Points review rendered no AI coaching (only the points rail reported)';
+    // #1538 Codex P1 r4117187855 (PM RETURN 5860276061): the receipt must be the SAVED take's — the same attempt binding
+    // the post-Stop chain uses. A receipt with no attempt, or another attempt's, cannot qualify this take.
+    const attempt = savedTakeAttempt(rows);
+    if ('hold' in attempt) return `the Focus Points coaching receipt cannot be bound to the saved take: ${attempt.hold}`;
+    return rendered.some((r) => attemptOf(r) === attempt.attemptId)
         ? null
-        : 'the Focus Points review rendered no AI coaching (only the points rail reported)';
+        : 'the Focus Points coaching rendered for no receipt carrying the saved take\'s attempt';
+};
 
 const FOCUS_COACHING_RENDERED = {
     name: 'focus_points_coaching_rendered',
