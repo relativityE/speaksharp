@@ -29,7 +29,7 @@ import {
 } from './benchmark-utils';
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
-import { feedbackRetentionVerdict, surfaceReadinessFailures } from './rwtOracles';
+import { acquisitionTimingVerdict, feedbackRetentionVerdict, surfaceReadinessFailures, type AcquisitionTiming } from './rwtOracles';
 import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
@@ -360,6 +360,8 @@ export interface SentEvent {
     /** Closed enums / opaque ids only — never content. */
     reason?: string;
     stage?: string;
+    /** `private_model_acquisition_success` timing only (integers and closed enums; v12 download-vs-setup row). */
+    acquisition?: AcquisitionTiming;
 }
 
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
@@ -387,6 +389,12 @@ export class AnalyticsTap {
                     trafficType: text('traffic_type'),
                     reason: text('reason'),
                     stage: text('stage'),
+                    ...(record.event === 'private_model_acquisition_success' ? { acquisition: {
+                        cacheResult: text('cache_result'), completeness: text('measurement_completeness'),
+                        downloadMs: typeof props.download_ms === 'number' ? props.download_ms : null,
+                        initMs: typeof props.init_ms === 'number' ? props.init_ms : null,
+                        totalMs: typeof props.total_ms === 'number' ? props.total_ms : null,
+                    } } : {}),
                 });
             }
         });
@@ -494,6 +502,12 @@ export class RwtReceipt {
 export function humanObservation(receipt: RwtReceipt, id: string, runbookRow: string, question: string, passCriterion: string): void {
     receipt.row(`human: ${question}`, 'HUMAN', 'named human RWT observation; record PASS/FAIL in this run\'s worksheet, then run pnpm rwt:finalize',
         { observationId: id, runbookRow, passCriterion, recorded: 'pending' });
+}
+
+/** v12 preflight: first-use model download vs engine setup timing, from the app's own acquisition receipt(s). */
+export function acquisitionTimingRow(receipt: RwtReceipt, tap: AnalyticsTap): void {
+    const v = acquisitionTimingVerdict(tap.sent('private_model_acquisition_success').map((e) => e.acquisition ?? {}));
+    receipt.row('model download vs setup timing', v.verdict, v.detail, v.evidence);
 }
 
 /** Serialized evidence must never carry these; a match is itself a FAIL row. */

@@ -57,3 +57,36 @@ export function feedbackRetentionVerdict(input: {
         evidence: { rows, userLinkCleared: false },
     };
 }
+
+/** The content-free timing fields of the app's own `private_model_acquisition_success` receipt. */
+export interface AcquisitionTiming {
+    cacheResult?: string;
+    completeness?: string;
+    downloadMs?: number | null;
+    initMs?: number | null;
+    totalMs?: number | null;
+}
+
+/**
+ * v12 preflight (PM 5859727542) — first-use DOWNLOAD vs engine SETUP timing, taken from the app's own acquisition
+ * receipt (`download_ms` / `init_ms`, measured by the app, never estimated here). The FIRST acquisition in the journey
+ * is the first-use cost. PASS only when both halves were measured (`measurement_completeness: complete`); a missing
+ * receipt, a partial measurement or a missing half is HOLD — timing that was not measured is never reported as measured.
+ * This row records timing; it applies no performance threshold.
+ */
+export function acquisitionTimingVerdict(receipts: readonly AcquisitionTiming[]): {
+    verdict: Verdict; detail: string; evidence: Record<string, string | number | boolean | null>;
+} {
+    const first = receipts[0];
+    const count = receipts.length;
+    if (!first) return { verdict: 'HOLD', detail: 'no model acquisition receipt was sent, so download vs setup timing is unobserved', evidence: { acquisitions: 0 } };
+    const measured = first.completeness === 'complete'
+        && typeof first.downloadMs === 'number' && typeof first.initMs === 'number';
+    const evidence = {
+        acquisitions: count, cacheResult: first.cacheResult ?? null, completeness: first.completeness ?? null,
+        downloadMs: first.downloadMs ?? null, initMs: first.initMs ?? null, totalMs: first.totalMs ?? null,
+    };
+    return measured
+        ? { verdict: 'PASS', detail: 'first-use model download and engine setup were measured separately by the app', evidence }
+        : { verdict: 'HOLD', detail: 'the first acquisition was not completely measured, so download vs setup cannot be separated', evidence };
+}

@@ -168,6 +168,12 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             // ── Release-level real-phone check (PM plan decision 5849354099) ────────────────────────────────
             // Once per release, in this suite only (it runs once against the final deployed SHA; the worksheet binds that
             // SHA). #1536's momentum-guard evidence is Chrome/CDP simulation; a real phone's fling is a human observation.
+            // v12 preflight: real browser permissions. Automation pre-grants the microphone, so the first-use prompt is
+            // never exercised here; it is a named human observation against the final deployed SHA (Dev mapping 5860497358).
+            humanObservation(receipt, 'real_microphone_permission_prompt', 'v12 preflight — real permissions',
+                'On a real device, does the first recording ask for the microphone and behave truthfully when allowed or denied?',
+                'On a fresh browser profile at the deployed SHA: press Start. PASS only if the browser microphone prompt appears; '
+                + 'Allow records normally; Deny shows the product\'s explanation and never records. Record device, OS and browser.');
             humanObservation(receipt, 'mobile_stop_confirmation_visible', 'mobile Stop (#1536)',
                 'On a real phone, does the saved confirmation stay visible when Stop is tapped during a flick?',
                 'On a real phone at the deployed SHA: start a take, flick the recording page, tap Stop while it is still moving, '

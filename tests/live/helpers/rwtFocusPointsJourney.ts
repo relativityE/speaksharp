@@ -36,6 +36,7 @@ import {
     practiceAgainRows,
     productMarkerRows,
     modelIdentityRow,
+    acquisitionTimingRow,
     shareFeedbackRows,
     feedbackRetentionAfterDeletionRow,
     RWT_ACCOUNT_PREFIX,
@@ -420,6 +421,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // Point text and topic are the person's content: they must never reach the receipt.
         const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));
         receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no point text, topic or credential in the receipt' : 'the receipt carried a forbidden value');
+        // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
+        acquisitionTimingRow(receipt, tap);
         if (fixtureKey === 'focus_points_tts') {
             // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
             // On success the owner is cleared so the spec's afterEach does not repeat the deletion.

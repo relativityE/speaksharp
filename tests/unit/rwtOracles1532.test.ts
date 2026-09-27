@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-    detectedCountExpected, feedbackRetentionVerdict, focusPointMeetsExpectation, surfaceReadinessFailures,
+    acquisitionTimingVerdict, detectedCountExpected, feedbackRetentionVerdict, focusPointMeetsExpectation, surfaceReadinessFailures,
 } from '../live/helpers/rwtOracles';
 
 describe('r4105978609 — approved surface requires app-visible readiness', () => {
@@ -61,5 +61,29 @@ describe('r4105978630 — feedback retention is proven after deletion, not befor
     it('the evidence is content-free (no report id, no user id)', () => {
         const v = feedbackRetentionVerdict({ reportId: 'report-abc', deletion: 'deleted', read: { error: false, rows: [{ user_id: 'user-xyz' }] } });
         expect(JSON.stringify(v)).not.toMatch(/report-abc|user-xyz/);
+    });
+});
+
+// v12 preflight (PM 5859727542, Dev mapping 5860497358): model DOWNLOAD vs engine SETUP timing, measured separately.
+describe('v12 — download vs setup timing from the app\'s own acquisition receipt', () => {
+    it('PASS when the receipt measured download and setup separately (complete), content-free evidence', () => {
+        const v = acquisitionTimingVerdict([{ cacheResult: 'miss', completeness: 'complete', downloadMs: 41_200, initMs: 3_100, totalMs: 44_500 }]);
+        expect(v.verdict).toBe('PASS');
+        expect(v.evidence).toMatchObject({ cacheResult: 'miss', downloadMs: 41_200, initMs: 3_100, totalMs: 44_500 });
+    });
+    it('PASS for a warm cache (hit) with setup measured and no download', () => {
+        expect(acquisitionTimingVerdict([{ cacheResult: 'hit', completeness: 'complete', downloadMs: 0, initMs: 2_000, totalMs: 2_000 }]).verdict).toBe('PASS');
+    });
+    it('HOLD (never PASS) when no receipt was sent, or it was only partially measured, or a split is missing', () => {
+        expect(acquisitionTimingVerdict([]).verdict).toBe('HOLD');
+        expect(acquisitionTimingVerdict([{ cacheResult: 'miss', completeness: 'partial', downloadMs: null, initMs: null, totalMs: 9_000 }]).verdict).toBe('HOLD');
+        expect(acquisitionTimingVerdict([{ cacheResult: 'miss', completeness: 'complete', downloadMs: 1, initMs: null, totalMs: 9 }]).verdict).toBe('HOLD');
+    });
+    it('uses the FIRST acquisition of the journey (the first-use cost)', () => {
+        const v = acquisitionTimingVerdict([
+            { cacheResult: 'miss', completeness: 'complete', downloadMs: 30_000, initMs: 3_000, totalMs: 33_000 },
+            { cacheResult: 'hit', completeness: 'complete', downloadMs: 0, initMs: 1_000, totalMs: 1_000 },
+        ]);
+        expect(v.evidence).toMatchObject({ cacheResult: 'miss', downloadMs: 30_000, acquisitions: 2 });
     });
 });

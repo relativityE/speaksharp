@@ -58,6 +58,7 @@ import {
     practiceAgainRows,
     productMarkerRows,
     modelIdentityRow,
+    acquisitionTimingRow,
     shareFeedbackRows,
     feedbackRetentionAfterDeletionRow,
     analyticsRows,
@@ -527,6 +528,8 @@ test.describe('RWT — Open Mic first session @live', () => {
             // "analytics detail shows both AI suggestions").
             const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
             receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no credential, email or coaching text in the receipt' : 'the receipt carried a forbidden value');
+            // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
+            acquisitionTimingRow(receipt, tap);
             // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
             accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
