@@ -202,7 +202,8 @@ test.describe('Post-save consolidation', () => {
     //  - the SAVED review retains it for the NEWEST session, so the detail DOES render it.
     // Conflating the two was the superseded contract.
     await expect(page.getByTestId('session-detail-transcript')).toHaveCount(1);
-    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+    // #1258 G20: the saved review owns the ONE next action (its single practice control).
+    await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
   });
 
   test('Reduced motion: the Analytics cue never pulses — it shows the persistent static emphasis immediately', async ({ page }) => {

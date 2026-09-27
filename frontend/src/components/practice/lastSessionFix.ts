@@ -38,6 +38,20 @@ const COACHING_VERSION = 'gemini_coaching_v1';
  * double-encoded write), or nothing at all.
  */
 export function readLastSessionFix(raw: unknown): string | null {
+    return readSavedReview(raw)?.whatToTryNext ?? null;
+}
+
+/** Both halves of a contract-valid saved review, trimmed. */
+export interface SavedReview {
+    whatWorked: string;
+    whatToTryNext: string;
+}
+
+/**
+ * The whole persisted review, or `null` when there is no contract-valid review. Same fail-closed checks as
+ * above; the Analytics session detail uses it to show the saved review in full (#1258).
+ */
+export function readSavedReview(raw: unknown): SavedReview | null {
     const candidate = typeof raw === 'string' ? safeParse(raw) : raw;
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
     const keys = Object.keys(candidate as Record<string, unknown>).sort();
@@ -49,7 +63,7 @@ export function readLastSessionFix(raw: unknown): string | null {
     // and quoting half a review as the user's lesson is worse than falling back.
     if (typeof fix !== 'string' || typeof worked !== 'string') return null;
     if (!fix.trim() || !worked.trim()) return null;
-    return fix.trim();
+    return { whatWorked: worked.trim(), whatToTryNext: fix.trim() };
 }
 
 function safeParse(text: string): unknown {

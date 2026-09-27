@@ -162,6 +162,14 @@ type RecordingProgressMode =
     | { mode: 'focus_points'; brief: ObjectiveBriefSnapshot }
     | { mode: 'unknown' };
 
+/**
+ * #1258 — the durable session product marker written at creation. It comes ONLY from the mode locked at the recording
+ * boundary (never re-read from a live store): `unknown` sends nothing, so the row is created with NULL rather than a
+ * guess. A server without the marker migration ignores the key.
+ */
+const productMarkerFor = (m: { mode: 'open_mic' | 'focus_points' | 'unknown' }): { product?: 'open_mic' | 'focus_points' } =>
+    m.mode === 'unknown' ? {} : { product: m.mode };
+
 type ProgressCompletionContext =
     | { mode: 'open_mic' }
     | {
@@ -1200,6 +1208,8 @@ export class SpeechRuntimeController {
                             total_words: 0,
                             engine: ctx.mode,
                             save_only: true,
+                            // #1258: the Retry Save carries the product captured at recording time, not a later value.
+                            ...productMarkerFor(fullSave.progressContext ?? { mode: 'unknown' }),
                         },
                         { id: ctx.userId } as UserProfile,
                         ctx.mode as TranscriptionMode,
@@ -4341,7 +4351,7 @@ export class SpeechRuntimeController {
                     this.updateSessionPersisted(false);
                     pushNativeRuntimeTrace('controller_placeholder_save_start', { mode: negMode });
                     const saveResult = await saveSession(
-                        { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode },
+                        { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode, ...productMarkerFor(this.recordingProgressMode) },
                         { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
                     pushNativeRuntimeTrace('controller_placeholder_save_done', { status: saveResult.status });
                     if (saveResult.status === 'usage_exceeded') {
@@ -4725,6 +4735,10 @@ export class SpeechRuntimeController {
         // is always disposed by the next startShadowMetricsEngine.
         return this.enqueue(async (token) => {
             const stopEntryMode = this.service?.getMode?.() ?? this.policy?.preferredMode ?? null;
+            // #1535 (Codex P2 r4116626845): the STOPPED take's product, captured before any suspension. `sessions.product`
+            // is immutable, and a hard reset or a successor recording rewrites the shared `recordingProgressMode` while
+            // stopTranscription() is pending — the late-create fallback below must never write theirs.
+            const stopProductMarker = productMarkerFor(this.recordingProgressMode);
 
             const canStop =
                 this.state === 'RECORDING' ||
@@ -4940,6 +4954,7 @@ export class SpeechRuntimeController {
                                 transcript: fallbackTranscript,
                                 total_words: 0,
                                 engine: mode,
+                                ...stopProductMarker,
                             };
                             const saveResult = await saveSession(
                                 fallbackSessionData,

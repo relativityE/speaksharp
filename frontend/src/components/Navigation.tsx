@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, LogOut, Mic, Target, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
+import { trackProductsMenuOpened } from '@/services/reviewSurfaceTelemetry';
 import { NAV_SECTIONS, navItemClassName, normalizeNavPath, resolveNavSectionId } from "@/config/navSections";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
@@ -260,7 +261,7 @@ const Navigation = () => {
                     </Link>
                   );
                 })}
-                <DropdownMenu>
+                <DropdownMenu onOpenChange={(open) => { if (open) trackProductsMenuOpened('desktop'); }}>
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
@@ -334,7 +335,7 @@ const Navigation = () => {
                       overlaps neither the recording surface nor the bottom bar, and it appears only
                       where the bottom bar is absent. */}
                   {isOnSessionRoute && (
-                    <DropdownMenu>
+                    <DropdownMenu onOpenChange={(open) => { if (open) trackProductsMenuOpened('mobile'); }}>
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"

@@ -315,14 +315,36 @@ export async function setupE2EManifest(
     // trusted register succeeded in appearance but returned no `registered` verdict and finalization
     // could never publish the stop-seam coverage result. Terminal E2E then passed only because the view
     // re-scored flattened text — the weaker authority #1427 removed.
-    let objectiveSequence = 0;
-    const objectiveBriefPoints = new Map<string, Array<{
-      id: string;
-      brief_id: string;
-      label: string;
-      cue: string | null;
-      sort_order: number;
-    }>>();
+    // #1258 RWT item 3 — the SAVED Focus Points result, modelled as the server stores it (objective_session per saved
+    // take, objective_evidence per point: `detected` when the signal carries a time, else `not_detected`), and kept in
+    // sessionStorage like the session rows so the Analytics detail can read it back after a reload.
+    type ObjectivePointRow = { id: string; brief_id: string; label: string; cue: string | null; sort_order: number };
+    type ObjectiveState = {
+      seq: number;
+      points: Array<[string, ObjectivePointRow[]]>;
+      briefs: Record<string, { id: string; project_id: string; event_goal: string }>;
+      sessions: Array<{ id: string; brief_id: string; source_session_id: string | null; created_at: string }>;
+      evidence: Array<{ session_id: string; brief_point_id: string; verdict: 'detected' | 'not_detected'; detected_at_seconds: number | null }>;
+    };
+    const OBJECTIVE_STATE_KEY = '__e2e_objective_state_1258';
+    const objectiveState: ObjectiveState = (() => {
+      try {
+        const parsed = JSON.parse(window.sessionStorage.getItem(OBJECTIVE_STATE_KEY) || 'null') as ObjectiveState | null;
+        if (parsed && Array.isArray(parsed.points)) return parsed;
+      } catch { /* fall through to an empty store */ }
+      return { seq: 0, points: [], briefs: {}, sessions: [], evidence: [] };
+    })();
+    let objectiveSequence = objectiveState.seq;
+    const objectiveBriefPoints = new Map<string, ObjectivePointRow[]>(objectiveState.points);
+    const persistObjective = () => {
+      try {
+        objectiveState.seq = objectiveSequence;
+        objectiveState.points = [...objectiveBriefPoints.entries()];
+        window.sessionStorage.setItem(OBJECTIVE_STATE_KEY, JSON.stringify(objectiveState));
+      } catch {
+        // Non-fatal in E2E; the in-memory state still works until the next full navigation.
+      }
+    };
     let userGoals = {
       user_id: e2eProfile.id,
       weekly_goal: 5,
@@ -362,6 +384,20 @@ export async function setupE2EManifest(
       if (table === 'objective_brief_point') {
         const briefId = filters.find((filter) => filter.column === 'brief_id')?.value;
         const rows = typeof briefId === 'string' ? (objectiveBriefPoints.get(briefId) ?? []) : [];
+        return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
+      }
+      if (table === 'objective_session') {
+        // Newest first, as the saved-results reader orders it.
+        const rows = objectiveState.sessions.filter((row) => matchesFilters(row, filters))
+          .sort((a, b) => b.created_at.localeCompare(a.created_at));
+        return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
+      }
+      if (table === 'objective_evidence') {
+        const rows = objectiveState.evidence.filter((row) => matchesFilters(row, filters));
+        return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
+      }
+      if (table === 'objective_brief') {
+        const rows = Object.values(objectiveState.briefs).filter((row) => matchesFilters(row, filters));
         return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
       }
       const progressRows = table === 'session_progress_evaluations' ? progress?.evaluations
@@ -656,18 +692,40 @@ export async function setupE2EManifest(
               sort_order: index,
             };
           }));
+          objectiveState.briefs[briefId] = { id: briefId, project_id: String(args?.p_project_id ?? ''), event_goal: String(args?.p_event_goal ?? '') };
+          persistObjective();
           return { data: briefId, error: null };
         }
         if (fn === 'objective_start_session_v1') {
           objectiveSequence += 1;
-          return { data: `e2e-objective-session-${objectiveSequence}`, error: null };
+          const objectiveSessionId = `e2e-objective-session-${objectiveSequence}`;
+          objectiveState.sessions.push({
+            id: objectiveSessionId,
+            brief_id: String(args?.p_brief_id ?? ''),
+            source_session_id: typeof args?.p_source_session_id === 'string' ? args.p_source_session_id : null,
+            created_at: nowIso(),
+          });
+          persistObjective();
+          return { data: objectiveSessionId, error: null };
         }
         if (fn === 'objective_finalize_evidence_v1') {
           const signals = Array.isArray(args?.p_signals) ? args.p_signals : null;
-          return signals ? { data: signals.length, error: null } : {
-            data: null,
-            error: { code: '22023', message: 'p_signals must be an array' },
-          };
+          if (!signals) return { data: null, error: { code: '22023', message: 'p_signals must be an array' } };
+          const objectiveSessionId = String(args?.p_session_id ?? '');
+          // The server's verdict rule: a signal with a time was detected; one without was not.
+          objectiveState.evidence = objectiveState.evidence.filter((row) => row.session_id !== objectiveSessionId);
+          for (const raw of signals) {
+            const signal = raw as { brief_point_id?: unknown; detected_at_seconds?: unknown };
+            const at = typeof signal.detected_at_seconds === 'number' ? signal.detected_at_seconds : null;
+            objectiveState.evidence.push({
+              session_id: objectiveSessionId,
+              brief_point_id: String(signal.brief_point_id ?? ''),
+              verdict: at === null ? 'not_detected' : 'detected',
+              detected_at_seconds: at,
+            });
+          }
+          persistObjective();
+          return { data: signals.length, error: null };
         }
         if (fn === 'create_session_and_update_usage') {
           const sessionData = (args?.p_session_data || {}) as Record<string, unknown>;

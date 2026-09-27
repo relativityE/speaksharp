@@ -13,6 +13,8 @@ import {
   trackPracticeLoopReviewRequested,
   type PracticeLoopReviewFailureReason,
 } from '@/services/practiceLoopTelemetry';
+import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
+import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 
 interface AISuggestionsData {
   version: 'gemini_coaching_v1';
@@ -214,6 +216,23 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
   const reviewCardRef = useRef<HTMLDivElement>(null);
   const renderedReceiptRef = useRef<string | null>(null);
+
+  /**
+   * #1258 G20 — "From this session", read from what the session SAVED (the same reader Analytics uses), once the
+   * review is showing. A read only: it never requests coaching. Keyed on the session so a superseded session's
+   * evidence can never appear under the current one.
+   */
+  const [evidenceFor, setEvidenceFor] = useState<{ sessionId: string; lines: string[] } | null>(null);
+  const hasSuggestions = Boolean(suggestions);
+  useEffect(() => {
+    if (!sessionId || !hasSuggestions) return;
+    let active = true;
+    void loadSavedSessionReview(sessionId).then((saved) => {
+      if (active) setEvidenceFor({ sessionId, lines: saved.evidence });
+    });
+    return () => { active = false; };
+  }, [sessionId, hasSuggestions]);
+  const evidence = evidenceFor && evidenceFor.sessionId === sessionId ? evidenceFor.lines : [];
 
   useEffect(() => {
     setView({
@@ -610,19 +629,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       )}
 
       {!stillComing && suggestions && (
-        <div className="flex flex-col gap-3" data-testid="ai-suggestions-pair">
-          <div className="rounded-xl bg-ink-raised px-[15px] py-3">
-            {/* Headings, not styled paragraphs: the pair is two labelled sections, and the live Practice
-                Loop journey locates each by its heading role before reading the sentence beneath it. */}
-            <h4 className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-ink-muted">What went well</h4>
-            <p className="mt-1.5 text-[15px] font-semibold leading-snug text-ink-text">{suggestions.what_worked}</p>
-          </div>
-          {/* The fix, in the signature block S-12 reserves for it — the one imperative sentence. */}
-          <div className="rounded-xl bg-signature px-5 py-[18px]">
-            <h4 className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-signature-text">Try this next run</h4>
-            <p className="mt-1.5 text-[16px] font-extrabold leading-[1.48] text-ink">{suggestions.what_to_try_next}</p>
-          </div>
-        </div>
+        /* #1258 G20 — the same shared pair the Analytics detail renders, with this session's saved evidence. */
+        <PracticeLoopReviewPair
+          testId="ai-suggestions-pair"
+          whatWorked={suggestions.what_worked}
+          whatToTryNext={suggestions.what_to_try_next}
+          evidence={evidence}
+        />
       )}
 
       {!stillComing && !suggestions && !reviewReady && (

@@ -1653,6 +1653,47 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(completeArgs.duration, 'precondition: a real recorded duration').toBeGreaterThan(0);
     });
 
+    it.each([
+        ['focus_points', { mode: 'focus_points', brief: { projectId: 'p1', briefId: 'b1', points: ['One'] }, segments: [], durationSeconds: 11 }, { product: 'focus_points' }],
+        ['open_mic', { mode: 'open_mic' }, { product: 'open_mic' }],
+    ] as const)('#1258: the Retry Save (save-only) carries the product LOCKED AT RECORDING — %s', async (_label, progressContext, expected) => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        vi.mocked(storage.saveSession).mockResolvedValue({ status: 'saved', session: { id: 'new-row-3' } } as never);
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: null,
+            initialSave: { userId: 'user-early', recordingId: 'rec-idem-3', mode: 'private' },
+            completeArgs: PRODUCTION_VALID_COMPLETED_ARGS('early speech', 11),
+            attributionEvidence: null,
+            progressContext,
+        };
+        // The live mode has since moved on (the next take was reset): the retry must NOT read it.
+        (controller as unknown as { recordingProgressMode: unknown }).recordingProgressMode = { mode: 'unknown' };
+        setUnresolved(true);
+        await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
+        expect(vi.mocked(storage.saveSession).mock.calls[0][0]).toMatchObject({ save_only: true, ...expected });
+    });
+
+    it('#1258: a Retry Save whose recording mode is UNKNOWN sends NO product (the row is created NULL, never a guess)', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        vi.mocked(storage.saveSession).mockResolvedValue({ status: 'saved', session: { id: 'new-row-4' } } as never);
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: null,
+            initialSave: { userId: 'user-early', recordingId: 'rec-idem-4', mode: 'private' },
+            completeArgs: PRODUCTION_VALID_COMPLETED_ARGS('early speech', 11),
+            attributionEvidence: null,
+            progressContext: { mode: 'unknown' },
+        };
+        setUnresolved(true);
+        await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
+        expect(vi.mocked(storage.saveSession).mock.calls[0][0]).not.toHaveProperty('product');
+    });
+
     it('#1033 (1): a FAILED initial_save stays retryable and locked (no duplicate, nothing lost)', async () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.saveSession).mockResolvedValueOnce({ status: 'failed', reason: 'rpc_error' } as never);
@@ -2488,6 +2529,52 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(firstArg).toBeDefined();
         expect(firstArg?.duration).toBe(300);
         expect(firstArg?.duration).not.toBe(388);
+    });
+
+    // #1535 Codex P2 r4116626845 (PM RETURN 5859089409): `sessions.product` is immutable, so the late-create fallback
+    // must write the STOPPED take's product — captured before the stopTranscription() suspension — never whatever a
+    // hard reset or a successor recording left in the shared `recordingProgressMode` meanwhile.
+    it.each([
+        ['a hard reset', (c: unknown) => { (c as { applyHardResetState: (r: string) => unknown }).applyHardResetState('test_reset_during_stop'); }],
+        ['a successor recording boundary', (c: unknown) => { (c as { recordingProgressMode: unknown }).recordingProgressMode = { mode: 'open_mic' }; }],
+    ] as const)('CASUALTY: the late-create fallback save keeps the stopped take\'s product after %s during the stop', async (_label, interfere) => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        vi.mocked(storage.saveSession).mockResolvedValue({ status: 'saved', session: { id: 'late-created-session' } } as never);
+        const T0 = 1_700_000_000_000;
+        vi.setSystemTime(T0 + 60_000);
+        const stopTranscription = vi.fn().mockImplementation(async () => {
+            interfere(controller);
+            return { success: true, transcript: 'point one point two', stats: { total_words: 4, filler_words: {}, speaking_rate: 0, duration: 60, accuracy: 1 } };
+        });
+        (controller as unknown as { service: unknown }).service = {
+            getMode: vi.fn().mockReturnValue('private'),
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            getStartTime: vi.fn().mockReturnValue(T0),
+            stopTranscription,
+            destroy: vi.fn().mockResolvedValue(undefined),
+            getMetadata: vi.fn().mockReturnValue({ engineVersion: 'transformers-js', modelName: 'whisper-base.en', deviceType: 'browser' }),
+            setSessionId: vi.fn(),
+            isServiceDestroyed: () => false,
+        };
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string | null }).sessionId = null; // placeholder creation failed
+        (controller as unknown as { recordingProgressMode: unknown }).recordingProgressMode = {
+            mode: 'focus_points', brief: { projectId: 'p1', briefId: 'b1', points: ['One'] },
+        };
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        useSessionStore.getState().setSTTMode('private');
+        (controller as unknown as { handleTranscriptUpdate: (d: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
+            transcript: { partial: 'point one point two' },
+        });
+
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        expect(stopTranscription).toHaveBeenCalledTimes(1);
+        const firstArg = vi.mocked(storage.saveSession).mock.calls[0]?.[0] as { product?: string } | undefined;
+        expect(firstArg).toBeDefined();
+        expect(firstArg?.product).toBe('focus_points');
     });
 
     it('flags repetitionRisk on the save candidate for a Whisper loop WITHOUT altering the saved transcript', async () => {

@@ -569,6 +569,19 @@ export const EVENT_SCHEMAS = Object.freeze({
         comparison_nonce: slug(), comparison_evidence_document_id: slug(),
     },
     practice_overview_expanded: { mode: enumOf(PRACTICE_MODES), release_sha: slug() },
+    // #1258 (PM 2026-09-25) — runbook controls that had no event. Closed enums/booleans only. A saved review shown on
+    // Analytics is a REVISIT (its own event), never a generation: it cannot inflate the practice_loop_review_* counts.
+    session_pdf_downloaded: { surface: enumOf(['history_list', 'history_list_mobile', 'session_detail']) },
+    saved_review_revisited: {
+        product: enumOf(['open_mic', 'focus_points', 'unknown']),
+        review_state: enumOf(['review', 'none', 'expired', 'error']),
+        evidence_present: { kind: 'bool' } as FieldRule,
+    },
+    saved_review_practice_selected: {
+        product: enumOf(['open_mic', 'focus_points', 'unknown']),
+        linked_repeat: { kind: 'bool' } as FieldRule,
+    },
+    products_menu_opened: { surface: enumOf(['desktop', 'mobile']) },
     // Was entirely UNGOVERNED: a real producer whose properties were all dropped.
     freeform_practice_started: {
         mode: enumOf(PRACTICE_MODES), entry_source: enumOf(ENTRY_SOURCES), release_sha: slug(),

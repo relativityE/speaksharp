@@ -15,6 +15,9 @@ import React from 'react';
 
 // Mock modules
 vi.mock('../../contexts/AuthProvider');
+// #1258 (PM 2026-09-25): opening the Products menu is a runbook control with its own content-free event.
+const productsMenuOpened = vi.fn();
+vi.mock('@/services/reviewSurfaceTelemetry', () => ({ trackProductsMenuOpened: (...args: unknown[]) => productsMenuOpened(...args) }));
 vi.mock('@/services/issueReportService', async () => {
     const actual = await vi.importActual<typeof import('@/services/issueReportService')>('@/services/issueReportService');
     return {
@@ -307,6 +310,22 @@ describe('Navigation', () => {
             await user.click(screen.getByTestId('nav-products-button'));
             expect(await screen.findByTestId('nav-products-open-mic')).toHaveAttribute('href', '/session');
             expect(screen.getByTestId('nav-products-focus-points')).toHaveAttribute('href', '/practice?product=focus-points');
+        });
+
+        it('#1258: opening the Products menu sends one products_menu_opened (desktop); closing sends nothing', async () => {
+            mockUseAuthProvider.mockReturnValue({
+                session: { user: { id: 'test-user' } },
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+            productsMenuOpened.mockReset();
+            const user = userEvent.setup();
+            renderNavigation();
+            await user.click(screen.getByTestId('nav-products-button'));
+            await screen.findByTestId('nav-products-open-mic');
+            expect(productsMenuOpened).toHaveBeenCalledTimes(1);
+            expect(productsMenuOpened).toHaveBeenCalledWith('desktop');
+            await user.keyboard('{Escape}');
+            expect(productsMenuOpened).toHaveBeenCalledTimes(1);
         });
 
         it('should have correct href for Analytics link', () => {
