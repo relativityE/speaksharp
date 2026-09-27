@@ -23,6 +23,8 @@ import {
 const VERSION = '20260924150000';
 const FILE = `${VERSION}_progress_evaluation_filler_counts_authority_1471.sql`;
 const PREVIOUS = '20260923120000'; // #1476
+/** #1258 — the product-marker migration, allowlisted after this target: a later, pending entry here. */
+const MARKER = '20260926190000';
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
 const WORKFLOW = readFileSync(resolve(ROOT, '.github/workflows/apply-exact-allowlisted-migration.yml'), 'utf8');
@@ -48,7 +50,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'b'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version), 'static: later allowlist entries (#1258 marker, then activation)').toEqual([MARKER, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -66,6 +68,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
         }),
         applied.includes(PREVIOUS) ? ` ${PREVIOUS} | ${PREVIOUS} | x` : ` ${PREVIOUS} |                | x`,
         ` ${VERSION} |                | x`,
+        ` ${MARKER} |                | x`,
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while #1476 is still pending — named, not hidden', () => {
@@ -74,17 +77,18 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
 
     it('EXECUTABLE once #1476 is applied: admitted; target-only; the applied activation file stays; nothing pending after', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION], excludedVersions: [] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, MARKER], excludedVersions: [MARKER] });
         const root = mkdtempSync(join(tmpdir(), 'exact-1471-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
             const isolated = readdirSync(join(root, 'exact-backend', 'supabase', 'migrations'));
             expect(isolated).toContain(FILE);
             expect(isolated).toContain(ACTIVATION.file);
+            expect(isolated.some((f) => f.startsWith(MARKER)), 'the later #1258 marker migration is NOT applied with this target').toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([MARKER]);
     });
 });
