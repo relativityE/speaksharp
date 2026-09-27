@@ -17,8 +17,10 @@ const calls: Array<{ op: string; args: unknown[] }> = [];
 function builder(table: string) {
     const chain: Record<string, unknown> = {};
     for (const op of ['select', 'eq']) chain[op] = (...args: unknown[]) => { calls.push({ op, args }); return chain; };
-    chain.maybeSingle = () => Promise.resolve(
-        table === 'objective_source_recording' ? source : (sessionsQueue.length ? sessionsQueue.shift()! : row));
+    chain.maybeSingle = () => {
+        const r = table === 'objective_source_recording' ? source : (sessionsQueue.length ? sessionsQueue.shift()! : row);
+        return (r as { throws?: boolean }).throws ? Promise.reject(new Error('network')) : Promise.resolve(r);
+    };
     return chain;
 }
 vi.mock('@/lib/supabaseClient', () => ({
@@ -162,6 +164,23 @@ describe('loadSavedSessionReview', () => {
         const r = await loadSavedSessionReview('s1');
         expect(r).toMatchObject({ product: 'unknown', evidence: [], focusBrief: null });
         expect(r.focusReadFailed).toBeUndefined();
+    });
+
+    // #1535 Codex P2 r4116859975: a FAILED review read is not a legacy session — it is a retryable read failure.
+    it('CASUALTY: a failed or empty session read is a retryable REVIEW read failure (never a product choice)', async () => {
+        row = { data: null, error: { code: '503' } };
+        expect(await loadSavedSessionReview('s1')).toMatchObject({ coaching: { kind: 'error' }, product: 'unknown', reviewReadFailed: true });
+        row = { data: null, error: null };
+        expect(await loadSavedSessionReview('s1')).toMatchObject({ product: 'unknown', reviewReadFailed: true });
+        row = { data: null, error: null, throws: true } as Result;
+        expect(await loadSavedSessionReview('s1')).toMatchObject({ product: 'unknown', reviewReadFailed: true });
+    });
+
+    it('CONTROL: a readable legacy (unmarked) session is unknown WITHOUT a read failure', async () => {
+        row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: null }, error: null };
+        const r = await loadSavedSessionReview('s1');
+        expect(r.product).toBe('unknown');
+        expect(r.reviewReadFailed).toBeUndefined();
     });
 
     it('states: expired with the transcript, none saved, invalid stored value, failed read', async () => {

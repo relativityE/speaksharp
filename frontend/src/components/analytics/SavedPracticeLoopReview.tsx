@@ -82,7 +82,9 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
         if (!review || repeat.linkState === 'pending' || repeat.linkState === 'blocked' || repeat.accepting) return;
         // PM RETURN 5849471237: a marked Focus take whose point set couldn't be read never opens a generic or unlinked
         // practice; the action re-reads the saved review, and the repeat runs only once the set is back.
-        if (review.focusReadFailed) {
+        // #1535 (Codex P2 r4116859975): a failed read of the review ITSELF is retried the same way — never the generic
+        // product chooser a genuinely unmarked legacy session opens.
+        if (review.focusReadFailed || review.reviewReadFailed) {
             setSaved(null);
             setReadAttempt((n) => n + 1);
             return;
@@ -107,7 +109,7 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
                 data-link-state={repeat.linkState}
                 className="rounded-lg bg-ink px-5 py-3 text-[15px] font-bold text-ink-text hover:brightness-110 disabled:opacity-60"
             >
-                {review?.focusReadFailed ? 'Try again'
+                {review?.focusReadFailed || review?.reviewReadFailed ? 'Try again'
                     : repeat.accepting ? 'Linking repeat…'
                     : repeat.linkState === 'pending' || (repeat.linkState === 'error' && repeat.query.isFetching) ? 'Checking your next practice…'
                         : progressReadFailed ? 'Try again'
@@ -123,7 +125,7 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
                     {FOCUS_RESULTS_READ_FAILED}
                 </p>
             )}
-            {!review?.focusReadFailed && progressReadFailed && (
+            {!review?.focusReadFailed && !review?.reviewReadFailed && progressReadFailed && (
                 <p role="alert" className="mt-2 text-[13px] font-semibold text-ink" data-testid="saved-review-progress-error">
                     Your next practice couldn’t be checked, so it wasn’t started. Try again.
                 </p>

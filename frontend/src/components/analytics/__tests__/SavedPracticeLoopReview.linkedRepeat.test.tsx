@@ -234,6 +234,36 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(setOpenAttempt).toHaveBeenCalledTimes(1);
     });
 
+    // #1535 Codex P2 r4116859975: a failed REVIEW read with a terminal progress answer must retry, never open /practice.
+    it('CASUALTY: a failed review read + a direct progress answer re-reads instead of opening the generic chooser; the re-read restores the same set', async () => {
+        loadReview.mockResolvedValueOnce({ coaching: { kind: 'error' }, product: 'unknown', evidence: [], focusBrief: null, focusPoints: [], reviewReadFailed: true });
+        loadProgress.mockResolvedValue({ status: 'insufficient', sessionId: 's1' });
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'direct'));
+        await waitFor(() => expect(action()).toHaveTextContent('Try again'));
+        fireEvent.click(action());
+        expect(navigate).not.toHaveBeenCalled();
+        expect(practiceSelected).not.toHaveBeenCalled();
+        await waitFor(() => expect(loadReview).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
+        fireEvent.click(action());
+        expect(navigate).toHaveBeenCalledTimes(1);
+        expect(navigate).toHaveBeenCalledWith('/session');
+        expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
+    });
+
+    it('CONTROL: a READABLE legacy (unmarked) session with a direct progress answer still opens the product chooser', async () => {
+        loadReview.mockResolvedValueOnce({ coaching: FOCUS.coaching, product: 'unknown', evidence: [], focusBrief: null, focusPoints: [] });
+        loadProgress.mockResolvedValue({ status: 'insufficient', sessionId: 's1' });
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'direct'));
+        expect(action()).toHaveTextContent('Practice this again');
+        fireEvent.click(action());
+        expect(navigate).toHaveBeenCalledWith('/practice');
+        expect(practiceSelected).toHaveBeenCalledWith('unknown', false);
+        expect(loadReview).toHaveBeenCalledTimes(1);
+    });
+
     it('CASUALTY: a repeated click while linking starts ONE attempt and ONE navigation', async () => {
         loadProgress.mockResolvedValue(ELIGIBLE);
         const attempt = deferred<string>();

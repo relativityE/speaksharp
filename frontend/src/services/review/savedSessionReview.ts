@@ -40,10 +40,14 @@ export interface SavedSessionReview {
     focusPoints: string[];
     /** A marked Focus Points take whose saved results couldn't be read: its point set is unknown until a re-read. */
     focusReadFailed?: true;
+    /** #1535 (Codex P2 r4116859975): the saved review ITSELF could not be read — retryable, never a product choice. */
+    reviewReadFailed?: true;
 }
 
 export async function loadSavedSessionReview(sessionId: string): Promise<SavedSessionReview> {
-    const failed: SavedSessionReview = { coaching: { kind: 'error' }, product: 'unknown', evidence: [], focusBrief: null, focusPoints: [] };
+    const failed: SavedSessionReview = {
+        coaching: { kind: 'error' }, product: 'unknown', evidence: [], focusBrief: null, focusPoints: [], reviewReadFailed: true,
+    };
     try {
         const supabase = getSupabaseClient();
         const readRow = (columns: string) => supabase.from('sessions').select(columns).eq('id', sessionId).maybeSingle();
