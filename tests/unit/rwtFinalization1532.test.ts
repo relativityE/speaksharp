@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-    finalizeReceipt, humanWorksheet, NON_GATING_ROWS, parseHumanWorksheet, receiptAcceptance, requiredAutomatedRows, type ReceiptRow,
+    finalizeReceipt, humanWorksheet, NON_GATING_ROWS, parseHumanWorksheet, receiptAcceptance, recordRunOwnedCleanup, requiredAutomatedRows, type ReceiptRow,
 } from '../live/helpers/rwtAcceptance';
 import { QUALIFICATION_STAGES } from '../../frontend/src/services/telemetry/completenessGate';
 
@@ -208,9 +208,11 @@ describe('required automated-row inventory: a receipt that lost a gating row can
     it('the inventory is closed per suite; returning-user keeps its deliberate no-readback shape', () => {
         const always = ['telemetry decodable', 'signup-stage telemetry (user class)', 'signup-stage telemetry received', 'receipt content-free'];
         const readbackRows = ['journey telemetry (canary class)', 'journey telemetry received'];
-        for (const suite of ['open-mic-first-session', 'focus-points-session', 'focus-points-partial']) {
+        for (const suite of ['open-mic-first-session', 'focus-points-session']) {
             expect(requiredAutomatedRows(suite)).toEqual({ required: [...always, ...readbackRows], absent: [] });
         }
+        // #1532 r4126745141: only the partial run carries its own cleanup row.
+        expect(requiredAutomatedRows('focus-points-partial')).toEqual({ required: [...always, ...readbackRows, 'run-owned cleanup'], absent: [] });
         expect(requiredAutomatedRows('returning-user-navigation')).toEqual({ required: always, absent: readbackRows });
         expect(requiredAutomatedRows('something-else')).toBeNull();
     });
@@ -220,5 +222,71 @@ describe('required automated-row inventory: a receipt that lost a gating row can
         const writers = ['live/helpers/rwtJourney.ts', 'live/rwt-open-mic-first-session.live.spec.ts', 'live/helpers/rwtFocusPointsJourney.ts',
             'live/rwt-products-navigation.live.spec.ts'].map(src).join('\n');
         for (const step of [...requiredAutomatedRows('open-mic-first-session')!.required]) expect(writers).toContain(`'${step}'`);
+    });
+});
+
+/**
+ * #1532 Codex P1 r4126745141 (PM RETURN 5878021743) — the Focus PARTIAL receipt must carry its own verified cleanup,
+ * recorded BEFORE the receipt is written; a cleanup failure can never finalize PASS.
+ */
+describe('Focus partial: cleanup is verified before the receipt is written, and bound into finalization', () => {
+    type Row = { step: string; verdict: string; detail: string };
+    const collect = () => { const out: Row[] = []; return { out, row: (step: string, verdict: string, detail: string) => { out.push({ step, verdict, detail }); } }; };
+
+    it('successful cleanup (UID returned) → exactly one PASS row, and it reports deletion', async () => {
+        const { out, row } = collect();
+        await expect(recordRunOwnedCleanup(row as never, async () => 'uid-1')).resolves.toBe(true);
+        expect(out).toEqual([{ step: 'run-owned cleanup', verdict: 'PASS', detail: expect.stringMatching(/deleted and zero residue was verified/) }]);
+    });
+
+    it('cleanup throwing (deletion unproven / residue) → FAIL row, no throw escapes, and the error text is never recorded', async () => {
+        const { out, row } = collect();
+        await expect(recordRunOwnedCleanup(row as never, async () => { throw new Error('rwt-journey-secret@example.com residue in sessions'); })).resolves.toBe(false);
+        expect(out).toHaveLength(1);
+        expect(out[0]).toMatchObject({ step: 'run-owned cleanup', verdict: 'FAIL' });
+        expect(JSON.stringify(out)).not.toMatch(/secret@example\.com|residue in sessions/);
+    });
+
+    it('no account to delete ("" returned) → FAIL, never PASS', async () => {
+        const { out, row } = collect();
+        await expect(recordRunOwnedCleanup(row as never, async () => '')).resolves.toBe(false);
+        expect(out[0]).toMatchObject({ verdict: 'FAIL' });
+    });
+
+    const partialReceipt = (cleanup: ReceiptRow | null) => ({
+        ...receipt, suite: 'focus-points-partial',
+        rows: [...rows.filter((r) => !r.step.startsWith('human:')), ...(cleanup ? [cleanup] : []),
+            { step: 'human: focus', verdict: 'HUMAN' as const, detail: 'named human RWT observation', evidence: { observationId: 'focus_coaching_covers_points', runbookRow: 'row', passCriterion: 'c', recorded: 'pending' } }],
+    });
+    const partialDone = (r: { rows: ReceiptRow[] }) => parseHumanWorksheet(humanWorksheet('focus-points-partial', SHA, [J, 'other'], r.rows).split('\n')
+        .map((l) => (l.startsWith('| `focus_') ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-09-28 |') : l)).join('\n'));
+    const partialReadback = { ...readbackOk, suite: 'focus-points-partial' };
+
+    it('CONTROL: a partial receipt with a PASS cleanup row, human PASS and a qualified readback finalizes PASS', () => {
+        const r = partialReceipt({ step: 'run-owned cleanup', verdict: 'PASS', detail: 'verified' });
+        expect(finalizeReceipt(r, partialDone(r), partialReadback)).toMatchObject({ status: 'final', finalAcceptance: 'PASS', errors: [] });
+    });
+
+    it('CASUALTY: cleanup FAIL row → final FAIL, never PASS, even with everything else passing', () => {
+        const r = partialReceipt({ step: 'run-owned cleanup', verdict: 'FAIL', detail: 'failed' });
+        expect(finalizeReceipt(r, partialDone(r), partialReadback).finalAcceptance).toBe('FAIL');
+    });
+
+    it('CASUALTY: the cleanup row missing → binding error, never PASS', () => {
+        const r = partialReceipt(null);
+        const out = finalizeReceipt(r, partialDone(r), partialReadback);
+        expect(out.finalAcceptance).not.toBe('PASS');
+        expect(out.errors.join(' ')).toMatch(/missing the required automated row "run-owned cleanup"/);
+    });
+
+    it('order and idempotency: cleanup runs before write() in the partial branch; only a verified deletion clears the owner; afterEach remains the fallback', () => {
+        const focus = readFileSync(path.resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
+        const branch = focus.slice(focus.indexOf("} else if (fixtureKey === 'focus_points_partial_tts') {"));
+        expect(branch.indexOf('recordRunOwnedCleanup(')).toBeGreaterThan(-1);
+        expect(branch.indexOf('recordRunOwnedCleanup(')).toBeLessThan(branch.indexOf('receipt.write(testInfo,'));
+        expect(branch).toMatch(/if \(cleaned\) \{ owner\.uid = ''; owner\.email = ''; \}/);
+        const spec = readFileSync(path.resolve(__dirname, '../live/rwt-focus-points-partial.live.spec.ts'), 'utf8');
+        // afterEach cleans whatever the owner still names: nothing after a verified in-body deletion ('cleanup_not_required').
+        expect(spec).toMatch(/test\.afterEach\([\s\S]{0,120}cleanupRunOwnedAccount\(\{ admin: admin as never, capturedUid: owner\.uid, createdEmail: owner\.email/);
     });
 });

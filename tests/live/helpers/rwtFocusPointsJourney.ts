@@ -17,6 +17,7 @@ import {
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
 import { bindReadbackJourneys, takeStartedAfter, detectedCountExpected, focusPointMeetsExpectation, persistedVerdictMismatches } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
+import { recordRunOwnedCleanup } from './rwtAcceptance';
 import {
     AnalyticsTap,
     RwtReceipt,
@@ -469,6 +470,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const deleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
             if (deleted) { owner.uid = ''; owner.email = ''; }
+        } else if (fixtureKey === 'focus_points_partial_tts') {
+            // #1532 Codex P1 r4126745141: the partial run's receipt carries its own cleanup verdict. Cleanup runs HERE,
+            // before write(); a failure is a FAIL row (the test still ends failed) and never skips the receipt. Only a
+            // verified deletion clears the owner, so the spec's afterEach stays an idempotent fallback.
+            const cleaned = await recordRunOwnedCleanup((step, verdict, detail, evidence) => receipt.row(step, verdict, detail, evidence),
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+            if (cleaned) { owner.uid = ''; owner.email = ''; }
         }
         receipt.write(testInfo,
             bindReadbackJourneys(tap.events, {

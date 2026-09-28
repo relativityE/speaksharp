@@ -162,13 +162,39 @@ const ALWAYS_AUTOMATED_ROWS = Object.freeze([
     'telemetry decodable', 'signup-stage telemetry (user class)', 'signup-stage telemetry received', 'receipt content-free',
 ]);
 const JOURNEY_READBACK_ROWS = Object.freeze(['journey telemetry (canary class)', 'journey telemetry received']);
+export const RUN_OWNED_CLEANUP_ROW = 'run-owned cleanup';
+
+/**
+ * #1532 Codex P1 r4126745141 (PM RETURN 5878021743) — a suite whose receipt must carry its own cleanup evidence runs the
+ * cleanup BEFORE writing the receipt and records exactly one content-free row. PASS only when the cleanup returned the
+ * deleted account's UID (it throws on any unproven deletion or non-zero residue); a throw, or no account to delete, is
+ * FAIL. The thrown message is never recorded. Returns whether the account was verifiably deleted.
+ */
+export async function recordRunOwnedCleanup(
+    row: (step: string, verdict: Verdict, detail: string, evidence?: ReceiptRow['evidence']) => void,
+    cleanup: () => Promise<string>,
+): Promise<boolean> {
+    let uid = '';
+    let failed = false;
+    try { uid = await cleanup(); } catch { failed = true; }
+    if (!failed && uid) {
+        row(RUN_OWNED_CLEANUP_ROW, 'PASS', 'the run-owned account was deleted and zero residue was verified before this receipt was written');
+        return true;
+    }
+    row(RUN_OWNED_CLEANUP_ROW, 'FAIL', failed
+        ? 'the run-owned account cleanup failed or could not prove zero residue; Production state may remain'
+        : 'no run-owned account was found to delete, so deletion was not verified');
+    return false;
+}
 
 export function requiredAutomatedRows(suite: string): { required: readonly string[]; absent: readonly string[] } | null {
     switch (suite) {
         case 'open-mic-first-session':
         case 'focus-points-session':
-        case 'focus-points-partial':
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], absent: [] };
+        case 'focus-points-partial':
+            // #1532 Codex P1 r4126745141: the partial run deletes its account in-body, before write(), and records it.
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS, RUN_OWNED_CLEANUP_ROW], absent: [] };
         case 'returning-user-navigation':
             return { required: ALWAYS_AUTOMATED_ROWS, absent: JOURNEY_READBACK_ROWS };
         default:
