@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     acquisitionTimingVerdict, detectedCountExpected, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, focusPointMeetsExpectation,
+    persistedVerdictMismatches,
     surfaceReadinessFailures,
 } from '../live/helpers/rwtOracles';
 
@@ -118,5 +119,37 @@ describe('#1538 — Focus coaching provenance', () => {
     });
     it('HOLD: no saved version to read is not a pass', () => {
         expect(focusCoachingProvenanceVerdict({ savedVersion: null, acceptedVersions: CAPABLE }).verdict).toBe('HOLD');
+    });
+});
+
+// #1532 Codex P2 r4120338752 (PM RETURN 5866867380): the saved verdict of EACH point must match what the rail showed for
+// that point — counts alone let a swapped detected/not-detected pair pass.
+describe('persistedVerdictMismatches', () => {
+    const points = [{ id: 'p0', sort_order: 0 }, { id: 'p1', sort_order: 1 }, { id: 'p2', sort_order: 2 }, { id: 'p3', sort_order: 3 }];
+    const rail = ['covered', 'covered', 'partial', 'missing'] as const;
+    const saved = (v: string[]) => v.map((verdict, i) => ({ brief_point_id: `p${i}`, verdict }));
+
+    it('CONTROL: covered and partial persist as detected, missing as not_detected — per point', () => {
+        expect(persistedVerdictMismatches([...rail], points, saved(['detected', 'detected', 'detected', 'not_detected']))).toEqual([]);
+    });
+
+    it('CASUALTY: a swapped detected / not-detected pair keeps both counts but is caught, by point', () => {
+        const swapped = saved(['detected', 'detected', 'not_detected', 'detected']);
+        expect(swapped.filter((r) => r.verdict === 'detected').length).toBe(3); // the old count check would pass
+        expect(persistedVerdictMismatches([...rail], points, swapped)).toEqual([2, 3]);
+    });
+
+    it('points are matched by sort_order, not by row order', () => {
+        const shuffled = [...saved(['detected', 'detected', 'detected', 'not_detected'])].reverse();
+        const pointsShuffled = [...points].reverse();
+        expect(persistedVerdictMismatches([...rail], pointsShuffled, shuffled)).toEqual([]);
+    });
+
+    it('CASUALTY: a missing, duplicate, unknown-point or unavailable verdict is a mismatch; so is a still-pending rail point', () => {
+        expect(persistedVerdictMismatches([...rail], points, saved(['detected', 'detected', 'detected']))).toEqual([3]);
+        expect(persistedVerdictMismatches([...rail], points, [...saved(['detected', 'detected', 'detected', 'not_detected']), { brief_point_id: 'p0', verdict: 'detected' }])).toEqual([0]);
+        expect(persistedVerdictMismatches([...rail], points, [...saved(['detected', 'detected', 'detected', 'not_detected']), { brief_point_id: 'px', verdict: 'detected' }])).toEqual([-1]);
+        expect(persistedVerdictMismatches([...rail], points, saved(['detected', 'unavailable', 'detected', 'not_detected']))).toEqual([1]);
+        expect(persistedVerdictMismatches(['covered', 'pending', 'partial', 'missing'], points, saved(['detected', 'detected', 'detected', 'not_detected']))).toEqual([1]);
     });
 });

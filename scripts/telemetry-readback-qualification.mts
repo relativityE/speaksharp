@@ -36,7 +36,7 @@ import {
 } from '../frontend/src/services/telemetry/completenessGate';
 import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
 import { resolveQualifyingIdentity } from '../frontend/src/services/telemetry/qualifyingIdentity';
-import { QUALIFICATION_STAGES, evaluateQualificationStage } from '../frontend/src/services/telemetry/completenessGate';
+import { QUALIFICATION_STAGES, evaluateQualificationStage, requiredFamiliesForStages } from '../frontend/src/services/telemetry/completenessGate';
 import { evaluateDeliveryReceipts } from '../frontend/src/services/telemetry/deliveryReceiptGate';
 import {
     bootScopedReceiptFamilies,
@@ -368,7 +368,8 @@ async function main(): Promise<void> {
         stageReasons.push(...evaluateQualificationStage(stage, scoped));
     }
 
-    const result = evaluateTelemetryCompleteness(observed);
+    // #1532 Codex P1 r4120338743: the base families follow the declared stages (a feedback-only journey never records).
+    const result = evaluateTelemetryCompleteness(observed, requiredFamiliesForStages(declared));
     /**
      * THE RECEIVED-VENDOR CASUALTY.
      *
@@ -399,7 +400,7 @@ async function main(): Promise<void> {
         identity_bound: true,
         window_hours: windowHours,
         observed_families: observed.filter((n) => typeof n === 'string'),
-        required_families: [...REQUIRED_EVENT_FAMILIES],
+        required_families: [...requiredFamiliesForStages(declared)],
         stages_declared: declared,
         stage_reasons: stageReasons,
         received_counts: delivery.receivedCounts,

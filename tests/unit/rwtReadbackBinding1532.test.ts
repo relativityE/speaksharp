@@ -121,3 +121,23 @@ describe('rc-gates RWT readback step', () => {
         expect(calls.filter((c) => c.startsWith('canary|'))).toEqual([]);
     });
 });
+
+/**
+ * #1532 Codex P2 r4120338762 (PM RETURN 5866867380): `pnpm rwt:finalize` needs the run-bound, content-free human
+ * worksheet, so it travels with the receipts — and the artifact stays a narrow glob list (never test-results/ as a whole,
+ * which could hold a downloaded PDF or a page snapshot).
+ */
+describe('rc-gates RWT receipt artifact', () => {
+    const workflow = parse(readFileSync(resolve(__dirname, '../../.github/workflows/rc-gates.yml'), 'utf8'));
+    const upload = Object.values(workflow.jobs as Record<string, { steps?: Array<{ name?: string; with?: { path?: string } }> }>)
+        .flatMap((job) => job.steps ?? []).find((s) => s.name === 'Upload RWT receipts (content-free)');
+
+    it('uploads exactly the receipts, readback logs and human worksheets — nothing broader', () => {
+        const globs = String(upload?.with?.path ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+        expect(globs).toEqual([
+            'test-results/rwt/*.receipt.json',
+            'test-results/rwt/*.readback.log',
+            'test-results/rwt/*.human-worksheet.md',
+        ]);
+    });
+});

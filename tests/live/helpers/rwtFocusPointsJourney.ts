@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, detectedCountExpected, focusPointMeetsExpectation } from './rwtOracles';
+import { bindReadbackJourneys, detectedCountExpected, focusPointMeetsExpectation, persistedVerdictMismatches } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import {
     AnalyticsTap,
@@ -328,13 +328,27 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 .eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
             if (error) throw new Error(`objective session read failed (fail closed): ${error.code ?? 'unknown'}`);
             if (!session) { receipt.row('persisted verdicts', 'FAIL', 'no objective session was persisted for this take'); return; }
-            const { data: evidence, error: eErr } = await admin!.from('objective_evidence').select('verdict')
+            // #1532 Codex P2 r4120338752: compared PER POINT (by brief_point_id -> sort_order), never by counts — a swapped
+            // detected / not-detected pair keeps both counts.
+            const { data: evidence, error: eErr } = await admin!.from('objective_evidence').select('brief_point_id,verdict')
                 .eq('session_id', session.id).eq('user_id', owner.uid);
             if (eErr) throw new Error(`objective evidence read failed (fail closed): ${eErr.code ?? 'unknown'}`);
-            const detected = (evidence ?? []).filter((r) => r.verdict === 'detected').length;
-            receipt.row('persisted verdicts', (evidence ?? []).length === points.length && detected === covered ? 'PASS' : 'FAIL',
-                'the saved evidence matches what the rail showed',
-                { rows: (evidence ?? []).length, detected, shown: covered, budgetSec: session.time_budget_seconds as number | null, durationSec: session.actual_duration_seconds as number | null });
+            const pointIds = [...new Set((evidence ?? []).map((r) => r.brief_point_id as string))];
+            const { data: briefPoints, error: pErr } = pointIds.length === 0 ? { data: [], error: null }
+                : await admin!.from('objective_brief_point').select('id,sort_order,brief_id').in('id', pointIds).eq('user_id', owner.uid);
+            if (pErr) throw new Error(`objective brief point read failed (fail closed): ${pErr.code ?? 'unknown'}`);
+            const briefIds = new Set((briefPoints ?? []).map((p) => p.brief_id as string));
+            const { data: allPoints, error: aErr } = briefIds.size !== 1 ? { data: briefPoints ?? [], error: null }
+                : await admin!.from('objective_brief_point').select('id,sort_order').eq('brief_id', [...briefIds][0]).eq('user_id', owner.uid);
+            if (aErr) throw new Error(`objective brief points read failed (fail closed): ${aErr.code ?? 'unknown'}`);
+            const mismatches = persistedVerdictMismatches(final,
+                (allPoints ?? []).map((p) => ({ id: p.id as string, sort_order: p.sort_order as number })),
+                (evidence ?? []).map((r) => ({ brief_point_id: r.brief_point_id as string, verdict: r.verdict as string })));
+            receipt.row('persisted verdicts', mismatches.length === 0 && briefIds.size === 1 ? 'PASS' : 'FAIL',
+                mismatches.length === 0 && briefIds.size === 1 ? 'each point\'s saved verdict matches what the rail showed for that point'
+                    : 'a saved verdict differs from the rail for its point, or the evidence does not map to one brief',
+                { rows: (evidence ?? []).length, mismatchedPoints: mismatches.join(','), briefs: briefIds.size, shown: covered,
+                    budgetSec: session.time_budget_seconds as number | null, durationSec: session.actual_duration_seconds as number | null });
         });
 
         // ── Row 11 (continued) — the Focus Points coaching pair after Stop ─────────────────────────────────

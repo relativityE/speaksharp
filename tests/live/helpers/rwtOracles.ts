@@ -151,3 +151,31 @@ export function bindReadbackJourneys(
 }
 
 export { runJourneyIds } from './rwtAcceptance';
+
+/**
+ * #1532 Codex P2 r4120338752 (PM RETURN 5866867380) — THE SAVED VERDICT OF EACH POINT MATCHES THE RAIL, BY POINT.
+ *
+ * Returns the rail indices whose persisted verdict does not match (empty = PASS). Points are ordered by their saved
+ * `sort_order` (the rail's order); the product persists `covered` OR `partial` as `detected` and `missing` as
+ * `not_detected`. A point with no row, more than one row, `unavailable`, or a still-pending rail status is a mismatch;
+ * a row naming a point outside this brief is reported as index -1. Counts are never compared.
+ */
+export function persistedVerdictMismatches(
+    rail: readonly (FocusRailStatus | null)[],
+    points: readonly { id: string; sort_order: number }[],
+    evidence: readonly { brief_point_id: string; verdict: string }[],
+): number[] {
+    const ordered = [...points].sort((a, b) => a.sort_order - b.sort_order);
+    const indexOf = new Map(ordered.map((p, i) => [p.id, i] as const));
+    const expected = (s: FocusRailStatus | null): string | null =>
+        s === 'covered' || s === 'partial' ? 'detected' : s === 'missing' ? 'not_detected' : null;
+    const mismatches = new Set<number>();
+    if (evidence.some((r) => !indexOf.has(r.brief_point_id))) mismatches.add(-1);
+    rail.forEach((status, i) => {
+        const rows = evidence.filter((r) => indexOf.get(r.brief_point_id) === i);
+        const want = expected(status);
+        if (want === null || rows.length !== 1 || rows[0].verdict !== want) mismatches.add(i);
+    });
+    if (ordered.length !== rail.length) mismatches.add(-1);
+    return [...mismatches].sort((a, b) => a - b);
+}

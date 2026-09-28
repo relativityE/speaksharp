@@ -365,8 +365,9 @@ jobs:
             done <<< "$bindings"
           done
           exit $status
-      # RWT receipts and readback outputs are content-free by construction (verdicts, counts, durations, ids; the suites fail a receipt that
-      # carries point text, topic, email or a credential). Only the receipts are uploaded — never test-results/ as a
+      # RWT receipts, readback outputs and human worksheets are content-free by construction (verdicts, counts, durations, ids,
+      # observation names; the suites fail a receipt that carries point text, topic, email or a credential). The worksheet is
+      # the run-bound input `pnpm rwt:finalize` requires (#1532 Codex P2 r4120338762). Only these are uploaded — never test-results/ as a
       # whole, which could hold a downloaded PDF or a page snapshot of transcript or coaching text.
       - name: Upload RWT receipts (content-free)
         if: ${{ always() && startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
@@ -376,6 +377,7 @@ jobs:
           path: |
             test-results/rwt/*.receipt.json
             test-results/rwt/*.readback.log
+            test-results/rwt/*.human-worksheet.md
           retention-days: 14
           if-no-files-found: warn
       # Content-free: repository, run, actor, release, origin, cell, document and nonce. Never a credential or content.
