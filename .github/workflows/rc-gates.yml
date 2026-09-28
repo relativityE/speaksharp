@@ -337,24 +337,32 @@ jobs:
           sleep 120
           status=0
           for receipt in "${receipts[@]}"; do
-            stages=$(node -e 'const r=require(process.argv[1]); process.stdout.write((r.readback.stages||[]).join(","))' "$receipt")
-            [ -z "$stages" ] && { echo "$(basename "$receipt"): no declared stages (bridge) — readback not applicable"; continue; }
-            journeys=$(node -e 'const r=require(process.argv[1]); process.stdout.write((r.readback.journeyIds||[]).join(" "))' "$receipt")
+            # A receipt this step cannot parse is a HOLD, never "not applicable". (`require(<relative path>)` resolved the
+            # path as a PACKAGE name, threw, and the empty result silently skipped every readback as a bridge suite.)
+            if ! node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if (!r.readback || !Array.isArray(r.readback.journeys)) process.exit(1)' "$receipt"; then
+              echo "::error::HOLD: $(basename "$receipt") is unreadable or has no readback.journeys"; status=1; continue
+            fi
+            # #1532 Codex P1 r4119969323: each journey is qualified against ONLY the stages it exercised (a reload mints
+            # a new journey, so recording and feedback land in different journeys). Reported journeys are never qualified.
+            missing=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.stdout.write((r.readback.missingBindings||[]).join(","))' "$receipt")
+            bindings=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); for (const b of (r.readback.journeys||[])) process.stdout.write(`${b.journeyId} ${(b.stages||[]).join(",")}\n`)' "$receipt")
             # Signup stage: ordinary `user` traffic, reported (received counts) but never qualifying.
-            for ujourney in $(node -e 'const r=require(process.argv[1]); process.stdout.write((r.readback.userStageJourneyIds||[]).join(" "))' "$receipt"); do
+            for ujourney in $(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.stdout.write((r.readback.userStageJourneyIds||[]).join(" "))' "$receipt"); do
               ulog="test-results/rwt/$(basename "$receipt" .receipt.json).$ujourney.user-stage.readback.log"
               TELEMETRY_READBACK_USER_STAGE_REPORT=1 pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$ujourney" --traffic-type user 2>&1 | tee "$ulog" || true
             done
-            if [ -z "$journeys" ]; then echo "::error::HOLD: $(basename "$receipt") recorded no canary journey (claim not authorized or not applied)"; status=1; continue; fi
-            for journey in $journeys; do
+            if [ -n "$missing" ]; then echo "::error::HOLD: $(basename "$receipt") has no journey for required stage set(s): $missing"; status=1; fi
+            [ -z "$bindings" ] && { [ -z "$missing" ] && echo "$(basename "$receipt"): no declared stages (bridge) — readback not applicable"; continue; }
+            while read -r journey stages; do
+              [ -z "$journey" ] && continue
               ok=1
               for attempt in 1 2 3; do
                 log="test-results/rwt/$(basename "$receipt" .receipt.json).$journey.readback.log"
                 if QUALIFICATION_STAGES="$stages" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log"; then ok=0; break; fi
                 sleep 60
               done
-              [ $ok -eq 0 ] || { echo "::error::HOLD: readback did not qualify journey $journey ($(basename "$receipt"))"; status=1; }
-            done
+              [ $ok -eq 0 ] || { echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; }
+            done <<< "$bindings"
           done
           exit $status
       # RWT receipts and readback outputs are content-free by construction (verdicts, counts, durations, ids; the suites fail a receipt that

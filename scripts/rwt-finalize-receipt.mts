@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { finalizeReceipt, parseHumanWorksheet } from '../tests/live/helpers/rwtAcceptance.ts';
+import { finalizeReceipt, parseHumanWorksheet, runJourneyIds, type ReadbackBinding } from '../tests/live/helpers/rwtAcceptance.ts';
 
 const arg = (name: string): string | null => {
     const i = process.argv.indexOf(`--${name}`);
@@ -31,13 +31,17 @@ const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 let raw: unknown;
 try { raw = JSON.parse(receiptBytes.toString('utf8')); } catch { raw = null; }
 const result = finalizeReceipt(raw, parseHumanWorksheet(worksheetBytes.toString('utf8')));
-const receipt = (raw && typeof raw === 'object' ? raw : {}) as { suite?: unknown; release?: unknown; readback?: { journeyIds?: unknown } };
+const receipt = (raw && typeof raw === 'object' ? raw : {}) as { suite?: unknown; release?: unknown; readback?: { journeys?: unknown; reportedJourneyIds?: unknown } };
 const suite = typeof receipt.suite === 'string' && /^[a-z0-9-]+$/.test(receipt.suite) ? receipt.suite : 'invalid-receipt';
 
 const final = {
     suite,
     release: typeof receipt.release === 'string' ? receipt.release : null,
-    journeyIds: Array.isArray(receipt.readback?.journeyIds) ? receipt.readback!.journeyIds : [],
+    // #1532: the run's journeys = bound (qualified) plus reported-only; the structure was validated by finalizeReceipt.
+    journeyIds: result.status === 'binding_error' ? [] : runJourneyIds({
+        journeys: Array.isArray(receipt.readback?.journeys) ? receipt.readback!.journeys as ReadbackBinding[] : [],
+        reportedJourneyIds: Array.isArray(receipt.readback?.reportedJourneyIds) ? receipt.readback!.reportedJourneyIds as string[] : [],
+    }),
     receiptSha256: sha256(receiptBytes),
     worksheetSha256: sha256(worksheetBytes),
     status: result.status,

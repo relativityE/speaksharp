@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { detectedCountExpected, focusPointMeetsExpectation } from './rwtOracles';
+import { bindReadbackJourneys, detectedCountExpected, focusPointMeetsExpectation } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import {
     AnalyticsTap,
@@ -402,7 +402,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             nextStartRows(receipt, next);
         });
     } finally {
-        const { canaryJourneys, userJourneys } = telemetryClassRows(receipt, tap, claimed);
+        const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
         receipt.row('coverage_evaluation sent', tap.sent('coverage_evaluation').length > 0 ? 'PASS' : 'FAIL',
             'the coverage evaluation left the page (sent, not yet received)', { sent: tap.sent('coverage_evaluation').length });
         // The Focus review's coaching receipts (the readback's Focus stage now requires the coaching card's rendered
@@ -434,8 +434,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
             if (deleted) { owner.uid = ''; owner.email = ''; }
         }
-        receipt.write(testInfo, canaryJourneys, tap.trafficTypes(),
-            fixtureKey === 'focus_points_tts' ? ['session_during', 'session_after_focus_points', 'share_feedback'] : ['session_during', 'session_after_focus_points'],
-            userJourneys);
+        receipt.write(testInfo,
+            bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_focus_points'], feedback: fixtureKey === 'focus_points_tts' }),
+            tap.trafficTypes(), userJourneys);
     }
 }

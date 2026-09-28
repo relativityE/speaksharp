@@ -81,6 +81,7 @@ import {
     runOwnedIdentityFailures,
     type RunTarget,
 } from './helpers/rwtJourney';
+import { bindReadbackJourneys } from './helpers/rwtOracles';
 
 const SUITE = 'open-mic-first-session';
 const JOURNEY = 'open_mic';
@@ -489,7 +490,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
         } finally {
             // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
-            const { canaryJourneys, userJourneys } = telemetryClassRows(receipt, tap, claimed);
+            const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
             receipt.row('telemetry sent', tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0 ? 'PASS' : 'FAIL',
                 'session_saved and feedback_submit left the page (sent, not yet received)',
                 { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length });
@@ -533,7 +534,8 @@ test.describe('RWT — Open Mic first session @live', () => {
             // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
             accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            receipt.write(testInfo, canaryJourneys, tap.trafficTypes(), ['session_during', 'session_after_open_mic', 'share_feedback'], userJourneys);
+            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_open_mic'], feedback: true }),
+                tap.trafficTypes(), userJourneys);
         }
     });
 });

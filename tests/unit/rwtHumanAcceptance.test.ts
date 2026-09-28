@@ -25,7 +25,7 @@ const human = (id: string, row: string): ReceiptRow => ({
     evidence: { observationId: id, runbookRow: row, passCriterion: `criterion for ${id}`, recorded: 'pending' },
 });
 const rows = [...automated, human('open_mic_coaching_relevant', 'Product 1 row 5'), human('open_mic_uh_detected', 'Product 1 row 4')];
-const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows, readback: { journeyIds: [JOURNEY] } };
+const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows, readback: { journeys: [{ journeyId: JOURNEY, stages: ['session_during', 'session_after_open_mic'] }], reportedJourneyIds: [] } };
 
 /** Fill the blank Result/Observer cells of a generated worksheet. */
 const complete = (md: string, results: Record<string, string>, observer = 'PO · 2026-09-26') =>
@@ -121,7 +121,10 @@ describe('PM RETURN 2026-09-26 — the receipt is untrusted input: a malformed r
         ['only human rows', { ...receipt, rows: rows.slice(2) }, /no automated rows/],
         ['a required human observation missing', { ...receipt, rows: rows.slice(0, 3) }, /missing the required human observation open_mic_uh_detected/],
         ['a release that is not a SHA', { ...receipt, release: 'main' }, /40-character SHA/],
-        ['no journey list', { ...receipt, readback: {} }, /readback\.journeyIds/],
+        ['no journey list', { ...receipt, readback: {} }, /readback\.journeys/],
+        // #1532 Codex P1 r4119969323: the retired flat shape is not accepted (no dual legacy/new path).
+        ['retired flat journeyIds shape', { ...receipt, readback: { journeyIds: [JOURNEY], stages: ['session_during'] } }, /readback\.journeys/],
+        ['a binding with no stages', { ...receipt, readback: { journeys: [{ journeyId: JOURNEY, stages: [] }], reportedJourneyIds: [] } }, /readback\.journeys/],
         ['an unknown suite', { ...receipt, suite: 'something-else' }, /unknown RWT suite/],
         ['not an object', [receipt], /not a JSON object/],
     ])('%s → INCOMPLETE with a named error, never PASS', (_label, bad, message) => {

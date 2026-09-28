@@ -34,6 +34,7 @@ import {
     suppressPageSnapshot,
     telemetryClassRows,
 } from './helpers/rwtJourney';
+import { bindReadbackJourneys } from './helpers/rwtOracles';
 
 const SUITE = 'returning-user-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -199,10 +200,10 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             receipt.row('journey_step sent', tap.sent('journey_step').length > 0 ? 'PASS' : 'HOLD',
                 'journey_step left the page (sent, not yet received)', { sent: tap.sent('journey_step').length });
             // A maintained account is never given the canary claim, so its telemetry is not readback-eligible here.
-            const { canaryJourneys, userJourneys } = telemetryClassRows(receipt, tap, false);
+            const { userJourneys } = telemetryClassRows(receipt, tap, false);
             const leaks = receiptContentLeaks(receipt, [RETURNING_EMAIL, RETURNING_PASSWORD, SERVICE_ROLE].filter(Boolean));
             receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', 'no credential or email in the receipt');
-            receipt.write(testInfo, canaryJourneys, tap.trafficTypes(), [], userJourneys);
+            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes(), userJourneys);
         }
     });
 });

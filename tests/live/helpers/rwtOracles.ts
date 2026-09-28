@@ -116,3 +116,38 @@ export function focusCoachingProvenanceVerdict(input: { savedVersion: string | n
     if (!capable) return { verdict: 'FAIL', detail: 'the coaching request did not declare it reads Focus provenance' };
     return { verdict: 'PASS', detail: 'saved pair generated from the saved point results; the request declared Focus provenance' };
 }
+
+/**
+ * #1532 Codex P1 r4119969323 (PM RETURN 5866220417) — READBACK STAGES ARE BOUND TO THE JOURNEY THAT EXERCISED THEM.
+ *
+ * A reload mints a new journey id, and the full suites share feedback after reloading the Analytics detail, so the
+ * recording stages and `share_feedback` live in different journeys. The recording stages bind to the journey of the
+ * FIRST canary `session_saved` (the take the suite verifies); `share_feedback` to the journey of the first canary
+ * `feedback_submit`. Every other canary journey is reported, never qualified. A required anchor that was never sent is
+ * listed in `missingBindings` (fail closed), never dropped.
+ */
+export type { ReadbackBinding } from './rwtAcceptance';
+import type { ReadbackBinding } from './rwtAcceptance';
+export interface ReadbackPlan { journeys: ReadbackBinding[]; reportedJourneyIds: string[]; missingBindings: string[] }
+
+export function bindReadbackJourneys(
+    events: readonly { event: string; at: number; journeyId?: string; trafficType?: string }[],
+    plan: { recording: readonly string[]; feedback: boolean },
+): ReadbackPlan {
+    const canary = events.filter((e) => e.trafficType === 'canary' && typeof e.journeyId === 'string' && e.journeyId !== '');
+    const anchor = (name: string): string | null =>
+        [...canary].filter((e) => e.event === name).sort((a, b) => a.at - b.at)[0]?.journeyId ?? null;
+    const bound = new Map<string, string[]>();
+    const missingBindings: string[] = [];
+    const bind = (journeyId: string | null, stages: readonly string[], label: string) => {
+        if (!journeyId) { missingBindings.push(label); return; }
+        bound.set(journeyId, [...(bound.get(journeyId) ?? []), ...stages]);
+    };
+    if (plan.recording.length > 0) bind(anchor('session_saved'), plan.recording, 'recording');
+    if (plan.feedback) bind(anchor('feedback_submit'), ['share_feedback'], 'share_feedback');
+    const journeys = [...bound].map(([journeyId, stages]) => ({ journeyId, stages }));
+    const reportedJourneyIds = [...new Set(canary.map((e) => e.journeyId as string))].filter((j) => !bound.has(j));
+    return { journeys, reportedJourneyIds, missingBindings };
+}
+
+export { runJourneyIds } from './rwtAcceptance';

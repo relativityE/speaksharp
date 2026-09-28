@@ -30,7 +30,8 @@ import {
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
 import {
-    acquisitionTimingVerdict, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, surfaceReadinessFailures, type AcquisitionTiming,
+    acquisitionTimingVerdict, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, runJourneyIds, surfaceReadinessFailures,
+    type AcquisitionTiming, type ReadbackPlan,
 } from './rwtOracles';
 import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 
@@ -464,7 +465,16 @@ export class RwtReceipt {
         if (verdict === 'FAIL') expect.soft(verdict, `${step}: ${detail}`).toBe('PASS');
     }
 
-    write(testInfo: TestInfo, journeyIds: string[], trafficTypes: string[], stages: string[], userStageJourneyIds: string[] = []): void {
+    /**
+     * #1532 Codex P1 r4119969323: the readback plan binds each stage set to the journey that exercised it
+     * (`bindReadbackJourneys`). A required binding with no anchor event is a HOLD row here as well as in the workflow.
+     */
+    write(testInfo: TestInfo, plan: ReadbackPlan, trafficTypes: string[], userStageJourneyIds: string[] = []): void {
+        if (plan.missingBindings.length > 0) {
+            this.row('readback journey binding', 'HOLD', `no journey emitted the anchor for: ${plan.missingBindings.join(', ')}`,
+                { missingBindings: plan.missingBindings.join(',') });
+        }
+        const journeyIds = runJourneyIds(plan);
         const dir = path.resolve('test-results', 'rwt');
         mkdirSync(dir, { recursive: true });
         const body = {
@@ -485,7 +495,10 @@ export class RwtReceipt {
              */
             ...receiptAcceptance(this.rows),
             // For the readback step: which journeys to read back, under which traffic class and declared stages.
-            readback: { journeyIds, trafficType: 'canary', trafficTypes, stages, userStageJourneyIds },
+            readback: {
+                journeys: plan.journeys, reportedJourneyIds: plan.reportedJourneyIds, missingBindings: plan.missingBindings,
+                trafficType: 'canary', trafficTypes, userStageJourneyIds,
+            },
             testStatus: testInfo.status ?? null,
         };
         writeFileSync(path.join(dir, `${this.suite}.receipt.json`), `${JSON.stringify(body, null, 2)}\n`);

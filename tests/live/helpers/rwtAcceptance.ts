@@ -8,6 +8,14 @@
  * and recomputes acceptance over ALL rows. Content-free throughout: ids, verdicts, SHAs and observer names only.
  */
 
+/** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
+export interface ReadbackBinding { journeyId: string; stages: string[] }
+
+/** Every canary journey the run observed — bound (qualified) or reported only. Worksheet and finalizer bind to this set. */
+export function runJourneyIds(plan: { journeys: readonly ReadbackBinding[]; reportedJourneyIds: readonly string[] }): string[] {
+    return [...new Set([...plan.journeys.map((j) => j.journeyId), ...plan.reportedJourneyIds])];
+}
+
 /**
  * `HUMAN`: a named human RWT observation — a runbook check no automation can judge. Never a permanent HOLD: it names
  * the question and pass criterion, and becomes PASS/FAIL only through the finalization step.
@@ -103,7 +111,7 @@ export interface ReceiptForFinalization {
     release: string;
     rows: ReceiptRow[];
     meta?: Record<string, unknown>;
-    readback?: { journeyIds?: string[] };
+    readback?: { journeys?: ReadbackBinding[]; reportedJourneyIds?: string[] };
 }
 
 const VERDICTS: ReadonlySet<string> = new Set(['PASS', 'FAIL', 'HOLD', 'HUMAN']);
@@ -137,10 +145,15 @@ export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization
     const r = raw as Record<string, unknown>;
     if (typeof r.suite !== 'string' || r.suite.trim() === '') errors.push('receipt has no suite');
     if (typeof r.release !== 'string' || !/^[0-9a-f]{40}$/.test(r.release)) errors.push('receipt release is not a 40-character SHA');
-    const readback = r.readback as { journeyIds?: unknown } | undefined;
-    if (!readback || !Array.isArray(readback.journeyIds) || !readback.journeyIds.every((j) => typeof j === 'string')) {
-        errors.push('receipt has no readback.journeyIds list');
-    }
+    // #1532 Codex P1 r4119969323: per-journey bindings, plus the observed journeys that were reported, not qualified.
+    const readback = r.readback as { journeys?: unknown; reportedJourneyIds?: unknown } | undefined;
+    const bindingsOk = Array.isArray(readback?.journeys) && (readback!.journeys as unknown[]).every((b) => {
+        const x = b as { journeyId?: unknown; stages?: unknown } | null;
+        return !!x && typeof x.journeyId === 'string' && x.journeyId !== ''
+            && Array.isArray(x.stages) && x.stages.length > 0 && x.stages.every((st) => typeof st === 'string');
+    });
+    const reportedOk = Array.isArray(readback?.reportedJourneyIds) && (readback!.reportedJourneyIds as unknown[]).every((j) => typeof j === 'string');
+    if (!bindingsOk || !reportedOk) errors.push('receipt has no valid readback.journeys / readback.reportedJourneyIds');
     if (!Array.isArray(r.rows) || r.rows.length === 0) {
         errors.push('receipt has no rows');
     } else {
@@ -191,7 +204,7 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet): Final
     }
     const receipt = validated.receipt;
     const errors: string[] = [...validated.errors];
-    const expectedJourneys = [...(receipt.readback?.journeyIds ?? [])].sort();
+    const expectedJourneys = runJourneyIds({ journeys: receipt.readback?.journeys ?? [], reportedJourneyIds: receipt.readback?.reportedJourneyIds ?? [] }).sort();
     if (worksheet.suite !== receipt.suite) errors.push(`suite mismatch: worksheet ${String(worksheet.suite)} vs receipt ${receipt.suite}`);
     if (!receipt.release || worksheet.release !== receipt.release) errors.push(`deployed SHA mismatch: worksheet ${String(worksheet.release)} vs receipt ${receipt.release || '(unset)'}`);
     if (JSON.stringify([...worksheet.journeyIds].sort()) !== JSON.stringify(expectedJourneys)) errors.push('journey id mismatch between worksheet and receipt');
