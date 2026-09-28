@@ -17,6 +17,11 @@ const suggestionA = {
   what_worked: 'Risk-first opening clarified the launch decision.',
   what_to_try_next: 'Move the support bottleneck later.',
 } as const;
+/**
+ * #1538 Codex P1 r4118176188: the current client declares it reads Focus provenance. A request without it is the
+ * pre-#1538 bundle, which receives a v1-labelled copy (see the skew casualties).
+ */
+const CAPABLE_CLIENT = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
 /** #1538 (Codex P1 r4117321439): a pair PROVEN to be generated from the saved Focus results. */
 const focusSuggestionA = { ...suggestionA, version: 'gemini_coaching_focus_v1' } as const;
 const suggestionB = {
@@ -976,7 +981,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   await t.step('#1258 CASUALTY (cache binding): a Focus request with a saved pair replays it exactly — AFTER the Focus results are read; no quota, no provider', async () => {
     resetProvider();
     const mock = mockSupabase({ session: focusSession({ ai_suggestions: focusSuggestionA }), focus: FOCUS });
-    const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
+    const res = await handler(request({ sessionId: 'session-a', product: 'focus_points', accepted_coaching_versions: CAPABLE_CLIENT }), mock.create);
     assertEquals(res.status, 200);
     assertEquals((await res.json()).suggestions, focusSuggestionA);
     assertEquals(fetchCount, 0);
@@ -993,7 +998,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     for (const focus of [{ ...FOCUS, evidence: [] }, { objective: null }]) {
       resetProvider();
       const mock = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus });
-      const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
+      const res = await handler(request({ sessionId: 'session-a', product: 'focus_points', accepted_coaching_versions: CAPABLE_CLIENT }), mock.create);
       assertEquals(res.status, 425);
       const body = await res.json();
       assertEquals(body.code, 'focus_results_pending');
@@ -1040,7 +1045,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   await t.step('#1258 CASUALTY (cache binding): a Focus pair is generated only WITH the saved results, then that pair is what replays', async () => {
     resetProvider();
     const mock = mockSupabase({ session: focusSession(), focus: FOCUS });
-    const first = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
+    const first = await handler(request({ sessionId: 'session-a', product: 'focus_points', accepted_coaching_versions: CAPABLE_CLIENT }), mock.create);
     assertEquals(first.status, 200);
     assertStringIncludes(lastPrompt, 'Focus Points session.');
     const persisted = (mock.state.updated as { ai_suggestions?: unknown })?.ai_suggestions;
@@ -1048,7 +1053,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // The replay of that session returns the persisted Focus-aware pair without another generation.
     resetProvider();
     const replay = mockSupabase({ session: focusSession({ ai_suggestions: persisted }), focus: FOCUS });
-    const second = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), replay.create);
+    const second = await handler(request({ sessionId: 'session-a', product: 'focus_points', accepted_coaching_versions: CAPABLE_CLIENT }), replay.create);
     assertEquals((await second.json()).suggestions, persisted);
     assertEquals(fetchCount, 0);
   });
@@ -1056,7 +1061,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   await t.step('#1258 CASUALTY: a Focus take whose results are not saved yet is refused 425 — no quota, no provider, nothing cached', async () => {
     resetProvider();
     const mock = mockSupabase({ session: focusSession(), focus: { objective: null } });
-    const response = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), mock.create);
+    const response = await handler(request({ sessionId: 'session-a', product: 'focus_points', accepted_coaching_versions: CAPABLE_CLIENT }), mock.create);
     assertEquals(response.status, 425);
     assertEquals((await response.json()).code, 'focus_results_pending');
     assertEquals(mock.state.quotaCount, 0);
@@ -1189,7 +1194,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     }
     resetProvider();
     const ready = mockSupabase({ session: focusSession({ ai_suggestions: focusSuggestionA }), focus: FOCUS });
-    const ok = await handler(request({ sessionId: 'session-a' }), ready.create);
+    const ok = await handler(request({ sessionId: 'session-a', accepted_coaching_versions: CAPABLE_CLIENT }), ready.create);
     assertEquals(ok.status, 200);
     assertEquals((await ok.json()).suggestions, focusSuggestionA);
     assertEquals(ready.state.fromTables.includes('objective_evidence'), true);
@@ -1245,7 +1250,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       resetProvider();
       geminiText = JSON.stringify(suggestionB);
       const mock = mockSupabase({ session, focus: FOCUS });
-      const res = await handler(request({ sessionId: 'session-a' }), mock.create);
+      const res = await handler(request({ sessionId: 'session-a', accepted_coaching_versions: CAPABLE_CLIENT }), mock.create);
       assertEquals(res.status, 200);
       const returned = (await res.json()).suggestions;
       assertNotEquals(returned, suggestionA); // the generic pair is never replayed as Focus coaching
@@ -1262,10 +1267,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     resetProvider();
     geminiText = JSON.stringify(suggestionB);
     const first = mockSupabase({ session: focusSession({ ai_suggestions: suggestionA }), focus: FOCUS });
-    const repaired = (await (await handler(request({ sessionId: 'session-a', product: 'focus_points' }), first.create)).json()).suggestions;
+    const repaired = (await (await handler(request({ sessionId: 'session-a', product: 'focus_points', accepted_coaching_versions: CAPABLE_CLIENT }), first.create)).json()).suggestions;
     resetProvider();
     const reload = mockSupabase({ session: focusSession({ ai_suggestions: repaired }), focus: FOCUS });
-    const res = await handler(request({ sessionId: 'session-a', product: 'focus_points' }), reload.create);
+    const res = await handler(request({ sessionId: 'session-a', product: 'focus_points', accepted_coaching_versions: CAPABLE_CLIENT }), reload.create);
     assertEquals((await res.json()).suggestions, repaired);
     assertEquals(fetchCount, 0);
     assertEquals(reload.state.quotaCount, 0);
@@ -1281,6 +1286,74 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const fresh = mockSupabase({ session: savedSession() });
     await handler(request(), fresh.create);
     assertEquals((fresh.state.updated as { ai_suggestions?: { version?: string } })?.ai_suggestions?.version, 'gemini_coaching_v1');
+  });
+
+  // #1538 Codex P1 r4118176188 (PM RETURN 5862477628): DEPLOY SKEW. Merging deploys this function independently of the
+  // frontend, and open tabs keep their old bundle, whose parser accepts only `gemini_coaching_v1` and whose request
+  // declares no capability. Such a request gets a RESPONSE-ONLY copy labelled v1 with the same two phrases; the stored
+  // row, the authority RPC value and the cache provenance stay `gemini_coaching_focus_v1`.
+  const phrasesOf = (p: { what_worked?: unknown; what_to_try_next?: unknown }) => ({ what_worked: p.what_worked, what_to_try_next: p.what_to_try_next });
+  const storedOf = (mock: { state: { updated: unknown } }) => (mock.state.updated as { ai_suggestions?: Record<string, unknown> } | null)?.ai_suggestions;
+
+  await t.step('#1538 CASUALTY (skew): a legacy request on a Focus take gets a v1-labelled copy of the fresh pair; the stored pair stays focus_v1', async () => {
+    resetProvider();
+    geminiText = JSON.stringify(suggestionB);
+    const mock = mockSupabase({ session: focusSession(), focus: FOCUS });
+    const res = await handler(request({ sessionId: 'session-a' }), mock.create);
+    assertEquals(res.status, 200);
+    const returned = (await res.json()).suggestions;
+    const stored = storedOf(mock);
+    assertEquals(stored?.version, 'gemini_coaching_focus_v1');
+    assertEquals(returned.version, 'gemini_coaching_v1');
+    assertEquals(phrasesOf(returned), phrasesOf(stored!));
+    assertEquals(Object.keys(returned).sort(), ['version', 'what_to_try_next', 'what_worked']);
+  });
+
+  await t.step('#1538 CASUALTY (skew): a legacy request replaying a cached focus_v1 pair gets the v1-labelled copy; nothing is rewritten', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: focusSession({ ai_suggestions: focusSuggestionA }), focus: FOCUS });
+    const res = await handler(request({ sessionId: 'session-a' }), mock.create);
+    assertEquals(res.status, 200);
+    const returned = (await res.json()).suggestions;
+    assertEquals(returned, { ...focusSuggestionA, version: 'gemini_coaching_v1' });
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.quotaCount, 0);
+    assertEquals(mock.state.updated, null);
+  });
+
+  await t.step('#1538 CONTROL (skew): a capable request gets exactly the stored focus_v1 pair, fresh and cached', async () => {
+    resetProvider();
+    geminiText = JSON.stringify(suggestionB);
+    const fresh = mockSupabase({ session: focusSession(), focus: FOCUS });
+    const f = (await (await handler(request({ sessionId: 'session-a', product: 'focus_points', accepted_coaching_versions: CAPABLE_CLIENT }), fresh.create)).json()).suggestions;
+    assertEquals(f.version, 'gemini_coaching_focus_v1');
+    assertEquals(f, storedOf(fresh));
+    resetProvider();
+    const cached = mockSupabase({ session: focusSession({ ai_suggestions: focusSuggestionA }), focus: FOCUS });
+    const c = (await (await handler(request({ sessionId: 'session-a', accepted_coaching_versions: CAPABLE_CLIENT }), cached.create)).json()).suggestions;
+    assertEquals(c, focusSuggestionA);
+  });
+
+  await t.step('#1538 CONTROL (skew): Open Mic is v1 for legacy and capable requests alike, fresh and cached', async () => {
+    for (const body of [{ sessionId: 'session-a' }, { sessionId: 'session-a', product: 'open_mic', accepted_coaching_versions: CAPABLE_CLIENT }]) {
+      resetProvider();
+      const cached = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }) });
+      assertEquals((await (await handler(request(body), cached.create)).json()).suggestions, suggestionA);
+      resetProvider();
+      const fresh = mockSupabase({ session: savedSession() });
+      const r = (await (await handler(request(body), fresh.create)).json()).suggestions;
+      assertEquals(r.version, 'gemini_coaching_v1');
+      assertEquals(r, storedOf(fresh));
+    }
+  });
+
+  await t.step('#1538 CASUALTY (skew): the capability is closed — only the exact array value counts; anything else is a legacy request', async () => {
+    for (const accepted of ['gemini_coaching_focus_v1', ['GEMINI_COACHING_FOCUS_V1'], ['gemini_coaching_focus_v2'], [], { v: 'gemini_coaching_focus_v1' }, true, null]) {
+      resetProvider();
+      const mock = mockSupabase({ session: focusSession({ ai_suggestions: focusSuggestionA }), focus: FOCUS });
+      const r = (await (await handler(request({ sessionId: 'session-a', accepted_coaching_versions: accepted }), mock.create)).json()).suggestions;
+      assertEquals(r.version, 'gemini_coaching_v1', `accepted_coaching_versions=${JSON.stringify(accepted)}`);
+    }
   });
 
   await t.step('#1538 the server parser accepts exactly gemini_coaching_v1 and gemini_coaching_focus_v1 — nothing else', () => {

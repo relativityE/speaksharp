@@ -10,6 +10,9 @@ import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import * as RecoveryHook from '@/hooks/useUnresolvedRecovery';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 
+/** #1538 Codex P1 r4118176188: every coaching request declares the closed capability. */
+const ACCEPTED_COACHING_VERSIONS = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
+
 vi.mock('@/hooks/useSessionLifecycle', () => ({ useSessionLifecycle: vi.fn() }));
 vi.mock('@/hooks/useUnresolvedRecovery', () => ({ useUnresolvedRecovery: vi.fn() }));
 vi.mock('@/lib/supabaseClient');
@@ -131,7 +134,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         // requests itself. This is the parent-level proof of the PO ruling: the whole journey, from a
         // finished session to a request, with nobody pressing anything.
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic' },
+            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
         expect(await screen.findAllByText('What went well')).toHaveLength(1);
         // The fix sits in the signature `TRY THIS NEXT RUN` block (S-12b). Still exactly one of each: the
@@ -481,7 +484,7 @@ describe('F-07 completed-session Practice Loop review', () => {
 
         // The automatic post-save submission fires against the PERSISTED id.
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic' },
+            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
     });
 
@@ -507,7 +510,7 @@ describe('F-07 completed-session Practice Loop review', () => {
 
         render(<SessionPage />);
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-one', product: 'open_mic' },
+            body: { sessionId: 'session-take-one', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
         invoke.mockClear();
 
@@ -553,7 +556,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         render(<SessionPage />);
 
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic' },
+            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
     });
 
@@ -607,7 +610,7 @@ describe('F-07 completed-session Practice Loop review', () => {
 
         render(<SessionPage />);
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-A', product: 'open_mic' },
+            body: { sessionId: 'session-take-A', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
 
         // ---- "Practice again": take B STARTS. The controller supersedes A's finalized signal and its
@@ -630,7 +633,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         });
 
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-B', product: 'open_mic' },
+            body: { sessionId: 'session-take-B', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
 
         // THE CLAIM: after B started, every request belongs to B. Asserting only "B was requested"
@@ -780,7 +783,7 @@ describe('F-07 completed-session Practice Loop review', () => {
             ]);
         });
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'focus_points' },
+            body: { sessionId: 'session-complete-1', product: 'focus_points', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
         expect(invoke).toHaveBeenCalledTimes(1);
     });
@@ -804,7 +807,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         invoke.mockResolvedValue(PAIR);
         render(<SessionPage />);
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic' },
+            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
     });
 });

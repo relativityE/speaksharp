@@ -557,7 +557,7 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByTestId('ai-suggestions-retrying')).toBeInTheDocument();
         });
 
-        it('calls the edge function with only the saved session id', async () => {
+        it('calls the edge function with only the saved session id and the coaching capability — no caller-owned evidence', async () => {
             const mockTranscript = "This is a test transcript with some filler words like um and uh";
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
@@ -577,8 +577,22 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => {
                 expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-                    body: { sessionId: 'session-test' },
+                    // #1538 Codex P1 r4118176188: the closed capability declaring this client reads Focus provenance.
+                    body: { sessionId: 'session-test', accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'] },
                 });
+            });
+        });
+
+        it('#1538 — a Focus Points request declares the capability alongside its product assertion, and renders the focus_v1 pair', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue({
+                data: { suggestions: { version: 'gemini_coaching_focus_v1', what_worked: 'Named the price first.', what_to_try_next: 'Signpost the guarantee next.' } },
+                error: null,
+            });
+            render(<AISuggestions transcript="Hello world" sessionId="session-focus" product="focus_points" />);
+
+            await waitFor(() => expect(screen.getByText('Named the price first.')).toBeInTheDocument());
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+                body: { sessionId: 'session-focus', product: 'focus_points', accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'] },
             });
         });
     });

@@ -38,7 +38,7 @@ async function enableCoaching(page: Page, pending: number, version: 'gemini_coac
   }, { pending, suggestions: { ...PAIR, version } });
 }
 type Shown = { stillComing: number; retry: number; pair: number };
-type Sent = { body: { sessionId?: string | null; product?: string } | null; shown: Shown };
+type Sent = { body: { sessionId?: string | null; product?: string; accepted_coaching_versions?: unknown } | null; shown: Shown };
 const requests = (page: Page): Promise<Sent[]> => page.evaluate(() =>
   ((window as unknown as { __E2E_COACHING_REQUESTS_1258__?: Sent[] }).__E2E_COACHING_REQUESTS_1258__ ?? []));
 
@@ -87,6 +87,8 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
     expect(sent[0].body?.sessionId, 'a saved session id').toBeTruthy();
     expect(new Set(sent.map((r) => r.body?.sessionId)).size, 'one saved session').toBe(1);
     expect(sent.map((r) => r.body?.product)).toEqual(['focus_points', 'focus_points', 'focus_points']);
+    // #1538 Codex P1 r4118176188: every request declares the closed capability, so the server answers focus_v1.
+    for (const r of sent) expect(r.body?.accepted_coaching_versions).toEqual(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
 
     // PENDING, as rendered: at each re-ask (i.e. throughout each 425 wait) the card said coaching is still coming —
     // never an error or a retry offer, and no pair yet.
@@ -105,6 +107,7 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
     await expect(page.getByTestId('ai-suggestions-pair')).toBeVisible({ timeout: 30_000 });
     const sent = await requests(page);
     expect(sent.map((r) => r.body?.product)).toEqual(['open_mic']);
+    expect(sent[0].body?.accepted_coaching_versions).toEqual(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
     // #1538: Open Mic sends only the transcript, and its disclosure stays transcript-only.
     await expect(page.getByTestId('ai-suggestions-disclosure')).toHaveText(
       "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.",

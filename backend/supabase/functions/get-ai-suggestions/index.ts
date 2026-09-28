@@ -113,6 +113,29 @@ interface SessionEvidence {
 }
 
 type SessionProduct = 'open_mic' | 'focus_points';
+/**
+ * #1538 Codex P1 r4118176188 (PM RETURN 5862477628) — DEPLOY-SKEW COMPATIBILITY, RESPONSE ONLY.
+ *
+ * Merging deploys this function independently of the frontend, and an open tab keeps its old bundle. That bundle's
+ * parser accepts only `gemini_coaching_v1` and its request declares nothing, so a Focus pair labelled
+ * `gemini_coaching_focus_v1` became a terminal "review unavailable" in a tab that had done nothing wrong.
+ *
+ * A client that reads Focus provenance says so with a CLOSED capability: `accepted_coaching_versions` must be an
+ * array containing exactly `gemini_coaching_focus_v1`. It is separate from `product`, which stays a consistency
+ * assertion and never becomes the protocol. Any other value (absent, a string, other casing, an unknown version) is a
+ * legacy request, which receives a copy of the pair labelled `gemini_coaching_v1` with the same two phrases.
+ *
+ * Only the RESPONSE changes. The persisted row, the authority RPC value, the cache provenance and the trusted
+ * readback keep `gemini_coaching_focus_v1`; nothing here is ever written back.
+ */
+const acceptsFocusCoaching = (value: unknown): boolean =>
+  Array.isArray(value) && value.includes('gemini_coaching_focus_v1');
+
+const forClient = (suggestions: AISuggestions, focusCapable: boolean): AISuggestions =>
+  suggestions.version === 'gemini_coaching_focus_v1' && !focusCapable
+    ? { ...suggestions, version: 'gemini_coaching_v1' }
+    : suggestions;
+
 const asProduct = (value: unknown): SessionProduct | null =>
   value === 'open_mic' || value === 'focus_points' ? value : null;
 const SESSION_EVIDENCE_COLUMNS =
@@ -329,11 +352,12 @@ export async function handler(
       });
     }
 
-    const body = await req.json() as { sessionId?: unknown; product?: unknown };
+    const body = await req.json() as { sessionId?: unknown; product?: unknown; accepted_coaching_versions?: unknown };
     const sessionId = body.sessionId;
     // #1258 / #1538 (PM RETURN 5849473254): the page's product is only a CONSISTENCY ASSERTION. The server-owned
     // `sessions.product` marker decides; the request can never downgrade or supply it.
     const requestedProduct = asProduct(body.product);
+    const focusCapable = acceptsFocusCoaching(body.accepted_coaching_versions);
     if (typeof sessionId !== 'string' || !sessionId.trim()) {
       return new Response(JSON.stringify({ error: 'Session ID is required' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
@@ -453,7 +477,7 @@ export async function handler(
         // readable; the trusted evidence collector still HOLDs because no receipt/cache count exists.
         console.error('AI coaching cache authority was not recorded:', cacheReceiptError);
       }
-      return new Response(JSON.stringify({ suggestions: cachedSuggestions }), {
+      return new Response(JSON.stringify({ suggestions: forClient(cachedSuggestions, focusCapable) }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 200,
       });
@@ -668,7 +692,7 @@ export async function handler(
       });
     }
 
-    return new Response(JSON.stringify({ suggestions: savedSuggestions }), {
+    return new Response(JSON.stringify({ suggestions: forClient(savedSuggestions, focusCapable) }), {
       headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });

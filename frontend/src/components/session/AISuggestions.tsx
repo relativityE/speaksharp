@@ -69,6 +69,9 @@ interface SafeSuggestionError {
  * a Focus take (e.g. by a not-yet-deployed Edge function) is never rendered or receipted as Focus coaching. With no
  * product, either accepted version is read.
  */
+/** #1538 Codex P1 r4118176188 — the versions this client reads, declared on every coaching request. */
+const ACCEPTED_COACHING_VERSIONS: readonly CoachingVersion[] = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
+
 const VERSION_FOR_PRODUCT: Record<'open_mic' | 'focus_points', CoachingVersion> = {
   open_mic: 'gemini_coaching_v1',
   focus_points: 'gemini_coaching_focus_v1',
@@ -467,7 +470,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
           // The edge function loads transcript and measurements from this authenticated saved session.
           // Never send caller-owned evidence that could be swapped between session ids.
-          body: { sessionId: sessionId || null, ...(product ? { product } : {}) },
+          // #1538 Codex P1 r4118176188: `accepted_coaching_versions` is the closed capability that tells the server this
+          // client reads Focus provenance. Without it (a tab on an older bundle) the server answers a v1-labelled copy.
+          body: { sessionId: sessionId || null, ...(product ? { product } : {}), accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         });
 
         if (invokeError) {
