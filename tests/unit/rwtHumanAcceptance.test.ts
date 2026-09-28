@@ -53,10 +53,12 @@ const complete = (md: string, results: Record<string, string>, observer = 'PO ·
     }).join('\n');
 
 describe('initial receipt: automated PASS never reads as a completed human check', () => {
-    it('all automated rows PASS but human checks pending → INCOMPLETE', () => {
+    it('human checks pending → INCOMPLETE; the initial receipt is not "all automated PASS" while received telemetry is HOLD', () => {
         const a = receiptAcceptance(rows);
         expect(a.acceptance).toBe('INCOMPLETE');
-        expect(a.automatedRowsAllPass).toBe(true);
+        // #1532 Codex P2 r4126745144: `journey telemetry received` is a gating automated row that is HOLD until the
+        // readback merge, so the automated part is not complete yet.
+        expect(a.automatedRowsAllPass).toBe(false);
         expect(a.humanObservations.map((h) => h.result)).toEqual(['pending', 'pending']);
     });
     it('the worksheet binds to the run and leaves the decision cells blank', () => {

@@ -52,7 +52,9 @@ export function receiptAcceptance(rows: readonly ReceiptRow[]): {
     return {
         acceptance: gating.some((r) => r.verdict === 'FAIL') ? 'FAIL'
             : gating.some((r) => r.verdict === 'HOLD' || r.verdict === 'HUMAN') ? 'INCOMPLETE' : 'PASS',
-        automatedRowsAllPass: gating.filter((r) => !isHumanObservation(r) && r.verdict !== 'HOLD').every((r) => r.verdict === 'PASS'),
+        // #1532 Codex P2 r4126745144: every GATING automated row must be PASS; a gating HOLD is not "all pass". Rows in
+        // NON_GATING_ROWS are already excluded from `gating`, and human observations are never automated.
+        automatedRowsAllPass: gating.filter((r) => !isHumanObservation(r)).every((r) => r.verdict === 'PASS'),
         nonGating: rows.filter(exempt).map((r) => ({ step: r.step, verdict: r.verdict, reason: NON_GATING_ROWS[r.step] })),
         humanObservations: rows.filter(isHumanObservation).map((r) => ({
             id: String(r.evidence!.observationId),

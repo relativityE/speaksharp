@@ -290,3 +290,22 @@ describe('Focus partial: cleanup is verified before the receipt is written, and 
         expect(spec).toMatch(/test\.afterEach\([\s\S]{0,120}cleanupRunOwnedAccount\(\{ admin: admin as never, capturedUid: owner\.uid, createdEmail: owner\.email/);
     });
 });
+
+/** #1532 Codex P2 r4126745144 (PM RETURN 5878409074) — `automatedRowsAllPass` means every GATING automated row is PASS. */
+describe('automatedRowsAllPass counts gating HOLD rows as not passing', () => {
+    it('a gating automated HOLD → acceptance INCOMPLETE and automatedRowsAllPass false', () => {
+        const a = receiptAcceptance([pass('session saved'), hold('journey telemetry received')]);
+        expect(a).toMatchObject({ acceptance: 'INCOMPLETE', automatedRowsAllPass: false });
+    });
+    it('all gating automated rows PASS → true', () => {
+        expect(receiptAcceptance([pass('session saved'), pass('journey telemetry received')]).automatedRowsAllPass).toBe(true);
+    });
+    it('a permitted NON-GATING HOLD does not make it false', () => {
+        const a = receiptAcceptance([pass('session saved'), hold('signup-stage telemetry received'), hold('base_q4 primary')]);
+        expect(a).toMatchObject({ acceptance: 'PASS', automatedRowsAllPass: true });
+    });
+    it('pending human observations stay outside the automated boolean', () => {
+        const a = receiptAcceptance([pass('session saved'), humanRow('open_mic_coaching_relevant')]);
+        expect(a).toMatchObject({ acceptance: 'INCOMPLETE', automatedRowsAllPass: true });
+    });
+});
