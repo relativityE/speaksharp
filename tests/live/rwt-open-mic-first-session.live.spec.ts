@@ -153,6 +153,7 @@ test.describe('RWT — Open Mic first session @live', () => {
         const run: RunTarget = await resolveRunTarget(JOURNEY);
 
         const receipt = new RwtReceipt(SUITE);
+        receipt.forbid(SERVICE_ROLE);
         receipt.meta.fixture = fixture.key;
         receipt.meta.fixtureKind = fixture.entry.kind;
         receipt.meta.fixtureSha256 = fixture.entry.kind === 'human' ? '(private)' : fixture.entry.sha256;
@@ -200,6 +201,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const surface = await approvedSurfaceFailures(page);
                 if (surface.length > 0) throw new Error(`HOLD surface: ${surface.join('; ')}`);
                 createdEmail = newDisposableEmail('open-mic');
+                receipt.forbid(createdEmail);
                 const account = await signUpDisposableAccount(page, createdEmail);
                 capturedUid = account.uid;
                 const identity = await runOwnedIdentityFailures(admin as never, capturedUid, createdEmail);
@@ -314,6 +316,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 };
                 shownWell = await phrase(WELL_HEADINGS);
                 shownNext = await phrase(NEXT_HEADINGS);
+                receipt.forbid(shownWell, shownNext);
                 const well = shownWell ? countWords(shownWell) : null;
                 const next = shownNext ? countWords(shownNext) : null;
                 const twoPhrases = state === 'ready' && well !== null && next !== null;
@@ -335,6 +338,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const savedAi = (savedRow?.ai_suggestions ?? null) as { what_worked?: unknown; what_to_try_next?: unknown } | null;
                 savedWell = typeof savedAi?.what_worked === 'string' ? savedAi.what_worked.trim() : '';
                 savedNext = typeof savedAi?.what_to_try_next === 'string' ? savedAi.what_to_try_next.trim() : '';
+                receipt.forbid(savedWell, savedNext);
                 const wellMatches = savedWell !== '' && samePhrase(shownWell, savedWell);
                 const nextMatches = savedNext !== '' && samePhrase(shownNext, savedNext);
                 receipt.row('coaching visible = saved', wellMatches && nextMatches ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',

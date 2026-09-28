@@ -297,3 +297,47 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
     const a = receiptAcceptance(rows);
     return { status: 'final', finalAcceptance: a.acceptance, errors: [], rows, humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass };
 }
+
+/**
+ * #1532 Codex P1 r4125567004 — WHAT A RECEIPT MAY PUBLISH. The receipt file, the worksheet and the `RWT_RECEIPT` log
+ * line are public once the artifact uploads (the repository is public; GitHub masks only secret values, never emails or
+ * coaching text, and never artifact contents). So the leak check runs over those three FINAL outputs, after every row
+ * has been added, against every value the suite registered (plain and JSON-escaped). On any match nothing original is
+ * emitted: only a minimal redacted failure receipt (suite, release, contamination, acceptance FAIL, leak COUNT) and no
+ * worksheet; the caller then fails the test.
+ */
+export interface GuardedReceiptOutput {
+    receiptText: string;
+    worksheetText: string | null;
+    logLine: string;
+    leakCount: number;
+}
+
+export function guardReceiptOutput(args: {
+    suite: string;
+    release: string;
+    body: unknown;
+    worksheet: string;
+    forbidden: Iterable<string | null | undefined>;
+    testStatus: string | null;
+}): GuardedReceiptOutput {
+    const receiptText = `${JSON.stringify(args.body, null, 2)}\n`;
+    const logLine = `RWT_RECEIPT ${JSON.stringify(args.body)}`;
+    const needles = [...new Set([...args.forbidden].filter((v): v is string => typeof v === 'string' && v.length > 3))];
+    const forms = (v: string) => [v, JSON.stringify(v).slice(1, -1)];
+    const appearsIn = (text: string) => (v: string) => forms(v).some((f) => text.includes(f));
+    const leaked = needles.filter((v) => [receiptText, args.worksheet, logLine].some((text) => appearsIn(text)(v)));
+    if (leaked.length === 0) return { receiptText, worksheetText: args.worksheet, logLine, leakCount: 0 };
+
+    let redacted: Record<string, unknown> = {
+        suite: args.suite, release: args.release, contaminated: true, acceptance: 'FAIL', leakCount: leaked.length, testStatus: args.testStatus,
+    };
+    // Even the identifying fields are dropped if one of them is a registered value.
+    if (needles.some(appearsIn(JSON.stringify(redacted)))) redacted = { contaminated: true, acceptance: 'FAIL', leakCount: leaked.length };
+    return {
+        receiptText: `${JSON.stringify(redacted, null, 2)}\n`,
+        worksheetText: null,
+        logLine: `RWT_RECEIPT ${JSON.stringify(redacted)}`,
+        leakCount: leaked.length,
+    };
+}

@@ -72,6 +72,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
         if (preconditions.length > 0) throw new Error(`HOLD preconditions: ${preconditions.join('; ')}`);
 
         const receipt = new RwtReceipt(SUITE);
+        receipt.forbid(RETURNING_EMAIL, RETURNING_PASSWORD, SERVICE_ROLE);
         receipt.meta.account = process.env.RWT_RETURNING_EMAIL ? 'authorized factory disposable' : 'maintained FREE_TEST account';
         const tap = new AnalyticsTap();
         tap.attach(page);

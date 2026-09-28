@@ -112,6 +112,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const expectedFinal = fixture.entry.expectedFinal ?? [];
 
     const receipt = new RwtReceipt(suite);
+    receipt.forbid(SERVICE_ROLE, topic, ...points);
     let feedbackReportId: string | null = null;
     receipt.meta.fixture = fixture.key;
     receipt.meta.fixtureKind = fixture.entry.kind;
@@ -160,6 +161,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const surface = await approvedSurfaceFailures(page);
             if (surface.length > 0) throw new Error(`HOLD surface: ${surface.join('; ')}`);
             owner.email = newDisposableEmail('focus-points');
+            receipt.forbid(owner.email);
             const account = await signUpDisposableAccount(page, owner.email);
             owner.uid = account.uid;
             const identity = await runOwnedIdentityFailures(admin as never, owner.uid, owner.email);

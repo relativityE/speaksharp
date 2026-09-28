@@ -14,13 +14,13 @@
  *     text, feedback text, email or credential.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { guardReceiptOutput, humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import {
     AUDIO_ARGS,
     expectBenchmarkRecordingStarted,
@@ -463,8 +463,14 @@ export const countWords = (value: string): number => value.trim().split(/\s+/).f
 export class RwtReceipt {
     readonly rows: ReceiptRow[] = [];
     readonly meta: Record<string, string | number | boolean | null> = {};
+    /** Values this receipt must never publish (#1532 Codex P1 r4125567004); registered as soon as each exists. */
+    private readonly forbidden = new Set<string>();
 
     constructor(readonly suite: string) {}
+
+    forbid(...values: Array<string | null | undefined>): void {
+        for (const value of values) if (typeof value === 'string' && value.length > 3) this.forbidden.add(value);
+    }
 
     row(step: string, verdict: Verdict, detail: string, evidence?: ReceiptRow['evidence']): void {
         this.rows.push({ step, verdict, detail, evidence });
@@ -507,9 +513,19 @@ export class RwtReceipt {
             },
             testStatus: testInfo.status ?? null,
         };
-        writeFileSync(path.join(dir, `${this.suite}.receipt.json`), `${JSON.stringify(body, null, 2)}\n`);
-        writeFileSync(path.join(dir, `${this.suite}.human-worksheet.md`), humanWorksheet(this.suite, body.release, journeyIds, this.rows));
-        console.log(`RWT_RECEIPT ${JSON.stringify(body)}`);
+        // The leak check runs HERE, over the final outputs, after every row (including the binding HOLD above) exists.
+        const out = guardReceiptOutput({
+            suite: this.suite, release: body.release, body, worksheet: humanWorksheet(this.suite, body.release, journeyIds, this.rows),
+            forbidden: this.forbidden, testStatus: body.testStatus,
+        });
+        writeFileSync(path.join(dir, `${this.suite}.receipt.json`), out.receiptText);
+        const worksheetPath = path.join(dir, `${this.suite}.human-worksheet.md`);
+        if (out.worksheetText === null) rmSync(worksheetPath, { force: true });
+        else writeFileSync(worksheetPath, out.worksheetText);
+        console.log(out.logLine);
+        if (out.leakCount > 0) {
+            throw new Error(`RWT receipt contaminated: ${out.leakCount} registered value(s) found; only a redacted failure receipt was written`);
+        }
     }
 }
 
@@ -537,6 +553,7 @@ export function acquisitionTimingRow(receipt: RwtReceipt, tap: AnalyticsTap, jou
 
 /** Serialized evidence must never carry these; a match is itself a FAIL row. */
 export function receiptContentLeaks(receipt: RwtReceipt, forbidden: readonly string[]): string[] {
+    receipt.forbid(...forbidden);   // write() re-checks the final outputs against every registered value
     const serialized = JSON.stringify({ meta: receipt.meta, rows: receipt.rows });
     return forbidden.filter((needle) => needle.length > 3 && serialized.includes(needle));
 }
