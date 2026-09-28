@@ -29,6 +29,21 @@ export function detectedCountExpected(expectedFinal: readonly string[]): number 
 }
 
 /**
+ * #1532 Codex P2 r4127572206 (PM RETURN 5879843525) — spoken points change LIVE. Every point expected to finish detected
+ * (covered OR partial) must show a visible non-pending rail state during speech; a point expected `missing` is not
+ * required to change. Judged PER POINT — a count would let a wrong point's change stand in for the partial one. The
+ * live state need not already be the final verdict (the final verdict is checked separately after Stop).
+ */
+export const expectsLiveChange = (expected: string): boolean => expected === 'covered' || expected === 'partial';
+
+export function liveChangeFailures(
+    expectedFinal: readonly string[],
+    firstChange: ReadonlyArray<{ status: string } | null | undefined>,
+): number[] {
+    return expectedFinal.flatMap((expected, i) => (expectsLiveChange(expected) && !firstChange[i] ? [i] : []));
+}
+
+/**
  * r4105978630 — retention is proven only AFTER the run-owned account is deleted: the report must still exist and its
  * user link must be cleared (user_issue_reports.user_id ON DELETE SET NULL). Anything unproven is HOLD, never PASS.
  */

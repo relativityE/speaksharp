@@ -147,7 +147,8 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
         case 'focus-points-partial':
             return ['focus_coaching_covers_points'];
         case 'returning-user-navigation':
-            return [];
+            // #1532 Codex P1 r4127572196: the two release-level device checks this suite always emits.
+            return ['real_microphone_permission_prompt', 'mobile_stop_confirmation_visible'];
         default:
             return null; // not an RWT suite this finalizer knows
     }

@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, detectedCountExpected, focusPointMeetsExpectation, persistedVerdictMismatches } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import {
@@ -249,12 +249,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 if (now.next !== null && nextSequence[nextSequence.length - 1] !== now.next) nextSequence.push(now.next);
                 await page.waitForTimeout(500);
             }
-            const expectedLive = expectedFinal.filter((e) => e === 'covered').length;
+            // #1532 r4127572206: every point expected covered OR partial must change live (per point, not by count).
+            const expectedLive = expectedFinal.filter(expectsLiveChange).length;
             const liveChanged = firstChange.filter(Boolean).length;
+            const notLive = liveChangeFailures(expectedFinal, firstChange);
             const ordered = firstChange.filter(Boolean).every((c, i, all) => i === 0 || c!.atSec >= all[i - 1]!.atSec);
-            receipt.row('live marker changes', liveChanged >= expectedLive && ordered ? 'PASS' : 'FAIL',
-                liveChanged >= expectedLive ? 'markers changed during speech, in speaking order' : 'markers did not change during speech (Stop-time-only detection fails this row)',
-                { changedDuringSpeech: liveChanged, expected: expectedLive, firstChangeSec: firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(',') });
+            receipt.row('live marker changes', notLive.length === 0 && ordered ? 'PASS' : 'FAIL',
+                notLive.length === 0 ? 'every spoken point expected to be detected changed during speech, in speaking order' : 'a point expected to be detected did not change during speech (Stop-time-only detection fails this row)',
+                { changedDuringSpeech: liveChanged, expected: expectedLive, notLive: notLive.map((i) => i + 1).join(','), firstChangeSec: firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(',') });
             receipt.row('next point marked', nextSequence.length > 1 ? 'PASS' : 'FAIL',
                 nextSequence.length > 1 ? 'the "Still to cover" marker advanced as points were detected' : 'the next point was not visibly advanced',
                 { nextSequence: nextSequence.join('>') });
@@ -273,7 +275,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     const change = firstChange[i];
                     // A point never spoken must never be marked, at any time.
                     if (window === null) return change ? 'marked-though-never-spoken' : 'ok-unspoken';
-                    if (!change) return expectedFinal[i] === 'covered' ? 'no-live-change' : 'ok-no-change';
+                    if (!change) return expectsLiveChange(expectedFinal[i]) ? 'no-live-change' : 'ok-no-change';
                     const audioSec = (change.atMs - takeOpen) / 1000;
                     const latency = (audioSec - window[1]).toFixed(1); // negative = during the point
                     const next = nextStart(i);

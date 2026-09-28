@@ -328,7 +328,7 @@ describe('product-row inventory: a receipt missing any product outcome can never
         { suite: 'open-mic-first-session', humans: ['open_mic_coaching_relevant', 'open_mic_uh_detected'], readback: true, extra: [] as string[] },
         { suite: 'focus-points-session', humans: ['focus_coaching_covers_points'], readback: true, extra: [] as string[] },
         { suite: 'focus-points-partial', humans: ['focus_coaching_covers_points'], readback: true, extra: ['run-owned cleanup'] },
-        { suite: 'returning-user-navigation', humans: [] as string[], readback: false, extra: [] as string[] },
+        { suite: 'returning-user-navigation', humans: ['real_microphone_permission_prompt', 'mobile_stop_confirmation_visible'], readback: false, extra: [] as string[] },
     ];
     const always = ['telemetry decodable', 'signup-stage telemetry (user class)', 'receipt content-free'];
     const canonical = (s: (typeof SUITES)[number]) => {
@@ -341,7 +341,7 @@ describe('product-row inventory: a receipt missing any product outcome can never
         return { ...receipt, suite: s.suite, rows: [...automated, ...s.humans.map(humanRow)] };
     };
     const done = (r: { suite: string; rows: ReceiptRow[] }) => parseHumanWorksheet(humanWorksheet(r.suite, SHA, [J, 'other'], r.rows).split('\n')
-        .map((l) => (/^\| `(open_mic_|focus_)/.test(l) ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-09-28 |') : l)).join('\n'));
+        .map((l) => (/^\| `(open_mic_|focus_|real_microphone_|mobile_stop_)/.test(l) ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-09-28 |') : l)).join('\n'));
     const finalize = (s: (typeof SUITES)[number], r: { suite: string; rows: ReceiptRow[] }) =>
         finalizeReceipt(r, done(r), s.readback ? { ...readbackOk, suite: s.suite } : undefined);
 
@@ -374,5 +374,35 @@ describe('product-row inventory: a receipt missing any product outcome can never
         for (const s of SUITES) for (const step of requiredAutomatedRows(s.suite)!.product) {
             expect({ step, written: writers.includes(`'${step}'`) }).toEqual({ step, written: true });
         }
+    });
+});
+
+/** #1532 Codex P1 r4127572196 (PM RETURN 5879843525) — returning-user's two release-level device checks are required. */
+describe('returning-user: the real microphone prompt and the phone Stop are required human checks', () => {
+    const IDS = ['real_microphone_permission_prompt', 'mobile_stop_confirmation_visible'];
+    const automated: ReceiptRow[] = [
+        pass('telemetry decodable'), pass('signup-stage telemetry (user class)'), hold('signup-stage telemetry received'), pass('receipt content-free'),
+        ...requiredAutomatedRows('returning-user-navigation')!.product.map(pass),
+    ];
+    const nav = (ids: string[]) => ({ ...receipt, suite: 'returning-user-navigation', rows: [...automated, ...ids.map(humanRow)] });
+    const worksheet = (r: { rows: ReceiptRow[] }, result = 'PASS') => parseHumanWorksheet(humanWorksheet('returning-user-navigation', SHA, [J, 'other'], r.rows).split('\n')
+        .map((l) => (/^\| `(real_microphone_|mobile_stop_)/.test(l) ? l.replace(/\| {2}\| {2}\|$/, `| ${result} | PO · 2026-09-28 |`) : l)).join('\n'));
+
+    it('CONTROL: both checks present and adjudicated PASS → final PASS', () => {
+        const r = nav(IDS);
+        expect(finalizeReceipt(r, worksheet(r))).toMatchObject({ status: 'final', finalAcceptance: 'PASS', errors: [] });
+    });
+    for (const id of IDS) {
+        it(`CASUALTY: "${id}" omitted from the receipt → binding error, never PASS`, () => {
+            const r = nav(IDS.filter((x) => x !== id));
+            const out = finalizeReceipt(r, worksheet(r));
+            expect(out.finalAcceptance).not.toBe('PASS');
+            expect(out.errors.join(' ')).toMatch(new RegExp(`missing the required human observation ${id}`));
+        });
+    }
+    it('pending (unadjudicated) or FAIL adjudication → never PASS', () => {
+        const r = nav(IDS);
+        expect(finalizeReceipt(r, parseHumanWorksheet(humanWorksheet('returning-user-navigation', SHA, [J, 'other'], r.rows))).finalAcceptance).not.toBe('PASS');
+        expect(finalizeReceipt(r, worksheet(r, 'FAIL')).finalAcceptance).toBe('FAIL');
     });
 });

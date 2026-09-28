@@ -6,9 +6,11 @@
  *  - r4105978630: feedback retention is proven only AFTER the account is deleted (row kept, user link cleared).
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
-    acquisitionTimingVerdict, detectedCountExpected, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, focusPointMeetsExpectation,
-    persistedVerdictMismatches,
+    acquisitionTimingVerdict, detectedCountExpected, expectsLiveChange, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, focusPointMeetsExpectation,
+    liveChangeFailures, persistedVerdictMismatches,
     surfaceReadinessFailures,
 } from '../live/helpers/rwtOracles';
 
@@ -151,5 +153,38 @@ describe('persistedVerdictMismatches', () => {
         expect(persistedVerdictMismatches([...rail], points, [...saved(['detected', 'detected', 'detected', 'not_detected']), { brief_point_id: 'px', verdict: 'detected' }])).toEqual([-1]);
         expect(persistedVerdictMismatches([...rail], points, saved(['detected', 'unavailable', 'detected', 'not_detected']))).toEqual([1]);
         expect(persistedVerdictMismatches(['covered', 'pending', 'partial', 'missing'], points, saved(['detected', 'detected', 'detected', 'not_detected']))).toEqual([1]);
+    });
+});
+
+/** #1532 Codex P2 r4127572206 (PM RETURN 5879843525) — every point expected to be detected changes LIVE, judged per point. */
+describe('r4127572206 — the expected-partial point must visibly change during speech', () => {
+    const PARTIAL = ['covered', 'covered', 'partial', 'missing'];
+    const at = (status: string) => ({ status });
+
+    it('RED case: points 1–2 change live but the expected-partial point 3 stays pending → point 3 is reported', () => {
+        expect(liveChangeFailures(PARTIAL, [at('covered'), at('covered'), null, null])).toEqual([2]);
+    });
+    it('GREEN: covered points and the partial point change live; the missing point is not required to', () => {
+        expect(liveChangeFailures(PARTIAL, [at('covered'), at('covered'), at('partial'), null])).toEqual([]);
+    });
+    it('any visible non-pending live state counts; the final verdict is checked separately after Stop', () => {
+        expect(liveChangeFailures(PARTIAL, [at('covered'), at('covered'), at('covered'), null])).toEqual([]);
+    });
+    it('per point, not by count: a wrong point changing cannot stand in for the partial one', () => {
+        expect(liveChangeFailures(PARTIAL, [at('covered'), at('covered'), null, at('covered')])).toEqual([2]);
+    });
+    it('a covered point with no live change is still reported (unchanged behaviour)', () => {
+        expect(liveChangeFailures(PARTIAL, [null, at('covered'), at('partial'), null])).toEqual([0]);
+        expect(liveChangeFailures(['covered', 'covered', 'covered', 'covered'], [at('covered'), at('covered'), at('covered'), at('covered')])).toEqual([]);
+    });
+    it('expectsLiveChange: covered and partial yes; missing no', () => {
+        expect(['covered', 'partial', 'missing'].map(expectsLiveChange)).toEqual([true, true, false]);
+    });
+    it('wiring: the Focus journey judges both the live row and the timing oracle with the shared predicate', () => {
+        const src = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
+        expect(src).toContain('const notLive = liveChangeFailures(expectedFinal, firstChange);');
+        expect(src).toMatch(/receipt\.row\('live marker changes', notLive\.length === 0 && ordered \? 'PASS' : 'FAIL'/);
+        expect(src).toContain("if (!change) return expectsLiveChange(expectedFinal[i]) ? 'no-live-change' : 'ok-no-change';");
+        expect(src).not.toContain("expectedFinal.filter((e) => e === 'covered').length");
     });
 });
