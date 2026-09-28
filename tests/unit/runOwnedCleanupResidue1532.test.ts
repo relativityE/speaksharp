@@ -20,6 +20,15 @@ describe('run-owned cleanup residue inventory', () => {
         }
     });
 
+    // #1532 Codex P2 r4127146515 (PM RETURN 5878931605): the transcript-retention tables a transcript-bearing save writes
+    // (arming) and a later save fills with the earlier take's transcript (tombstones) are residue-checked by user_id.
+    it('CASUALTY: transcript_retention_arming and transcript_retention_tombstones are residue-checked by user_id', () => {
+        const entries = [...list.matchAll(/\{ table: '([a-z_]+)', column: '([a-z_]+)' \}/g)].map((m) => [m[1], m[2]]);
+        for (const t of ['transcript_retention_arming', 'transcript_retention_tombstones']) {
+            expect(entries).toContainEqual([t, 'user_id']);
+        }
+    });
+
     // PM loop-5 widening 5869933493: the inventory names only CURRENT tables. custom_vocabulary was renamed to
     // user_filler_words (20260103170500); querying the old name errors, and the loop fails closed on any error, so every
     // run-owned cleanup would throw and the renamed table would go unchecked.

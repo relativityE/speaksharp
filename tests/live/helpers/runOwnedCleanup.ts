@@ -102,6 +102,11 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
     { table: 'objective_evidence', column: 'user_id' },
     // #1532 Codex P2 r4122079960: a saved Focus take also inserts an action (objective_finalize_evidence_v1).
     { table: 'objective_action', column: 'user_id' },
+    // #1532 Codex P2 r4127146515 — newest-one transcript retention (20260908120000), both ON DELETE CASCADE:
+    // every transcript-bearing save arms retention for the account (arm_transcript_retention_for_save) …
+    { table: 'transcript_retention_arming', column: 'user_id' },
+    // … and a later saved take tombstones the earlier take's transcript, so this row carries transcript text.
+    { table: 'transcript_retention_tombstones', column: 'user_id' },
 ]);
 
 /**
