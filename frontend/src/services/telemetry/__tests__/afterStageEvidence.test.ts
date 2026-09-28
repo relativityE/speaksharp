@@ -214,6 +214,56 @@ describe('#1258 — a Focus Points review must include its AI coaching (runbook 
         expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/coaching receipt cannot be bound to the saved take: the post-Stop chain has no session_saved row/);
     });
 
+    /**
+     * #1538 Codex P1 r4117960368 (PM RETURN 5862066742): THE RECEIVED ROW, NOT A FIXTURE OBJECT.
+     *
+     * The casualties above hand the gate decoded objects that already carry `review_surface`, `phase` and
+     * `suggestions_present`. The trusted readback selected none of the three, so a genuine Focus Points journey
+     * reached the gate without them and held as "rendered no AI coaching" although the receipt was delivered.
+     * This round-trips the qualifying journey through the REAL wire shape: each row becomes the positional cells
+     * the actual `buildReadbackQuery` select list produces, and is decoded with the actual `name: cells[i]`
+     * mapping read from `telemetry-readback-qualification.mts` — so a column the query drops, or a cell the
+     * decoder never reads, is dropped here too.
+     */
+    it('CASUALTY: a qualifying Focus Points journey still qualifies after the trusted readback round trip', () => {
+        const query = buildReadbackQuery({
+            windowHours: 24, releaseSha: 'sha', trafficType: 'internal_test', qualifyingIdentity: 'id',
+            governedEvents: ['practice_loop'], quote: (v: string) => `'${v}'`,
+        } as never);
+        const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
+        const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
+        const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
+        const decoderCells = [...script.matchAll(/(\w+): \(?cells\[(\d+)\]/g)].map((m) => [m[1], Number(m[2])] as const);
+        const TOP_LEVEL: Record<string, keyof DecodedTelemetryRow> = { event: 'event', timestamp: 'timestamp', journey_id: 'journeyId', boot_id: 'bootId' };
+
+        const toCells = (r: DecodedTelemetryRow) => columns.map((c) => (c in TOP_LEVEL
+            ? (r as unknown as Record<string, unknown>)[TOP_LEVEL[c]] ?? null
+            : (r.properties as Record<string, unknown> | undefined)?.[c] ?? null));
+        const decode = (cells: unknown[]): DecodedTelemetryRow => {
+            const decoded: Record<string, unknown> = { properties: {} };
+            for (const [name, index] of decoderCells) {
+                if (['event', 'timestamp', 'journeyId', 'bootId'].includes(name)) decoded[name] = cells[index] ?? null;
+                else (decoded.properties as Record<string, unknown>)[name] = cells[index] ?? null;
+            }
+            return decoded as unknown as DecodedTelemetryRow;
+        };
+
+        const sent = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', COACHING_RENDERED)]);
+        expect(evaluateQualificationStage(FOCUS_POINTS, sent), 'control: the sent journey qualifies').toEqual([]);
+        expect(evaluateQualificationStage(FOCUS_POINTS, sent.map((r) => decode(toCells(r)))), 'the received journey qualifies').toEqual([]);
+    });
+
+    it('the readback selects the three coaching-receipt fields, appended after every existing column, and never the whole property bag', () => {
+        const query = buildReadbackQuery({
+            windowHours: 24, releaseSha: 'sha', trafficType: 'internal_test', qualifyingIdentity: 'id',
+            governedEvents: ['practice_loop'], quote: (v: string) => `'${v}'`,
+        } as never);
+        const order = ['comparison_evidence_document_id', 'review_surface', 'phase', 'suggestions_present'].map((c) => query.indexOf(`AS ${c}`));
+        expect(order.every((i) => i > 0), 'each column is selected').toBe(true);
+        expect([...order].sort((a, b) => a - b), 'appended in order after the last existing column').toEqual(order);
+        expect(query).not.toMatch(/SELECT\s+\*|properties\s+AS|,\s*properties\s*(,|FROM)/);
+    });
+
     it('CONTROL: rail + rendered coaching qualifies Focus Points; Open Mic is unaffected (string booleans read too)', () => {
         const focus = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN,
             [row('practice_loop', RAIL_ONLY), row('practice_loop', { ...COACHING_RENDERED, suggestions_present: 'true' })]);
