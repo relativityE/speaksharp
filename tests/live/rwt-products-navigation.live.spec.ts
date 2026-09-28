@@ -200,7 +200,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             receipt.row('journey_step sent', tap.sent('journey_step').length > 0 ? 'PASS' : 'HOLD',
                 'journey_step left the page (sent, not yet received)', { sent: tap.sent('journey_step').length });
             // A maintained account is never given the canary claim, so its telemetry is not readback-eligible here.
-            const { userJourneys } = telemetryClassRows(receipt, tap, false);
+            const { userJourneys } = telemetryClassRows(receipt, tap, false, false); // qualifies no journey (#1532)
             const leaks = receiptContentLeaks(receipt, [RETURNING_EMAIL, RETURNING_PASSWORD, SERVICE_ROLE].filter(Boolean));
             receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', 'no credential or email in the receipt');
             receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes(), userJourneys);

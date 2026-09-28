@@ -38,6 +38,7 @@ import {
     modelIdentityRow,
     acquisitionTimingRow,
     shareFeedbackRows,
+    openProductsMenuInPlace,
     feedbackRetentionAfterDeletionRow,
     RWT_ACCOUNT_PREFIX,
     analyticsRows,
@@ -358,6 +359,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         });
 
         // ── Row 12 — Analytics ──────────────────────────────────────────────────────────────────────────
+        await test.step('Products menu opened on the session page (inventory, recording journey)', async () => {
+            // #1532 Codex P1 r4121232419: emitted inside the recording journey (a product route; nothing navigates), where the
+            // analytics_inventory stage proves it was received.
+            const opened = await openProductsMenuInPlace(page);
+            receipt.row('Products menu opened in the session', opened ? 'PASS' : 'FAIL',
+                opened ? 'the header Products menu opened and closed on the session page' : 'the header Products menu could not be opened on the session page');
+        });
+
         // Share Feedback belongs to the full journey only; the partial fixture stays a coverage probe. It runs BEFORE the
         // Analytics reload (PO disposition, #1532 Codex P1s r4120724715 / r4120724726): the reload mints a new journey, so
         // sharing feedback first keeps recording and feedback in ONE journey that every readback check applies to.
@@ -437,7 +446,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none' : 'the generation count is not exactly one for this take',
             { reviewRequested: generationsForFirstTake });
         receipt.row('inventory events sent', focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
-            'products_menu_opened and saved_review_revisited left the page (sent; received = readback)', focusTelemetry);
+            'products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusTelemetry);
         // Point text and topic are the person's content: they must never reach the receipt.
         const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));
         receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no point text, topic or credential in the receipt' : 'the receipt carried a forbidden value');
@@ -451,7 +460,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             if (deleted) { owner.uid = ''; owner.email = ''; }
         }
         receipt.write(testInfo,
-            bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_focus_points'], feedback: fixtureKey === 'focus_points_tts', sameJourney: true }),
+            bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'], feedback: fixtureKey === 'focus_points_tts', sameJourney: true }),
             tap.trafficTypes(), userJourneys);
     }
 }

@@ -209,7 +209,12 @@ export async function markRunOwnedAccountCanary(
  * Telemetry classes, reported separately (PM ruling): the pre-claim signup stage is `user`; the journey after the
  * claim is `canary`. Rows only — the readback of each journey is a workflow step.
  */
-export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claimed: boolean): { canaryJourneys: string[]; userJourneys: string[] } {
+/**
+ * `qualifies` (#1532 Codex P1 r4121232394): a suite that qualifies no journey (the returning-user navigation suite never
+ * claims and declares no stages) writes no canary-class or received rows — they could only ever be HOLD by construction,
+ * which would make its receipt permanently INCOMPLETE. Its journeys are still reported by the readback step.
+ */
+export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claimed: boolean, qualifies = true): { canaryJourneys: string[]; userJourneys: string[] } {
     const canaryJourneys = tap.journeyIds('canary');
     const userJourneys = tap.journeyIds('user');
     receipt.row('telemetry decodable', tap.undecodable === 0 && tap.events.length > 0 ? 'PASS' : 'FAIL', 'every analytics body decoded',
@@ -218,6 +223,7 @@ export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claim
         'pre-claim signup events were sent as ordinary user traffic (sent, not yet received)',
         { userEvents: tap.events.filter((e) => e.trafficType === 'user').length, userJourneys: userJourneys.length });
     receipt.row('signup-stage telemetry received', 'HOLD', 'reported by the report-only user-stage readback step (received counts per family; never qualifying)');
+    if (!qualifies) return { canaryJourneys, userJourneys };
     if (!claimed) {
         receipt.row('journey telemetry (canary class)', 'HOLD', 'the canary claim was not authorized for this run; no journey is readback-eligible');
     } else {
@@ -226,7 +232,7 @@ export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claim
             canaryJourneys.length > 0 ? 'post-claim journey events were sent as canary' : 'no canary-class journey after the claim',
             { canaryEvents: tap.events.filter((e) => e.trafficType === 'canary').length, canaryJourneys: canaryJourneys.length, otherClasses: stray.join(',') });
     }
-    receipt.row('journey telemetry received', 'HOLD', 'receipt in PostHog is proven by the readback step, not by this page');
+    receipt.row('journey telemetry received', 'HOLD', 'proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)');
     return { canaryJourneys, userJourneys };
 }
 
@@ -901,7 +907,13 @@ async function coachingShownOnPage(page: Page, saved: SavedCoaching, evidencePat
  * the rendered transcript to the saved one by digest; then reload and compare again. No direct URL navigation into
  * the detail — that would skip the button the PO clicks. Digests only; the text is never returned.
  */
-export async function analyticsThroughActions(page: Page, sessionId: string, savedDigest: string, savedCoaching?: SavedCoaching, evidencePattern?: RegExp): Promise<{
+/**
+ * `onListed` (#1532 Codex P1 r4121232419, PO disposition: full loop 4) runs on the Analytics LIST after this session is
+ * listed and BEFORE the detail opens and the page reloads — the reload mints a new journey, so anything whose receipt
+ * must be proven in the recording journey (the PDF export) happens here.
+ */
+export async function analyticsThroughActions(page: Page, sessionId: string, savedDigest: string, savedCoaching?: SavedCoaching, evidencePattern?: RegExp,
+    onListed?: () => Promise<void>): Promise<{
     actionClicked: boolean; listed: boolean; detailOpened: boolean; detailMatches: boolean; reloadMatches: boolean;
     coachingBefore: CoachingShown | null; coachingAfter: CoachingShown | null;
 }> {
@@ -916,6 +928,7 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     const open = page.getByTestId(`open-session-detail-${sessionId}`).or(page.getByTestId(`open-session-detail-mobile-${sessionId}`)).first();
     result.listed = await open.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     if (!result.listed) return result;
+    if (onListed) await onListed();
     await open.click();
     result.detailOpened = await page.waitForURL(new RegExp(`/analytics/${sessionId}`), { timeout: 30_000 }).then(() => true).catch(() => false);
     const detail = page.getByTestId('session-detail-transcript');
@@ -927,6 +940,19 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     result.reloadMatches = again && sha256Hex(await page.getByTestId('session-detail-transcript').innerText()) === savedDigest;
     if (savedCoaching) result.coachingAfter = await coachingShownOnPage(page, savedCoaching, evidencePattern);
     return result;
+}
+
+/**
+ * #1532 Codex P1 r4121232419 (PO disposition: full loop 4) — open the header Products menu IN PLACE on the session
+ * page (a product route, so no journey boundary) and close it again, so `products_menu_opened` is emitted inside the
+ * recording journey where the `analytics_inventory` stage proves it was received. Navigates nowhere.
+ */
+export async function openProductsMenuInPlace(page: Page): Promise<boolean> {
+    const desktop = page.getByTestId('nav-products-button');
+    const trigger = (await desktop.isVisible().catch(() => false)) ? desktop : page.getByTestId('nav-mobile-products-button');
+    const opened = await trigger.click({ timeout: 20_000 }).then(() => true).catch(() => false);
+    await page.keyboard.press('Escape').catch(() => undefined);
+    return opened;
 }
 
 export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof analyticsThroughActions>>): void {

@@ -60,6 +60,7 @@ import {
     modelIdentityRow,
     acquisitionTimingRow,
     shareFeedbackRows,
+    openProductsMenuInPlace,
     feedbackRetentionAfterDeletionRow,
     analyticsRows,
     analyticsThroughActions,
@@ -402,6 +403,14 @@ test.describe('RWT — Open Mic first session @live', () => {
                 }
             });
 
+            await test.step('Products menu opened on the session page (inventory, recording journey)', async () => {
+                // #1532 Codex P1 r4121232419: emitted inside the recording journey (a product route; nothing navigates), where the
+                // analytics_inventory stage proves it was received.
+                const opened = await openProductsMenuInPlace(page);
+                receipt.row('Products menu opened in the session', opened ? 'PASS' : 'FAIL',
+                    opened ? 'the header Products menu opened and closed on the session page' : 'the header Products menu could not be opened on the session page');
+            });
+
             // ── Row 7 — Share feedback — BEFORE the Analytics reload (PO disposition, #1532 Codex P1s r4120724715 /
             // r4120724726). The reload in row 6 mints a new journey; sharing feedback first keeps recording and feedback
             // in ONE journey, so every readback check (spine, delivery, first download) applies to a journey that has it.
@@ -411,39 +420,43 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
 
             // ── Row 6 — Analytics through the on-screen action; a PDF that carries the saved transcript ─
-            await test.step('row 6 — Analytics action, session detail, reload and PDF', async () => {
+            await test.step('row 6 — Analytics action, PDF, session detail and reload', async () => {
                 if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
                 // With a complete saved response, the detail must also show both suggestions before and after its reload.
                 const savedCoaching = savedWell !== '' && savedNext !== '' ? { well: savedWell, next: savedNext } : undefined;
                 if (!savedCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
+                let pdfAttempted = false;
+                const downloadPdf = async (): Promise<void> => {
+                    pdfAttempted = true;
+                    // The PDF is downloaded from the session's own button on the Analytics list the person uses — while still in
+                    // the recording journey, before the detail's reload (#1532 Codex P1 r4121232419; session_pdf_export stage).
+                    const button = page.getByTestId(`download-pdf-btn-${persistedId}`).or(page.getByTestId(`download-pdf-btn-mobile-${persistedId}`)).first();
+                    const offered = await button.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
+                    if (!offered) { receipt.row('session PDF', 'FAIL', 'no PDF download offered for this session'); return; }
+                    const file = testInfo.outputPath('rwt-session.pdf');
+                    try {
+                        const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60_000 }), button.click()]);
+                        await download.saveAs(file);
+                        const text = await extractPdfText(file).catch(() => '');
+                        // The saved transcript, canonicalized (case, spacing, punctuation, split text runs), must be in the
+                        // PDF. Compared in Node only; neither text reaches the receipt or any artifact.
+                        const carries = transcriptCanonical !== '' && canonicalizeForLeakCheck(text).includes(transcriptCanonical);
+                        receipt.row('session PDF', carries ? 'PASS' : 'FAIL',
+                            carries ? 'the exported PDF contains the saved session transcript' : text.trim() ? 'the PDF does not contain the saved transcript' : 'the PDF did not open or has no text',
+                            { pdfWords: countWords(text) });
+                    } finally {
+                        rmSync(file, { force: true }); // holds transcript text; removed on success and failure
+                    }
+                };
                 const requestsBeforeAnalytics = coaching.requests;
                 // Open Mic evidence is the stored delivery measurement ("6.2 filler words a minute, above your target").
-                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest, savedCoaching, /\ba minute\b/i));
+                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest, savedCoaching, /\ba minute\b/i, downloadPdf));
                 receipt.row('Analytics generates no coaching', coaching.requests === requestsBeforeAnalytics ? 'PASS' : 'FAIL',
                     coaching.requests === requestsBeforeAnalytics ? 'opening and reloading Analytics requested no new review'
                         : 'Analytics requested coaching again (regeneration / quota)',
                     { coachingRequestsBefore: requestsBeforeAnalytics, coachingRequestsAfter: coaching.requests });
-
-                // The PDF is downloaded from the session's own button on the Analytics list the person uses.
-                const navOk = await page.getByTestId('nav-analytics-link').first().click({ timeout: 20_000 }).then(() => true).catch(() => false);
-                if (!navOk) { receipt.row('session PDF', 'FAIL', 'the header Analytics link was not available to reach the PDF'); return; }
-                const button = page.getByTestId(`download-pdf-btn-${persistedId}`).or(page.getByTestId(`download-pdf-btn-mobile-${persistedId}`)).first();
-                const offered = await button.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
-                if (!offered) { receipt.row('session PDF', 'FAIL', 'no PDF download offered for this session'); return; }
-                const file = testInfo.outputPath('rwt-session.pdf');
-                try {
-                    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60_000 }), button.click()]);
-                    await download.saveAs(file);
-                    const text = await extractPdfText(file).catch(() => '');
-                    // The saved transcript, canonicalized (case, spacing, punctuation, split text runs), must be in the
-                    // PDF. Compared in Node only; neither text reaches the receipt or any artifact.
-                    const carries = transcriptCanonical !== '' && canonicalizeForLeakCheck(text).includes(transcriptCanonical);
-                    receipt.row('session PDF', carries ? 'PASS' : 'FAIL',
-                        carries ? 'the exported PDF contains the saved session transcript' : text.trim() ? 'the PDF does not contain the saved transcript' : 'the PDF did not open or has no text',
-                        { pdfWords: countWords(text) });
-                } finally {
-                    rmSync(file, { force: true }); // holds transcript text; removed on success and failure
-                }
+                // Fail closed: the PDF is attempted only from the list; never reaching it is a FAIL row, not a missing one.
+                if (!pdfAttempted) receipt.row('session PDF', 'FAIL', 'the Analytics list was not reached, so no PDF was offered');
             });
 
             // ── The next Start is not held behind the Progress evaluation (#1471) ───────────────────────
@@ -522,7 +535,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
             };
             receipt.row('inventory events sent', inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
-                'products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received = readback)', inventory);
+                'products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory and session_pdf_export stages)', inventory);
             // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
             const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
             receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : 'FAIL',
@@ -537,7 +550,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
             accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_open_mic'], feedback: true, sameJourney: true }),
+            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_open_mic', 'analytics_inventory', 'session_pdf_export'], feedback: true, sameJourney: true }),
                 tap.trafficTypes(), userJourneys);
         }
     });

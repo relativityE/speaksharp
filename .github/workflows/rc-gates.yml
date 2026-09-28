@@ -353,6 +353,9 @@ jobs:
             done
             if [ -n "$missing" ]; then echo "::error::HOLD: $(basename "$receipt") has no journey for required stage set(s): $missing"; status=1; fi
             [ -z "$bindings" ] && { [ -z "$missing" ] && echo "$(basename "$receipt"): no declared stages (bridge) — readback not applicable"; continue; }
+            # #1532 Codex P1 r4121232394: the per-journey outcome is written for `pnpm rwt:finalize --readback`.
+            verdicts="test-results/rwt/$(basename "$receipt" .receipt.json).readback-verdicts.jsonl"
+            : > "$verdicts"
             while read -r journey stages; do
               [ -z "$journey" ] && continue
               ok=1
@@ -361,8 +364,11 @@ jobs:
                 if QUALIFICATION_STAGES="$stages" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log"; then ok=0; break; fi
                 sleep 60
               done
-              [ $ok -eq 0 ] || { echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; }
+              if [ $ok -eq 0 ]; then v=QUALIFIED; else v=HOLD; echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; fi
+              printf '%s %s %s\n' "$journey" "$stages" "$v" >> "$verdicts"
             done <<< "$bindings"
+            node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const lines=fs.readFileSync(process.argv[2],"utf8").split("\n").filter(Boolean); const journeys=lines.map((l)=>{const [journeyId,stages,verdict]=l.split(" "); return {journeyId, stages: stages.split(","), verdict};}); fs.writeFileSync(process.argv[3], JSON.stringify({suite:r.suite, release:process.env.RELEASE_SHA, journeys, missingBindings:r.readback.missingBindings||[]}, null, 2)+"\n");' "$receipt" "$verdicts" "${verdicts%.jsonl}.json"
+            rm -f "$verdicts"
           done
           exit $status
       # RWT receipts, readback outputs and human worksheets are content-free by construction (verdicts, counts, durations, ids,
@@ -378,6 +384,7 @@ jobs:
             test-results/rwt/*.receipt.json
             test-results/rwt/*.readback.log
             test-results/rwt/*.human-worksheet.md
+            test-results/rwt/*.readback-verdicts.json
           retention-days: 14
           if-no-files-found: warn
       # Content-free: repository, run, actor, release, origin, cell, document and nonce. Never a credential or content.

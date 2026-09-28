@@ -29,15 +29,29 @@ export interface HumanObservationState { id: string; runbookRow: string; result:
 const isHumanObservation = (r: ReceiptRow): boolean => Boolean(r.evidence && typeof r.evidence.observationId === 'string');
 
 /** Acceptance over ALL rows, the automated part alone, and the named human observations' state. */
+/**
+ * #1532 Codex P1 r4121232394 — PO disposition 2026-09-28 (full loop 4): the ONLY rows whose HOLD does not gate acceptance.
+ * They stay in the receipt and worksheet, named, with the PO's reason. A FAIL on them still gates; any other HOLD still
+ * makes the run INCOMPLETE. The list is closed: a suite cannot declare its own exemption.
+ */
+export const NON_GATING_ROWS: Readonly<Record<string, string>> = Object.freeze({
+    'signup-stage telemetry received': 'PO 2026-09-28: pre-claim user-class traffic is report-only and never qualifies',
+    'base_q4 primary': 'PO 2026-09-28: v4 base_q4 activation is sequenced after RWT; the pre-v4 RWT may pass without it',
+});
+const exempt = (r: ReceiptRow) => r.verdict === 'HOLD' && Object.prototype.hasOwnProperty.call(NON_GATING_ROWS, r.step);
+
 export function receiptAcceptance(rows: readonly ReceiptRow[]): {
     acceptance: Acceptance;
     automatedRowsAllPass: boolean;
     humanObservations: HumanObservationState[];
+    nonGating: { step: string; verdict: string; reason: string }[];
 } {
+    const gating = rows.filter((r) => !exempt(r));
     return {
-        acceptance: rows.some((r) => r.verdict === 'FAIL') ? 'FAIL'
-            : rows.some((r) => r.verdict === 'HOLD' || r.verdict === 'HUMAN') ? 'INCOMPLETE' : 'PASS',
-        automatedRowsAllPass: rows.filter((r) => !isHumanObservation(r) && r.verdict !== 'HOLD').every((r) => r.verdict === 'PASS'),
+        acceptance: gating.some((r) => r.verdict === 'FAIL') ? 'FAIL'
+            : gating.some((r) => r.verdict === 'HOLD' || r.verdict === 'HUMAN') ? 'INCOMPLETE' : 'PASS',
+        automatedRowsAllPass: gating.filter((r) => !isHumanObservation(r) && r.verdict !== 'HOLD').every((r) => r.verdict === 'PASS'),
+        nonGating: rows.filter(exempt).map((r) => ({ step: r.step, verdict: r.verdict, reason: NON_GATING_ROWS[r.step] })),
         humanObservations: rows.filter(isHumanObservation).map((r) => ({
             id: String(r.evidence!.observationId),
             runbookRow: String(r.evidence!.runbookRow ?? ''),
@@ -111,7 +125,7 @@ export interface ReceiptForFinalization {
     release: string;
     rows: ReceiptRow[];
     meta?: Record<string, unknown>;
-    readback?: { journeys?: ReadbackBinding[]; reportedJourneyIds?: string[] };
+    readback?: { journeys?: ReadbackBinding[]; reportedJourneyIds?: string[]; missingBindings?: string[] };
 }
 
 const VERDICTS: ReadonlySet<string> = new Set(['PASS', 'FAIL', 'HOLD', 'HUMAN']);
@@ -196,7 +210,48 @@ export interface FinalizationResult {
  * the run INCOMPLETE (never a guess). Otherwise the human rows take the recorded verdicts and acceptance is
  * recomputed over ALL rows — so an automated FAIL still fails a run whose human checks all passed.
  */
-export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet): FinalizationResult {
+/**
+ * #1532 Codex P1 r4121232394 — the workflow's per-journey readback outcome, merged into `journey telemetry received`.
+ * Untrusted input: it must name the SAME suite, release, bound journeys (with the same stages) and missing bindings as
+ * the receipt, or it is a binding error. The row becomes PASS only when every bound journey QUALIFIED and nothing is
+ * missing; otherwise it stays HOLD. No readback file leaves the row HOLD (fail closed).
+ */
+export interface ReadbackVerdicts {
+    suite: string;
+    release: string;
+    journeys: { journeyId: string; stages: string[]; verdict: 'QUALIFIED' | 'HOLD' }[];
+    missingBindings: string[];
+}
+const RECEIVED_ROW = 'journey telemetry received';
+
+function applyReadback(receipt: ReceiptForFinalization, readback: unknown, errors: string[]): ReceiptRow[] {
+    const rb = readback as Partial<ReadbackVerdicts> | null;
+    const bad = (why: string) => { errors.push(`readback verdicts ${why}`); return receipt.rows; };
+    if (!rb || typeof rb !== 'object' || Array.isArray(rb)) return bad('is not a JSON object');
+    if (rb.suite !== receipt.suite) return bad(`name suite ${String(rb.suite)}, not ${receipt.suite}`);
+    if (rb.release !== receipt.release) return bad('are for a different release');
+    if (!Array.isArray(rb.journeys) || !Array.isArray(rb.missingBindings)) return bad('lack journeys / missingBindings');
+    const journeys = rb.journeys;
+    const missing = rb.missingBindings;
+    const key = (j: { journeyId?: unknown; stages?: unknown }) => `${String(j.journeyId)}=${Array.isArray(j.stages) ? [...j.stages].map(String).join(',') : '?'}`;
+    const expected = (receipt.readback?.journeys ?? []).map(key).sort();
+    const got = journeys.map(key).sort();
+    if (JSON.stringify(expected) !== JSON.stringify(got)) return bad('do not match the receipt\'s bound journeys and stages');
+    if (JSON.stringify([...missing].map(String).sort()) !== JSON.stringify([...(receipt.readback?.missingBindings ?? [])].sort())) {
+        return bad('do not match the receipt\'s missing bindings');
+    }
+    if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD')) return bad('carry an unknown journey verdict');
+    const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');
+    return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? r : {
+        ...r,
+        verdict: qualified ? 'PASS' : 'HOLD',
+        detail: qualified ? 'every bound journey qualified in the PostHog readback (merged at finalization)'
+            : 'the PostHog readback did not qualify every bound journey',
+        evidence: { ...(r.evidence ?? {}), readbackJourneys: journeys.length, readbackQualified: journeys.filter((j) => j.verdict === 'QUALIFIED').length },
+    }));
+}
+
+export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readback?: unknown): FinalizationResult {
     const validated = validateReceipt(raw);
     if (!validated.receipt) {
         // Unusable receipt: nothing can be finalized from it — INCOMPLETE, never PASS.
@@ -224,13 +279,14 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet): Final
         if ((entry.result === 'PASS' || entry.result === 'FAIL') && entry.observer.trim() === '') errors.push(`observation ${id} ${entry.result} has no observer`);
     }
 
+    const readbackRows = readback === undefined ? receipt.rows : applyReadback(receipt, readback, errors);
     if (errors.length > 0) {
         const a = receiptAcceptance(receipt.rows);
         // A FAIL already present in the automated rows stays a FAIL; otherwise the run is INCOMPLETE, never PASS.
         return { status: 'binding_error', finalAcceptance: a.acceptance === 'FAIL' ? 'FAIL' : 'INCOMPLETE', errors, rows: receipt.rows,
             humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass };
     }
-    const rows = receipt.rows.map((r) => {
+    const rows = readbackRows.map((r) => {
         if (!isHumanObservation(r)) return r;
         const entry = seen.get(String(r.evidence!.observationId))!;
         const verdict = entry.result as 'PASS' | 'FAIL';

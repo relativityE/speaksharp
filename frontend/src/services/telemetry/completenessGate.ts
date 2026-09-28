@@ -456,6 +456,13 @@ const POST_STOP_CHAIN_FOCUS_POINTS = {
 } as const;
 
 export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze([
+    /**
+     * #1532 Codex P1 r4121232419 (PO disposition: full loop 4) — the review-surface inventory is PROVEN received, not
+     * claimed. Declared with the recording journey's stages (the full suites emit these inside that journey, before the
+     * Analytics reload), so the journey's existing profile applies; no new journey class.
+     */
+    { stage: 'analytics_inventory', requiredFamilies: ['products_menu_opened', 'saved_review_revisited'], invariants: [] },
+    { stage: 'session_pdf_export', requiredFamilies: ['session_pdf_downloaded'], invariants: [] },
     {
         stage: 'share_feedback',
         // Open -> field state -> submit attempted. The storage RESULT is carried on `feedback_submit`
