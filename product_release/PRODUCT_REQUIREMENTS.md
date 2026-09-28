@@ -147,7 +147,7 @@ server" and "the transcript is never stored" are different statements, and neith
 | Raw audio leaves the device | **Never** | No audio upload path; `ARCHITECTURE.md` §"Retention boundary" |
 | Transcript text leaves the device | **Yes, on save** | `lib/storage.ts` sends `p_final_transcript` to `complete_session_v2`; a `failed`/discarded session sends `null` |
 | Transcript text is stored server-side | **Yes, bounded** | `sessions.transcript`, retained only for the newest transcript-bearing saved session; every older transcript expires |
-| Transcript text reaches a third party | **Yes, on user request** | `get-ai-suggestions` reads the saved transcript and sends it to Google Gemini; user-initiated, and refused unless `transcript_state = 'available'` |
+| Transcript text reaches a third party | **Yes, on user request** | `get-ai-suggestions` reads the saved transcript and sends it to Google Gemini; a Focus Points take also sends its saved topic and point labels, and its disclosure says so (#1538); user-initiated, and refused unless `transcript_state = 'available'` |
 | Derived metrics are stored | **Yes** | Word counts, filler counts, clarity score, WPM, pause metrics |
 
 Customer copy may say that **audio** never leaves the device. It may **not** say or imply that nothing leaves the

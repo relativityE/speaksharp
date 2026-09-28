@@ -847,6 +847,33 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
 
+        // #1538 (PO-approved wording, P1 r4117696897): a Focus Points take also sends its topic and points to Gemini,
+        // so its disclosure says so. Open Mic keeps the transcript-only line — it sends nothing else.
+        const FOCUS_DISCLOSURE = "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
+        const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.";
+
+        it('#1538 — a Focus Points take discloses its topic and points, exactly', () => {
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" product="focus_points" />);
+
+            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(FOCUS_DISCLOSURE);
+        });
+
+        it('#1538 — an Open Mic take keeps the transcript-only disclosure, exactly', () => {
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" product="open_mic" />);
+
+            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(OPEN_MIC_DISCLOSURE);
+        });
+
+        it('#1538 — the Focus disclosure is shown before the review is requested', async () => {
+            let resolveInvoke: (value: unknown) => void = () => {};
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise((resolve) => { resolveInvoke = resolve; }));
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-focus-disclosure" product="focus_points" />);
+
+            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(FOCUS_DISCLOSURE);
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+            resolveInvoke({ data: { suggestions: null }, error: null });
+        });
+
         it('#1416 P2-4 — generation no longer waits for a click, and the disclosure is still shown', async () => {
             // This asserted the click-first contract directly. The PO ruling withdrew it: `LegalPage`
             // conditions provider processing on a coaching feature being USED, not on a press, and

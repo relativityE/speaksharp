@@ -185,6 +185,15 @@ export const FOCUS_RESULTS_PENDING_WAITS = 3;
 /** #1473 — the bounded backoff before the single automatic retry of a recoverable failure. */
 export const AI_REVIEW_AUTO_RETRY_BACKOFF_MS = 2500;
 
+/**
+ * #1538 (PO-approved wording, Codex P1 r4117696897) — the disclosure names everything `get-ai-suggestions` sends.
+ * A Focus Points take's prompt also carries its saved topic and point labels, so its line says so; Open Mic sends the
+ * transcript only and keeps the transcript-only line. Exact PO wording: do not edit without PO approval.
+ */
+const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.";
+const FOCUS_POINTS_DISCLOSURE =
+  "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
+
 const UNAVAILABLE_MESSAGE = 'The review is unavailable right now. Your session is saved, and you can try again.';
 
 const getSafeAiSuggestionError = (
@@ -714,7 +723,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         body, in the same region as the review and its progress state. It is a statement, not a gate.
       */}
       <p className="mt-4 text-[12px] font-medium text-ink-muted" data-testid="ai-suggestions-disclosure">
-        Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.
+        {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
       </p>
     </div>
   );
