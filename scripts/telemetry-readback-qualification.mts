@@ -36,7 +36,7 @@ import {
 } from '../frontend/src/services/telemetry/completenessGate';
 import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
 import { resolveQualifyingIdentity } from '../frontend/src/services/telemetry/qualifyingIdentity';
-import { QUALIFICATION_STAGES, evaluateQualificationStage, requiredFamiliesForStages } from '../frontend/src/services/telemetry/completenessGate';
+import { QUALIFICATION_STAGES, declaresRecordingStage, evaluateQualificationStage, exactlyOnceFamiliesForStages, requiredFamiliesForStages } from '../frontend/src/services/telemetry/completenessGate';
 import { evaluateDeliveryReceipts } from '../frontend/src/services/telemetry/deliveryReceiptGate';
 import {
     bootScopedReceiptFamilies,
@@ -383,7 +383,8 @@ async function main(): Promise<void> {
         row.journeyId === journeyId
         || PRE_JOURNEY_EVENT_FAMILIES.includes(row.event as typeof PRE_JOURNEY_EVENT_FAMILIES[number])
     ));
-    const delivery = evaluateDeliveryReceipts(deliveryRows);
+    // #1532 Codex P1 r4120724715: the singleton set follows the declared stages (a feedback-only journey never records).
+    const delivery = evaluateDeliveryReceipts(deliveryRows, exactlyOnceFamiliesForStages(declared));
     const verdict: CompletenessResult['verdict'] = stageReasons.length > 0
         || result.verdict !== 'QUALIFIED'
         || delivery.verdict !== 'QUALIFIED'
@@ -421,7 +422,13 @@ async function main(): Promise<void> {
      * separate fields: a total setup timer is not network download time. Only a measured cold download passes; a cache
      * hit, a partial or unobservable measurement, or no receipt at all ends the run as a HOLD.
      */
-    if (process.env.TELEMETRY_READBACK_ACQUISITION_RECEIPT === '1') {
+    // #1532 Codex P1 r4120724726: the first-download receipt is required of the RECORDING binding only; a feedback-only
+    // journey (after the Analytics reload) acquires no model. An empty/unknown declaration keeps it required (fail closed).
+    const acquisitionRequired = process.env.TELEMETRY_READBACK_ACQUISITION_RECEIPT === '1' && declaresRecordingStage(declared);
+    if (process.env.TELEMETRY_READBACK_ACQUISITION_RECEIPT === '1' && !acquisitionRequired) {
+        console.log(`ACQUISITION_RECEIPT ${JSON.stringify({ release_sha: releaseSha, journey_id: journeyId, traffic_type: trafficType, state: 'NOT_APPLICABLE_NO_RECORDING_STAGE' })}`);
+    }
+    if (acquisitionRequired) {
         const acquisitionRows = await runQuery(`
             SELECT properties.model_identity, properties.acquired_candidate_id, properties.cache_result,
                    properties.measurement_completeness, properties.measurement_reason_code, properties.network_used,

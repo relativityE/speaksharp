@@ -120,12 +120,13 @@ export function focusCoachingProvenanceVerdict(input: { savedVersion: string | n
 /**
  * #1532 Codex P1 r4119969323 (PM RETURN 5866220417) — READBACK STAGES ARE BOUND TO THE JOURNEY THAT EXERCISED THEM.
  *
- * A reload mints a new journey id. The full suites therefore share feedback BEFORE the Analytics reload (PO disposition B)
- * and pass `sameJourney`, so the recording stages and `share_feedback` bind to ONE journey; a split is a named HOLD.
- * The general binding still keeps each stage set with the journey that exercised it: the recording stages bind to the
+ * A reload mints a new journey id. The full suites follow the PO's manual v12 order (PM RETURN 5870036039): Analytics
+ * (list, PDF, detail, reload) BEFORE Share feedback, so feedback lands in the journey the reload minted. Each stage set
+ * is bound to the journey that exercised it — never one journey claimed for events that span two: the recording stages bind to the
  * journey of the FIRST canary `session_saved` (the take the suite verifies); `share_feedback` to the journey of the
- * first canary `feedback_submit`. Every other canary journey is reported, never qualified. A required anchor that was
- * never sent is listed in `missingBindings` (fail closed), never dropped.
+ * first canary `feedback_submit`; `session_pdf_export` to the journey of the first canary `session_pdf_downloaded`. Every other canary journey is reported, never qualified. A required anchor that was
+ * never sent is listed in `missingBindings` (fail closed), never dropped. A feedback-only journey is qualified against
+ * its own stage families, singletons and (no) acquisition — `exactlyOnceFamiliesForStages` / `declaresRecordingStage`.
  */
 export type { ReadbackBinding } from './rwtAcceptance';
 import type { ReadbackBinding } from './rwtAcceptance';
@@ -133,12 +134,7 @@ export interface ReadbackPlan { journeys: ReadbackBinding[]; reportedJourneyIds:
 
 export function bindReadbackJourneys(
     events: readonly { event: string; at: number; journeyId?: string; trafficType?: string }[],
-    /**
-     * `sameJourney` (PO disposition B, #1532 Codex P1s r4120724715 / r4120724726): the full suites share feedback before
-     * the Analytics reload, so recording and feedback must be ONE journey. A split is the named missing binding
-     * `recording_feedback_split` (HOLD) — never two separately qualified journeys.
-     */
-    plan: { recording: readonly string[]; feedback: boolean; sameJourney?: boolean },
+    plan: { recording: readonly string[]; feedback: boolean; pdfExport?: boolean },
 ): ReadbackPlan {
     const canary = events.filter((e) => e.trafficType === 'canary' && typeof e.journeyId === 'string' && e.journeyId !== '');
     const anchor = (name: string): string | null =>
@@ -151,9 +147,8 @@ export function bindReadbackJourneys(
     };
     if (plan.recording.length > 0) bind(anchor('session_saved'), plan.recording, 'recording');
     if (plan.feedback) bind(anchor('feedback_submit'), ['share_feedback'], 'share_feedback');
-    const recordingJ = plan.recording.length > 0 ? anchor('session_saved') : null;
-    const feedbackJ = plan.feedback ? anchor('feedback_submit') : null;
-    if (plan.sameJourney && recordingJ && feedbackJ && recordingJ !== feedbackJ) missingBindings.push('recording_feedback_split');
+    // The v12 PDF is downloaded after the detail reload (Back to Dashboard → Download PDF), so it binds to its own journey.
+    if (plan.pdfExport) bind(anchor('session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
     const journeys = [...bound].map(([journeyId, stages]) => ({ journeyId, stages }));
     const reportedJourneyIds = [...new Set(canary.map((e) => e.journeyId as string))].filter((j) => !bound.has(j));
     return { journeys, reportedJourneyIds, missingBindings };

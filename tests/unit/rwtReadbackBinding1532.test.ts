@@ -159,40 +159,59 @@ describe('rc-gates RWT receipt artifact', () => {
 });
 
 /**
- * #1532 Codex P1s r4120724715 / r4120724726 (PO disposition B, 2026-09-28): the full suites share feedback BEFORE the
- * Analytics reload, so recording and feedback are ONE journey and every readback check (spine, delivery singletons,
- * first download) applies to a journey that genuinely has it. A split is never silently qualified again.
+ * PM RETURN 5870036039 (PO correction, 2026-09-28): the automated journeys follow the PO's MANUAL v12 order — Analytics
+ * (saved session, review, reload; the Open Mic PDF after the reload) BEFORE Share feedback. The reload mints a new journey,
+ * so feedback and the PDF are bound to the journey they actually land in and qualified for their own stages; the recording
+ * journey keeps the take, the Products menu and the first saved-review revisit. Never one journey claimed for two.
  */
-describe('one journey for recording and feedback (PO disposition B)', () => {
-    it('CASUALTY: with sameJourney, a recording/feedback split is a named missing binding (HOLD), never two qualified journeys', () => {
-        const r = bindReadbackJourneys([ev('session_saved', 1, 'A'), ev('feedback_submit', 2, 'B')], { recording: RECORDING, feedback: true, sameJourney: true });
-        expect(r.missingBindings).toEqual(['recording_feedback_split']);
+describe('v12 manual order: each stage set binds to the journey it lands in', () => {
+    const OM_RECORDING = ['session_during', 'session_after_open_mic', 'analytics_inventory'];
+
+    it('CASUALTY: recording in A; PDF and feedback after the reload in B — bound as two journeys, each with only its own stages', () => {
+        const events = [
+            ev('session_started', 1, 'A'), ev('session_saved', 2, 'A'), ev('products_menu_opened', 3, 'A'), ev('saved_review_revisited', 4, 'A'),
+            ev('saved_review_revisited', 5, 'B'), ev('session_pdf_downloaded', 6, 'B'), ev('feedback_submit', 7, 'B'),
+        ];
+        expect(bindReadbackJourneys(events, { recording: OM_RECORDING, feedback: true, pdfExport: true })).toEqual({
+            journeys: [{ journeyId: 'A', stages: OM_RECORDING }, { journeyId: 'B', stages: ['share_feedback', 'session_pdf_export'] }],
+            reportedJourneyIds: [], missingBindings: [],
+        });
     });
 
-    it('CONTROL: with sameJourney, one journey carrying both is bound once with every stage', () => {
-        const r = bindReadbackJourneys([ev('session_saved', 1, 'A'), ev('feedback_submit', 2, 'A')], { recording: RECORDING, feedback: true, sameJourney: true });
-        expect(r).toEqual({ journeys: [{ journeyId: 'A', stages: [...RECORDING, 'share_feedback'] }], reportedJourneyIds: [], missingBindings: [] });
+    it('CASUALTY: a PDF that never left the page is a named missing binding (HOLD), never claimed for another journey', () => {
+        const r = bindReadbackJourneys([ev('session_saved', 1, 'A'), ev('feedback_submit', 2, 'B')], { recording: OM_RECORDING, feedback: true, pdfExport: true });
+        expect(r.missingBindings).toEqual(['session_pdf_export']);
+        expect(r.journeys).toEqual([{ journeyId: 'A', stages: OM_RECORDING }, { journeyId: 'B', stages: ['share_feedback'] }]);
     });
 
+    it('CONTROL: without pdfExport no PDF stage is declared anywhere (Focus suites)', () => {
+        const r = bindReadbackJourneys([ev('session_saved', 1, 'A'), ev('session_pdf_downloaded', 2, 'B'), ev('feedback_submit', 3, 'B')], { recording: RECORDING, feedback: true });
+        expect(r.journeys.flatMap((j) => j.stages)).not.toContain('session_pdf_export');
+    });
+
+    const source = (file: string) => readFileSync(resolve(__dirname, '..', file), 'utf8');
     const stepIndex = (file: string, title: RegExp) => {
-        const src = readFileSync(resolve(__dirname, '..', file), 'utf8');
-        const m = title.exec(src);
+        const m = title.exec(source(file));
         return m ? m.index : -1;
     };
 
-    it('both full suites share feedback BEFORE the Analytics step (whose reload mints a new journey), and require one journey', () => {
+    it('CASUALTY: both full suites run Analytics BEFORE Share feedback (v12 rows 6 → 7), and no suite requires one shared journey', () => {
         const om = 'live/rwt-open-mic-first-session.live.spec.ts';
-        const fb = stepIndex(om, /test\.step\('row 7 — share feedback'/);
         const an = stepIndex(om, /test\.step\('row 6 — Analytics action, PDF, session detail and reload'/);
-        expect(fb).toBeGreaterThan(0);
-        expect(fb).toBeLessThan(an);
+        const fb = stepIndex(om, /test\.step\('row 7 — share feedback'/);
+        expect(an).toBeGreaterThan(0);
+        expect(an).toBeLessThan(fb);
         const fp = 'live/helpers/rwtFocusPointsJourney.ts';
-        const ffb = stepIndex(fp, /test\.step\('share feedback'/);
         const fan = stepIndex(fp, /test\.step\('row 12 — the saved session in Analytics'/);
-        expect(ffb).toBeGreaterThan(0);
-        expect(ffb).toBeLessThan(fan);
-        for (const file of [om, fp]) {
-            expect(readFileSync(resolve(__dirname, '..', file), 'utf8')).toMatch(/bindReadbackJourneys\(tap\.events, \{[^}]*sameJourney: true/);
-        }
+        const ffb = stepIndex(fp, /test\.step\('share feedback'/);
+        expect(fan).toBeGreaterThan(0);
+        expect(fan).toBeLessThan(ffb);
+        for (const file of [om, fp, 'live/helpers/rwtOracles.ts']) expect(source(file)).not.toMatch(/sameJourney|recording_feedback_split/);
+    });
+
+    it('Open Mic binds the PDF where it lands; the recording journey no longer claims session_pdf_export', () => {
+        const om = source('live/rwt-open-mic-first-session.live.spec.ts');
+        expect(om).toMatch(/bindReadbackJourneys\(tap\.events, \{ recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\], feedback: true, pdfExport: true \}\)/);
+        expect(om).not.toMatch(/recording: \[[^\]]*session_pdf_export/);
     });
 });

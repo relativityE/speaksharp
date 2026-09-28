@@ -908,12 +908,12 @@ async function coachingShownOnPage(page: Page, saved: SavedCoaching, evidencePat
  * the detail — that would skip the button the PO clicks. Digests only; the text is never returned.
  */
 /**
- * `onListed` (#1532 Codex P1 r4121232419, PO disposition: full loop 4) runs on the Analytics LIST after this session is
- * listed and BEFORE the detail opens and the page reloads — the reload mints a new journey, so anything whose receipt
- * must be proven in the recording journey (the PDF export) happens here.
+ * `afterReload` (PM RETURN 5870036039: the PO's manual v12 order) runs AFTER the detail's reload checks — the Open Mic
+ * PDF is downloaded there, as the person does it. The reload minted a new journey, so its receipt is qualified in that
+ * journey (`bindReadbackJourneys` … `pdfExport`), never claimed for the recording journey.
  */
 export async function analyticsThroughActions(page: Page, sessionId: string, savedDigest: string, savedCoaching?: SavedCoaching, evidencePattern?: RegExp,
-    onListed?: () => Promise<void>): Promise<{
+    afterReload?: () => Promise<void>): Promise<{
     actionClicked: boolean; listed: boolean; detailOpened: boolean; detailMatches: boolean; reloadMatches: boolean;
     coachingBefore: CoachingShown | null; coachingAfter: CoachingShown | null;
 }> {
@@ -928,7 +928,6 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     const open = page.getByTestId(`open-session-detail-${sessionId}`).or(page.getByTestId(`open-session-detail-mobile-${sessionId}`)).first();
     result.listed = await open.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     if (!result.listed) return result;
-    if (onListed) await onListed();
     await open.click();
     result.detailOpened = await page.waitForURL(new RegExp(`/analytics/${sessionId}`), { timeout: 30_000 }).then(() => true).catch(() => false);
     const detail = page.getByTestId('session-detail-transcript');
@@ -939,6 +938,7 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     const again = await page.getByTestId('session-detail-transcript').waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     result.reloadMatches = again && sha256Hex(await page.getByTestId('session-detail-transcript').innerText()) === savedDigest;
     if (savedCoaching) result.coachingAfter = await coachingShownOnPage(page, savedCoaching, evidencePattern);
+    if (afterReload) await afterReload();
     return result;
 }
 

@@ -328,6 +328,7 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
           # Required first-download receipt for these first-visit journeys: only a measured cold network download
           # (cache miss, network used, download_ms) passes; cache hit, partial, unobservable or not received HOLD the step.
+          # The script requires it of RECORDING bindings only; a feedback/PDF journey after the reload acquires no model.
           TELEMETRY_READBACK_ACQUISITION_RECEIPT: '1'
         run: |
           set -uo pipefail

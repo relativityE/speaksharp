@@ -9,8 +9,8 @@
  *   5. Stop — the session saves and exactly two coaching phrases (≤6 words each) render on their own; they are
  *      distinct and equal the saved coaching response;
  *   6. the session in Analytics — same transcript (by digest) and both saved AI suggestions, before and after
- *      a reload; and a PDF that opens;
- *   7. Share feedback — acknowledged and stored once; the marked report is retained by product policy.
+ *      a reload; then Back to Dashboard and a PDF that carries the saved transcript (the PO's manual v12 order);
+ *   7. Share feedback, after Analytics — acknowledged and stored once; the marked report is retained by product policy.
  * plus the next Start (no Progress hold) and the telemetry this journey sent, for the PostHog readback.
  *
  * INDEPENDENT of the Focus Points suite: own account, own fixture, own receipt, own cleanup.
@@ -411,14 +411,6 @@ test.describe('RWT — Open Mic first session @live', () => {
                     opened ? 'the header Products menu opened and closed on the session page' : 'the header Products menu could not be opened on the session page');
             });
 
-            // ── Row 7 — Share feedback — BEFORE the Analytics reload (PO disposition, #1532 Codex P1s r4120724715 /
-            // r4120724726). The reload in row 6 mints a new journey; sharing feedback first keeps recording and feedback
-            // in ONE journey, so every readback check (spine, delivery, first download) applies to a journey that has it.
-            // Runbook row numbering is unchanged; only the execution order moves. ──────────────────────────────────────────────────────────────────
-            await test.step('row 7 — share feedback', async () => {
-                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid);
-            });
-
             // ── Row 6 — Analytics through the on-screen action; a PDF that carries the saved transcript ─
             await test.step('row 6 — Analytics action, PDF, session detail and reload', async () => {
                 if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
@@ -428,8 +420,13 @@ test.describe('RWT — Open Mic first session @live', () => {
                 let pdfAttempted = false;
                 const downloadPdf = async (): Promise<void> => {
                     pdfAttempted = true;
-                    // The PDF is downloaded from the session's own button on the Analytics list the person uses — while still in
-                    // the recording journey, before the detail's reload (#1532 Codex P1 r4121232419; session_pdf_export stage).
+                    // v12 row 6 order (PM RETURN 5870036039): after the detail's reload, the person returns with the detail's own
+                    // "Back to Dashboard" control and downloads THIS session's PDF from the list. The reload minted a new journey;
+                    // the session_pdf_export stage is bound to wherever session_pdf_downloaded actually lands (pdfExport binding).
+                    const back = page.getByRole('link', { name: 'Back to Dashboard' });
+                    const returned = await back.click({ timeout: 20_000 }).then(() => page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }))
+                        .then(() => true).catch(() => false);
+                    if (!returned) { receipt.row('session PDF', 'FAIL', 'the detail\'s Back to Dashboard control did not return to the Analytics list'); return; }
                     const button = page.getByTestId(`download-pdf-btn-${persistedId}`).or(page.getByTestId(`download-pdf-btn-mobile-${persistedId}`)).first();
                     const offered = await button.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
                     if (!offered) { receipt.row('session PDF', 'FAIL', 'no PDF download offered for this session'); return; }
@@ -455,8 +452,15 @@ test.describe('RWT — Open Mic first session @live', () => {
                     coaching.requests === requestsBeforeAnalytics ? 'opening and reloading Analytics requested no new review'
                         : 'Analytics requested coaching again (regeneration / quota)',
                     { coachingRequestsBefore: requestsBeforeAnalytics, coachingRequestsAfter: coaching.requests });
-                // Fail closed: the PDF is attempted only from the list; never reaching it is a FAIL row, not a missing one.
-                if (!pdfAttempted) receipt.row('session PDF', 'FAIL', 'the Analytics list was not reached, so no PDF was offered');
+                // Fail closed: the PDF is attempted only after the detail and its reload; never reaching them is a FAIL row, not a missing one.
+                if (!pdfAttempted) receipt.row('session PDF', 'FAIL', 'the saved session was not reached in Analytics, so no PDF was attempted');
+            });
+
+            // ── Row 7 — Share feedback — AFTER Analytics, in the PO's manual v12 order (PM RETURN 5870036039). The row-6 reload
+            // minted a new journey, so feedback is bound and qualified there for its own stages (share_feedback); the recording
+            // journey keeps the take, the Products menu and the first saved-review revisit; the PDF binds where it lands. ───────────────────────────
+            await test.step('row 7 — share feedback', async () => {
+                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid);
             });
 
             // ── The next Start is not held behind the Progress evaluation (#1471) ───────────────────────
@@ -535,7 +539,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
             };
             receipt.row('inventory events sent', inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
-                'products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory and session_pdf_export stages)', inventory);
+                'products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventory);
             // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
             const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
             receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : 'FAIL',
@@ -550,7 +554,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
             accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_open_mic', 'analytics_inventory', 'session_pdf_export'], feedback: true, sameJourney: true }),
+            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'], feedback: true, pdfExport: true }),
                 tap.trafficTypes(), userJourneys);
         }
     });

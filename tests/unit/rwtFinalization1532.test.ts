@@ -115,7 +115,7 @@ describe('inventory "received" is proven by stages, not claimed', () => {
     });
 });
 
-describe('the suites emit the inventory inside the recording journey (before the reload) and declare its stages', () => {
+describe('the suites follow the v12 order and bind each inventory event to the journey it lands in', () => {
     const src = (f: string) => readFileSync(path.resolve(__dirname, '..', f), 'utf8');
     const at = (text: string, needle: string) => {
         const i = text.indexOf(needle);
@@ -123,30 +123,34 @@ describe('the suites emit the inventory inside the recording journey (before the
         return i;
     };
 
-    it('Open Mic: menu in place → feedback → Analytics (PDF on the list, before the detail reload); declares both stages', () => {
+    it('Open Mic (v12 order): menu in place → Analytics (detail, reload, then Back → PDF) → feedback; PDF bound where it lands', () => {
         const om = src('live/rwt-open-mic-first-session.live.spec.ts');
         const menu = at(om, "test.step('Products menu opened on the session page (inventory, recording journey)'");
-        const feedback = at(om, "test.step('row 7 — share feedback'");
         const analytics = at(om, "test.step('row 6 — Analytics action, PDF, session detail and reload'");
-        expect(menu).toBeLessThan(feedback);
-        expect(feedback).toBeLessThan(analytics);
+        const feedback = at(om, "test.step('row 7 — share feedback'");
+        expect(menu).toBeLessThan(analytics);
+        expect(analytics).toBeLessThan(feedback);
         expect(om).toMatch(/analyticsThroughActions\(page, persistedId, transcriptDigest, savedCoaching, \/\\ba minute\\b\/i, downloadPdf\)/);
-        expect(om).not.toMatch(/nav-analytics-link[^\n]*\n[^\n]*session PDF/);
-        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory', 'session_pdf_export'\]/);
+        // The PDF is reached the way the person reaches it after the reload: the detail's own Back to Dashboard control.
+        const pdf = om.slice(at(om, 'const downloadPdf = async'));
+        expect(at(pdf, "getByRole('link', { name: 'Back to Dashboard' })")).toBeLessThan(at(pdf, 'download-pdf-btn-${persistedId}'));
+        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\], feedback: true, pdfExport: true/);
     });
 
-    it('analyticsThroughActions runs onListed on the list, before the detail opens and before the reload', () => {
+    it('analyticsThroughActions runs afterReload only after the detail opened and its reload was checked', () => {
         const rj = src('live/helpers/rwtJourney.ts');
         const fn = rj.slice(rj.indexOf('export async function analyticsThroughActions'));
-        expect(at(fn, 'if (onListed) await onListed();')).toBeLessThan(at(fn, 'await open.click();'));
+        expect(fn).not.toContain('onListed');
         expect(at(fn, 'await open.click();')).toBeLessThan(at(fn, 'await page.reload('));
+        expect(at(fn, 'await page.reload(')).toBeLessThan(at(fn, 'if (afterReload) await afterReload();'));
     });
 
-    it('Focus: menu in place before feedback and Analytics; declares analytics_inventory', () => {
+    it('Focus (v12 order): menu in place → Analytics → feedback; declares analytics_inventory in the recording journey', () => {
         const fp = src('live/helpers/rwtFocusPointsJourney.ts');
         const menu = at(fp, "test.step('Products menu opened on the session page (inventory, recording journey)'");
-        expect(menu).toBeLessThan(at(fp, "test.step('share feedback'"));
-        expect(menu).toBeLessThan(at(fp, "test.step('row 12 — the saved session in Analytics'"));
+        const analytics = at(fp, "test.step('row 12 — the saved session in Analytics'");
+        expect(menu).toBeLessThan(analytics);
+        expect(analytics).toBeLessThan(at(fp, "test.step('share feedback'"));
         expect(fp).toMatch(/recording: \['session_during', 'session_after_focus_points', 'analytics_inventory'\]/);
     });
 
