@@ -46,8 +46,9 @@ import { RUNTIME_ASSET_PINS } from '../tests/evidence/certification/arms/runtime
 
 /**
  * WHICH INFERENCE LIBRARY produced a row. v2 carries `@xenova/transformers`' own NESTED
- * onnxruntime-web@1.14.0; v4 and Moonshine carry the hoisted one, which the #1304 requalification pins
- * to a stable 1.27.0 containing Microsoft's Whisper QDQ fix.
+ * onnxruntime-web@1.14.0; v4 and Moonshine carry the hoisted one, pinned to a STABLE build: 1.27.0 in the #1304
+ * requalification (Microsoft's Whisper QDQ fix), 1.30.0 since 2026-09-28 (PO; Transformers.js 4.3.0). The label is read from
+ * the installed package, so each row names the runtime that actually produced it.
  *
  * Recorded per row because old- and new-runtime numbers are measurements of DIFFERENT SYSTEMS. Sorting
  * them into one table would make the ordering an artifact of which rows had been re-run.
@@ -330,7 +331,7 @@ for (const spec of ARM_MATRIX) {
              * SELF-HOST THE ORT WEB RUNTIME TOO.
              *
              * `onnxruntime-web` defaults its `wasmPaths` to
-             * `https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/`, so every v4 and Moonshine
+             * `https://cdn.jsdelivr.net/npm/onnxruntime-web@<installed version>/dist/`, so every v4 and Moonshine
              * arm fetched three runtime binaries from a CDN. Same defect as v2, second package —
              * found by the clean-workspace check, not by reasoning, after I had asserted these
              * families bundled their runtime.

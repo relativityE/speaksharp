@@ -19,26 +19,31 @@ export interface RuntimeAsset {
     bytes: number;
 }
 
-/** Committed digests for the runtime binaries each family loads. */
+/**
+ * Committed digests for the runtime binaries each family loads. The `onnxruntime-web` entries are the stable 1.30.0
+ * build (PO 2026-09-28: Transformers.js 4.3.0 on stable ORT, never its declared 1.31 dev prerelease); they were
+ * re-pinned from the installed package after its tarball integrity matched npm's published `dist.integrity`. The
+ * 1.27.0 digests they replace are recorded in git history; rows measured on 1.27.0 remain historical, not re-labelled.
+ */
 export const RUNTIME_ASSET_PINS: Record<string, string> = {
     'node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm':
         'ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6',
     'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs':
-        '7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655',
+        '3d1c85995364bb643302fc6fd877a0c3ba5ae72401815e0f24828a53d9191e28',
     'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm':
-        '7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a',
+        '39f9f0894d478800487ed9f7dbe92618498db320cf55c8e3d89adff8dce658da',
     'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs':
-        '3ee381d20a80f51a788a1c4a5872f6f1d047538dd4342f4af00062de5f9ea4c6',
+        '709853412fd1ffc34247af1e73569227b5b79629c5ca3f59cc39cf7e500e4947',
     'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm':
-        '78feeeb3d08f6bcee94d938ed322f69073bb8076b5f9d34697a574ffba8deb48',
+        '3ad23231b5bd6d9dda55a7f84606315e0bf35b6750c28ee993c987c54cacab0f',
     'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jspi.mjs':
-        '47f5232865f07cc6a11e825cac8dfd9b75bdf5f4a0889bde077e753ae93d3913',
+        '270e2c6da9f297239d301d329782b6446641cb1e16a77967690adcfca35f3268',
     'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jspi.wasm':
-        '7c28cdb40958a998f5aa0981d5cb8e57ac1e7e9b4d2f18a7d74e00dd9629d7a3',
+        'a54c76f86b0f0d9572380cf1c6292a7b3903716ffcbcd6b0e5c7050bf430eb93',
     'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs':
-        '0a1e718d99c41b22c21f2520ff4f9e883a6b5533856e398d21816ee8eb8185d3',
+        'e13f7f94fc51b4ca72b12faeb1ee95f4ace6dfbc8939bc718aabdc0a27c4299b',
     'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm':
-        'd1ab1b94b16a65b29d710d0b587b29e7bed336827577623913479b8afe8113e6',
+        '3398c10d07d229bd91b364548e130e0e51a8e5704b88c7c083ebbeb78842dee2',
 };
 
 export type RuntimeAssetFailure =
