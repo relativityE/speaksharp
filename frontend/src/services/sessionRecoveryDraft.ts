@@ -49,8 +49,18 @@ export interface SessionRecoveryDraft {
    * draft stays recoverable for the user and simply contributes no qualifying model evidence.
    */
   subject?: RecordingSubject | null;
+  /**
+   * #1541 Codex P2 r4126402525 — the take's confirmed product, captured at Stop, so a Retry Save after a same-login
+   * reload can still list the saved session under its product in Share feedback. Exactly `open_mic` / `focus_points`,
+   * else null; a legacy draft without it stays null (never inferred). Selector labelling only: Progress still treats
+   * a rehydrated take as unknown.
+   */
+  product?: 'open_mic' | 'focus_points' | null;
   savedAt: string;
 }
+
+const sanitizeProduct = (v: unknown): 'open_mic' | 'focus_points' | null =>
+  (v === 'open_mic' || v === 'focus_points' ? v : null);
 
 const isRecoveryState = (v: unknown): v is RecoveryState =>
   v === 'finalized_pending_save' || v === 'active_interrupted';
@@ -138,6 +148,7 @@ export function saveSessionRecoveryDraft(draft: Omit<SessionRecoveryDraft, 'save
     nextActionSignal: recoveryState === 'finalized_pending_save' ? nextAction : null,
     // Validated at the WRITE boundary: a malformed identity is not persisted.
     subject: sanitizeRecordingSubject(draft.subject),
+    product: recoveryState === 'finalized_pending_save' ? sanitizeProduct(draft.product) : null,
     savedAt: new Date().toISOString(),
   };
 
@@ -188,6 +199,7 @@ export function getSessionRecoveryDraft(): SessionRecoveryDraft | null {
       nextActionSignal: nextAction, // finalized → valid action here; interrupted → null
       // Re-validated at the READ boundary: a tampered or legacy value names no take.
       subject: sanitizeRecordingSubject(parsed.subject),
+      product: sanitizeProduct(parsed.product),
       savedAt: (parsed.savedAt as string | undefined) ?? new Date(0).toISOString(),
     };
   } catch {

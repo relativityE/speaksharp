@@ -64,6 +64,24 @@ describe('loginSessionLog', () => {
         }
     });
 
+    it('#1541 r4126402535: storage READABLE but not WRITABLE → the confirmed save stays listed and numbering continues', () => {
+        const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('QuotaExceededError'); });
+        try {
+            recordSavedSession('u1', LOGIN, { key: 'a', product: 'open_mic', savedAt: 1 });
+            expect(readLoginSessions('u1', LOGIN).map((e) => [e.key, e.n])).toEqual([['a', 1]]);
+            recordSavedSession('u1', LOGIN, { key: 'b', product: 'focus_points', savedAt: 2 });
+            expect(readLoginSessions('u1', LOGIN).map((e) => [e.key, e.n, e.product])).toEqual([['a', 1, 'open_mic'], ['b', 2, 'focus_points']]);
+        } finally {
+            spy.mockRestore();
+        }
+        // clearLoginSessions resets BOTH sources: memory is empty and storage is used again.
+        clearLoginSessions();
+        expect(readLoginSessions('u1', LOGIN)).toEqual([]);
+        recordSavedSession('u1', LOGIN, { key: 'c', product: 'open_mic', savedAt: 3 });
+        expect(sessionStorage.getItem(LOGIN_SESSION_LOG_KEY)).toContain('"key":"c"');
+        expect(readLoginSessions('u1', LOGIN).map((e) => [e.key, e.n])).toEqual([['c', 1]]);
+    });
+
     it('loginStartedAt is the server sign-in time: a refresh keeps it, a new sign-in changes it', () => {
         expect(loginStartedAtOf({ user: { last_sign_in_at: '2026-09-28T10:00:00Z' } })).toBe(Date.parse('2026-09-28T10:00:00Z'));
         expect(loginStartedAtOf({ user: { last_sign_in_at: null } })).toBeNull();

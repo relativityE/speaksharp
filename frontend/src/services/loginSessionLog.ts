@@ -26,8 +26,15 @@ export const LOGIN_SESSION_LOG_KEY = 'feedback.loginSessions';
 interface Stored { ownerId: string; loginStartedAt: number; entries: LoginSessionEntry[] }
 
 let memory: Stored | null = null;
+/**
+ * #1541 Codex P2 r4126402535 — storage can be READABLE but not WRITABLE (quota, browser policy). After any failed write
+ * the in-memory copy holds the newest log, so this tab reads and writes memory from then on; otherwise the next read
+ * would return the stale stored value and a confirmed save would vanish from the selector. Reset by clearLoginSessions.
+ */
+let writeFailed = false;
 
 const storage = (): Storage | null => {
+    if (writeFailed) return null;
     try {
         const s = globalThis.sessionStorage;
         s.getItem(LOGIN_SESSION_LOG_KEY);   // probes access (private modes can throw here)
@@ -62,7 +69,7 @@ const load = (): Stored | null => {
 const save = (value: Stored): void => {
     const s = storage();
     if (!s) { memory = value; return; }
-    try { s.setItem(LOGIN_SESSION_LOG_KEY, JSON.stringify(value)); } catch { memory = value; }
+    try { s.setItem(LOGIN_SESSION_LOG_KEY, JSON.stringify(value)); } catch { memory = value; writeFailed = true; }
 };
 
 /** This login's entries in save order; [] (and the stored list removed) if the owner or login differs. */
@@ -86,6 +93,7 @@ export function recordSavedSession(ownerId: string, loginStartedAt: number, entr
 
 export function clearLoginSessions(): void {
     memory = null;
+    writeFailed = false;
     try { globalThis.sessionStorage.removeItem(LOGIN_SESSION_LOG_KEY); } catch { /* storage is optional */ }
 }
 

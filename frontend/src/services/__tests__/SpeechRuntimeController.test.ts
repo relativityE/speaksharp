@@ -2434,6 +2434,44 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         clearDraft();
     });
 
+    // #1541 Codex P2 r4126402525: a Retry Save after a same-login reload lists the saved session under the product its
+    // draft carried; a legacy draft without a product is not listed rather than guessed.
+    it.each([
+        ['open_mic', 'open_mic'],
+        ['focus_points', 'focus_points'],
+        ['a legacy draft (no product)', null],
+    ] as const)('#1541: rehydrated Retry Save of %s → Share feedback list entry %s', async (_label, product) => {
+        clearDraft();
+        const storage = await import('../../lib/storage');
+        const draft = await import('../sessionRecoveryDraft');
+        const log = await import('../loginSessionLog');
+        log.clearLoginSessions();
+        log.setCurrentLogin('user-1', 1_700_000_000_000);
+        const key = `sess-rehydrated-${String(product)}`;
+        draft.saveSessionRecoveryDraft({
+            sessionId: key, userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 20, mode: 'private',
+            nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+            ...(product ? { product } : {}),
+        });
+        const priv = controller as unknown as {
+            recordingStartedUnresolved: boolean; pendingFullSaveRetry: unknown; recordingProgressMode: { mode: string };
+            rehydrateUnresolvedRecording: (u: string | null) => boolean; retryRecordingSave: () => Promise<boolean>;
+        };
+        priv.recordingStartedUnresolved = false;
+        priv.pendingFullSaveRetry = null;
+        priv.recordingProgressMode = { mode: 'unknown' };   // a fresh controller after reload
+        expect(priv.rehydrateUnresolvedRecording('user-1')).toBe(true);
+        vi.mocked(storage.completeSession).mockResolvedValueOnce({ success: true, transcriptOutcome: 'retained', transcriptRetained: true } as never);
+        await expect(priv.retryRecordingSave()).resolves.toBe(true);
+        const listed = log.readLoginSessions('user-1', 1_700_000_000_000);
+        expect(listed.map((e) => [e.key, e.product])).toEqual(product ? [[key, product]] : []);
+        log.clearLoginSessions();
+        log.setCurrentLogin(null, null);
+        priv.recordingStartedUnresolved = false;
+        priv.pendingFullSaveRetry = null;
+        clearDraft();
+    });
+
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length
     // (start → Stop), NOT the save-time wall-clock — the post-Stop finalize decode (tens of
     // seconds on Private) must not inflate the denominator that pace/WPM and the detail view use.
