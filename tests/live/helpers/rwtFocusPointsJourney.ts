@@ -358,6 +358,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         });
 
         // ── Row 12 — Analytics ──────────────────────────────────────────────────────────────────────────
+        // Share Feedback belongs to the full journey only; the partial fixture stays a coverage probe. It runs BEFORE the
+        // Analytics reload (PO disposition, #1532 Codex P1s r4120724715 / r4120724726): the reload mints a new journey, so
+        // sharing feedback first keeps recording and feedback in ONE journey that every readback check applies to.
+        if (fixtureKey === 'focus_points_tts') {
+            await test.step('share feedback', async () => {
+                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, owner.uid);
+            });
+        }
+
         await test.step('row 12 — the saved session in Analytics', async () => {
             if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
             const { data: row, error } = await admin!.from('sessions').select('transcript').eq('id', persistedId).eq('user_id', owner.uid).single();
@@ -389,13 +398,6 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     'Analytics shows each point, and its covered points agree with the saved verdicts', { shownPoints, shownCovered, savedDetected: detected });
             }
         });
-
-        // Share Feedback belongs to the full journey only; the partial fixture stays a coverage probe.
-        if (fixtureKey === 'focus_points_tts') {
-            await test.step('share feedback', async () => {
-                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, owner.uid);
-            });
-        }
 
         // ── Practice again through the rendered controls: Analytics → the same set → the review's Retry (#1533) ──
         await test.step('Practice again — Analytics action, then the completed review\'s Retry this set', async () => {
@@ -449,7 +451,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             if (deleted) { owner.uid = ''; owner.email = ''; }
         }
         receipt.write(testInfo,
-            bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_focus_points'], feedback: fixtureKey === 'focus_points_tts' }),
+            bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_focus_points'], feedback: fixtureKey === 'focus_points_tts', sameJourney: true }),
             tap.trafficTypes(), userJourneys);
     }
 }

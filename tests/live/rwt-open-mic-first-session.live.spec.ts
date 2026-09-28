@@ -402,6 +402,14 @@ test.describe('RWT — Open Mic first session @live', () => {
                 }
             });
 
+            // ── Row 7 — Share feedback — BEFORE the Analytics reload (PO disposition, #1532 Codex P1s r4120724715 /
+            // r4120724726). The reload in row 6 mints a new journey; sharing feedback first keeps recording and feedback
+            // in ONE journey, so every readback check (spine, delivery, first download) applies to a journey that has it.
+            // Runbook row numbering is unchanged; only the execution order moves. ──────────────────────────────────────────────────────────────────
+            await test.step('row 7 — share feedback', async () => {
+                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid);
+            });
+
             // ── Row 6 — Analytics through the on-screen action; a PDF that carries the saved transcript ─
             await test.step('row 6 — Analytics action, session detail, reload and PDF', async () => {
                 if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
@@ -436,11 +444,6 @@ test.describe('RWT — Open Mic first session @live', () => {
                 } finally {
                     rmSync(file, { force: true }); // holds transcript text; removed on success and failure
                 }
-            });
-
-            // ── Row 7 — Share feedback ──────────────────────────────────────────────────────────────────
-            await test.step('row 7 — share feedback', async () => {
-                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid);
             });
 
             // ── The next Start is not held behind the Progress evaluation (#1471) ───────────────────────
@@ -534,7 +537,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
             accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_open_mic'], feedback: true }),
+            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_open_mic'], feedback: true, sameJourney: true }),
                 tap.trafficTypes(), userJourneys);
         }
     });

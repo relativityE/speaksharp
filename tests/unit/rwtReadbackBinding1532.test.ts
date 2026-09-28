@@ -141,3 +141,42 @@ describe('rc-gates RWT receipt artifact', () => {
         ]);
     });
 });
+
+/**
+ * #1532 Codex P1s r4120724715 / r4120724726 (PO disposition B, 2026-09-28): the full suites share feedback BEFORE the
+ * Analytics reload, so recording and feedback are ONE journey and every readback check (spine, delivery singletons,
+ * first download) applies to a journey that genuinely has it. A split is never silently qualified again.
+ */
+describe('one journey for recording and feedback (PO disposition B)', () => {
+    it('CASUALTY: with sameJourney, a recording/feedback split is a named missing binding (HOLD), never two qualified journeys', () => {
+        const r = bindReadbackJourneys([ev('session_saved', 1, 'A'), ev('feedback_submit', 2, 'B')], { recording: RECORDING, feedback: true, sameJourney: true });
+        expect(r.missingBindings).toEqual(['recording_feedback_split']);
+    });
+
+    it('CONTROL: with sameJourney, one journey carrying both is bound once with every stage', () => {
+        const r = bindReadbackJourneys([ev('session_saved', 1, 'A'), ev('feedback_submit', 2, 'A')], { recording: RECORDING, feedback: true, sameJourney: true });
+        expect(r).toEqual({ journeys: [{ journeyId: 'A', stages: [...RECORDING, 'share_feedback'] }], reportedJourneyIds: [], missingBindings: [] });
+    });
+
+    const stepIndex = (file: string, title: RegExp) => {
+        const src = readFileSync(resolve(__dirname, '..', file), 'utf8');
+        const m = title.exec(src);
+        return m ? m.index : -1;
+    };
+
+    it('both full suites share feedback BEFORE the Analytics step (whose reload mints a new journey), and require one journey', () => {
+        const om = 'live/rwt-open-mic-first-session.live.spec.ts';
+        const fb = stepIndex(om, /test\.step\('row 7 — share feedback'/);
+        const an = stepIndex(om, /test\.step\('row 6 — Analytics action, session detail, reload and PDF'/);
+        expect(fb).toBeGreaterThan(0);
+        expect(fb).toBeLessThan(an);
+        const fp = 'live/helpers/rwtFocusPointsJourney.ts';
+        const ffb = stepIndex(fp, /test\.step\('share feedback'/);
+        const fan = stepIndex(fp, /test\.step\('row 12 — the saved session in Analytics'/);
+        expect(ffb).toBeGreaterThan(0);
+        expect(ffb).toBeLessThan(fan);
+        for (const file of [om, fp]) {
+            expect(readFileSync(resolve(__dirname, '..', file), 'utf8')).toMatch(/bindReadbackJourneys\(tap\.events, \{[^}]*sameJourney: true/);
+        }
+    });
+});
