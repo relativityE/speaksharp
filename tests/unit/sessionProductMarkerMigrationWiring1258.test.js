@@ -25,6 +25,8 @@ import {
 const VERSION = '20260926190000';
 const FILE = `${VERSION}_session_product_marker_1258.sql`;
 const PREVIOUS = '20260924150000'; // #1471 (itself after #1476)
+/** Focus Points trial capability, allowlisted after this target: one later, pending entry. */
+const TRIAL = '20260928120000';
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
 const WORKFLOW = readFileSync(resolve(ROOT, '.github/workflows/apply-exact-allowlisted-migration.yml'), 'utf8');
@@ -50,7 +52,7 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'b'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([TRIAL, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -69,15 +71,16 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
         ` 20260923120000 | 20260923120000 | x`,
         applied.includes(PREVIOUS) ? ` ${PREVIOUS} | ${PREVIOUS} | x` : ` ${PREVIOUS} |                | x`,
         ` ${VERSION} |                | x`,
+        ` ${TRIAL} |                | x`,
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while #1471 is still pending — named, not hidden', () => {
         expect(() => assertBeforeApply(ledger(), config)).toThrow(new RegExp(PREVIOUS));
     });
 
-    it('EXECUTABLE once #1471 is applied: admitted; target-only; the applied activation file stays; nothing pending after', () => {
+    it('EXECUTABLE once #1471 is applied: admitted; target-only; the applied activation file stays; only the later trial-capability entry pending after', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION], excludedVersions: [] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, TRIAL], excludedVersions: [TRIAL] });
         const root = mkdtempSync(join(tmpdir(), 'exact-1258-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -88,7 +91,7 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([TRIAL]);
     });
 });
 

@@ -25,6 +25,7 @@ on:
           - '20260923120000'
           - '20260924150000'
           - '20260926190000'
+          - '20260928120000'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
@@ -161,7 +162,7 @@ jobs:
         # ONE resolution serves both. Stage B originally resolved the pooler a second time, which the
         # SEC-002 contract rejects: two resolutions can drift, leaving this proof attesting to parameters
         # the postflight never uses.
-        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') }}
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') || contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') }}
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
@@ -260,6 +261,27 @@ jobs:
             exit 1
           fi
           echo "20260926190000 postflight credentials and both verification paths present"
+
+      - name: Preflight 20260928120000 trial-capability credentials and BEFORE function identity (before the irreversible apply)
+        # Function identity, not history identity: Production must still hold the REVIEWED live body (20260809000000).
+        # An out-of-band CREATE OR REPLACE would be invisible to the migration ledger; replacing an unreviewed body is
+        # refused here. Read-only catalog SELECTs through the pooler proven reachable above (SEC-002).
+        if: ${{ contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::20260928120000 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20260928120000.sh before
 
       - name: Revalidate main IMMEDIATELY before the irreversible apply
         env:
@@ -494,6 +516,37 @@ jobs:
           fi
           echo "20260926190000 postflight enforced: success"
 
+      # 20260928120000-KEYED POSTFLIGHT: the deployed has_objective_capability() is exactly the reviewed trial-aware body
+      # (md5 of pg_get_functiondef), SECURITY DEFINER, pinned search_path, STABLE, EXECUTE for authenticated only.
+      # Read-only catalog SELECTs; never calls the function or reads a profile row.
+      - name: Enforce reviewed 20260928120000 trial-capability definition (function identity + ACL)
+        id: postflight_20260928120000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20260928120000.sh after
+          # NO UNRELATED CHANGE. Exactly one migration may have moved from pending to applied.
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" after \
+            "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+          echo "20260928120000 postflight passed: the reviewed trial-aware definition and its ACL are deployed"
+
+      - name: Require 20260928120000 trial-capability postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_20260928120000.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::20260928120000 applied but its postflight outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "20260928120000 postflight enforced: success"
+
       - name: Require unambiguous exact-operation success
         id: terminal
         if: always()
@@ -508,7 +561,8 @@ jobs:
             "postflight_1314=${{ steps.postflight_1314.outcome }}" \
             "postflight_1306=${{ steps.postflight_1306.outcome }}" \
             "postflight_1416=${{ steps.postflight_1416.outcome }}" \
-            "postflight_20260926190000=${{ steps.postflight_20260926190000.outcome }}"
+            "postflight_20260926190000=${{ steps.postflight_20260926190000.outcome }}" \
+            "postflight_20260928120000=${{ steps.postflight_20260928120000.outcome }}"
 
       - name: Publish sanitized result
         if: always()
@@ -527,5 +581,6 @@ jobs:
           echo "- #1314 postflight outcome: \`${{ steps.postflight_1314.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- #1306 Stage B postflight outcome: \`${{ steps.postflight_1306.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- 20260926190000 product-marker postflight outcome: \`${{ steps.postflight_20260926190000.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 20260928120000 trial-capability postflight outcome: \`${{ steps.postflight_20260928120000.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo '- The selected migration is the only authorized mutation. `--include-all` is permitted only for the isolated #1276 target and must be disclosed by its exact authorization phrase. No repair, broad-directory application, Edge deployment, payment configuration, or secrets/config change is performed.' >> "$GITHUB_STEP_SUMMARY"
