@@ -432,6 +432,13 @@ export const SessionPage: React.FC = () => {
      * exactly where it was. The review now depends on what the review actually needs.
      */
     const reviewReadyForRequest = showAnalyticsPrompt && !!reviewSessionId;
+    // #1258 — the reviewed take is Focus Points exactly when the session view shows the Focus rail (the same brief
+    // points it reads). Its coaching must be ABOUT those points, so the request waits for the finalized point
+    // results (`objectiveCoverageResult`), which are written after the save; asking earlier would find none.
+    const reviewIsFocusPoints = (activeObjectiveBrief?.points?.length ?? 0) > 0 || (completedObjectiveBrief?.points?.length ?? 0) > 0;
+    const focusResultsReady = !reviewIsFocusPoints || Array.isArray(objectiveCoverageResult);
+    // A check that ENDED without results will not become ready: say so once, never wait or retry forever.
+    const focusCoachingBlocked = reviewIsFocusPoints && !Array.isArray(objectiveCoverageResult) && objectiveCoverageFailed;
 
 
     // Mode-aware reconciliation status copy for the consolidated status bar's left side.
@@ -693,7 +700,12 @@ export const SessionPage: React.FC = () => {
                                 // not the optional analysis — see `reviewReadyForRequest`.
                                 reviewReadyForRequest
                                 && reviewTranscript?.kind === 'available'
+                                && focusResultsReady
                             )}
+                            product={reviewIsFocusPoints ? 'focus_points' : 'open_mic'}
+                            blockedReason={focusCoachingBlocked
+                                ? 'Coaching uses your Focus Points results, and we couldn\u2019t check them for this take. Your session is saved.'
+                                : null}
                         />
                     )}
                     aiSuggestions={undefined} /* #1306: coaching prose retired; next action replaces it */

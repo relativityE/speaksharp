@@ -290,6 +290,9 @@ async function main(): Promise<void> {
                 flush_outcome: cells[22] ?? null,
                 dropped_count: cells[23] ?? null,
                 comparison_evidence_document_id: cells[24] ?? null,
+                review_surface: cells[25] ?? null,
+                phase: cells[26] ?? null,
+                suggestions_present: cells[27] ?? null,
             },
         };
     });

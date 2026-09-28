@@ -74,8 +74,16 @@ export const AI_SUGGESTION_DAILY_LIMIT = coachingContract.uncachedGenerationCapP
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 type ServiceRoleClientFactory = () => SupabaseClient;
 
+/**
+ * #1538 (Codex P1 r4117321439) — the stored version is the pair's PROVENANCE. `gemini_coaching_focus_v1` is written only
+ * for a pair generated from a Focus Points take's saved results; Open Mic (and every pair written before this change)
+ * is `gemini_coaching_v1`. Exactly these two are accepted — no arbitrary version widening, no extra key.
+ */
+export type CoachingVersion = 'gemini_coaching_v1' | 'gemini_coaching_focus_v1';
+const COACHING_VERSIONS: ReadonlySet<string> = new Set<CoachingVersion>(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
+
 interface AISuggestions {
-  version: 'gemini_coaching_v1';
+  version: CoachingVersion;
   what_worked: string;
   what_to_try_next: string;
 }
@@ -94,11 +102,47 @@ interface SessionEvidence {
   duration: number | null;
   total_words: number | null;
   filler_words: unknown;
+  /** #1258: the per-word counts saves now write; `filler_words` is stripped on save and kept only for legacy rows. */
+  filler_counts: unknown;
   clarity_score: number | null;
   wpm: number | null;
   pause_metrics: unknown;
   ai_suggestions: unknown;
+  /** #1537: the durable product marker written at session creation; absent/NULL on rows created before it. */
+  product?: unknown;
 }
+
+type SessionProduct = 'open_mic' | 'focus_points';
+/**
+ * #1538 Codex P1 r4118176188 (PM RETURN 5862477628) — DEPLOY-SKEW COMPATIBILITY, RESPONSE ONLY.
+ *
+ * Merging deploys this function independently of the frontend, and an open tab keeps its old bundle. That bundle's
+ * parser accepts only `gemini_coaching_v1` and its request declares nothing, so a Focus pair labelled
+ * `gemini_coaching_focus_v1` became a terminal "review unavailable" in a tab that had done nothing wrong.
+ *
+ * A client that reads Focus provenance says so with a CLOSED capability: `accepted_coaching_versions` must be an
+ * array containing exactly `gemini_coaching_focus_v1`. It is separate from `product`, which stays a consistency
+ * assertion and never becomes the protocol. Any other value (absent, a string, other casing, an unknown version) is a
+ * legacy request, which receives a copy of the pair labelled `gemini_coaching_v1` with the same two phrases.
+ *
+ * Only the RESPONSE changes. The persisted row, the authority RPC value, the cache provenance and the trusted
+ * readback keep `gemini_coaching_focus_v1`; nothing here is ever written back.
+ */
+const acceptsFocusCoaching = (value: unknown): boolean =>
+  Array.isArray(value) && value.includes('gemini_coaching_focus_v1');
+
+const forClient = (suggestions: AISuggestions, focusCapable: boolean): AISuggestions =>
+  suggestions.version === 'gemini_coaching_focus_v1' && !focusCapable
+    ? { ...suggestions, version: 'gemini_coaching_v1' }
+    : suggestions;
+
+const asProduct = (value: unknown): SessionProduct | null =>
+  value === 'open_mic' || value === 'focus_points' ? value : null;
+const SESSION_EVIDENCE_COLUMNS =
+  'transcript, transcript_state, duration, total_words, filler_words, filler_counts, clarity_score, wpm, pause_metrics, ai_suggestions';
+/** Before migration 20260926190000 is applied the marker column does not exist; the row is then read as legacy. */
+const isMissingProductColumn = (error: { code?: string; message?: string } | null | undefined): boolean =>
+  Boolean(error && (error.code === '42703' || error.code === 'PGRST204') && /product/.test(error.message ?? ''));
 
 /** Only deployment skew (Edge published before its migration) may use the legacy authenticated write. */
 function authorityRpcUnavailable(error: unknown): boolean {
@@ -126,7 +170,7 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
 
     const candidate = parsed as Record<string, unknown>;
     if (JSON.stringify(Object.keys(candidate).sort()) !== JSON.stringify(['version', 'what_to_try_next', 'what_worked'])) return null;
-    if (candidate.version !== 'gemini_coaching_v1') return null;
+    if (typeof candidate.version !== 'string' || !COACHING_VERSIONS.has(candidate.version)) return null;
     if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
     if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
     // #1424 A2: the word budget is REFUSED, not truncated. Cutting a coaching phrase mid-sentence produces
@@ -138,7 +182,7 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
     }
 
     return {
-      version: 'gemini_coaching_v1',
+      version: candidate.version as CoachingVersion,
       what_worked: candidate.what_worked.trim(),
       what_to_try_next: candidate.what_to_try_next.trim(),
     };
@@ -153,6 +197,99 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
  * Replacements happen before caller content is inserted, so transcript text that happens to contain a
  * placeholder cannot alter the metrics boundary.
  */
+/**
+ * #1258 — FOCUS POINTS CONTEXT FOR COACHING (runbook v12, PM order item 4).
+ *
+ * A Focus Points session's coaching must help the person cover THEIR chosen points. The saved results live in the
+ * objective tables linked to this session (`objective_session.source_session_id`), read here under the caller's RLS.
+ * `none` means the session is not a Focus Points take (no objective session is linked to it); `pending` means it IS
+ * one but its point results are not saved yet; `error` means the read failed. Neither `pending` nor `error` may ever
+ * become generic coaching.
+ */
+export interface FocusPointEvidence {
+  label: string;
+  verdict: 'detected' | 'not_detected' | 'unavailable';
+  detectedAtSeconds: number | null;
+}
+export type FocusContext =
+  | { kind: 'none' }
+  | { kind: 'pending' }
+  | { kind: 'focus'; topic: string | null; points: FocusPointEvidence[] }
+  | { kind: 'error' };
+
+const FOCUS_VERDICTS = new Set(['detected', 'not_detected', 'unavailable']);
+const MAX_FOCUS_LABEL_CHARS = 200;
+
+export async function loadFocusContext(client: SupabaseClient, sessionId: string): Promise<FocusContext> {
+  const { data: objective, error: objectiveError } = await client
+    .from('objective_session')
+    .select('id, brief_id')
+    .eq('source_session_id', sessionId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (objectiveError) return { kind: 'error' };
+  if (!objective) return { kind: 'none' };
+  const { id: objectiveId, brief_id: briefId } = objective as { id: string; brief_id: string };
+  const [brief, points, evidence] = await Promise.all([
+    client.from('objective_brief').select('event_goal').eq('id', briefId).maybeSingle(),
+    client.from('objective_brief_point').select('id, label, sort_order').eq('brief_id', briefId).order('sort_order', { ascending: true }),
+    client.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds').eq('session_id', objectiveId),
+  ]);
+  if (brief.error || points.error || evidence.error) return { kind: 'error' };
+  const pointRows = (points.data ?? []) as Array<{ id: string; label: string }>;
+  const evidenceRows = (evidence.data ?? []) as Array<{ brief_point_id: string; verdict: string; detected_at_seconds: number | null }>;
+  // A linked Focus take with no points or no evidence yet has no result: it is pending, never an Open Mic take.
+  if (pointRows.length === 0 || evidenceRows.length === 0) return { kind: 'pending' };
+  const byPoint = new Map(evidenceRows.map((row) => [row.brief_point_id, row]));
+  const topic = typeof (brief.data as { event_goal?: unknown } | null)?.event_goal === 'string'
+    ? (brief.data as { event_goal: string }).event_goal
+    : null;
+  return {
+    kind: 'focus',
+    topic,
+    points: pointRows.map((point) => {
+      const row = byPoint.get(point.id);
+      const verdict = row && FOCUS_VERDICTS.has(row.verdict) ? row.verdict as FocusPointEvidence['verdict'] : 'unavailable';
+      const at = verdict === 'detected' && typeof row?.detected_at_seconds === 'number' ? row.detected_at_seconds : null;
+      return { label: point.label, verdict, detectedAtSeconds: at };
+    }),
+  };
+}
+
+const clockText = (seconds: number): string => {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+// The person's own point text, bounded and flattened so it cannot restructure the prompt around it.
+const quoteLabel = (text: string): string => `"${text.replace(/[\r\n"]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_FOCUS_LABEL_CHARS)}"`;
+
+/**
+ * The Focus Points section appended to the metrics block. It states each chosen point, in order, with what the
+ * keyword matcher found, and the rules that make the two phrases about COVERING THESE POINTS: supported pace and
+ * placement advice, no invented misses, and "not detected" never presented as proof a point was skipped.
+ */
+export function buildFocusCoachingText(context: FocusContext): string {
+  if (context.kind !== 'focus') return '';
+  const lines = context.points.map((point, index) => {
+    const result = point.verdict === 'detected'
+      ? `detected${point.detectedAtSeconds !== null ? ` at ${clockText(point.detectedAtSeconds)}` : ''}`
+      : point.verdict === 'not_detected'
+        ? 'not detected by the keyword matcher (the speaker may have covered it in other words)'
+        : 'not checked';
+    return `      ${index + 1}. ${quoteLabel(point.label)}: ${result}`;
+  });
+  const allDetected = context.points.every((point) => point.verdict === 'detected');
+  return `
+      Focus Points session. The speaker chose these points to cover, in this order${context.topic ? `, for the topic ${quoteLabel(context.topic)}` : ''}. A keyword matcher checked the transcript for each:
+${lines.join('\n')}
+
+      Focus Points coaching rules:
+      - Both phrases must help the speaker cover THESE chosen points in the next run: which point to open, introduce or signpost, where it belongs, or pacing between points, when this transcript and these results support it.
+      - "Not detected" is only what the matcher found. Never say a point was missed, skipped or not mentioned; suggest how to make it unmistakable instead.
+${allDetected ? '      - Every point was detected. Do not suggest covering a point as if it were missing; coach placement, transitions or pace between points.\n' : ''}`;
+}
+
 export function buildCoachingPrompt(transcriptForPrompt: string, metricsText: string): string {
   return coachingContract.promptTemplate.replace(
     /\{\{(TRANSCRIPT|METRICS)\}\}/g,
@@ -215,8 +352,12 @@ export async function handler(
       });
     }
 
-    const body = await req.json() as { sessionId?: unknown };
+    const body = await req.json() as { sessionId?: unknown; product?: unknown; accepted_coaching_versions?: unknown };
     const sessionId = body.sessionId;
+    // #1258 / #1538 (PM RETURN 5849473254): the page's product is only a CONSISTENCY ASSERTION. The server-owned
+    // `sessions.product` marker decides; the request can never downgrade or supply it.
+    const requestedProduct = asProduct(body.product);
+    const focusCapable = acceptsFocusCoaching(body.accepted_coaching_versions);
     if (typeof sessionId !== 'string' || !sessionId.trim()) {
       return new Response(JSON.stringify({ error: 'Session ID is required' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
@@ -235,12 +376,16 @@ export async function handler(
 
     // The saved, RLS-owned session is the only coaching evidence authority. Caller-supplied
     // transcript/metrics are deliberately ignored so one session cannot be relabelled as another.
-    const { data: sessionData, error: sessionError } = await supabaseClient
+    const readSession = (columns: string) => supabaseClient
       .from('sessions')
-      .select('transcript, transcript_state, duration, total_words, filler_words, clarity_score, wpm, pause_metrics, ai_suggestions')
+      .select(columns)
       .eq('id', sessionId)
       .eq('user_id', userId)
       .single();
+    let { data: sessionData, error: sessionError } = await readSession(`${SESSION_EVIDENCE_COLUMNS}, product`);
+    if (isMissingProductColumn(sessionError as { code?: string; message?: string } | null)) {
+      ({ data: sessionData, error: sessionError } = await readSession(SESSION_EVIDENCE_COLUMNS));
+    }
 
     if (sessionError || !sessionData) {
       return new Response(JSON.stringify({ error: 'Session was not found' }), {
@@ -249,10 +394,77 @@ export async function handler(
       });
     }
 
-    const session = sessionData as SessionEvidence;
-    const cachedSuggestions = session.ai_suggestions
+    const session = sessionData as unknown as SessionEvidence;
+
+    // #1538 — THE STORED MARKER IS THE PRODUCT AUTHORITY.
+    //  - open_mic: never reads the objective tables, so an objective-table failure cannot break Open Mic coaching;
+    //  - focus_points: saved Focus results are required before any cache replay or generation (425/503 otherwise);
+    //  - NULL (a row created before the marker): decided only by durable Focus evidence, never by the caller's hint or
+    //    by an absence, and no generic pair is ever generated and cached for it.
+    // A request naming a different product than the stored one fails closed before any cache, quota or provider work.
+    // Product refusals are 422, never 409: the client reads 409 as "this saved session has no transcript" (#1538
+    // Codex P2 r4117187862), which would be false here; 422 is its truthful, terminal "unavailable".
+    const marker = asProduct(session.product);
+    if (marker && requestedProduct && marker !== requestedProduct) {
+      return new Response(JSON.stringify({ error: 'This session was saved as a different product.', code: 'product_mismatch' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 422,
+      });
+    }
+    // Legacy rows keep the strictness the page's statement already had: it can only make the request stricter.
+    const expectsFocusPoints = marker ? marker === 'focus_points' : requestedProduct === 'focus_points';
+
+    // #1258 (PM 2026-09-26) — FOCUS RESULTS ARE CHECKED BEFORE ANY CACHED PAIR IS RETURNED AS FOCUS COACHING. A pair
+    // cached for this session is replayed to a Focus Points request only once its saved point results exist; until
+    // then the request is refused 425 (nothing spent, nothing replayed), exactly as a first request would be.
+    const focusResultsUnready = (context: FocusContext) =>
+      context.kind === 'pending' || (expectsFocusPoints && context.kind !== 'focus');
+    const refuseFocusRead = (context: FocusContext): Response | null => {
+      if (context.kind === 'error') {
+        return new Response(JSON.stringify({ error: 'AI coaching is unavailable right now. Please try again.' }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 503,
+        });
+      }
+      if (focusResultsUnready(context)) {
+        return new Response(JSON.stringify({ error: 'Focus Points results are not ready yet. Please try again.', code: 'focus_results_pending' }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 425,
+        });
+      }
+      return null;
+    };
+    let focusContext: FocusContext | null = marker === 'open_mic' ? { kind: 'none' } : null;
+    // An unmarked row asserted as Open Mic is checked against its durable Focus evidence BEFORE any cache replay:
+    // evidence that it was a Focus take makes the assertion a mismatch (PM RETURN 5850253992), never Focus coaching
+    // handed to an Open Mic caller.
+    if (expectsFocusPoints || (!marker && requestedProduct === 'open_mic')) {
+      focusContext = await loadFocusContext(supabaseClient, sessionId);
+      const refused = refuseFocusRead(focusContext);
+      if (refused) return refused;
+      if (!marker && requestedProduct === 'open_mic' && focusContext.kind === 'focus') {
+        return new Response(JSON.stringify({ error: 'This session was saved as a different product.', code: 'product_mismatch' }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 422,
+        });
+      }
+    }
+
+    let cachedSuggestions = session.ai_suggestions
       ? parseSuggestions(JSON.stringify(session.ai_suggestions))
       : null;
+    // #1538 (Codex P1 r4117321439, PM RETURN 5860537369): a cached pair replays as Focus coaching only when its version
+    // proves it was generated from the saved Focus results. A generic v1 pair on a Focus take (written before this
+    // change) is unproven: it is regenerated once below and overwritten through the existing authority RPC. An unmarked
+    // legacy row's Focus identity comes only from its durable evidence, read here before any replay.
+    if (cachedSuggestions && cachedSuggestions.version === 'gemini_coaching_v1' && marker !== 'open_mic') {
+      if (!focusContext) {
+        focusContext = await loadFocusContext(supabaseClient, sessionId);
+        const refused = refuseFocusRead(focusContext);
+        if (refused) return refused;
+      }
+      if (focusContext.kind === 'focus') cachedSuggestions = null;
+    }
     if (cachedSuggestions) {
       // A cache replay is evidence only when the server-owned receipt records that the request really
       // returned before quota/provider work. The browser packet cannot assert this fact for itself.
@@ -265,7 +477,7 @@ export async function handler(
         // readable; the trusted evidence collector still HOLDs because no receipt/cache count exists.
         console.error('AI coaching cache authority was not recorded:', cacheReceiptError);
       }
-      return new Response(JSON.stringify({ suggestions: cachedSuggestions }), {
+      return new Response(JSON.stringify({ suggestions: forClient(cachedSuggestions, focusCapable) }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 200,
       });
@@ -275,6 +487,25 @@ export async function handler(
       return new Response(JSON.stringify({ error: 'AI coaching requires an available saved transcript' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 409,
+      });
+    }
+
+    // #1258 — the session's saved Focus Points results, read BEFORE entitlement and quota so a refusal spends nothing.
+    // A failed read, or a Focus Points take whose results are not saved yet, must never become generic coaching:
+    // the answer would be cached on the row and the person could never get coaching about their points. `pending` is
+    // refused even when the request names no product (a tab loaded before this deploy), so no generic pair can be
+    // cached for a Focus take and later replayed as its Focus coaching.
+    if (!focusContext) {
+      focusContext = await loadFocusContext(supabaseClient, sessionId);
+      const refused = refuseFocusRead(focusContext);
+      if (refused) return refused;
+    }
+    // A legacy (unmarked) row with no durable Focus evidence is of UNKNOWN product: generating would guess Open Mic
+    // from an absence and cache that guess on the row. Refused before entitlement, quota and provider work.
+    if (!marker && focusContext.kind === 'none') {
+      return new Response(JSON.stringify({ error: 'Coaching isn’t available for this older session.', code: 'product_unknown' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 422,
       });
     }
 
@@ -333,6 +564,9 @@ export async function handler(
       });
     }
 
+    // #1258: saves write `filler_counts` and strip `filler_words`, so reading only the legacy field told the model
+    // "N/A" for every new session. The legacy field remains the fallback for rows saved before the switch.
+    const fillerEvidence = session.filler_counts ?? session.filler_words;
     const metricsText = `
       Metrics:
       - Words Per Minute (WPM): ${session.wpm ?? 'N/A'}
@@ -340,8 +574,8 @@ export async function handler(
       - Total Words: ${session.total_words ?? 'N/A'}
       - Duration: ${session.duration ?? 'N/A'} seconds
       - Pause Metrics: ${session.pause_metrics == null ? 'N/A' : JSON.stringify(session.pause_metrics)}
-      - Filler Words: ${session.filler_words == null ? 'N/A' : JSON.stringify(session.filler_words)}
-    `;
+      - Filler Words: ${fillerEvidence == null ? 'N/A' : JSON.stringify(fillerEvidence)}
+    ` + buildFocusCoachingText(focusContext);
 
     const prompt = buildCoachingPrompt(transcriptForPrompt, metricsText);
 
@@ -385,6 +619,11 @@ export async function handler(
       // A complete answer ends the loop. So does a failure a second ask cannot change.
       if (suggestions && observedProviderModel) break;
       if (!providerFailureIsRetryable) break;
+    }
+
+    // #1538: a pair generated from the saved Focus results carries that provenance in its version.
+    if (suggestions) {
+      suggestions = { ...suggestions, version: focusContext?.kind === 'focus' ? 'gemini_coaching_focus_v1' : 'gemini_coaching_v1' };
     }
 
     if (!suggestions || !observedProviderModel) {
@@ -453,7 +692,7 @@ export async function handler(
       });
     }
 
-    return new Response(JSON.stringify({ suggestions: savedSuggestions }), {
+    return new Response(JSON.stringify({ suggestions: forClient(savedSuggestions, focusCapable) }), {
       headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });

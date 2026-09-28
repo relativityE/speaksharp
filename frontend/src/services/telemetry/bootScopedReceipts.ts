@@ -144,6 +144,9 @@ export function buildReadbackQuery(params: {
      * appended, never inserted, so every existing column keeps its position in the decoder.
      * #1421 P1s `3984043479` + `3984043486`: the stage a `stage_latency` or `transcript_authority` row names,
      * and the review receipt's two verdicts, appended the same way.
+     * #1538 Codex P1 r4117960368: the coaching card's receipt fields that `focusCoachingRendered` reads — a
+     * closed-set surface, a closed-set phase and a boolean — appended the same way. Without them every genuine
+     * Focus Points journey held as "rendered no AI coaching" although the receipt was received.
      */
     return `
         SELECT event, timestamp, properties.journey_id AS journey_id, properties.boot_id AS boot_id,
@@ -161,7 +164,9 @@ export function buildReadbackQuery(params: {
                properties.transport_initialized AS transport_initialized,
                properties.flush_outcome AS flush_outcome,
                properties.dropped_count AS dropped_count,
-               properties.comparison_evidence_document_id AS comparison_evidence_document_id
+               properties.comparison_evidence_document_id AS comparison_evidence_document_id,
+               properties.review_surface AS review_surface, properties.phase AS phase,
+               properties.suggestions_present AS suggestions_present
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}

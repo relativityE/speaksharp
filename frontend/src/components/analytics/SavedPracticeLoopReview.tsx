@@ -44,7 +44,9 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
     useEffect(() => {
         if (!review || revisitSentFor.current === sessionId) return;
         revisitSentFor.current = sessionId;
-        trackSavedReviewRevisited(review.product, review.coaching.kind, review.coaching.kind === 'review' && review.evidence.length > 0);
+        // #1538: an unverified (generic v1) Focus pair is not shown, so it is never a qualifying review impression — it is
+        // reported as `none` (the closed `review_state` enum is unchanged).
+        trackSavedReviewRevisited(review.product, review.coaching.kind === 'unverified' ? 'none' : review.coaching.kind, review.coaching.kind === 'review' && review.evidence.length > 0);
     }, [review, sessionId]);
     const productName = review?.product === 'focus_points' ? PRODUCT_NAMES.objective
         : review?.product === 'open_mic' ? PRODUCT_NAMES.freeform : null;
@@ -137,7 +139,8 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
     );
 
     const coaching = review?.coaching;
-    const STATE_COPY: Record<'none' | 'expired' | 'error', string> = {
+    const STATE_COPY: Record<'none' | 'expired' | 'error' | 'unverified', string> = {
+        unverified: 'This session’s coaching was saved before Focus Points coaching was available, so it isn’t shown here.',
         none: 'No coaching was saved for this session.',
         expired: 'This session’s coaching is no longer available; it is removed with the transcript.',
         error: 'This session’s coaching couldn’t be loaded. Reload to try again.',

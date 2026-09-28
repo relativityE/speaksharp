@@ -173,7 +173,7 @@ boundary:
 | Data | Leaves the device? | Stored server-side? | Third party? |
 |---|---|---|---|
 | Raw audio | No | No | No |
-| Transcript text | **Yes**, on save (`p_final_transcript` → `complete_session_v2`) | **Yes**, bounded to the newest transcript-bearing saved session only | **Yes**, when the saved-session review runs — `get-ai-suggestions` → Google Gemini |
+| Transcript text | **Yes**, on save (`p_final_transcript` → `complete_session_v2`) | **Yes**, bounded to the newest transcript-bearing saved session only | **Yes**, when the saved-session review runs — `get-ai-suggestions` → Google Gemini; a Focus Points take also sends its saved topic and point labels (disclosed on the card, #1538) |
 | Derived metrics | Yes | Yes | Only within a coaching request |
 
 "Private STT audio never leaves the browser" is correct. It does **not** imply the transcript stays local.

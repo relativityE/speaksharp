@@ -129,11 +129,40 @@ describe('AISuggestions Integration', () => {
             return { data: null, error: err };
         };
 
+        // #1258 (PM review of 2f33457e6) — 425 focus_results_pending is sent before quota or any provider work, so it is
+        // WAITED OUT, not reported: the automatic after-Stop review must survive a brief lag in the saved Focus results.
+        it('#1258: a 425 focus_results_pending is waited out and the next request\'s review renders — no failure reported', async () => {
+            mockSupabaseClient.functions.invoke
+                .mockResolvedValueOnce(httpError(425))
+                .mockResolvedValueOnce(httpError(425))
+                // #1538: a Focus take's coaching carries Focus provenance.
+                .mockResolvedValueOnce({ data: { suggestions: {
+                    version: 'gemini_coaching_focus_v1', what_worked: 'Clear opening on the problem.', what_to_try_next: 'Signpost the second point.',
+                } }, error: null });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-pending" product="focus_points" retryBackoffMs={10} />);
+            expect(await screen.findByText('Signpost the second point.')).toBeInTheDocument();
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(3);
+            expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalled();
+            expect(screen.queryByTestId('ai-suggestions-retry')).not.toBeInTheDocument();
+        });
+
+        it('#1258: the pending wait is BOUNDED — after it, the ordinary terminal "unavailable" with a manual retry', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(httpError(425));
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-pending-forever" product="focus_points" retryBackoffMs={10} />);
+            expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+            // 3 waited-out 425s + the attempt that ends the lifecycle; never an unbounded loop.
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(4);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable');
+        });
+
         it.each([
             [403, /cannot request a new review/i],
             [401, /cannot request a new review/i],
             [429, /temporarily limited/i],
             [409, /does not have a transcript available/i],
+            // #1538: a product refusal (422) is "unavailable" — never the transcript-missing claim.
+            [422, /unavailable right now/i],
             [404, /could not be found/i],
             [500, /unavailable right now/i],
             [502, /unavailable right now/i],
@@ -528,7 +557,7 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByTestId('ai-suggestions-retrying')).toBeInTheDocument();
         });
 
-        it('calls the edge function with only the saved session id', async () => {
+        it('calls the edge function with only the saved session id and the coaching capability — no caller-owned evidence', async () => {
             const mockTranscript = "This is a test transcript with some filler words like um and uh";
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
@@ -548,8 +577,22 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => {
                 expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-                    body: { sessionId: 'session-test' },
+                    // #1538 Codex P1 r4118176188: the closed capability declaring this client reads Focus provenance.
+                    body: { sessionId: 'session-test', accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'] },
                 });
+            });
+        });
+
+        it('#1538 — a Focus Points request declares the capability alongside its product assertion, and renders the focus_v1 pair', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue({
+                data: { suggestions: { version: 'gemini_coaching_focus_v1', what_worked: 'Named the price first.', what_to_try_next: 'Signpost the guarantee next.' } },
+                error: null,
+            });
+            render(<AISuggestions transcript="Hello world" sessionId="session-focus" product="focus_points" />);
+
+            await waitFor(() => expect(screen.getByText('Named the price first.')).toBeInTheDocument());
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+                body: { sessionId: 'session-focus', product: 'focus_points', accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'] },
             });
         });
     });
@@ -682,6 +725,21 @@ describe('AISuggestions Integration', () => {
         });
     });
 
+    // #1538 (Codex P1 r4117321439, PM RETURN 5860537369): the Session reader accepts exactly the two coaching versions.
+    describe('#1538 coaching version provenance', () => {
+        it('renders a Focus-provenance (gemini_coaching_focus_v1) pair from the saved value', () => {
+            render(<AISuggestions transcript="Hello world" sessionId="session-focus-v1"
+                initialSuggestions={{ version: 'gemini_coaching_focus_v1', what_worked: 'Point two landed.', what_to_try_next: 'State point three earlier.' } as never} />);
+            expect(screen.getByText('Point two landed.')).toBeInTheDocument();
+            expect(screen.getByText('State point three earlier.')).toBeInTheDocument();
+        });
+        it('does not render an unknown version as coaching', () => {
+            render(<AISuggestions transcript="Hello world" sessionId="session-v2"
+                initialSuggestions={{ version: 'gemini_coaching_v2', what_worked: 'Unknown A.', what_to_try_next: 'Unknown B.' } as never} />);
+            expect(screen.queryByText('Unknown A.')).not.toBeInTheDocument();
+        });
+    });
+
     describe('Initial Suggestions', () => {
         it('renders with initial suggestions if provided', () => {
             const initialSuggestions = {
@@ -801,6 +859,33 @@ describe('AISuggestions Integration', () => {
                 expect(screen.getByText('The launch example made the decision concrete.')).toBeInTheDocument();
             });
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
+        });
+
+        // #1538 (PO-approved wording, P1 r4117696897): a Focus Points take also sends its topic and points to Gemini,
+        // so its disclosure says so. Open Mic keeps the transcript-only line — it sends nothing else.
+        const FOCUS_DISCLOSURE = "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
+        const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.";
+
+        it('#1538 — a Focus Points take discloses its topic and points, exactly', () => {
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" product="focus_points" />);
+
+            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(FOCUS_DISCLOSURE);
+        });
+
+        it('#1538 — an Open Mic take keeps the transcript-only disclosure, exactly', () => {
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" product="open_mic" />);
+
+            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(OPEN_MIC_DISCLOSURE);
+        });
+
+        it('#1538 — the Focus disclosure is shown before the review is requested', async () => {
+            let resolveInvoke: (value: unknown) => void = () => {};
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise((resolve) => { resolveInvoke = resolve; }));
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-focus-disclosure" product="focus_points" />);
+
+            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(FOCUS_DISCLOSURE);
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+            resolveInvoke({ data: { suggestions: null }, error: null });
         });
 
         it('#1416 P2-4 — generation no longer waits for a click, and the disclosure is still shown', async () => {
@@ -1092,6 +1177,30 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         });
         // #1466 — placement provides visibility; the card never scrolls the page (and the saved confirmation with it).
         expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    // #1538 Codex P2 r4117513455 (PM RETURN 5861000210): the response version must match the requested product. During a
+    // frontend-first rollout the old Edge can return generic coaching for a Focus take; it must not render or qualify.
+    it.each([
+        ['focus_points', 'gemini_coaching_v1'],
+        ['open_mic', 'gemini_coaching_focus_v1'],
+    ] as const)('#1538 CASUALTY: a %s take given a %s pair shows the unavailable state and emits NO qualifying receipt', async (product, version) => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: { ...VALID, version } }, error: null });
+        render(<AISuggestions transcript="hello" sessionId={`session-mismatch-${product}`} product={product} retryBackoffMs={1} />);
+        expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+        expect(screen.queryByText('Clear opening.')).not.toBeInTheDocument();
+        expect(receipts().filter((r) => r?.review_surface === 'coaching_verdict' && r?.phase === 'rendered')).toEqual([]);
+    });
+
+    it.each([
+        ['focus_points', 'gemini_coaching_focus_v1'],
+        ['open_mic', 'gemini_coaching_v1'],
+    ] as const)('#1538 CONTROL: a %s take given a %s pair renders and emits its receipt', async (product, version) => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: { ...VALID, version } }, error: null });
+        render(<AISuggestions transcript="hello" sessionId={`session-match-${product}`} product={product} />);
+        await waitFor(() => expect(screen.getByText('Clear opening.')).toBeInTheDocument());
+        revealReview();
+        expect(receipts().filter((r) => r?.review_surface === 'coaching_verdict' && r?.phase === 'rendered')).toHaveLength(1);
     });
 
     it('CASUALTY: a review still in flight emits no receipt and marks neither stage', async () => {

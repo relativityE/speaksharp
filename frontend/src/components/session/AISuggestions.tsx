@@ -16,8 +16,15 @@ import {
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 
+/**
+ * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
+ * a Focus Points take's saved results; everything else is `gemini_coaching_v1`.
+ */
+type CoachingVersion = 'gemini_coaching_v1' | 'gemini_coaching_focus_v1';
+const COACHING_VERSIONS: ReadonlySet<string> = new Set<CoachingVersion>(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
+
 interface AISuggestionsData {
-  version: 'gemini_coaching_v1';
+  version: CoachingVersion;
   what_worked: string;
   what_to_try_next: string;
 }
@@ -39,6 +46,16 @@ interface AISuggestionsProps {
   onDeviceCounts?: { fillers: number | null; wordsPerMinute: number | null };
   /** S-12 — `Session 6 · Open Mic`, shown opposite the eyebrow when the review is not still coming. */
   sessionLabel?: string | null;
+  /**
+   * #1258 — which product this take was. Sent with the request so the coaching function refuses to write generic
+   * coaching for a Focus Points take whose saved point results are not there yet. It never supplies evidence.
+   */
+  product?: 'open_mic' | 'focus_points';
+  /**
+   * #1258 — why this take's review will NOT be requested (e.g. its Focus Points check ended without results).
+   * Shown in place of the generic not-ready line; nothing is requested or retried while it is set.
+   */
+  blockedReason?: string | null;
 }
 
 interface SafeSuggestionError {
@@ -46,15 +63,30 @@ interface SafeSuggestionError {
   reason: PracticeLoopReviewFailureReason;
 }
 
-const parseAISuggestions = (value: unknown): AISuggestionsData | null => {
+/**
+ * #1538 Codex P2 r4117513455 (PM RETURN 5861000210): the version is bound to the requested product. A Focus Points take
+ * accepts only `gemini_coaching_focus_v1` and an Open Mic take only `gemini_coaching_v1`, so a generic pair returned for
+ * a Focus take (e.g. by a not-yet-deployed Edge function) is never rendered or receipted as Focus coaching. With no
+ * product, either accepted version is read.
+ */
+/** #1538 Codex P1 r4118176188 — the versions this client reads, declared on every coaching request. */
+const ACCEPTED_COACHING_VERSIONS: readonly CoachingVersion[] = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
+
+const VERSION_FOR_PRODUCT: Record<'open_mic' | 'focus_points', CoachingVersion> = {
+  open_mic: 'gemini_coaching_v1',
+  focus_points: 'gemini_coaching_focus_v1',
+};
+
+const parseAISuggestions = (value: unknown, product?: 'open_mic' | 'focus_points'): AISuggestionsData | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
   if (JSON.stringify(Object.keys(candidate).sort()) !== JSON.stringify(['version', 'what_to_try_next', 'what_worked'])) return null;
-  if (candidate.version !== 'gemini_coaching_v1') return null;
+  if (typeof candidate.version !== 'string' || !COACHING_VERSIONS.has(candidate.version)) return null;
+  if (product && candidate.version !== VERSION_FOR_PRODUCT[product]) return null;
   if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
   if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
   return {
-    version: 'gemini_coaching_v1',
+    version: candidate.version as CoachingVersion,
     what_worked: candidate.what_worked.trim(),
     what_to_try_next: candidate.what_to_try_next.trim(),
   };
@@ -145,8 +177,25 @@ const TERMINAL_REASONS: ReadonlySet<PracticeLoopReviewFailureReason> = new Set<P
   'unavailable',
 ]);
 
+/**
+ * #1258 — how many times a `425 focus_results_pending` answer is waited out. The server sends it BEFORE quota or any
+ * provider call when a Focus Points take's saved point results have not landed yet (a brief read lag after the save),
+ * so waiting costs nothing and does not use one of the two lifecycle attempts. Bounded: after these waits the answer
+ * is the ordinary terminal "unavailable", with the manual retry.
+ */
+export const FOCUS_RESULTS_PENDING_WAITS = 3;
+
 /** #1473 — the bounded backoff before the single automatic retry of a recoverable failure. */
 export const AI_REVIEW_AUTO_RETRY_BACKOFF_MS = 2500;
+
+/**
+ * #1538 (PO-approved wording, Codex P1 r4117696897) — the disclosure names everything `get-ai-suggestions` sends.
+ * A Focus Points take's prompt also carries its saved topic and point labels, so its line says so; Open Mic sends the
+ * transcript only and keeps the transcript-only line. Exact PO wording: do not edit without PO approval.
+ */
+const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.";
+const FOCUS_POINTS_DISCLOSURE =
+  "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
 
 const UNAVAILABLE_MESSAGE = 'The review is unavailable right now. Your session is saved, and you can try again.';
 
@@ -190,7 +239,7 @@ const getSafeAiSuggestionError = (
 
 const AISuggestions: React.FC<AISuggestionsProps> = ({
   transcript = '', canReview, sessionId, initialSuggestions, retryBackoffMs = AI_REVIEW_AUTO_RETRY_BACKOFF_MS,
-  onDeviceCounts, sessionLabel,
+  onDeviceCounts, sessionLabel, product, blockedReason,
 }) => {
   const activeSessionRef = useRef(sessionId);
   const requestGenerationRef = useRef(0);
@@ -200,7 +249,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   }
   const [view, setView] = useState(() => ({
     sessionId,
-    suggestions: parseAISuggestions(initialSuggestions),
+    suggestions: parseAISuggestions(initialSuggestions, product),
     isLoading: false,
     error: null as string | null,
     /** #1473 — a recoverable failure is showing and ONE automatic retry is scheduled; no attempt is in flight. */
@@ -211,7 +260,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   // immediately and invalidate every request captured for the previous session.
   const currentView = view.sessionId === sessionId
     ? view
-    : { sessionId, suggestions: parseAISuggestions(initialSuggestions), isLoading: false, error: null, retrying: false };
+    : { sessionId, suggestions: parseAISuggestions(initialSuggestions, product), isLoading: false, error: null, retrying: false };
   const { suggestions, isLoading, error, retrying } = currentView;
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
   const reviewCardRef = useRef<HTMLDivElement>(null);
@@ -237,12 +286,12 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   useEffect(() => {
     setView({
       sessionId,
-      suggestions: parseAISuggestions(initialSuggestions),
+      suggestions: parseAISuggestions(initialSuggestions, product),
       isLoading: false,
       error: null,
       retrying: false,
     });
-  }, [sessionId, initialSuggestions]);
+  }, [sessionId, initialSuggestions, product]);
 
   /**
    * #1422 Codex P1 `3994409733` (PM RETURN `5642224586`, option (b)) — THE RECEIPT IS EMITTED WHERE THE
@@ -411,6 +460,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
      * #1422 — A SUPERSEDED REQUEST REPORTS NOTHING AND RENDERS NOTHING: every outcome is checked against the current
      * request first, so a late answer for session A never counts or shows after the user moved to session B.
      */
+    let pendingWaits = 0;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null, retrying: false });
       let failure: SafeSuggestionError;
@@ -420,7 +470,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
           // The edge function loads transcript and measurements from this authenticated saved session.
           // Never send caller-owned evidence that could be swapped between session ids.
-          body: { sessionId: sessionId || null },
+          // #1538 Codex P1 r4118176188: `accepted_coaching_versions` is the closed capability that tells the server this
+          // client reads Focus provenance. Without it (a tab on an older bundle) the server answers a v1-labelled copy.
+          body: { sessionId: sessionId || null, ...(product ? { product } : {}), accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         });
 
         if (invokeError) {
@@ -432,7 +484,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
           throw new Error(data.error);
         }
 
-        const persistedSuggestions = parseAISuggestions(data?.suggestions);
+        const persistedSuggestions = parseAISuggestions(data?.suggestions, product);
         if (persistedSuggestions) {
           if (isCurrentRequest()) {
             // Success from this endpoint means the exact result was persisted and read back server-side.
@@ -444,6 +496,21 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         }
         failure = { reason: 'invalid_response', message: UNAVAILABLE_MESSAGE };
       } catch (err: unknown) {
+        // #1258 — Focus Points results not saved yet: nothing was spent, so wait and ask again (still "coming",
+        // never an error), without consuming a lifecycle attempt. Bounded by FOCUS_RESULTS_PENDING_WAITS.
+        if (errorStatus(err) === 425 && pendingWaits < FOCUS_RESULTS_PENDING_WAITS) {
+          pendingWaits += 1;
+          if (!isCurrentRequest()) return;
+          const proceed = await new Promise<boolean>((resolve) => {
+            retryTimerRef.current = setTimeout(() => {
+              retryTimerRef.current = null;
+              resolve(isCurrentRequest());
+            }, retryBackoffMs);
+          });
+          if (!proceed) return;
+          attempt -= 1;
+          continue;
+        }
         logger.error({ err }, "Error fetching AI suggestions:");
         failure = getSafeAiSuggestionError(err, await readClosedCode(err));
       }
@@ -466,7 +533,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: false });
       return;
     }
-  }, [reviewReady, sessionId, retryBackoffMs]);
+  }, [reviewReady, sessionId, retryBackoffMs, product]);
 
   useEffect(() => {
     if (!reviewReady || !sessionId) return;
@@ -639,8 +706,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       )}
 
       {!stillComing && !suggestions && !reviewReady && (
-        <p className="text-[15px] font-semibold text-ink-muted" data-testid="practice-loop-review-not-ready">
-          {sessionId
+        <p className="text-[15px] font-semibold text-ink-muted" data-testid={blockedReason ? 'practice-loop-review-blocked' : 'practice-loop-review-not-ready'}>
+          {blockedReason ? blockedReason : sessionId
             ? 'A review needs a completed session with a saved transcript.'
             : 'Your review will be available after this session finishes saving.'}
         </p>
@@ -661,7 +728,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         body, in the same region as the review and its progress state. It is a statement, not a gate.
       */}
       <p className="mt-4 text-[12px] font-medium text-ink-muted" data-testid="ai-suggestions-disclosure">
-        Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.
+        {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
       </p>
     </div>
   );

@@ -419,6 +419,32 @@ export const postStopChainInOrder = (chain: readonly string[]) => (rows: readonl
     return null;
 };
 
+/**
+ * #1258 (runbook v12, PM order item 4) — A FOCUS POINTS REVIEW MUST INCLUDE ITS COACHING.
+ *
+ * The Focus stage's `practice_loop` family was satisfied by the RAIL's receipt, which by design reports its coaching
+ * phrases as `not_applicable`. A Focus Points run whose AI coaching never rendered therefore qualified. The coaching
+ * card sends its own receipt (`review_surface: coaching_verdict`, `phase: rendered`, `suggestions_present: true`)
+ * only once a validated pair is on screen; the Focus stage now requires that receipt too.
+ */
+export const focusCoachingRendered = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const rendered = rows.filter((r) => r?.event === 'practice_loop' && r?.properties?.review_surface === 'coaching_verdict'
+        && r?.properties?.phase === 'rendered' && isTrue(r?.properties?.suggestions_present));
+    if (rendered.length === 0) return 'the Focus Points review rendered no AI coaching (only the points rail reported)';
+    // #1538 Codex P1 r4117187855 (PM RETURN 5860276061): the receipt must be the SAVED take's — the same attempt binding
+    // the post-Stop chain uses. A receipt with no attempt, or another attempt's, cannot qualify this take.
+    const attempt = savedTakeAttempt(rows);
+    if ('hold' in attempt) return `the Focus Points coaching receipt cannot be bound to the saved take: ${attempt.hold}`;
+    return rendered.some((r) => attemptOf(r) === attempt.attemptId)
+        ? null
+        : 'the Focus Points coaching rendered for no receipt carrying the saved take\'s attempt';
+};
+
+const FOCUS_COACHING_RENDERED = {
+    name: 'focus_points_coaching_rendered',
+    check: focusCoachingRendered,
+} as const;
+
 const POST_STOP_CHAIN_OPEN_MIC = {
     name: 'open_mic_post_stop_chain_in_order',
     check: postStopChainInOrder(OPEN_MIC_POST_STOP_CHAIN),
@@ -494,7 +520,7 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
             check: (rows) => (has(rows, 'coverage_evaluation') && !has(rows, 'coverage_point')
                 ? 'a coverage evaluation published no per-point verdicts'
                 : null),
-        }, ATTRIBUTION_BINDING, REVIEW_TRANSCRIPT_RECEIPT, POST_STOP_CHAIN_FOCUS_POINTS],
+        }, ATTRIBUTION_BINDING, REVIEW_TRANSCRIPT_RECEIPT, POST_STOP_CHAIN_FOCUS_POINTS, FOCUS_COACHING_RENDERED],
     },
 ]);
 

@@ -34,6 +34,12 @@ const chainRows = (chain: readonly string[], start = 1_000, attemptId: string | 
 const reviewReceipt = (over: Record<string, unknown> = {}) =>
     row('transcript_authority', { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true, ...over });
 
+const COACHING_RENDERED = { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true, attempt_id: 'attempt-1' };
+const RAIL_ONLY = {
+    phase: 'rendered', review_surface: 'focus_points_rail', suggestions_present: false,
+    what_went_well_source: 'not_applicable', what_to_improve_source: 'not_applicable',
+};
+
 /** Everything an After stage needs besides the two families under test. */
 const base = (s: typeof OPEN_MIC): DecodedTelemetryRow[] => [
     row('session_saved', { attempt_id: 'attempt-1', attempt_seq: 1 }, { journeyId: 'journey-1', bootId: 'boot-1' }),
@@ -43,7 +49,8 @@ const base = (s: typeof OPEN_MIC): DecodedTelemetryRow[] => [
     }, { journeyId: 'journey-1', bootId: 'boot-1' }),
     ...s.requiredFamilies
         .filter((f) => !['session_saved', 'model_attribution_receipt', 'transcript_authority', 'stage_latency'].includes(f))
-        .map((f) => row(f)),
+        // #1258: the coaching card's own receipt — a validated pair on screen (required for Focus Points).
+        .map((f) => (f === 'practice_loop' ? row(f, COACHING_RENDERED) : row(f))),
 ];
 const journey = (s: typeof OPEN_MIC, chain: readonly string[], review: DecodedTelemetryRow[] = [reviewReceipt()]) =>
     [...base(s), ...review, ...chainRows(chain)];
@@ -169,5 +176,98 @@ describe('#1421 — the readback selects and decodes what these invariants read'
         expect(script).toContain('stage: cells[18] ?? null');
         expect(script).toContain('transcript_visibly_present: cells[19] ?? null');
         expect(script).toContain('digests_match: cells[20] ?? null');
+    });
+});
+
+describe('#1258 — a Focus Points review must include its AI coaching (runbook v12, PM order item 4)', () => {
+    const withLoop = (s: typeof OPEN_MIC, chain: readonly string[], loopRows: DecodedTelemetryRow[]) =>
+        journey(s, chain).filter((r) => r.event !== 'practice_loop').concat(loopRows);
+
+    it('CASUALTY: the rail\'s not_applicable receipt alone no longer qualifies Focus Points', () => {
+        const rows = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY)]);
+        expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/rendered no AI coaching/);
+    });
+
+    it('CASUALTY: a coaching receipt that failed, or rendered no phrases, does not qualify', () => {
+        for (const bad of [
+            { ...COACHING_RENDERED, phase: 'failed' },
+            { ...COACHING_RENDERED, suggestions_present: false },
+            { ...COACHING_RENDERED, phase: 'requested' },
+        ]) {
+            const rows = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', bad)]);
+            expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/rendered no AI coaching/);
+        }
+    });
+
+    // #1538 Codex P1 r4117187855 (PM RETURN 5860276061): the coaching receipt must belong to the SAVED take.
+    it('CASUALTY: a rendered coaching receipt with NO attempt, or ANOTHER attempt, does not qualify the saved take', () => {
+        const noAttempt = { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true };
+        for (const coaching of [noAttempt, { ...noAttempt, attempt_id: 'attempt-2' }, { ...noAttempt, attempt_id: '' }]) {
+            const rows = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', coaching)]);
+            expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/saved take's attempt/);
+        }
+    });
+
+    it('HOLD: with no saved take to name the attempt, the coaching receipt cannot be bound (the existing hold reason)', () => {
+        const rows = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', COACHING_RENDERED)])
+            .filter((r) => r.event !== 'session_saved');
+        expect(evaluateQualificationStage(FOCUS_POINTS, rows).join(' ')).toMatch(/coaching receipt cannot be bound to the saved take: the post-Stop chain has no session_saved row/);
+    });
+
+    /**
+     * #1538 Codex P1 r4117960368 (PM RETURN 5862066742): THE RECEIVED ROW, NOT A FIXTURE OBJECT.
+     *
+     * The casualties above hand the gate decoded objects that already carry `review_surface`, `phase` and
+     * `suggestions_present`. The trusted readback selected none of the three, so a genuine Focus Points journey
+     * reached the gate without them and held as "rendered no AI coaching" although the receipt was delivered.
+     * This round-trips the qualifying journey through the REAL wire shape: each row becomes the positional cells
+     * the actual `buildReadbackQuery` select list produces, and is decoded with the actual `name: cells[i]`
+     * mapping read from `telemetry-readback-qualification.mts` — so a column the query drops, or a cell the
+     * decoder never reads, is dropped here too.
+     */
+    it('CASUALTY: a qualifying Focus Points journey still qualifies after the trusted readback round trip', () => {
+        const query = buildReadbackQuery({
+            windowHours: 24, releaseSha: 'sha', trafficType: 'internal_test', qualifyingIdentity: 'id',
+            governedEvents: ['practice_loop'], quote: (v: string) => `'${v}'`,
+        } as never);
+        const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
+        const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
+        const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
+        const decoderCells = [...script.matchAll(/(\w+): \(?cells\[(\d+)\]/g)].map((m) => [m[1], Number(m[2])] as const);
+        const TOP_LEVEL: Record<string, keyof DecodedTelemetryRow> = { event: 'event', timestamp: 'timestamp', journey_id: 'journeyId', boot_id: 'bootId' };
+
+        const toCells = (r: DecodedTelemetryRow) => columns.map((c) => (c in TOP_LEVEL
+            ? (r as unknown as Record<string, unknown>)[TOP_LEVEL[c]] ?? null
+            : (r.properties as Record<string, unknown> | undefined)?.[c] ?? null));
+        const decode = (cells: unknown[]): DecodedTelemetryRow => {
+            const decoded: Record<string, unknown> = { properties: {} };
+            for (const [name, index] of decoderCells) {
+                if (['event', 'timestamp', 'journeyId', 'bootId'].includes(name)) decoded[name] = cells[index] ?? null;
+                else (decoded.properties as Record<string, unknown>)[name] = cells[index] ?? null;
+            }
+            return decoded as unknown as DecodedTelemetryRow;
+        };
+
+        const sent = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', COACHING_RENDERED)]);
+        expect(evaluateQualificationStage(FOCUS_POINTS, sent), 'control: the sent journey qualifies').toEqual([]);
+        expect(evaluateQualificationStage(FOCUS_POINTS, sent.map((r) => decode(toCells(r)))), 'the received journey qualifies').toEqual([]);
+    });
+
+    it('the readback selects the three coaching-receipt fields, appended after every existing column, and never the whole property bag', () => {
+        const query = buildReadbackQuery({
+            windowHours: 24, releaseSha: 'sha', trafficType: 'internal_test', qualifyingIdentity: 'id',
+            governedEvents: ['practice_loop'], quote: (v: string) => `'${v}'`,
+        } as never);
+        const order = ['comparison_evidence_document_id', 'review_surface', 'phase', 'suggestions_present'].map((c) => query.indexOf(`AS ${c}`));
+        expect(order.every((i) => i > 0), 'each column is selected').toBe(true);
+        expect([...order].sort((a, b) => a - b), 'appended in order after the last existing column').toEqual(order);
+        expect(query).not.toMatch(/SELECT\s+\*|properties\s+AS|,\s*properties\s*(,|FROM)/);
+    });
+
+    it('CONTROL: rail + rendered coaching qualifies Focus Points; Open Mic is unaffected (string booleans read too)', () => {
+        const focus = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN,
+            [row('practice_loop', RAIL_ONLY), row('practice_loop', { ...COACHING_RENDERED, suggestions_present: 'true' })]);
+        expect(evaluateQualificationStage(FOCUS_POINTS, focus)).toEqual([]);
+        expect(evaluateQualificationStage(OPEN_MIC, journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN))).toEqual([]);
     });
 });

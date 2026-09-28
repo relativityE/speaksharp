@@ -29,7 +29,9 @@ const REVIEW_KEYS = ['version', 'what_to_try_next', 'what_worked'] as const;
  * can carry the same three keys with different semantics, so accepting any version would present
  * untrusted text to the user as their lesson. Fail closed instead.
  */
-const COACHING_VERSION = 'gemini_coaching_v1';
+// #1538 (Codex P1 r4117321439): exactly two literals — `gemini_coaching_focus_v1` marks a pair generated from a Focus
+// Points take's saved results. Still fail closed on anything else.
+const COACHING_VERSIONS: ReadonlySet<unknown> = new Set(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
 
 /**
  * The fix sentence from a persisted review, or `null` when there is no contract-valid review to quote.
@@ -56,7 +58,7 @@ export function readSavedReview(raw: unknown): SavedReview | null {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
     const keys = Object.keys(candidate as Record<string, unknown>).sort();
     if (JSON.stringify(keys) !== JSON.stringify([...REVIEW_KEYS])) return null;
-    if ((candidate as Record<string, unknown>).version !== COACHING_VERSION) return null;
+    if (!COACHING_VERSIONS.has((candidate as Record<string, unknown>).version)) return null;
     const fix = (candidate as Record<string, unknown>).what_to_try_next;
     const worked = (candidate as Record<string, unknown>).what_worked;
     // Both halves must be present and non-blank: a row carrying only one of them is a partial write,
@@ -64,6 +66,17 @@ export function readSavedReview(raw: unknown): SavedReview | null {
     if (typeof fix !== 'string' || typeof worked !== 'string') return null;
     if (!fix.trim() || !worked.trim()) return null;
     return { whatWorked: worked.trim(), whatToTryNext: fix.trim() };
+}
+
+/**
+ * #1538 (Codex P1 r4117321439, PM 5860714332) — the stored version of a contract-valid review (its provenance), or
+ * `null` when there is no contract-valid review. `gemini_coaching_focus_v1` means it was generated from a Focus Points
+ * take's saved results; a Focus take holding `gemini_coaching_v1` holds generic coaching.
+ */
+export function savedReviewVersion(raw: unknown): 'gemini_coaching_v1' | 'gemini_coaching_focus_v1' | null {
+    if (!readSavedReview(raw)) return null;
+    const candidate = typeof raw === 'string' ? safeParse(raw) : raw;
+    return (candidate as { version: 'gemini_coaching_v1' | 'gemini_coaching_focus_v1' }).version;
 }
 
 function safeParse(text: string): unknown {

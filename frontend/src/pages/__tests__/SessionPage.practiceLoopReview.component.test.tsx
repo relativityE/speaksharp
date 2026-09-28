@@ -10,6 +10,9 @@ import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import * as RecoveryHook from '@/hooks/useUnresolvedRecovery';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 
+/** #1538 Codex P1 r4118176188: every coaching request declares the closed capability. */
+const ACCEPTED_COACHING_VERSIONS = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
+
 vi.mock('@/hooks/useSessionLifecycle', () => ({ useSessionLifecycle: vi.fn() }));
 vi.mock('@/hooks/useUnresolvedRecovery', () => ({ useUnresolvedRecovery: vi.fn() }));
 vi.mock('@/lib/supabaseClient');
@@ -131,7 +134,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         // requests itself. This is the parent-level proof of the PO ruling: the whole journey, from a
         // finished session to a request, with nobody pressing anything.
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1' },
+            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
         expect(await screen.findAllByText('What went well')).toHaveLength(1);
         // The fix sits in the signature `TRY THIS NEXT RUN` block (S-12b). Still exactly one of each: the
@@ -481,7 +484,7 @@ describe('F-07 completed-session Practice Loop review', () => {
 
         // The automatic post-save submission fires against the PERSISTED id.
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1' },
+            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
     });
 
@@ -507,7 +510,7 @@ describe('F-07 completed-session Practice Loop review', () => {
 
         render(<SessionPage />);
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-one' },
+            body: { sessionId: 'session-take-one', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
         invoke.mockClear();
 
@@ -553,7 +556,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         render(<SessionPage />);
 
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1' },
+            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
     });
 
@@ -607,7 +610,7 @@ describe('F-07 completed-session Practice Loop review', () => {
 
         render(<SessionPage />);
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-A' },
+            body: { sessionId: 'session-take-A', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
 
         // ---- "Practice again": take B STARTS. The controller supersedes A's finalized signal and its
@@ -630,7 +633,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         });
 
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-B' },
+            body: { sessionId: 'session-take-B', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
         }));
 
         // THE CLAIM: after B started, every request belongs to B. Asserting only "B was requested"
@@ -755,5 +758,56 @@ describe('F-07 completed-session Practice Loop review', () => {
         const notice = await screen.findByTestId('review-transcript-notice');
         expect(notice, 'the re-read must reach the server, not the retired answer')
             .toHaveAttribute('data-outcome', 'expired');
+    });
+
+    // ── #1258 (runbook v12, PM order item 4) — Focus Points coaching waits for its saved point results ──────────
+    const FOCUS_BRIEF = { projectId: 'proj-1', briefId: 'brief-1', points: ['Updates get lost', 'Shared board'], topic: 'Weekly handoff' };
+    const PAIR = { data: { suggestions: {
+        version: 'gemini_coaching_v1', what_worked: 'Clear opening on scattered updates.', what_to_try_next: 'Signpost the shared board earlier.',
+    } }, error: null };
+
+    it('#1258 Focus Points: NO coaching request until the point results are finalized, then one request marked focus_points', async () => {
+        publishCompletedSession(4);
+        useSessionStore.getState().setCompletedObjectiveBrief(FOCUS_BRIEF);
+        invoke.mockResolvedValue(PAIR);
+        render(<SessionPage />);
+
+        // Saved and transcript-ready, but the Focus results are not written yet: asking now would find none.
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        expect(invoke).not.toHaveBeenCalled();
+
+        act(() => {
+            useSessionStore.getState().setObjectiveCoverageResult([
+                { id: 'p1', label: 'Updates get lost', status: 'covered' },
+                { id: 'p2', label: 'Shared board', status: 'missing' },
+            ]);
+        });
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+            body: { sessionId: 'session-complete-1', product: 'focus_points', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
+        }));
+        expect(invoke).toHaveBeenCalledTimes(1);
+    });
+
+    it('#1258 CASUALTY: a Focus Points check that ENDED without results says so — no request, no retry, no stale copy', async () => {
+        publishCompletedSession(4);
+        useSessionStore.getState().setCompletedObjectiveBrief(FOCUS_BRIEF);
+        useSessionStore.getState().setObjectiveCoverageFailed();
+        render(<SessionPage />);
+
+        expect(await screen.findByTestId('practice-loop-review-blocked'))
+            .toHaveTextContent('Coaching uses your Focus Points results, and we couldn’t check them for this take. Your session is saved.');
+        expect(screen.queryByTestId('practice-loop-review-not-ready')).not.toBeInTheDocument();
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        expect(invoke).not.toHaveBeenCalled();
+    });
+
+    it('#1258 CONTROL: an Open Mic take is not held for Focus results', async () => {
+        publishCompletedSession(4);
+        useSessionStore.getState().setObjectiveCoverageFailed(); // irrelevant to Open Mic
+        invoke.mockResolvedValue(PAIR);
+        render(<SessionPage />);
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
+        }));
     });
 });
