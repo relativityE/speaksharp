@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-    finalizeReceipt, humanWorksheet, NON_GATING_ROWS, parseHumanWorksheet, receiptAcceptance, type ReceiptRow,
+    finalizeReceipt, humanWorksheet, NON_GATING_ROWS, parseHumanWorksheet, receiptAcceptance, requiredAutomatedRows, type ReceiptRow,
 } from '../live/helpers/rwtAcceptance';
 import { QUALIFICATION_STAGES } from '../../frontend/src/services/telemetry/completenessGate';
 
@@ -27,6 +27,8 @@ const humanRow = (id: string): ReceiptRow => ({
 });
 const rows: ReceiptRow[] = [
     pass('session saved'), hold('signup-stage telemetry received'), hold('base_q4 primary'), hold('journey telemetry received'),
+    // #1532 Codex P1 r4126400982: the rest of the automated rows every Open Mic receipt carries.
+    pass('telemetry decodable'), pass('signup-stage telemetry (user class)'), pass('journey telemetry (canary class)'), pass('receipt content-free'),
     humanRow('open_mic_coaching_relevant'), humanRow('open_mic_uh_detected'),
 ];
 const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows,
@@ -159,5 +161,64 @@ describe('the suites follow the v12 order and bind each inventory event to the j
         const rj = src('live/helpers/rwtJourney.ts');
         const fn = rj.slice(rj.indexOf('export function telemetryClassRows'));
         expect(at(fn, 'if (!qualifies) return { canaryJourneys, userJourneys };')).toBeLessThan(at(fn, "'journey telemetry (canary class)'"));
+    });
+});
+
+/**
+ * #1532 Codex P1 r4126400982 (PM RETURN 5877389745) — a receipt must carry its suite's required automated rows exactly
+ * once, checked before any worksheet or readback is applied. Each casualty is given every OTHER condition for PASS (all
+ * human checks PASS and a fully QUALIFIED readback), so the only thing standing between it and a false PASS is this check.
+ */
+describe('required automated-row inventory: a receipt that lost a gating row can never finalize PASS', () => {
+    const without = (step: string) => ({ ...receipt, rows: rows.filter((r) => r.step !== step) });
+    const finalize = (r: unknown) => finalizeReceipt(r, worksheetDone(), readbackOk);
+
+    it('CONTROL: the complete receipt with a qualified readback still finalizes PASS, unchanged', () => {
+        const r = finalize(receipt);
+        expect(r).toMatchObject({ status: 'final', finalAcceptance: 'PASS', errors: [] });
+    });
+
+    it('CASUALTY: "journey telemetry received" missing → binding error, never PASS (the readback has nothing to settle)', () => {
+        const r = finalize(without('journey telemetry received'));
+        expect(r.finalAcceptance).not.toBe('PASS');
+        expect(r.status).toBe('binding_error');
+        expect(r.errors.join(' ')).toMatch(/missing the required automated row "journey telemetry received"/);
+    });
+
+    it('CASUALTY: "journey telemetry received" duplicated → binding error, never PASS', () => {
+        const dup = { ...receipt, rows: [...rows, { step: 'journey telemetry received', verdict: 'HOLD' as const, detail: 'again' }] };
+        const r = finalize(dup);
+        expect(r.finalAcceptance).not.toBe('PASS');
+        expect(r.errors.join(' ')).toMatch(/"journey telemetry received" 2 times/);
+    });
+
+    it('CASUALTY: another gating row missing ("receipt content-free") → binding error, never PASS', () => {
+        const r = finalize(without('receipt content-free'));
+        expect(r.finalAcceptance).not.toBe('PASS');
+        expect(r.errors.join(' ')).toMatch(/missing the required automated row "receipt content-free"/);
+    });
+
+    it('CASUALTY: "journey telemetry received" arriving already PASS (no readback) cannot finalize PASS', () => {
+        const preset = { ...receipt, rows: rows.map((r) => (r.step === 'journey telemetry received' ? { ...r, verdict: 'PASS' as const } : r)) };
+        const r = finalizeReceipt(preset, worksheetDone());
+        expect(r.finalAcceptance).not.toBe('PASS');
+        expect(r.errors.join(' ')).toMatch(/arrived as PASS; only the readback merge may settle it/);
+    });
+
+    it('the inventory is closed per suite; returning-user keeps its deliberate no-readback shape', () => {
+        const always = ['telemetry decodable', 'signup-stage telemetry (user class)', 'signup-stage telemetry received', 'receipt content-free'];
+        const readbackRows = ['journey telemetry (canary class)', 'journey telemetry received'];
+        for (const suite of ['open-mic-first-session', 'focus-points-session', 'focus-points-partial']) {
+            expect(requiredAutomatedRows(suite)).toEqual({ required: [...always, ...readbackRows], absent: [] });
+        }
+        expect(requiredAutomatedRows('returning-user-navigation')).toEqual({ required: always, absent: readbackRows });
+        expect(requiredAutomatedRows('something-else')).toBeNull();
+    });
+
+    it('every required row name is one the suites actually write (no inventory entry can drift from the source)', () => {
+        const src = (f: string) => readFileSync(path.resolve(__dirname, '..', f), 'utf8');
+        const writers = ['live/helpers/rwtJourney.ts', 'live/rwt-open-mic-first-session.live.spec.ts', 'live/helpers/rwtFocusPointsJourney.ts',
+            'live/rwt-products-navigation.live.spec.ts'].map(src).join('\n');
+        for (const step of [...requiredAutomatedRows('open-mic-first-session')!.required]) expect(writers).toContain(`'${step}'`);
     });
 });

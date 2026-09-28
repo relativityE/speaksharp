@@ -24,8 +24,22 @@ const human = (id: string, row: string): ReceiptRow => ({
     step: `human: ${id} question`, verdict: 'HUMAN', detail: 'named human RWT observation',
     evidence: { observationId: id, runbookRow: row, passCriterion: `criterion for ${id}`, recorded: 'pending' },
 });
-const rows = [...automated, human('open_mic_coaching_relevant', 'Product 1 row 5'), human('open_mic_uh_detected', 'Product 1 row 4')];
+/**
+ * #1532 Codex P1 r4126400982: the automated rows every Open Mic receipt carries (written in the suite's `finally`), placed
+ * AFTER the human rows so the index-based casualties below keep their meaning. `journey telemetry received` arrives HOLD;
+ * only a readback settles it, so a PASS below needs `readbackOk`.
+ */
+const inventory: ReceiptRow[] = [
+    { step: 'telemetry decodable', verdict: 'PASS', detail: 'decoded' },
+    { step: 'signup-stage telemetry (user class)', verdict: 'PASS', detail: 'sent' },
+    { step: 'signup-stage telemetry received', verdict: 'HOLD', detail: 'report-only' },
+    { step: 'journey telemetry (canary class)', verdict: 'PASS', detail: 'sent as canary' },
+    { step: 'journey telemetry received', verdict: 'HOLD', detail: 'proven by the readback step' },
+    { step: 'receipt content-free', verdict: 'PASS', detail: 'no forbidden value' },
+];
+const rows = [...automated, human('open_mic_coaching_relevant', 'Product 1 row 5'), human('open_mic_uh_detected', 'Product 1 row 4'), ...inventory];
 const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows, readback: { journeys: [{ journeyId: JOURNEY, stages: ['session_during', 'session_after_open_mic'] }], reportedJourneyIds: [] } };
+const readbackOk = { suite: SUITE, release: SHA, journeys: [{ journeyId: JOURNEY, stages: ['session_during', 'session_after_open_mic'], verdict: 'QUALIFIED' }], missingBindings: [] };
 
 /** Fill the blank Result/Observer cells of a generated worksheet. */
 const complete = (md: string, results: Record<string, string>, observer = 'PO · 2026-09-26') =>
@@ -66,7 +80,7 @@ describe('finalization: the completed worksheet produces the final verdict', () 
         expect(r.status).toBe('binding_error');
     });
     it('all human PASS → PASS', () => {
-        const r = finalizeReceipt(receipt, parseHumanWorksheet(complete(blank, { open_mic_coaching_relevant: 'PASS', open_mic_uh_detected: 'pass' })));
+        const r = finalizeReceipt(receipt, parseHumanWorksheet(complete(blank, { open_mic_coaching_relevant: 'PASS', open_mic_uh_detected: 'pass' })), readbackOk);
         expect(r).toMatchObject({ status: 'final', finalAcceptance: 'PASS', errors: [] });
         expect(r.humanObservations.map((h) => h.result)).toEqual(['PASS', 'PASS']);
     });
@@ -118,7 +132,7 @@ describe('PM RETURN 2026-09-26 — the receipt is untrusted input: a malformed r
         ['rows missing', { suite: SUITE, release: SHA, meta: receipt.meta, readback: receipt.readback }, /no rows/],
         ['an unknown automated verdict', { ...receipt, rows: [{ ...automated[0], verdict: 'OK' }, ...rows.slice(1)] }, /unknown verdict "OK"/],
         ['a malformed row', { ...receipt, rows: [{ verdict: 'PASS' }, ...rows.slice(1)] }, /row 0 is malformed/],
-        ['only human rows', { ...receipt, rows: rows.slice(2) }, /no automated rows/],
+        ['only human rows', { ...receipt, rows: rows.filter((r) => r.verdict === 'HUMAN') }, /no automated rows/],
         ['a required human observation missing', { ...receipt, rows: rows.slice(0, 3) }, /missing the required human observation open_mic_uh_detected/],
         ['a release that is not a SHA', { ...receipt, release: 'main' }, /40-character SHA/],
         ['no journey list', { ...receipt, readback: {} }, /readback\.journeys/],
@@ -146,9 +160,9 @@ describe('PM RETURN 2026-09-26 — the receipt is untrusted input: a malformed r
     });
 
     it('a human-recorded uh is required only for the synthetic fixture (a human recording proves it automatically)', () => {
-        const humanFixture = { ...receipt, meta: { fixtureKind: 'human' }, rows: rows.slice(0, 3) };
+        const humanFixture = { ...receipt, meta: { fixtureKind: 'human' }, rows: [...rows.slice(0, 3), ...inventory] };
         const md = complete(humanWorksheet(SUITE, SHA, [JOURNEY], humanFixture.rows), { open_mic_coaching_relevant: 'PASS' });
-        expect(finalizeReceipt(humanFixture, parseHumanWorksheet(md)).finalAcceptance).toBe('PASS');
+        expect(finalizeReceipt(humanFixture, parseHumanWorksheet(md), readbackOk).finalAcceptance).toBe('PASS');
     });
 });
 
@@ -159,7 +173,9 @@ describe('the finalization STEP itself (`pnpm rwt:finalize` → scripts/rwt-fina
         const worksheetPath = path.join(dir, `${SUITE}.human-worksheet.md`);
         writeFileSync(receiptPath, JSON.stringify({ ...receipt, meta: {} }));
         writeFileSync(worksheetPath, complete(humanWorksheet(SUITE, SHA, [JOURNEY], rows), results));
-        const proc = spawnSync(path.resolve('node_modules/.bin/tsx'), ['scripts/rwt-finalize-receipt.mts', '--receipt', receiptPath, '--worksheet', worksheetPath], { encoding: 'utf8' });
+        const readbackPath = path.join(dir, `${SUITE}.readback-verdicts.json`);
+        writeFileSync(readbackPath, JSON.stringify(readbackOk));
+        const proc = spawnSync(path.resolve('node_modules/.bin/tsx'), ['scripts/rwt-finalize-receipt.mts', '--receipt', receiptPath, '--worksheet', worksheetPath, '--readback', readbackPath], { encoding: 'utf8' });
         const final = JSON.parse(readFileSync(path.join(dir, `${SUITE}.final.json`), 'utf8')) as Record<string, unknown>;
         return { code: proc.status, final };
     };

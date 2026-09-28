@@ -152,6 +152,31 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
 }
 
 /**
+ * #1532 Codex P1 r4126400982 (PM RETURN 5877389745) — the AUTOMATED rows each RWT suite MUST carry, exactly once. They
+ * are the rows every suite writes on every path into `RwtReceipt.write()` (its `finally`: `telemetryClassRows` and the
+ * content-free check), so a correct receipt always has them. Without this inventory a receipt that lost
+ * `journey telemetry received` would finalize PASS with no received-telemetry assertion (`applyReadback` only updates a
+ * row that exists). The returning-user suite qualifies no journey by design and must carry neither readback row.
+ */
+const ALWAYS_AUTOMATED_ROWS = Object.freeze([
+    'telemetry decodable', 'signup-stage telemetry (user class)', 'signup-stage telemetry received', 'receipt content-free',
+]);
+const JOURNEY_READBACK_ROWS = Object.freeze(['journey telemetry (canary class)', 'journey telemetry received']);
+
+export function requiredAutomatedRows(suite: string): { required: readonly string[]; absent: readonly string[] } | null {
+    switch (suite) {
+        case 'open-mic-first-session':
+        case 'focus-points-session':
+        case 'focus-points-partial':
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], absent: [] };
+        case 'returning-user-navigation':
+            return { required: ALWAYS_AUTOMATED_ROWS, absent: JOURNEY_READBACK_ROWS };
+        default:
+            return null;
+    }
+}
+
+/**
  * PM RETURN 2026-09-26 — the receipt is untrusted input. Validate its structure, every row's verdict, the run identity
  * and the suite's required human observations BEFORE anything is applied; any error means no final PASS.
  */
@@ -192,6 +217,23 @@ export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization
     if (required === null) return { receipt: null, errors: [`unknown RWT suite ${receipt.suite}`] };
     const present = receipt.rows.filter(isHumanObservation).map((row) => String(row.evidence!.observationId));
     for (const id of required) if (!present.includes(id)) errors.push(`receipt is missing the required human observation ${id}`);
+    // Checked before any worksheet or readback is applied; nothing absent is inferred or added here.
+    const automated = requiredAutomatedRows(receipt.suite)!;
+    const countOf = (step: string) => receipt.rows.filter((row) => row.step === step && !isHumanObservation(row)).length;
+    for (const step of automated.required) {
+        const n = countOf(step);
+        if (n === 0) errors.push(`receipt is missing the required automated row "${step}"`);
+        else if (n > 1) errors.push(`receipt carries the automated row "${step}" ${n} times (exactly one is required)`);
+    }
+    for (const step of automated.absent) {
+        if (countOf(step) > 0) errors.push(`receipt carries "${step}", which the ${receipt.suite} suite never writes`);
+    }
+    // The suite writes `journey telemetry received` only as HOLD; the readback merge is the ONLY path to PASS/FAIL. A
+    // receipt that arrives with it already settled would finalize PASS with no readback at all.
+    const received = receipt.rows.find((row) => row.step === 'journey telemetry received' && !isHumanObservation(row));
+    if (received && automated.required.includes(received.step) && received.verdict !== 'HOLD') {
+        errors.push(`"journey telemetry received" arrived as ${received.verdict}; only the readback merge may settle it`);
+    }
     return { receipt, errors };
 }
 
