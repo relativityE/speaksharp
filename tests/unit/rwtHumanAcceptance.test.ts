@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-    finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance, type ReceiptRow,
+    finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance, type ReceiptRow, requiredAutomatedRows,
 } from '../live/helpers/rwtAcceptance';
 
 const SUITE = 'open-mic-first-session';
@@ -37,7 +37,11 @@ const inventory: ReceiptRow[] = [
     { step: 'journey telemetry received', verdict: 'HOLD', detail: 'proven by the readback step' },
     { step: 'receipt content-free', verdict: 'PASS', detail: 'no forbidden value' },
 ];
-const rows = [...automated, human('open_mic_coaching_relevant', 'Product 1 row 5'), human('open_mic_uh_detected', 'Product 1 row 4'), ...inventory];
+// #1532 r4127338275: a complete receipt also carries every product-outcome row the suite writes (code-owned inventory).
+const productRows: ReceiptRow[] = requiredAutomatedRows(SUITE)!.product
+    .filter((step) => ![...automated, ...inventory].some((r) => r.step === step))
+    .map((step) => ({ step, verdict: step === 'base_q4 primary' ? 'HOLD' : 'PASS', detail: 'fixture' }));
+const rows = [...automated, human('open_mic_coaching_relevant', 'Product 1 row 5'), human('open_mic_uh_detected', 'Product 1 row 4'), ...inventory, ...productRows];
 const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows, readback: { journeys: [{ journeyId: JOURNEY, stages: ['session_during', 'session_after_open_mic'] }], reportedJourneyIds: [] } };
 const readbackOk = { suite: SUITE, release: SHA, journeys: [{ journeyId: JOURNEY, stages: ['session_during', 'session_after_open_mic'], verdict: 'QUALIFIED' }], missingBindings: [] };
 
@@ -162,7 +166,7 @@ describe('PM RETURN 2026-09-26 — the receipt is untrusted input: a malformed r
     });
 
     it('a human-recorded uh is required only for the synthetic fixture (a human recording proves it automatically)', () => {
-        const humanFixture = { ...receipt, meta: { fixtureKind: 'human' }, rows: [...rows.slice(0, 3), ...inventory] };
+        const humanFixture = { ...receipt, meta: { fixtureKind: 'human' }, rows: [...rows.slice(0, 3), ...inventory, ...productRows] };
         const md = complete(humanWorksheet(SUITE, SHA, [JOURNEY], humanFixture.rows), { open_mic_coaching_relevant: 'PASS' });
         expect(finalizeReceipt(humanFixture, parseHumanWorksheet(md), readbackOk).finalAcceptance).toBe('PASS');
     });

@@ -31,6 +31,13 @@ const rows: ReceiptRow[] = [
     pass('telemetry decodable'), pass('signup-stage telemetry (user class)'), pass('journey telemetry (canary class)'), pass('receipt content-free'),
     humanRow('open_mic_coaching_relevant'), humanRow('open_mic_uh_detected'),
 ];
+// #1532 r4127338275: the complete receipt carries every product-outcome row too (from the code-owned inventory).
+const completeWith = (suite: string, base: ReceiptRow[]): ReceiptRow[] => [
+    ...base,
+    ...requiredAutomatedRows(suite)!.product.filter((step) => !base.some((r) => r.step === step))
+        .map((step) => (step === 'base_q4 primary' ? hold(step) : pass(step))),
+];
+rows.push(...completeWith(SUITE, rows).slice(rows.length));
 const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows,
     readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: ['other'], missingBindings: [] } };
 const readbackOk = { suite: SUITE, release: SHA, journeys: [{ journeyId: J, stages: STAGES, verdict: 'QUALIFIED' }], missingBindings: [] };
@@ -209,11 +216,11 @@ describe('required automated-row inventory: a receipt that lost a gating row can
         const always = ['telemetry decodable', 'signup-stage telemetry (user class)', 'signup-stage telemetry received', 'receipt content-free'];
         const readbackRows = ['journey telemetry (canary class)', 'journey telemetry received'];
         for (const suite of ['open-mic-first-session', 'focus-points-session']) {
-            expect(requiredAutomatedRows(suite)).toEqual({ required: [...always, ...readbackRows], absent: [] });
+            expect(requiredAutomatedRows(suite)).toMatchObject({ required: [...always, ...readbackRows], absent: [] });
         }
         // #1532 r4126745141: only the partial run carries its own cleanup row.
-        expect(requiredAutomatedRows('focus-points-partial')).toEqual({ required: [...always, ...readbackRows, 'run-owned cleanup'], absent: [] });
-        expect(requiredAutomatedRows('returning-user-navigation')).toEqual({ required: always, absent: readbackRows });
+        expect(requiredAutomatedRows('focus-points-partial')).toMatchObject({ required: [...always, ...readbackRows, 'run-owned cleanup'], absent: [] });
+        expect(requiredAutomatedRows('returning-user-navigation')).toMatchObject({ required: always, absent: readbackRows });
         expect(requiredAutomatedRows('something-else')).toBeNull();
     });
 
@@ -253,9 +260,10 @@ describe('Focus partial: cleanup is verified before the receipt is written, and 
         expect(out[0]).toMatchObject({ verdict: 'FAIL' });
     });
 
+    const partialBase = completeWith('focus-points-partial', rows.filter((r) => !r.step.startsWith('human:')));
     const partialReceipt = (cleanup: ReceiptRow | null) => ({
         ...receipt, suite: 'focus-points-partial',
-        rows: [...rows.filter((r) => !r.step.startsWith('human:')), ...(cleanup ? [cleanup] : []),
+        rows: [...partialBase, ...(cleanup ? [cleanup] : []),
             { step: 'human: focus', verdict: 'HUMAN' as const, detail: 'named human RWT observation', evidence: { observationId: 'focus_coaching_covers_points', runbookRow: 'row', passCriterion: 'c', recorded: 'pending' } }],
     });
     const partialDone = (r: { rows: ReceiptRow[] }) => parseHumanWorksheet(humanWorksheet('focus-points-partial', SHA, [J, 'other'], r.rows).split('\n')
@@ -307,5 +315,64 @@ describe('automatedRowsAllPass counts gating HOLD rows as not passing', () => {
     it('pending human observations stay outside the automated boolean', () => {
         const a = receiptAcceptance([pass('session saved'), humanRow('open_mic_coaching_relevant')]);
         expect(a).toMatchObject({ acceptance: 'INCOMPLETE', automatedRowsAllPass: true });
+    });
+});
+
+/**
+ * #1532 Codex P1 r4127338275 (PM RETURN 5879422189, loop 2/2) — every suite's closed PRODUCT-row inventory. For each suite the
+ * canonical complete receipt (all human PASS, a QUALIFIED readback) finalizes PASS; removing ANY one required product row is
+ * a binding error and never PASS. Discriminating on the parent: there, a receipt without product rows still reached PASS.
+ */
+describe('product-row inventory: a receipt missing any product outcome can never finalize PASS', () => {
+    const SUITES = [
+        { suite: 'open-mic-first-session', humans: ['open_mic_coaching_relevant', 'open_mic_uh_detected'], readback: true, extra: [] as string[] },
+        { suite: 'focus-points-session', humans: ['focus_coaching_covers_points'], readback: true, extra: [] as string[] },
+        { suite: 'focus-points-partial', humans: ['focus_coaching_covers_points'], readback: true, extra: ['run-owned cleanup'] },
+        { suite: 'returning-user-navigation', humans: [] as string[], readback: false, extra: [] as string[] },
+    ];
+    const always = ['telemetry decodable', 'signup-stage telemetry (user class)', 'receipt content-free'];
+    const canonical = (s: (typeof SUITES)[number]) => {
+        const automated: ReceiptRow[] = [
+            ...always.map(pass), hold('signup-stage telemetry received'),
+            ...(s.readback ? [pass('journey telemetry (canary class)'), hold('journey telemetry received')] : []),
+            ...s.extra.map(pass),
+            ...requiredAutomatedRows(s.suite)!.product.map((step) => (step === 'base_q4 primary' ? hold(step) : pass(step))),
+        ];
+        return { ...receipt, suite: s.suite, rows: [...automated, ...s.humans.map(humanRow)] };
+    };
+    const done = (r: { suite: string; rows: ReceiptRow[] }) => parseHumanWorksheet(humanWorksheet(r.suite, SHA, [J, 'other'], r.rows).split('\n')
+        .map((l) => (/^\| `(open_mic_|focus_)/.test(l) ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-09-28 |') : l)).join('\n'));
+    const finalize = (s: (typeof SUITES)[number], r: { suite: string; rows: ReceiptRow[] }) =>
+        finalizeReceipt(r, done(r), s.readback ? { ...readbackOk, suite: s.suite } : undefined);
+
+    for (const s of SUITES) {
+        it(`${s.suite}: the canonical complete receipt finalizes PASS`, () => {
+            expect(finalize(s, canonical(s))).toMatchObject({ status: 'final', finalAcceptance: 'PASS', errors: [] });
+        });
+        it(`${s.suite}: removing EACH required product row → binding error, never PASS`, () => {
+            const base = canonical(s);
+            const product = requiredAutomatedRows(s.suite)!.product;
+            expect(product.length).toBeGreaterThan(5);
+            for (const step of product) {
+                const r = finalize(s, { ...base, rows: base.rows.filter((row) => row.step !== step) });
+                expect({ step, acceptance: r.finalAcceptance, bound: r.errors.some((e) => e.includes(`missing the required product row "${step}"`)) })
+                    .toEqual({ step, acceptance: 'INCOMPLETE', bound: true });
+            }
+        });
+    }
+
+    it('Focus full-only rows are not required of the partial run, and cleanup is not required of the full run', () => {
+        expect(requiredAutomatedRows('focus-points-session')!.product).toEqual(expect.arrayContaining(['feedback', 'feedback retention']));
+        expect(requiredAutomatedRows('focus-points-partial')!.product).not.toContain('feedback');
+        expect(requiredAutomatedRows('focus-points-session')!.required).not.toContain('run-owned cleanup');
+    });
+
+    it('every product row name is one the suites actually write (the inventory cannot drift from the source)', () => {
+        const src = (f: string) => readFileSync(path.resolve(__dirname, '..', f), 'utf8');
+        const writers = ['live/helpers/rwtJourney.ts', 'live/rwt-open-mic-first-session.live.spec.ts', 'live/helpers/rwtFocusPointsJourney.ts',
+            'live/rwt-products-navigation.live.spec.ts'].map(src).join('\n');
+        for (const s of SUITES) for (const step of requiredAutomatedRows(s.suite)!.product) {
+            expect({ step, written: writers.includes(`'${step}'`) }).toEqual({ step, written: true });
+        }
     });
 });

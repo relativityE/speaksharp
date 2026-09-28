@@ -189,16 +189,58 @@ export async function recordRunOwnedCleanup(
     return false;
 }
 
-export function requiredAutomatedRows(suite: string): { required: readonly string[]; absent: readonly string[] } | null {
+/**
+ * #1532 Codex P1 r4127338275 (PM RETURN 5879422189, loop 2/2) — the PRODUCT-OUTCOME rows each suite writes on its success
+ * path. A genuine all-PASS run always writes every one (a branch that fails writes the same step as FAIL/HOLD, or the run
+ * throws and its receipt then lacks the row — which must never finalize PASS). Excluded by construction: per-word rows with
+ * dynamic names (`filler "…"`), failure-only placeholders (`fillers` / `analytics` HOLD when nothing saved), and rows that
+ * differ between valid configurations (Focus full-only feedback rows; partial-only cleanup). Required PRESENT; the
+ * telemetry/cleanup singletons above stay exactly-once. Source: the suite files and the rwtJourney helpers they call.
+ */
+const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
+    'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
+    'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
+    'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
+    'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
+    'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
+    'saved review is the first block', '"From this session" evidence', 'one practice action', 'session PDF',
+    'Analytics generates no coaching', 'feedback', 'Progress evaluation', 'Progress debt',
+    'Analytics Practice again opens the product', 'review Practice again starts, no hold', 'repeated take stopped, microphone off',
+    'saved product marker', 'next Start', 'next take stopped, microphone off', 'telemetry sent', 'coaching telemetry sent',
+    'inventory events sent', 'revisit is not a generation', 'model download vs setup timing', 'feedback retention',
+]);
+const FOCUS_PRODUCT_ROWS = Object.freeze([
+    'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
+    'pace guide', 'Head to session', 'rail legend', 'pending points labelled', 'rail before speaking', 'model identity',
+    'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved',
+    'final point verdicts', 'not-detected explained', 'coverage count', 'average per point', 'final rail colours and words',
+    'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching length',
+    'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching provenance',
+    'Focus coaching visible = saved', 'Focus coaching server receipt', 'Products menu opened in the session',
+    'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
+    'saved review is the first block', '"From this session" evidence', 'one practice action', 'Analytics generates no coaching',
+    'analytics point detail', 'Analytics Practice again opens the product', 'review Practice again starts, no hold',
+    'repeated take stopped, microphone off', 'saved product marker', 'next Start', 'next take stopped, microphone off',
+    'coverage_evaluation sent', 'Focus coaching telemetry sent', 'revisit is not a generation', 'inventory events sent',
+    'model download vs setup timing',
+]);
+const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention']);
+const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
+    'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
+    'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
+]);
+
+export function requiredAutomatedRows(suite: string): { required: readonly string[]; product: readonly string[]; absent: readonly string[] } | null {
     switch (suite) {
         case 'open-mic-first-session':
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: OPEN_MIC_PRODUCT_ROWS, absent: [] };
         case 'focus-points-session':
-            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], absent: [] };
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: [...FOCUS_PRODUCT_ROWS, ...FOCUS_FULL_ONLY_PRODUCT_ROWS], absent: [] };
         case 'focus-points-partial':
             // #1532 Codex P1 r4126745141: the partial run deletes its account in-body, before write(), and records it.
-            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS, RUN_OWNED_CLEANUP_ROW], absent: [] };
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS, RUN_OWNED_CLEANUP_ROW], product: FOCUS_PRODUCT_ROWS, absent: [] };
         case 'returning-user-navigation':
-            return { required: ALWAYS_AUTOMATED_ROWS, absent: JOURNEY_READBACK_ROWS };
+            return { required: ALWAYS_AUTOMATED_ROWS, product: RETURNING_USER_PRODUCT_ROWS, absent: JOURNEY_READBACK_ROWS };
         default:
             return null;
     }
@@ -252,6 +294,9 @@ export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization
         const n = countOf(step);
         if (n === 0) errors.push(`receipt is missing the required automated row "${step}"`);
         else if (n > 1) errors.push(`receipt carries the automated row "${step}" ${n} times (exactly one is required)`);
+    }
+    for (const step of automated.product) {
+        if (countOf(step) === 0) errors.push(`receipt is missing the required product row "${step}"`);
     }
     for (const step of automated.absent) {
         if (countOf(step) > 0) errors.push(`receipt carries "${step}", which the ${receipt.suite} suite never writes`);
