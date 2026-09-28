@@ -136,6 +136,17 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // Focus Points is included in the active 30-day trial (PO 2026-09-28; PM 5869975833). has_objective_capability()
+        // gains the canonical #1282 active-trial branch. Applied AFTER #1258, before the held commercial-activation entry.
+        // Its pre-apply gate refuses to replace any body other than the reviewed 20260809000000 definition; its postflight
+        // proves the reviewed definition and ACL are deployed. Allowlisting is implementation, not authorization: applying
+        // it needs the PO's exact dispatch with the derived phrase.
+        version: '20260928120000',
+        file: '20260928120000_focus_points_trial_capability.sql',
+        sha256: 'c96f5a67027c184a904578f7e4e7d3166a26253faa70e149d7347939c6495350',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -559,6 +570,8 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_1416', targetFile: '20260904150000_share_feedback_redesign' }),
     // #1537: PostgREST reload + a no-row read of `sessions.product` through the client's REST API.
     Object.freeze({ id: 'postflight_20260926190000', targetFile: '20260926190000_session_product_marker_1258' }),
+    // Focus Points trial capability: function identity (md5 of pg_get_functiondef) + authenticated-only ACL, read-only.
+    Object.freeze({ id: 'postflight_20260928120000', targetFile: '20260928120000_focus_points_trial_capability' }),
 ]);
 
 /**

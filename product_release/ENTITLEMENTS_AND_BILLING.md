@@ -32,7 +32,10 @@ SpeakSharp is one Private Practice product:
 
 - A new account receives the complete product free for **30 days**.
 - After 30 days, the same product costs **$10/month**.
-- Trial and paid accounts receive the same product capabilities.
+- Trial and paid accounts receive the same product capabilities. This includes **Focus Points**: its server
+  capability (`has_objective_capability()`, 20260928120000) grants an active trial by the same rule as the
+  canonical entitlement (immutable trial grant marker and an unexpired server-side window), besides paid Pro and
+  explicit per-account grants. An expired trial is refused.
 - There is no permanent feature-limited free product.
 - There is no accumulated daily or monthly recording-minute gate for an active trial or paid account.
 - Usage counters may remain as content-free telemetry but cannot deny or auto-stop an entitled recording.
