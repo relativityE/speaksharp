@@ -31,6 +31,8 @@ const ACTIVATION = EXACT_MIGRATION_ALLOWLIST.find((e) => e.classification === 'c
 const NEXT = '20260924150000';
 /** #1258 — the product-marker migration, allowlisted after #1471: one more later, pending entry here. */
 const MARKER = '20260926190000';
+/** Focus Points trial capability, allowlisted after #1258: one more later, pending entry here. */
+const TRIAL = '20260928120000';
 
 describe('#1476 migration is wired into the exact allowlisted apply path', () => {
     const entry = EXACT_MIGRATION_ALLOWLIST.find((item) => item.version === VERSION);
@@ -52,7 +54,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'a'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version), 'static: later allowlist entries; the real ledger decides which stay excluded').toEqual([NEXT, MARKER, ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version), 'static: later allowlist entries; the real ledger decides which stay excluded').toEqual([NEXT, MARKER, TRIAL, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -73,6 +75,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
         ` ${VERSION} |                | x`,
         ` ${NEXT} |                | x`,
         ` ${MARKER} |                | x`,
+        ` ${TRIAL} |                | x`,
     ].join('\n');
 
     it('the fixture is the real ledger shape: two unrelated pending migrations, and the activation entry recorded APPLIED', () => {
@@ -87,7 +90,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
 
     it('EXECUTABLE once #1432 and #1469 are applied: admitted; the applied activation file stays in the workspace; target-only; only the later #1521 entry stays pending after', () => {
         const before = afterMerge(['20260910193000', '20260914214307']);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, NEXT, MARKER], excludedVersions: [NEXT, MARKER] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, NEXT, MARKER, TRIAL], excludedVersions: [NEXT, MARKER, TRIAL] });
         const root = mkdtempSync(join(tmpdir(), 'exact-1476-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -96,10 +99,11 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
             expect(isolated, 'recorded-applied activation stays, so remote history matches the source').toContain(ACTIVATION.file);
             expect(isolated.some((f) => f.startsWith(NEXT)), 'the later, still-pending #1521 migration is NOT applied with this target').toBe(false);
             expect(isolated.some((f) => f.startsWith(MARKER)), 'nor the later #1258 marker migration').toBe(false);
+            expect(isolated.some((f) => f.startsWith(TRIAL)), 'nor the later trial-capability migration').toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([NEXT, MARKER]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([NEXT, MARKER, TRIAL]);
     });
 });
