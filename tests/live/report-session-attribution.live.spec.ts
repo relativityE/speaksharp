@@ -114,13 +114,17 @@ test.describe('Live report→session attribution (free account)', () => {
     await expect(body).toBeHidden({ timeout: 15000 });
   }
 
-  test('owned-session route attaches the session; non-session route attaches NULL; both persist', async ({ page }) => {
+  // PO 2026-09-28 (Designer-approved, pre-RWT): the report's session is chosen in the dialog from the sessions SAVED IN THIS
+  // LOGIN, never inferred from the route. This fresh sign-in has saved nothing, so both reports — including the one filed
+  // on an owned session's Analytics page — default to "No session" and store NULL. The DB ownership guard
+  // (20260721130000; tests/db/report-session-ownership.behavioral.test.js) is unchanged and still nulls a foreign id.
+  test('a fresh login with no saved session files NULL on any route (the route no longer chooses); both persist', async ({ page }) => {
     const ownedTitle = `${MARK} owned`;
     const nonSessionTitle = `${MARK} none`;
 
     await signIn(page);
 
-    // (1) Owned session-specific Analytics route -> report should carry the owned session id.
+    // (1) Owned session-specific Analytics route -> nothing saved in this login, so the default is No session (NULL).
     await navigateToRoute(page, ROUTES.analyticsWithSession(ownedSessionId));
     await submitReport(page, ownedTitle);
 
@@ -149,7 +153,7 @@ test.describe('Live report→session attribution (free account)', () => {
     }
     const owned = reports!.find((r) => r.title === ownedTitle);
     const none = reports!.find((r) => r.title === nonSessionTitle);
-    expect(owned?.session_id, 'owned-route report stores the exact owned session id').toBe(ownedSessionId);
+    expect(owned?.session_id, 'the route alone no longer attaches a session: nothing was saved in this login').toBeNull();
     expect(none?.session_id, 'non-session report stores NULL').toBeNull();
   });
 });

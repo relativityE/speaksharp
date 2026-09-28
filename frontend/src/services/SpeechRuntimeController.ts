@@ -1,4 +1,5 @@
 import { LEASE_NOT_HELD_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from './recordingLeasePolicy';
+import { recordSavedSessionForCurrentLogin } from './loginSessionLog';
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
@@ -2202,6 +2203,13 @@ export class SpeechRuntimeController {
         details?: { sessionId?: string | null; mode?: string | null },
     ): void {
         useSessionStore.getState().setSessionSaved(persisted);
+        // Share feedback's session selector offers only sessions whose save COMPLETED in this login — this is the one
+        // boundary every completed save passes through, so an unfinished recording is never offered.
+        // Share feedback's session list (FEEDBACK_SESSION_SELECTOR_SPEC §5.2): the ONE point every confirmed save passes through
+        // (after completeSession returned the saved row) — never Start, Stop, an attempted or a failed/discarded save.
+        if (persisted && details?.sessionId && this.recordingProgressMode.mode !== 'unknown') {
+            recordSavedSessionForCurrentLogin({ key: details.sessionId, product: this.recordingProgressMode.mode, savedAt: Date.now() });
+        }
         if (useSessionStore.getState().sessionSaved !== persisted) {
             useSessionStore.setState({ sessionSaved: persisted });
         }

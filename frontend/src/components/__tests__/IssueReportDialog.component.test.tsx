@@ -4,6 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { IssueReportDialog } from '../IssueReportDialog';
 import { issueReportService } from '@/services/issueReportService';
 import { toast } from '@/lib/toast';
+import { clearLoginSessions, recordSavedSession, setCurrentLogin, LOGIN_SESSION_LOG_KEY } from '@/services/loginSessionLog';
+import { FEEDBACK_DRAFT_KEY } from '@/services/feedbackDraft';
+
+const emitted: Array<{ event: string; props: Record<string, unknown> }> = [];
+vi.mock('@/services/telemetry/safeEmit', () => ({
+  safeEmit: (event: string, props: Record<string, unknown>) => { emitted.push({ event, props }); },
+}));
 
 vi.mock('@/lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/services/issueReportService', async (importOriginal) => {
@@ -31,12 +38,14 @@ describe('#1404 Share feedback redesign', () => {
     submit.mockResolvedValue({ id: 'report-1' });
     vi.mocked(toast.success).mockClear();
     sessionStorage.clear();
+    clearLoginSessions();
+    setCurrentLogin(null, null);
   });
 
   it('renders only the accepted questions and removes the old ticket-filing form', async () => {
     await open();
     expect(screen.getByText('What would you like to share?')).toBeInTheDocument();
-    expect(screen.getAllByRole('radio', { name: /Something broke|Something confused me|I have an idea|This worked well/ })).toHaveLength(4);
+    expect(screen.getAllByRole('radio', { name: /Something broke|Unclear or confusing|I have an idea|This worked well/ })).toHaveLength(4);
     expect(screen.getByTestId('issue-report-description')).toBeEnabled();
     for (const removed of ['Message', 'Where in the app?', 'Category', 'Impact', 'Title', 'Short description']) {
       expect(screen.queryByText(removed, { exact: true })).not.toBeInTheDocument();
@@ -56,6 +65,9 @@ describe('#1404 Share feedback redesign', () => {
   });
 
   it('submits a content-safe report with derived legacy fields and an idempotency key', async () => {
+    // The report references the session saved in THIS login (preselected as "Current session (1)").
+    setCurrentLogin('u1', 1000);
+    recordSavedSession('u1', 1000, { key: UUID, product: 'open_mic', savedAt: Date.now() });
     const user = await open(`/analytics/${UUID}`);
     await user.click(screen.getByTestId('feedback-type-broke'));
     await user.click(screen.getByTestId('feedback-severity-slowed'));
@@ -87,14 +99,15 @@ describe('#1404 Share feedback redesign', () => {
     ['/analytics', null, '/analytics'],
     ['/analytics/not-a-session', null, '/other'],
     [`/analytics/${UUID}`, UUID, '/analytics/:sessionId'],
-  ])('derives the report link from the route without leaking a concrete session id: %s', async (route, sessionId, pageUrl) => {
+  ])('derives the page context from the route without leaking a concrete session id: %s', async (route, _routeSession, pageUrl) => {
     const user = await open(route);
     await user.click(screen.getByTestId('feedback-type-idea'));
     await user.type(screen.getByTestId('issue-report-description'), 'Add a clearer next step.');
     await user.click(screen.getByTestId('issue-report-submit'));
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     const value = submit.mock.calls[0][0];
-    expect(value.sessionId).toBe(sessionId);
+    // The route no longer chooses the session (PO 2026-09-28): with nothing saved in this login the default is No session.
+    expect(value.sessionId).toBeNull();
     expect(value.pageUrl).toBe(pageUrl);
     expect(JSON.stringify(value.metadata)).not.toContain(UUID);
   });
@@ -550,5 +563,213 @@ describe('#1404 Share feedback redesign', () => {
       expect(send.className).not.toMatch(/opacity/);
       expect(send.className).toContain('text-ink');
     });
+  });
+});
+
+/**
+ * FEEDBACK_SESSION_SELECTOR_SPEC (Designer; #1541, pre-RWT) — acceptance checks S-1…S-16, as the dialog renders them.
+ * Sessions come from `loginSessionLog` (this login only); the select's values are the opaque saved-session keys; the footer
+ * names "Session N"; No session submits null. S-8 (server ownership) is proven against real Postgres in
+ * tests/db/report-session-ownership.behavioral.test.js (migration 20260721130000, unchanged). S-10/S-11 are in
+ * services/__tests__/loginSessionLog.test.ts.
+ */
+describe('Share feedback — which session is this about? (spec S-1…S-16)', () => {
+  const A = '11111111-1111-4111-8111-111111111111';
+  const B = '22222222-2222-4222-8222-222222222222';
+  const C = '33333333-3333-4333-8333-333333333333';
+  const LOGIN = 1_700_000_000_000;
+  const t = (h: number, m: number) => new Date(2026, 8, 28, h, m).getTime();
+  const time = (at: number) => new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
+    .format(new Date(at)).replace(/\b(AM|PM)\b/, (x) => x.toLowerCase());
+  const saveThree = () => {
+    setCurrentLogin('u1', LOGIN);
+    recordSavedSession('u1', LOGIN, { key: A, product: 'open_mic', savedAt: t(13, 52) });
+    recordSavedSession('u1', LOGIN, { key: B, product: 'focus_points', savedAt: t(14, 18) });
+    recordSavedSession('u1', LOGIN, { key: C, product: 'open_mic', savedAt: t(14, 41) });
+  };
+  const select = () => screen.getByTestId('feedback-session-select') as HTMLSelectElement;
+  const optionTexts = () => Array.from(select().options).map((o) => o.textContent);
+  const footer = () => screen.getByTestId('issue-report-page-context').textContent ?? '';
+  const fill = async (user: Awaited<ReturnType<typeof open>>) => {
+    await user.click(screen.getByTestId('feedback-type-idea'));
+    await user.type(screen.getByTestId('issue-report-description'), 'A note.');
+  };
+  beforeEach(() => {
+    submit.mockReset();
+    submit.mockResolvedValue({ id: 'report-1' });
+    sessionStorage.clear();
+    clearLoginSessions();
+    setCurrentLogin(null, null);
+    emitted.length = 0;
+  });
+
+  it('S-1/S-2: three saves → newest first, a disabled separator, No session last; Current session (3) preselected', async () => {
+    saveThree();
+    await open();
+    expect(optionTexts()).toEqual([
+      `Current session (3) · Open Mic · ${time(t(14, 41))}`,
+      `Session 2 · Focus Points · ${time(t(14, 18))}`,
+      `Session 1 · Open Mic · ${time(t(13, 52))}`,
+      '──────────',
+      'No session',
+    ]);
+    expect(select().options[3].disabled).toBe(true);
+    expect(select()).toHaveValue(C);
+    expect(footer()).toContain('linked to Session 3');
+  });
+
+  it('S-3: no saves this login → No session preselected, helper shown and linked, select enabled', async () => {
+    setCurrentLogin('u1', LOGIN);
+    await open();
+    expect(optionTexts()).toEqual(['No session']);
+    expect(select()).toHaveValue('__none');
+    expect(select()).toBeEnabled();
+    expect(screen.getByText('Sessions you save after signing in will appear here.')).toHaveAttribute('id', 'feedback-session-help');
+    expect(select()).toHaveAttribute('aria-describedby', 'feedback-session-help');
+    expect(footer()).not.toContain('linked to');
+  });
+
+  it('S-4: no visible string contains a session id or any part of one', async () => {
+    saveThree();
+    const user = await open();
+    await user.click(screen.getByRole('button', { name: "What's included" }));
+    const visible = screen.getByRole('dialog').textContent ?? '';
+    for (const id of [A, B, C]) for (const part of id.split('-')) expect(visible).not.toContain(part);
+  });
+
+  it('S-5: changing the selection updates the footer at once; No session removes the clause', async () => {
+    saveThree();
+    const user = await open();
+    await user.selectOptions(select(), B);
+    expect(footer()).toContain('linked to Session 2');
+    await user.selectOptions(select(), '__none');
+    expect(footer()).not.toContain('linked to');
+  });
+
+  it('S-6: Send is enabled identically for every selection', async () => {
+    saveThree();
+    const user = await open();
+    await fill(user);
+    for (const value of [C, B, A, '__none']) {
+      await user.selectOptions(select(), value);
+      expect(screen.getByTestId('issue-report-submit')).toBeEnabled();
+    }
+  });
+
+  it('S-7: the payload carries the selected key', async () => {
+    saveThree();
+    const user = await open();
+    await fill(user);
+    await user.selectOptions(select(), A);
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit.mock.calls[0][0].sessionId).toBe(A);
+  });
+
+  it('S-7: an explicit No session submits null', async () => {
+    saveThree();
+    const user = await open();
+    await fill(user);
+    await user.selectOptions(select(), '__none');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit.mock.calls[0][0].sessionId).toBeNull();
+  });
+
+  it('S-9: sign out, then sign in → the list is cleared and numbering restarts at 1', async () => {
+    saveThree();
+    clearLoginSessions();                                // AuthProvider on sign-out / account change
+    setCurrentLogin('u1', LOGIN + 60_000);               // the next sign-in
+    recordSavedSession('u1', LOGIN + 60_000, { key: A, product: 'focus_points', savedAt: t(15, 0) });
+    await open();
+    expect(optionTexts()).toEqual([`Current session (1) · Focus Points · ${time(t(15, 0))}`, '──────────', 'No session']);
+    expect(sessionStorage.getItem(LOGIN_SESSION_LOG_KEY)).toContain('"n":1');
+  });
+
+  it('S-12: open then close without touching anything → no draft is written', async () => {
+    saveThree();
+    const user = await open();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(sessionStorage.getItem(FEEDBACK_DRAFT_KEY)).toBeNull();
+  });
+
+  it('S-13: changing the session after a failed send uses a new idempotency key', async () => {
+    saveThree();
+    submit.mockRejectedValueOnce(new Error('network'));
+    const user = await open();
+    await fill(user);
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await screen.findByRole('alert');
+    const firstKey = submit.mock.calls[0][0].idempotencyKey;
+    await user.selectOptions(select(), B);
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(2));
+    expect(submit.mock.calls[1][0].idempotencyKey).not.toBe(firstKey);
+    expect(submit.mock.calls[1][0].sessionId).toBe(B);
+  });
+
+  it('S-14: opened on /analytics/<id> of a session in this login → that entry is preselected', async () => {
+    saveThree();
+    await open(`/analytics/${B}`);
+    expect(select()).toHaveValue(B);
+    expect(footer()).toContain('linked to Session 2');
+  });
+
+  it('§4.1: opened on /analytics/<id> of a session NOT in this login → newest preselected; the viewed id is never sent', async () => {
+    saveThree();
+    const user = await open(`/analytics/${UUID}`);
+    expect(select()).toHaveValue(C);
+    await fill(user);
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit.mock.calls[0][0].sessionId).toBe(C);
+  });
+
+  it('S-15: keyboard only — reach, change and submit; the accessible name includes "Optional"', async () => {
+    saveThree();
+    const user = await open();
+    expect(screen.getByRole('combobox', { name: 'Which session is this about? Optional' })).toBe(select());
+    await user.click(screen.getByTestId('feedback-type-idea'));
+    await user.type(screen.getByTestId('issue-report-description'), 'Keyboard only.');
+    // Spec §10 Tab order: … textarea → (severity, for "broke" only) → session select → What's included → Cancel → Send.
+    await user.tab();
+    expect(select()).toHaveFocus();
+    // jsdom does not implement a native select's arrow keys; the browser does (spec §13 rehearsal check). Change it as the
+    // native picker would, then continue by keyboard alone.
+    await user.selectOptions(select(), B);
+    await user.tab();
+    expect(screen.getByRole('button', { name: "What's included" })).toHaveFocus();
+    screen.getByTestId('issue-report-submit').focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit.mock.calls[0][0].sessionId).toBe(B);
+  });
+
+  it('S-16: telemetry carries field "session" transitions and hasSession — never an id, number or label', async () => {
+    saveThree();
+    const user = await open();
+    await fill(user);
+    await user.selectOptions(select(), '__none');
+    await user.selectOptions(select(), A);
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    const fields = emitted.filter((e) => e.event === 'feedback_field' && e.props.field === 'session').map((e) => e.props.transition);
+    expect(fields).toEqual(['cleared', 'entered']);
+    const ok = emitted.filter((e) => e.event === 'feedback_submit' && e.props.outcome === 'storage_ok');
+    expect(ok[ok.length - 1]?.props.has_session).toBe(true);
+    const all = JSON.stringify(emitted);
+    for (const leak of [A, B, C, 'Current session', 'Session 1', 'Session 2']) expect(all).not.toContain(leak);
+  });
+
+  it('while sending, the select is disabled along with Send', async () => {
+    saveThree();
+    let release: (() => void) | null = null;
+    submit.mockImplementationOnce(() => new Promise((resolveSubmit) => { release = () => resolveSubmit({ id: 'report-1' }); }));
+    const user = await open();
+    await fill(user);
+    await user.click(screen.getByTestId('issue-report-submit'));
+    expect(select()).toBeDisabled();
+    (release as (() => void) | null)?.();
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
   });
 });

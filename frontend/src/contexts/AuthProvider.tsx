@@ -9,6 +9,7 @@ import { useReadinessStore } from '@/stores/useReadinessStore';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { markIdentitySettled, resetIdentitySettlement } from '@/services/transcription/modelAcquisitionTelemetry';
 import { clearFeedbackDraft } from '@/services/feedbackDraft';
+import { clearLoginSessions, loginStartedAtOf, setCurrentLogin } from '@/services/loginSessionLog';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -288,7 +289,12 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
           // that is the whole reason the draft outlives the page.
           const priorUserId = sessionStateRef.current?.user?.id ?? null;
           const nextUserId = nextSession?.user?.id ?? null;
-          if (priorUserId !== null && priorUserId !== nextUserId) clearFeedbackDraft();
+          if (priorUserId !== null && priorUserId !== nextUserId) {
+            clearFeedbackDraft();
+            // Share feedback's session list belongs to one login: retired with the draft (FEEDBACK_SESSION_SELECTOR_SPEC §5.1).
+            clearLoginSessions();
+          }
+          setCurrentLogin(nextUserId, loginStartedAtOf(nextSession));
           sessionStateRef.current = nextSession;
           setSessionState(nextSession);
           // An auth event is an answer from authentication itself.
@@ -401,7 +407,11 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     setSession: (s: Session | null) => {
       // Same rule as the auth-event path: a changed known identity retires the feedback draft.
       const priorUserId = sessionStateRef.current?.user?.id ?? null;
-      if (priorUserId !== null && priorUserId !== (s?.user?.id ?? null)) clearFeedbackDraft();
+      if (priorUserId !== null && priorUserId !== (s?.user?.id ?? null)) {
+        clearFeedbackDraft();
+        clearLoginSessions();
+      }
+      setCurrentLogin(s?.user?.id ?? null, loginStartedAtOf(s));
       sessionStateRef.current = s;
       setSessionState(s);
       setIdentityAnswered(true);
