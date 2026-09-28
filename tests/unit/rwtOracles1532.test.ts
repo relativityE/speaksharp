@@ -7,7 +7,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-    acquisitionTimingVerdict, detectedCountExpected, feedbackRetentionVerdict, focusPointMeetsExpectation, surfaceReadinessFailures,
+    acquisitionTimingVerdict, detectedCountExpected, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, focusPointMeetsExpectation,
+    surfaceReadinessFailures,
 } from '../live/helpers/rwtOracles';
 
 describe('r4105978609 — approved surface requires app-visible readiness', () => {
@@ -95,5 +96,27 @@ describe('v12 — download vs setup timing from the app\'s own acquisition recei
             { cacheResult: 'hit', completeness: 'complete', downloadMs: 0, initMs: 1_000, totalMs: 1_000 },
         ]);
         expect(v.evidence).toMatchObject({ cacheResult: 'miss', downloadMs: 30_000, acquisitions: 2 });
+    });
+});
+
+// #1538 provenance (PROPOSAL for PM, 2026-09-28): the saved Focus pair must be the one generated from the saved point
+// results (`gemini_coaching_focus_v1`), requested by a client that declared it reads that provenance.
+describe('#1538 — Focus coaching provenance', () => {
+    const CAPABLE = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
+    it('CONTROL: a focus_v1 saved pair from a capable request passes', () => {
+        expect(focusCoachingProvenanceVerdict({ savedVersion: 'gemini_coaching_focus_v1', acceptedVersions: CAPABLE }).verdict).toBe('PASS');
+    });
+    it('CASUALTY: a generic v1 saved pair on a Focus take fails (not generated from the points)', () => {
+        const v = focusCoachingProvenanceVerdict({ savedVersion: 'gemini_coaching_v1', acceptedVersions: CAPABLE });
+        expect(v.verdict).toBe('FAIL');
+        expect(v.detail).toMatch(/not generated from the saved point results/);
+    });
+    it('CASUALTY: a request without the capability fails (a legacy client would be shown a relabelled copy)', () => {
+        for (const accepted of [null, undefined, [], ['gemini_coaching_v1'], 'gemini_coaching_focus_v1']) {
+            expect(focusCoachingProvenanceVerdict({ savedVersion: 'gemini_coaching_focus_v1', acceptedVersions: accepted }).verdict).toBe('FAIL');
+        }
+    });
+    it('HOLD: no saved version to read is not a pass', () => {
+        expect(focusCoachingProvenanceVerdict({ savedVersion: null, acceptedVersions: CAPABLE }).verdict).toBe('HOLD');
     });
 });

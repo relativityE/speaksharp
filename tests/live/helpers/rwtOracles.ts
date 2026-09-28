@@ -96,3 +96,23 @@ export function acquisitionTimingVerdict(receipts: readonly AcquisitionTiming[])
         ? { verdict: 'PASS', detail: 'the cold first-use model download and engine setup were measured separately by the app', evidence }
         : { verdict: 'HOLD', detail: 'the first acquisition was not completely measured, so download vs setup cannot be separated', evidence };
 }
+
+/**
+ * #1538 (PROPOSAL for PM, 2026-09-28) — FOCUS COACHING PROVENANCE. The saved pair is Focus coaching only when the
+ * server generated it from the saved point results (`gemini_coaching_focus_v1`), and the page asked as a client that
+ * reads that provenance (`accepted_coaching_versions`). A legacy request is answered with a relabelled v1 copy, so it
+ * cannot prove what the person saw was Focus provenance. No saved version is a HOLD, never a pass.
+ */
+export function focusCoachingProvenanceVerdict(input: { savedVersion: string | null | undefined; acceptedVersions: unknown }): {
+    verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string;
+} {
+    const capable = Array.isArray(input.acceptedVersions) && input.acceptedVersions.includes('gemini_coaching_focus_v1');
+    if (typeof input.savedVersion !== 'string' || input.savedVersion === '') {
+        return { verdict: 'HOLD', detail: 'no saved coaching version to read' };
+    }
+    if (input.savedVersion !== 'gemini_coaching_focus_v1') {
+        return { verdict: 'FAIL', detail: `saved pair is ${input.savedVersion}: not generated from the saved point results` };
+    }
+    if (!capable) return { verdict: 'FAIL', detail: 'the coaching request did not declare it reads Focus provenance' };
+    return { verdict: 'PASS', detail: 'saved pair generated from the saved point results; the request declared Focus provenance' };
+}

@@ -129,11 +129,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     await suppressPageSnapshot(testInfo);
     // #1258: the coaching request as sent (its product marker only) and every coaching request of the journey —
     // Analytics must never request coaching again.
-    const coaching: { product: string | null; status: number | null; requests: number } = { product: null, status: null, requests: 0 };
+    const coaching: { product: string | null; status: number | null; requests: number; acceptedVersions: unknown } = { product: null, status: null, requests: 0, acceptedVersions: null };
     page.on('request', (request) => {
         if (!request.url().includes('/functions/v1/get-ai-suggestions') || request.method() !== 'POST') return;
         coaching.requests += 1;
-        try { coaching.product = (request.postDataJSON() as { product?: string } | null)?.product ?? null; } catch { coaching.product = null; }
+        try {
+            const body = request.postDataJSON() as { product?: string; accepted_coaching_versions?: unknown } | null;
+            coaching.product = body?.product ?? null;
+            coaching.acceptedVersions = body?.accepted_coaching_versions ?? null;
+        } catch { coaching.product = null; coaching.acceptedVersions = null; }
     });
     page.on('response', (response) => {
         if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') coaching.status = response.status();

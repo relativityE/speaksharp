@@ -29,7 +29,9 @@ import {
 } from './benchmark-utils';
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
-import { acquisitionTimingVerdict, feedbackRetentionVerdict, surfaceReadinessFailures, type AcquisitionTiming } from './rwtOracles';
+import {
+    acquisitionTimingVerdict, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, surfaceReadinessFailures, type AcquisitionTiming,
+} from './rwtOracles';
 import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
@@ -1068,7 +1070,7 @@ export async function focusCoachingRows(
     admin: SupabaseClient,
     sessionId: string,
     uid: string,
-    request: { product: string | null; status: number | null },
+    request: { product: string | null; status: number | null; acceptedVersions?: unknown },
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
     const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
@@ -1105,9 +1107,15 @@ export async function focusCoachingRows(
 
     const { data: row, error } = await admin.from('sessions').select('ai_suggestions').eq('id', sessionId).eq('user_id', uid).single();
     if (error) throw new Error(`saved coaching read failed (fail closed): ${error.code ?? 'unknown'}`);
-    const saved = (row?.ai_suggestions ?? null) as { what_worked?: unknown; what_to_try_next?: unknown } | null;
+    const saved = (row?.ai_suggestions ?? null) as { version?: unknown; what_worked?: unknown; what_to_try_next?: unknown } | null;
     const savedWell = typeof saved?.what_worked === 'string' ? saved.what_worked.trim() : '';
     const savedNext = typeof saved?.what_to_try_next === 'string' ? saved.what_to_try_next.trim() : '';
+    // #1538 (PROPOSAL): the saved pair's provenance and the request's declared capability. Closed-set values only.
+    const provenance = focusCoachingProvenanceVerdict({
+        savedVersion: typeof saved?.version === 'string' ? saved.version : null, acceptedVersions: request.acceptedVersions,
+    });
+    receipt.row('Focus coaching provenance', provenance.verdict, provenance.detail,
+        { savedVersion: typeof saved?.version === 'string' ? saved.version : null });
     const matches = savedWell !== '' && savedNext !== ''
         && normalisePhraseText(well) === normalisePhraseText(savedWell) && normalisePhraseText(next) === normalisePhraseText(savedNext);
     receipt.row('Focus coaching visible = saved', matches ? 'PASS' : 'FAIL',
