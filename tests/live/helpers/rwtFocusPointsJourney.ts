@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, detectedCountExpected, focusPointMeetsExpectation, persistedVerdictMismatches } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, detectedCountExpected, focusPointMeetsExpectation, persistedVerdictMismatches } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import {
     AnalyticsTap,
@@ -148,6 +148,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let persistedId: string | null = null;
     // The take's own generation count, snapshotted before the Practice-again pass records more takes.
     let generationsForTake: number | null = null;
+    // #1532 Codex P1 r4124290575: sent-stream windows around each take's Start, so the takes are identified by the Start the
+    // page sent (takeStartedAfter), independently of whether their saves arrive.
+    let firstTakeFrom = 0;
+    let repeatWindow: [number, number] | null = null;
     let claimed = false;
     try {
         await test.step('account — sign up, canary claim (if authorized), sign back in', async () => {
@@ -214,6 +218,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         let stoppedAt = 0;
         const firstChange: Array<{ status: RailStatus; atSec: number; atMs: number } | null> = points.map(() => null);
         const nextSequence: number[] = [];
+        firstTakeFrom = tap.events.length;
         await test.step('row 10 — markers change while each point is spoken', async () => {
             await expect(page.getByTestId('focus-points-rail')).toBeVisible({ timeout: 45_000 });
             const before = await readRail(page, points.length);
@@ -416,7 +421,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', []);
                 return;
             }
-            const again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points);
+            const repeatFrom = tap.events.length;
+            let saveTakeEnd = -1;
+            const again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points, () => { saveTakeEnd = tap.events.length; });
+            // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
+            repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
             practiceAgainRows(receipt, 'focus_points', again);
             // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Focus Points.
             await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', [persistedId, again.savedSessionId]);
@@ -460,7 +469,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             if (deleted) { owner.uid = ''; owner.email = ''; }
         }
         receipt.write(testInfo,
-            bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'], feedback: fixtureKey === 'focus_points_tts' }),
+            bindReadbackJourneys(tap.events, {
+                recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'], repeatRecording: ['session_during', 'session_after_focus_points'],
+                takes: {
+                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
+                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
+                },
+                feedback: fixtureKey === 'focus_points_tts',
+            }),
             tap.trafficTypes(), userJourneys);
     }
 }

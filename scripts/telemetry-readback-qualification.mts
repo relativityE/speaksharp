@@ -37,7 +37,7 @@ import {
 import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
 import { resolveQualifyingIdentity } from '../frontend/src/services/telemetry/qualifyingIdentity';
 import { QUALIFICATION_STAGES, declaresRecordingStage, evaluateQualificationStage, exactlyOnceFamiliesForStages, requiredFamiliesForStages } from '../frontend/src/services/telemetry/completenessGate';
-import { evaluateDeliveryReceipts } from '../frontend/src/services/telemetry/deliveryReceiptGate';
+import { evaluateAttemptScopedDelivery } from '../frontend/src/services/telemetry/deliveryReceiptGate';
 import {
     bootScopedReceiptFamilies,
     buildReadbackQuery,
@@ -71,11 +71,12 @@ type Evidence = {
     traffic_type: string | null;
     /** The UI stages this run declared it exercised, and any stage evidence it could not produce. */
     stages_declared?: string[];
+    attempts_declared?: string[];
     stage_reasons?: string[];
     /** Received-vendor cardinality and a named failure when a singleton receipt is absent. */
     received_counts?: Record<string, number>;
     duplicate_families?: string[];
-    delivery_failures?: ReturnType<typeof evaluateDeliveryReceipts>['deliveryFailures'];
+    delivery_failures?: ReturnType<typeof evaluateAttemptScopedDelivery>['deliveryFailures'];
     identity_bound?: boolean;
     window_hours: number;
     observed_families: string[];
@@ -384,7 +385,10 @@ async function main(): Promise<void> {
         || PRE_JOURNEY_EVENT_FAMILIES.includes(row.event as typeof PRE_JOURNEY_EVENT_FAMILIES[number])
     ));
     // #1532 Codex P1 r4120724715: the singleton set follows the declared stages (a feedback-only journey never records).
-    const delivery = evaluateDeliveryReceipts(deliveryRows, exactlyOnceFamiliesForStages(declared));
+    // #1532 Codex P1 r4124290575: the recording singletons are judged per EXPECTED attempt the run named (the saved take),
+    // so the unsaved repeat and next-Start takes in the same journey neither count against it nor hide its absence.
+    const expectedAttempts = (process.env.QUALIFICATION_ATTEMPT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const delivery = evaluateAttemptScopedDelivery(deliveryRows, exactlyOnceFamiliesForStages(declared), expectedAttempts);
     const verdict: CompletenessResult['verdict'] = stageReasons.length > 0
         || result.verdict !== 'QUALIFIED'
         || delivery.verdict !== 'QUALIFIED'
@@ -403,6 +407,7 @@ async function main(): Promise<void> {
         observed_families: observed.filter((n) => typeof n === 'string'),
         required_families: [...requiredFamiliesForStages(declared)],
         stages_declared: declared,
+        attempts_declared: expectedAttempts,
         stage_reasons: stageReasons,
         received_counts: delivery.receivedCounts,
         duplicate_families: delivery.duplicateFamilies,

@@ -132,24 +132,82 @@ export type { ReadbackBinding } from './rwtAcceptance';
 import type { ReadbackBinding } from './rwtAcceptance';
 export interface ReadbackPlan { journeys: ReadbackBinding[]; reportedJourneyIds: string[]; missingBindings: string[] }
 
+/** A recording take the RUN pressed and saw record, identified by the Start the page sent — never by its save. */
+export interface ExpectedTake { attemptId: string; journeyId: string }
+
+/**
+ * #1532 Codex P1 r4124290575 (PM RETURN 5874333083) — THE TAKE STARTED AT OR AFTER `fromIndex` IN THE SENT STREAM.
+ *
+ * `session_started` is pushed only after a Start actually reaches recording (a refused or failed Start throws before it,
+ * `useSessionLifecycle`), so the first canary `session_started` inside the window the suite noted around a take's Start
+ * IS that take's attempt. Its identity is therefore known even if the take's `session_saved` never
+ * arrives — which is exactly the case a save-anchored binding could not see. Null (no Start sent) is a named HOLD upstream.
+ */
+export function takeStartedAfter(
+    events: readonly { event: string; journeyId?: string; attemptId?: string; trafficType?: string }[],
+    fromIndex: number,
+    toIndex: number = events.length,
+): ExpectedTake | null {
+    // Bounded to the take's own window: a later, unrelated Start (e.g. next-Start) must never be mistaken for it.
+    for (const e of events.slice(Math.max(0, fromIndex), Math.max(0, toIndex))) {
+        if (e.event === 'session_started' && e.trafficType === 'canary' && e.journeyId && e.attemptId) {
+            return { attemptId: e.attemptId, journeyId: e.journeyId };
+        }
+    }
+    return null;
+}
+
 export function bindReadbackJourneys(
     events: readonly { event: string; at: number; journeyId?: string; trafficType?: string }[],
-    plan: { recording: readonly string[]; feedback: boolean; pdfExport?: boolean },
+    /**
+     * `takes` (#1532 Codex P1 r4124290575, PM RETURNs 5873754861 / 5874333083): the recording takes the run itself pressed —
+     * the first take and the save-producing Practice-again take — each identified by the Start the page sent
+     * (`takeStartedAfter`), independently of whether its save arrived. `/analytics` → `/session` stays inside the journey the
+     * Analytics reload minted, so the repeat take shares that journey with feedback/PDF and with UNSAVED repeat/next-Start
+     * takes; each binding therefore names its expected `attemptIds`, and the recording singletons are judged per attempt.
+     * Only the first take's binding carries the first-download receipt (the repeat load is a warm cache hit by construction).
+     * Without `takes`, the first recording binding falls back to the first canary `session_saved`.
+     */
+    plan: {
+        recording: readonly string[];
+        repeatRecording?: readonly string[];
+        takes?: { first: ExpectedTake | null; repeat?: ExpectedTake | null };
+        feedback: boolean;
+        pdfExport?: boolean;
+    },
 ): ReadbackPlan {
     const canary = events.filter((e) => e.trafficType === 'canary' && typeof e.journeyId === 'string' && e.journeyId !== '');
     const anchor = (name: string): string | null =>
         [...canary].filter((e) => e.event === name).sort((a, b) => a.at - b.at)[0]?.journeyId ?? null;
-    const bound = new Map<string, string[]>();
+    const bound = new Map<string, { stages: string[]; attemptIds: string[] }>();
     const missingBindings: string[] = [];
-    const bind = (journeyId: string | null, stages: readonly string[], label: string) => {
+    const bind = (journeyId: string | null, stages: readonly string[], label: string, attemptId?: string) => {
         if (!journeyId) { missingBindings.push(label); return; }
-        bound.set(journeyId, [...(bound.get(journeyId) ?? []), ...stages]);
+        const prev = bound.get(journeyId) ?? { stages: [], attemptIds: [] };
+        bound.set(journeyId, {
+            stages: [...new Set([...prev.stages, ...stages])],
+            attemptIds: attemptId && !prev.attemptIds.includes(attemptId) ? [...prev.attemptIds, attemptId] : prev.attemptIds,
+        });
     };
-    if (plan.recording.length > 0) bind(anchor('session_saved'), plan.recording, 'recording');
+    let firstRecording: string | null = null;
+    if (plan.recording.length > 0) {
+        const first = plan.takes ? plan.takes.first : null;
+        firstRecording = plan.takes ? (first?.journeyId ?? null) : anchor('session_saved');
+        bind(firstRecording, plan.recording, 'recording', first?.attemptId);
+    }
+    if (plan.repeatRecording && plan.repeatRecording.length > 0) {
+        // Declared repeat recording: the take the run pressed must be identified from its sent Start, or it is a HOLD.
+        const repeat = plan.takes?.repeat ?? null;
+        bind(repeat?.journeyId ?? null, plan.repeatRecording, 'repeat_recording', repeat?.attemptId);
+    }
     if (plan.feedback) bind(anchor('feedback_submit'), ['share_feedback'], 'share_feedback');
     // The v12 PDF is downloaded after the detail reload (Back to Dashboard → Download PDF), so it binds to its own journey.
     if (plan.pdfExport) bind(anchor('session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
-    const journeys = [...bound].map(([journeyId, stages]) => ({ journeyId, stages }));
+    const journeys = [...bound].map(([journeyId, { stages, attemptIds }]) => ({
+        journeyId, stages,
+        ...(journeyId === firstRecording ? { firstDownload: true } : {}),
+        ...(attemptIds.length > 0 ? { attemptIds } : {}),
+    }));
     const reportedJourneyIds = [...new Set(canary.map((e) => e.journeyId as string))].filter((j) => !bound.has(j));
     return { journeys, reportedJourneyIds, missingBindings };
 }

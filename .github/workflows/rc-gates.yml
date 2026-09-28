@@ -326,10 +326,11 @@ jobs:
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
           RELEASE_SHA: ${{ github.sha }}
-          # Required first-download receipt for these first-visit journeys: only a measured cold network download
-          # (cache miss, network used, download_ms) passes; cache hit, partial, unobservable or not received HOLD the step.
-          # The script requires it of RECORDING bindings only; a feedback/PDF journey after the reload acquires no model.
-          TELEMETRY_READBACK_ACQUISITION_RECEIPT: '1'
+          # The first-download receipt (only a measured cold network download passes) is required PER BINDING, of the one
+          # binding the receipt marks `firstDownload` (#1532 Codex P1 r4124290575): a repeat take in the post-reload journey
+          # loads the model from cache by construction, and a feedback/PDF-only journey acquires nothing. Each binding also names
+          # the recording attempts it must show exactly one start and one save for (QUALIFICATION_ATTEMPT_IDS), so unsaved repeat
+          # and next-Start takes in the same journey neither count against the saved take nor hide its absence.
         run: |
           set -uo pipefail
           shopt -s nullglob
@@ -346,7 +347,7 @@ jobs:
             # #1532 Codex P1 r4119969323: each journey is qualified against ONLY the stages it exercised (a reload mints
             # a new journey, so recording and feedback land in different journeys). Reported journeys are never qualified.
             missing=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.stdout.write((r.readback.missingBindings||[]).join(","))' "$receipt")
-            bindings=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); for (const b of (r.readback.journeys||[])) process.stdout.write(`${b.journeyId} ${(b.stages||[]).join(",")}\n`)' "$receipt")
+            bindings=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); for (const b of (r.readback.journeys||[])) process.stdout.write(`${b.journeyId} ${(b.stages||[]).join(",")} ${b.firstDownload===true?1:0} ${(b.attemptIds||[]).join(",")||"-"}\n`)' "$receipt")
             # Signup stage: ordinary `user` traffic, reported (received counts) but never qualifying.
             for ujourney in $(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.stdout.write((r.readback.userStageJourneyIds||[]).join(" "))' "$receipt"); do
               ulog="test-results/rwt/$(basename "$receipt" .receipt.json).$ujourney.user-stage.readback.log"
@@ -357,12 +358,13 @@ jobs:
             # #1532 Codex P1 r4121232394: the per-journey outcome is written for `pnpm rwt:finalize --readback`.
             verdicts="test-results/rwt/$(basename "$receipt" .receipt.json).readback-verdicts.jsonl"
             : > "$verdicts"
-            while read -r journey stages; do
+            while read -r journey stages first_download attempts; do
+              [ "$attempts" = "-" ] && attempts=
               [ -z "$journey" ] && continue
               ok=1
               for attempt in 1 2 3; do
                 log="test-results/rwt/$(basename "$receipt" .receipt.json).$journey.readback.log"
-                if QUALIFICATION_STAGES="$stages" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log"; then ok=0; break; fi
+                if TELEMETRY_READBACK_ACQUISITION_RECEIPT="$first_download" QUALIFICATION_ATTEMPT_IDS="$attempts" QUALIFICATION_STAGES="$stages" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log"; then ok=0; break; fi
                 sleep 60
               done
               if [ $ok -eq 0 ]; then v=QUALIFIED; else v=HOLD; echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; fi

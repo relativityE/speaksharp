@@ -53,8 +53,8 @@ describe('the readback script applies both checks per declared stage set', () =>
     const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
 
     it('delivery singletons use the stage-scoped set, not the default', () => {
-        expect(script).toMatch(/evaluateDeliveryReceipts\(deliveryRows, exactlyOnceFamiliesForStages\(declared\)\)/);
-        expect(script).not.toMatch(/evaluateDeliveryReceipts\(deliveryRows\)/);
+        expect(script).toMatch(/evaluateAttemptScopedDelivery\(deliveryRows, exactlyOnceFamiliesForStages\(declared\), expectedAttempts\)/);
+        expect(script).not.toMatch(/evaluate(DeliveryReceipts|AttemptScopedDelivery)\(deliveryRows\)/);
     });
 
     it('the first-download receipt is required only of a recording binding, and says so when it is not applicable', () => {

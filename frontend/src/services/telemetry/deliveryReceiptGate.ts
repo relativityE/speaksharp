@@ -193,3 +193,49 @@ export function evaluateDeliveryReceipts(
         reasons,
     };
 }
+
+/** The recording singletons that belong to ONE recording attempt, not to the journey. */
+export const ATTEMPT_SCOPED_RECEIPT_FAMILIES: readonly string[] = Object.freeze(['session_started', 'session_saved']);
+
+/**
+ * #1532 Codex P1 r4124290575 (PM RETURN 5874333083) — SINGLETONS PER EXPECTED RECORDING ATTEMPT.
+ *
+ * `/analytics` → `/session` stays inside the journey the Analytics reload minted, so that journey legitimately holds the
+ * saved Practice-again take AND the unsaved repeat and next-Start takes: several `session_started` rows. Counting them
+ * journey-wide would HOLD a correct run; ignoring them would let the saved take's start or save go missing unnoticed.
+ *
+ * The expected attempts are named by the run itself (the take the suite pressed and saw save), independently of whether
+ * that take's `session_saved` arrived. Each named attempt must show exactly one start and exactly one save carrying its
+ * own `attempt_id`; every other attempt's rows are ignored for these two families. Journey/boot singletons (the positive
+ * control) are judged once, as before. With no attempts named, this is exactly `evaluateDeliveryReceipts`.
+ */
+export function evaluateAttemptScopedDelivery(
+    rows: readonly DeliveryReceiptRow[],
+    exactlyOnce: readonly string[],
+    attemptIds: readonly string[],
+): DeliveryReceiptResult {
+    const scoped = exactlyOnce.filter((family) => ATTEMPT_SCOPED_RECEIPT_FAMILIES.includes(family));
+    if (attemptIds.length === 0 || scoped.length === 0) return evaluateDeliveryReceipts(rows, exactlyOnce);
+
+    const isScoped = (row: DeliveryReceiptRow) => ATTEMPT_SCOPED_RECEIPT_FAMILIES.includes(row?.event);
+    const parts: Array<{ label: string | null; result: DeliveryReceiptResult }> = [
+        { label: null, result: evaluateDeliveryReceipts(rows.filter((row) => !isScoped(row)), exactlyOnce.filter((f) => !scoped.includes(f))) },
+        ...attemptIds.map((attemptId) => ({
+            label: attemptId,
+            result: evaluateDeliveryReceipts(
+                rows.filter((row) => !isScoped(row) || row.properties?.attempt_id === attemptId),
+                scoped,
+            ),
+        })),
+    ];
+    const tag = (label: string | null, value: string) => (label === null ? value : `${value}@${label}`);
+    return {
+        verdict: parts.every((p) => p.result.verdict === 'QUALIFIED') ? 'QUALIFIED' : 'HOLD',
+        receivedCounts: Object.fromEntries(parts.flatMap((p) => Object.entries(p.result.receivedCounts).map(([k, v]) => [tag(p.label, k), v]))),
+        missingFamilies: parts.flatMap((p) => p.result.missingFamilies.map((f) => tag(p.label, f))),
+        duplicateFamilies: parts.flatMap((p) => p.result.duplicateFamilies.map((f) => tag(p.label, f))),
+        attemptBindingProblems: parts.flatMap((p) => p.result.attemptBindingProblems.map((f) => tag(p.label, f))),
+        deliveryFailures: parts.flatMap((p) => p.result.deliveryFailures.map((d) => ({ ...d, affectedFamilies: d.affectedFamilies.map((f) => tag(p.label, f)) }))),
+        reasons: parts.flatMap((p) => p.result.reasons.map((r) => (p.label === null ? r : `attempt ${p.label}: ${r}`))),
+    };
+}

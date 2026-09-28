@@ -9,7 +9,9 @@
  */
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
-export interface ReadbackBinding { journeyId: string; stages: string[] }
+/** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
+/** `attemptIds`: the recording attempts this binding must show exactly one start and one save for (judged per attempt). */
+export interface ReadbackBinding { journeyId: string; stages: string[]; firstDownload?: boolean; attemptIds?: string[] }
 
 /** Every canary journey the run observed — bound (qualified) or reported only. Worksheet and finalizer bind to this set. */
 export function runJourneyIds(plan: { journeys: readonly ReadbackBinding[]; reportedJourneyIds: readonly string[] }): string[] {

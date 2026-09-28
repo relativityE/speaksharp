@@ -703,6 +703,8 @@ export interface PracticeAgainEvidence {
 }
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
+    /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
+    onSaveTakeStopped?: () => void,
 ): Promise<PracticeAgainEvidence> {
     const FINISHING_UP = /Finishing up your last session/;
     const ev: PracticeAgainEvidence = {
@@ -738,6 +740,7 @@ export async function practiceAgainEvidence(
         await expectBenchmarkRecordingStarted(page, `${label}-save`);
         await page.waitForTimeout(7_000); // past the 5 s no-persist guard, so this take saves
         await stopBenchmarkRecording(page, `${label}-save`);
+        onSaveTakeStopped?.();
         await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });
         ev.reviewReached = true;
         ev.savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));

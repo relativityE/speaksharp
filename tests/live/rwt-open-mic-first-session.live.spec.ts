@@ -82,7 +82,7 @@ import {
     runOwnedIdentityFailures,
     type RunTarget,
 } from './helpers/rwtJourney';
-import { bindReadbackJourneys } from './helpers/rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter } from './helpers/rwtOracles';
 
 const SUITE = 'open-mic-first-session';
 const JOURNEY = 'open_mic';
@@ -179,6 +179,10 @@ test.describe('RWT — Open Mic first session @live', () => {
         let persistedId: string | null = null;
         // The take's own generation count, snapshotted before the Practice-again pass records more takes.
         let generationsForTake: number | null = null;
+        // #1532 Codex P1 r4124290575: sent-stream windows around each take's Start, so the takes are identified by the Start the
+        // page sent (takeStartedAfter), independently of whether their saves arrive.
+        let firstTakeFrom = 0;
+        let repeatWindow: [number, number] | null = null;
         let stoppedAt = 0;
         let transcriptDigest = ''; // compared in Node only; never written to the receipt
         let transcriptCanonical = ''; // in memory only, for the PDF match; never written anywhere
@@ -237,6 +241,7 @@ test.describe('RWT — Open Mic first session @live', () => {
 
             // ── Row 3 — first microphone use: model identity and acquisition time ───────────────────────
             let takeAlreadyRunning = false;
+            firstTakeFrom = tap.events.length;
             await test.step('row 3 — first microphone use and model acquisition', async () => {
                 const began = Date.now();
                 await selectBenchmarkMode(page, 'private');
@@ -498,7 +503,11 @@ test.describe('RWT — Open Mic first session @live', () => {
                     await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', []);
                     return;
                 }
-                const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic');
+                const repeatFrom = tap.events.length;
+                let saveTakeEnd = -1;
+                const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; });
+                // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
+                repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
                 // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Open Mic.
                 await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', [persistedId, again.savedSessionId]);
@@ -554,7 +563,14 @@ test.describe('RWT — Open Mic first session @live', () => {
             // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
             accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'], feedback: true, pdfExport: true }),
+            receipt.write(testInfo, bindReadbackJourneys(tap.events, {
+                recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'], repeatRecording: ['session_during', 'session_after_open_mic'],
+                takes: {
+                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
+                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
+                },
+                feedback: true, pdfExport: true,
+            }),
                 tap.trafficTypes(), userJourneys);
         }
     });
