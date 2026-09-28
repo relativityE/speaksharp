@@ -78,11 +78,11 @@
     },
     "focus_points_partial_tts": {
       "file": "focus_points_partial_tts.wav",
-      "sha256": "206e90977bcc17d0097fc76645520cea83305e6ba1ee81a10bc71dc73658a9e4",
+      "sha256": "8a2bdb57440352e473b62e4a190077693d632da0856f3406cf4f33653c08722d",
       "kind": "synthetic",
-      "speechSeconds": 22.3,
+      "speechSeconds": 22.0,
       "trailingSilenceSeconds": 15,
-      "script": "Dev fixture (not the PO script): points 1 and 2 in full, point 3 only paraphrased, point 4 absent",
+      "script": "Dev fixture (not the PO script): points 1 and 2 in full, point 3 only partly stated (pilot the board with one team, no duration), point 4 absent",
       "topic": "A better weekly team handoff",
       "points": [
         "Updates get lost across scattered tools.",
@@ -98,7 +98,7 @@
       ],
       "localV2Baseline": {
         "model": "whisper-base.en (transformers.js 2.17.2, offline)",
-        "words": 62,
+        "words": 60,
         "pointPhrasesPresent": [
           true,
           true,
@@ -117,7 +117,7 @@
         ],
         [
           16.36,
-          20.86
+          20.57
         ],
         null
       ],

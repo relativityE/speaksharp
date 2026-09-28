@@ -24,8 +24,9 @@ OPEN_MIC="Good morning. Today I want to explain a change to how our team schedul
 FOCUS_POINTS="Here is our plan for a better weekly handoff. First, updates get lost across scattered tools. People cannot tell which changes matter, and we sometimes discover a deadline too late. Second, a shared board assigns an owner and deadline to every task. Daily reminders show what is due soon, and teammates know who to contact for help. Third, we will pilot the board with one team for two weeks. During the pilot, the team will keep its existing process available and tell us where the board feels confusing. Fourth, we will measure missed deadlines and time spent on status requests. A Friday review will compare those measures with the team's earlier weeks. If the numbers improve and the team finds the board useful, we will invite another team."
 
 # Dev fixture for the partial / absent states (not the PO script): point 1 and point 2 stated in full, point 3
-# only touched in other words ("try it with a single group"), point 4 never mentioned.
-FOCUS_POINTS_PARTIAL="Here is our plan for a better weekly handoff. First, updates get lost across scattered tools. People cannot tell which changes matter. Second, a shared board assigns an owner and deadline to every task, so teammates know who to contact for help. After that we would like to try it with a single group before anyone else uses it. Thanks for listening."
+# only partly stated ("pilot the board with one team", no duration: 4 of its 6 keywords, which the real matcher
+# scores `partial`; guarded by tests/unit/rwtPartialFixtureMatcher.test.ts), point 4 never mentioned.
+FOCUS_POINTS_PARTIAL="Here is our plan for a better weekly handoff. First, updates get lost across scattered tools. People cannot tell which changes matter. Second, a shared board assigns an owner and deadline to every task, so teammates know who to contact for help. After that we will pilot the board with one team before anyone else uses it. Thanks for listening."
 
 make() { # name text
   say -v "$VOICE" -r "$RATE" -o "$1.aiff" "$2"
