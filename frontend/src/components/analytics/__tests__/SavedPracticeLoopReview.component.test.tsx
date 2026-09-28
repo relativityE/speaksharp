@@ -41,7 +41,9 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         await waitFor(() => expect(screen.getByTestId('saved-review')).toHaveAttribute('data-review-state', 'unverified'));
         expect(screen.getByTestId('saved-review-unverified')).toHaveTextContent('saved before Focus Points coaching was available');
         expect(screen.queryByTestId('review-what-went-well')).not.toBeInTheDocument();
-        expect(revisited).toHaveBeenCalledWith('focus_points', 'none', false);
+        // The revisit is sent from a passive effect that can run after the DOM already shows the state; wait for it, as the
+        // other revisit assertions in this file do (CI runs 36371746026 and 36375138994 failed on the synchronous form).
+        await waitFor(() => expect(revisited).toHaveBeenCalledWith('focus_points', 'none', false));
         expect(screen.getByTestId('saved-review-practice')).toBeInTheDocument();
         expect(load).toHaveBeenCalledTimes(1);
     });
