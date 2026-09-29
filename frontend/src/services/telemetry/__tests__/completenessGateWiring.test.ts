@@ -248,7 +248,7 @@ describe('#1259 completeness gate wiring', () => {
         });
 
         expect({
-            drivesReceivedRows: src.includes('evaluateDeliveryReceipts(deliveryRows)'),
+            drivesReceivedRows: src.includes('evaluateAttemptScopedDelivery(deliveryRows, exactlyOnceFamiliesForStages(declared), expectedAttempts)'),
             publishesCounts: src.includes('received_counts: delivery.receivedCounts'),
             publishesNamedFailures: src.includes('delivery_failures: delivery.deliveryFailures'),
             readsTransportInit: query.includes('properties.transport_initialized AS transport_initialized'),

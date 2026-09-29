@@ -80,7 +80,8 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
     { table: 'sessions', column: 'user_id' },
     { table: 'user_profiles', column: 'id' },                       // PK = auth user id
     { table: 'user_goals', column: 'user_id' },
-    { table: 'custom_vocabulary', column: 'user_id' },
+    // Renamed from custom_vocabulary in 20260103170500; querying the old name errors and fails every cleanup closed.
+    { table: 'user_filler_words', column: 'user_id' },
     { table: 'usage_checkpoints', column: 'user_id' },              // CASCADE since 20260625120000
     { table: 'active_recording_lease', column: 'user_id' },
     { table: 'session_attribution_authority', column: 'user_id' },
@@ -90,6 +91,22 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
     { table: 'session_progress_evaluations', column: 'user_id' },
     { table: 'progress_recommendations', column: 'user_id' },
     { table: 'progress_recommendation_attempts', column: 'user_id' },
+    // Coaching and Focus Points surfaces the RWT journey suites produce (all ON DELETE CASCADE; residue-checked so
+    // a regression that dropped a cascade fails the proof instead of orphaning rows).
+    { table: 'ai_suggestion_authority_receipts', column: 'user_id' },
+    { table: 'objective_project', column: 'user_id' },
+    { table: 'objective_brief', column: 'user_id' },
+    { table: 'objective_brief_point', column: 'user_id' },
+    { table: 'objective_session', column: 'user_id' },
+    { table: 'objective_source_recording', column: 'user_id' },
+    { table: 'objective_evidence', column: 'user_id' },
+    // #1532 Codex P2 r4122079960: a saved Focus take also inserts an action (objective_finalize_evidence_v1).
+    { table: 'objective_action', column: 'user_id' },
+    // #1532 Codex P2 r4127146515 — newest-one transcript retention (20260908120000), both ON DELETE CASCADE:
+    // every transcript-bearing save arms retention for the account (arm_transcript_retention_for_save) …
+    { table: 'transcript_retention_arming', column: 'user_id' },
+    // … and a later saved take tombstones the earlier take's transcript, so this row carries transcript text.
+    { table: 'transcript_retention_tombstones', column: 'user_id' },
 ]);
 
 /**
@@ -98,7 +115,7 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
  */
 const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_entitlements']);
 
-export const RUN_OWNED_PREFIX_RE = /^(private-proof-|retention-proof-)/;
+export const RUN_OWNED_PREFIX_RE = /^(private-proof-|retention-proof-|rwt-journey-)/;
 
 /**
  * Delete exactly the run-owned account and prove no residue remains. Fail-closed throughout.

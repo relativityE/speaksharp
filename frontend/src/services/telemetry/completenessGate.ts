@@ -1,5 +1,6 @@
 import { GOVERNED_EVENTS, type GovernedEvent } from '../telemetryAllowlist';
 import { attemptedEventFamilies } from '../AnalyticsBuffer';
+import { EXACTLY_ONCE_RECEIPT_FAMILIES } from './deliveryReceiptGate';
 
 /**
  * #1259 — a readback that finds nothing must say HOLD, not pass.
@@ -456,6 +457,13 @@ const POST_STOP_CHAIN_FOCUS_POINTS = {
 } as const;
 
 export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze([
+    /**
+     * #1532 Codex P1 r4121232419 (PO disposition: full loop 4) — the review-surface inventory is PROVEN received, not
+     * claimed. Declared with the recording journey's stages (the full suites emit these inside that journey, before the
+     * Analytics reload), so the journey's existing profile applies; no new journey class.
+     */
+    { stage: 'analytics_inventory', requiredFamilies: ['products_menu_opened', 'saved_review_revisited'], invariants: [] },
+    { stage: 'session_pdf_export', requiredFamilies: ['session_pdf_downloaded'], invariants: [] },
     {
         stage: 'share_feedback',
         // Open -> field state -> submit attempted. The storage RESULT is carried on `feedback_submit`
@@ -536,4 +544,42 @@ export function evaluateQualificationStage(
         if (failure !== null) reasons.push(`${stage.stage}: ${failure}`);
     }
     return reasons;
+}
+
+/**
+ * #1532 Codex P1 r4120338743 (PM RETURN 5866867380) — THE READBACK'S BASE FAMILIES FOLLOW THE DECLARED STAGES.
+ *
+ * `evaluateTelemetryCompleteness` defaults to the recording spine, which is right for any journey that recorded. A
+ * FEEDBACK-ONLY journey (feedback shared after a reload minted a new journey) never records, so demanding that spine of
+ * it held every good run. When the only declared stage is `share_feedback`, the journey must still produce the
+ * pre-journey identity receipts and the feedback families; any recording stage keeps the full spine unchanged. An
+ * empty or unknown declaration keeps the full spine (fail closed; the stage loop separately HOLDs unknown names).
+ * The default argument — and so every other caller, including the in-tab record — is unchanged.
+ */
+const RECORDING_STAGES: ReadonlySet<string> = new Set(['session_during', 'session_after_open_mic', 'session_after_focus_points']);
+
+/** Whether a declaration keeps the recording spine: any recording stage, or an empty/unknown declaration (fail closed). */
+export function declaresRecordingStage(declared: readonly string[]): boolean {
+    const known = new Set(QUALIFICATION_STAGES.map((s) => s.stage));
+    return declared.length === 0 || declared.some((name) => !known.has(name)) || declared.some((name) => RECORDING_STAGES.has(name));
+}
+
+export function requiredFamiliesForStages(declared: readonly string[]): readonly string[] {
+    if (declaresRecordingStage(declared)) return REQUIRED_EVENT_FAMILIES;
+    const stageFamilies = declared.flatMap((name) => QUALIFICATION_STAGES.find((s) => s.stage === name)!.requiredFamilies);
+    return Object.freeze([...new Set<string>([...PRE_JOURNEY_EVENT_FAMILIES, ...stageFamilies])]);
+}
+
+/**
+ * #1532 Codex P1 r4120724715 (PM RETURN 5870036039) — THE SINGLETON RECEIPTS FOLLOW THE DECLARED STAGES TOO.
+ *
+ * The PO's manual order shares feedback AFTER the Analytics reload, which mints a new journey. That feedback-only
+ * journey never starts or saves a take, so demanding `session_started` / `session_saved` exactly once of it held every
+ * good run. It must still receive its own boot's positive control exactly once; any recording (or empty/unknown)
+ * declaration keeps the full singleton set unchanged.
+ */
+export function exactlyOnceFamiliesForStages(declared: readonly string[]): readonly string[] {
+    return declaresRecordingStage(declared)
+        ? EXACTLY_ONCE_RECEIPT_FAMILIES
+        : EXACTLY_ONCE_RECEIPT_FAMILIES.filter((family) => PRE_JOURNEY_EVENT_FAMILIES.includes(family));
 }

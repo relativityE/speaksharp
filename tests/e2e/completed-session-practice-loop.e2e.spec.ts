@@ -155,6 +155,17 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
       await page.mouse.move(viewport.width / 2, viewport.height / 2);
       await page.mouse.wheel(0, 3_000);
       await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBeGreaterThan(0);
+      // ...and STOPS there: the wheel's smooth-scroll animation must come to rest before Stop. Pressing Stop mid-animation
+      // let the remaining wheel motion overtake the app's one reveal `scrollTo(0)` (traced: y drifted 0 → ~100 px after
+      // the reveal, and on a phone the saved confirmation left the screen), which is the test's gesture, not the product.
+      let lastY = -1;
+      await expect.poll(async () => {
+        const y = await page.evaluate(() => window.scrollY);
+        const atRest = y === lastY;
+        lastY = y;
+        await page.waitForTimeout(300);
+        return atRest;
+      }, { timeout: 10_000, message: 'the scrolled-down position has come to rest' }).toBe(true);
 
       if (viewport.name === 'mobile') {
         // The phone's Stop lives in the fixed bottom bar — always on screen, so pressing it does not scroll.
