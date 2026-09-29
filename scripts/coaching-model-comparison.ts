@@ -87,6 +87,8 @@ type Outcome = 'ok' | 'over_word_budget' | 'schema_invalid' | 'no_text' | 'provi
 interface Call {
     sessionId: string; model: string; repeat: number; outcome: Outcome; latencyMs: number;
     observedModelVersion: string | null; modelVersionMatches: boolean | null;
+    /** The parser's verdict on the answer itself, kept even when a missing receipt decides the outcome. */
+    answerOutcome: Outcome | null;
     whatWorked: string | null; whatToTryNext: string | null; wordsWhatWorked: number | null; wordsTryNext: number | null;
     promptTokens: number | null; outputTokens: number | null; thoughtsTokens: number | null; costUsd: number | null;
     focusSupplied: boolean; rawText: string | null;
@@ -127,15 +129,18 @@ const pct = (xs: number[], p: number) => { if (!xs.length) return null; const s 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 const round = (x: number | null, d = 2) => (x === null ? null : Math.round(x * 10 ** d) / 10 ** d);
 
-/** Canned provider for --dry-run: a valid answer (5+5 words), one over budget (7 words), one not JSON, cycling. */
-function dryRunResponse(model: string, n: number): { status: number; body: GeminiResponse } {
-    const answers = [
-        { version: 'gemini_coaching_v1', what_worked: 'Clear opening grabbed attention fast.', what_to_try_next: 'Pause after each key point.' },
-        { version: 'gemini_coaching_v1', what_worked: 'Your opening story really grabbed everyone\'s attention.', what_to_try_next: 'Slow down.' },
-    ];
-    const text = n % 3 === 2 ? 'not json' : JSON.stringify(answers[n % 2]);
-    return { status: 200, body: { modelVersion: model, candidates: [{ content: { parts: [{ text }] } }],
-        usageMetadata: { promptTokenCount: 900 + n, candidatesTokenCount: 30, thoughtsTokenCount: 120 } } };
+/**
+ * Canned provider for --dry-run. Every model receives the SAME sequence (indexed per model), so a dry run can never
+ * show a difference between models: a valid answer (5+5 words), one over budget (7 words), one not JSON, and a valid
+ * answer without the served-model receipt production requires.
+ */
+function dryRunResponse(model: string, perModelIndex: number): { status: number; body: GeminiResponse } {
+    const valid = { version: 'gemini_coaching_v1', what_worked: 'Clear opening grabbed attention fast.', what_to_try_next: 'Pause after each key point.' };
+    const over = { version: 'gemini_coaching_v1', what_worked: 'Your opening story really grabbed everyone\'s attention.', what_to_try_next: 'Slow down.' };
+    const step = perModelIndex % 4;
+    const text = step === 2 ? 'not json' : JSON.stringify(step === 1 ? over : valid);
+    return { status: 200, body: { ...(step === 3 ? {} : { modelVersion: model }), candidates: [{ content: { parts: [{ text }] } }],
+        usageMetadata: { promptTokenCount: 900 + perModelIndex, candidatesTokenCount: 30, thoughtsTokenCount: 120 } } };
 }
 
 async function main() {
@@ -158,9 +163,13 @@ async function main() {
     const drifted = MUST_STILL_CONTAIN.filter((s) => !source.includes(s));
     if (drifted.length) throw new Error(`production no longer builds the request this way; update this script:\n  ${drifted.join('\n  ')}`);
 
-    const sessions: SessionRow[] = (await Deno.readTextFile(input)).split('\n').filter((l) => l.trim())
-        .map((l, i) => { try { return JSON.parse(l); } catch { throw new Error(`input line ${i + 1} is not JSON`); } })
-        .filter((s) => s && typeof s === 'object' && typeof s.transcript === 'string' && s.transcript.trim()).slice(0, limit);
+    const rows = (await Deno.readTextFile(input)).split('\n').filter((l) => l.trim())
+        .map((l, i) => { try { return JSON.parse(l); } catch { throw new Error(`input line ${i + 1} is not JSON`); } });
+    const withTranscript = rows.filter((s) => s && typeof s === 'object' && typeof s.transcript === 'string' && s.transcript.trim());
+    // Reported, never silent: the real sample size is part of the result.
+    const skippedNoTranscript = rows.length - withTranscript.length;
+    if (skippedNoTranscript > 0) console.warn(`skipped ${skippedNoTranscript} input row(s) without a transcript`);
+    const sessions: SessionRow[] = withTranscript.slice(0, limit);
     if (!sessions.length) throw new Error('no sessions with a transcript in the input');
     for (const session of sessions) {
         if (!session.id || (session.product !== 'open_mic' && session.product !== 'focus_points'))
@@ -179,11 +188,12 @@ async function main() {
     }
 
     await Deno.mkdir(out, { recursive: true, mode: 0o700 });
-    await Deno.chmod(out, 0o700);
+    // Refuse BEFORE touching the directory's mode: an existing folder is left exactly as it was.
     for await (const _entry of Deno.readDir(out))
         throw new Error('--out must name an empty directory; keep every comparison attempt separate');
+    await Deno.chmod(out, 0o700);
     const callsFile = await Deno.open(`${out}/calls.jsonl`, { write: true, create: true, truncate: true, mode: 0o600 });
-    const calls: Call[] = []; let n = 0;
+    const calls: Call[] = []; let n = 0; const perModel: Record<string, number> = {};
     const total = sessions.length * models.length * repeats;
 
     for (const session of sessions) {
@@ -192,7 +202,8 @@ async function main() {
         for (let repeat = 1; repeat <= repeats; repeat++) {
             for (const model of models) { // interleaved, so drift over time affects every model alike
                 const started = performance.now(); let status = 0; let body: GeminiResponse | string | null = null; let transport = false;
-                if (dryRun) ({ status, body } = dryRunResponse(model, n));
+                const perModelIndex = perModel[model] ?? 0; perModel[model] = perModelIndex + 1;
+                if (dryRun) ({ status, body } = dryRunResponse(model, perModelIndex));
                 else {
                     try {
                         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`, {
@@ -223,6 +234,7 @@ async function main() {
                 const call: Call = {
                     sessionId: String(session.id), model, repeat, outcome: c.outcome, latencyMs,
                     observedModelVersion: observed, modelVersionMatches: observed === null ? null : observed === model,
+                    answerOutcome: status === 200 && !transport ? classify(rawText).outcome : null,
                     whatWorked: c.worked, whatToTryNext: c.next,
                     wordsWhatWorked: c.worked === null ? null : countWords(c.worked), wordsTryNext: c.next === null ? null : countWords(c.next),
                     promptTokens, outputTokens, thoughtsTokens: status === 200 ? thoughtsTokens : null, costUsd,
@@ -241,14 +253,17 @@ async function main() {
     const budget = COACHING_WORD_BUDGET;
     const summary = models.map((model) => {
         const cs = calls.filter((c) => c.model === model); const ok = cs.filter((c) => c.outcome === 'ok');
-        const answered = cs.filter((c) => c.outcome === 'ok' || c.outcome === 'over_word_budget' || c.outcome === 'schema_invalid');
+        // Every HTTP 200 is an answer the user would get coaching or a 502 for; production accepts only 'ok' (a valid
+        // pair AND a served-model receipt), so a missing receipt or empty text counts against acceptance, not out of it.
+        const answered = cs.filter((c) => c.answerOutcome !== null);
         const outcomes: Record<string, number> = {}; cs.forEach((c) => { outcomes[c.outcome] = (outcomes[c.outcome] ?? 0) + 1; });
         const words = ok.flatMap((c) => [c.wordsWhatWorked!, c.wordsTryNext!]);
         const costs = cs.map((c) => c.costUsd).filter((x): x is number => x !== null);
         return {
             model, calls: cs.length, outcomes,
             acceptedRateOfAnswered: answered.length ? round(ok.length / answered.length, 4) : null,
-            overWordBudgetRateOfAnswered: answered.length ? round(cs.filter((c) => c.outcome === 'over_word_budget').length / answered.length, 4) : null,
+            overWordBudgetRateOfAnswered: answered.length ? round(answered.filter((c) => c.answerOutcome === 'over_word_budget').length / answered.length, 4) : null,
+            providerModelMissingRateOfAnswered: answered.length ? round(answered.filter((c) => c.outcome === 'provider_model_missing').length / answered.length, 4) : null,
             phrasesOnTheLimit: words.filter((w) => w === budget.what_worked).length, phrasesAccepted: words.length,
             meanWordsPerPhrase: round(mean(words)),
             latencyMs: { p50: pct(cs.map((c) => c.latencyMs), 50), p95: pct(cs.map((c) => c.latencyMs), 95) },
@@ -260,13 +275,13 @@ async function main() {
             modelVersionMismatches: cs.filter((c) => c.modelVersionMatches === false).length,
         };
     });
-    const meta = { generatedAt: new Date().toISOString(), dryRun, sessions: sessions.length, repeats, models,
+    const meta = { generatedAt: new Date().toISOString(), dryRun, sessions: sessions.length, skippedNoTranscript, repeats, models,
         focusSessions: sessions.filter((s) => s.product === 'focus_points').length,
         wordBudget: budget, prices: PRICES, pricesNote: 'paid Standard tier, read 2026-09-29; output includes thinking tokens; 3.6-3.8 Flash double on 2027-01-01' };
     await Deno.writeTextFile(`${out}/summary.json`, JSON.stringify({ meta, summary }, null, 2), { mode: 0o600 });
 
     const md = [`# Coaching model comparison${dryRun ? ' (DRY RUN — canned answers, not a result)' : ''}`, '',
-        `${sessions.length} sessions × ${repeats} repeat(s); word budget ${budget.what_worked}/${budget.what_to_try_next}. Rates are over answered calls (HTTP and transport failures listed separately).`, '',
+        `${sessions.length} sessions × ${repeats} repeat(s)${skippedNoTranscript ? ` (${skippedNoTranscript} input row(s) skipped: no transcript)` : ''}; word budget ${budget.what_worked}/${budget.what_to_try_next}. Rates are over answered calls (every HTTP 200, including answers production rejects for a missing served-model receipt); HTTP and transport failures are listed separately.`, '',
         '| Model | Calls | Accepted | Over word budget | Phrases on the limit | Mean words | p50 / p95 ms | Tokens in / out / thinking | Cost per 1,000 calls |',
         '|---|---|---|---|---|---|---|---|---|',
         ...summary.map((s) => `| ${s.model} | ${s.calls} | ${s.acceptedRateOfAnswered === null ? '—' : (s.acceptedRateOfAnswered * 100).toFixed(1) + '%'} | ${s.overWordBudgetRateOfAnswered === null ? '—' : (s.overWordBudgetRateOfAnswered * 100).toFixed(1) + '%'} | ${s.phrasesOnTheLimit}/${s.phrasesAccepted} | ${s.meanWordsPerPhrase ?? '—'} | ${s.latencyMs.p50} / ${s.latencyMs.p95} | ${s.meanTokens.prompt} / ${s.meanTokens.output} / ${s.meanTokens.thinking} | ${s.costPer1000CallsUsd === null ? '—' : '$' + s.costPer1000CallsUsd} |`),
