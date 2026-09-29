@@ -2506,7 +2506,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
         it('the login is captured when the take enters RECORDING, and a hard reset clears it', async () => {
             const log = await import('../loginSessionLog');
-            log.setCurrentLogin(A.ownerId, A.loginStartedAt);
+            // A login no earlier test used, and no leftover capture: only the RECORDING transition can produce this value
+            // (boundary-map audit: an earlier same-login rehydration test left A captured and masked a missing capture).
+            const fresh = { ownerId: 'user-recording-boundary', loginStartedAt: A.loginStartedAt + 123_456 };
+            priv().recordingLogin = null;
+            log.setCurrentLogin(fresh.ownerId, fresh.loginStartedAt);
             priv().state = 'INITIATING';
             // The start-intent guard (#1431) is proven in the one-click suite; here only the RECORDING boundary's capture is
             // under test, so the guard admits this one intent and the real transition body runs.
@@ -2516,9 +2520,9 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
                 .transition('RECORDING', undefined, undefined, 'intent-1541');
             admit.mockRestore();
             expect(priv().state).toBe('RECORDING');
-            expect(priv().recordingLogin).toEqual(A);
+            expect(priv().recordingLogin).toEqual(fresh);
             log.setCurrentLogin('user-2', A.loginStartedAt + 1);           // the captured login does not follow a later switch
-            expect(priv().recordingLogin).toEqual(A);
+            expect(priv().recordingLogin).toEqual(fresh);
             await (controller as unknown as { reset: (r: string) => Promise<unknown> }).reset('account_change');
             expect(priv().recordingLogin).toBeNull();
         });
