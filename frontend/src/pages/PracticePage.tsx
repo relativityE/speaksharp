@@ -121,7 +121,10 @@ export default function PracticePage() {
   const handleObjectiveReady = ({ briefId, projectId, points, topic, paceGuideSecPerPoint }: { briefId: string; projectId: string; points: string[]; topic: string; paceGuideSecPerPoint: number | null }) => {
     useSessionStore.getState().setActiveObjectiveBrief({ projectId, briefId, points, topic, paceGuideSecPerPoint });
     setObjectiveSetupOpen(false);
-    navigate('/session');
+    // #1258 PM RETURN 5901196048: saving COMPLETES the url-held intent. One navigation that REPLACES the
+    // ?product=focus-points entry, so Back from the session never reopens a blank setup for a brief already saved. The
+    // card path (no url intent) keeps its normal history entry.
+    navigate('/session', { replace: searchParams.get('product') === 'focus-points' });
   };
 
   if (isAuthed) {
