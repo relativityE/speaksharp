@@ -52,6 +52,20 @@ const calls = (page: Page, fn: string) => page.evaluate((name) =>
 const leaseHeld = (page: Page) => page.evaluate((key) => localStorage.getItem(key) !== null, LEASE_KEY);
 
 const REASON = /Finishing up your last session/;
+/**
+ * How many of `nodes` a PERSON can see (boundary-map audit, #1543 PM RETURN 5897966432). offsetParent only catches
+ * display:none, so copy hidden by visibility:hidden, opacity:0 or a zero box counted as visible. checkVisibility covers
+ * display, visibility and opacity on the element and its ancestors; a non-empty box rules out collapse. Without
+ * checkVisibility a node is not counted (fail closed). Self-contained: Playwright serializes it into the page.
+ */
+function countPersonVisible(nodes: Element[]): number {
+    return nodes.filter((node) => {
+        const el = node as HTMLElement;
+        if (typeof el.checkVisibility !== 'function' || !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+    }).length;
+}
 type TimelineWindow = { __progressRefusalTimeline__?: RefusalEvent[] };
 
 /**
@@ -291,9 +305,7 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
         await expect(practice).toHaveAttribute('aria-describedby', 'run-shape-blocked-reason');
         await expect(page.getByTestId('run-shape-mic'), 'the after-session mic is held').toBeDisabled();
         await expect(page.getByTestId('run-shape-blocked-reason')).toContainText(/Finishing up your last session/);
-        const visibleReasons = () => page.getByText(/Finishing up your last session/).evaluateAll(
-            (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
-        );
+        const visibleReasons = () => page.getByText(/Finishing up your last session/).evaluateAll(countPersonVisible);
         await expect.poll(visibleReasons, { message: 'exactly one visible reason' }).toBe(1);
 
         // A STALE activation (the control was rendered enabled a frame before the gate): click and keyboard both reach
@@ -381,15 +393,9 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
 
         // Projection (as another tab's write would arrive): the gate notice shows, and there is no duplicate red copy.
         await page.evaluate((key) => window.dispatchEvent(new StorageEvent('storage', { key })), entryKey);
-        // The same person-visible predicate as the timeline recorder (checkVisibility + a non-empty box).
-        await expect.poll(() => page.getByText(/Finishing up your last session/).evaluateAll(
-            (nodes) => nodes.filter((n) => {
-                const el = n as HTMLElement;
-                if (typeof el.checkVisibility !== 'function' || !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
-                const box = el.getBoundingClientRect();
-                return box.width > 0 && box.height > 0;
-            }).length,
-        ), { timeout: 15_000, message: 'exactly one visible reason once the gate is projected' }).toBe(1);
+        // The same person-visible predicate as the timeline recorder.
+        await expect.poll(() => page.getByText(/Finishing up your last session/).evaluateAll(countPersonVisible),
+            { timeout: 15_000, message: 'exactly one visible reason once the gate is projected' }).toBe(1);
 
         // Settlement: the evaluation completes and the durable entry drains; no stale reason; the next Start records.
         await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 60_000, message: 'the bounded retry really calls the server' }).toBe(true);
