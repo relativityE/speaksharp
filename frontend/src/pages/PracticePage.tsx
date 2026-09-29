@@ -20,6 +20,7 @@
 
 import React from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useIsPresent } from 'framer-motion';
 import '@/styles/practice.css';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
@@ -60,6 +61,22 @@ export default function PracticePage() {
   // Focus Points is ACTIVATED: opening the points-setup modal is the objective surface for Report Issue.
   const [objectiveSetupOpen, setObjectiveSetupOpen] = React.useState(false);
   const returning = React.useRef(false);
+  // Header → Focus Points arrives as ?product=focus-points (#1543 Dev 5900357101). Every route sits in App's AnimatePresence,
+  // so more than one PracticePage instance can be mounted around a navigation, and all read the live url. The intent used
+  // to be CONSUMED on mount (open, then delete the param); an instance that consumed it and was then torn down left the
+  // visible page with no dialog and no param — the user landed on Home. Now the url IS the intent: the dialog is open
+  // while the param is present, on a page that is present (an exiting one never shows it), and the param is removed only
+  // when the person closes the dialog. No instance can destroy the intent on mount.
+  const isPresent = useIsPresent();
+  const focusIntent = isAuthed && searchParams.get('product') === 'focus-points';
+  const setupOpen = isPresent && (objectiveSetupOpen || focusIntent);
+  const setSetupOpen = React.useCallback((open: boolean) => {
+    setObjectiveSetupOpen(open);
+    if (open || searchParams.get('product') !== 'focus-points') return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('product');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   React.useEffect(() => {
     try {
@@ -70,19 +87,11 @@ export default function PracticePage() {
   }, []);
 
   React.useEffect(() => {
-    if (!isAuthed || searchParams.get('product') !== 'focus-points') return;
-    setObjectiveSetupOpen(true);
-    const next = new URLSearchParams(searchParams);
-    next.delete('product');
-    setSearchParams(next, { replace: true });
-  }, [isAuthed, searchParams, setSearchParams]);
-
-  React.useEffect(() => {
     // Focus Points is available: the objective surface is the points-setup modal being open, not an
     // "unavailable" state. Report Issue on /practice reflects exactly which of the two surfaces is active.
-    const surface: PracticeSurface = objectiveSetupOpen ? 'objective_setup' : 'practice_home';
+    const surface: PracticeSurface = setupOpen ? 'objective_setup' : 'practice_home';
     setSurface(surface);
-  }, [objectiveSetupOpen, setSurface]);
+  }, [setupOpen, setSurface]);
 
   React.useEffect(() => () => { setSurface(null); }, [setSurface]);
 
@@ -135,8 +144,8 @@ export default function PracticePage() {
           />
         </div>
         <ObjectiveSetupDialog
-          open={objectiveSetupOpen}
-          onOpenChange={setObjectiveSetupOpen}
+          open={setupOpen}
+          onOpenChange={setSetupOpen}
           onReady={handleObjectiveReady}
         />
       </div>

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '../../../tests/support/test-utils';
 import PracticePage from '../PracticePage';
+import { PresenceContext } from 'framer-motion';
+import { useLocation } from 'react-router-dom';
 import { PRODUCT_NAMES } from '@/constants/productNames';
 
 const navigateSpy = vi.fn();
@@ -190,5 +192,55 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/practice' } } });
       expect(screen.queryByTestId('objective-setup-dialog')).not.toBeInTheDocument();
     });
+  });
+});
+
+// #1543 root cause (Dev 5900357101): every route sits in AnimatePresence, so the OUTGOING PracticePage stays mounted while
+// it animates out, and its useSearchParams reads the LIVE url. /session → header → Focus Points navigates to
+// /practice?product=focus-points; the exiting instance consumed and deleted the param, then unmounted, and the incoming
+// instance mounted with no intent — the user landed on Home instead of the setup dialog (reproduced 1/20, 1/30 at 6x CPU).
+describe('header → Focus Points intent is consumed only by the page that is actually present', () => {
+  const Search = () => <output data-testid="probe-search">{useLocation().search}</output>;
+  const presence = (isPresent: boolean) => ({ id: 'probe', isPresent, register: () => () => undefined, onExitComplete: () => undefined, initial: false as const, custom: undefined });
+  const ROUTE = { pathname: '/practice', search: '?product=focus-points' };
+
+  beforeEach(() => {
+    navigateSpy.mockReset();
+    mockUser = { id: 'u-1', email: 'me@example.com' };
+    mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
+  });
+
+  it('CONTROL: the present page opens the Focus Points setup; the param stays until the person closes it', async () => {
+    render(<><PracticePage /><Search /></>, { route: ROUTE });
+    expect(await screen.findByTestId('objective-setup-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-search')).toHaveTextContent('?product=focus-points');
+    fireEvent.keyDown(screen.getByTestId('objective-setup-dialog'), { key: 'Escape' });
+    await vi.waitFor(() => expect(screen.queryByTestId('objective-setup-dialog')).not.toBeInTheDocument());
+    expect(screen.getByTestId('probe-search')).toHaveTextContent(/^$/);   // closing ends the intent: Home stays Home
+  });
+
+  it('CASUALTY: a page that is EXITING neither opens the dialog nor consumes the param', async () => {
+    render(<><PresenceContext.Provider value={presence(false)}><PracticePage /></PresenceContext.Provider><Search /></>, { route: ROUTE });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('objective-setup-dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('probe-search')).toHaveTextContent('?product=focus-points');
+  });
+
+  it('the intent survives the handoff: an exiting page leaves it, and the incoming page then opens the setup', async () => {
+    render(<>
+      <PresenceContext.Provider value={presence(false)}><PracticePage /></PresenceContext.Provider>
+      <PresenceContext.Provider value={presence(true)}><PracticePage /></PresenceContext.Provider>
+      <Search />
+    </>, { route: ROUTE });
+    expect(await screen.findAllByTestId('objective-setup-dialog')).toHaveLength(1);   // the present page only
+    expect(screen.getByTestId('probe-search')).toHaveTextContent('?product=focus-points');
+  });
+
+  it('CASUALTY: an instance that mounts AFTER another instance has seen the intent still opens the setup (no consume-on-mount)', async () => {
+    const { rerender } = render(<><PracticePage key="first" /><Search /></>, { route: ROUTE });
+    expect(await screen.findByTestId('objective-setup-dialog')).toBeInTheDocument();
+    rerender(<><PracticePage key="second" /><Search /></>);   // the first instance is torn down, a new one mounts
+    expect(await screen.findByTestId('objective-setup-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-search')).toHaveTextContent('?product=focus-points');
   });
 });
