@@ -90,11 +90,21 @@ async function armRefusalTimeline(page: Page) {
         w.__SESSION_STORE_API__?.subscribe((st) => {
             if (!published && st.sttStatus.type === 'error' && reason.test(st.sttStatus.message)) { published = true; mark('store_refusal'); }
         });
+        // Visible AS A PERSON SEES IT (boundary-map audit): offsetParent only catches display:none, so a reason hidden by
+        // visibility:hidden, opacity:0 or a zero box counted as visible. checkVisibility covers display, visibility and
+        // opacity on the element and its ancestors; a non-empty box rules out collapse. No checkVisibility → not visible
+        // (fail closed rather than fall back to the weaker test).
+        const personVisible = (el: HTMLElement | null) => {
+            if (!el || typeof el.checkVisibility !== 'function') return false;
+            if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+            const box = el.getBoundingClientRect();
+            return box.width > 0 && box.height > 0;
+        };
         const count = () => {
             let n = 0;
             const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
             for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-                if (reason.test(node.textContent ?? '') && (node.parentElement as HTMLElement | null)?.offsetParent != null) n += 1;
+                if (reason.test(node.textContent ?? '') && personVisible(node.parentElement as HTMLElement | null)) n += 1;
             }
             return n;
         };
@@ -371,8 +381,14 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
 
         // Projection (as another tab's write would arrive): the gate notice shows, and there is no duplicate red copy.
         await page.evaluate((key) => window.dispatchEvent(new StorageEvent('storage', { key })), entryKey);
+        // The same person-visible predicate as the timeline recorder (checkVisibility + a non-empty box).
         await expect.poll(() => page.getByText(/Finishing up your last session/).evaluateAll(
-            (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
+            (nodes) => nodes.filter((n) => {
+                const el = n as HTMLElement;
+                if (typeof el.checkVisibility !== 'function' || !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+                const box = el.getBoundingClientRect();
+                return box.width > 0 && box.height > 0;
+            }).length,
         ), { timeout: 15_000, message: 'exactly one visible reason once the gate is projected' }).toBe(1);
 
         // Settlement: the evaluation completes and the durable entry drains; no stale reason; the next Start records.
