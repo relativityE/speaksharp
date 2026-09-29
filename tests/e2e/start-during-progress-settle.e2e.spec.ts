@@ -117,12 +117,28 @@ const timelineMark = (page: Page, label: RefusalEvent['label']) => page.evaluate
     return visible;
 }, label);
 const timeline = (page: Page) => page.evaluate(() => (window as unknown as TimelineWindow).__progressRefusalTimeline__ ?? []);
-/** Closes the continuity window and releases the held RPC in one browser task, so no still-refused gap escapes the verdict. */
-const closeWindowAndRelease = (page: Page, fn: string) => page.evaluate((name) => {
-    const w = window as unknown as TimelineWindow & { __progressRefusalCount__?: () => number; __E2E_HOLD_RPC_1476__?: Record<string, boolean> };
-    w.__progressRefusalTimeline__!.push({ t: performance.now(), label: 'sampling_end', visible: w.__progressRefusalCount__?.() ?? 0 });
-    w.__E2E_HOLD_RPC_1476__ = { ...(w.__E2E_HOLD_RPC_1476__ ?? {}), [name]: false };
-}, fn);
+/**
+ * Releases the held RPC and closes the continuity window at the instant the call ACTUALLY resumes (#1543 Codex P2
+ * r4134484781): the E2E double polls the hold flag every 50 ms, so clearing the flag is not the release. The double
+ * announces the resume synchronously; the close mark is taken in that listener, so no still-refused interval escapes.
+ */
+async function releaseAndCloseOnResume(page: Page, fn: string) {
+    await page.evaluate((name) => {
+        const w = window as unknown as TimelineWindow & { __progressRefusalCount__?: () => number; __E2E_HOLD_RPC_1476__?: Record<string, boolean> };
+        const onResume = (event: Event) => {
+            if ((event as CustomEvent<string>).detail !== name) return;
+            window.removeEventListener('e2e-rpc-resumed-1476', onResume);
+            w.__progressRefusalTimeline__!.push({ t: performance.now(), label: 'sampling_end', visible: w.__progressRefusalCount__?.() ?? 0 });
+        };
+        window.addEventListener('e2e-rpc-resumed-1476', onResume);
+        w.__E2E_HOLD_RPC_1476__ = { ...(w.__E2E_HOLD_RPC_1476__ ?? {}), [name]: false };
+    }, fn);
+    // No acknowledgement means no close mark, and the verdict fails closed on the missing window end.
+    await page.waitForFunction(
+        () => ((window as unknown as TimelineWindow).__progressRefusalTimeline__ ?? []).some((e) => e.label === 'sampling_end'),
+        null, { timeout: 5_000 },
+    ).catch(() => undefined);
+}
 
 test.describe('Start pressed while owed Progress is settling (canary 36142201470)', () => {
     test('debt FOUND AT Start: refused truthfully, the owed evaluation is retried and settles, the notice clears, the next Start records without a reload', async ({ proPage: page }) => {
@@ -361,11 +377,11 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
 
         // Settlement: the evaluation completes and the durable entry drains; no stale reason; the next Start records.
         await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 60_000, message: 'the bounded retry really calls the server' }).toBe(true);
-        // PM 5890479395 / #1543 Codex P2 r4133814182: Start stays refused until the held evaluation is released, so the
-        // continuity window closes in the SAME browser task that releases it — after the samples, the projection and the
-        // wait for the held call. Reading and judging the timeline happen afterwards, outside the still-refused interval,
-        // and the judge counts only events up to the close; the clear after settlement is outside the window.
-        await closeWindowAndRelease(page, 'record_progress_evaluation');
+        // PM 5890479395 / #1543 Codex P2 r4133814182 + r4134484781: Start stays refused until the held evaluation actually
+        // resumes, so the continuity window closes at the double's resume acknowledgement — after the samples, the
+        // projection and the wait for the held call. Reading and judging the timeline happen afterwards; the judge counts
+        // only events up to the close, so the clear after settlement is outside the window.
+        await releaseAndCloseOnResume(page, 'record_progress_evaluation');
         const events = await timeline(page);
         await test.info().attach('progress-refusal-timeline', {
             contentType: 'application/json',

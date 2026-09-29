@@ -24,6 +24,7 @@ const first = (events: readonly RefusalEvent[], label: RefusalLabel) => events.f
 /** Milliseconds from the click for each first occurrence; the attached evidence, content-free. */
 export function refusalTimelineSummary(events: readonly RefusalEvent[]): Record<string, number | null> {
     const click = first(events, 'start_click');
+    const end = first(events, 'sampling_end');
     const rel = (label: RefusalLabel) => {
         const e = first(events, label);
         return click && e ? Math.round(e.t - click.t) : null;
@@ -32,7 +33,9 @@ export function refusalTimelineSummary(events: readonly RefusalEvent[]): Record<
         refusalDecisionMs: rel('refusal_decision'),
         storeRefusalMs: rel('store_refusal'),
         firstVisibleMs: rel('reason_visible'),
-        hiddenAfterVisible: events.filter((e) => e.label === 'reason_hidden').length,
+        // Inside the window a hide is a silent refusal; after it, the legitimate clear on settlement.
+        hiddenInsideWindow: events.filter((e) => e.label === 'reason_hidden' && end !== undefined && e.t <= end.t).length,
+        hiddenAfterWindow: events.filter((e) => e.label === 'reason_hidden' && (end === undefined || e.t > end.t)).length,
         samples: events.filter((e) => e.label === 'sample').length,
     };
 }

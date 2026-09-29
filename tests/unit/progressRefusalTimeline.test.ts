@@ -32,7 +32,7 @@ describe('refused-Start timeline verdict', () => {
 
     it('a reason visible at +230 ms that stays visible passes (the shape the passing retries showed)', () => {
         expect(judgeRefusalTimeline(refused(1240))).toEqual([]);
-        expect(refusalTimelineSummary(refused(1240))).toMatchObject({ refusalDecisionMs: 90, storeRefusalMs: 140, firstVisibleMs: 230, hiddenAfterVisible: 0, samples: 12 });
+        expect(refusalTimelineSummary(refused(1240))).toMatchObject({ refusalDecisionMs: 90, storeRefusalMs: 140, firstVisibleMs: 230, hiddenInsideWindow: 0, hiddenAfterWindow: 0, samples: 12 });
     });
 
     it('exactly at the deadline passes; one millisecond later fails', () => {
@@ -97,9 +97,11 @@ describe('instrumentation fails closed (PM 5890479395)', () => {
         expect(judgeRefusalTimeline(extended)).toEqual(['the refusal reason was hidden 1 time(s) while Start was still refused']);
     });
 
-    it('the legitimate clear after settlement (after the window closes) is not a flicker', () => {
+    it('the legitimate clear after settlement (after the window closes) is not a flicker, and the summary says so', () => {
         const base = refused(1240);
-        expect(judgeRefusalTimeline([...base, { t: end(base) + 800, label: 'reason_hidden' }])).toEqual([]);
+        const cleared: RefusalEvent[] = [...base, { t: end(base) + 800, label: 'reason_hidden' }];
+        expect(judgeRefusalTimeline(cleared)).toEqual([]);
+        expect(refusalTimelineSummary(cleared)).toMatchObject({ hiddenInsideWindow: 0, hiddenAfterWindow: 1 });
     });
 });
 
@@ -108,23 +110,35 @@ describe('the spec uses the timeline verdict in place of the immediate sample', 
         const src = readFileSync(resolve(__dirname, '../e2e/start-during-progress-settle.e2e.spec.ts'), 'utf8');
         const block = src.slice(src.indexOf("durable debt the page never projected"));
         const held = block.indexOf("heldNow(page, 'record_progress_evaluation')");
-        const closeAndRelease = block.indexOf("closeWindowAndRelease(page, 'record_progress_evaluation')");
+        const closeAndRelease = block.indexOf("releaseAndCloseOnResume(page, 'record_progress_evaluation')");
         const read = block.indexOf('const events = await timeline(page)');
         const judged = block.indexOf('expect(judgeRefusalTimeline(events)');
         const projected = block.indexOf('exactly one visible reason once the gate is projected');
         expect([projected, held, closeAndRelease, read, judged].every((i) => i > 0)).toBe(true);
-        // #1543 Codex P2 r4133814182: close + release is one browser task; reading and judging come after it.
+        // #1543 Codex P2 r4133814182 / r4134484781: the close is taken at the resume acknowledgement; reading and judging come after it.
         expect(projected < held && held < closeAndRelease && closeAndRelease < read && read < judged).toBe(true);
         expect(block.slice(0, judged)).not.toMatch(/hold\(page, 'record_progress_evaluation', false\)/);
         expect(block).not.toMatch(/timelineMark\(page, 'sampling_end'\)/);
     });
 
-    it('the close mark and the release happen inside one page.evaluate', () => {
+    it('the close mark is taken in the resume listener, not when the hold flag is cleared', () => {
         const src = readFileSync(resolve(__dirname, '../e2e/start-during-progress-settle.e2e.spec.ts'), 'utf8');
-        const fn = src.slice(src.indexOf('const closeWindowAndRelease'), src.indexOf('}, fn);'));
-        expect(fn).toMatch(/label: 'sampling_end'/);
-        expect(fn).toMatch(/__E2E_HOLD_RPC_1476__ = \{ \.\.\.\(w\.__E2E_HOLD_RPC_1476__ \?\? \{\}\), \[name\]: false \}/);
-        expect(fn.match(/page\.evaluate/g)).toHaveLength(1);
+        const fn = src.slice(src.indexOf('async function releaseAndCloseOnResume'), src.indexOf("test.describe('Start pressed"));
+        const listener = fn.slice(fn.indexOf('const onResume'), fn.indexOf("window.addEventListener('e2e-rpc-resumed-1476', onResume)"));
+        expect(listener).toMatch(/label: 'sampling_end'/);
+        expect(fn.indexOf("window.addEventListener('e2e-rpc-resumed-1476', onResume)")).toBeLessThan(fn.indexOf('[name]: false'));
+        expect(fn.slice(fn.indexOf('[name]: false'))).not.toMatch(/label: 'sampling_end'/);
+    });
+
+    it('the E2E double announces the resume synchronously, right after its hold poll ends', () => {
+        const src = readFileSync(resolve(__dirname, '../e2e/helpers/setupE2EManifest.ts'), 'utf8');
+        const loop = src.indexOf('while (e2eWin.__E2E_HOLD_RPC_1476__?.[fn]) await new Promise((resolve) => setTimeout(resolve, 50));');
+        const announce = src.indexOf("window.dispatchEvent(new CustomEvent('e2e-rpc-resumed-1476', { detail: fn }));");
+        expect(loop).toBeGreaterThan(0);
+        expect(announce).toBeGreaterThan(loop);
+        // Only comment lines sit between the poll and the announcement: nothing can await in between.
+        const between = src.slice(src.indexOf('\n', loop) + 1, announce).split('\n').map((l) => l.trim()).filter(Boolean);
+        expect(between.every((l) => l.startsWith('//'))).toBe(true);
     });
 
     const spec = readFileSync(resolve(__dirname, '../e2e/start-during-progress-settle.e2e.spec.ts'), 'utf8');

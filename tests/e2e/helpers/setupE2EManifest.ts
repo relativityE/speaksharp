@@ -696,6 +696,9 @@ export async function setupE2EManifest(
         if (e2eWin.__E2E_HOLD_RPC_1476__?.[fn]) {
           e2eWin.__E2E_HELD_RPC_1476__ = [...(e2eWin.__E2E_HELD_RPC_1476__ ?? []), fn];
           while (e2eWin.__E2E_HOLD_RPC_1476__?.[fn]) await new Promise((resolve) => setTimeout(resolve, 50));
+          // The held call resumes HERE, up to one poll after the flag cleared. Announce it synchronously so a spec can
+          // mark the true release instant (#1543 Codex P2 r4134484781); inert when nothing listens.
+          window.dispatchEvent(new CustomEvent('e2e-rpc-resumed-1476', { detail: fn }));
         }
         if (fn === 'issue_objective_project_v1') {
           objectiveSequence += 1;
