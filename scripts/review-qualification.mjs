@@ -56,6 +56,28 @@ export function isSubstantiveImplementationFile(file) {
 }
 
 /**
+ * #1543 PM RETURN `5896325560` — A REVIEWED TEST-INTEGRITY CHANGE HAS A SCOPE OF ITS OWN.
+ *
+ * Tests are excluded from `isSubstantiveImplementationFile` so that a test edit can never make a PR
+ * "implementation". But a PR whose whole purpose is to correct a test oracle (#1543's Progress/Start
+ * deadline, #1542's RWT fixture) then had no scope at all and could never qualify, however clean its
+ * exact-head review. This scope is deliberately narrow: EVERY changed file must be executable test source —
+ * a JS/TS family file under a `tests/` or `__tests__/` directory, or a `*.test.*` / `*.spec.*` file. Prose,
+ * findings, fixtures and data, and any path outside test code keep the PR unscoped, so a docs-only,
+ * scaffold or unknown change still cannot use it. It changes only the SCOPE question: the exact-head
+ * review, zero findings, freshness and the protected CI lane are required exactly as before.
+ */
+const TEST_SOURCE_EXTENSION = /\.[cm]?[jt]sx?$/;
+
+export function isTestIntegrityFile(file) {
+  if (typeof file !== 'string' || file.trim() === '' || file !== file.trim()) return false;
+  if (file.startsWith('docs/') || !TEST_SOURCE_EXTENSION.test(file)) return false;
+  return file.startsWith('tests/')
+    || /(^|\/)__tests__\//.test(file)
+    || /\.(test|spec)\.[cm]?[jt]sx?$/.test(file);
+}
+
+/**
  * Qualify an automated review without treating a zero finding count as the review itself.
  *
  * The caller must supply the current PR head and the SHA reported by the completed review. A review
@@ -109,9 +131,11 @@ export function evaluateReviewQualification({
   const substantiveFiles = files.filter(isSubstantiveImplementationFile);
   const documentationFiles = files.filter(isCanonicalProductReleaseDocument);
   const canonicalDocumentationOnly = files.length > 0 && documentationFiles.length === files.length;
+  const testIntegrityOnly = files.length > 0 && files.every(isTestIntegrityFile);
   const reviewScope = substantiveFiles.length > 0
     ? 'implementation'
-    : canonicalDocumentationOnly ? 'canonical_product_release_documentation' : null;
+    : canonicalDocumentationOnly ? 'canonical_product_release_documentation'
+      : testIntegrityOnly ? 'test_integrity' : null;
   if (reviewScope === null) reasons.push('no_substantive_implementation');
 
   if (FULL_SHA.test(normalizedCurrent)
@@ -152,7 +176,7 @@ export function evaluateReviewQualification({
 export function formatReviewQualification(result) {
   const subject = result.reviewScope === 'canonical_product_release_documentation'
     ? 'canonical product-release documentation'
-    : 'implementation';
+    : result.reviewScope === 'test_integrity' ? 'test-integrity' : 'implementation';
   return result.qualified
     ? `REVIEW-QUALIFIED: completed zero-finding review covers current ${subject} head ${result.currentSha}`
     : `NOT REVIEW-QUALIFIED: ${result.reasons.join(', ')}`;

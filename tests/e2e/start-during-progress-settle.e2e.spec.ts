@@ -19,6 +19,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
 import { navigateToRoute, simulateTranscription, startRecording, stopRecording, waitForModelReady } from './helpers';
+import { FIRST_VISIBLE_DEADLINE_MS, judgeRefusalTimeline, refusalTimelineSummary, type RefusalEvent } from './progressRefusalTimeline';
 
 const MIC_READY = 'Mic ready on this device';
 const PROGRESS_HELD = 'Finishing up your last session — this will retry automatically. You can start again once it completes.';
@@ -49,6 +50,119 @@ const heldNow = (page: Page, fn: string) => page.evaluate((name) =>
 const calls = (page: Page, fn: string) => page.evaluate((name) =>
     (window as unknown as { __E2E_RPC_CALLS_1476__?: Record<string, number> }).__E2E_RPC_CALLS_1476__?.[name] ?? 0, fn);
 const leaseHeld = (page: Page) => page.evaluate((key) => localStorage.getItem(key) !== null, LEASE_KEY);
+
+const REASON = /Finishing up your last session/;
+/**
+ * How many of `nodes` a PERSON can see (boundary-map audit, #1543 PM RETURN 5897966432). offsetParent only catches
+ * display:none, so copy hidden by visibility:hidden, opacity:0 or a zero box counted as visible. checkVisibility covers
+ * display, visibility and opacity on the element and its ancestors; a non-empty box rules out collapse. Without
+ * checkVisibility a node is not counted (fail closed). Self-contained: Playwright serializes it into the page.
+ */
+function countPersonVisible(nodes: Element[]): number {
+    return nodes.filter((node) => {
+        const el = node as HTMLElement;
+        if (typeof el.checkVisibility !== 'function' || !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+    }).length;
+}
+type TimelineWindow = { __progressRefusalTimeline__?: RefusalEvent[] };
+
+/**
+ * Before the app loads: the timeline array and a console.warn wrapper, so pino's browser logger (which binds console at
+ * startup) reports the controller's own refusal decision. Only the label is recorded, never the log arguments.
+ */
+async function installRefusalRecorder(page: Page) {
+    await page.addInitScript(() => {
+        const w = window as unknown as TimelineWindow;
+        w.__progressRefusalTimeline__ = [];
+        const warn = console.warn.bind(console);
+        console.warn = (...args: unknown[]) => {
+            try {
+                if (args.some((a) => typeof a === 'string' && a.includes('startRecording blocked on Progress evidence'))) {
+                    w.__progressRefusalTimeline__!.push({ t: performance.now(), label: 'refusal_decision' });
+                }
+            } catch { /* recording must never break the page */ }
+            warn(...args);
+        };
+    });
+}
+
+/** On the loaded page, before the click: the click mark, the store's refusal publish, and rendered-visibility transitions. */
+async function armRefusalTimeline(page: Page) {
+    await page.evaluate((source) => {
+        const w = window as unknown as TimelineWindow & {
+            __SESSION_STORE_API__?: { subscribe: (fn: (st: { sttStatus: { type: string; message: string } }) => void) => void };
+        };
+        const log = w.__progressRefusalTimeline__!;
+        const reason = new RegExp(source);
+        const mark = (label: RefusalEvent['label'], visible?: number) => log.push({ t: performance.now(), label, visible });
+        document.addEventListener('click', (e) => {
+            if ((e.target as Element | null)?.closest?.('[data-testid="mic-start"]')) mark('start_click');
+        }, true);
+        let published = false;
+        w.__SESSION_STORE_API__?.subscribe((st) => {
+            if (!published && st.sttStatus.type === 'error' && reason.test(st.sttStatus.message)) { published = true; mark('store_refusal'); }
+        });
+        // Visible AS A PERSON SEES IT (boundary-map audit): offsetParent only catches display:none, so a reason hidden by
+        // visibility:hidden, opacity:0 or a zero box counted as visible. checkVisibility covers display, visibility and
+        // opacity on the element and its ancestors; a non-empty box rules out collapse. No checkVisibility → not visible
+        // (fail closed rather than fall back to the weaker test).
+        const personVisible = (el: HTMLElement | null) => {
+            if (!el || typeof el.checkVisibility !== 'function') return false;
+            if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+            const box = el.getBoundingClientRect();
+            return box.width > 0 && box.height > 0;
+        };
+        const count = () => {
+            let n = 0;
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                if (reason.test(node.textContent ?? '') && personVisible(node.parentElement as HTMLElement | null)) n += 1;
+            }
+            return n;
+        };
+        let shown = count() > 0;
+        const check = () => {
+            const now = count() > 0;
+            if (now !== shown) { shown = now; mark(now ? 'reason_visible' : 'reason_hidden'); }
+        };
+        new MutationObserver(check).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+        const frame = () => { check(); requestAnimationFrame(frame); };
+        requestAnimationFrame(frame);
+        (w as unknown as { __progressRefusalCount__?: () => number }).__progressRefusalCount__ = count;
+    }, REASON.source);
+}
+
+const timelineMark = (page: Page, label: RefusalEvent['label']) => page.evaluate((l) => {
+    const w = window as unknown as TimelineWindow & { __progressRefusalCount__?: () => number };
+    const visible = w.__progressRefusalCount__?.() ?? 0;
+    w.__progressRefusalTimeline__!.push({ t: performance.now(), label: l, visible });
+    return visible;
+}, label);
+const timeline = (page: Page) => page.evaluate(() => (window as unknown as TimelineWindow).__progressRefusalTimeline__ ?? []);
+/**
+ * Releases the held RPC and closes the continuity window at the instant the call ACTUALLY resumes (#1543 Codex P2
+ * r4134484781): the E2E double polls the hold flag every 50 ms, so clearing the flag is not the release. The double
+ * announces the resume synchronously; the close mark is taken in that listener, so no still-refused interval escapes.
+ */
+async function releaseAndCloseOnResume(page: Page, fn: string) {
+    await page.evaluate((name) => {
+        const w = window as unknown as TimelineWindow & { __progressRefusalCount__?: () => number; __E2E_HOLD_RPC_1476__?: Record<string, boolean> };
+        const onResume = (event: Event) => {
+            if ((event as CustomEvent<string>).detail !== name) return;
+            window.removeEventListener('e2e-rpc-resumed-1476', onResume);
+            w.__progressRefusalTimeline__!.push({ t: performance.now(), label: 'sampling_end', visible: w.__progressRefusalCount__?.() ?? 0 });
+        };
+        window.addEventListener('e2e-rpc-resumed-1476', onResume);
+        w.__E2E_HOLD_RPC_1476__ = { ...(w.__E2E_HOLD_RPC_1476__ ?? {}), [name]: false };
+    }, fn);
+    // No acknowledgement means no close mark, and the verdict fails closed on the missing window end.
+    await page.waitForFunction(
+        () => ((window as unknown as TimelineWindow).__progressRefusalTimeline__ ?? []).some((e) => e.label === 'sampling_end'),
+        null, { timeout: 5_000 },
+    ).catch(() => undefined);
+}
 
 test.describe('Start pressed while owed Progress is settling (canary 36142201470)', () => {
     test('debt FOUND AT Start: refused truthfully, the owed evaluation is retried and settles, the notice clears, the next Start records without a reload', async ({ proPage: page }) => {
@@ -191,9 +305,7 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
         await expect(practice).toHaveAttribute('aria-describedby', 'run-shape-blocked-reason');
         await expect(page.getByTestId('run-shape-mic'), 'the after-session mic is held').toBeDisabled();
         await expect(page.getByTestId('run-shape-blocked-reason')).toContainText(/Finishing up your last session/);
-        const visibleReasons = () => page.getByText(/Finishing up your last session/).evaluateAll(
-            (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
-        );
+        const visibleReasons = () => page.getByText(/Finishing up your last session/).evaluateAll(countPersonVisible);
         await expect.poll(visibleReasons, { message: 'exactly one visible reason' }).toBe(1);
 
         // A STALE activation (the control was rendered enabled a frame before the gate): click and keyboard both reach
@@ -234,6 +346,7 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
     test('durable debt the page never projected: the refused Start is never silent, projection then settlement clear it, the next Start records', async ({ proPage: page }) => {
         test.setTimeout(180_000);
         await optIn(page);
+        await installRefusalRecorder(page);
         await navigateToRoute(page, '/session');
         await waitForModelReady(page);
         await expect(page.getByTestId('mic-status')).toContainText(MIC_READY, { timeout: 15_000 });
@@ -259,14 +372,19 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
         await hold(page, 'record_progress_evaluation', true);
         const sessionsBefore = await calls(page, 'create_session_and_update_usage');
 
+        await armRefusalTimeline(page);
+        expect(await timelineMark(page, 'baseline'), 'no reason is shown before Start is pressed').toBe(0);
         await page.getByTestId('mic-start').click();
 
+        // PO 2026-09-29 (PM 5889581027): the reason must be visible within 500 ms of the click — a deadline, not a sleep —
+        // and then stay visible while Start is refused. Waiting past the deadline only records how late a late reason was.
+        await page.waitForFunction(
+            () => ((window as unknown as TimelineWindow).__progressRefusalTimeline__ ?? []).some((e) => e.label === 'reason_visible'),
+            null, { timeout: 5_000 },
+        ).catch(() => undefined);
         // While blocked: never silent, never recording, no mic, no lease, no session.
         for (let i = 0; i < 12; i += 1) {
-            const visibleReasons = await page.getByText(/Finishing up your last session/).evaluateAll(
-                (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
-            );
-            expect(visibleReasons, 'a reason is always visible while the Start is refused').toBeGreaterThan(0);
+            await timelineMark(page, 'sample');
             expect(notRecording(await engine(page)), 'no recording while blocked').toBe(true);
             await page.waitForTimeout(250);
         }
@@ -275,13 +393,23 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
 
         // Projection (as another tab's write would arrive): the gate notice shows, and there is no duplicate red copy.
         await page.evaluate((key) => window.dispatchEvent(new StorageEvent('storage', { key })), entryKey);
-        await expect.poll(() => page.getByText(/Finishing up your last session/).evaluateAll(
-            (nodes) => nodes.filter((n) => (n as HTMLElement).offsetParent !== null).length,
-        ), { timeout: 15_000, message: 'exactly one visible reason once the gate is projected' }).toBe(1);
+        // The same person-visible predicate as the timeline recorder.
+        await expect.poll(() => page.getByText(/Finishing up your last session/).evaluateAll(countPersonVisible),
+            { timeout: 15_000, message: 'exactly one visible reason once the gate is projected' }).toBe(1);
 
         // Settlement: the evaluation completes and the durable entry drains; no stale reason; the next Start records.
         await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 60_000, message: 'the bounded retry really calls the server' }).toBe(true);
-        await hold(page, 'record_progress_evaluation', false);
+        // PM 5890479395 / #1543 Codex P2 r4133814182 + r4134484781: Start stays refused until the held evaluation actually
+        // resumes, so the continuity window closes at the double's resume acknowledgement — after the samples, the
+        // projection and the wait for the held call. Reading and judging the timeline happen afterwards; the judge counts
+        // only events up to the close, so the clear after settlement is outside the window.
+        await releaseAndCloseOnResume(page, 'record_progress_evaluation');
+        const events = await timeline(page);
+        await test.info().attach('progress-refusal-timeline', {
+            contentType: 'application/json',
+            body: JSON.stringify({ deadlineMs: FIRST_VISIBLE_DEADLINE_MS, summary: refusalTimelineSummary(events), events }, null, 2),
+        });
+        expect(judgeRefusalTimeline(events), `refused Start timeline ${JSON.stringify(refusalTimelineSummary(events))}`).toEqual([]);
         await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), OBLIGATIONS_KEY), { timeout: 60_000, message: 'the server records the owed evaluation' }).toBe('[]');
         await expect.poll(() => page.evaluate(() => (window as unknown as { __SESSION_STORE_API__: { getState: () => { progressGate: unknown } } }).__SESSION_STORE_API__.getState().progressGate), { timeout: 60_000, message: 'the page gate clears on settlement' }).toBeNull();
         await expect(page.getByText(/Finishing up your last session/), 'no stale reason after settlement').toHaveCount(0, { timeout: 30_000 });
