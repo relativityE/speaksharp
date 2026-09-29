@@ -1,5 +1,5 @@
 {
-  "model": "gemini-3.6-flash",
+  "model": "gemini-3.8-flash",
   "version": "gemini_coaching_v1",
   "uncachedGenerationCapPerUtcDay": 10,
   "wordBudget": {

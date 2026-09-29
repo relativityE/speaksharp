@@ -93,16 +93,19 @@ describe('download progress is normalised from BYTES', () => {
         // The runtime's callback is `(loaded, total, file)` in BYTES; it was wired to a handler
         // expecting 0..1 and then multiplied by 100. The first component alone reported 365,129,600%.
         const seen: number[] = [];
-        const assets = pinnedAssetsFor(MODEL);
-        const fetchImpl = vi.fn(async (url: string) => {
-            const asset = assets.find((a) => a.url === url)!;
-            const body = bodyOf(asset.bytes);
-            return respondWith(body);
-        });
-        await fetchVerifiedAssets(assets, fetchImpl as unknown as typeof fetch, (_f, loaded) => {
+        // First component verifies and publishes progress; the next has a wrong byte count and stops the set.
+        // Use small real-digest fixtures: the production pins total ~305 MB, which this test need not allocate.
+        const good = bodyOf(1024);
+        const bad = bodyOf(999);
+        const assets = [
+            { file: 'encoder.ort', url: 'https://x/encoder.ort', bytes: 1024, sha256: await realDigest(good) },
+            { file: 'decoder.ort', url: 'https://x/decoder.ort', bytes: 1024, sha256: await realDigest(bodyOf(1024, 9)) },
+        ];
+        const fetchImpl = vi.fn(async (url: string) => respondWith(url === assets[0].url ? good : bad));
+        await expect(fetchVerifiedAssets(assets, fetchImpl as unknown as typeof fetch, (_f, loaded) => {
             seen.push(loaded / pinnedTotalBytes(MODEL));
-        }).catch(() => { /* digests will not match; progress is what is under test */ });
-
+        })).rejects.toThrow(/served 999 bytes, pin commits 1024/);
+        expect(seen, 'a verified component must publish a progress fraction').toHaveLength(1);
         for (const fraction of seen) {
             expect(fraction).toBeGreaterThan(0);
             expect(fraction, 'a fraction above 1 is a byte count in disguise').toBeLessThanOrEqual(1);

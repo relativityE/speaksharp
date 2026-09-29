@@ -9,7 +9,7 @@ import {
 } from '../../scripts/gemini-model-currency-proof.mjs';
 
 const contract = {
-  model: 'gemini-3.6-flash',
+  model: 'gemini-3.8-flash',
   version: 'gemini_coaching_v1',
   uncachedGenerationCapPerUtcDay: 10,
   wordBudget: { what_worked: 6, what_to_try_next: 6 },
@@ -28,7 +28,7 @@ const contract = {
   promptTemplate: 'AT MOST 6 words\nTranscript: {{TRANSCRIPT}}\nMetrics: {{METRICS}}',
 };
 
-const providerBody = (suggestions: Record<string, unknown>, modelVersion = 'gemini-3.6-flash') => JSON.stringify({
+const providerBody = (suggestions: Record<string, unknown>, modelVersion = 'gemini-3.8-flash') => JSON.stringify({
   modelVersion,
   candidates: [{ content: { parts: [{ text: JSON.stringify(suggestions) }] } }],
 });
