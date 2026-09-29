@@ -4,7 +4,7 @@
  * Each spec owns its browser (the fake microphone file is a launch option), account, receipt and cleanup.
  */
 import { createClient } from '@supabase/supabase-js';
-import { test } from './deployedLiveTest';
+import { test } from './rwtProductionTest';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -24,7 +24,7 @@ import {
     focusCoachingRows,
     railStateRows,
     type SavedCoaching,
-    approvedSurfaceFailures,
+    requireApprovedSurface,
     armCandidateSwitch,
     installMicAcquisitionCounter,
     loadRwtFixture,
@@ -159,8 +159,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await test.step('account — sign up, canary claim (if authorized), sign back in', async () => {
             await page.goto('/auth/signup');
             await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
-            const surface = await approvedSurfaceFailures(page);
-            if (surface.length > 0) throw new Error(`HOLD surface: ${surface.join('; ')}`);
+            await requireApprovedSurface(page, receipt);
             owner.email = newDisposableEmail('focus-points');
             receipt.forbid(owner.email);
             const account = await signUpDisposableAccount(page, owner.email);
