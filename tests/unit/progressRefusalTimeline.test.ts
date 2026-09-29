@@ -56,7 +56,7 @@ describe('refused-Start timeline verdict', () => {
     });
 
     it('a reason shown before the click does not satisfy the deadline, and missing marks fail closed', () => {
-        const early: RefusalEvent[] = [{ t: 900, label: 'reason_visible' }, { t: 1010, label: 'start_click' }, ...samples(1100), { t: 5000, label: 'sampling_end' }];
+        const early: RefusalEvent[] = [{ t: 900, label: 'reason_visible' }, { t: 1010, label: 'start_click' }, ...samples(1100), { t: 5000, label: 'sampling_end', visible: 1 }];
         expect(judgeRefusalTimeline(early)).toContain('the refusal reason never became visible after the Start click');
         expect(judgeRefusalTimeline(refused(1240).filter((e) => e.label !== 'start_click'))).toEqual(['the Start click was not recorded, so the deadline cannot be judged']);
         expect(judgeRefusalTimeline(refused(1240).filter((e) => e.label !== 'sampling_end'))).toContain('the refusal sampling window was not closed, so continuity cannot be judged');
@@ -93,8 +93,16 @@ describe('instrumentation fails closed (PM 5890479395)', () => {
     it('CASUALTY: a reason hidden after the samples but before the held call is released fails', () => {
         const base = refused(1240);
         const closeAt = end(base) + 5000; // the window now also spans the projection and the wait for the held call
-        const extended = [...base.filter((e) => e.label !== 'sampling_end'), { t: closeAt - 2000, label: 'reason_hidden' as const }, { t: closeAt, label: 'sampling_end' as const }];
+        const extended = [...base.filter((e) => e.label !== 'sampling_end'), { t: closeAt - 2000, label: 'reason_hidden' as const }, { t: closeAt, label: 'sampling_end' as const, visible: 1 }];
         expect(judgeRefusalTimeline(extended)).toEqual(['the refusal reason was hidden 1 time(s) while Start was still refused']);
+    });
+
+    it('CASUALTY: a reason already gone at the resume-acknowledged close fails, even before any reason_hidden (P2 r4137420142)', () => {
+        const base = refused(1240);
+        const silentClose = base.map((e) => (e.label === 'sampling_end' ? { ...e, visible: 0 } : e));
+        expect(judgeRefusalTimeline(silentClose)).toEqual(['no visible reason at the close of the refusal window (the held call resumed while Start was silently refused)']);
+        const unmeasured = base.map((e) => (e.label === 'sampling_end' ? { t: e.t, label: e.label } : e));
+        expect(judgeRefusalTimeline(unmeasured)).toContain('no visible reason at the close of the refusal window (the held call resumed while Start was silently refused)');
     });
 
     it('the legitimate clear after settlement (after the window closes) is not a flicker, and the summary says so', () => {

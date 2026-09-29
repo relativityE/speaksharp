@@ -66,6 +66,10 @@ export function judgeRefusalTimeline(events: readonly RefusalEvent[], deadlineMs
         if (gaps.length > 0) failures.push(`the refusal reason was hidden ${gaps.length} time(s) while Start was still refused`);
         const silentSamples = events.filter((e) => e.label === 'sample' && e.t >= visible.t && e.t <= end.t && (e.visible ?? 0) === 0);
         if (silentSamples.length > 0) failures.push(`${silentSamples.length} sample(s) found no visible reason while Start was still refused`);
+        // #1543 Codex P2 r4137420142: the close is itself a measurement, taken synchronously at the held call's resume. A
+        // reason already gone then, before the observer has emitted reason_hidden, is a silent refusal too. An unmeasured
+        // close fails closed.
+        if ((end.visible ?? 0) === 0) failures.push('no visible reason at the close of the refusal window (the held call resumed while Start was silently refused)');
     }
     if (events.filter((e) => e.label === 'sample').length === 0) failures.push('no visibility sample was taken while Start was refused');
     return failures;
