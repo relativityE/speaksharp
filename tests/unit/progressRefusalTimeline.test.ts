@@ -108,12 +108,23 @@ describe('the spec uses the timeline verdict in place of the immediate sample', 
         const src = readFileSync(resolve(__dirname, '../e2e/start-during-progress-settle.e2e.spec.ts'), 'utf8');
         const block = src.slice(src.indexOf("durable debt the page never projected"));
         const held = block.indexOf("heldNow(page, 'record_progress_evaluation')");
-        const close = block.indexOf("timelineMark(page, 'sampling_end')");
+        const closeAndRelease = block.indexOf("closeWindowAndRelease(page, 'record_progress_evaluation')");
+        const read = block.indexOf('const events = await timeline(page)');
         const judged = block.indexOf('expect(judgeRefusalTimeline(events)');
-        const release = block.indexOf("hold(page, 'record_progress_evaluation', false)");
         const projected = block.indexOf('exactly one visible reason once the gate is projected');
-        expect([projected, held, close, judged, release].every((i) => i > 0)).toBe(true);
-        expect(projected < held && held < close && close < judged && judged < release).toBe(true);
+        expect([projected, held, closeAndRelease, read, judged].every((i) => i > 0)).toBe(true);
+        // #1543 Codex P2 r4133814182: close + release is one browser task; reading and judging come after it.
+        expect(projected < held && held < closeAndRelease && closeAndRelease < read && read < judged).toBe(true);
+        expect(block.slice(0, judged)).not.toMatch(/hold\(page, 'record_progress_evaluation', false\)/);
+        expect(block).not.toMatch(/timelineMark\(page, 'sampling_end'\)/);
+    });
+
+    it('the close mark and the release happen inside one page.evaluate', () => {
+        const src = readFileSync(resolve(__dirname, '../e2e/start-during-progress-settle.e2e.spec.ts'), 'utf8');
+        const fn = src.slice(src.indexOf('const closeWindowAndRelease'), src.indexOf('}, fn);'));
+        expect(fn).toMatch(/label: 'sampling_end'/);
+        expect(fn).toMatch(/__E2E_HOLD_RPC_1476__ = \{ \.\.\.\(w\.__E2E_HOLD_RPC_1476__ \?\? \{\}\), \[name\]: false \}/);
+        expect(fn.match(/page\.evaluate/g)).toHaveLength(1);
     });
 
     const spec = readFileSync(resolve(__dirname, '../e2e/start-during-progress-settle.e2e.spec.ts'), 'utf8');

@@ -117,6 +117,12 @@ const timelineMark = (page: Page, label: RefusalEvent['label']) => page.evaluate
     return visible;
 }, label);
 const timeline = (page: Page) => page.evaluate(() => (window as unknown as TimelineWindow).__progressRefusalTimeline__ ?? []);
+/** Closes the continuity window and releases the held RPC in one browser task, so no still-refused gap escapes the verdict. */
+const closeWindowAndRelease = (page: Page, fn: string) => page.evaluate((name) => {
+    const w = window as unknown as TimelineWindow & { __progressRefusalCount__?: () => number; __E2E_HOLD_RPC_1476__?: Record<string, boolean> };
+    w.__progressRefusalTimeline__!.push({ t: performance.now(), label: 'sampling_end', visible: w.__progressRefusalCount__?.() ?? 0 });
+    w.__E2E_HOLD_RPC_1476__ = { ...(w.__E2E_HOLD_RPC_1476__ ?? {}), [name]: false };
+}, fn);
 
 test.describe('Start pressed while owed Progress is settling (canary 36142201470)', () => {
     test('debt FOUND AT Start: refused truthfully, the owed evaluation is retried and settles, the notice clears, the next Start records without a reload', async ({ proPage: page }) => {
@@ -355,16 +361,17 @@ test.describe('Start pressed while owed Progress is settling (canary 36142201470
 
         // Settlement: the evaluation completes and the durable entry drains; no stale reason; the next Start records.
         await expect.poll(() => heldNow(page, 'record_progress_evaluation'), { timeout: 60_000, message: 'the bounded retry really calls the server' }).toBe(true);
-        // PM 5890479395: Start stays refused until the held evaluation is released, so the continuity window closes only
-        // here — after the samples, the projection and the wait for the held call. The clear after settlement is outside it.
-        await timelineMark(page, 'sampling_end');
+        // PM 5890479395 / #1543 Codex P2 r4133814182: Start stays refused until the held evaluation is released, so the
+        // continuity window closes in the SAME browser task that releases it — after the samples, the projection and the
+        // wait for the held call. Reading and judging the timeline happen afterwards, outside the still-refused interval,
+        // and the judge counts only events up to the close; the clear after settlement is outside the window.
+        await closeWindowAndRelease(page, 'record_progress_evaluation');
         const events = await timeline(page);
         await test.info().attach('progress-refusal-timeline', {
             contentType: 'application/json',
             body: JSON.stringify({ deadlineMs: FIRST_VISIBLE_DEADLINE_MS, summary: refusalTimelineSummary(events), events }, null, 2),
         });
         expect(judgeRefusalTimeline(events), `refused Start timeline ${JSON.stringify(refusalTimelineSummary(events))}`).toEqual([]);
-        await hold(page, 'record_progress_evaluation', false);
         await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), OBLIGATIONS_KEY), { timeout: 60_000, message: 'the server records the owed evaluation' }).toBe('[]');
         await expect.poll(() => page.evaluate(() => (window as unknown as { __SESSION_STORE_API__: { getState: () => { progressGate: unknown } } }).__SESSION_STORE_API__.getState().progressGate), { timeout: 60_000, message: 'the page gate clears on settlement' }).toBeNull();
         await expect(page.getByText(/Finishing up your last session/), 'no stale reason after settlement').toHaveCount(0, { timeout: 30_000 });
