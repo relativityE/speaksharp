@@ -1,5 +1,5 @@
 import { LEASE_NOT_HELD_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from './recordingLeasePolicy';
-import { recordSavedSessionForCurrentLogin } from './loginSessionLog';
+import { currentLogin, recordSavedSessionFor, type LoginIdentity } from './loginSessionLog';
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
@@ -983,6 +983,10 @@ export class SpeechRuntimeController {
     private recordingProgressMode: RecordingProgressMode = { mode: 'unknown' };
     /** #1541: the product a rehydrated Retry Save belongs to, for the Share feedback list only (null = legacy / unknown). */
     private rehydratedSelectorProduct: 'open_mic' | 'focus_points' | null = null;
+    /** #1541 Codex P1 r4127289522: the login this recording belongs to, captured at the recording boundary (or at a
+     *  same-owner rehydration) — the Share feedback list records a completed save against it, never against the login
+     *  that happens to be current when an in-flight save finishes after an account switch. */
+    private recordingLogin: LoginIdentity | null = null;
 
     /** #1033 (1): owner + idempotency identity for the window between RECORDING and the initial save. Set
      *  once the authenticated owner is known (before speech), cleared once the row exists or at resolution.
@@ -1583,6 +1587,9 @@ export class SpeechRuntimeController {
         this.rehydratedFor = userId ?? null;
         // Selector labelling only; progressContext above stays unknown so Progress keeps failing closed.
         this.rehydratedSelectorProduct = draft.product ?? null;
+        // The draft's owner was verified above; its save belongs to the current login only if that login IS this owner's.
+        const login = currentLogin();
+        this.recordingLogin = login && userId && login.ownerId === userId ? login : null;
         this.publishLockState();
         logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated FINALIZED unresolved recording for same user (#1306/#1033 C)');
         return true;
@@ -2216,7 +2223,8 @@ export class SpeechRuntimeController {
         // draft without one is not listed rather than guessed.
         const product = this.recordingProgressMode.mode !== 'unknown' ? this.recordingProgressMode.mode : this.rehydratedSelectorProduct;
         if (persisted && details?.sessionId && product) {
-            recordSavedSessionForCurrentLogin({ key: details.sessionId, product, savedAt: Date.now() });
+            // Against the recording's own login, and only while it is still current (#1541 Codex P1 r4127289522).
+            recordSavedSessionFor(this.recordingLogin, { key: details.sessionId, product, savedAt: Date.now() });
         }
         if (persisted) this.rehydratedSelectorProduct = null;
         if (useSessionStore.getState().sessionSaved !== persisted) {
@@ -2814,6 +2822,7 @@ export class SpeechRuntimeController {
 
         if (newState === 'RECORDING' && previousState !== 'RECORDING') {
             this.recordingProgressMode = this.snapshotProgressModeAtRecordingBoundary();
+            this.recordingLogin = currentLogin();
             store.startSession();
         }
 
@@ -4559,6 +4568,7 @@ export class SpeechRuntimeController {
         this.pendingAttributionRetry = null;
         this.pendingFullSaveRetry = null;
         this.recordingProgressMode = { mode: 'unknown' };
+        this.recordingLogin = null;
 
         // 2. Cancel tokens & Clear registry
         this.activeTasks.forEach(t => t.cancelled = true);

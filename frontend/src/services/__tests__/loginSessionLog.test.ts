@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
     LOGIN_SESSION_LOG_KEY, clearLoginSessions, currentLogin, loginStartedAtOf, readLoginSessions, recordSavedSession,
-    recordSavedSessionForCurrentLogin, setCurrentLogin,
+    recordSavedSessionFor, setCurrentLogin,
 } from '../loginSessionLog';
 
 /** FEEDBACK_SESSION_SELECTOR_SPEC §5 — the sessions saved during THIS login (S-9, S-10, S-11 and the storage rules). */
@@ -88,17 +88,53 @@ describe('loginSessionLog', () => {
         expect(loginStartedAtOf(null)).toBeNull();
         setCurrentLogin('u1', LOGIN);
         expect(currentLogin()).toEqual({ ownerId: 'u1', loginStartedAt: LOGIN });
-        recordSavedSessionForCurrentLogin({ key: 'a', product: 'open_mic', savedAt: 1 });
+        recordSavedSessionFor(currentLogin(), { key: 'a', product: 'open_mic', savedAt: 1 });
         expect(readLoginSessions('u1', LOGIN)).toHaveLength(1);
+        const recorded = currentLogin();
         setCurrentLogin(null, null);
-        recordSavedSessionForCurrentLogin({ key: 'b', product: 'open_mic', savedAt: 2 });   // no login known: ignored
+        recordSavedSessionFor(recorded, { key: 'b', product: 'open_mic', savedAt: 2 });   // no login current: ignored
+        setCurrentLogin('u1', LOGIN);
         expect(readLoginSessions('u1', LOGIN)).toHaveLength(1);
+    });
+
+    // #1541 Codex P1 r4127289522 — a save completes against the login that RECORDED it, and only while that login is current.
+    describe('recordSavedSessionFor binds a completed save to the recording\'s own login', () => {
+        const A = { ownerId: 'user-A', loginStartedAt: LOGIN };
+        const B = { ownerId: 'user-B', loginStartedAt: LOGIN + 5_000 };
+
+        it('CASUALTY: A\'s save completing after the tab switched to B lists nothing for B (and nothing for A)', () => {
+            setCurrentLogin(A.ownerId, A.loginStartedAt);
+            const recordingLogin = currentLogin();              // captured when A started recording
+            clearLoginSessions();                               // AuthProvider on the account change
+            setCurrentLogin(B.ownerId, B.loginStartedAt);
+            recordSavedSessionFor(recordingLogin, { key: 'sess-A', product: 'open_mic', savedAt: 1 });
+            expect(readLoginSessions(B.ownerId, B.loginStartedAt)).toEqual([]);
+            expect(sessionStorage.getItem(LOGIN_SESSION_LOG_KEY)).toBeNull();
+            setCurrentLogin(A.ownerId, A.loginStartedAt);
+            expect(readLoginSessions(A.ownerId, A.loginStartedAt)).toEqual([]);
+        });
+
+        it('CASUALTY: a new sign-in of the SAME user (a new loginStartedAt) does not list the earlier login\'s save', () => {
+            setCurrentLogin(A.ownerId, A.loginStartedAt);
+            const recordingLogin = currentLogin();
+            setCurrentLogin(A.ownerId, A.loginStartedAt + 60_000);
+            recordSavedSessionFor(recordingLogin, { key: 'sess-A', product: 'focus_points', savedAt: 1 });
+            expect(readLoginSessions(A.ownerId, A.loginStartedAt + 60_000)).toEqual([]);
+        });
+
+        it('the same login completing its own save lists it; no captured login lists nothing', () => {
+            setCurrentLogin(A.ownerId, A.loginStartedAt);
+            recordSavedSessionFor(currentLogin(), { key: 'sess-A', product: 'open_mic', savedAt: 1 });
+            recordSavedSessionFor(null, { key: 'sess-none', product: 'open_mic', savedAt: 2 });
+            expect(readLoginSessions(A.ownerId, A.loginStartedAt).map((e) => [e.key, e.n])).toEqual([['sess-A', 1]]);
+        });
     });
 
     it('S-11: recorded only at the controller\'s confirmed-save boundary — one call site, gated on a persisted save', () => {
         const src = readFileSync(resolve(__dirname, '../SpeechRuntimeController.ts'), 'utf8');
-        expect([...src.matchAll(/recordSavedSessionForCurrentLogin\(/g)]).toHaveLength(1);
-        const at = src.indexOf('recordSavedSessionForCurrentLogin(');
+        expect([...src.matchAll(/recordSavedSessionFor\(/g)]).toHaveLength(1);
+        const at = src.indexOf('recordSavedSessionFor(this.recordingLogin,');
+        expect(at).toBeGreaterThan(-1);
         const guard = src.lastIndexOf('if (persisted && details?.sessionId', at);
         expect(guard).toBeGreaterThan(-1);
         expect(at - guard).toBeLessThan(200);

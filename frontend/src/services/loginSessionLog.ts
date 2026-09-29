@@ -102,7 +102,7 @@ export function clearLoginSessions(): void {
  * (which has no auth context) can record against it. `loginStartedAt` is the server's sign-in time (`user.last_sign_in_at`):
  * unchanged by a token refresh or a page reload, new on every sign-in.
  */
-let current: { ownerId: string; loginStartedAt: number } | null = null;
+let current: { ownerId: string; loginStartedAt: number } | null = null;   // a LoginIdentity
 
 export function loginStartedAtOf(session: { user?: { last_sign_in_at?: string | null } | null } | null): number | null {
     const at = session?.user?.last_sign_in_at ? Date.parse(session.user.last_sign_in_at) : NaN;
@@ -117,7 +117,16 @@ export function currentLogin(): { ownerId: string; loginStartedAt: number } | nu
     return current;
 }
 
-/** The controller's confirmed-save hook: records against the current login, or does nothing if none is known. */
-export function recordSavedSessionForCurrentLogin(entry: Omit<LoginSessionEntry, 'n'>): void {
-    if (current) recordSavedSession(current.ownerId, current.loginStartedAt, entry);
+export type LoginIdentity = { ownerId: string; loginStartedAt: number };
+
+/**
+ * The controller's confirmed-save hook (#1541 Codex P1 r4127289522). `recordingLogin` is the login captured when the
+ * recording began (or when a same-owner Retry Save was rehydrated), NOT the login current when the save completes: a save
+ * finishing after an account switch belongs to the account that recorded it. The entry is recorded only if that login is
+ * still the current one; after a switch or a new sign-in nothing is recorded, so no login ever lists another's session.
+ */
+export function recordSavedSessionFor(recordingLogin: LoginIdentity | null, entry: Omit<LoginSessionEntry, 'n'>): void {
+    if (!recordingLogin || !current) return;
+    if (current.ownerId !== recordingLogin.ownerId || current.loginStartedAt !== recordingLogin.loginStartedAt) return;
+    recordSavedSession(recordingLogin.ownerId, recordingLogin.loginStartedAt, entry);
 }
