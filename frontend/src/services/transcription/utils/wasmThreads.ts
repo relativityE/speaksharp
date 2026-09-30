@@ -46,9 +46,13 @@ export function isCrossOriginIsolated(): boolean {
     && (globalThis as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
 }
 
-/** Best-effort hardware thread count, defaulting to the cap when unknown. */
-export function getHardwareThreads(): number {
-  return typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number'
+/**
+ * The hardware thread count the device REPORTS, or `undefined` when it reports none (unknown). Unknown is kept as
+ * `undefined` so `computeWasmThreadCount` can tell it apart from a device that reported 4 (#1258 Codex P2
+ * r4147088393): unknown keeps the previous MAX_WASM_THREADS default; only a reported 4 gets the 4-core rule.
+ */
+export function getHardwareThreads(): number | undefined {
+  return typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number' && Number.isFinite(navigator.hardwareConcurrency)
     ? navigator.hardwareConcurrency
-    : MAX_WASM_THREADS;
+    : undefined;
 }

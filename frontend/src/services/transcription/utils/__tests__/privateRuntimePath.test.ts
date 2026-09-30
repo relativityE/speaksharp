@@ -19,11 +19,21 @@ function setIsolated(value: boolean): void {
   Object.defineProperty(globalThis, 'crossOriginIsolated', { value, configurable: true, writable: true });
 }
 
+const realHardwareConcurrency = Object.getOwnPropertyDescriptor(globalThis.navigator, 'hardwareConcurrency');
+function setHardwareConcurrency(value: unknown): void {
+  Object.defineProperty(globalThis.navigator, 'hardwareConcurrency', { value, configurable: true, writable: true });
+}
+function restoreHardwareConcurrency(): void {
+  if (realHardwareConcurrency) Object.defineProperty(globalThis.navigator, 'hardwareConcurrency', realHardwareConcurrency);
+  else delete (globalThis.navigator as unknown as Record<string, unknown>).hardwareConcurrency;
+}
+
 const workingAdapter = () => ({ requestAdapter: vi.fn().mockResolvedValue({ name: 'adapter' }) });
 
 afterEach(() => {
   setGpu(undefined);
   setIsolated(false);
+  restoreHardwareConcurrency();
   vi.restoreAllMocks();
 });
 
@@ -46,6 +56,22 @@ describe('computeWasmThreadCount', () => {
   });
   it('never returns less than 1', () => {
     expect(computeWasmThreadCount(true, 0)).toBe(1);
+  });
+});
+
+describe('#1258 composed path: resolvePrivateRuntimePath reads the device through getHardwareThreads', () => {
+  it.each([
+    ['unknown (undefined)', undefined, MAX_WASM_THREADS],
+    ['unknown (non-numeric)', 'n/a', MAX_WASM_THREADS],
+    ['reported 4', 4, 2],
+    ['reported 8', 8, MAX_WASM_THREADS],
+    ['reported 2', 2, 2],
+  ])('isolated CPU path, %s (hardwareConcurrency %s) → %s threads', async (_label, hw, expected) => {
+    setGpu(undefined);
+    setIsolated(true);
+    setHardwareConcurrency(hw);
+    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: true, turboModelCached: false });
+    expect(d.wasmThreadCount).toBe(expected);
   });
 });
 
