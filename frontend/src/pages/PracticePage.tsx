@@ -20,6 +20,7 @@
 
 import React from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useIsPresent } from 'framer-motion';
 import '@/styles/practice.css';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
@@ -60,6 +61,22 @@ export default function PracticePage() {
   // Focus Points is ACTIVATED: opening the points-setup modal is the objective surface for Report Issue.
   const [objectiveSetupOpen, setObjectiveSetupOpen] = React.useState(false);
   const returning = React.useRef(false);
+  // Header → Focus Points arrives as ?product=focus-points (#1543 Dev 5900357101). Every route sits in App's AnimatePresence,
+  // so more than one PracticePage instance can be mounted around a navigation, and all read the live url. The intent used
+  // to be CONSUMED on mount (open, then delete the param); an instance that consumed it and was then torn down left the
+  // visible page with no dialog and no param — the user landed on Home. Now the url IS the intent: the dialog is open
+  // while the param is present, on a page that is present (an exiting one never shows it), and the param is removed only
+  // when the person closes the dialog. No instance can destroy the intent on mount.
+  const isPresent = useIsPresent();
+  const focusIntent = isAuthed && searchParams.get('product') === 'focus-points';
+  const setupOpen = isPresent && (objectiveSetupOpen || focusIntent);
+  const setSetupOpen = React.useCallback((open: boolean) => {
+    setObjectiveSetupOpen(open);
+    if (open || searchParams.get('product') !== 'focus-points') return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('product');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   React.useEffect(() => {
     try {
@@ -70,21 +87,21 @@ export default function PracticePage() {
   }, []);
 
   React.useEffect(() => {
-    if (!isAuthed || searchParams.get('product') !== 'focus-points') return;
-    setObjectiveSetupOpen(true);
-    const next = new URLSearchParams(searchParams);
-    next.delete('product');
-    setSearchParams(next, { replace: true });
-  }, [isAuthed, searchParams, setSearchParams]);
-
-  React.useEffect(() => {
     // Focus Points is available: the objective surface is the points-setup modal being open, not an
     // "unavailable" state. Report Issue on /practice reflects exactly which of the two surfaces is active.
-    const surface: PracticeSurface = objectiveSetupOpen ? 'objective_setup' : 'practice_home';
+    // #1545 Codex P2 r4139959728: the provider sits above AnimatePresence, so only the PRESENT instance may publish.
+    if (!isPresent) return;
+    const surface: PracticeSurface = setupOpen ? 'objective_setup' : 'practice_home';
     setSurface(surface);
-  }, [objectiveSetupOpen, setSurface]);
+  }, [isPresent, setupOpen, setSurface]);
 
-  React.useEffect(() => () => { setSurface(null); }, [setSurface]);
+  // Cleared by the present instance when it stops being present (it starts exiting, or unmounts while present), in the
+  // same commit as the incoming instance's publish and before it — never later by an exiting instance, which used to
+  // wipe the incoming page's surface when its exit animation finished.
+  React.useEffect(() => {
+    if (!isPresent) return undefined;
+    return () => { setSurface(null); };
+  }, [isPresent, setSurface]);
 
   // Freeform: authed → /session directly; anonymous → account access preserving the /session intent via
   // location.state.from (resolvePostAuthPath honors safe deep-links). Never auto-starts recording.
@@ -112,7 +129,10 @@ export default function PracticePage() {
   const handleObjectiveReady = ({ briefId, projectId, points, topic, paceGuideSecPerPoint }: { briefId: string; projectId: string; points: string[]; topic: string; paceGuideSecPerPoint: number | null }) => {
     useSessionStore.getState().setActiveObjectiveBrief({ projectId, briefId, points, topic, paceGuideSecPerPoint });
     setObjectiveSetupOpen(false);
-    navigate('/session');
+    // #1258 PM RETURN 5901196048: saving COMPLETES the url-held intent. One navigation that REPLACES the
+    // ?product=focus-points entry, so Back from the session never reopens a blank setup for a brief already saved. The
+    // card path (no url intent) keeps its normal history entry.
+    navigate('/session', { replace: searchParams.get('product') === 'focus-points' });
   };
 
   if (isAuthed) {
@@ -135,8 +155,8 @@ export default function PracticePage() {
           />
         </div>
         <ObjectiveSetupDialog
-          open={objectiveSetupOpen}
-          onOpenChange={setObjectiveSetupOpen}
+          open={setupOpen}
+          onOpenChange={setSetupOpen}
           onReady={handleObjectiveReady}
         />
       </div>

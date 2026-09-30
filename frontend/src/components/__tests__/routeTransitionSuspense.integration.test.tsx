@@ -27,6 +27,14 @@ import { PageTransition } from '@/components/ui/PageTransition';
  * there were no console or network errors, and the Session page was still what the user was looking at.
  *
  * This reproduces that structure without the app, so the fix can be proven at the seam that causes it.
+ *
+ * #1545 — the route exit layer is gone altogether. `popLayout` fixed the mount, but any exit layer keeps
+ * OUTGOING page instances alive and can restore them from children captured before the latest navigation:
+ * Escape closed the Focus Points setup and it reopened from the old `?product=`, and the page that had just
+ * appeared was remounted (a keypress lost, typed text dropped). The production shape is now a keyed
+ * `motion.div` (fade-in only) directly around `Routes`, inside the one `Suspense`. The invariant protected
+ * here: the incoming route mounts, the outgoing route does not stay mounted or interactive, and a search-only
+ * change keeps the same page instance.
  */
 
 const Destination: React.FC = () => {
@@ -34,6 +42,8 @@ const Destination: React.FC = () => {
   return (
     <div data-testid="destination">
       {params.get('product') === 'focus-points' && <div data-testid="setup-dialog">SETUP</div>}
+      <input data-testid="destination-input" aria-label="point" />
+      <Link to="/destination" data-testid="close-setup">Close</Link>
     </div>
   );
 };
@@ -85,37 +95,30 @@ const SuspenseInside: React.FC = () => {
 };
 
 /**
- * THE PRODUCTION SHAPE, as `App` renders it: one `Suspense` OUTSIDE `AnimatePresence`, location-keyed
- * `Routes` inside, lazy route elements — and no `mode="wait"`.
- *
- * The nesting is deliberately identical to `SuspenseOutside` above. The ONLY difference between the
- * broken composition and the working one is `mode="wait"`, so this pair isolates exactly one
- * variable. A "fixed" shape that also rearranged the boundaries would leave it unclear which change
- * mattered, and would stop mirroring the file it is supposed to protect.
+ * THE PRODUCTION SHAPE, as `App` renders it since #1545: one `Suspense`, a `motion.div` keyed by pathname that
+ * only fades IN, and `Routes` directly inside it — no `AnimatePresence`, so nothing retains the outgoing route.
+ * The source test below binds this shape to `App.tsx`.
  */
 const ProductionShape: React.FC = () => {
   const location = useLocation();
   return (
     <Suspense fallback={<div data-testid="loader">LOADING</div>}>
-      <AnimatePresence>
-        <Routes location={location} key={location.pathname}>
+      <motion.div key={location.pathname} data-testid="route-presence-child" className="w-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <Routes location={location}>
           <Route path="/origin" element={<PageTransition><Origin /></PageTransition>} />
           <Route path="/destination" element={<PageTransition><LazyDestination /></PageTransition>} />
         </Routes>
-      </AnimatePresence>
+      </motion.div>
     </Suspense>
   );
 };
 
-
-/** `popLayout` keeps the exiting route out of LAYOUT FLOW while still mounting the incoming one. */
+/** RETIRED (#1416 → #1545): `popLayout` mounted the incoming route but kept the OUTGOING one alive while it exited. */
 const PopLayoutShape: React.FC = () => {
   const location = useLocation();
   return (
     <Suspense fallback={<div data-testid="loader">LOADING</div>}>
       <AnimatePresence mode="popLayout">
-        {/* Mirrors `App`: a KEYED DOM child owns the route subtree, so popLayout has something it
-            can compose a ref onto and actually take out of flow. */}
         <motion.div key={location.pathname} data-testid="route-presence-child" className="w-full">
           <Routes location={location}>
             <Route path="/origin" element={<PageTransition><Origin /></PageTransition>} />
@@ -171,31 +174,13 @@ describe('#1416 route transition must mount the destination', () => {
     expect(screen.queryByTestId('destination')).not.toBeInTheDocument();
   });
 
-  it('popLayout also mounts the suspending destination', async () => {
+  it('CASUALTY — the retired popLayout exit layer keeps the outgoing route mounted and interactive', async () => {
+    // What #1545 removes: after navigating away, the origin page is still in the document with a live link.
+    // In a browser the exit eventually retires it — and that retirement is what restored stale route children.
     await drive(PopLayoutShape);
     await waitFor(() => expect(screen.getByTestId('destination')).toBeInTheDocument(), { timeout: 3000 });
-    expect(screen.getByTestId('setup-dialog')).toBeInTheDocument();
-  });
-
-  it('CASUALTY — App gives popLayout a ref-forwarding immediate child, not <Routes>', () => {
-    // `popLayout` works by cloning its IMMEDIATE child with a composed ref, measuring that node, and
-    // taking it out of flow. React Router's `<Routes>` is a plain function component and forwards no
-    // ref, so the measurement target is null: the mode is declared and inert, and nothing is popped.
-    //
-    // This is asserted against `App.tsx` itself, not against a shape this file defines, because a
-    // test that checks its own composition proves only that it agrees with itself. And it is a
-    // SOURCE assertion on purpose: jsdom runs no layout, so `getBoundingClientRect` is all zeros and
-    // "was it positioned out of flow" is unanswerable there. React 19 no longer warns about refs on
-    // function components either — I tried that first, and the mutant survived it silently.
-    const app = readFileSync(resolve(import.meta.dirname, '..', '..', 'App.tsx'), 'utf8');
-    const presence = app.slice(app.indexOf('<AnimatePresence mode="popLayout">'));
-    const immediateChild = presence.slice(0, presence.indexOf('<Routes'));
-
-    // The child between AnimatePresence and Routes must be a motion element carrying the location key.
-    expect(immediateChild).toMatch(/<motion\.[a-z]+\b/);
-    expect(immediateChild).toMatch(/key=\{location\.pathname\}/);
-    // And `Routes` must NOT be the keyed immediate child any more.
-    expect(presence).not.toMatch(/<AnimatePresence mode="popLayout">\s*<Routes/);
+    expect(screen.getByTestId('origin')).toBeInTheDocument();
+    expect(screen.getByTestId('go')).toBeEnabled();
   });
 
   it('reaches the destination and renders what the query asked for', async () => {
@@ -206,8 +191,36 @@ describe('#1416 route transition must mount the destination', () => {
     // The destination is mounted AND it acted on the query the link carried — which is the whole
     // point of the journey: Focus Points must actually open, not merely be navigated to.
     expect(screen.getByTestId('setup-dialog')).toBeInTheDocument();
-    // The outgoing route's removal is NOT asserted here: jsdom runs no animation frames, so an
-    // exiting `AnimatePresence` child is never retired in this environment. Asserting it would be
-    // measuring jsdom, not the product.
+    // #1545: nothing retains the outgoing route — it is gone the moment the destination shows, and cannot
+    // be interacted with or restored later.
+    expect(screen.queryByTestId('origin')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('go')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('route-presence-child')).toHaveLength(1);
+  });
+
+  it('a search-only change keeps the same page instance — typed input survives, the setup closes and stays closed', async () => {
+    const user = await drive(ProductionShape);
+    await waitFor(() => expect(screen.getByTestId('setup-dialog')).toBeInTheDocument(), { timeout: 3000 });
+    await user.type(screen.getByTestId('destination-input'), 'Name the price');
+    const input = screen.getByTestId('destination-input');
+
+    await user.click(screen.getByTestId('close-setup'));
+    await waitFor(() => expect(screen.queryByTestId('setup-dialog')).not.toBeInTheDocument());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(screen.queryByTestId('setup-dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('destination-input')).toBe(input);
+    expect(input).toHaveValue('Name the price');
+  });
+
+  it('App renders exactly this shape: no route exit layer; the keyed motion.div wraps Routes', () => {
+    // Asserted against `App.tsx` itself, so the behavioural tests above are bound to the file they protect —
+    // a test that checks only its own composition proves only that it agrees with itself.
+    const app = readFileSync(resolve(import.meta.dirname, '..', '..', 'App.tsx'), 'utf8');
+    const code = app.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\/.*$/gm, '');
+    expect(code).not.toMatch(/AnimatePresence/);
+    // The route host: a motion.div keyed by pathname whose opening tag is followed directly by `Routes`, with no exit.
+    const routeHost = code.match(/<motion\.div\s+key=\{location\.pathname\}[^>]*data-testid="route-presence-child"[^>]*>\s*<Routes location=\{location\}>/);
+    expect(routeHost).not.toBeNull();
+    expect(routeHost?.[0]).not.toMatch(/\bexit=/);
   });
 });

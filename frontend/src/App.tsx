@@ -13,7 +13,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { JourneyRouteTelemetry } from '@/components/JourneyRouteTelemetry';
 import { StaleChunkBootClear } from '@/components/StaleChunkBootClear';
 import SttIdentityBadge from '@/components/SttIdentityBadge';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { useCriticalQueries } from './hooks/useCriticalQueries';
@@ -377,41 +377,26 @@ const App: React.FC = () => {
               {/* #1259 F08: route transitions, emitted beside the routes so no page owns — or misses —
                   the wandering a dead end produces. */}
               <JourneyRouteTelemetry />
-              {/* #1416 — NO `mode="wait"` HERE.
-                  `mode="wait"` holds the outgoing route mounted until its exit animation completes
-                  before it will mount the incoming one. Every route below is `React.lazy`, so the
-                  incoming route SUSPENDS, and a suspension unmounts the subtree the exit animation
-                  was running in. The exit therefore never completes, the incoming route is never
-                  mounted, and the user is left looking at the page they navigated away from.
-                  It does not surface as an error: the URL changes, the destination's effects can even
-                  run before it is torn down, and nothing is logged. `/session` → Products → Focus
-                  Points reached `/practice`, stripped its own `?product=` parameter — proving
-                  PracticePage mounted — and still showed the Session page.
-                  `popLayout` rather than the plain default: the default keeps the OUTGOING route in
-                  normal layout flow while it animates out, so for ~300ms after a navigation two page
-                  subtrees stack in the same container. `session-shell-responsive`, which measures
-                  slot geometry immediately after navigating, caught that intermittently — passing
-                  twice and failing twice on this branch while `main` stayed green. `popLayout` pops
-                  the exiting subtree out of flow, so the incoming page lays out alone from its first
-                  frame, and it still does not gate mounting on an exit that suspension prevents. */}
-              {/* #1416 P2-2 — the immediate child must be able to RECEIVE A REF.
-                  `popLayout` works by cloning its immediate child with a composed ref, measuring
-                  that node, and taking it out of flow with absolute positioning. React Router's
-                  `<Routes>` is a plain function component and forwards no ref, so the measurement
-                  target was null and nothing was ever popped — the mode was declared and inert.
-                  My own test did not catch it because it asserted only that the destination mounts,
-                  which was true either way.
-                  A keyed `motion.div` owns the route subtree instead: it is a real DOM node, it
-                  carries the location key so presence tracks navigation, and it is what gets popped
-                  out of flow while the incoming route lays out alone. */}
-              <AnimatePresence mode="popLayout">
+              {/* #1545 — NO EXIT LAYER AROUND THE ROUTES (supersedes #1416's `mode="wait"` → `popLayout`).
+                  Every route used to sit in `<AnimatePresence>` so the outgoing page could fade out. That kept
+                  outgoing page instances alive, and presence restored them from children it had captured
+                  earlier: when an exit completed, it could put back a route element from before the latest
+                  navigation (the router applies location changes as React transitions). Two user-visible
+                  failures on `/session` → Products → Focus Points: Escape closed the setup and it then reopened
+                  from the old `?product=focus-points`, and the Practice page that had just appeared was
+                  unmounted and mounted again ~250ms later — a keypress in between was lost and typed text
+                  was dropped.
+                  With no exit layer only the current route is mounted; the outgoing route unmounts at once, and
+                  nothing gates the incoming route's mount on an exit (#1416's original failure — a suspending
+                  lazy destination never mounting under `mode="wait"` — cannot recur). The keyed `motion.div`
+                  keeps the route FADE-IN: a new key per pathname mounts a fresh node that animates from
+                  opacity 0; a search-only change keeps the same page. */}
                 <motion.div
                   key={location.pathname}
                   data-testid="route-presence-child"
                   className="w-full"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
                   transition={{ duration: 0.2, ease: 'easeInOut' }}
                 >
                 <Routes location={location}>
@@ -471,7 +456,6 @@ const App: React.FC = () => {
                   <Route path="*" element={<PageTransition><NotFoundPage /></PageTransition>} />
                 </Routes>
                 </motion.div>
-              </AnimatePresence>
             </Suspense>
           </ErrorBoundary>
         </main>
