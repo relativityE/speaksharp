@@ -68,6 +68,7 @@ import {
     normalisePhraseText,
     performCandidateSwitch,
     readSttIdentity,
+    readCpuRuntime,
     receiptContentLeaks,
     resolveRunTarget,
     rwtLaunchArgs,
@@ -250,7 +251,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 takeAlreadyRunning = setup.recordingAlreadyStarted;
                 if (!takeAlreadyRunning) await waitForPrivateEngineReady(page, 600_000);
                 const acquisitionMs = Date.now() - began;
-                modelIdentityRow(receipt, run, await readSttIdentity(page), acquisitionMs);
+                modelIdentityRow(receipt, run, await readSttIdentity(page), acquisitionMs, await readCpuRuntime(page));
             });
 
             // Entitlement as the page received it, before the take writes anything (one ~50 s take + next Start).

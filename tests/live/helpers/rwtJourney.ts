@@ -464,6 +464,27 @@ export async function readSttIdentity(page: Page): Promise<Record<string, unknow
     });
 }
 
+/**
+ * #1258 (Open Mic Stop stall, #1546): the CPU engine's thread configuration as the page reports it — numbers and a flag
+ * only, never content. Recorded as evidence on the model-identity row so a rerun can be read against the thread policy
+ * that actually ran (reported hardware threads, isolation, and the threads the worker configured). Diagnostic only: it
+ * changes no verdict.
+ */
+export async function readCpuRuntime(page: Page): Promise<Record<string, number | boolean | null>> {
+    return page.evaluate(() => {
+        const w = window as unknown as { __PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__?: Record<string, unknown> };
+        const e = w.__PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__ ?? {};
+        const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+        return {
+            hardwareConcurrency: num(navigator.hardwareConcurrency),
+            crossOriginIsolated: globalThis.crossOriginIsolated === true,
+            requestedThreads: num(e.requestedThreads),
+            configuredThreads: num(e.configuredThreads),
+            workerReportedThreads: num(e.workerReportedThreads),
+        };
+    }).catch(() => ({ hardwareConcurrency: null, crossOriginIsolated: null, requestedThreads: null, configuredThreads: null, workerReportedThreads: null }));
+}
+
 export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
 
 
@@ -1111,7 +1132,7 @@ const CANDIDATE_EXPECTATION: Record<string, { engine: string; model: RegExp }> =
     'v4:distil:q4': { engine: 'transformers-js-v4', model: /distil/i },
 };
 
-export function modelIdentityRow(receipt: RwtReceipt, run: RunTarget, identity: Record<string, unknown> | null, acquisitionMs: number): void {
+export function modelIdentityRow(receipt: RwtReceipt, run: RunTarget, identity: Record<string, unknown> | null, acquisitionMs: number, cpuRuntime: Record<string, number | boolean | null> | null = null): void {
     const text = (k: string) => (typeof identity?.[k] === 'string' ? identity[k] as string : null);
     const observed = {
         engine: text('engine'), modelId: text('modelId'), runtimeVersion: text('runtimeVersion'),
@@ -1122,7 +1143,9 @@ export function modelIdentityRow(receipt: RwtReceipt, run: RunTarget, identity: 
     receipt.meta.observedModel = observed.modelId;
     receipt.meta.observedEngine = observed.engine;
     receipt.meta.runtimeVersion = observed.runtimeVersion;
-    const evidence = { requested, ...observed, acquisitionMs };
+    // Flat, prefixed keys: receipt evidence is one level of scalars.
+    const cpu = cpuRuntime ? Object.fromEntries(Object.entries(cpuRuntime).map(([k, v]) => [`cpu_${k}`, v])) : {};
+    const evidence = { requested, ...observed, acquisitionMs, ...cpu };
     if (!observed.modelId) { receipt.row('model identity', 'FAIL', 'the runtime reported no running model', evidence); return; }
     if (observed.fallback) { receipt.row('model identity', 'FAIL', 'a fallback engine ran instead of the requested model', evidence); return; }
     if (run.mode === 'switch') {

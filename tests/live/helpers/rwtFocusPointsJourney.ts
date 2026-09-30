@@ -46,6 +46,7 @@ import {
     analyticsThroughActions,
     performCandidateSwitch,
     readSttIdentity,
+    readCpuRuntime,
     receiptContentLeaks,
     resolveRunTarget,
     rwtPreconditionFailures,
@@ -237,7 +238,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await startBenchmarkRecording(page, suite);
             }
             startedAt = Date.now();
-            modelIdentityRow(receipt, run, await readSttIdentity(page), startedAt - acquisitionStarted);
+            modelIdentityRow(receipt, run, await readSttIdentity(page), startedAt - acquisitionStarted, await readCpuRuntime(page));
 
             const until = startedAt + Math.round((fixture.entry.speechSeconds + 4) * 1000);
             while (Date.now() < until) {
