@@ -459,7 +459,7 @@ export const EVENT_SCHEMAS = Object.freeze({
     // exist on the shipped dialog, so `title_too_short` was unreachable and the allowlist was governing
     // a vocabulary the product had stopped speaking.
     feedback_field: {
-        field: enumOf(['type', 'body', 'severity']),
+        field: enumOf(['type', 'body', 'severity', 'session']),
         transition: enumOf(['entered', 'cleared', 'unexpected_clear']),
         length_band: enumOf(['0', '1-3', '4-9', '10-39', '40-199', '200+']),
         submit_blockers: {
@@ -481,6 +481,8 @@ export const EVENT_SCHEMAS = Object.freeze({
             maxLength: 3,
         } as FieldRule,
         acknowledgement_visible: { kind: 'bool' } as FieldRule,
+        // FEEDBACK_SESSION_SELECTOR_SPEC §9: whether the stored report was linked to a session. Never the id, number or label.
+        has_session: { kind: 'bool' } as FieldRule,
     },
 
     /**

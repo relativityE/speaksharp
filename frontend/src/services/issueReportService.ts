@@ -304,7 +304,7 @@ export const issueReportService = {
     // NULL for the same reason as the failure path: the acknowledgement is a toast rendered by the
     // dialog, and `true` here asserted that the user saw something this module cannot see. The dialog
     // reports what it actually rendered.
-    emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: null });
+    emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: null, hasSession: linked });
     emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
       issue_category: input.category,
       issue_severity: input.severity,

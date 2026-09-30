@@ -1,7 +1,9 @@
 import React from 'react';
-import { Bug } from 'lucide-react';
+import { Bug, ChevronDown } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
-import { deriveSessionIdFromPath } from '@/lib/sessionRoute';
+import { deriveSessionIdFromPath, isUuid } from '@/lib/sessionRoute';
+import { currentLogin, readLoginSessions } from '@/services/loginSessionLog';
+import { PRODUCT_NAMES } from '@/constants/productNames';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from '@/lib/toast';
@@ -44,7 +46,7 @@ interface IssueReportDialogProps {
 const SELECTED_CHOICE = 'border-signature bg-signature-ground';
 const TYPE_OPTIONS: Array<{ value: FeedbackType; label: string; selectedClass: string }> = [
   { value: 'broke', label: 'Something broke', selectedClass: SELECTED_CHOICE },
-  { value: 'confused', label: 'Something confused me', selectedClass: SELECTED_CHOICE },
+  { value: 'confused', label: 'Unclear or confusing', selectedClass: SELECTED_CHOICE },
   { value: 'idea', label: 'I have an idea', selectedClass: 'border-focus-points bg-focus-points-ground' },
   { value: 'praise', label: 'This worked well', selectedClass: SELECTED_CHOICE },
 ];
@@ -199,12 +201,24 @@ const mapSeverity = (type: FeedbackType, severity: FeedbackSeverity | null): Iss
   return 'high';
 };
 
+/** FEEDBACK_SESSION_SELECTOR_SPEC §3: the "No session" option value. Session values are the opaque saved-session key. */
+export const NO_SESSION = '__none';
+const PRODUCT_LABEL = { open_mic: PRODUCT_NAMES.freeform, focus_points: PRODUCT_NAMES.objective } as const;
+const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+/** Local save time, with am/pm lowercased where the locale uses it ("2:18 pm"). */
+const formatTime = (savedAt: number): string => TIME_FORMAT.format(new Date(savedAt)).replace(/\b(AM|PM)\b/, (m) => m.toLowerCase());
+interface SessionOption { key: string; n: number; label: string }
+
 export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, plan, sttMode, runtimeState }) => {
   const location = useLocation();
   const { surface } = usePracticeSurface();
   const [open, setOpen] = React.useState(false);
   const [pageContext, setPageContext] = React.useState<PageContext>(() => resolvePageContext(location.pathname, surface));
-  const [snapshotSessionId, setSnapshotSessionId] = React.useState<string | null>(() => deriveSessionIdFromPath(location.pathname));
+  // FEEDBACK_SESSION_SELECTOR_SPEC §3–§5: the sessions saved during THIS login, newest first, read once per open so the list
+  // cannot change while the dialog is up. The only source of the report's session link (the route no longer is).
+  const [sessionOptions, setSessionOptions] = React.useState<SessionOption[]>([]);
+  const [sessionKey, setSessionKey] = React.useState<string>(NO_SESSION);
+  const [sessionTouched, setSessionTouched] = React.useState(false);
   const [type, setType] = React.useState<FeedbackType | null>(null);
   const [body, setBody] = React.useState('');
   const [severity, setSeverity] = React.useState<FeedbackSeverity | null>(null);
@@ -270,7 +284,12 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     if (open) emitFeedbackDialogOpened();
   }, [open]);
 
-  const draftSignature = JSON.stringify([type, body, severity]);
+  // §7: a UUID from this login's list, or null. §8: the effective selection is part of an attempt's signature, so changing
+  // the linked session after a failed attempt is an edit and rotates the idempotency key.
+  const selectedSessionId = sessionKey !== NO_SESSION && isUuid(sessionKey) && sessionOptions.some((o) => o.key === sessionKey)
+    ? sessionKey : null;
+  const selectedSessionN = sessionOptions.find((o) => o.key === selectedSessionId)?.n ?? null;
+  const draftSignature = JSON.stringify([type, body, severity, selectedSessionId]);
   const bodyCopy = type ? BODY_COPY[type] : null;
   const canSubmit = type !== null && body.trim().length > 0 && !isSubmitting;
 
@@ -300,14 +319,16 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     // their mind and deleted it left the deleted text behind: closing and reopening restored it,
     // and it survived in this tab for up to 24 hours. The user did the one thing that unambiguously
     // means "I don't want this saved", and the only path that honoured it was Cancel.
-    if (isEmptyFeedbackDraft(type, body, severity)) {
+    if (isEmptyFeedbackDraft(type, body, severity, sessionTouched)) {
       clearFeedbackDraft();
       return;
     }
     writeFeedbackDraft({
       ownerId: draftOwnerRef.current, type, body, severity, savedAt: Date.now(), idempotencyKey,
+      // §8: an untouched default is not stored as a choice.
+      sessionKey: sessionTouched ? sessionKey : null, sessionTouched,
     });
-  }, [body, idempotencyKey, open, severity, type]);
+  }, [body, idempotencyKey, open, severity, type, sessionKey, sessionTouched]);
 
   React.useEffect(() => {
     const nextOwner = userId ?? null;
@@ -325,6 +346,8 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     setType(null);
     setBody('');
     setSeverity(null);
+    setSessionKey(NO_SESSION);
+    setSessionTouched(false);
     setIdempotencyKey(makeIdempotencyKey());
     setAttempted(null);
     setError(null);
@@ -336,7 +359,22 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       const context = resolvePageContext(location.pathname, surface);
       const draft = readFeedbackDraft(userId ?? null);
       setPageContext(context);
-      setSnapshotSessionId(deriveSessionIdFromPath(location.pathname));
+      // §5.3: this login's saved sessions, newest first, labelled "{name} · {product} · {time}". No id is ever shown.
+      const login = currentLogin();
+      const entries = readLoginSessions(userId ?? null, login && login.ownerId === (userId ?? null) ? login.loginStartedAt : null);
+      const options: SessionOption[] = [...entries].sort((a, b) => b.n - a.n).map((e, i) => ({
+        key: e.key,
+        n: e.n,
+        label: `${i === 0 ? `Current session (${e.n})` : `Session ${e.n}`} · ${PRODUCT_LABEL[e.product]} · ${formatTime(e.savedAt)}`,
+      }));
+      setSessionOptions(options);
+      // §4 default: a restored choice the user made (still listed, or No session) → the session being viewed, if it was saved
+      // in this login (§4.1) → the newest → No session. A route-derived id outside the list is never sent silently.
+      const listed = (key: string | null | undefined) => !!key && options.some((o) => o.key === key);
+      const viewed = deriveSessionIdFromPath(location.pathname);
+      const restored = draft?.sessionTouched && (draft.sessionKey === NO_SESSION || listed(draft.sessionKey)) ? draft.sessionKey : null;
+      setSessionKey(restored ?? (listed(viewed) ? (viewed as string) : (options[0]?.key ?? NO_SESSION)));
+      setSessionTouched(restored !== null);
       setType(draft?.type ?? null);
       setBody(draft?.body ?? '');
       setSeverity(draft?.severity ?? null);
@@ -353,6 +391,8 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     setType(null);
     setBody('');
     setSeverity(null);
+    setSessionKey(NO_SESSION);
+    setSessionTouched(false);
     setIdempotencyKey(makeIdempotencyKey());
     setAttempted(null);
     setOpen(false);
@@ -408,7 +448,8 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       const issueArea = null;
       await issueReportService.submit({
         userId: userId ?? null,
-        sessionId: snapshotSessionId,
+        // §7: the selected session, or null for No session. The DB ownership guard still nulls an id the sender does not own.
+        sessionId: selectedSessionId,
         category: deriveCategory(pageContext),
         severity: mapSeverity(type, severity),
         title: deriveTitle(body),
@@ -423,6 +464,8 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       setType(null);
       setBody('');
       setSeverity(null);
+      setSessionKey(NO_SESSION);
+      setSessionTouched(false);
       setIdempotencyKey(makeIdempotencyKey());
       setAttempted(null);
       setOpen(false);
@@ -431,7 +474,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       // `acknowledgementVisible: true` from the storage path, which asserted the user had been told
       // something by code that cannot see the screen. Emitted after the toast call, so the fact follows
       // the render rather than predicting it.
-      emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: true });
+      emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: true, hasSession: selectedSessionId !== null });
     } catch {
       setAttempted({ key: idempotencyKey, signature: draftSignature });
       setError('That didn’t go through. Try again?');
@@ -568,6 +611,46 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
             </div>
           </div>
 
+          {/* FEEDBACK_SESSION_SELECTOR_SPEC §3: after the severity reveal; a native select (one tab stop, OS picker on mobile). */}
+          <div>
+            <label htmlFor="feedback-session" className="mb-2 flex items-baseline gap-2 text-sm font-extrabold">
+              {/* The explicit space keeps the accessible name "Which session is this about? Optional" (S-15); flex gap spaces it visually. */}
+              Which session is this about?{' '}
+              <span className="text-xs font-semibold text-neutral-muted">Optional</span>
+            </label>
+            <div className="relative">
+              <select
+                id="feedback-session"
+                data-testid="feedback-session-select"
+                value={sessionKey}
+                disabled={isSubmitting}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSessionKey(next);
+                  setSessionTouched(true);
+                  // §9: the USER's change only (never the default set on open). No id, number or label is sent.
+                  const blockers = submitBlockers({ type, bodyLength: body.trim().length, isSubmitting });
+                  emitFeedbackFieldState({
+                    field: 'session', transition: next === NO_SESSION ? 'cleared' : 'entered', lengthBand: lengthBand(0),
+                    blockers, submitEnabled: blockers.length === 0, feedbackType: type,
+                  });
+                }}
+                aria-describedby={sessionOptions.length === 0 ? 'feedback-session-help' : undefined}
+                className="h-12 w-full appearance-none rounded-[11px] border border-neutral-border-strong bg-white pl-[14px] pr-10 text-[15px] font-semibold text-neutral-body focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                {sessionOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                {sessionOptions.length > 0 && <option disabled value="__sep">──────────</option>}
+                <option value={NO_SESSION}>No session</option>
+              </select>
+              <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-[14px] top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-secondary" />
+            </div>
+            {sessionOptions.length === 0 && (
+              <p id="feedback-session-help" className="mt-2 text-xs font-semibold text-neutral-muted">
+                Sessions you save after signing in will appear here.
+              </p>
+            )}
+          </div>
+
           {error && <p role="alert" className="text-sm font-semibold text-destructive">{error}</p>}
 
           {/* G8: one footer row — the page-context line on the left, Cancel + Send on the right. */}
@@ -585,11 +668,11 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
               The detail stays behind "What's included" so the default form remains short. The long
               introductory privacy block and the audio checkbox are deliberately NOT restored.
             */}
-            Sent from <strong className="font-extrabold text-foreground">{pageContext.pageLabel}</strong> · only what you write here &mdash; no transcript or audio.{' '}
+            Sent from <strong className="font-extrabold text-foreground">{pageContext.pageLabel}</strong>{selectedSessionN !== null && <> · linked to Session {selectedSessionN}</>} · only what you write here &mdash; no transcript or audio.{' '}
             <button type="button" onClick={() => setShowDisclosure((value) => !value)} className="font-extrabold text-neutral-heading underline-offset-2 hover:underline">What&apos;s included</button>
             {showDisclosure && (
               <p className="mt-2 leading-relaxed" data-testid="issue-report-disclosure">
-                We attach an internal account reference, this screen, the app version, and basic browser and operating-system details. We don&rsquo;t automatically attach your email, name, credentials, transcript, or audio. Anything you type in the feedback box is included in your report.
+                We attach an internal account reference, this screen, the app version, and basic browser and operating-system details. We don&rsquo;t automatically attach your email, name, credentials, transcript, or audio. Anything you type in the feedback box is included in your report. If you pick a session, we include a link to it so support can find it. The recording and transcript are not sent.
               </p>
             )}
           </div>

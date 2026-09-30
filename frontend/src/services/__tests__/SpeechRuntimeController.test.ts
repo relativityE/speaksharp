@@ -2434,6 +2434,148 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         clearDraft();
     });
 
+    // #1541 Codex P2 r4126402525: a Retry Save after a same-login reload lists the saved session under the product its
+    // draft carried; a legacy draft without a product is not listed rather than guessed.
+    it.each([
+        ['open_mic', 'open_mic'],
+        ['focus_points', 'focus_points'],
+        ['a legacy draft (no product)', null],
+    ] as const)('#1541: rehydrated Retry Save of %s → Share feedback list entry %s', async (_label, product) => {
+        clearDraft();
+        const storage = await import('../../lib/storage');
+        const draft = await import('../sessionRecoveryDraft');
+        const log = await import('../loginSessionLog');
+        log.clearLoginSessions();
+        log.setCurrentLogin('user-1', 1_700_000_000_000);
+        const key = `sess-rehydrated-${String(product)}`;
+        draft.saveSessionRecoveryDraft({
+            sessionId: key, userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 20, mode: 'private',
+            nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+            ...(product ? { product } : {}),
+        });
+        const priv = controller as unknown as {
+            recordingStartedUnresolved: boolean; pendingFullSaveRetry: unknown; recordingProgressMode: { mode: string };
+            rehydrateUnresolvedRecording: (u: string | null) => boolean; retryRecordingSave: () => Promise<boolean>;
+        };
+        priv.recordingStartedUnresolved = false;
+        priv.pendingFullSaveRetry = null;
+        priv.recordingProgressMode = { mode: 'unknown' };   // a fresh controller after reload
+        expect(priv.rehydrateUnresolvedRecording('user-1')).toBe(true);
+        vi.mocked(storage.completeSession).mockResolvedValueOnce({ success: true, transcriptOutcome: 'retained', transcriptRetained: true } as never);
+        await expect(priv.retryRecordingSave()).resolves.toBe(true);
+        const listed = log.readLoginSessions('user-1', 1_700_000_000_000);
+        expect(listed.map((e) => [e.key, e.product])).toEqual(product ? [[key, product]] : []);
+        log.clearLoginSessions();
+        log.setCurrentLogin(null, null);
+        priv.recordingStartedUnresolved = false;
+        priv.pendingFullSaveRetry = null;
+        clearDraft();
+    });
+
+    // #1541 Codex P1 r4127289522 — the Share feedback list records a completed save against the login that RECORDED it.
+    describe('#1541: a completed save is listed only for the login that recorded it', () => {
+        const A = { ownerId: 'user-1', loginStartedAt: 1_700_000_000_000 };
+        type Priv = {
+            state: string; recordingStartedUnresolved: boolean; pendingFullSaveRetry: unknown; recordingProgressMode: { mode: string };
+            recordingLogin: { ownerId: string; loginStartedAt: number } | null;
+            rehydrateUnresolvedRecording: (u: string | null) => boolean; retryRecordingSave: () => Promise<boolean>;
+            updateSessionPersisted: (p: boolean, d?: { sessionId?: string | null }) => void;
+            transition: (s: string) => Promise<void>;
+        };
+        const priv = () => controller as unknown as Priv;
+        const rehydrate = async (key: string, product: 'open_mic' | 'focus_points') => {
+            const draft = await import('../sessionRecoveryDraft');
+            draft.saveSessionRecoveryDraft({
+                sessionId: key, userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 20, mode: 'private', product,
+                nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+            });
+            priv().recordingStartedUnresolved = false;
+            priv().pendingFullSaveRetry = null;
+            priv().recordingProgressMode = { mode: 'unknown' };
+            return priv().rehydrateUnresolvedRecording('user-1');
+        };
+        afterEach(async () => {
+            const log = await import('../loginSessionLog');
+            log.clearLoginSessions();
+            log.setCurrentLogin(null, null);
+            priv().recordingStartedUnresolved = false;
+            priv().pendingFullSaveRetry = null;
+            priv().recordingLogin = null;
+            clearDraft();
+        });
+
+        it('the login is captured when the take enters RECORDING, and a hard reset clears it', async () => {
+            const log = await import('../loginSessionLog');
+            // A login no earlier test used, and no leftover capture: only the RECORDING transition can produce this value
+            // (boundary-map audit: an earlier same-login rehydration test left A captured and masked a missing capture).
+            const fresh = { ownerId: 'user-recording-boundary', loginStartedAt: A.loginStartedAt + 123_456 };
+            priv().recordingLogin = null;
+            log.setCurrentLogin(fresh.ownerId, fresh.loginStartedAt);
+            priv().state = 'INITIATING';
+            // The start-intent guard (#1431) is proven in the one-click suite; here only the RECORDING boundary's capture is
+            // under test, so the guard admits this one intent and the real transition body runs.
+            const admit = vi.spyOn(controller as unknown as { mayPublishRecording: (t?: string) => boolean }, 'mayPublishRecording')
+                .mockImplementation((t?: string) => t === 'intent-1541');
+            await (controller as unknown as { transition: (s: string, e?: Error, k?: unknown, i?: string) => Promise<void> })
+                .transition('RECORDING', undefined, undefined, 'intent-1541');
+            admit.mockRestore();
+            expect(priv().state).toBe('RECORDING');
+            expect(priv().recordingLogin).toEqual(fresh);
+            log.setCurrentLogin('user-2', A.loginStartedAt + 1);           // the captured login does not follow a later switch
+            expect(priv().recordingLogin).toEqual(fresh);
+            await (controller as unknown as { reset: (r: string) => Promise<unknown> }).reset('account_change');
+            expect(priv().recordingLogin).toBeNull();
+        });
+
+        it('CASUALTY: A\'s save completing after the tab switched to B is not listed for B (P1 r4127289522)', async () => {
+            const log = await import('../loginSessionLog');
+            log.setCurrentLogin(A.ownerId, A.loginStartedAt);
+            priv().recordingLogin = log.currentLogin();                      // A recorded this take
+            priv().recordingProgressMode = { mode: 'open_mic' };
+            log.clearLoginSessions();                                         // AuthProvider on the account change
+            log.setCurrentLogin('user-2', A.loginStartedAt + 5_000);
+            priv().updateSessionPersisted(true, { sessionId: 'sess-A' });      // A's in-flight save completes now
+            expect(log.readLoginSessions('user-2', A.loginStartedAt + 5_000)).toEqual([]);
+            log.setCurrentLogin(A.ownerId, A.loginStartedAt);
+            expect(log.readLoginSessions(A.ownerId, A.loginStartedAt)).toEqual([]);
+        });
+
+        it('the same login completing its own save lists it', async () => {
+            const log = await import('../loginSessionLog');
+            log.setCurrentLogin(A.ownerId, A.loginStartedAt);
+            priv().recordingLogin = log.currentLogin();
+            priv().recordingProgressMode = { mode: 'focus_points' };
+            priv().updateSessionPersisted(true, { sessionId: 'sess-A' });
+            expect(log.readLoginSessions(A.ownerId, A.loginStartedAt).map((e) => [e.key, e.product])).toEqual([['sess-A', 'focus_points']]);
+        });
+
+        it.each(['open_mic', 'focus_points'] as const)('rehydrated Retry Save of %s in the same login is listed; after a switch to another login it is not', async (product) => {
+            const storage = await import('../../lib/storage');
+            const log = await import('../loginSessionLog');
+            // Same login: listed under its own product.
+            log.setCurrentLogin(A.ownerId, A.loginStartedAt);
+            expect(await rehydrate(`sess-same-${product}`, product)).toBe(true);
+            vi.mocked(storage.completeSession).mockResolvedValueOnce({ success: true, transcriptOutcome: 'retained', transcriptRetained: true } as never);
+            await expect(priv().retryRecordingSave()).resolves.toBe(true);
+            expect(log.readLoginSessions(A.ownerId, A.loginStartedAt).map((e) => [e.key, e.product])).toEqual([[`sess-same-${product}`, product]]);
+            // Rehydrated in A's login, then a new sign-in of the same user before the save completes: not listed.
+            log.clearLoginSessions();
+            clearDraft();
+            expect(await rehydrate(`sess-next-${product}`, product)).toBe(true);
+            log.setCurrentLogin(A.ownerId, A.loginStartedAt + 60_000);
+            vi.mocked(storage.completeSession).mockResolvedValueOnce({ success: true, transcriptOutcome: 'retained', transcriptRetained: true } as never);
+            await expect(priv().retryRecordingSave()).resolves.toBe(true);
+            expect(log.readLoginSessions(A.ownerId, A.loginStartedAt + 60_000)).toEqual([]);
+        });
+
+        it('a rehydration while the current login is a DIFFERENT owner captures no login, so nothing is listed', async () => {
+            const log = await import('../loginSessionLog');
+            log.setCurrentLogin('user-2', A.loginStartedAt);
+            await rehydrate('sess-foreign', 'open_mic');
+            expect(priv().recordingLogin).toBeNull();
+        });
+    });
+
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length
     // (start → Stop), NOT the save-time wall-clock — the post-Stop finalize decode (tens of
     // seconds on Private) must not inflate the denominator that pace/WPM and the detail view use.

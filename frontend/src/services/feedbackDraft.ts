@@ -9,6 +9,9 @@ export interface FeedbackDraft {
   severity: FeedbackSeverity | null;
   savedAt: number;
   idempotencyKey: string;
+  /** FEEDBACK_SESSION_SELECTOR_SPEC §8: the chosen session option (null = never touched) and whether the user chose it. */
+  sessionKey: string | null;
+  sessionTouched: boolean;
 }
 
 export const FEEDBACK_DRAFT_KEY = 'feedback.draft';
@@ -55,6 +58,8 @@ export const readFeedbackDraft = (ownerId: string | null): FeedbackDraft | null 
       savedAt: value.savedAt,
       idempotencyKey:
         typeof value.idempotencyKey === 'string' && value.idempotencyKey !== '' ? value.idempotencyKey : '',
+      sessionKey: typeof value.sessionKey === 'string' ? value.sessionKey : null,
+      sessionTouched: value.sessionTouched === true,
     };
   } catch {
     return null;
@@ -73,7 +78,10 @@ export const clearFeedbackDraft = (): void => {
   } catch { /* storage is optional */ }
 };
 
-/** A draft with nothing in it is not a draft. Erasing every field must erase the stored copy. */
+/**
+ * A draft with nothing in it is not a draft. Erasing every field must erase the stored copy. An UNTOUCHED session default is
+ * not content (spec §8): opening and closing the dialog must still leave nothing stored.
+ */
 export const isEmptyFeedbackDraft = (
-  type: FeedbackType | null, body: string, severity: FeedbackSeverity | null,
-): boolean => type === null && body === '' && severity === null;
+  type: FeedbackType | null, body: string, severity: FeedbackSeverity | null, sessionTouched = false,
+): boolean => type === null && body === '' && severity === null && !sessionTouched;

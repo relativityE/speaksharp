@@ -26,7 +26,7 @@
  */
 import { safeEmit } from './safeEmit';
 
-export type FeedbackField = 'type' | 'body' | 'severity';
+export type FeedbackField = 'type' | 'body' | 'severity' | 'session';
 export type FieldTransition = 'entered' | 'cleared' | 'unexpected_clear';
 export type SubmitBlocker = 'type_missing' | 'body_empty' | 'already_submitting';
 /** The four answers the shipped dialog offers. A closed product-authored set, never user text. */
@@ -95,11 +95,14 @@ export function emitFeedbackSubmit(input: {
     outcome: 'attempted' | 'refused_by_gate' | 'storage_ok' | 'storage_failed';
     blockers?: readonly SubmitBlocker[];
     acknowledgementVisible?: boolean | null;
+    /** FEEDBACK_SESSION_SELECTOR_SPEC §9: whether the report was sent linked to a session. Never the id, number or label. */
+    hasSession?: boolean;
 }): void {
     safeEmit('feedback_submit', {
         outcome: input.outcome,
         submit_blockers: input.blockers ? [...input.blockers] : null,
         acknowledgement_visible: input.acknowledgementVisible ?? null,
+        ...(input.hasSession === undefined ? {} : { has_session: input.hasSession }),
     }, 'HIGH');
 }
 
