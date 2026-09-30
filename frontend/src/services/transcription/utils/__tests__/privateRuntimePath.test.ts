@@ -36,6 +36,14 @@ describe('computeWasmThreadCount', () => {
     expect(computeWasmThreadCount(true, 2)).toBe(2);
     expect(computeWasmThreadCount(true, undefined)).toBe(MAX_WASM_THREADS);
   });
+  it('CASUALTY #1258: a 4-core device gives the engine 2 threads, not all 4; other devices are unchanged', () => {
+    expect(computeWasmThreadCount(true, 4)).toBe(2);
+    expect(computeWasmThreadCount(true, 3)).toBe(3);
+    expect(computeWasmThreadCount(true, 6)).toBe(MAX_WASM_THREADS);
+    expect(computeWasmThreadCount(true, 8)).toBe(MAX_WASM_THREADS);
+    expect(computeWasmThreadCount(false, 4)).toBe(1);
+    expect(computeWasmThreadCount(true, undefined)).toBe(MAX_WASM_THREADS);   // unknown hardware unchanged
+  });
   it('never returns less than 1', () => {
     expect(computeWasmThreadCount(true, 0)).toBe(1);
   });

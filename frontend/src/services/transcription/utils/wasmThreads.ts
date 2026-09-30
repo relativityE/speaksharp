@@ -13,10 +13,19 @@
  */
 export const MAX_WASM_THREADS = 4;
 
+/** #1258: a device with exactly this many hardware threads gives the engine only FOUR_CORE_ENGINE_THREADS. */
+export const FOUR_CORE_DEVICE_THREADS = 4;
+export const FOUR_CORE_ENGINE_THREADS = 2;
+
 /**
  * Compute the WASM thread count for the CPU engine.
  * Returns 1 unless the context is cross-origin isolated (the hard requirement
  * for SharedArrayBuffer-backed threads).
+ *
+ * #1258 (PO direction "4 cores → 2 threads"): a device reporting exactly 4 hardware threads gets 2 engine threads
+ * instead of 4; every other device is unchanged. Context: in Open Mic Production rehearsal run 36729186252 on a
+ * 4-vCPU runner, the page stopped answering Playwright ~50 s into a take. Whether engine threads contributed is a
+ * hypothesis under test (a deployed rerun), not an established cause.
  */
 export function computeWasmThreadCount(
   crossOriginIsolated: boolean,
@@ -26,6 +35,8 @@ export function computeWasmThreadCount(
   const hw = typeof hardwareThreads === 'number' && Number.isFinite(hardwareThreads)
     ? hardwareThreads
     : MAX_WASM_THREADS;
+  // Only a device that REPORTS 4 hardware threads; unknown hardware keeps the previous default.
+  if (typeof hardwareThreads === 'number' && Math.floor(hardwareThreads) === FOUR_CORE_DEVICE_THREADS) return FOUR_CORE_ENGINE_THREADS;
   return Math.max(1, Math.min(MAX_WASM_THREADS, Math.floor(hw)));
 }
 

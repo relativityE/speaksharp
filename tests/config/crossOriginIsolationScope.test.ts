@@ -69,6 +69,8 @@ describe('#1043 single-thread WASM remains the automatic compatibility floor', (
     it('returns 2-4 threads only when isolated (observed: 4 on an 8-core isolated browser)', () => {
         expect(computeWasmThreadCount(true, 8)).toBe(4);
         expect(computeWasmThreadCount(true, 2)).toBe(2);
+        // #1258: exactly 4 hardware threads → 2 engine threads (the page keeps 2 cores).
+        expect(computeWasmThreadCount(true, 4)).toBe(2);
         expect(computeWasmThreadCount(true, 8)).toBeLessThanOrEqual(MAX_WASM_THREADS);
     });
 });
