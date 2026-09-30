@@ -8,7 +8,7 @@
  * DISPATCH: rc-gates.yml gate=gate-3-dast diagnostic_dast_spec=tests/live/rwt-focus-points-partial.live.spec.ts
  *           rwt_writes_ack=RWT-DISPOSABLE-ACCOUNT-WRITES [comparison_cell=v4:distil:q4/focus_points]
  */
-import { test } from './helpers/deployedLiveTest';
+import { test } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { RWT_ACCOUNT_PREFIX, loadRwtFixture, rwtLaunchArgs } from './helpers/rwtJourney';
 import { WEBGPU, admin, focusPointsJourney } from './helpers/rwtFocusPointsJourney';

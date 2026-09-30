@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { guardReceiptOutput, humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import {
     AUDIO_ARGS,
     expectBenchmarkRecordingStarted,
@@ -312,6 +312,17 @@ export async function approvedSurfaceFailures(page: Page): Promise<string[]> {
 }
 
 /**
+ * The pre-write surface preflight (PM 5881740741). A refused surface halts the receipt before any Production write, so
+ * every later row is HOLD "not reached" rather than a zero-count FAIL, and then raises the named HOLD.
+ */
+export async function requireApprovedSurface(page: Page, receipt: RwtReceipt): Promise<void> {
+    const surface = await approvedSurfaceFailures(page);
+    if (surface.length === 0) return;
+    receipt.halt('surface preflight', `HOLD before any Production write: ${surface.join('; ')}`);
+    throw new Error(`HOLD surface: ${surface.join('; ')}`);
+}
+
+/**
  * Playwright writes `error-context.md` (a full DOM snapshot) on failure unless an attachment of that name already
  * exists. After signup the DOM holds transcript and coaching text, so a content-free one is attached up front.
  */
@@ -472,9 +483,19 @@ export class RwtReceipt {
         for (const value of values) if (typeof value === 'string' && value.length > 3) this.forbidden.add(value);
     }
 
+    /** The preflight step this journey stopped at, before any Production write; later rows are "not reached". */
+    private haltedAt: string | null = null;
+
+    /** Records a pre-write preflight HOLD. Every row recorded after it is HOLD "not reached" (`rowAfterHalt`). */
+    halt(step: string, detail: string): void {
+        this.rows.push({ step, verdict: 'HOLD', detail });
+        this.haltedAt = step;
+    }
+
     row(step: string, verdict: Verdict, detail: string, evidence?: ReceiptRow['evidence']): void {
-        this.rows.push({ step, verdict, detail, evidence });
-        if (verdict === 'FAIL') expect.soft(verdict, `${step}: ${detail}`).toBe('PASS');
+        const recorded = rowAfterHalt({ step, verdict, detail, evidence }, this.haltedAt);
+        this.rows.push(recorded);
+        if (recorded.verdict === 'FAIL') expect.soft(recorded.verdict, `${step}: ${recorded.detail}`).toBe('PASS');
     }
 
     /**

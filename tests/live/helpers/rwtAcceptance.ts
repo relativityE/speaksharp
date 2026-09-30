@@ -64,6 +64,23 @@ export function receiptAcceptance(rows: readonly ReceiptRow[]): {
     };
 }
 
+/**
+ * PM 5881740741 (rehearsal 1, run 36506361220): a journey that HOLDs at its pre-write surface preflight never exercised
+ * the product, so its later rows are not observations. Zero events from an aborted journey must not read as product
+ * FAILs, and a PASS is equally unobserved. Every row recorded after the halt becomes HOLD "not reached", without its
+ * evidence (zero counts are not evidence), so acceptance is INCOMPLETE. The list of rows that stay valid is closed:
+ * only the receipt's own leak check, which judges the receipt itself rather than the product.
+ */
+export const ROWS_VALID_AFTER_HALT: ReadonlySet<string> = new Set(['receipt content-free']);
+
+export function rowAfterHalt(row: ReceiptRow, haltedAt: string | null): ReceiptRow {
+    if (haltedAt === null || ROWS_VALID_AFTER_HALT.has(row.step)) return row;
+    // Cleanup judges Production state, not the product: a cleanup that failed or found residue stays a FAIL. Only "no
+    // account to delete" is expected after a pre-write halt (none was created), so it is "not reached", not a FAIL.
+    if (row.step === RUN_OWNED_CLEANUP_ROW && row.evidence?.cleanupOutcome !== 'none_found') return row;
+    return { step: row.step, verdict: 'HOLD', detail: `not reached: the journey stopped at ${haltedAt}` };
+}
+
 const cell = (v: unknown) => String(v ?? '').replace(/\|/g, '/');
 
 /**
@@ -186,7 +203,7 @@ export async function recordRunOwnedCleanup(
     }
     row(RUN_OWNED_CLEANUP_ROW, 'FAIL', failed
         ? 'the run-owned account cleanup failed or could not prove zero residue; Production state may remain'
-        : 'no run-owned account was found to delete, so deletion was not verified');
+        : 'no run-owned account was found to delete, so deletion was not verified', { cleanupOutcome: failed ? 'failed' : 'none_found' });
     return false;
 }
 

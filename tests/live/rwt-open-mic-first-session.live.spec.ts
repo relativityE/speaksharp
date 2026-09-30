@@ -26,7 +26,7 @@
  * With no comparison cell the run records the deployed default and is labelled diagnostic.
  */
 import { createClient } from '@supabase/supabase-js';
-import { test } from './helpers/deployedLiveTest';
+import { test } from './helpers/rwtProductionTest';
 import { expect, type Response } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -44,7 +44,7 @@ import {
     AnalyticsTap,
     RWT_ACCOUNT_PREFIX,
     RwtReceipt,
-    approvedSurfaceFailures,
+    requireApprovedSurface,
     armCandidateSwitch,
     countWords,
     installMicAcquisitionCounter,
@@ -198,8 +198,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('row 1 — sign up and sign in', async () => {
                 await page.goto('/auth/signup');
                 await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
-                const surface = await approvedSurfaceFailures(page);
-                if (surface.length > 0) throw new Error(`HOLD surface: ${surface.join('; ')}`);
+                await requireApprovedSurface(page, receipt);
                 createdEmail = newDisposableEmail('open-mic');
                 receipt.forbid(createdEmail);
                 const account = await signUpDisposableAccount(page, createdEmail);

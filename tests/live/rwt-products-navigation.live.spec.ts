@@ -17,7 +17,7 @@
  * DISPATCH: rc-gates.yml gate=gate-3-dast diagnostic_dast_spec=tests/live/rwt-products-navigation.live.spec.ts
  */
 import { createClient } from '@supabase/supabase-js';
-import { test } from './helpers/deployedLiveTest';
+import { test } from './helpers/rwtProductionTest';
 import { expect, type Page } from '@playwright/test';
 import { extractUidFromAuthStorage } from './helpers/proofAuthority';
 import {
@@ -26,7 +26,7 @@ import {
     RWT_ACCOUNT_PREFIX,
     RwtReceipt,
     humanObservation,
-    approvedSurfaceFailures,
+    requireApprovedSurface,
     installMicAcquisitionCounter,
     micAcquisitions,
     receiptContentLeaks,
@@ -95,8 +95,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             await test.step('returning user signs in through the real form', async () => {
                 await page.goto('/auth/signin');
                 await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
-                const surface = await approvedSurfaceFailures(page);
-                if (surface.length > 0) throw new Error(`HOLD surface: ${surface.join('; ')}`);
+                await requireApprovedSurface(page, receipt);
                 const started = Date.now();
                 await page.getByTestId('email-input').fill(RETURNING_EMAIL);
                 await page.getByTestId('password-input').fill(RETURNING_PASSWORD);
