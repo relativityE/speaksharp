@@ -37,6 +37,13 @@ test.describe('header → Focus Points: the url holds the intent until the perso
         await expect(page.getByTestId('objective-setup-dialog')).toHaveCount(0);
     });
 
+    test('CONTROL: the shared current-product state still says Focus Points after the page transition settles (#1545 P2 r4139959728; the race itself is proven by the PracticePage component casualty)', async ({ page }) => {
+        await focusPointsFromSessionHeader(page);
+        // Let every exiting page finish its exit animation; an exiting PracticePage used to clear the shared surface then.
+        await page.waitForTimeout(1_500);
+        await expect(page.getByTestId('nav-products-button')).toHaveAttribute('aria-current', 'page');
+    });
+
     test('CONTROL: a reload while the setup is open keeps it open', async ({ page }) => {
         await focusPointsFromSessionHeader(page);
         await page.reload();

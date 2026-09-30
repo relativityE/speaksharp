@@ -89,11 +89,19 @@ export default function PracticePage() {
   React.useEffect(() => {
     // Focus Points is available: the objective surface is the points-setup modal being open, not an
     // "unavailable" state. Report Issue on /practice reflects exactly which of the two surfaces is active.
+    // #1545 Codex P2 r4139959728: the provider sits above AnimatePresence, so only the PRESENT instance may publish.
+    if (!isPresent) return;
     const surface: PracticeSurface = setupOpen ? 'objective_setup' : 'practice_home';
     setSurface(surface);
-  }, [setupOpen, setSurface]);
+  }, [isPresent, setupOpen, setSurface]);
 
-  React.useEffect(() => () => { setSurface(null); }, [setSurface]);
+  // Cleared by the present instance when it stops being present (it starts exiting, or unmounts while present), in the
+  // same commit as the incoming instance's publish and before it — never later by an exiting instance, which used to
+  // wipe the incoming page's surface when its exit animation finished.
+  React.useEffect(() => {
+    if (!isPresent) return undefined;
+    return () => { setSurface(null); };
+  }, [isPresent, setSurface]);
 
   // Freeform: authed → /session directly; anonymous → account access preserving the /session intent via
   // location.state.from (resolvePostAuthPath honors safe deep-links). Never auto-starts recording.

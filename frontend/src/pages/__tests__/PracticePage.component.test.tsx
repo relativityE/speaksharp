@@ -3,6 +3,7 @@ import { render, screen, fireEvent, within } from '../../../tests/support/test-u
 import PracticePage from '../PracticePage';
 import { PresenceContext } from 'framer-motion';
 import { useLocation } from 'react-router-dom';
+import { PracticeSurfaceProvider, usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { PRODUCT_NAMES } from '@/constants/productNames';
 
 const navigateSpy = vi.fn();
@@ -242,5 +243,56 @@ describe('header → Focus Points intent is consumed only by the page that is ac
     rerender(<><PracticePage key="second" /><Search /></>);   // the first instance is torn down, a new one mounts
     expect(await screen.findByTestId('objective-setup-dialog')).toBeInTheDocument();
     expect(screen.getByTestId('probe-search')).toHaveTextContent('?product=focus-points');
+  });
+});
+
+// #1545 Codex P2 r4139959728: the shared Report Issue surface (PracticeSurfaceProvider sits ABOVE AnimatePresence) must be
+// published and cleared only by the page that is present. The exiting instance used to publish practice_home and, on
+// unmount, clear the surface to null AFTER the incoming instance had published objective_setup — which it never restored.
+describe('the Report Issue surface is owned by the present page only', () => {
+  const SurfaceProbe = () => <output data-testid="probe-surface">{String(usePracticeSurface().surface)}</output>;
+  const presence = (isPresent: boolean) => ({ id: 'probe', isPresent, register: () => () => undefined, onExitComplete: () => undefined, initial: false as const, custom: undefined });
+  const ROUTE = { pathname: '/practice', search: '?product=focus-points' };
+
+  beforeEach(() => {
+    navigateSpy.mockReset();
+    mockUser = { id: 'u-1', email: 'me@example.com' };
+    mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
+  });
+
+  it('CASUALTY: the exiting instance unmounting after the incoming one published does not clear the surface', async () => {
+    const tree = (withExiting: boolean) => (
+      <PracticeSurfaceProvider>
+        {withExiting && <PresenceContext.Provider value={presence(false)}><PracticePage key="old" /></PresenceContext.Provider>}
+        <PresenceContext.Provider value={presence(true)}><PracticePage key="new" /></PresenceContext.Provider>
+        <SurfaceProbe />
+      </PracticeSurfaceProvider>
+    );
+    const { rerender } = render(tree(true), { route: ROUTE });
+    expect(await screen.findByTestId('objective-setup-dialog')).toBeInTheDocument();
+    await vi.waitFor(() => expect(screen.getByTestId('probe-surface')).toHaveTextContent('objective_setup'));
+    rerender(tree(false));   // the exiting page finishes its exit animation and unmounts
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId('probe-surface')).toHaveTextContent('objective_setup');
+  });
+
+  it('CASUALTY: an exiting instance never publishes its own surface over the present page', async () => {
+    render(
+      <PracticeSurfaceProvider>
+        <PresenceContext.Provider value={presence(true)}><PracticePage key="new" /></PresenceContext.Provider>
+        <PresenceContext.Provider value={presence(false)}><PracticePage key="old" /></PresenceContext.Provider>
+        <SurfaceProbe />
+      </PracticeSurfaceProvider>, { route: ROUTE });
+    expect(await screen.findByTestId('objective-setup-dialog')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId('probe-surface')).toHaveTextContent('objective_setup');
+  });
+
+  it('CONTROL: leaving /practice entirely (the present page unmounts) clears the surface', async () => {
+    const { rerender } = render(
+      <PracticeSurfaceProvider><PracticePage /><SurfaceProbe /></PracticeSurfaceProvider>, { route: { pathname: '/practice' } });
+    await vi.waitFor(() => expect(screen.getByTestId('probe-surface')).toHaveTextContent('practice_home'));
+    rerender(<PracticeSurfaceProvider><SurfaceProbe /></PracticeSurfaceProvider>);
+    await vi.waitFor(() => expect(screen.getByTestId('probe-surface')).toHaveTextContent('null'));
   });
 });
