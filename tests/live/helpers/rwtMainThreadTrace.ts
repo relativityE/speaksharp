@@ -9,9 +9,16 @@ import type { Browser, CDPSession } from '@playwright/test';
  * has been silent at the end — plus generic trace event names. It is written into the receipt `meta`, so it changes
  * no verdict.
  */
-const CATEGORIES = ['toplevel', 'devtools.timeline', 'v8', '__metadata'];
+// `disabled-by-default-v8.cpu_profiler`: V8 samples the call stack from its own sampling thread, so it still reports the
+// code location while the main thread is stuck inside a function that never returns (which emits no complete event).
+const CATEGORIES = ['toplevel', 'devtools.timeline', 'v8', 'disabled-by-default-v8.cpu_profiler', '__metadata'];
 
-type TraceEvent = { name: string; ph: string; ts: number; dur?: number; pid: number; tid: number; args?: { name?: string } };
+type CallFrame = { functionName?: string; url?: string; lineNumber?: number; columnNumber?: number };
+type ProfileNode = { id: number; callFrame?: CallFrame };
+type TraceEvent = {
+    name: string; ph: string; ts: number; dur?: number; pid: number; tid: number; id?: string;
+    args?: { name?: string; data?: { startTime?: number; cpuProfile?: { nodes?: ProfileNode[]; samples?: number[] }; timeDeltas?: number[] } };
+};
 
 export type TraceSummary = Record<string, string | number | null>;
 
@@ -63,7 +70,8 @@ export function summarizeTrace(events: TraceEvent[]): TraceSummary {
     const out: TraceSummary = { trace_events: events.length };
     if (!timed.length) return { ...out, trace_note: 'no renderer or worker tasks captured' };
     const t0 = Math.min(...timed.map((e) => e.ts));
-    const t1 = Math.max(...events.filter((e) => typeof e.ts === 'number' && e.ts > 0).map((e) => e.ts + (e.dur ?? 0)));
+    // Trace end: every non-metadata event (metadata carries ts 0 and must not define the window).
+    const t1 = Math.max(...events.filter((e) => e.ph !== 'M' && typeof e.ts === 'number').map((e) => e.ts + (e.dur ?? 0)));
     const windowUs = Math.max(1, t1 - t0);
     out.trace_window_ms = Math.round(windowUs / 1000);
     for (const [r] of THREAD_ROLES) {
@@ -87,7 +95,70 @@ export function summarizeTrace(events: TraceEvent[]): TraceSummary {
                 .map(([n, d]) => `${n.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 40)}=${Math.round(d / 1000)}ms`).join(', ') || null;
         }
     }
+    Object.assign(out, summarizeMainThreadSamples(events, role, t1));
     return out;
+}
+
+/**
+ * Content-free code location, CLOSED shapes only (PM 5919893573): a script base name that is a plain `.js`/`.mjs`
+ * file name, a JS identifier, and integer line:column. Anything else — blob:/data:/inline scripts, query strings,
+ * free text in a "function name" — collapses to `(script)` / `(fn)`, so no URL or page text can reach the receipt.
+ */
+const SCRIPT_NAME = /^[A-Za-z0-9_.-]{1,60}\.m?js$/;
+const FUNCTION_NAME = /^[A-Za-z_$][A-Za-z0-9_$.]{0,40}$/;
+export function frameLabel(frame: CallFrame | undefined): string {
+    const url = frame?.url ?? '';
+    const base = /^https?:\/\//.test(url) ? (url.split(/[?#]/)[0].split('/').pop() ?? '') : '';
+    const file = SCRIPT_NAME.test(base) ? base : '(script)';
+    const fn = FUNCTION_NAME.test(frame?.functionName ?? '') ? frame!.functionName! : '(fn)';
+    const line = Number.isInteger(frame?.lineNumber) && (frame!.lineNumber as number) >= 0 ? (frame!.lineNumber as number) + 1 : null;
+    const col = Number.isInteger(frame?.columnNumber) && (frame!.columnNumber as number) >= 0 ? (frame!.columnNumber as number) + 1 : null;
+    return `${file}${line !== null ? `:${line}:${col ?? 0}` : ''} ${fn}`;
+}
+
+/**
+ * The most-sampled code locations (self time) on the page's MAIN thread, over the whole trace and in its last 10 s.
+ * Built from V8 `Profile`/`ProfileChunk` events: samples carry node ids; nodes carry call frames.
+ */
+export function summarizeMainThreadSamples(events: TraceEvent[], role: Map<string, string>, traceEndUs: number): TraceSummary {
+    const profiles = new Map<string, { main: boolean; startUs: number; nodes: Map<number, CallFrame | undefined>; samples: Array<{ node: number; ts: number }> }>();
+    for (const e of events) {
+        if (e.name === 'Profile' && e.id) {
+            profiles.set(e.id, { main: role.get(`${e.pid}:${e.tid}`) === 'main', startUs: e.args?.data?.startTime ?? e.ts, nodes: new Map(), samples: [] });
+        }
+    }
+    for (const e of events) {
+        if (e.name !== 'ProfileChunk' || !e.id) continue;
+        const p = profiles.get(e.id);
+        if (!p) continue;
+        for (const n of e.args?.data?.cpuProfile?.nodes ?? []) p.nodes.set(n.id, n.callFrame);
+        const samples = e.args?.data?.cpuProfile?.samples ?? [];
+        const deltas = e.args?.data?.timeDeltas ?? [];
+        let t = p.samples.length ? p.samples[p.samples.length - 1].ts : p.startUs;
+        samples.forEach((node, i) => { t += deltas[i] ?? 0; p.samples.push({ node, ts: t }); });
+    }
+    const main = [...profiles.values()].filter((p) => p.main);
+    if (!main.length) return { trace_main_samples: 0 };
+    const top = (since: number) => {
+        const counts = new Map<string, number>();
+        let total = 0;
+        for (const p of main) {
+            for (const smp of p.samples) {
+                if (smp.ts < since) continue;
+                const frame = p.nodes.get(smp.node);
+                if (!frame || frame.functionName === '(idle)' || frame.functionName === '(program)') continue;
+                const label = frameLabel(frame);
+                counts.set(label, (counts.get(label) ?? 0) + 1);
+                total += 1;
+            }
+        }
+        const list = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+            .map(([label, n]) => `${label} ${Math.round((100 * n) / Math.max(1, total))}%`).join('; ');
+        return { total, list: list || null };
+    };
+    const all = top(-Infinity);
+    const tail = top(traceEndUs - 10_000_000);
+    return { trace_main_samples: all.total, trace_main_top_js: all.list, trace_main_tail10s_samples: tail.total, trace_main_tail10s_top_js: tail.list };
 }
 
 /**
