@@ -4,7 +4,7 @@
  * thread that stopped reporting (a long task that never completed leaves a long silent tail).
  */
 import { describe, expect, it } from 'vitest';
-import { summarizeTrace } from '../live/helpers/rwtMainThreadTrace';
+import { boundedStopWithTrace, summarizeTrace } from '../live/helpers/rwtMainThreadTrace';
 
 const meta = (pid: number, tid: number, name: string) => ({ name: 'thread_name', ph: 'M', ts: 0, pid, tid, args: { name } });
 const task = (tid: number, tsMs: number, durMs: number, name = 'RunTask') => ({ name, ph: 'X', ts: tsMs * 1000, dur: durMs * 1000, pid: 1, tid });
@@ -38,5 +38,28 @@ describe('#1258 main-thread trace summary', () => {
 
   it('with nothing captured it says so instead of inventing numbers', () => {
     expect(summarizeTrace([])).toMatchObject({ trace_events: 0, trace_note: 'no renderer or worker tasks captured' });
+  });
+});
+
+describe('#1547 Codex P1: the trace is recorded whatever Stop does', () => {
+  const recorder = () => { const calls: string[] = []; return { calls, record: async () => { calls.push('recorded'); } }; };
+
+  it('Stop succeeds → trace recorded, no error', async () => {
+    const r = recorder();
+    await expect(boundedStopWithTrace(async () => 'ok', 1_000, r.record)).resolves.toBeUndefined();
+    expect(r.calls).toEqual(['recorded']);
+  });
+
+  it('CASUALTY: Stop REJECTS on a responsive page → trace recorded, the original error rethrown', async () => {
+    const r = recorder();
+    const original = new Error('recorder bar did not clear');
+    await expect(boundedStopWithTrace(async () => { throw original; }, 1_000, r.record)).rejects.toBe(original);
+    expect(r.calls).toEqual(['recorded']);
+  });
+
+  it('Stop never settles (frozen page) → trace recorded at the bound, then a bounded failure', async () => {
+    const r = recorder();
+    await expect(boundedStopWithTrace(() => new Promise(() => {}), 50, r.record)).rejects.toThrow(/did not complete within 0.05 s/);
+    expect(r.calls).toEqual(['recorded']);
   });
 });

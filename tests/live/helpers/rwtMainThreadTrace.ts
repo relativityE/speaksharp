@@ -89,3 +89,20 @@ export function summarizeTrace(events: TraceEvent[]): TraceSummary {
     }
     return out;
 }
+
+/**
+ * #1547 Codex P1 r4149205476: run Stop under a bound and ALWAYS settle the trace afterwards — whether Stop resolves,
+ * REJECTS (a responsive page whose recorder never clears: the worker-saturated case this diagnostic exists to catch), or
+ * never settles (an unresponsive page). The original failure is rethrown after the trace is recorded.
+ */
+export async function boundedStopWithTrace(stop: () => Promise<unknown>, boundMs: number, recordTrace: () => Promise<void>): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+        stop().then(() => ({ kind: 'stopped' as const }), (error: unknown) => ({ kind: 'rejected' as const, error })),
+        new Promise<{ kind: 'timed_out' }>((resolve) => { timer = setTimeout(() => resolve({ kind: 'timed_out' }), boundMs); }),
+    ]);
+    if (timer) clearTimeout(timer);
+    await recordTrace();
+    if (outcome.kind === 'rejected') throw outcome.error;
+    if (outcome.kind === 'timed_out') throw new Error(`Stop did not complete within ${boundMs / 1000} s (page unresponsive); trace summary recorded in receipt meta`);
+}

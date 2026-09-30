@@ -27,7 +27,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/rwtProductionTest';
-import { MainThreadTrace } from './helpers/rwtMainThreadTrace';
+import { MainThreadTrace, boundedStopWithTrace } from './helpers/rwtMainThreadTrace';
 import { expect, type Response } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -294,13 +294,8 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Row 5 — Stop, save, and coaching that arrives on its own ────────────────────────────────
             await test.step('row 5 — Stop, save, two coaching phrases', async () => {
                 stoppedAt = Date.now();
-                // Bounded: a page that stops answering must end the trace and fail here, not hang to the test timeout.
-                const stopped = await Promise.race([
-                    stopBenchmarkRecording(page, SUITE, 180_000).then(() => true),
-                    new Promise<false>((resolve) => setTimeout(() => resolve(false), STOP_BOUND_MS)),
-                ]);
-                await recordTrace();
-                if (!stopped) throw new Error(`Stop did not complete within ${STOP_BOUND_MS / 1000} s (page unresponsive); trace summary recorded in receipt meta`);
+                // Bounded: whether Stop succeeds, rejects or hangs, the trace is recorded before the step continues or fails.
+                await boundedStopWithTrace(() => stopBenchmarkRecording(page, SUITE, 180_000), STOP_BOUND_MS, recordTrace);
                 await waitForBenchmarkSaveCandidate(page, SUITE, 180_000);
                 await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
                 persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
