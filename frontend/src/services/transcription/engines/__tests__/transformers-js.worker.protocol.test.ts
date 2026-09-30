@@ -157,6 +157,27 @@ describe('transformers-js.worker protocol contract', () => {
         expect(typeof wasm.wasmPaths).toBe('string');
     });
 
+    it.each([
+        ['unknown hardware', undefined, 4],
+        ['a reported 4-thread device', 4, 2],
+        ['a reported 8-thread device', 8, 4],
+    ])('#1258 composed path: an isolated worker on %s (hardwareConcurrency %s) assigns %s ORT threads', async (_label, hw, expected) => {
+        vi.stubGlobal('crossOriginIsolated', true);
+        vi.stubGlobal('navigator', { ...globalThis.navigator, hardwareConcurrency: hw });
+        const wasm = { wasmPaths: '', numThreads: 0, simd: false };
+        const transcriber = vi.fn(async () => ({ text: '' }));
+        const pipeline = vi.fn(async () => transcriber);
+        vi.doMock('@xenova/transformers', () => ({ env: { backends: { onnx: { wasm } } }, pipeline }));
+
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 11, type: 'init', isE2E: false });
+
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({ id: 11, type: 'loaded', requestedThreads: expected, configuredThreads: expected, crossOriginIsolated: true }));
+        });
+        expect(wasm.numThreads).toBe(expected);
+    });
+
     it('contract: initialized worker returns a result message for transcribe requests', async () => {
         let observedAudio: Float32Array | null = null;
         let observedOptions: Record<string, unknown> | null = null;
