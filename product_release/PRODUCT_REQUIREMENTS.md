@@ -39,8 +39,8 @@ These are copy/label changes or small presentation adjustments. Dev may implemen
 
 1. **Sharpen the public loop + privacy line.**
    - Replace: `Speak. See what to fix. Say it again. Your audio never leaves the browser.`
-   - With: **`Speak. Know what to improve. Try again. Your audio stays on your device.`**
-   - Intent: clearer outcome, fewer words, device-level privacy language, and the repeat loop in one line.
+   - With: **`Speak. Know what to improve. Repeat with purpose. Your audio stays on your device.`**
+   - Intent: clearer outcome, fewer words, device-level privacy language, and an intentional repeat loop — the next take applies what the user learned rather than merely retrying.
 
 2. **Use an accurate audio-privacy claim.**
    - Replace: `Your practice audio stays on your device. There is no recording to leak or delete.`
