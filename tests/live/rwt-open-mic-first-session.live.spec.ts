@@ -27,6 +27,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/rwtProductionTest';
+import { MainThreadTrace, boundedStopWithTrace } from './helpers/rwtMainThreadTrace';
 import { expect, type Response } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -68,6 +69,7 @@ import {
     normalisePhraseText,
     performCandidateSwitch,
     readSttIdentity,
+    readCpuRuntime,
     receiptContentLeaks,
     resolveRunTarget,
     rwtLaunchArgs,
@@ -85,6 +87,8 @@ import {
 import { bindReadbackJourneys, takeStartedAfter } from './helpers/rwtOracles';
 
 const SUITE = 'open-mic-first-session';
+/** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
+const STOP_BOUND_MS = 240_000;
 const JOURNEY = 'open_mic';
 /** PO script row 5: exactly two phrases, each at most six words (COACHING_WORD_BUDGET). */
 const COACHING_WORD_BUDGET = 6;
@@ -144,7 +148,7 @@ test.describe('RWT — Open Mic first session @live', () => {
         accountDeletedInTest = false;
     });
 
-    test('a new person completes a first Open Mic session end to end', async ({ page }, testInfo) => {
+    test('a new person completes a first Open Mic session end to end', async ({ page, browser }, testInfo) => {
         test.setTimeout(1_500_000); // cold model acquisition + a 60 s take + coaching + Analytics + feedback
 
         const preconditions = rwtPreconditionFailures();
@@ -250,7 +254,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 takeAlreadyRunning = setup.recordingAlreadyStarted;
                 if (!takeAlreadyRunning) await waitForPrivateEngineReady(page, 600_000);
                 const acquisitionMs = Date.now() - began;
-                modelIdentityRow(receipt, run, await readSttIdentity(page), acquisitionMs);
+                modelIdentityRow(receipt, run, await readSttIdentity(page), acquisitionMs, await readCpuRuntime(page));
             });
 
             // Entitlement as the page received it, before the take writes anything (one ~50 s take + next Start).
@@ -260,6 +264,12 @@ test.describe('RWT — Open Mic first session @live', () => {
             let visibleFillers: number | null = null;
             const liveDisplay: Record<string, number> = {};   // the per-word badges the person sees
             const liveMarks: Record<string, number> = {};     // the highlighted words in the live transcript
+            // #1258 Stop-stall diagnostic: one content-free browser-level trace across the take and Stop (summary → meta).
+            const mainThreadTrace = await MainThreadTrace.start(browser);
+            const recordTrace = async () => {
+                if (!mainThreadTrace) { receipt.meta.trace_note = 'trace unavailable'; return; }
+                Object.assign(receipt.meta, await mainThreadTrace.stop());
+            };
             await test.step('row 4 — speak the corpus', async () => {
                 if (!takeAlreadyRunning) await startBenchmarkRecording(page, SUITE);
                 // Stop inside the fixture's 15 s trailing silence: all speech, and never a second loop of it.
@@ -284,7 +294,8 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Row 5 — Stop, save, and coaching that arrives on its own ────────────────────────────────
             await test.step('row 5 — Stop, save, two coaching phrases', async () => {
                 stoppedAt = Date.now();
-                await stopBenchmarkRecording(page, SUITE, 180_000);
+                // Bounded: whether Stop succeeds, rejects or hangs, the trace is recorded before the step continues or fails.
+                await boundedStopWithTrace(() => stopBenchmarkRecording(page, SUITE, 180_000), STOP_BOUND_MS, recordTrace);
                 await waitForBenchmarkSaveCandidate(page, SUITE, 180_000);
                 await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
                 persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
