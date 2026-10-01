@@ -477,15 +477,21 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // Per word: what the transcript contains, what the live display showed, what was saved.
                 for (const [spoken, key] of Object.entries(FILLER_KEY)) {
                     const inTranscript = occurrences(transcript, spoken);
-                    const shown = liveDisplay[key] ?? 0;
                     const marked = liveMarks[key] ?? 0;
                     const saved = counts[key] ?? 0;
-                    const consistent = shown === saved && saved === inTranscript;
+                    // #1550 Codex P1 r4161436378: the review (FillerBreakdown) renders only COACHABLE keys. A discourse
+                    // marker such as "you know" is counted and saved per key but never displayed there by design, so its
+                    // display is not compared; transcript vs saved still is.
+                    const rendered = (COACHABLE_KEYS as readonly string[]).includes(key);
+                    const shown = rendered ? liveDisplay[key] ?? 0 : null;
+                    const consistent = (!rendered || shown === saved) && saved === inTranscript;
                     receipt.row(`filler "${spoken}": transcript / display / saved`, consistent ? 'PASS' : 'FAIL',
-                        consistent ? 'the transcript, the live display and the saved count agree'
-                            : shown !== saved ? 'the count the person saw differs from the count saved (misleading display)'
+                        consistent
+                            ? rendered ? 'the transcript, the displayed breakdown and the saved count agree'
+                                : 'the transcript and the saved count agree (a discourse marker: tracked, not shown in the review by design)'
+                            : rendered && shown !== saved ? 'the count the person saw differs from the count saved (misleading display)'
                                 : 'the saved count differs from the words in the saved transcript',
-                        { transcript: inTranscript, liveHighlighted: marked, displayed: shown, saved });
+                        { transcript: inTranscript, liveHighlighted: marked, displayed: rendered ? shown : null, displayRendered: rendered, saved });
                 }
                 // Keys displayed that the saved row does not carry (or vice versa) are also a misleading display.
                 const shownOnly = Object.keys(liveDisplay).filter((k) => (counts[k] ?? 0) !== liveDisplay[k]);

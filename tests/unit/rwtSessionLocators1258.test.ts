@@ -16,6 +16,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { TRUE_FILLER_WORDS } from '../../frontend/src/config';
 
 const ROOT = path.resolve(__dirname, '../..');
 const SRC = path.join(ROOT, 'frontend/src');
@@ -100,5 +101,21 @@ describe('#1258 RWT Session-page locators exist in the rendered Session tree', (
     it('CASUALTY: the retired filler-count-value is NOT a Session-page element (it renders only on Analytics)', () => {
         expect(rendered.has('filler-count-value')).toBe(false);
         expect(renderedTestIds([path.join(SRC, 'components/AnalyticsDashboard.tsx')]).has('filler-count-value')).toBe(true);
+    });
+});
+
+describe('#1550 Codex P1 r4161436378: the per-word display check covers exactly the keys the review renders', () => {
+    const spec = read('tests/live/rwt-open-mic-first-session.live.spec.ts');
+
+    it("the spec's COACHABLE_KEYS are the product's coachable true fillers (FillerBreakdown renders only these)", () => {
+        const declared = /const COACHABLE_KEYS = \[([^\]]+)\]/.exec(spec)?.[1] ?? '';
+        const keys = [...declared.matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+        expect(keys).toEqual([...TRUE_FILLER_WORDS].sort());
+    });
+
+    it('display equality is gated on a rendered (coachable) key, so a discourse marker like "you know" cannot FAIL a correct run', () => {
+        expect(spec).toMatch(/const rendered = \(COACHABLE_KEYS as readonly string\[\]\)\.includes\(key\);/);
+        expect(spec).toMatch(/const consistent = \(!rendered \|\| shown === saved\) && saved === inTranscript;/);
+        expect(spec).not.toMatch(/const shown = liveDisplay\[key\] \?\? 0;\n\s+const marked/);
     });
 });
