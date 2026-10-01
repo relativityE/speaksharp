@@ -58,7 +58,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     },
     {
         id: 'analytics',
-        label: 'Analytics',
+        label: 'Progress',
         path: '/analytics',
         matchPaths: ['/analytics'],
         icon: BarChart3,

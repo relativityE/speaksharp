@@ -72,8 +72,8 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
       // attached to a button they never pressed.
       const disclosure = page.getByTestId('ai-suggestions-disclosure');
       await expect(disclosure).toBeVisible({ timeout: 15_000 });
-      await expect(disclosure).toContainText(/Google Gemini/i);
-      await expect(disclosure).toContainText(/Audio is never sent/i);
+      await expect(disclosure).toContainText(/AI service/i);
+      await expect(disclosure).toContainText(/Your audio stays on this device/i);
 
       // P1 — the desktop control that starts another take. This is the assertion that would have caught
       // the review evicting the verdict: at `md` and above the mobile action bar is hidden, so this is

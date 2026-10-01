@@ -78,7 +78,7 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
 
     // #1538 (PO-approved wording): the rendered disclosure names the topic and points this take sends to Gemini.
     await expect(page.getByTestId('ai-suggestions-disclosure')).toHaveText(
-      "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.",
+      'Your audio stays on this device. We use an AI service to analyze your session transcript, Focus Points topic, and points to create coaching.',
     );
 
     // REQUEST: two refusals + one answer, each for this saved session, each Focus Points.
@@ -110,7 +110,7 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
     expect(sent[0].body?.accepted_coaching_versions).toEqual(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
     // #1538: Open Mic sends only the transcript, and its disclosure stays transcript-only.
     await expect(page.getByTestId('ai-suggestions-disclosure')).toHaveText(
-      "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.",
+      'Your audio stays on this device. We use an AI service to analyze your session transcript and create coaching.',
     );
   });
 });

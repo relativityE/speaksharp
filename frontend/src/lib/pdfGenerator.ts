@@ -183,7 +183,7 @@ export const generateSessionPdf = async (
 
     // --- Analytics ---
     doc.setFontSize(16);
-    doc.text('Vocal Analytics', 14, 60);
+    doc.text('Session Metrics', 14, 60); // #1548: single-session evidence, not Progress
 
     const analyticsData = [
       ['Metric', 'Value'],

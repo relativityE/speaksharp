@@ -341,7 +341,7 @@ export function AuthenticatedHome({
                             disabled={!last.canReview}
                         />
                     )}
-                    <HeaderButton label="Analytics" Icon={BarChart3} onClick={onViewAnalytics} testid="home-analytics" />
+                    <HeaderButton label="Progress" Icon={BarChart3} onClick={onViewAnalytics} testid="home-analytics" />
                 </div>
             </div>
 
@@ -376,7 +376,7 @@ export function AuthenticatedHome({
                     identity="open-mic"
                     eyebrow="Speak freely"
                     title={PRODUCT_NAMES.freeform}
-                    sentence="Just speak. Your transcript, fillers and pace, live."
+                    sentence="Speak freely. See what worked and what to change next."
                     ctaLabel="Start your session"
                     ctaAria="Start your session"
                     onCta={onStartFreeform}
