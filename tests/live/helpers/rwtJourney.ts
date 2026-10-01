@@ -21,6 +21,7 @@ import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
 import {
     AUDIO_ARGS,
     expectBenchmarkRecordingStarted,
@@ -106,6 +107,8 @@ export function rwtLaunchArgs(fixture: LoadedFixture, opts: { webgpu: boolean })
         ...AUDIO_ARGS,
         ...(opts.webgpu ? ['--enable-unsafe-webgpu'] : ['--disable-gpu', '--disable-webgpu']),
         `--use-file-for-fake-audio-capture=${fixture.path}`,
+        // #1258: `navigator.webdriver` off, so PostHog's bot filter does not discard the run's telemetry.
+        ...RWT_BROWSER_IDENTITY_ARGS,
     ];
 }
 
