@@ -49,7 +49,7 @@ These are copy/label changes or small presentation adjustments. Dev may implemen
 
 3. **Keep inline AI disclosure provider-agnostic.**
    - Replace vendor-specific inline copy such as `Google Gemini` with:
-     **`Your audio stays on this device. Your saved transcript is sent to an AI service to create coaching.`**
+     **`Your audio stays on this device. We use an AI service to analyze your session transcript and create coaching.`**
    - Product UI names the data and purpose, not a vendor that may change.
    - Legal/privacy documentation may name the current provider(s) and must remain truthful.
 
