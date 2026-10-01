@@ -4,7 +4,7 @@
  * thread that stopped reporting (a long task that never completed leaves a long silent tail).
  */
 import { describe, expect, it } from 'vitest';
-import { MainThreadTrace, boundedStopWithTrace, frameLabel, keepTraceEvent, summarizeTrace, withDeadline } from '../live/helpers/rwtMainThreadTrace';
+import { MAX_KEPT_EVENTS, MainThreadTrace, boundedStopWithTrace, frameLabel, keepTraceEvent, summarizeTrace, withDeadline } from '../live/helpers/rwtMainThreadTrace';
 
 const meta = (pid: number, tid: number, name: string) => ({ name: 'thread_name', ph: 'M', ts: 0, pid, tid, args: { name } });
 const task = (tid: number, tsMs: number, durMs: number, name = 'RunTask') => ({ name, ph: 'X', ts: tsMs * 1000, dur: durMs * 1000, pid: 1, tid });
@@ -320,6 +320,30 @@ describe('#1258 follow-up: every browser-level trace operation is bounded', () =
     const { trace } = await MainThreadTrace.start(browserWith(new StubCdp({ events: [meta(1, 10, 'CrRendererMain'), { name: 'RunTask', ph: 'X', dur: 1_000, pid: 1, tid: 10, get ts(): number { throw new TypeError('bad'); } }] })), OP_MS);
     const s = await trace!.stop();
     expect(s).toMatchObject({ trace_state: 'trace_summary_failed', trace_note: 'summary failed: TypeError' });
+  });
+
+  it('RED on 7ad28fa7a (#1549 Codex P1 r4158695358): past the event cap the kept PREFIX is never reported as the Stop-window tail', async () => {
+    // Kept prefix: a healthy main thread (short tasks at the start). Dropped: the Stop-window stall that follows.
+    const healthy = task(10, 0, 10);
+    const prefix: unknown[] = [meta(1, 10, 'CrRendererMain'), ...new Array<unknown>(MAX_KEPT_EVENTS - 1).fill(healthy)];
+    const dropped = [task(10, 60_000, 30_000), task(10, 60_000, 29_000, 'FunctionCall'), task(10, 95_000, 5)];
+    const { trace } = await MainThreadTrace.start(browserWith(new StubCdp({ events: [...prefix, ...dropped] })), OP_MS);
+    const s = await trace!.stop();
+    // Counts and state are kept; the trace is marked partial.
+    expect(s).toMatchObject({
+      trace_state: 'trace_summarized', trace_partial: 'event_cap', trace_events: MAX_KEPT_EVENTS,
+      trace_events_received: MAX_KEPT_EVENTS + dropped.length, trace_events_dropped_cap: dropped.length, trace_cleanup: 'not_needed',
+    });
+    // No end-sensitive or whole-window field may describe the prefix as the window (it would read ~10 ms and healthy).
+    const suppressed = Object.keys(s).filter((k) => /^trace_(window_ms|main_|worker_)/.test(k));
+    expect(suppressed).toEqual([]);
+  });
+
+  it('under the cap nothing is suppressed and the trace is not marked partial', async () => {
+    const { trace } = await MainThreadTrace.start(browserWith(new StubCdp()), OP_MS);
+    const s = await trace!.stop();
+    expect(s).toMatchObject({ trace_events_dropped_cap: 0, trace_main_longest_task_ms: 600, trace_main_silent_tail_ms: 0 });
+    expect(s).not.toHaveProperty('trace_partial');
   });
 
   it('stop is idempotent: the Stop path and the window deadline share ONE end attempt', async () => {

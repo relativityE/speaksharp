@@ -156,6 +156,14 @@ export class MainThreadTrace {
         // through receipt and account cleanup; release the session the same bounded, exactly-once way as a failed start.
         const trace_cleanup: TraceCleanup = state === 'trace_summarized' ? 'not_needed' : await this.abandon();
         const counts = { trace_events_received: this.received, trace_events_dropped_cap: this.dropped, trace_cleanup };
+        if (this.dropped > 0) {
+            // #1549 Codex P1 r4158695358: past the cap only the PREFIX was kept, so its end, tail, busy share, longest task
+            // and CPU samples would describe an earlier interval as the Stop window. Report counts and state only.
+            return {
+                trace_events: this.events.length, ...counts, trace_partial: 'event_cap', trace_state: state,
+                trace_note: 'event cap reached; timing, task and CPU-sample fields suppressed',
+            };
+        }
         try {
             // An incomplete trace is still summarized: whatever arrived is evidence; `trace_state` says it is partial.
             return { ...summarizeTrace(this.events), ...counts, trace_state: state };
