@@ -106,13 +106,16 @@ export class InsufficientTestBudgetError extends Error {
  * start, because `MainThreadTrace.start` runs INSIDE the window. An admitted window can therefore always finish the speech
  * wait and reach Stop even when the trace start uses its whole allowance.
  * - `minUsefulMs`: trace start + speech wait (speech + 4 s) + 30 s to reach and begin Stop.
- * - `wantedMs`: trace start + speech wait + the full Stop bound + 60 s margin.
+ * - `wantedMs`: trace start + speech wait + the full Stop bound + the worst-case trace stop + 60 s margin. The trace is
+ *   recorded after Stop INSIDE the window (#1549 Codex P2 r4158574103), so a full-length Stop and trace stop still end
+ *   with the Stop outcome, not the window deadline. `planWindowBound` still caps it at the remaining test budget.
  */
-export function diagnosticWindowFor(speechSeconds: number, o: { stopBoundMs: number; traceStartWorstCaseMs: number }):
-    { wantedMs: number; minUsefulMs: number } {
+export function diagnosticWindowFor(
+    speechSeconds: number, o: { stopBoundMs: number; traceStartWorstCaseMs: number; traceStopWorstCaseMs: number },
+): { wantedMs: number; minUsefulMs: number } {
     const speechWaitMs = Math.round((speechSeconds + 4) * 1000);
     return {
-        wantedMs: o.traceStartWorstCaseMs + speechWaitMs + o.stopBoundMs + 60_000,
+        wantedMs: o.traceStartWorstCaseMs + speechWaitMs + o.stopBoundMs + o.traceStopWorstCaseMs + 60_000,
         minUsefulMs: o.traceStartWorstCaseMs + speechWaitMs + 30_000,
     };
 }

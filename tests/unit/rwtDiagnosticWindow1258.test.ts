@@ -5,7 +5,7 @@
  * without the page or the browser protocol. Everything written is content-free by construction.
  */
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
-import { TRACE_START_WORST_CASE_MS, TRACE_OP_TIMEOUT_MS } from '../live/helpers/rwtMainThreadTrace';
+import { TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, TRACE_OP_TIMEOUT_MS, boundedStopWithTrace } from '../live/helpers/rwtMainThreadTrace';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -135,11 +135,11 @@ describe('#1549 Codex P1 r4157529415: the window never outlasts the test', () =>
 describe('#1549 Codex P2 r4157983399: an admitted window can always reach Stop', () => {
   const SPEECH = 45.7; // the open_mic_tts fixture (tests/fixtures/rwt/rwt-fixtures.manifest.json)
   const RESERVE = 180_000;
-  const bounds = diagnosticWindowFor(SPEECH, { stopBoundMs: 240_000, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS });
+  const bounds = diagnosticWindowFor(SPEECH, { stopBoundMs: 240_000, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS, traceStopWorstCaseMs: TRACE_STOP_WORST_CASE_MS });
 
   it('both bounds include the worst-case trace start (session open + start + cleanup = 3 op bounds)', () => {
     expect(TRACE_START_WORST_CASE_MS).toBe(3 * TRACE_OP_TIMEOUT_MS);
-    expect(bounds).toEqual({ minUsefulMs: 90_000 + 49_700 + 30_000, wantedMs: 90_000 + 49_700 + 240_000 + 60_000 });
+    expect(bounds).toEqual({ minUsefulMs: 90_000 + 49_700 + 30_000, wantedMs: 90_000 + 49_700 + 240_000 + 90_000 + 60_000 });
   });
 
   it('RED on a7e04c557: 140 s of budget used to be admitted although a slow trace start leaves too little to reach Stop', () => {
@@ -160,10 +160,100 @@ describe('#1549 Codex P2 r4157983399: an admitted window can always reach Stop',
   });
 
   it('spec shape: the spec takes both bounds from diagnosticWindowFor with the worst-case trace start, and the collection covers end + complete + cleanup', () => {
-    expect(SPEC).toMatch(/diagnosticWindowFor\(speechSeconds, \{ stopBoundMs: STOP_BOUND_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS \}\)/);
+    expect(SPEC).toMatch(/diagnosticWindowFor\(speechSeconds, \{\s*stopBoundMs: STOP_BOUND_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS,/);
     expect(SPEC).toMatch(/\.\.\.windowBounds\(fixture\.entry\.speechSeconds\)/);
     expect(SPEC).not.toMatch(/minUsefulWindowFor|windowBoundFor/);
     expect(SPEC).toMatch(/const DEADLINE_COLLECTION_MS = 3 \* TRACE_OP_TIMEOUT_MS \+ 30_000;/);
+  });
+});
+
+describe('#1549 Codex P2 r4158574103: the wanted window outlasts Stop AND its bounded trace shutdown', () => {
+  const SPEECH = 45.7;
+  const SPEECH_WAIT_MS = Math.round((SPEECH + 4) * 1000);
+  const STOP_MS = 240_000;
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('RED on eb6f02b67: a full Stop bound then a worst-case trace stop ends with the Stop outcome, never WindowDeadlineError', async () => {
+    vi.useFakeTimers();
+    const { record, onDisk } = newRecord();
+    const { wantedMs } = diagnosticWindowFor(SPEECH, { stopBoundMs: STOP_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS, traceStopWorstCaseMs: TRACE_STOP_WORST_CASE_MS });
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const run = runBoundedWindow({
+      boundMs: wantedMs,
+      onDeadlineBoundMs: 1_000,
+      record,
+      body: async () => {
+        await sleep(TRACE_START_WORST_CASE_MS); // slowest trace start
+        await sleep(SPEECH_WAIT_MS);
+        // Stop never settles (uses its whole bound); the trace stop never settles either (uses its whole default bound).
+        await boundedStopWithTrace(() => new Promise(() => {}), STOP_MS, () => new Promise(() => {}));
+      },
+      onDeadline: async () => {},
+    });
+    const settled = run.catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(wantedMs + 5_000);
+    const error = await settled;
+    expect(error).not.toBeInstanceOf(WindowDeadlineError);
+    expect(String(error)).toMatch(/Stop did not complete within 240 s/);
+    expect(onDisk()).toMatchObject({ diag_window: 'failed' });
+  });
+
+  it('the trace stop allowance is the bound boundedStopWithTrace uses by default (end + complete + cleanup)', () => {
+    expect(TRACE_STOP_WORST_CASE_MS).toBe(3 * TRACE_OP_TIMEOUT_MS);
+    expect(diagnosticWindowFor(SPEECH, { stopBoundMs: STOP_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS, traceStopWorstCaseMs: TRACE_STOP_WORST_CASE_MS }))
+      .toEqual({ wantedMs: 90_000 + SPEECH_WAIT_MS + STOP_MS + 90_000 + 60_000, minUsefulMs: 90_000 + SPEECH_WAIT_MS + 30_000 });
+  });
+
+  it('the remaining-test-budget cap still holds: a larger wanted window never exceeds the budget after the reserve', () => {
+    const bounds = diagnosticWindowFor(SPEECH, { stopBoundMs: STOP_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS, traceStopWorstCaseMs: TRACE_STOP_WORST_CASE_MS });
+    const RESERVE = 180_000;
+    const overruns: number[] = [];
+    for (let budget = 0; budget <= 1_000_000; budget += 5_000) {
+      const plan = planWindowBound({ ...bounds, remainingMs: RESERVE + budget, reserveMs: RESERVE });
+      if (plan.kind === 'ok' && plan.boundMs > Math.min(budget, bounds.wantedMs)) overruns.push(budget);
+    }
+    expect(overruns).toEqual([]);
+    expect(planWindowBound({ ...bounds, remainingMs: RESERVE + 400_000, reserveMs: RESERVE })).toEqual({ kind: 'ok', boundMs: 400_000 });
+  });
+
+  it('spec shape: the spec passes the worst-case trace stop into the window bounds', () => {
+    expect(SPEC).toMatch(/traceStopWorstCaseMs: TRACE_STOP_WORST_CASE_MS/);
+  });
+});
+
+describe('#1549 Codex P1 r4158574092: process peaks describe only the first-take window', () => {
+  it('RED on eb6f02b67: the sampler stops right after the bounded window, before save/coaching, PDF and the repeat recording', () => {
+    const windowAt = SPEC.indexOf('await runBoundedWindow({');
+    const saveAt = SPEC.indexOf("test.step('row 5 — save and two coaching phrases'");
+    const innerFinally = SPEC.slice(SPEC.indexOf('} finally {', windowAt), saveAt);
+    expect(windowAt).toBeGreaterThan(0);
+    expect(innerFinally).toContain('sampler.stop();');
+    // After the bounded trace record, so the samples cover the trace shutdown that belongs to the window.
+    expect(innerFinally.indexOf('sampler.stop();')).toBeGreaterThan(innerFinally.indexOf('await withDeadline(recordTrace'));
+  });
+
+  it('the outer finally and the afterEach backstop still stop it (a failure before the window)', () => {
+    expect(SPEC.slice(SPEC.lastIndexOf('} finally {'))).toContain('sampler.stop();');
+    expect(SPEC).toMatch(/test\.afterEach\(async \(\) => \{\s*\/\/[^\n]*\n\s*activeSampler\?\.stop\(\);/);
+  });
+
+  it('once stopped, later activity cannot move the folded peaks', () => {
+    vi.useFakeTimers();
+    try {
+      const { record, onDisk } = newRecord();
+      const proc = fakeProc();
+      const sampler = new ProcessSampler(record, { fs: proc.fs, log: () => {}, suite: 'open-mic-first-session' });
+      sampler.start(5_000);
+      sampler.stop();
+      const peaks = onDisk();
+      for (let i = 0; i < 5; i += 1) proc.advance(); // a later spike (coaching, PDF, the repeat recording)
+      vi.advanceTimersByTime(60_000);
+      sampler.stop(); // the later backstops are no-ops for the samples
+      expect(onDisk().proc_samples).toBe(peaks.proc_samples);
+      expect(onDisk().proc_peak_rss_renderer_mb).toBe(peaks.proc_peak_rss_renderer_mb);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

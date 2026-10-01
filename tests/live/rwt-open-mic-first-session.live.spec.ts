@@ -27,7 +27,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/rwtProductionTest';
-import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
+import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
 import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
 import { expect, type Response } from '@playwright/test';
 import {
@@ -95,10 +95,11 @@ const STOP_BOUND_MS = 240_000;
  * #1258 follow-up (run 36863804680 hung after the take began and wrote nothing): a Node-side deadline around the WHOLE
  * traced take → Stop window — trace start, the speech wait, the live reads and Stop — that fires whether or not the page
  * or browser answers. Its wanted and minimum-useful bounds come from `diagnosticWindowFor` (both include the worst-case
- * trace start), and it is always short of the outer test timeout.
+ * trace start; the wanted bound also the worst-case trace stop after Stop), and it is always short of the outer test timeout.
  */
-const windowBounds = (speechSeconds: number) =>
-    diagnosticWindowFor(speechSeconds, { stopBoundMs: STOP_BOUND_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS });
+const windowBounds = (speechSeconds: number) => diagnosticWindowFor(speechSeconds, {
+    stopBoundMs: STOP_BOUND_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS, traceStopWorstCaseMs: TRACE_STOP_WORST_CASE_MS,
+});
 /** Bound on the deadline collection: the trace stop (end + complete + cleanup, 3 × op bound) plus the page fence. */
 const DEADLINE_COLLECTION_MS = 3 * TRACE_OP_TIMEOUT_MS + 30_000;
 /** Kept free before the outer timeout: the deadline collection, then the receipt `finally` and account cleanup. */
@@ -365,7 +366,10 @@ test.describe('RWT — Open Mic first session @live', () => {
                 });
             } finally {
                 // A Row-4 failure never reached Stop's own recording; ask once more (idempotent, bounded).
-                await withDeadline(recordTrace, 3 * TRACE_OP_TIMEOUT_MS);
+                await withDeadline(recordTrace, TRACE_STOP_WORST_CASE_MS);
+                // #1549 Codex P1 r4158574092: the process peaks describe the first-take window only — never coaching, PDF
+                // or the repeat recording. The outer finally and afterEach remain the backstop for an earlier failure.
+                sampler.stop();
             }
 
             // ── Row 5 — save, and coaching that arrives on its own ─────────────────────────────────────

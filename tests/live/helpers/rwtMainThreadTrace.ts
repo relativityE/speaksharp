@@ -47,6 +47,8 @@ export type TraceState =
 export const TRACE_OP_TIMEOUT_MS = 30_000;
 /** Worst case for `MainThreadTrace.start`: session open, then the start command, then the bounded cleanup. */
 export const TRACE_START_WORST_CASE_MS = 3 * TRACE_OP_TIMEOUT_MS;
+/** Worst case for recording the trace after Stop: the end command, the wait for tracing-complete, then the bounded cleanup. */
+export const TRACE_STOP_WORST_CASE_MS = 3 * TRACE_OP_TIMEOUT_MS;
 /** Hard cap on kept events, so the synchronous summary stays linear over a bounded array. */
 export const MAX_KEPT_EVENTS = 1_500_000;
 
@@ -283,7 +285,7 @@ export function summarizeMainThreadSamples(events: TraceEvent[], role: Map<strin
  * is itself bounded (#1258 follow-up), so a hung browser cannot hold the Stop outcome hostage.
  */
 export async function boundedStopWithTrace(
-    stop: () => Promise<unknown>, boundMs: number, recordTrace: () => Promise<void>, recordBoundMs = 3 * TRACE_OP_TIMEOUT_MS,
+    stop: () => Promise<unknown>, boundMs: number, recordTrace: () => Promise<void>, recordBoundMs = TRACE_STOP_WORST_CASE_MS,
 ): Promise<void> {
     const outcome = await withDeadline(stop, boundMs);
     // Recording the trace must never replace the Stop outcome (#1547 Codex P1 r4152479943).
