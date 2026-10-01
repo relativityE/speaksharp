@@ -1,4 +1,4 @@
-import type { Browser, CDPSession } from '@playwright/test';
+import type { CDPSession } from '@playwright/test';
 
 /**
  * #1258 Open Mic Stop stall — ONE content-free diagnostic (PM rule after a refuted H1).
@@ -35,43 +35,96 @@ export function keepTraceEvent(e: { name?: string; ph?: string; dur?: number }):
     return e.ph === 'X' && typeof e.dur === 'number' && e.dur >= 1_000;
 }
 
+/**
+ * #1258 follow-up (run 36863804680 returned no receipt): every operation that waits on the BROWSER process is bounded on
+ * its own, because a hung browser never rejects a browser-session CDP call — not even when the test's page is closed.
+ * Each outcome is a closed-shape `trace_state`, recorded instead of blocking evidence emission.
+ */
+export type TraceState =
+    | 'trace_started' | 'trace_start_timeout' | 'trace_start_failed'
+    | 'trace_summarized' | 'trace_end_command_timeout' | 'trace_end_failed' | 'trace_complete_timeout' | 'trace_summary_failed';
+/** Per-operation bound for start, the end command, and the wait for tracing-complete. */
+export const TRACE_OP_TIMEOUT_MS = 30_000;
+/** Hard cap on kept events, so the synchronous summary stays linear over a bounded array. */
+export const MAX_KEPT_EVENTS = 1_500_000;
+
+/** The CDP surface this module uses — the Playwright browser session, or a stub in tests. */
+export type TraceCdp = Pick<CDPSession, 'send' | 'on' | 'once'>;
+
+/** Settles within `ms`: the value, the rejection, or a timeout — never a pending promise. */
+export type Settled<T> = { kind: 'ok'; value: T } | { kind: 'rejected'; error: unknown } | { kind: 'timeout' };
+export async function withDeadline<T>(work: () => Promise<T>, ms: number): Promise<Settled<T>> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            Promise.resolve().then(work).then((value) => ({ kind: 'ok' as const, value }), (error: unknown) => ({ kind: 'rejected' as const, error })),
+            new Promise<{ kind: 'timeout' }>((resolve) => { timer = setTimeout(() => resolve({ kind: 'timeout' }), ms); }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
+
 export class MainThreadTrace {
     private readonly events: TraceEvent[] = [];
     private received = 0;
-    private readonly startedAtUs: number;
+    private dropped = 0;
+    private stopping: Promise<TraceSummary> | null = null;
 
-    private constructor(private readonly cdp: CDPSession) {
-        this.startedAtUs = Date.now() * 1000;
+    private constructor(private readonly cdp: TraceCdp, private readonly opMs: number) {
         // No argument spreading (#1547 Codex P1 r4152479943): a chunk can be large; append element by element.
         cdp.on('Tracing.dataCollected', (e) => {
-            for (const ev of e.value as unknown as TraceEvent[]) { this.received += 1; if (keepTraceEvent(ev)) this.events.push(ev); }
+            for (const ev of e.value as unknown as TraceEvent[]) {
+                this.received += 1;
+                if (!keepTraceEvent(ev)) continue;
+                if (this.events.length < MAX_KEPT_EVENTS) this.events.push(ev); else this.dropped += 1;
+            }
         });
     }
 
-    /** Starts tracing; returns null (and records nothing) if the browser refuses, so the journey is never blocked. */
-    static async start(browser: Browser): Promise<MainThreadTrace | null> {
-        try {
-            const cdp = await browser.newBrowserCDPSession();
-            const trace = new MainThreadTrace(cdp);
-            await cdp.send('Tracing.start', { transferMode: 'ReportEvents', traceConfig: { includedCategories: CATEGORIES } });
-            return trace;
-        } catch {
-            return null;
-        }
+    /**
+     * Starts tracing with the session open and the start command each bounded. A refusal or a timeout returns no trace
+     * and a closed `trace_state`, so the journey is never blocked by the diagnostic.
+     */
+    static async start(
+        browser: { newBrowserCDPSession(): Promise<TraceCdp> },
+        opMs = TRACE_OP_TIMEOUT_MS,
+    ): Promise<{ trace: MainThreadTrace | null; trace_state: TraceState }> {
+        const session = await withDeadline(() => browser.newBrowserCDPSession(), opMs);
+        if (session.kind === 'timeout') return { trace: null, trace_state: 'trace_start_timeout' };
+        if (session.kind === 'rejected') return { trace: null, trace_state: 'trace_start_failed' };
+        const trace = new MainThreadTrace(session.value, opMs);
+        const started = await withDeadline(() => session.value.send('Tracing.start', {
+            transferMode: 'ReportEvents', traceConfig: { includedCategories: CATEGORIES },
+        }), opMs);
+        if (started.kind === 'timeout') return { trace: null, trace_state: 'trace_start_timeout' };
+        if (started.kind === 'rejected') return { trace: null, trace_state: 'trace_start_failed' };
+        return { trace, trace_state: 'trace_started' };
     }
 
-    /** Ends tracing (bounded) and returns the content-free summary. */
-    async stop(timeoutMs = 60_000): Promise<TraceSummary> {
+    /**
+     * Ends tracing and returns the content-free summary. Idempotent: the Stop path and the window deadline may both ask,
+     * and both get the same single attempt. Never throws and never waits longer than two bounded operations.
+     */
+    stop(): Promise<TraceSummary> {
+        this.stopping ??= this.stopOnce();
+        return this.stopping;
+    }
+
+    private async stopOnce(): Promise<TraceSummary> {
+        let state: TraceState = 'trace_summarized';
+        const complete = new Promise<void>((resolve) => this.cdp.once('Tracing.tracingComplete', () => resolve()));
+        const ended = await withDeadline(() => this.cdp.send('Tracing.end'), this.opMs);
+        if (ended.kind === 'timeout') state = 'trace_end_command_timeout';
+        else if (ended.kind === 'rejected') state = 'trace_end_failed';
+        else if ((await withDeadline(() => complete, this.opMs)).kind === 'timeout') state = 'trace_complete_timeout';
+        const counts = { trace_events_received: this.received, trace_events_dropped_cap: this.dropped };
         try {
-            const complete = new Promise<void>((resolve) => this.cdp.once('Tracing.tracingComplete', () => resolve()));
-            await this.cdp.send('Tracing.end');
-            await Promise.race([complete, new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
-        } catch { /* summarize whatever arrived */ }
-        try {
-            return { ...summarizeTrace(this.events), trace_events_received: this.received };
+            // An incomplete trace is still summarized: whatever arrived is evidence; `trace_state` says it is partial.
+            return { ...summarizeTrace(this.events), ...counts, trace_state: state };
         } catch (error) {
             // The summary must never replace the Stop outcome; report that it failed, content-free.
-            return { trace_events: this.events.length, trace_events_received: this.received, trace_note: `summary failed: ${error instanceof Error ? error.name : 'error'}` };
+            return { trace_events: this.events.length, ...counts, trace_state: 'trace_summary_failed', trace_note: `summary failed: ${error instanceof Error ? error.name : 'error'}` };
         }
     }
 }
@@ -191,17 +244,15 @@ export function summarizeMainThreadSamples(events: TraceEvent[], role: Map<strin
 /**
  * #1547 Codex P1 r4149205476: run Stop under a bound and ALWAYS settle the trace afterwards — whether Stop resolves,
  * REJECTS (a responsive page whose recorder never clears: the worker-saturated case this diagnostic exists to catch), or
- * never settles (an unresponsive page). The original failure is rethrown after the trace is recorded.
+ * never settles (an unresponsive page). The original failure is rethrown after the trace is recorded. Recording the trace
+ * is itself bounded (#1258 follow-up), so a hung browser cannot hold the Stop outcome hostage.
  */
-export async function boundedStopWithTrace(stop: () => Promise<unknown>, boundMs: number, recordTrace: () => Promise<void>): Promise<void> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const outcome = await Promise.race([
-        stop().then(() => ({ kind: 'stopped' as const }), (error: unknown) => ({ kind: 'rejected' as const, error })),
-        new Promise<{ kind: 'timed_out' }>((resolve) => { timer = setTimeout(() => resolve({ kind: 'timed_out' }), boundMs); }),
-    ]);
-    if (timer) clearTimeout(timer);
+export async function boundedStopWithTrace(
+    stop: () => Promise<unknown>, boundMs: number, recordTrace: () => Promise<void>, recordBoundMs = 3 * TRACE_OP_TIMEOUT_MS,
+): Promise<void> {
+    const outcome = await withDeadline(stop, boundMs);
     // Recording the trace must never replace the Stop outcome (#1547 Codex P1 r4152479943).
-    try { await recordTrace(); } catch { /* the receipt simply lacks trace meta; the Stop outcome stands */ }
+    await withDeadline(recordTrace, recordBoundMs);
     if (outcome.kind === 'rejected') throw outcome.error;
-    if (outcome.kind === 'timed_out') throw new Error(`Stop did not complete within ${boundMs / 1000} s (page unresponsive); trace summary recorded in receipt meta`);
+    if (outcome.kind === 'timeout') throw new Error(`Stop did not complete within ${boundMs / 1000} s (page unresponsive); trace summary recorded in receipt meta`);
 }
