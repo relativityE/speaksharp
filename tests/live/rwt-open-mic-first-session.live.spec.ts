@@ -92,6 +92,11 @@ const SUITE = 'open-mic-first-session';
 /** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
 const STOP_BOUND_MS = 240_000;
 /**
+ * #1258 (run 36930648785): every live-page read has its own bound. The deployed-live config sets no action timeout, so
+ * an unbounded read of an element the page no longer renders waited forever — that was the reproduced "freeze".
+ */
+const LIVE_READ_TIMEOUT_MS = 15_000;
+/**
  * #1258 follow-up (run 36863804680 hung after the take began and wrote nothing): a Node-side deadline around the WHOLE
  * traced take → Stop window — trace start, the speech wait, the live reads and Stop — that fires whether or not the page
  * or browser answers. Its wanted and minimum-useful bounds come from `diagnosticWindowFor` (both include the worst-case
@@ -293,7 +298,7 @@ test.describe('RWT — Open Mic first session @live', () => {
 
             // ── Row 4 — the take ────────────────────────────────────────────────────────────────────────
             let visibleFillers: number | null = null;
-            const liveDisplay: Record<string, number> = {};   // the per-word badges the person sees
+            const liveDisplay: Record<string, number> = {};   // the per-word counts the person sees (after Stop: FillerBreakdown)
             const liveMarks: Record<string, number> = {};     // the highlighted words in the live transcript
             // #1258 Stop-stall diagnostic: one content-free browser-level trace across the take and Stop (summary → meta and
             // the diagnostic record). Recording it is idempotent and bounded, so every exit path below may ask for it.
@@ -337,14 +342,9 @@ test.describe('RWT — Open Mic first session @live', () => {
                             receipt.row('live filler highlighting', markTotal > 0 ? 'PASS' : 'FAIL',
                                 markTotal > 0 ? 'fillers were highlighted in the live transcript' : 'no filler was highlighted live',
                                 { liveFillerMarks: markTotal });
-                            for (const row of await page.locator('[data-filler-word]').all()) {
-                                const word = normaliseKey((await row.getAttribute('data-filler-word')) ?? '');
-                                const count = Number(await row.getAttribute('data-filler-count'));
-                                if (word && Number.isInteger(count)) liveDisplay[word] = count;
-                            }
-                            diag.mark('row4_filler_badges_read');
-                            const text = (await page.getByTestId('filler-count-value').first().innerText().catch(() => '')).replace(/[()]/g, '').trim();
-                            visibleFillers = text === '' ? 0 : Number.isFinite(Number(text)) ? Number(text) : null;
+                            // #1258: the during-state shows fillers only as transcript highlights (above). The per-word counts
+                            // and the filler headline are read after Stop from FillerBreakdown, where the person sees them — the
+                            // during-state badges and `filler-count-value` belonged to the retired FillerWordsCard.
                             diag.mark('row4_done');
                         });
 
@@ -387,10 +387,28 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('saved exactly once', saved === 1 ? 'PASS' : 'FAIL',
                     saved === 1 ? 'one completed session exists for this take' : 'the take was not saved exactly once', { completedSessions: saved ?? null });
 
+                // #1258: the per-word counts and the headline the person sees after Stop (FillerBreakdown). Bounded reads:
+                // a missing display leaves them unset, so the filler rows below FAIL visibly instead of waiting.
+                const breakdownShown = await expect(page.getByTestId('filler-breakdown')).toBeVisible({ timeout: 60_000 })
+                    .then(() => true).catch(() => false);
+                receipt.meta.fillerBreakdownShown = breakdownShown;
+                if (breakdownShown) {
+                    for (const row of await page.getByTestId('filler-breakdown-word').all()) {
+                        const word = normaliseKey((await row.getAttribute('data-word', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null)) ?? '');
+                        const shown = await row.getByTestId('filler-breakdown-count').innerText({ timeout: LIVE_READ_TIMEOUT_MS }).catch(() => '');
+                        const count = Number(shown.replace(/[^0-9]/g, ''));
+                        if (word && shown && Number.isInteger(count)) liveDisplay[word] = count;
+                    }
+                    const stats = await page.getByTestId('after-stats').innerText({ timeout: LIVE_READ_TIMEOUT_MS }).catch(() => '');
+                    const headline = /(\d+)\s+fillers?\b/.exec(stats);
+                    const empty = await page.getByTestId('filler-breakdown-empty').isVisible().catch(() => false);
+                    visibleFillers = headline ? Number(headline[1]) : empty ? 0 : null;
+                }
+
                 const card = page.getByTestId('ai-suggestions-card');
-                const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
+                const terminal = await expect.poll(async () => card.getAttribute('data-review-state', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null), { timeout: 180_000 })
                     .toMatch(/^(ready|error|empty)$/).then(() => true).catch(() => false);
-                const state = await card.getAttribute('data-review-state').catch(() => null);
+                const state = await card.getAttribute('data-review-state', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null);
                 const coachingMs = Date.now() - stoppedAt;
                 // The text is held in memory for the Node-side comparisons below and never written to the receipt.
                 const phrase = async (headings: readonly string[]): Promise<string> => {
@@ -398,7 +416,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                         const title = page.getByRole('heading', { name: heading, exact: true });
                         if ((await title.count()) === 0) continue;
                         const block = card.locator('div', { has: title }).last();
-                        return (await block.locator('p').first().innerText().catch(() => '')).trim();
+                        return (await block.locator('p').first().innerText({ timeout: LIVE_READ_TIMEOUT_MS }).catch(() => '')).trim();
                     }
                     return '';
                 };
