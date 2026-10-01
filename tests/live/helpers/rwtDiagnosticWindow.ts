@@ -94,6 +94,33 @@ export class WindowDeadlineError extends Error {
     }
 }
 
+export class InsufficientTestBudgetError extends Error {
+    constructor(readonly budgetMs: number, readonly minUsefulMs: number) {
+        super(`diagnostic window not entered: ${Math.round(budgetMs / 1000)} s of test budget left after the cleanup reserve, below the ${Math.round(minUsefulMs / 1000)} s minimum useful window`);
+        this.name = 'InsufficientTestBudgetError';
+    }
+}
+
+/**
+ * #1549 Codex P1 r4157529415: the window bound NEVER exceeds what the outer test timeout leaves after the cleanup reserve
+ * — no floor. Below the minimum useful window the window is not entered at all, so the outer timeout can never pre-empt
+ * the deadline handler and the receipt.
+ */
+export function planWindowBound(o: { wantedMs: number; remainingMs: number; reserveMs: number; minUsefulMs: number }):
+    { kind: 'ok'; boundMs: number } | { kind: 'insufficient_test_budget'; budgetMs: number } {
+    const budgetMs = Math.floor(o.remainingMs - o.reserveMs);
+    const boundMs = Math.min(o.wantedMs, budgetMs);
+    return boundMs >= o.minUsefulMs ? { kind: 'ok', boundMs } : { kind: 'insufficient_test_budget', budgetMs: Math.max(0, budgetMs) };
+}
+
+/** Returns the bound, or records `insufficient_test_budget` durably and fails at once, before any risky await. */
+export function requireWindowBudget(record: DiagnosticRecord, o: Parameters<typeof planWindowBound>[0]): number {
+    const plan = planWindowBound(o);
+    if (plan.kind === 'ok') return plan.boundMs;
+    record.update({ diag_window: 'insufficient_test_budget', diag_window_budget_ms: plan.budgetMs, diag_window_min_useful_ms: o.minUsefulMs });
+    throw new InsufficientTestBudgetError(plan.budgetMs, o.minUsefulMs);
+}
+
 /**
  * Runs `body` under a Node-side deadline that fires whether or not the page or browser answers.
  * - completes → recorded, value returned;

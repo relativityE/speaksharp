@@ -10,8 +10,11 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DiagnosticRecord,
+  InsufficientTestBudgetError,
   ProcessSampler,
   WindowDeadlineError,
+  planWindowBound,
+  requireWindowBudget,
   processType,
   runBoundedWindow,
   sanitizeDiagnostic,
@@ -78,8 +81,52 @@ describe('#1258 follow-up: a Node-side deadline around the whole traced take →
     expect(SPEC.slice(bodyEnd, bodyEnd + 400)).toMatch(/await recordTrace\(\);[\s\S]*page\.close\(\)/);
     expect(SPEC).toMatch(/} finally {\s*\/\/[^\n]*\n\s*await withDeadline\(recordTrace,/);
     expect(SPEC.indexOf('sampler.start(PROC_SAMPLE_MS)')).toBeLessThan(SPEC.indexOf("test.step('row 3 —"));
-    // The window always ends before the outer test timeout, leaving room for the receipt and cleanup.
-    expect(SPEC).toMatch(/testInfo\.timeout - \(Date\.now\(\) - testStartedAt\) - WINDOW_RESERVE_MS/);
+    // #1549 P1 r4157529415: the bound comes from the budget planner — no floor that could outlast the test.
+    expect(SPEC).not.toMatch(/Math\.max\(60_000/);
+    expect(SPEC).toMatch(/requireWindowBudget\(diag, \{[\s\S]*remainingMs: testInfo\.timeout - \(Date\.now\(\) - testStartedAt\),[\s\S]*reserveMs: WINDOW_RESERVE_MS,/);
+    expect(SPEC.indexOf('requireWindowBudget(diag')).toBeLessThan(windowAt);
+    expect(SPEC).toMatch(/onDeadlineBoundMs: DEADLINE_COLLECTION_MS,/);
+    expect(SPEC).toMatch(/const WINDOW_RESERVE_MS = DEADLINE_COLLECTION_MS \+ /);
+  });
+});
+
+describe('#1549 Codex P1 r4157529415: the window never outlasts the test', () => {
+  const MIN = 84_000; // speech wait (≈54 s) + 30 s
+  const RESERVE = 150_000;
+
+  it('the bound never exceeds remaining − reserve, for every remaining budget (no 60 s floor)', () => {
+    const violations: number[] = [];
+    for (let remaining = 0; remaining <= 1_500_000; remaining += 7_000) {
+      const plan = planWindowBound({ wantedMs: 354_000, remainingMs: remaining, reserveMs: RESERVE, minUsefulMs: MIN });
+      const ok = plan.kind === 'ok'
+        ? plan.boundMs <= remaining - RESERVE && plan.boundMs >= MIN
+        : remaining - RESERVE < MIN;
+      if (!ok) violations.push(remaining);
+    }
+    expect(violations).toEqual([]);
+    // RED on 12ba26d47: max(60 s, min(354 s, 40 s)) = 60 s > the 40 s actually left.
+    const old = Math.max(60_000, Math.min(354_000, 190_000 - RESERVE));
+    expect(old).toBeGreaterThan(190_000 - RESERVE);
+    expect(planWindowBound({ wantedMs: 354_000, remainingMs: 190_000, reserveMs: RESERVE, minUsefulMs: MIN })).toEqual({ kind: 'insufficient_test_budget', budgetMs: 40_000 });
+  });
+
+  it('a healthy budget keeps the full wanted window; a tight one shrinks to exactly what is left', () => {
+    expect(planWindowBound({ wantedMs: 354_000, remainingMs: 1_200_000, reserveMs: RESERVE, minUsefulMs: MIN })).toEqual({ kind: 'ok', boundMs: 354_000 });
+    expect(planWindowBound({ wantedMs: 354_000, remainingMs: 400_000, reserveMs: RESERVE, minUsefulMs: MIN })).toEqual({ kind: 'ok', boundMs: 250_000 });
+  });
+
+  it('slow rows 1–3 leave <60 s → the window is never entered: insufficient_test_budget is durable at once and the reserve stays intact', async () => {
+    const { record, onDisk } = newRecord();
+    const body = vi.fn(async () => {});
+    const began = Date.now();
+    const enter = async () => {
+      const boundMs = requireWindowBudget(record, { wantedMs: 354_000, remainingMs: RESERVE + 45_000, reserveMs: RESERVE, minUsefulMs: MIN });
+      await runBoundedWindow({ boundMs, record, body, onDeadline: async () => {} });
+    };
+    await expect(enter()).rejects.toBeInstanceOf(InsufficientTestBudgetError);
+    expect(Date.now() - began).toBeLessThan(500); // fails now, not after a window the test cannot afford
+    expect(body).not.toHaveBeenCalled();
+    expect(onDisk()).toMatchObject({ diag_window: 'insufficient_test_budget', diag_window_budget_ms: 45_000, diag_window_min_useful_ms: MIN });
   });
 });
 

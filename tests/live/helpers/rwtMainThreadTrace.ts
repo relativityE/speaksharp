@@ -49,7 +49,13 @@ export const TRACE_OP_TIMEOUT_MS = 30_000;
 export const MAX_KEPT_EVENTS = 1_500_000;
 
 /** The CDP surface this module uses — the Playwright browser session, or a stub in tests. */
-export type TraceCdp = Pick<CDPSession, 'send' | 'on' | 'once'>;
+export type TraceCdp = Pick<CDPSession, 'send' | 'on' | 'once' | 'off' | 'detach'>;
+
+/**
+ * #1549 Codex P1 r4157529403: what happened to a trace session whose start did not succeed in time. A timed-out CDP
+ * command is not cancelled, so the session is never simply dropped: it is unsubscribed and detached (bounded, once).
+ */
+export type TraceCleanup = 'not_needed' | 'detached' | 'detach_timeout' | 'detach_failed' | 'late_session_detach_scheduled';
 
 /** Settles within `ms`: the value, the rejection, or a timeout — never a pending promise. */
 export type Settled<T> = { kind: 'ok'; value: T } | { kind: 'rejected'; error: unknown } | { kind: 'timeout' };
@@ -70,16 +76,19 @@ export class MainThreadTrace {
     private received = 0;
     private dropped = 0;
     private stopping: Promise<TraceSummary> | null = null;
+    private abandoning: Promise<TraceCleanup> | null = null;
+
+    // No argument spreading (#1547 Codex P1 r4152479943): a chunk can be large; append element by element.
+    private readonly onData = (e: { value: unknown[] }): void => {
+        for (const ev of e.value as unknown as TraceEvent[]) {
+            this.received += 1;
+            if (!keepTraceEvent(ev)) continue;
+            if (this.events.length < MAX_KEPT_EVENTS) this.events.push(ev); else this.dropped += 1;
+        }
+    };
 
     private constructor(private readonly cdp: TraceCdp, private readonly opMs: number) {
-        // No argument spreading (#1547 Codex P1 r4152479943): a chunk can be large; append element by element.
-        cdp.on('Tracing.dataCollected', (e) => {
-            for (const ev of e.value as unknown as TraceEvent[]) {
-                this.received += 1;
-                if (!keepTraceEvent(ev)) continue;
-                if (this.events.length < MAX_KEPT_EVENTS) this.events.push(ev); else this.dropped += 1;
-            }
-        });
+        cdp.on('Tracing.dataCollected', this.onData as never);
     }
 
     /**
@@ -89,17 +98,38 @@ export class MainThreadTrace {
     static async start(
         browser: { newBrowserCDPSession(): Promise<TraceCdp> },
         opMs = TRACE_OP_TIMEOUT_MS,
-    ): Promise<{ trace: MainThreadTrace | null; trace_state: TraceState }> {
-        const session = await withDeadline(() => browser.newBrowserCDPSession(), opMs);
-        if (session.kind === 'timeout') return { trace: null, trace_state: 'trace_start_timeout' };
-        if (session.kind === 'rejected') return { trace: null, trace_state: 'trace_start_failed' };
+    ): Promise<{ trace: MainThreadTrace | null; trace_state: TraceState; trace_cleanup: TraceCleanup }> {
+        const opening = Promise.resolve().then(() => browser.newBrowserCDPSession());
+        const session = await withDeadline(() => opening, opMs);
+        if (session.kind === 'rejected') return { trace: null, trace_state: 'trace_start_failed', trace_cleanup: 'not_needed' };
+        if (session.kind === 'timeout') {
+            // A session that opens after we gave up is detached the moment it appears: nothing may stay attached.
+            void opening.then((late) => withDeadline(() => late.detach(), opMs), () => undefined);
+            return { trace: null, trace_state: 'trace_start_timeout', trace_cleanup: 'late_session_detach_scheduled' };
+        }
         const trace = new MainThreadTrace(session.value, opMs);
-        const started = await withDeadline(() => session.value.send('Tracing.start', {
+        const starting = session.value.send('Tracing.start', {
             transferMode: 'ReportEvents', traceConfig: { includedCategories: CATEGORIES },
-        }), opMs);
-        if (started.kind === 'timeout') return { trace: null, trace_state: 'trace_start_timeout' };
-        if (started.kind === 'rejected') return { trace: null, trace_state: 'trace_start_failed' };
-        return { trace, trace_state: 'trace_started' };
+        });
+        const started = await withDeadline(() => starting, opMs);
+        if (started.kind === 'ok') return { trace, trace_state: 'trace_started', trace_cleanup: 'not_needed' };
+        // The command may still complete after the deadline; it must not leave tracing or our listener running.
+        starting.catch(() => undefined);
+        const trace_cleanup = await trace.abandon();
+        return { trace: null, trace_state: started.kind === 'timeout' ? 'trace_start_timeout' : 'trace_start_failed', trace_cleanup };
+    }
+
+    /**
+     * Exactly once, bounded: stop listening, then detach the browser session. Chromium's tracing handler stops a recording
+     * its session started when that session detaches, and a late reply to the start command lands on a detached session.
+     */
+    private abandon(): Promise<TraceCleanup> {
+        this.abandoning ??= (async (): Promise<TraceCleanup> => {
+            this.cdp.off('Tracing.dataCollected', this.onData as never);
+            const detached = await withDeadline(() => this.cdp.detach(), this.opMs);
+            return detached.kind === 'ok' ? 'detached' : detached.kind === 'timeout' ? 'detach_timeout' : 'detach_failed';
+        })();
+        return this.abandoning;
     }
 
     /**

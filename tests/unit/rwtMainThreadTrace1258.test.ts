@@ -164,18 +164,25 @@ describe('#1547 memory bound: only what the summary reads is kept as events arri
  * call is never rejected by closing the test's page, so every call that waits on the browser process is bounded on its
  * own and ends in a closed `trace_state`.
  */
-type Behaviour = 'ok' | 'hang' | 'reject';
+type Behaviour = 'ok' | 'hang' | 'reject' | 'late';
 class StubCdp {
   readonly sent: string[] = [];
+  detaches = 0;
+  lateStartResolved = false;
   private readonly handlers = new Map<string, Array<(e: { value: unknown[] }) => void>>();
-  constructor(private readonly b: { start?: Behaviour; end?: Behaviour; complete?: boolean; events?: unknown[] } = {}) {}
+  constructor(private readonly b: { start?: Behaviour; end?: Behaviour; complete?: boolean; events?: unknown[]; detach?: 'ok' | 'hang' } = {}) {}
   on(event: string, fn: (e: { value: unknown[] }) => void) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), fn]); return this; }
   once(event: string, fn: (e: { value: unknown[] }) => void) { return this.on(event, fn); }
-  private emit(event: string, payload: { value: unknown[] }) { for (const fn of this.handlers.get(event) ?? []) fn(payload); }
+  off(event: string, fn: (e: { value: unknown[] }) => void) { this.handlers.set(event, (this.handlers.get(event) ?? []).filter((h) => h !== fn)); return this; }
+  listeners(event: string) { return (this.handlers.get(event) ?? []).length; }
+  detach(): Promise<void> { this.detaches += 1; return this.b.detach === 'hang' ? new Promise(() => {}) : Promise.resolve(); }
+  emit(event: string, payload: { value: unknown[] }) { for (const fn of this.handlers.get(event) ?? []) fn(payload); }
   send(method: string): Promise<unknown> {
     this.sent.push(method);
     const behaviour = method === 'Tracing.start' ? this.b.start ?? 'ok' : this.b.end ?? 'ok';
     if (behaviour === 'hang') return new Promise(() => {});
+    // Chromium accepted the command, but its reply arrives after the caller's deadline.
+    if (behaviour === 'late') return new Promise((resolve) => setTimeout(() => { this.lateStartResolved = true; resolve({}); }, 3 * OP_MS));
     if (behaviour === 'reject') return Promise.reject(new Error('Target closed'));
     if (method === 'Tracing.end') {
       setTimeout(() => {
@@ -186,10 +193,11 @@ class StubCdp {
     return Promise.resolve({});
   }
 }
+const OP_MS = 40;
 const browserWith = (cdp: StubCdp | 'hang' | 'reject') => ({
   newBrowserCDPSession: () => (cdp === 'hang' ? new Promise<never>(() => {}) : cdp === 'reject' ? Promise.reject(new Error('no')) : Promise.resolve(cdp as never)),
 });
-const OP_MS = 40;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('#1258 follow-up: every browser-level trace operation is bounded', () => {
   it('normal path unchanged: start → end → complete → summary, trace_state trace_summarized', async () => {
@@ -202,13 +210,49 @@ describe('#1258 follow-up: every browser-level trace operation is bounded', () =
   });
 
   it('opening the browser session never settles → trace_start_timeout, no trace, the journey continues', async () => {
-    await expect(MainThreadTrace.start(browserWith('hang'), OP_MS)).resolves.toEqual({ trace: null, trace_state: 'trace_start_timeout' });
+    await expect(MainThreadTrace.start(browserWith('hang'), OP_MS)).resolves.toEqual({ trace: null, trace_state: 'trace_start_timeout', trace_cleanup: 'late_session_detach_scheduled' });
   });
 
   it('Tracing.start never settles → trace_start_timeout; a refusal → trace_start_failed', async () => {
     await expect(MainThreadTrace.start(browserWith(new StubCdp({ start: 'hang' })), OP_MS)).resolves.toMatchObject({ trace: null, trace_state: 'trace_start_timeout' });
     await expect(MainThreadTrace.start(browserWith(new StubCdp({ start: 'reject' })), OP_MS)).resolves.toMatchObject({ trace: null, trace_state: 'trace_start_failed' });
     await expect(MainThreadTrace.start(browserWith('reject'), OP_MS)).resolves.toMatchObject({ trace: null, trace_state: 'trace_start_failed' });
+  });
+
+  it('#1549 P1 r4157529403 CASUALTY: Tracing.start accepted but answered AFTER the deadline → classified timeout, cleaned up exactly once, nothing left subscribed', async () => {
+    const cdp = new StubCdp({ start: 'late' });
+    const result = await MainThreadTrace.start(browserWith(cdp), OP_MS);
+    expect(result).toEqual({ trace: null, trace_state: 'trace_start_timeout', trace_cleanup: 'detached' });
+    expect(cdp.detaches).toBe(1);
+    expect(cdp.listeners('Tracing.dataCollected')).toBe(0);
+    await sleep(4 * OP_MS); // the late reply lands now
+    expect(cdp.lateStartResolved).toBe(true);
+    expect(cdp.detaches).toBe(1);
+    expect(cdp.listeners('Tracing.dataCollected')).toBe(0);
+    expect(cdp.sent.filter((m) => m === 'Tracing.start')).toHaveLength(1);
+  });
+
+  it('a refused Tracing.start also releases the session (trace_start_failed is kept)', async () => {
+    const cdp = new StubCdp({ start: 'reject' });
+    await expect(MainThreadTrace.start(browserWith(cdp), OP_MS)).resolves.toEqual({ trace: null, trace_state: 'trace_start_failed', trace_cleanup: 'detached' });
+    expect(cdp.detaches).toBe(1);
+  });
+
+  it('cleanup is itself bounded: a detach that never settles → detach_timeout, and the start classification still stands', async () => {
+    const cdp = new StubCdp({ start: 'hang', detach: 'hang' });
+    const began = Date.now();
+    await expect(MainThreadTrace.start(browserWith(cdp), OP_MS)).resolves.toEqual({ trace: null, trace_state: 'trace_start_timeout', trace_cleanup: 'detach_timeout' });
+    expect(Date.now() - began).toBeLessThan(1_000);
+  });
+
+  it('a session that opens only after the deadline is detached as soon as it appears', async () => {
+    const cdp = new StubCdp();
+    const late = { newBrowserCDPSession: () => new Promise<never>((resolve) => setTimeout(() => resolve(cdp as never), 3 * OP_MS)) };
+    await expect(MainThreadTrace.start(late, OP_MS)).resolves.toMatchObject({ trace: null, trace_state: 'trace_start_timeout' });
+    expect(cdp.detaches).toBe(0);
+    await sleep(4 * OP_MS);
+    expect(cdp.detaches).toBe(1);
+    expect(cdp.sent).toEqual([]); // tracing was never started on it
   });
 
   it('RED on #1547: the Tracing.end COMMAND never settles → bounded, trace_end_command_timeout, still summarized', async () => {

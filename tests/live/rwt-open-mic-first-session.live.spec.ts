@@ -28,7 +28,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/rwtProductionTest';
 import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
-import { DiagnosticRecord, ProcessSampler, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
+import { DiagnosticRecord, ProcessSampler, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
 import { expect, type Response } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -97,8 +97,12 @@ const STOP_BOUND_MS = 240_000;
  * answers. Generous for a healthy take (speech + Stop bound + margin) and always short of the outer test timeout.
  */
 const windowBoundFor = (speechSeconds: number): number => Math.round((speechSeconds + 4) * 1000) + STOP_BOUND_MS + 60_000;
-/** Kept free before the outer timeout: bounded trace stop (2 × op bound), page fence, the receipt finally and cleanup. */
-const WINDOW_RESERVE_MS = 2 * TRACE_OP_TIMEOUT_MS + 90_000;
+/** Shorter than the speech wait plus a Stop attempt, the window cannot answer its question: it is not entered at all. */
+const minUsefulWindowFor = (speechSeconds: number): number => Math.round((speechSeconds + 4) * 1000) + 30_000;
+/** Bound on the deadline collection: the trace stop (2 × op bound) plus the page fence. */
+const DEADLINE_COLLECTION_MS = 2 * TRACE_OP_TIMEOUT_MS + 30_000;
+/** Kept free before the outer timeout: the deadline collection, then the receipt `finally` and account cleanup. */
+const WINDOW_RESERVE_MS = DEADLINE_COLLECTION_MS + 60_000;
 /** External process/resource sampling interval (#1258 PM 5932271540: modest, not profiling). */
 const PROC_SAMPLE_MS = 5_000;
 const JOURNEY = 'open_mic';
@@ -300,8 +304,13 @@ test.describe('RWT — Open Mic first session @live', () => {
                 diag.update(summary);
             };
             diag.mark('row3_done');
-            const windowBoundMs = Math.max(60_000, Math.min(windowBoundFor(fixture.entry.speechSeconds),
-                testInfo.timeout - (Date.now() - testStartedAt) - WINDOW_RESERVE_MS));
+            // #1549 Codex P1 r4157529415: never longer than the test has left; too little left → durable HOLD-shaped exit now.
+            const windowBoundMs = requireWindowBudget(diag, {
+                wantedMs: windowBoundFor(fixture.entry.speechSeconds),
+                remainingMs: testInfo.timeout - (Date.now() - testStartedAt),
+                reserveMs: WINDOW_RESERVE_MS,
+                minUsefulMs: minUsefulWindowFor(fixture.entry.speechSeconds),
+            });
             try {
                 await runBoundedWindow({
                     boundMs: windowBoundMs,
@@ -310,7 +319,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                         const started = await MainThreadTrace.start(browser);
                         mainThreadTrace = started.trace;
                         receipt.meta.trace_state = started.trace_state;
-                        diag.update({ trace_state: started.trace_state });
+                        receipt.meta.trace_cleanup = started.trace_cleanup;
+                        diag.update({ trace_state: started.trace_state, trace_cleanup: started.trace_cleanup });
                         diag.mark('trace_start_settled');
                         await test.step('row 4 — speak the corpus', async () => {
                             if (!takeAlreadyRunning) await startBenchmarkRecording(page, SUITE);
@@ -347,6 +357,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                             diag.mark('row5_stop_settled');
                         });
                     },
+                    onDeadlineBoundMs: DEADLINE_COLLECTION_MS,
                     onDeadline: async () => {
                         await recordTrace();
                         // Fence the abandoned window: closing the page rejects every page operation it is still awaiting.
