@@ -5,6 +5,7 @@
  * without the page or the browser protocol. Everything written is content-free by construction.
  */
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { TRACE_START_WORST_CASE_MS, TRACE_OP_TIMEOUT_MS } from '../live/helpers/rwtMainThreadTrace';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,7 @@ import {
   InsufficientTestBudgetError,
   ProcessSampler,
   WindowDeadlineError,
+  diagnosticWindowFor,
   planWindowBound,
   requireWindowBudget,
   processType,
@@ -127,6 +129,41 @@ describe('#1549 Codex P1 r4157529415: the window never outlasts the test', () =>
     expect(Date.now() - began).toBeLessThan(500); // fails now, not after a window the test cannot afford
     expect(body).not.toHaveBeenCalled();
     expect(onDisk()).toMatchObject({ diag_window: 'insufficient_test_budget', diag_window_budget_ms: 45_000, diag_window_min_useful_ms: MIN });
+  });
+});
+
+describe('#1549 Codex P2 r4157983399: an admitted window can always reach Stop', () => {
+  const SPEECH = 45.7; // the open_mic_tts fixture (tests/fixtures/rwt/rwt-fixtures.manifest.json)
+  const RESERVE = 180_000;
+  const bounds = diagnosticWindowFor(SPEECH, { stopBoundMs: 240_000, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS });
+
+  it('both bounds include the worst-case trace start (session open + start + cleanup = 3 op bounds)', () => {
+    expect(TRACE_START_WORST_CASE_MS).toBe(3 * TRACE_OP_TIMEOUT_MS);
+    expect(bounds).toEqual({ minUsefulMs: 90_000 + 49_700 + 30_000, wantedMs: 90_000 + 49_700 + 240_000 + 60_000 });
+  });
+
+  it('RED on a7e04c557: 140 s of budget used to be admitted although a slow trace start leaves too little to reach Stop', () => {
+    const oldMin = Math.round((SPEECH + 4) * 1000) + 30_000; // a7e04c557: no trace-start allowance
+    const remaining = RESERVE + 140_000;
+    expect(planWindowBound({ wantedMs: 354_000, remainingMs: remaining, reserveMs: RESERVE, minUsefulMs: oldMin })).toEqual({ kind: 'ok', boundMs: 140_000 });
+    expect(140_000 - TRACE_START_WORST_CASE_MS).toBeLessThan(Math.round((SPEECH + 4) * 1000) + 30_000); // cannot reach Stop
+    expect(planWindowBound({ ...bounds, remainingMs: remaining, reserveMs: RESERVE })).toEqual({ kind: 'insufficient_test_budget', budgetMs: 140_000 });
+  });
+
+  it('every admitted bound leaves the speech wait + 30 s AFTER a worst-case trace start', () => {
+    const shortfalls: number[] = [];
+    for (let budget = 0; budget <= 1_000_000; budget += 5_000) {
+      const plan = planWindowBound({ ...bounds, remainingMs: RESERVE + budget, reserveMs: RESERVE });
+      if (plan.kind === 'ok' && plan.boundMs - TRACE_START_WORST_CASE_MS < Math.round((SPEECH + 4) * 1000) + 30_000) shortfalls.push(budget);
+    }
+    expect(shortfalls).toEqual([]);
+  });
+
+  it('spec shape: the spec takes both bounds from diagnosticWindowFor with the worst-case trace start, and the collection covers end + complete + cleanup', () => {
+    expect(SPEC).toMatch(/diagnosticWindowFor\(speechSeconds, \{ stopBoundMs: STOP_BOUND_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS \}\)/);
+    expect(SPEC).toMatch(/\.\.\.windowBounds\(fixture\.entry\.speechSeconds\)/);
+    expect(SPEC).not.toMatch(/minUsefulWindowFor|windowBoundFor/);
+    expect(SPEC).toMatch(/const DEADLINE_COLLECTION_MS = 3 \* TRACE_OP_TIMEOUT_MS \+ 30_000;/);
   });
 });
 

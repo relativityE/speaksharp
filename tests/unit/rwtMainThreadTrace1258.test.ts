@@ -255,6 +255,48 @@ describe('#1258 follow-up: every browser-level trace operation is bounded', () =
     expect(cdp.sent).toEqual([]); // tracing was never started on it
   });
 
+  it('#1549 P1 r4157983392: Tracing.end never settles → the session is released (once, bounded), trace_end_command_timeout kept', async () => {
+    const cdp = new StubCdp({ end: 'hang' });
+    const { trace } = await MainThreadTrace.start(browserWith(cdp), OP_MS);
+    const began = Date.now();
+    const s = await trace!.stop();
+    expect(Date.now() - began).toBeLessThan(1_000);
+    expect(s).toMatchObject({ trace_state: 'trace_end_command_timeout', trace_cleanup: 'detached' });
+    expect(cdp.detaches).toBe(1);
+    expect(cdp.listeners('Tracing.dataCollected')).toBe(0);
+    await trace!.stop(); // the deadline path asking again does not clean up twice
+    expect(cdp.detaches).toBe(1);
+  });
+
+  it('#1549 P1: Tracing.end rejected → trace_end_failed kept, session released', async () => {
+    const cdp = new StubCdp({ end: 'reject' });
+    const { trace } = await MainThreadTrace.start(browserWith(cdp), OP_MS);
+    await expect(trace!.stop()).resolves.toMatchObject({ trace_state: 'trace_end_failed', trace_cleanup: 'detached' });
+    expect(cdp.detaches).toBe(1);
+  });
+
+  it('#1549 P1: tracing-complete never arrives → partial summary kept, session released', async () => {
+    const cdp = new StubCdp({ complete: false });
+    const { trace } = await MainThreadTrace.start(browserWith(cdp), OP_MS);
+    await expect(trace!.stop()).resolves.toMatchObject({ trace_state: 'trace_complete_timeout', trace_cleanup: 'detached', trace_main_longest_task_ms: 600 });
+    expect(cdp.listeners('Tracing.dataCollected')).toBe(0);
+  });
+
+  it('#1549 P1: the end-path cleanup is itself bounded — a detach that never settles → detach_timeout, classification kept', async () => {
+    const cdp = new StubCdp({ end: 'hang', detach: 'hang' });
+    const { trace } = await MainThreadTrace.start(browserWith(cdp), OP_MS);
+    const began = Date.now();
+    await expect(trace!.stop()).resolves.toMatchObject({ trace_state: 'trace_end_command_timeout', trace_cleanup: 'detach_timeout' });
+    expect(Date.now() - began).toBeLessThan(1_000);
+  });
+
+  it('#1549 P1: the normal successful stop is unchanged — no cleanup needed, no detach', async () => {
+    const cdp = new StubCdp();
+    const { trace } = await MainThreadTrace.start(browserWith(cdp), OP_MS);
+    await expect(trace!.stop()).resolves.toMatchObject({ trace_state: 'trace_summarized', trace_cleanup: 'not_needed' });
+    expect(cdp.detaches).toBe(0);
+  });
+
   it('RED on #1547: the Tracing.end COMMAND never settles → bounded, trace_end_command_timeout, still summarized', async () => {
     const { trace } = await MainThreadTrace.start(browserWith(new StubCdp({ end: 'hang' })), OP_MS);
     const began = Date.now();

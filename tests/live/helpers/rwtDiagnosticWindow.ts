@@ -102,6 +102,22 @@ export class InsufficientTestBudgetError extends Error {
 }
 
 /**
+ * The two window bounds for a take of `speechSeconds` (#1549 Codex P2 r4157983399): both include the worst-case trace
+ * start, because `MainThreadTrace.start` runs INSIDE the window. An admitted window can therefore always finish the speech
+ * wait and reach Stop even when the trace start uses its whole allowance.
+ * - `minUsefulMs`: trace start + speech wait (speech + 4 s) + 30 s to reach and begin Stop.
+ * - `wantedMs`: trace start + speech wait + the full Stop bound + 60 s margin.
+ */
+export function diagnosticWindowFor(speechSeconds: number, o: { stopBoundMs: number; traceStartWorstCaseMs: number }):
+    { wantedMs: number; minUsefulMs: number } {
+    const speechWaitMs = Math.round((speechSeconds + 4) * 1000);
+    return {
+        wantedMs: o.traceStartWorstCaseMs + speechWaitMs + o.stopBoundMs + 60_000,
+        minUsefulMs: o.traceStartWorstCaseMs + speechWaitMs + 30_000,
+    };
+}
+
+/**
  * #1549 Codex P1 r4157529415: the window bound NEVER exceeds what the outer test timeout leaves after the cleanup reserve
  * — no floor. Below the minimum useful window the window is not entered at all, so the outer timeout can never pre-empt
  * the deadline handler and the receipt.

@@ -27,8 +27,8 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/rwtProductionTest';
-import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
-import { DiagnosticRecord, ProcessSampler, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
+import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
+import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
 import { expect, type Response } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -93,14 +93,14 @@ const SUITE = 'open-mic-first-session';
 const STOP_BOUND_MS = 240_000;
 /**
  * #1258 follow-up (run 36863804680 hung after the take began and wrote nothing): a Node-side deadline around the WHOLE
- * traced take → Stop window — the speech wait, the live reads and Stop — that fires whether or not the page or browser
- * answers. Generous for a healthy take (speech + Stop bound + margin) and always short of the outer test timeout.
+ * traced take → Stop window — trace start, the speech wait, the live reads and Stop — that fires whether or not the page
+ * or browser answers. Its wanted and minimum-useful bounds come from `diagnosticWindowFor` (both include the worst-case
+ * trace start), and it is always short of the outer test timeout.
  */
-const windowBoundFor = (speechSeconds: number): number => Math.round((speechSeconds + 4) * 1000) + STOP_BOUND_MS + 60_000;
-/** Shorter than the speech wait plus a Stop attempt, the window cannot answer its question: it is not entered at all. */
-const minUsefulWindowFor = (speechSeconds: number): number => Math.round((speechSeconds + 4) * 1000) + 30_000;
-/** Bound on the deadline collection: the trace stop (2 × op bound) plus the page fence. */
-const DEADLINE_COLLECTION_MS = 2 * TRACE_OP_TIMEOUT_MS + 30_000;
+const windowBounds = (speechSeconds: number) =>
+    diagnosticWindowFor(speechSeconds, { stopBoundMs: STOP_BOUND_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS });
+/** Bound on the deadline collection: the trace stop (end + complete + cleanup, 3 × op bound) plus the page fence. */
+const DEADLINE_COLLECTION_MS = 3 * TRACE_OP_TIMEOUT_MS + 30_000;
 /** Kept free before the outer timeout: the deadline collection, then the receipt `finally` and account cleanup. */
 const WINDOW_RESERVE_MS = DEADLINE_COLLECTION_MS + 60_000;
 /** External process/resource sampling interval (#1258 PM 5932271540: modest, not profiling). */
@@ -306,10 +306,9 @@ test.describe('RWT — Open Mic first session @live', () => {
             diag.mark('row3_done');
             // #1549 Codex P1 r4157529415: never longer than the test has left; too little left → durable HOLD-shaped exit now.
             const windowBoundMs = requireWindowBudget(diag, {
-                wantedMs: windowBoundFor(fixture.entry.speechSeconds),
+                ...windowBounds(fixture.entry.speechSeconds),
                 remainingMs: testInfo.timeout - (Date.now() - testStartedAt),
                 reserveMs: WINDOW_RESERVE_MS,
-                minUsefulMs: minUsefulWindowFor(fixture.entry.speechSeconds),
             });
             try {
                 await runBoundedWindow({

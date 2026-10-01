@@ -45,6 +45,8 @@ export type TraceState =
     | 'trace_summarized' | 'trace_end_command_timeout' | 'trace_end_failed' | 'trace_complete_timeout' | 'trace_summary_failed';
 /** Per-operation bound for start, the end command, and the wait for tracing-complete. */
 export const TRACE_OP_TIMEOUT_MS = 30_000;
+/** Worst case for `MainThreadTrace.start`: session open, then the start command, then the bounded cleanup. */
+export const TRACE_START_WORST_CASE_MS = 3 * TRACE_OP_TIMEOUT_MS;
 /** Hard cap on kept events, so the synchronous summary stays linear over a bounded array. */
 export const MAX_KEPT_EVENTS = 1_500_000;
 
@@ -148,7 +150,10 @@ export class MainThreadTrace {
         if (ended.kind === 'timeout') state = 'trace_end_command_timeout';
         else if (ended.kind === 'rejected') state = 'trace_end_failed';
         else if ((await withDeadline(() => complete, this.opMs)).kind === 'timeout') state = 'trace_complete_timeout';
-        const counts = { trace_events_received: this.received, trace_events_dropped_cap: this.dropped };
+        // #1549 Codex P1 r4157983392: an end that did not complete may leave the browser recording and our listener live
+        // through receipt and account cleanup; release the session the same bounded, exactly-once way as a failed start.
+        const trace_cleanup: TraceCleanup = state === 'trace_summarized' ? 'not_needed' : await this.abandon();
+        const counts = { trace_events_received: this.received, trace_events_dropped_cap: this.dropped, trace_cleanup };
         try {
             // An incomplete trace is still summarized: whatever arrived is evidence; `trace_state` says it is partial.
             return { ...summarizeTrace(this.events), ...counts, trace_state: state };
