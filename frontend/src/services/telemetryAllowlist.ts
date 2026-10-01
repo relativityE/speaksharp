@@ -579,6 +579,15 @@ export const EVENT_SCHEMAS = Object.freeze({
         review_state: enumOf(['review', 'none', 'expired', 'error']),
         evidence_present: { kind: 'bool' } as FieldRule,
     },
+    // #1258 flight recorder, cause-independent part (PO 2026-10-01). A recovery draft still `active_interrupted` on the
+    // next Session load is a take that never reached Stop/save: a reload, tab close, crash or a page that froze. Numbers
+    // and closed enums only: no session id, transcript, metric values or draft content.
+    recording_interrupted: {
+        product: enumOf(['open_mic', 'focus_points', 'unknown']),
+        mode: enumOf(STT_MODES),
+        take_seconds: { kind: 'int', min: 0, max: 86_400 } as FieldRule,
+        heartbeat_age_seconds: { kind: 'int', min: 0, max: 2_592_000 } as FieldRule,
+    },
     saved_review_practice_selected: {
         product: enumOf(['open_mic', 'focus_points', 'unknown']),
         linked_repeat: { kind: 'bool' } as FieldRule,

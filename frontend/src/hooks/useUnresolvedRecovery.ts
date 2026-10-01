@@ -5,6 +5,7 @@ import {
     getRecoverableDraftForUser,
     type SessionRecoveryDraft,
 } from '@/services/sessionRecoveryDraft';
+import { trackRecordingInterrupted } from '@/services/recordingInterruptionTelemetry';
 
 /**
  * #1033 Part-2b (A5/A6) — the SessionPage recovery wiring, extracted so its account-isolation and
@@ -55,7 +56,12 @@ export function useUnresolvedRecovery({
         // from durable storage asynchronously and clears it itself on a successful save or an explicit discard, so
         // deleting it here (before that rehydration ran) armed no retry and lost the saved-able work. Only an
         // interrupted draft — which can never be completed — is cleared on acknowledgement.
-        if (draft.recoveryState !== 'finalized_pending_save') clearSessionRecoveryDraft(draft.sessionId);
+        // #1258 flight recorder: an interrupted take is reported ONCE, here, just before its draft is cleared, so a
+        // re-render or a later load cannot report it again. A finalized draft reached Stop and is not reported.
+        if (draft.recoveryState !== 'finalized_pending_save') {
+            trackRecordingInterrupted(draft);
+            clearSessionRecoveryDraft(draft.sessionId);
+        }
         setRecoveredStatus({
             type: 'warning',
             message: draft.recoveryState === 'finalized_pending_save'
