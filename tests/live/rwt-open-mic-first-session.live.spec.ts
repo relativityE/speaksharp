@@ -27,7 +27,8 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/rwtProductionTest';
-import { MainThreadTrace, boundedStopWithTrace } from './helpers/rwtMainThreadTrace';
+import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
+import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
 import { expect, type Response } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -80,6 +81,7 @@ import {
     telemetryClassRows,
     canaryClaimRow,
     EntitlementTap,
+    expectedReleaseSha,
     entitlementRow,
     runOwnedIdentityFailures,
     type RunTarget,
@@ -89,6 +91,21 @@ import { bindReadbackJourneys, takeStartedAfter } from './helpers/rwtOracles';
 const SUITE = 'open-mic-first-session';
 /** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
 const STOP_BOUND_MS = 240_000;
+/**
+ * #1258 follow-up (run 36863804680 hung after the take began and wrote nothing): a Node-side deadline around the WHOLE
+ * traced take → Stop window — trace start, the speech wait, the live reads and Stop — that fires whether or not the page
+ * or browser answers. Its wanted and minimum-useful bounds come from `diagnosticWindowFor` (both include the worst-case
+ * trace start; the wanted bound also the worst-case trace stop after Stop), and it is always short of the outer test timeout.
+ */
+const windowBounds = (speechSeconds: number) => diagnosticWindowFor(speechSeconds, {
+    stopBoundMs: STOP_BOUND_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS, traceStopWorstCaseMs: TRACE_STOP_WORST_CASE_MS,
+});
+/** Bound on the deadline collection: the trace stop (end + complete + cleanup, 3 × op bound) plus the page fence. */
+const DEADLINE_COLLECTION_MS = 3 * TRACE_OP_TIMEOUT_MS + 30_000;
+/** Kept free before the outer timeout: the deadline collection, then the receipt `finally` and account cleanup. */
+const WINDOW_RESERVE_MS = DEADLINE_COLLECTION_MS + 60_000;
+/** External process/resource sampling interval (#1258 PM 5932271540: modest, not profiling). */
+const PROC_SAMPLE_MS = 5_000;
 const JOURNEY = 'open_mic';
 /** PO script row 5: exactly two phrases, each at most six words (COACHING_WORD_BUDGET). */
 const COACHING_WORD_BUDGET = 6;
@@ -130,12 +147,16 @@ test.use({
 });
 
 test.describe('RWT — Open Mic first session @live', () => {
+    let activeSampler: ProcessSampler | null = null;
     let createdEmail = '';
     let capturedUid = '';
     let feedbackReportId: string | null = null;
     let accountDeletedInTest = false;
 
     test.afterEach(async () => {
+        // Backstop: the sampler stops in the test's own finally; this covers a body that never reached it.
+        activeSampler?.stop();
+        activeSampler = null;
         // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product
         // policy (user_issue_reports.user_id is SET NULL on account deletion); the test body deletes the account first
         // and proves that retention (#1532 Codex P1 r4105978630). This is the fallback when the body did not.
@@ -150,6 +171,7 @@ test.describe('RWT — Open Mic first session @live', () => {
 
     test('a new person completes a first Open Mic session end to end', async ({ page, browser }, testInfo) => {
         test.setTimeout(1_500_000); // cold model acquisition + a 60 s take + coaching + Analytics + feedback
+        const testStartedAt = Date.now();
 
         const preconditions = rwtPreconditionFailures();
         if (preconditions.length > 0) throw new Error(`HOLD preconditions: ${preconditions.join('; ')}`);
@@ -163,6 +185,12 @@ test.describe('RWT — Open Mic first session @live', () => {
         receipt.meta.fixtureSha256 = fixture.entry.kind === 'human' ? '(private)' : fixture.entry.sha256;
         receipt.meta.target = run.label;
         receipt.meta.webgpu = WEBGPU;
+        // #1258: durable, content-free diagnostic evidence, written now and on every update (file + job log), so a hang
+        // that never reaches the receipt below still leaves its classification behind.
+        const diag = new DiagnosticRecord(SUITE, { release: expectedReleaseSha() });
+        diag.update({ diag_window: 'not_entered' });
+        const sampler = new ProcessSampler(diag, { suite: SUITE });
+        activeSampler = sampler;
         receipt.row('base_q4 primary', 'HOLD', 'the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence');
 
         const tap = new AnalyticsTap();
@@ -247,6 +275,9 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Row 3 — first microphone use: model identity and acquisition time ───────────────────────
             let takeAlreadyRunning = false;
             firstTakeFrom = tap.events.length;
+            // Sampling runs from model acquisition through Stop, so growth before the take is visible too.
+            sampler.start(PROC_SAMPLE_MS);
+            diag.mark('row3_entered');
             await test.step('row 3 — first microphone use and model acquisition', async () => {
                 const began = Date.now();
                 await selectBenchmarkMode(page, 'private');
@@ -264,38 +295,85 @@ test.describe('RWT — Open Mic first session @live', () => {
             let visibleFillers: number | null = null;
             const liveDisplay: Record<string, number> = {};   // the per-word badges the person sees
             const liveMarks: Record<string, number> = {};     // the highlighted words in the live transcript
-            // #1258 Stop-stall diagnostic: one content-free browser-level trace across the take and Stop (summary → meta).
-            const mainThreadTrace = await MainThreadTrace.start(browser);
+            // #1258 Stop-stall diagnostic: one content-free browser-level trace across the take and Stop (summary → meta and
+            // the diagnostic record). Recording it is idempotent and bounded, so every exit path below may ask for it.
+            let mainThreadTrace: MainThreadTrace | null = null;
             const recordTrace = async () => {
-                if (!mainThreadTrace) { receipt.meta.trace_note = 'trace unavailable'; return; }
-                Object.assign(receipt.meta, await mainThreadTrace.stop());
+                if (!mainThreadTrace) return;
+                const summary = await mainThreadTrace.stop();
+                Object.assign(receipt.meta, summary);
+                diag.update(summary);
             };
-            await test.step('row 4 — speak the corpus', async () => {
-                if (!takeAlreadyRunning) await startBenchmarkRecording(page, SUITE);
-                // Stop inside the fixture's 15 s trailing silence: all speech, and never a second loop of it.
-                await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
-                for (const text of await page.getByTestId('live-filler').allInnerTexts()) {
-                    const key = normaliseKey(text.replace(/[^a-z\s]/gi, ''));
-                    liveMarks[key] = (liveMarks[key] ?? 0) + 1;
-                }
-                const markTotal = Object.values(liveMarks).reduce((a, b) => a + b, 0);
-                receipt.row('live filler highlighting', markTotal > 0 ? 'PASS' : 'FAIL',
-                    markTotal > 0 ? 'fillers were highlighted in the live transcript' : 'no filler was highlighted live',
-                    { liveFillerMarks: markTotal });
-                for (const row of await page.locator('[data-filler-word]').all()) {
-                    const word = normaliseKey((await row.getAttribute('data-filler-word')) ?? '');
-                    const count = Number(await row.getAttribute('data-filler-count'));
-                    if (word && Number.isInteger(count)) liveDisplay[word] = count;
-                }
-                const text = (await page.getByTestId('filler-count-value').first().innerText().catch(() => '')).replace(/[()]/g, '').trim();
-                visibleFillers = text === '' ? 0 : Number.isFinite(Number(text)) ? Number(text) : null;
+            diag.mark('row3_done');
+            // #1549 Codex P1 r4157529415: never longer than the test has left; too little left → durable HOLD-shaped exit now.
+            const windowBoundMs = requireWindowBudget(diag, {
+                ...windowBounds(fixture.entry.speechSeconds),
+                remainingMs: testInfo.timeout - (Date.now() - testStartedAt),
+                reserveMs: WINDOW_RESERVE_MS,
             });
+            try {
+                await runBoundedWindow({
+                    boundMs: windowBoundMs,
+                    record: diag,
+                    body: async () => {
+                        const started = await MainThreadTrace.start(browser);
+                        mainThreadTrace = started.trace;
+                        receipt.meta.trace_state = started.trace_state;
+                        receipt.meta.trace_cleanup = started.trace_cleanup;
+                        diag.update({ trace_state: started.trace_state, trace_cleanup: started.trace_cleanup });
+                        diag.mark('trace_start_settled');
+                        await test.step('row 4 — speak the corpus', async () => {
+                            if (!takeAlreadyRunning) await startBenchmarkRecording(page, SUITE);
+                            diag.mark('row4_take_running');
+                            // Stop inside the fixture's 15 s trailing silence: all speech, and never a second loop of it.
+                            await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
+                            diag.mark('row4_speech_wait_done');
+                            for (const text of await page.getByTestId('live-filler').allInnerTexts()) {
+                                const key = normaliseKey(text.replace(/[^a-z\s]/gi, ''));
+                                liveMarks[key] = (liveMarks[key] ?? 0) + 1;
+                            }
+                            diag.mark('row4_live_fillers_read');
+                            const markTotal = Object.values(liveMarks).reduce((a, b) => a + b, 0);
+                            receipt.row('live filler highlighting', markTotal > 0 ? 'PASS' : 'FAIL',
+                                markTotal > 0 ? 'fillers were highlighted in the live transcript' : 'no filler was highlighted live',
+                                { liveFillerMarks: markTotal });
+                            for (const row of await page.locator('[data-filler-word]').all()) {
+                                const word = normaliseKey((await row.getAttribute('data-filler-word')) ?? '');
+                                const count = Number(await row.getAttribute('data-filler-count'));
+                                if (word && Number.isInteger(count)) liveDisplay[word] = count;
+                            }
+                            diag.mark('row4_filler_badges_read');
+                            const text = (await page.getByTestId('filler-count-value').first().innerText().catch(() => '')).replace(/[()]/g, '').trim();
+                            visibleFillers = text === '' ? 0 : Number.isFinite(Number(text)) ? Number(text) : null;
+                            diag.mark('row4_done');
+                        });
 
-            // ── Row 5 — Stop, save, and coaching that arrives on its own ────────────────────────────────
-            await test.step('row 5 — Stop, save, two coaching phrases', async () => {
-                stoppedAt = Date.now();
-                // Bounded: whether Stop succeeds, rejects or hangs, the trace is recorded before the step continues or fails.
-                await boundedStopWithTrace(() => stopBenchmarkRecording(page, SUITE, 180_000), STOP_BOUND_MS, recordTrace);
+                        // ── Row 5 — Stop ────────────────────────────────────────────────────────────────────
+                        await test.step('row 5 — Stop', async () => {
+                            stoppedAt = Date.now();
+                            diag.mark('row5_stop_entered');
+                            // Bounded: whether Stop succeeds, rejects or hangs, the trace is recorded before the step continues or fails.
+                            await boundedStopWithTrace(() => stopBenchmarkRecording(page, SUITE, 180_000), STOP_BOUND_MS, recordTrace);
+                            diag.mark('row5_stop_settled');
+                        });
+                    },
+                    onDeadlineBoundMs: DEADLINE_COLLECTION_MS,
+                    onDeadline: async () => {
+                        await recordTrace();
+                        // Fence the abandoned window: closing the page rejects every page operation it is still awaiting.
+                        await withDeadline(() => page.close(), 15_000);
+                    },
+                });
+            } finally {
+                // A Row-4 failure never reached Stop's own recording; ask once more (idempotent, bounded).
+                await withDeadline(recordTrace, TRACE_STOP_WORST_CASE_MS);
+                // #1549 Codex P1 r4158574092: the process peaks describe the first-take window only — never coaching, PDF
+                // or the repeat recording. The outer finally and afterEach remain the backstop for an earlier failure.
+                sampler.stop();
+            }
+
+            // ── Row 5 — save, and coaching that arrives on its own ─────────────────────────────────────
+            await test.step('row 5 — save and two coaching phrases', async () => {
                 await waitForBenchmarkSaveCandidate(page, SUITE, 180_000);
                 await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
                 persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
@@ -534,6 +612,10 @@ test.describe('RWT — Open Mic first session @live', () => {
                 nextStartRows(receipt, next);
             });
         } finally {
+            // #1258: stop sampling and carry the diagnostic record (content-free by construction) into the receipt.
+            sampler.stop();
+            activeSampler = null;
+            Object.assign(receipt.meta, diag.snapshot());
             // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
             const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
             receipt.row('telemetry sent', tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0 ? 'PASS' : 'FAIL',
