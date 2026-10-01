@@ -4,7 +4,7 @@
  * thread that stopped reporting (a long task that never completed leaves a long silent tail).
  */
 import { describe, expect, it } from 'vitest';
-import { boundedStopWithTrace, frameLabel, summarizeTrace } from '../live/helpers/rwtMainThreadTrace';
+import { boundedStopWithTrace, frameLabel, keepTraceEvent, summarizeTrace } from '../live/helpers/rwtMainThreadTrace';
 
 const meta = (pid: number, tid: number, name: string) => ({ name: 'thread_name', ph: 'M', ts: 0, pid, tid, args: { name } });
 const task = (tid: number, tsMs: number, durMs: number, name = 'RunTask') => ({ name, ph: 'X', ts: tsMs * 1000, dur: durMs * 1000, pid: 1, tid });
@@ -114,5 +114,47 @@ describe('#1547 privacy/shape: code locations cannot carry free text or URL/quer
     expect(out).toBe(expected);
     expect(out).toMatch(SHAPE);
     expect(out).not.toMatch(/https?:|[?#=@]|secret|token|transcript|hello/);
+  });
+});
+
+describe('#1547 Codex P1 r4152479943: production-scale traces never throw', () => {
+  it('summarizes 300,000 events without exceeding the argument limit', () => {
+    const events: Array<Record<string, unknown>> = [meta(1, 10, 'CrRendererMain'), meta(1, 20, 'DedicatedWorker thread')];
+    for (let i = 0; i < 150_000; i++) events.push(task(10, i, 1), task(20, i, 1));
+    const s = summarizeTrace(events as never);
+    expect(s.trace_events).toBe(300_002);
+    expect(s.trace_main_tasks).toBe(150_000);
+    expect(s.trace_worker_tasks).toBe(150_000);
+  });
+
+  it('a failure while recording the trace never replaces the original Stop failure', async () => {
+    const original = new Error('recorder bar did not clear');
+    await expect(boundedStopWithTrace(async () => { throw original; }, 1_000, async () => { throw new RangeError('boom'); })).rejects.toBe(original);
+  });
+});
+
+describe('#1547 memory bound: only what the summary reads is kept as events arrive', () => {
+  it('keeps thread names, top-level tasks, >= 1 ms child events and V8 profile events; drops the rest', () => {
+    expect(keepTraceEvent({ name: 'thread_name', ph: 'M' })).toBe(true);
+    expect(keepTraceEvent({ name: 'process_labels', ph: 'M' })).toBe(false);
+    expect(keepTraceEvent({ name: 'RunTask', ph: 'X', dur: 5 })).toBe(true);
+    expect(keepTraceEvent({ name: 'Profile', ph: 'P' })).toBe(true);
+    expect(keepTraceEvent({ name: 'ProfileChunk', ph: 'P' })).toBe(true);
+    expect(keepTraceEvent({ name: 'FunctionCall', ph: 'X', dur: 1_000 })).toBe(true);
+    expect(keepTraceEvent({ name: 'FunctionCall', ph: 'X', dur: 999 })).toBe(false);
+    expect(keepTraceEvent({ name: 'UpdateCounters', ph: 'I' })).toBe(false);
+  });
+
+  it('filtering preserves every task-based field; top_events then counts only child events of at least 1 ms', () => {
+    const events: Array<Record<string, unknown>> = [meta(1, 10, 'CrRendererMain'), meta(1, 20, 'DedicatedWorker thread')];
+    events.push(task(10, 0, 800), task(10, 100, 600, 'FunctionCall'), task(20, 0, 900));
+    for (let i = 0; i < 50_000; i++) events.push({ name: 'Tiny', ph: 'X', ts: i, dur: 10, pid: 1, tid: 10 }, { name: 'Counter', ph: 'C', ts: i, pid: 1, tid: 10 });
+    const filtered = events.filter((e) => keepTraceEvent(e as never));
+    expect(filtered.length).toBeLessThan(10);
+    const a = summarizeTrace(events as never);
+    const b = summarizeTrace(filtered as never);
+    for (const k of ['trace_main_tasks', 'trace_main_busy_pct', 'trace_main_longest_task_ms', 'trace_main_tasks_over_500ms', 'trace_main_silent_tail_ms', 'trace_worker_tasks', 'trace_worker_busy_pct']) expect(b[k]).toEqual(a[k]);
+    // Documented trade-off: sub-millisecond children are not attributed (memory bound); the >= 1 ms child still is.
+    expect(b.trace_main_longest_task_top_events).toBe('FunctionCall=600ms');
   });
 });

@@ -22,13 +22,30 @@ type TraceEvent = {
 
 export type TraceSummary = Record<string, string | number | null>;
 
+/**
+ * Memory bound (#1547): a 1–4 minute timeline + CPU-sampler trace can reach millions of events. Keep only what the
+ * summary reads — thread-name metadata, top-level tasks, child events of at least 1 ms, and V8 profile events — as they
+ * arrive, so the trace cannot exhaust the test runner's memory and lose the run. Every task-based field is unaffected;
+ * `trace_main_longest_task_top_events` then attributes only child events of at least 1 ms (code location comes from the
+ * V8 sampler, which is independent of event size).
+ */
+export function keepTraceEvent(e: { name?: string; ph?: string; dur?: number }): boolean {
+    if (e.ph === 'M') return e.name === 'thread_name';
+    if (e.name === 'RunTask' || e.name === 'Profile' || e.name === 'ProfileChunk') return true;
+    return e.ph === 'X' && typeof e.dur === 'number' && e.dur >= 1_000;
+}
+
 export class MainThreadTrace {
     private readonly events: TraceEvent[] = [];
+    private received = 0;
     private readonly startedAtUs: number;
 
     private constructor(private readonly cdp: CDPSession) {
         this.startedAtUs = Date.now() * 1000;
-        cdp.on('Tracing.dataCollected', (e) => { this.events.push(...(e.value as unknown as TraceEvent[])); });
+        // No argument spreading (#1547 Codex P1 r4152479943): a chunk can be large; append element by element.
+        cdp.on('Tracing.dataCollected', (e) => {
+            for (const ev of e.value as unknown as TraceEvent[]) { this.received += 1; if (keepTraceEvent(ev)) this.events.push(ev); }
+        });
     }
 
     /** Starts tracing; returns null (and records nothing) if the browser refuses, so the journey is never blocked. */
@@ -50,9 +67,19 @@ export class MainThreadTrace {
             await this.cdp.send('Tracing.end');
             await Promise.race([complete, new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
         } catch { /* summarize whatever arrived */ }
-        return summarizeTrace(this.events);
+        try {
+            return { ...summarizeTrace(this.events), trace_events_received: this.received };
+        } catch (error) {
+            // The summary must never replace the Stop outcome; report that it failed, content-free.
+            return { trace_events: this.events.length, trace_events_received: this.received, trace_note: `summary failed: ${error instanceof Error ? error.name : 'error'}` };
+        }
     }
 }
+
+/** Iterative extremes: `Math.min(...xs)` / `Math.max(...xs)` throw RangeError past the argument limit (~100k). */
+function minOf(xs: Iterable<number>): number { let m = Infinity; for (const x of xs) if (x < m) m = x; return m; }
+function maxOf(xs: Iterable<number>): number { let m = -Infinity; for (const x of xs) if (x > m) m = x; return m; }
+function* mapIter<T, R>(xs: Iterable<T>, f: (x: T) => R): Iterable<R> { for (const x of xs) yield f(x); }
 
 const THREAD_ROLES: Array<[string, RegExp]> = [['main', /^CrRendererMain$/], ['worker', /^DedicatedWorker/]];
 
@@ -69,9 +96,9 @@ export function summarizeTrace(events: TraceEvent[]): TraceSummary {
     const timed = events.filter((e) => e.ph === 'X' && typeof e.dur === 'number' && role.has(`${e.pid}:${e.tid}`));
     const out: TraceSummary = { trace_events: events.length };
     if (!timed.length) return { ...out, trace_note: 'no renderer or worker tasks captured' };
-    const t0 = Math.min(...timed.map((e) => e.ts));
+    const t0 = minOf(mapIter(timed, (e) => e.ts));
     // Trace end: every non-metadata event (metadata carries ts 0 and must not define the window).
-    const t1 = Math.max(...events.filter((e) => e.ph !== 'M' && typeof e.ts === 'number').map((e) => e.ts + (e.dur ?? 0)));
+    const t1 = maxOf(mapIter(events.filter((e) => e.ph !== 'M' && typeof e.ts === 'number'), (e) => e.ts + (e.dur ?? 0)));
     const windowUs = Math.max(1, t1 - t0);
     out.trace_window_ms = Math.round(windowUs / 1000);
     for (const [r] of THREAD_ROLES) {
@@ -79,7 +106,7 @@ export function summarizeTrace(events: TraceEvent[]): TraceSummary {
         if (!tasks.length) { out[`trace_${r}_tasks`] = 0; continue; }
         const busyUs = tasks.reduce((a, e) => a + (e.dur ?? 0), 0);
         const longest = tasks.reduce((a, e) => ((e.dur ?? 0) > (a.dur ?? 0) ? e : a));
-        const lastEnd = Math.max(...tasks.map((e) => e.ts + (e.dur ?? 0)));
+        const lastEnd = maxOf(mapIter(tasks, (e) => e.ts + (e.dur ?? 0)));
         out[`trace_${r}_tasks`] = tasks.length;
         out[`trace_${r}_busy_pct`] = Math.round((1000 * busyUs) / windowUs) / 10;
         out[`trace_${r}_longest_task_ms`] = Math.round((longest.dur ?? 0) / 1000);
@@ -173,7 +200,8 @@ export async function boundedStopWithTrace(stop: () => Promise<unknown>, boundMs
         new Promise<{ kind: 'timed_out' }>((resolve) => { timer = setTimeout(() => resolve({ kind: 'timed_out' }), boundMs); }),
     ]);
     if (timer) clearTimeout(timer);
-    await recordTrace();
+    // Recording the trace must never replace the Stop outcome (#1547 Codex P1 r4152479943).
+    try { await recordTrace(); } catch { /* the receipt simply lacks trace meta; the Stop outcome stands */ }
     if (outcome.kind === 'rejected') throw outcome.error;
     if (outcome.kind === 'timed_out') throw new Error(`Stop did not complete within ${boundMs / 1000} s (page unresponsive); trace summary recorded in receipt meta`);
 }
