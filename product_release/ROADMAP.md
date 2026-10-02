@@ -1,7 +1,8 @@
-**Status:** Authoritative (SSOT for unfinished and deferred product/release work)
+**Status:** ⚠️ STALE — UNDER REVISION (SSOT for unfinished and deferred product/release work; narrative not reconciled since `main@6bb7a543`)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-09-18
 **Last Verified:** 2026-09-19 — reconciled to `main@6bb7a543`, which is `main` after PR #1511 (#1501 piece 1: `merge_group` CI support), PR #1512 (duplicate filler-word list removed), PR #1509 (G17 landing terms), PR #1510 (#1500: checked-in test credential removed; test-only), PR #1506 (Session `before`, G16), PR #1507 (FAQ first-session quote), PR #1508 (Sign Out lands on the anonymous landing), PR #1504 (FAQ currentization), PR #1503 (Focus Points set-up retheme, G7) and PR #1505 (#1498 P2 follow-ups), on top of PR #1502 (Share feedback retheme, G8), PR #1494 (Home, Design Correction Brief H-1…H-5) and PR #1498 (Session, S-8…S-14), on top of PR #1490 (#1259 received-receipt gaps), PR #1467 (Focus Points detection limit), PR #1486 (#1473 automatic Practice Loop suggestions), PR #1493 (Design Correction Brief shared slot map, S-1–S-7 / F-1–F-6), PR #1487 (#1475 G12 signed-out homepage) and PR #1492 (#1294 checkout email sourcing) merged; the open PRs, the open issues, the Production migration ledger and incomplete RWT evidence were re-read at the same time.
+**Baseline currentized:** 2026-10-02 — **baseline and deployed-release read only**, to `main@b435be36` (after #1550). ⚠️ **The narrative below is STALE:** it was last reconciled at `main@6bb7a543` (2026-09-19) and was not re-reconciled. Do not rely on it for open PRs, blockers or workflow state; read GitHub for those.
 **Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -11,13 +12,13 @@
 
 # SpeakSharp Roadmap
 
-> **Baseline `6bb7a543cfa4f5ec978f0fbb4cd80566de0a0a4b`** (`main`, 2026-09-20, after #1511). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer. The two values currently agree because Production was read at 2026-09-20T12:44:40Z after the latest deploy propagated — agreement is the observed result of that read, not a conclusion drawn from the merge. They diverge again the moment `main` advances, until a new read is taken.
+> **Baseline `b435be3681fd77e0d93e2874d6653e384d18839e`** (`main`, 2026-10-02, after #1550). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer. The two values currently agree because Production was read at 2026-10-02T03:30:28Z after the latest deploy propagated — agreement is the observed result of that read, not a conclusion drawn from the merge. They diverge again the moment `main` advances, until a new read is taken.
 
 This file is the live backlog authority. The former `BACKLOG.md` is archived and must not be restored as a fifteenth canonical document. Completion belongs in issue/PR/git history; current deployment facts belong in `RELEASE_STATUS.md`.
 
 <!-- CURRENCY-BLOCK
-baseline: 6bb7a543cfa4f5ec978f0fbb4cd80566de0a0a4b
-deployed-release: 6bb7a543cfa4f5ec978f0fbb4cd80566de0a0a4b
+baseline: b435be3681fd77e0d93e2874d6653e384d18839e
+deployed-release: b435be3681fd77e0d93e2874d6653e384d18839e
 verified-on: 2026-09-20
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
@@ -80,7 +81,7 @@ All 23 current MVP/pre-GO issues and the one roadmap-owned gap (account deletion
 | Observability/operations | #1259, #1382, #1383, #1384 | Active; received evidence and cleanup are required, not producer calls. |
 | Security/CI truth | #1261, #1313, #1315, #1385 | Active pre-GO controls; keep separate from product-feature PRs. |
 | STT comparison | #1304, #1390 | Active; validates **v4 (approved primary, not yet live) against v2 (pre-Start fallback, and today's only customer default)**. #1263 Moonshine is deferred until after RWT or MVP and is not required here. |
-| Documentation/review gate | #1318 | PR #1477 merged 2026-09-16; this currentization restores the baseline to `main@6bb7a543`. Archives and dated evidence remain immutable. |
+| Documentation/review gate | #1318 | PR #1477 merged 2026-09-16; the 2026-10-02 baseline-only currentization restores the baseline to `main@b435be36`. Archives and dated evidence remain immutable. |
 | Retention safety | #1452 | The newest-one migration was applied on 2026-09-12 and installs the policy **inert**; current activation is unverified (no read-only DB secret), and installation stopped the prior newest-two expiry. #1452 stays open with its must-fix-before-activation priority, re-classified P1/RWT blocker if activation is observed. PR #1497 was closed unmerged as superseded. See `RELEASE_STATUS.md`, *Database migration state*. |
 | Account deletion | Roadmap-owned pre-GO gap | Product Owner owns disposition; Dev may author a bounded corrective issue/PR. Choose one deletion authority, make account erasure unblockable, cover unfinished `session_delivery_measurements` rows and the non-cascading `user_id` dependency, define cleanup/SLA ownership, and prove the real migrations in tests. Production migration remains separately authorized. |
 | Progress/review/filler | #1471, #1472, #1473, #1476 | Active release blockers with separate owners. |

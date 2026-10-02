@@ -1,9 +1,10 @@
 # Release Status
 
-**Status:** Authoritative (SSOT for release/deployment posture)
+**Status:** ⚠️ STALE — UNDER REVISION (SSOT for release/deployment posture; narrative not reconciled since `main@6bb7a543`)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-09-18
 **Last Verified:** 2026-09-19 — reconciled to `main@6bb7a543`, which is `main` after PR #1511 (#1501 piece 1: `merge_group` CI support), PR #1512 (the duplicate filler-word list removed from the popover), PR #1509 (G17 landing terms), PR #1510 (#1500: checked-in test credential removed; test-only), PR #1506 (Session `before`, G16), PR #1507 (FAQ first-session quote), PR #1508 (Sign Out lands on the anonymous landing), PR #1504 (FAQ currentization), PR #1503 (Focus Points set-up retheme, G7) and PR #1505 (#1498 P2 follow-ups), on top of PR #1502 (Share feedback retheme, G8), PR #1494 (Home, Design Correction Brief H-1…H-5) and PR #1498 (Session, S-8…S-14), on top of PR #1490 (#1259 received-receipt gaps), PR #1467 (Focus Points detection limit), PR #1486 (#1473 automatic Practice Loop suggestions), PR #1493 (Design Correction Brief shared slot map, S-1–S-7 / F-1–F-6), PR #1487 (#1475 G12 signed-out homepage) and PR #1492 (#1294 checkout email sourcing) merged. Open PRs, open issues, the Production migration ledger and the deployed release were re-read at the same time.
+**Baseline currentized:** 2026-10-02 — **baseline and deployed-release read only**, to `main@b435be36` (after #1550). ⚠️ **The narrative below is STALE:** it was last reconciled at `main@6bb7a543` (2026-09-19) and was not re-reconciled. Do not rely on it for open PRs, blockers or workflow state; read GitHub for those.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
@@ -11,12 +12,12 @@
 **Supersedes:** any conflicting current-status claim in `product_release/archive/`, dated evidence, work items, or older root-file text.
 **Evidence Sources:** GitHub `main`; Production `window.__APP_RELEASE__`; read-only Migrations Preflight run `35341531149`; merge receipts for PRs #1467, #1486, #1487, #1490, #1492, #1493, #1494, #1498, #1502–#1512; read-only identity inventory run `35467307725` (#1500); issues #1258, #1263, #1304, #1390, #1471–#1476 and #1495.
 
-> **`baseline` and `deployed-release` CONVERGE, and that is a read, not an inference.** Both are `6bb7a543cfa4f5ec978f0fbb4cd80566de0a0a4b`. The deployed release was read directly from `window.__APP_RELEASE__` on the canonical Production app `https://speaksharp-public.vercel.app` at **2026-09-20T12:44:40Z**, by a read-only page load with no interaction and no sign-in. It equals `main`'s tip because the #1511 deploy had propagated by then — **not** because a merge was taken as evidence of a deployment. The criterion below is unchanged and still governs: the deployed release is a read, never inferred from a merge or a moving `main` pointer, so the next time `main` advances these two values diverge again until a new read is taken. The previous entry (`289da05a362e271314a6b77fdd9f7b78bb78960d`, read 2026-09-19T21:23:15Z after #1509) is superseded by this read. Intermediate deploys were each read and receipted on their PRs: `ced7af7f` (#1504), `d74fb9bb` (#1508), `22f8c023` (#1507), `72ab0158` (#1506), `464b5a50` (#1510, read 2026-09-19T21:12:05Z), `289da05a` (#1509, read 2026-09-19T21:23:15Z) and `a547c344` (#1512, read 2026-09-20T12:20:51Z).
+> **`baseline` and `deployed-release` CONVERGE, and that is a read, not an inference.** Both are `b435be3681fd77e0d93e2874d6653e384d18839e`. The deployed release was read directly from `window.__APP_RELEASE__` on the canonical Production app `https://speaksharp-public.vercel.app` at **2026-10-02T03:30:28Z**, by a read-only page load with no interaction and no sign-in. It equals `main`'s tip because the #1550 deploy had propagated by then — **not** because a merge was taken as evidence of a deployment. The criterion below is unchanged and still governs: the deployed release is a read, never inferred from a merge or a moving `main` pointer, so the next time `main` advances these two values diverge again until a new read is taken. The previous entry (`6bb7a543cfa4f5ec978f0fbb4cd80566de0a0a4b`, read 2026-09-20T12:44:40Z after #1511) is superseded by this read; deploys between the two reads were not individually re-read in this edit.
 
 <!-- CURRENCY-BLOCK
 # Machine-readable state parsed by tests/config/documentationContract.test.ts.
-baseline: 6bb7a543cfa4f5ec978f0fbb4cd80566de0a0a4b
-deployed-release: 6bb7a543cfa4f5ec978f0fbb4cd80566de0a0a4b
+baseline: b435be3681fd77e0d93e2874d6653e384d18839e
+deployed-release: b435be3681fd77e0d93e2874d6653e384d18839e
 verified-on: 2026-09-20
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
@@ -52,13 +53,13 @@ lane-moonshine: returned
 
 | Identity | Current value | Evidence boundary |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `6bb7a543cfa4f5ec978f0fbb4cd80566de0a0a4b` (after #1511), read 2026-09-20 | Re-read GitHub before every exact-pair decision. |
-| **Deployed product release (last READ)** | `window.__APP_RELEASE__ = 6bb7a543cfa4f5ec978f0fbb4cd80566de0a0a4b`, read from the canonical Production app `https://speaksharp-public.vercel.app` at 2026-09-20T12:44:40Z | **A literal read, by read-only page load with no interaction or sign-in.** It currently equals the baseline because the latest deploy had propagated when the read was taken; that equality is the observed result, not the method. This value must be re-read before any RWT, deployment or go/no-go claim, and it goes stale the moment `main` advances — a merge is never evidence that it deployed. |
+| **Repository `main` (moving branch pointer)** | `b435be3681fd77e0d93e2874d6653e384d18839e` (after #1550), read 2026-10-02 | Re-read GitHub before every exact-pair decision. |
+| **Deployed product release (last READ)** | `window.__APP_RELEASE__ = b435be3681fd77e0d93e2874d6653e384d18839e`, read from the canonical Production app `https://speaksharp-public.vercel.app` at 2026-10-02T03:30:28Z | **A literal read, by read-only page load with no interaction or sign-in.** It currently equals the baseline because the latest deploy had propagated when the read was taken; that equality is the observed result, not the method. This value must be re-read before any RWT, deployment or go/no-go claim, and it goes stale the moment `main` advances — a merge is never evidence that it deployed. |
 | **Next release-candidate line** | `v0.9.0-rc` | The version step reflects the significance of the current product/release-control update. This is the release line, not an exact tag name or tag authorization. Before tagging, inventory the existing `v0.9.0-rc*` tags, select the next unused monotonically increasing identifier, align `package.json`, and qualify that exact integrated `main` under explicit Product Owner authorization. |
 | **Open merge candidates** | PR #1499 (this document), PR #1488 (canary; merge-queue pilot — head frozen, enters only through the #1501 merge queue) | Each needs exact-head CI including browser shards, cleared review, PM acceptance and an exact PO head/base authorization. **Codex Code Review capacity is exhausted; per the PO (2026-09-19), PM + Consultant code reviews substitute for it until it returns** (Codex Security still runs). |
 | **Closed unmerged (superseded)** | PR #1497 (allowlist the newest-one retention migration for exact apply) | Closed 2026-09-18 by PO direction: the read-only ledger shows `20260908120000_transcript_retention_newest_one.sql` already **applied** on 2026-09-12 (see *Database migration state* below). Its one durable finding, that the exact-apply gate excludes only later allowlist entries rather than every unselected pending migration, is recorded on the PR for extraction into its own PR. |
 | **Test identity redesign** | Issue #1495 | Rewritten as separate auth, full-product, paid and trial identity roles. The consumer inventory precedes any design; no identity, credential or Variable/Secret change is authorized by this document. |
-| **Documentation currency** | This currentization (issue #1318) | Restores the baseline to `main@6bb7a543`. The currency guard reads committed files and ancestry only. |
+| **Documentation currency** | Baseline-only currentization (issue #1258) | Restores the baseline to `main@b435be36`; the narrative was not re-reconciled in this edit. The currency guard reads committed files and ancestry only. |
 
 The repository currency guard verifies committed-file consistency and ancestry only; it **cannot read a moving GitHub branch or Production deployment**. Those facts must be re-read externally at every decision point.
 
