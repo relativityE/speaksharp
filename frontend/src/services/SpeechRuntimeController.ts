@@ -5232,26 +5232,21 @@ export class SpeechRuntimeController {
                             // (transition READY below) for every non-error terminal, so no per-branch clear here.
                             result = null;
                         } else {
-                            // #SSOT (Product Owner decision): the LIVE filler counter is canonical. Use the
-                            // deep-cloned live snapshot captured at stop-entry (liveFillerDataAtStop, before
-                            // any recompute) as the saved filler count/data + the clarity/score filler input.
-                            // Word count/WPM still come from the final transcript. The transcript recount is
-                            // DIAGNOSTIC/FALLBACK ONLY — used just when the live snapshot is absent/malformed.
-                            const canonicalLiveFillers = isUsableFillerCounts(this.liveFillerDataAtStop)
-                                ? this.liveFillerDataAtStop
-                                : undefined;
-                            if (!canonicalLiveFillers) {
-                                logger.warn(
-                                    { sessionId, mode: stopEntryMode },
-                                    '[filler-ssot] live filler snapshot absent/malformed at save — falling back to transcript recount (diagnostic)',
-                                );
-                            }
+                            // #1258 (PO 2026-10-02): the saved filler count is FINALIZED exactly like the transcript.
+                            // The live counter is a preview, snapshotted at stop-entry; the engine keeps decoding
+                            // during finalizing and the saved transcript is the finalized text. Reporting the
+                            // stop-entry snapshot as the final value saved um=3 beside a saved transcript with 4
+                            // (RWT run 36955422629). So the final value is counted from `finalTranscript`, the text
+                            // that is saved and shown; the live snapshot is used only when no finalized text exists.
+                            // (Supersedes the 2026-07-09 live-canonical rule, #944, for the SAVED value.)
+                            const finalizedFillers = finalTranscript.trim()
+                                ? countFillerWords(finalTranscript, this.userWords)
+                                : isUsableFillerCounts(this.liveFillerDataAtStop) ? this.liveFillerDataAtStop : undefined;
                             const sessionMetrics = calculateCoreSessionMetrics({
                                 transcript: finalTranscript,
                                 durationSeconds: duration,
-                                // Canonical live snapshot → filler count/data + clarity; undefined only on the
-                                // fallback path, where calculateCoreSessionMetrics recounts the final transcript.
-                                fillerData: canonicalLiveFillers,
+                                // The finalized filler data → filler count/data + clarity.
+                                fillerData: finalizedFillers ?? undefined,
                                 userWords: this.userWords,
                             });
                             const fillerWords = sessionMetrics.fillerData;
