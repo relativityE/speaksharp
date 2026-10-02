@@ -94,6 +94,9 @@ let adaptiveGemini = false;
 /** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
 let geminiModelVersion: string | null = 'gemini-3-flash-preview';
 let fetchThrows = false;
+/** #1258: what a non-OK provider answer's body says, and what a transport error's message says. */
+let providerErrorBody = 'upstream unavailable';
+let fetchErrorMessage = 'network unreachable';
 let lastPrompt = '';
 let lastRequestBody: Record<string, unknown> = {};
 let lastRequestUrl = '';
@@ -117,12 +120,12 @@ globalThis.fetch = async (url, init) => {
   }
   fetchCount++;
   lastRequestUrl = requested;
-  if (fetchThrows) throw new TypeError('network unreachable');
+  if (fetchThrows) throw new TypeError(fetchErrorMessage);
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
   const thisStatus = fetchStatusQueue.length > 0 ? Number(fetchStatusQueue.shift()) : fetchStatus;
-  if (thisStatus !== 200) return new Response('upstream unavailable', { status: thisStatus });
+  if (thisStatus !== 200) return new Response(providerErrorBody, { status: thisStatus });
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
     : geminiText;
@@ -273,6 +276,8 @@ function resetProvider() {
   adaptiveGemini = false;
   geminiModelVersion = 'gemini-3-flash-preview';
   fetchThrows = false;
+  providerErrorBody = 'upstream unavailable';
+  fetchErrorMessage = 'network unreachable';
   lastPrompt = '';
   lastRequestUrl = '';
   outboundRequests.length = 0;
@@ -708,6 +713,54 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       }
     });
   }
+
+  /*
+   * #1258 (PM RETURN 5953504835) — NOTHING THE PROVIDER OR MODEL SAID REACHES A LOG OR A RESPONSE.
+   * A provider error body, a transport error message (which can carry the request URL — and the URL carries the API
+   * key) and unparseable model text each hold a sentinel; none may appear in any console output or in the 502 body.
+   */
+  const SENTINEL = 'SENTINEL-7f3c-provider-said-this';
+  const leakCases: Array<[string, () => void, string]> = [
+    ['a provider 4xx whose body echoes text', () => { fetchStatus = 400; providerErrorBody = `{"error":{"message":"${SENTINEL} in your prompt"}}`; }, 'provider_http_4xx'],
+    ['a provider 5xx whose body echoes text', () => { fetchStatusQueue = [503, 500]; providerErrorBody = `${SENTINEL} upstream detail`; }, 'provider_http_5xx'],
+    ['a transport error whose message carries the URL and key', () => { fetchThrows = true; fetchErrorMessage = `error sending request for url (https://generativelanguage.googleapis.com/x?key=${SENTINEL})`; }, 'provider_transport'],
+    ['unparseable model text', () => { geminiText = `${SENTINEL} not json`; }, 'invalid_shape'],
+  ];
+  for (const [label, arrange, reason] of leakCases) {
+    await t.step(`#1258 CASUALTY: ${label} → ${reason}; the text appears in no log and no response`, async () => {
+      resetProvider();
+      arrange();
+      const logged: string[] = [];
+      const original = { error: console.error, log: console.log, warn: console.warn };
+      // Rendered exactly as the console renders it (Deno.inspect): JSON.stringify would print an Error as {} and hide its message.
+      const capture = (...args: unknown[]) => { logged.push(args.map((a) => (typeof a === 'string' ? a : Deno.inspect(a))).join(' ')); };
+      console.error = capture; console.log = capture; console.warn = capture;
+      let response: Response;
+      try {
+        response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      } finally {
+        console.error = original.error; console.log = original.log; console.warn = original.warn;
+      }
+      assertEquals(response.status, 502);
+      const body = await response.text();
+      assertEquals(JSON.parse(body).reason, reason);
+      // The PREFIX is checked: a JSON SyntaxError quotes only the first ~10 characters of the text — still a leak.
+      const MARK = SENTINEL.slice(0, 8);
+      assertEquals(body.includes(MARK), false, 'the 502 body carries no provider or model text');
+      for (const line of logged) assertEquals(line.includes(MARK), false, `leaked into a log line: ${line.slice(0, 80)}`);
+      assertEquals(logged.length > 0, true, 'the failure is still logged — by reason and status');
+    });
+  }
+  await t.step('#1258: the retry rule is unchanged — a provider 5xx is asked twice, a 4xx once', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 500];
+    await handler(request(), mockSupabase({ session: savedSession() }).create);
+    assertEquals(fetchCount, 2);
+    resetProvider();
+    fetchStatus = 400;
+    await handler(request(), mockSupabase({ session: savedSession() }).create);
+    assertEquals(fetchCount, 1);
+  });
 
   /*
    * #1258 — PO DECISION 2026-10-02 (5952285329): LENGTH IS A SOFT TARGET, NOT A VALIDITY RULE.

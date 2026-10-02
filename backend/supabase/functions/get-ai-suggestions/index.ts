@@ -186,7 +186,8 @@ export function parseSuggestions(rawText: string, { enforceCharacterCeiling = fa
       what_to_try_next: candidate.what_to_try_next.trim(),
     };
   } catch (error) {
-    console.error('Failed to parse AI suggestions JSON:', error);
+    // #1258 (PM 5953504835): the error NAME only. A JSON SyntaxError message quotes the text it failed on — model output.
+    console.error('Failed to parse AI suggestions JSON.', JSON.stringify({ error: error instanceof Error ? error.name : 'unknown' }));
     return null;
   }
 }
@@ -684,8 +685,10 @@ export async function handler(
         });
 
         if (!geminiResponse.ok) {
-          const errorBody = await geminiResponse.text();
-          console.error('Gemini API request failed:', errorBody);
+          // #1258 (PM 5953504835): the provider's error BODY is never read or logged — the closed reason and the
+          // numeric status classify the failure; the body can echo anything the provider chose to return.
+          await geminiResponse.body?.cancel().catch(() => undefined);
+          console.error('Gemini API request failed.', JSON.stringify({ status: geminiResponse.status, attempt: providerAttempt }));
           providerFailureIsRetryable = geminiResponse.status >= 500;
           providerStatus = geminiResponse.status;
           failureReason = geminiResponse.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
@@ -704,7 +707,8 @@ export async function handler(
           if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
         }
       } catch (error) {
-        console.error('Gemini API request failed:', error);
+        // #1258: the error NAME only. A fetch error's message can carry the request URL, and this URL carries the API key.
+        console.error('Gemini API request failed.', JSON.stringify({ error: error instanceof Error ? error.name : 'unknown', attempt: providerAttempt }));
         providerFailureIsRetryable = true;
         failureReason = 'provider_transport';
       }
