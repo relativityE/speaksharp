@@ -319,7 +319,7 @@ describe('#1432 F-17 model-downselection evidence contract', () => {
       model: { const: LOCKED_GEMINI_CONTRACT.model },
       uncachedRequestsPerUserUtcDay: { const: LOCKED_GEMINI_CONTRACT.uncachedRequestsPerUserUtcDay },
       whatWorkedItems: { const: 1 }, whatToImproveItems: { const: 1 },
-      maxWhitespaceWordsPerPhrase: { const: 6 }, cachedResultsReadable: { const: true },
+      targetWhitespaceWordsPerPhrase: { const: 10 }, cachedResultsReadable: { const: true },
     });
   });
 
@@ -1123,10 +1123,10 @@ describe('#1432 PM RETURN `5654016276` — the validator, schema and template fo
     expect(schemaQuotaBoundsAccept({ limit: 20, requestNumber: cap })).toBe(false);
   });
 
-  it('CASUALTY: the six-word phrase limit agrees with the Edge word budget', () => {
-    expect(edge.wordBudget).toEqual({
-      what_worked: LOCKED_GEMINI_CONTRACT.maxWhitespaceWordsPerPhrase,
-      what_to_try_next: LOCKED_GEMINI_CONTRACT.maxWhitespaceWordsPerPhrase,
+  it('CASUALTY: the phrase word target agrees with the Edge word target', () => {
+    expect(edge.wordTarget).toEqual({
+      what_worked: LOCKED_GEMINI_CONTRACT.targetWhitespaceWordsPerPhrase,
+      what_to_try_next: LOCKED_GEMINI_CONTRACT.targetWhitespaceWordsPerPhrase,
     });
   });
 

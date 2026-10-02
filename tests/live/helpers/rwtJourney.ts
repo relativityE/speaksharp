@@ -46,6 +46,9 @@ export const RWT_ACCOUNT_PREFIX = 'rwt-journey-';
 export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
+/** #1258 (PO 2026-10-02) — the Edge coaching contract's SOFT word target per phrase: measured, never a failure. */
+const COACHING_PHRASE_TARGET_WORDS = 10;
+
 export type FixtureKey = 'open_mic_tts' | 'focus_points_tts' | 'focus_points_partial_tts';
 
 const FIXTURE_DIR = fileURLToPath(new URL('../../fixtures/rwt/', import.meta.url));
@@ -1163,7 +1166,7 @@ const OMISSION_CLAIM = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t 
 
 /**
  * #1258 (runbook v12 Product 2 row 5) — the Focus Points coaching pair after Stop, as the person sees it. The same
- * contract as Open Mic (two distinct phrases ≤ 6 words, visible = saved, server receipt) plus the Focus rules: the
+ * contract as Open Mic (two distinct phrases (about 8–10 words: a soft target), visible = saved, server receipt) plus the Focus rules: the
  * request is marked focus_points, and neither phrase claims a point was missed or skipped. Relevance to the chosen
  * points stays a human judgement (HOLD). Text is compared in Node and returned only for the Analytics comparison.
  */
@@ -1197,9 +1200,11 @@ export async function focusCoachingRows(
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
     if (!two) return null;
-    const within = countWords(well) <= 6 && countWords(next) <= 6;
-    receipt.row('Focus coaching length', within ? 'PASS' : 'FAIL', within ? 'both phrases within 6 words' : 'a phrase exceeds 6 words',
-        { wellWords: countWords(well), nextWords: countWords(next) });
+    const withinTarget = countWords(well) <= COACHING_PHRASE_TARGET_WORDS && countWords(next) <= COACHING_PHRASE_TARGET_WORDS;
+    receipt.row('Focus coaching length', 'PASS',
+        withinTarget ? `both phrases within the ~${COACHING_PHRASE_TARGET_WORDS}-word target`
+            : `served whole; a phrase is over the ~${COACHING_PHRASE_TARGET_WORDS}-word target (a quality measure, not a failure)`,
+        { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
     const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
     receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');
     const claims = OMISSION_CLAIM.test(well) || OMISSION_CLAIM.test(next);

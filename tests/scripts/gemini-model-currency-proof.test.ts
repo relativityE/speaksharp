@@ -12,20 +12,20 @@ const contract = {
   model: 'gemini-3.6-flash',
   version: 'gemini_coaching_v1',
   uncachedGenerationCapPerUtcDay: 10,
-  wordBudget: { what_worked: 6, what_to_try_next: 6 },
+  wordTarget: { what_worked: 10, what_to_try_next: 10 },
   generationConfig: {
     responseMimeType: 'application/json',
     responseSchema: {
       type: 'OBJECT',
       properties: {
         version: { type: 'STRING', enum: ['gemini_coaching_v1'] },
-        what_worked: { type: 'STRING', minLength: 1, maxLength: 90, pattern: '.*\\S.*' },
-        what_to_try_next: { type: 'STRING', minLength: 1, maxLength: 90, pattern: '.*\\S.*' },
+        what_worked: { type: 'STRING', minLength: 1, maxLength: 240, pattern: '.*\\S.*' },
+        what_to_try_next: { type: 'STRING', minLength: 1, maxLength: 240, pattern: '.*\\S.*' },
       },
       required: ['version', 'what_worked', 'what_to_try_next'],
     },
   },
-  promptTemplate: 'AT MOST 6 words\nTranscript: {{TRANSCRIPT}}\nMetrics: {{METRICS}}',
+  promptTemplate: 'about 8-10 words each\nTranscript: {{TRANSCRIPT}}\nMetrics: {{METRICS}}',
 };
 
 const providerBody = (suggestions: Record<string, unknown>, modelVersion = 'gemini-3.6-flash') => JSON.stringify({
@@ -40,11 +40,11 @@ const validSuggestions = {
 };
 
 describe('trusted Gemini model proof', () => {
-  it('accepts only the established model, daily cap, two fields, six-word budgets, and strict schema', () => {
+  it('accepts only the established model, daily cap, two fields, the 10-word soft target, and strict schema', () => {
     expect(validateContract(structuredClone(contract))).toEqual(contract);
     expect(() => validateContract({ ...contract, model: 'attacker-controlled' })).toThrow();
     expect(() => validateContract({ ...contract, uncachedGenerationCapPerUtcDay: 11 })).toThrow();
-    expect(() => validateContract({ ...contract, wordBudget: { ...contract.wordBudget, what_worked: 7 } })).toThrow();
+    expect(() => validateContract({ ...contract, wordTarget: { ...contract.wordTarget, what_worked: 7 } })).toThrow();
     expect(() => validateContract({
       ...contract,
       generationConfig: { ...contract.generationConfig, candidateCount: 4 },
@@ -103,7 +103,7 @@ describe('trusted Gemini model proof', () => {
     expect(built).not.toContain('{{TRANSCRIPT}}');
   });
 
-  it('applies the exact production key, version, nonblank, and six-word checks to every response', () => {
+  it('applies the exact production key, version, nonblank, and character-ceiling checks to every response, measuring words without refusing them', () => {
     expect(validateProviderBody(providerBody(validSuggestions), contract).valid).toBe(true);
     expect(validateProviderBody(providerBody(validSuggestions, 'gemini-other-model'), contract)).toMatchObject({
       valid: false,
@@ -119,9 +119,14 @@ describe('trusted Gemini model proof', () => {
       { ...validSuggestions, extra: true },
       { ...validSuggestions, version: 'wrong' },
       { ...validSuggestions, what_worked: '   ' },
-      { ...validSuggestions, what_to_try_next: 'one two three four five six seven' },
+      { ...validSuggestions, what_to_try_next: 'word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w' },
     ];
     for (const suggestions of invalid) expect(validateProviderBody(providerBody(suggestions), contract).valid).toBe(false);
+    // PO 2026-10-02: a long but valid answer is ACCEPTED and measured — never refused for its word count.
+    const long = validateProviderBody(providerBody({ ...validSuggestions, what_to_try_next: 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen' }), contract);
+    expect(long).toMatchObject({ valid: true, within_target: false });
+    expect(long.word_counts.what_to_try_next).toBe(18);
+    expect(validateProviderBody(providerBody(validSuggestions), contract)).toMatchObject({ valid: true, within_target: true });
   });
 
   it('CASUALTY: the harness has no credential and no network path at all', () => {
@@ -152,7 +157,7 @@ describe('trusted Gemini model proof', () => {
     expect('production_uses_contract' in evidence).toBe(false);
     // The refusals are the substance: each names the rule it exercised.
     expect(evidence.fixtures.refused.map((entry: { fixture: string }) => entry.fixture)).toEqual([
-      'over the word budget',
+      'over the character ceiling',
       'a blank coaching field',
       'an extra key',
       'a wrong response version',
@@ -161,11 +166,9 @@ describe('trusted Gemini model proof', () => {
   });
 
   it('CASUALTY: a validator that stopped enforcing a rule cannot report success', () => {
-    // The fixtures are only evidence if a refusal is required. Prove the run fails when the contract's
-    // own budget is loosened so the over-budget fixture would sail through.
-    const loosened = { ...contract, wordBudget: { what_worked: 6, what_to_try_next: 6 } };
-    const evidence = runProof({ contract: loosened, targetSha: 'a'.repeat(40) });
-    expect(evidence.fixtures.refused.find((entry: { fixture: string }) => entry.fixture === 'over the word budget'))
+    // The fixtures are only evidence if a refusal is required: the over-ceiling fixture must be refused.
+    const evidence = runProof({ contract, targetSha: 'a'.repeat(40) });
+    expect(evidence.fixtures.refused.find((entry: { fixture: string }) => entry.fixture === 'over the character ceiling'))
       .toMatchObject({ refused: true });
     expect(evidence.success).toBe(true);
   });

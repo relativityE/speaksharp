@@ -6,7 +6,7 @@
  *   2. reach Open Mic without the microphone opening on navigation;
  *   3. first microphone use — the model the product actually acquires, and how long it takes;
  *   4. speak the pinned corpus — fillers seen vs saved vs the corpus's ground truth;
- *   5. Stop — the session saves and exactly two coaching phrases (≤6 words each) render on their own; they are
+ *   5. Stop — the session saves and exactly two coaching phrases (about 8–10 words each: a soft target that is measured, not a validity rule) render on their own; they are
  *      distinct and equal the saved coaching response;
  *   6. the session in Analytics — same transcript (by digest) and both saved AI suggestions, before and after
  *      a reload; then Back to Dashboard and a PDF that carries the saved transcript (the PO's manual v12 order);
@@ -115,8 +115,8 @@ const WINDOW_RESERVE_MS = DEADLINE_COLLECTION_MS + 60_000;
 /** External process/resource sampling interval (#1258 PM 5932271540: modest, not profiling). */
 const PROC_SAMPLE_MS = 5_000;
 const JOURNEY = 'open_mic';
-/** PO script row 5: exactly two phrases, each at most six words (COACHING_WORD_BUDGET). */
-const COACHING_WORD_BUDGET = 6;
+/** PO 2026-10-02: about 8-10 words per phrase is a SOFT target (the Edge contract's `wordTarget`), measured — never a failure. */
+const COACHING_WORD_TARGET = 10;
 /** Accepted headings (runbook (3) row 5: Akin also accepts "What to try next"). */
 const WELL_HEADINGS = ['What went well'] as const;
 const NEXT_HEADINGS = ['Try this next run', 'What to try next'] as const;
@@ -423,13 +423,15 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const well = shownWell ? countWords(shownWell) : null;
                 const next = shownNext ? countWords(shownNext) : null;
                 const twoPhrases = state === 'ready' && well !== null && next !== null;
-                const withinBudget = twoPhrases && well! <= COACHING_WORD_BUDGET && next! <= COACHING_WORD_BUDGET;
+                const withinTarget = twoPhrases && well! <= COACHING_WORD_TARGET && next! <= COACHING_WORD_TARGET;
                 receipt.row('coaching rendered', terminal && twoPhrases ? 'PASS' : 'FAIL',
                     twoPhrases ? 'exactly two coaching phrases rendered without any click' : `coaching did not render (state=${String(state)}, http=${String(coaching.status)})`,
                     { reviewState: state, httpStatus: coaching.status, stopToCoachingMs: coachingMs });
-                receipt.row('coaching length', withinBudget ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
-                    withinBudget ? `both phrases within ${COACHING_WORD_BUDGET} words` : twoPhrases ? `a phrase exceeds ${COACHING_WORD_BUDGET} words` : 'no phrases to measure',
-                    { wellWords: well, nextWords: next });
+                receipt.row('coaching length', twoPhrases ? 'PASS' : 'HOLD',
+                    !twoPhrases ? 'no phrases to measure'
+                        : withinTarget ? `both phrases within the ~${COACHING_WORD_TARGET}-word target`
+                            : `served whole; a phrase is over the ~${COACHING_WORD_TARGET}-word target (a quality measure, not a failure)`,
+                    { wellWords: well, nextWords: next, withinTarget });
                 const distinct = twoPhrases && samePhrase(shownWell, shownNext) === false;
                 receipt.row('coaching phrases distinct', distinct ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
                     distinct ? 'the two phrases are different suggestions' : twoPhrases ? 'both headings show the same phrase' : 'no phrases to compare');
