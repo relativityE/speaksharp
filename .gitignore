@@ -103,3 +103,7 @@ bench-corpus/
 
 # Host interlock (benchmark vs local test/build); machine-local, never committed.
 .host-locks/
+
+# Local coaching comparison input and transcript-bearing output; never commit.
+/sessions.jsonl
+/runs/coaching-comparison/

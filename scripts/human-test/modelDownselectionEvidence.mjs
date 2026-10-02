@@ -27,7 +27,7 @@ export const REQUIRED_JOURNEYS = Object.freeze(['open_mic', 'focus_points']);
  *
  * The Edge function imports `get-ai-suggestions/contract.json` for its provider model and its uncached daily cap,
  * and the server-owned receipt the trusted readback reports records exactly those values. A copy here drifted
- * (the retired preview model and 20, against the deployed `gemini-3.6-flash` and 10), so every truthful Production
+ * (the retired preview model and 20, against the deployed `gemini-3.8-flash` and 10), so every truthful Production
  * packet failed and the downselection could never PASS. The model and cap are therefore read from that same file;
  * a contract that does not declare both fails closed when this module loads.
  */
