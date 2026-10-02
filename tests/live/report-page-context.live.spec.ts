@@ -109,7 +109,7 @@ test.describe('Live page-aware Issue Report context (#1018, free account)', () =
     await page.getByTestId(TEST_IDS.EMAIL_INPUT).fill(FREE_EMAIL);
     await page.getByTestId(TEST_IDS.PASSWORD_INPUT).fill(FREE_PASSWORD);
     await page.getByTestId(TEST_IDS.SIGN_IN_SUBMIT).click();
-    await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 20000 });
   }
 
   // Open Report Issue on the current page and submit a marked, content-free report. Also verifies the
