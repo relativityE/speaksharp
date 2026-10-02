@@ -56,8 +56,8 @@ export function useUnresolvedRecovery({
         // from durable storage asynchronously and clears it itself on a successful save or an explicit discard, so
         // deleting it here (before that rehydration ran) armed no retry and lost the saved-able work. Only an
         // interrupted draft — which can never be completed — is cleared on acknowledgement.
-        // #1258 flight recorder: an interrupted take is reported ONCE, here, just before its draft is cleared, so a
-        // re-render or a later load cannot report it again. A finalized draft reached Stop and is not reported.
+        // #1258 flight recorder: an unresolved take is reported ONCE, here, just before its draft is cleared, so a
+        // re-render or a later load cannot report it again. A finalized draft completed finalization and is not reported.
         if (draft.recoveryState !== 'finalized_pending_save') {
             trackRecordingInterrupted(draft);
             clearSessionRecoveryDraft(draft.sessionId);

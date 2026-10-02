@@ -580,8 +580,9 @@ export const EVENT_SCHEMAS = Object.freeze({
         evidence_present: { kind: 'bool' } as FieldRule,
     },
     // #1258 flight recorder, cause-independent part (PO 2026-10-01). A recovery draft still `active_interrupted` on the
-    // next Session load is a take that never reached Stop/save: a reload, tab close, crash or a page that froze. Numbers
-    // and closed enums only: no session id, transcript, metric values or draft content.
+    // next Session load is a take that was never durably finalized or saved (a reload, tab close, crash or freeze, before
+    // or after Stop — the phase is unknown). Numbers and closed enums only: no session id, transcript, metric values,
+    // draft content or model attribution.
     recording_interrupted: {
         product: enumOf(['open_mic', 'focus_points', 'unknown']),
         mode: enumOf(STT_MODES),

@@ -4,7 +4,7 @@ import { renderHook } from '@testing-library/react';
 import { useUnresolvedRecovery } from '../useUnresolvedRecovery';
 import { saveSessionRecoveryDraft, getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 
-// #1258 flight recorder (PO 2026-10-01): the next Session load reports a take that never reached Stop/save, ONCE.
+// #1258 flight recorder (PO 2026-10-01): the next Session load reports a take that was never durably finalized/saved, ONCE.
 const push = vi.fn();
 vi.mock('@/services/AnalyticsBuffer', () => ({ analyticsBuffer: { push: (...args: unknown[]) => push(...args) } }));
 vi.mock('@/services/SpeechRuntimeController', () => ({
@@ -51,7 +51,7 @@ describe('useUnresolvedRecovery → recording_interrupted', () => {
         expect(interrupted()).toHaveLength(1);
     });
 
-    it('a FINALIZED draft (it reached Stop) is never reported as an interruption, and is kept for Retry Save', () => {
+    it('a FINALIZED draft (finalization completed) is never reported as unresolved, and is kept for Retry Save', () => {
         seed('finalized_pending_save');
         renderHook(() => useUnresolvedRecovery(args));
         expect(interrupted()).toHaveLength(0);
