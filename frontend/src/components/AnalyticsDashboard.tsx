@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { resolveTranscriptView } from '@/lib/storage';
+import { getSessionById, resolveTranscriptView } from '@/lib/storage';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
 import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 import { NavLink } from 'react-router-dom';
@@ -61,9 +61,19 @@ import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 /**
  * #1258 (PM RETURN, #1535): the success-named `session_pdf_downloaded` is sent only after the PDF was actually handed
  * to the browser to save. A failed generation (already shown as a toast) or a rejection sends nothing.
+ *
+ * #1258 (RWT run 36955422629): a history-list row is the metrics-only LIST select (#1306 Step 3) and never carries
+ * `transcript`, so a PDF built from it could never include the transcript page. A list download therefore reads THIS
+ * one session's detail row first — the same single-session read as opening it — and builds the PDF from that. If the
+ * detail read fails, the PDF is built from the list row as before (metrics, no transcript page). The detail surface
+ * already holds the detail row.
  */
 const downloadSessionPdf = (surface: PdfSurface, ...args: Parameters<typeof generateSessionPdf>): void => {
-    void generateSessionPdf(...args).then(
+    const [session, ...rest] = args;
+    const source = surface === 'session_detail'
+        ? Promise.resolve(session)
+        : getSessionById(session.id).then((detail) => detail ?? session, () => session);
+    void source.then((pdfSession) => generateSessionPdf(pdfSession, ...rest)).then(
         (saved) => { if (saved) trackSessionPdfDownloaded(surface); },
         () => undefined,
     );

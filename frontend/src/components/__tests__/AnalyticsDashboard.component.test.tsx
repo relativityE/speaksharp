@@ -18,6 +18,12 @@ vi.mock('../analytics/TopFillerWords', () => ({ TopFillerWords: () => <div data-
 vi.mock('../analytics/FillerWordTable', () => ({ FillerWordTable: () => <div data-testid="filler-word-table" /> }));
 vi.mock('../analytics/TrendChart', () => ({ TrendChart: () => <div data-testid="trend-chart" /> }));
 const pdfDownloaded = vi.fn();
+// #1258 (RWT run 36955422629): a list PDF reads THIS session's detail row first. Default: no detail row (null).
+const sessionDetailRead = vi.fn((_id: string): Promise<unknown> => Promise.resolve(null));
+vi.mock('@/lib/storage', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/storage')>()),
+    getSessionById: (id: string) => sessionDetailRead(id),
+}));
 vi.mock('@/services/reviewSurfaceTelemetry', () => ({ trackSessionPdfDownloaded: (...args: unknown[]) => pdfDownloaded(...args) }));
 // #1258 G20: the saved review has its own tests; here only its placement and ownership of the next action matter.
 vi.mock('../analytics/SavedPracticeLoopReview', () => ({
@@ -629,7 +635,7 @@ describe('AnalyticsDashboard', () => {
                     pdfDownloaded.mockReset();
                     renderFor(surface);
                     press[surface]();
-                    expect(generateSessionPdf).toHaveBeenCalledTimes(1);
+                    await vi.waitFor(() => expect(generateSessionPdf).toHaveBeenCalledTimes(1));
                     // Nothing is reported while the PDF is still being generated.
                     expect(pdfDownloaded).not.toHaveBeenCalled();
                     settle();
@@ -640,6 +646,45 @@ describe('AnalyticsDashboard', () => {
                 });
             }
         }
+
+        // #1258 (RWT run 36955422629): the list row is the metrics-only LIST select and never carries `transcript`, so a
+        // PDF downloaded from the list had no transcript page. A list download builds the PDF from THIS session's detail
+        // row; a failed detail read still produces the metrics PDF from the list row; the detail surface reads nothing.
+        for (const surface of ['history_list', 'history_list_mobile'] as const) {
+            it(`#1258: a PDF from ${surface} is built from this session's detail row, which carries the transcript`, async () => {
+                const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                const detail = { ...detailSession({})[0], transcript_state: 'available', transcript: 'the saved words' };
+                sessionDetailRead.mockReset().mockResolvedValue(detail);
+                renderFor(surface);
+                press[surface]();
+                await vi.waitFor(() => expect(generateSessionPdf).toHaveBeenCalledTimes(1));
+                expect(sessionDetailRead.mock.calls).toEqual([['sx']]);
+                expect(vi.mocked(generateSessionPdf).mock.calls[0][0]).toBe(detail);
+            });
+
+            it(`#1258: a failed detail read on ${surface} still downloads the metrics PDF from the list row`, async () => {
+                const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                sessionDetailRead.mockReset().mockRejectedValue(new Error('Unable to load this session.'));
+                renderFor(surface);
+                press[surface]();
+                await vi.waitFor(() => expect(generateSessionPdf).toHaveBeenCalledTimes(1));
+                const built = vi.mocked(generateSessionPdf).mock.calls[0][0];
+                expect(built.id).toBe('sx');
+                expect(built).not.toHaveProperty('transcript');
+            });
+        }
+
+        it('#1258: a PDF from the session detail uses the detail row it already holds — no second read', async () => {
+            const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+            vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+            sessionDetailRead.mockReset();
+            renderFor('session_detail');
+            press.session_detail();
+            await vi.waitFor(() => expect(generateSessionPdf).toHaveBeenCalledTimes(1));
+            expect(sessionDetailRead).not.toHaveBeenCalled();
+        });
 
         it('CASUALTY (#1535 Codex P2 r4112111970): a LATER saved session opened on its detail never reads "Session 1" — the exact label is its date', () => {
             // useAnalytics passes ONLY the opened session on /analytics/:id, so its index is always 0.

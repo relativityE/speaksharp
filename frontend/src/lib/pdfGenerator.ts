@@ -220,7 +220,8 @@ export const generateSessionPdf = async (
 
     // #1306 Step 3: the transcript page is included ONLY for a session the server states is `available`.
     //
-    // The decision comes from resolveTranscriptView on the ALREADY-OPENED detail row — the same resolver the
+    // The decision comes from resolveTranscriptView on the session's DETAIL row (the opened session, or the one
+    // detail read a history-list download makes for THIS session — never the metrics-only list row) — the same resolver the
     // review surface uses. The PDF never refetches and never reconstructs text: an expired or not-captured
     // session simply has no transcript page, and a malformed row that still carries text after expiry is
     // suppressed here exactly as it is on screen. Reconstructing would export content past its retention.
