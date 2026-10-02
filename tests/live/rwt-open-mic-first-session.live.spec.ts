@@ -29,6 +29,7 @@ import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/rwtProductionTest';
 import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
 import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
+import { readFillerBreakdown } from './helpers/rwtFillerBreakdown';
 import { expect, type Response } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -91,6 +92,13 @@ import { bindReadbackJourneys, takeStartedAfter } from './helpers/rwtOracles';
 const SUITE = 'open-mic-first-session';
 /** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
 const STOP_BOUND_MS = 240_000;
+/**
+ * #1258 (run 36930648785): every live-page read has its own bound. The deployed-live config sets no action timeout, so
+ * an unbounded read of an element the page no longer renders waited forever — that was the reproduced "freeze".
+ */
+const LIVE_READ_TIMEOUT_MS = 15_000;
+/** The whole after-Stop FillerBreakdown read: visible wait (60 s) + bounded row and stats reads, under one deadline. */
+const BREAKDOWN_READ_BOUND_MS = 120_000;
 /**
  * #1258 follow-up (run 36863804680 hung after the take began and wrote nothing): a Node-side deadline around the WHOLE
  * traced take → Stop window — trace start, the speech wait, the live reads and Stop — that fires whether or not the page
@@ -293,7 +301,7 @@ test.describe('RWT — Open Mic first session @live', () => {
 
             // ── Row 4 — the take ────────────────────────────────────────────────────────────────────────
             let visibleFillers: number | null = null;
-            const liveDisplay: Record<string, number> = {};   // the per-word badges the person sees
+            const liveDisplay: Record<string, number> = {};   // the per-word counts the person sees (after Stop: FillerBreakdown)
             const liveMarks: Record<string, number> = {};     // the highlighted words in the live transcript
             // #1258 Stop-stall diagnostic: one content-free browser-level trace across the take and Stop (summary → meta and
             // the diagnostic record). Recording it is idempotent and bounded, so every exit path below may ask for it.
@@ -337,14 +345,9 @@ test.describe('RWT — Open Mic first session @live', () => {
                             receipt.row('live filler highlighting', markTotal > 0 ? 'PASS' : 'FAIL',
                                 markTotal > 0 ? 'fillers were highlighted in the live transcript' : 'no filler was highlighted live',
                                 { liveFillerMarks: markTotal });
-                            for (const row of await page.locator('[data-filler-word]').all()) {
-                                const word = normaliseKey((await row.getAttribute('data-filler-word')) ?? '');
-                                const count = Number(await row.getAttribute('data-filler-count'));
-                                if (word && Number.isInteger(count)) liveDisplay[word] = count;
-                            }
-                            diag.mark('row4_filler_badges_read');
-                            const text = (await page.getByTestId('filler-count-value').first().innerText().catch(() => '')).replace(/[()]/g, '').trim();
-                            visibleFillers = text === '' ? 0 : Number.isFinite(Number(text)) ? Number(text) : null;
+                            // #1258: the during-state shows fillers only as transcript highlights (above). The per-word counts
+                            // and the filler headline are read after Stop from FillerBreakdown, where the person sees them — the
+                            // during-state badges and `filler-count-value` belonged to the retired FillerWordsCard.
                             diag.mark('row4_done');
                         });
 
@@ -387,10 +390,22 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('saved exactly once', saved === 1 ? 'PASS' : 'FAIL',
                     saved === 1 ? 'one completed session exists for this take' : 'the take was not saved exactly once', { completedSessions: saved ?? null });
 
+                // #1258: the per-word counts and the headline the person sees after Stop (FillerBreakdown). The whole read
+                // runs inside one outer deadline (#1550 Codex P1 r4161811889): a missing or stalled display leaves them
+                // unset, so the filler rows below FAIL visibly instead of waiting.
+                const breakdown = await readFillerBreakdown(page, {
+                    boundMs: BREAKDOWN_READ_BOUND_MS, visibleTimeoutMs: 60_000, readTimeoutMs: LIVE_READ_TIMEOUT_MS, normaliseKey,
+                });
+                receipt.meta.fillerBreakdownRead = breakdown.state;
+                if (breakdown.state === 'read') {
+                    Object.assign(liveDisplay, breakdown.perWord);
+                    visibleFillers = breakdown.headline;
+                }
+
                 const card = page.getByTestId('ai-suggestions-card');
-                const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
+                const terminal = await expect.poll(async () => card.getAttribute('data-review-state', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null), { timeout: 180_000 })
                     .toMatch(/^(ready|error|empty)$/).then(() => true).catch(() => false);
-                const state = await card.getAttribute('data-review-state').catch(() => null);
+                const state = await card.getAttribute('data-review-state', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null);
                 const coachingMs = Date.now() - stoppedAt;
                 // The text is held in memory for the Node-side comparisons below and never written to the receipt.
                 const phrase = async (headings: readonly string[]): Promise<string> => {
@@ -398,7 +413,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                         const title = page.getByRole('heading', { name: heading, exact: true });
                         if ((await title.count()) === 0) continue;
                         const block = card.locator('div', { has: title }).last();
-                        return (await block.locator('p').first().innerText().catch(() => '')).trim();
+                        return (await block.locator('p').first().innerText({ timeout: LIVE_READ_TIMEOUT_MS }).catch(() => '')).trim();
                     }
                     return '';
                 };
@@ -459,15 +474,21 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // Per word: what the transcript contains, what the live display showed, what was saved.
                 for (const [spoken, key] of Object.entries(FILLER_KEY)) {
                     const inTranscript = occurrences(transcript, spoken);
-                    const shown = liveDisplay[key] ?? 0;
                     const marked = liveMarks[key] ?? 0;
                     const saved = counts[key] ?? 0;
-                    const consistent = shown === saved && saved === inTranscript;
+                    // #1550 Codex P1 r4161436378: the review (FillerBreakdown) renders only COACHABLE keys. A discourse
+                    // marker such as "you know" is counted and saved per key but never displayed there by design, so its
+                    // display is not compared; transcript vs saved still is.
+                    const rendered = (COACHABLE_KEYS as readonly string[]).includes(key);
+                    const shown = rendered ? liveDisplay[key] ?? 0 : null;
+                    const consistent = (!rendered || shown === saved) && saved === inTranscript;
                     receipt.row(`filler "${spoken}": transcript / display / saved`, consistent ? 'PASS' : 'FAIL',
-                        consistent ? 'the transcript, the live display and the saved count agree'
-                            : shown !== saved ? 'the count the person saw differs from the count saved (misleading display)'
+                        consistent
+                            ? rendered ? 'the transcript, the displayed breakdown and the saved count agree'
+                                : 'the transcript and the saved count agree (a discourse marker: tracked, not shown in the review by design)'
+                            : rendered && shown !== saved ? 'the count the person saw differs from the count saved (misleading display)'
                                 : 'the saved count differs from the words in the saved transcript',
-                        { transcript: inTranscript, liveHighlighted: marked, displayed: shown, saved });
+                        { transcript: inTranscript, liveHighlighted: marked, displayed: rendered ? shown : null, displayRendered: rendered, saved });
                 }
                 // Keys displayed that the saved row does not carry (or vice versa) are also a misleading display.
                 const shownOnly = Object.keys(liveDisplay).filter((k) => (counts[k] ?? 0) !== liveDisplay[k]);
