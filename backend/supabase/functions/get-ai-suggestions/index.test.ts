@@ -2,7 +2,11 @@ import {
   handler,
   GEMINI_API_URL,
   GEMINI_GENERATION_CONFIG,
-  COACHING_WORD_BUDGET,
+  COACHING_WORD_TARGET,
+  COACHING_CHARACTER_CEILING,
+  buildDeliverySignals,
+  isMetricRecital,
+  measureCoachingQuality,
   countWords,
   AI_SUGGESTION_DAILY_LIMIT,
   buildCoachingPrompt,
@@ -87,6 +91,9 @@ let fetchStatus = 200;
 let fetchStatusQueue: number[] = [];
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
+/** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
+let geminiModelVersion: string | null = 'gemini-3-flash-preview';
+let fetchThrows = false;
 let lastPrompt = '';
 let lastRequestBody: Record<string, unknown> = {};
 let lastRequestUrl = '';
@@ -110,6 +117,7 @@ globalThis.fetch = async (url, init) => {
   }
   fetchCount++;
   lastRequestUrl = requested;
+  if (fetchThrows) throw new TypeError('network unreachable');
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
@@ -119,7 +127,7 @@ globalThis.fetch = async (url, init) => {
     ? JSON.stringify(suggestionB)
     : geminiText;
   return new Response(JSON.stringify({
-    modelVersion: 'gemini-3-flash-preview',
+    ...(geminiModelVersion === null ? {} : { modelVersion: geminiModelVersion }),
     candidates: [{ content: { parts: [{ text }] } }],
   }), {
     status: 200,
@@ -263,6 +271,8 @@ function resetProvider() {
   fetchStatusQueue = [];
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
+  geminiModelVersion = 'gemini-3-flash-preview';
+  fetchThrows = false;
   lastPrompt = '';
   lastRequestUrl = '';
   outboundRequests.length = 0;
@@ -413,9 +423,6 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const mock = mockSupabase();
     assertEquals((await handler(request(), mock.create)).status, 200);
     assertStringIncludes(lastPrompt, 'Words Per Minute (WPM): 0');
-    assertStringIncludes(lastPrompt, 'Clarity Score: 0%');
-    assertStringIncludes(lastPrompt, 'Total Words: 0');
-    assertStringIncludes(lastPrompt, 'Duration: 0 seconds');
     assertStringIncludes(lastPrompt, '"count":0');
   });
 
@@ -570,11 +577,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   // #1424 A2. The two-phrase format was specified by the product and requested by nothing: the prompt's only
   // length instruction was "concise enough to display in the app", the model returned 22-36 words per field,
   // and nothing truncated it in the UI. These steps hold the budget at each layer it can be broken.
-  await t.step('the fixtures this suite trusts are themselves within the coaching budget', () => {
-    // A suite whose own happy-path fixtures break the contract proves the contract is not enforced.
+  await t.step('the fixtures this suite trusts are themselves within the coaching length target', () => {
     for (const s of [suggestionA, suggestionB]) {
-      assertEquals(countWords(s.what_worked) <= COACHING_WORD_BUDGET.what_worked, true, `what_worked over budget: ${s.what_worked}`);
-      assertEquals(countWords(s.what_to_try_next) <= COACHING_WORD_BUDGET.what_to_try_next, true, `what_to_try_next over budget: ${s.what_to_try_next}`);
+      assertEquals(countWords(s.what_worked) <= COACHING_WORD_TARGET.what_worked, true, `what_worked over target: ${s.what_worked}`);
+      assertEquals(countWords(s.what_to_try_next) <= COACHING_WORD_TARGET.what_to_try_next, true, `what_to_try_next over target: ${s.what_to_try_next}`);
     }
   });
 
@@ -657,6 +663,186 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.quotaCount, 1);
   });
 
+  /*
+   * #1258 (run 36955422629, PM 5945472679) — EVERY 502 NAMES ITS CAUSE, CONTENT-FREE.
+   *
+   * Every branch below used to end in the same generic line, so the Edge log could not say why coaching failed.
+   * Each failure now carries one closed reason in the log line and the 502 body. Never a provider body, a phrase
+   * or the transcript.
+   */
+  const OVER_CEILING = 'word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w';
+  const failureCases: Array<[string, () => void, string]> = [
+    ['provider 4xx', () => { fetchStatus = 400; }, 'provider_http_4xx'],
+    ['provider 5xx twice', () => { fetchStatusQueue = [503, 500]; }, 'provider_http_5xx'],
+    ['transport failure', () => { fetchThrows = true; }, 'provider_transport'],
+    ['200 with no text', () => { geminiText = ''; }, 'missing_text'],
+    ['200 with the wrong JSON shape', () => { geminiText = '{"advice":"speak slower"}'; }, 'invalid_shape'],
+    // Over the generous operational CHARACTER ceiling (241 > 240): the one size rule the server enforces.
+    ['200 above the 240-character ceiling', () => {
+      geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: OVER_CEILING, what_to_try_next: 'Pause before your key point.' });
+    }, 'over_character_ceiling'],
+    ['200 with no modelVersion', () => { geminiModelVersion = null; }, 'missing_model_version'],
+  ];
+  for (const [label, arrange, reason] of failureCases) {
+    await t.step(`#1258 CASUALTY: ${label} → 502 with reason "${reason}", content-free`, async () => {
+      resetProvider();
+      arrange();
+      const logged: string[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+      let response: Response;
+      try {
+        response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      } finally {
+        console.error = originalError;
+      }
+      assertEquals(response.status, 502);
+      const body = await response.json() as { error?: string; reason?: string };
+      assertEquals(body.reason, reason);
+      const line = logged.find((l) => l.includes('did not contain valid suggestions JSON'));
+      assertStringIncludes(String(line), `"reason":"${reason}"`);
+      // Nothing generated or said reaches the body or the reason line.
+      for (const text of ['You set up each point', 'Pause before your key point', 'speak slower']) {
+        assertEquals(JSON.stringify(body).includes(text), false);
+        assertEquals(String(line).includes(text), false);
+      }
+    });
+  }
+
+  /*
+   * #1258 — PO DECISION 2026-10-02 (5952285329): LENGTH IS A SOFT TARGET, NOT A VALIDITY RULE.
+   * About 8-10 words is asked for; any phrase within the character ceiling is served intact, never a 502 and never
+   * truncated. Each served answer is measured content-free: word counts, within_target, metric_recital.
+   */
+  const phraseOf = (n: number) => Array.from({ length: n }, (_, i) => ['Lead', 'with', 'the', 'customer', 'risk'][i % 5]).join(' ') + '.';
+  for (const words of [7, 10, 13, 16, 18, 25]) {
+    await t.step(`#1258: a ${words}-word phrase in each field is SERVED intact — 200, exact text, measured`, async () => {
+      resetProvider();
+      const pair = { version: 'gemini_coaching_v1', what_worked: phraseOf(words), what_to_try_next: phraseOf(words) };
+      geminiText = JSON.stringify(pair);
+      const logged: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+      let response: Response;
+      try {
+        response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      } finally {
+        console.log = originalLog;
+      }
+      assertEquals(response.status, 200);
+      const body = await response.json() as { suggestions?: { what_worked?: string; what_to_try_next?: string } };
+      assertEquals(body.suggestions?.what_worked, pair.what_worked);     // never truncated
+      assertEquals(body.suggestions?.what_to_try_next, pair.what_to_try_next);
+      const quality = logged.find((l) => l.startsWith('AI coaching quality'));
+      assertStringIncludes(String(quality), `"what_worked_words":${words}`);
+      assertStringIncludes(String(quality), `"next_step_words":${words}`);
+      assertStringIncludes(String(quality), `"within_target":${words <= 10}`);
+      assertEquals(String(quality).includes('Lead with the customer'), false, 'the quality record is content-free');
+    });
+  }
+
+  await t.step('#1258: the character ceiling is exact — 240 is served, 241 is refused (over_character_ceiling)', async () => {
+    const atCeiling = OVER_CEILING.slice(0, COACHING_CHARACTER_CEILING.what_worked);
+    assertEquals(atCeiling.length, 240);
+    for (const field of ['what_worked', 'what_to_try_next'] as const) {
+      resetProvider();
+      geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: field === 'what_worked' ? atCeiling : 'Clear opening.', what_to_try_next: field === 'what_to_try_next' ? atCeiling : 'Pause first.' });
+      assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 200, `${field} at the ceiling`);
+      resetProvider();
+      geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: field === 'what_worked' ? OVER_CEILING : 'Clear opening.', what_to_try_next: field === 'what_to_try_next' ? OVER_CEILING : 'Pause first.' });
+      const over = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(over.status, 502, `${field} one character over`);
+      assertEquals((await over.json() as { reason?: string }).reason, 'over_character_ceiling');
+    }
+  });
+
+  await t.step('#1258: a metric recital is SERVED and flagged, never refused', async () => {
+    assertEquals(isMetricRecital('Your pace was 148 words per minute.'), true);
+    assertEquals(isMetricRecital('You used 4 fillers.'), true);
+    assertEquals(isMetricRecital('Your WPM was 148'), true);
+    assertEquals(isMetricRecital('Clarity score was 82%.'), true);
+    // Actionable phrases that mention a number are not recitals.
+    assertEquals(isMetricRecital('Pause before the revised number so it lands.'), false);
+    assertEquals(isMetricRecital('Slow to about 140 words per minute by pausing after each point.'), false);
+    assertEquals(isMetricRecital('You used 4 fillers; pause silently instead of saying um.'), false);
+    assertEquals(isMetricRecital('Your opening clearly established the budget problem.'), false);
+    resetProvider();
+    geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'Your opening clearly established the budget problem.', what_to_try_next: 'You used 4 fillers.' });
+    const logged: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    let response: Response;
+    try {
+      response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+    } finally {
+      console.log = originalLog;
+    }
+    assertEquals(response.status, 200);
+    assertStringIncludes(String(logged.find((l) => l.startsWith('AI coaching quality'))), '"metric_recital":true');
+    assertEquals(measureCoachingQuality({ version: 'gemini_coaching_v1', what_worked: 'Your opening clearly established the budget problem.', what_to_try_next: 'Pause before the revised number so it lands.' }), {
+      what_worked_words: 7, next_step_words: 8, within_target: true, metric_recital: false,
+    });
+  });
+
+  await t.step('#1258: the target is about 8-10 words and the ceiling is characters — the prompt asks, nothing refuses by word count', () => {
+    assertEquals(COACHING_WORD_TARGET, { what_worked: 10, what_to_try_next: 10 });
+    assertEquals(COACHING_CHARACTER_CEILING, { what_worked: 240, what_to_try_next: 240 });
+    const built = buildCoachingPrompt('fabricated transcript', 'fabricated metrics');
+    assertStringIncludes(built, 'about 8-10 words each');
+    assertStringIncludes(built, 'one idea per phrase');
+    assertStringIncludes(built, 'one concrete thing the speaker can try on the very next take');
+    assertEquals(built.includes('AT MOST'), false);
+    assertEquals(built.includes('discarded'), false);
+  });
+
+  /*
+   * #1258 (PM 5952231855) — THE COACHING INPUT CONTRACT: only the reliable signals, asserted on what is SENT.
+   */
+  await t.step('#1258: Open Mic sends transcript + finalized fillers + WPM, and NOT clarity, pauses, total words or duration', async () => {
+    resetProvider();
+    const saved = {
+      transcript: 'We launch on Monday because the support rota is finally covered.',
+      wpm: 148, clarity_score: 82, total_words: 118, duration: 48,
+      pause_metrics: { totalPauses: 7, extendedPauses: 1 },
+      filler_counts: { um: 4, uh: 0, ah: 1 },
+    };
+    assertEquals((await handler(request(), mockSupabase({ session: savedSession(saved) }).create)).status, 200);
+    assertStringIncludes(lastPrompt, saved.transcript);
+    assertStringIncludes(lastPrompt, `Words Per Minute (WPM): ${saved.wpm}`);
+    assertStringIncludes(lastPrompt, `Filler Words: ${JSON.stringify(saved.filler_counts)}`);
+    for (const excluded of ['Clarity Score', 'Pause Metrics', 'Total Words', 'Duration:', '"totalPauses"', '82%']) {
+      assertEquals(lastPrompt.includes(excluded), false, `${excluded} must not be a coaching input`);
+    }
+    // The model synthesises; it does not restate a number.
+    assertStringIncludes(lastPrompt, 'Metric recital or reusable generic advice is invalid.');
+    assertStringIncludes(lastPrompt, 'Do not restate a number');
+    assertStringIncludes(lastPrompt, 'logical structure, vocabulary variety, sentence variety, transitions, specificity, and audience impact');
+  });
+
+  await t.step('#1258: Focus Points sends at most ONE delivery signal — the one its saved next action is about', () => {
+    const focus = { kind: 'focus' as const, topic: 'Weekly handoff', points: [] };
+    const base = { transcript: 't', transcript_state: 'available', duration: 48, total_words: 118, filler_words: null,
+      filler_counts: { um: 6 }, clarity_score: 82, wpm: 171, pause_metrics: { totalPauses: 7 }, ai_suggestions: null };
+    const fillersChosen = buildDeliverySignals({ ...base, next_action_signal: { metric: 'filler_rate' } }, focus);
+    assertStringIncludes(fillersChosen, 'Filler Words: {"um":6}');
+    assertEquals(fillersChosen.includes('Words Per Minute'), false);
+    const paceChosen = buildDeliverySignals({ ...base, next_action_signal: { metric: 'wpm' } }, focus);
+    assertStringIncludes(paceChosen, 'Words Per Minute (WPM): 171');
+    assertEquals(paceChosen.includes('Filler Words'), false);
+    for (const metric of ['none', 'clarity_score', 'extended_pauses', undefined]) {
+      const none = buildDeliverySignals({ ...base, next_action_signal: metric === undefined ? undefined : { metric } }, focus);
+      assertEquals(none.includes('Filler Words') || none.includes('Words Per Minute'), false, `metric ${metric} → no delivery signal`);
+      assertStringIncludes(none, 'coach from the Focus Points results');
+    }
+    for (const text of [fillersChosen, paceChosen]) {
+      for (const excluded of ['Clarity', 'Pause', 'Total Words', 'Duration']) assertEquals(text.includes(excluded), false);
+    }
+    // Open Mic, for contrast: both direct delivery signals, nothing else.
+    const openMic = buildDeliverySignals({ ...base, next_action_signal: { metric: 'filler_rate' } }, { kind: 'none' });
+    assertStringIncludes(openMic, 'Words Per Minute (WPM): 171');
+    assertStringIncludes(openMic, 'Filler Words: {"um":6}');
+  });
+
   await t.step('coaching a user ALREADY received stays readable after the budget lands', async () => {
     // Codex P1. Every review generated before today is 22-36 words - exactly what the old prompt produced.
     // Enforcing the budget on stored rows would not merely hide them: it would spend quota regenerating
@@ -665,10 +851,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     resetProvider();
     const preBudget = {
       version: 'gemini_coaching_v1',
-      what_worked: 'You clearly identified the problem and proposed a direct solution in under twenty seconds',
-      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
+      what_worked: 'You clearly identified the problem in your opening minute and then proposed a direct, practical solution to it in under twenty seconds of speaking time',
+      what_to_try_next: 'Replace tentative phrasing and filler words with one strong, dated commitment that your audience can actually act on before the next review',
     };
-    assertEquals(countWords(preBudget.what_worked) > COACHING_WORD_BUDGET.what_worked, true, 'fixture must be over budget');
+    assertEquals(countWords(preBudget.what_worked) > COACHING_WORD_TARGET.what_worked, true, 'fixture must be over the target');
 
     const mock = mockSupabase({ session: savedSession({ ai_suggestions: preBudget }) });
     const response = await handler(request(), mock.create);
@@ -680,77 +866,26 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(body.suggestions.what_worked, preBudget.what_worked);
   });
 
-  await t.step('the budget boundary is exact: at the limit passes, one word over is refused', async () => {
-    const atLimit = 'One two three four five six';          // exactly 6
-    const overBy1 = 'One two three four five six seven';    // exactly 7
-    assertEquals(countWords(atLimit), COACHING_WORD_BUDGET.what_worked);
-    assertEquals(countWords(overBy1), COACHING_WORD_BUDGET.what_worked + 1);
-
-    resetProvider();
-    geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: atLimit, what_to_try_next: atLimit });
-    assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 200);
-
-    // One word over on EITHER field is refused. A budget that only rejects egregious overruns is a
-    // suggestion, and the whole point of moving this out of the prompt was to stop suggesting.
-    for (const field of ['what_worked', 'what_to_try_next']) {
+  // #1258 (PO 2026-10-02): what these steps used to REFUSE is now SERVED, whole. A long answer is a quality to
+  // improve through the prompt, never an error and never truncated into something the coach did not say.
+  for (const field of ['what_worked', 'what_to_try_next'] as const) {
+    await t.step(`#1258: a long ${field} (21+ words) with the other field short is served whole`, async () => {
       resetProvider();
-      geminiText = JSON.stringify({
-        version: 'gemini_coaching_v1',
-        what_worked: field === 'what_worked' ? overBy1 : atLimit,
-        what_to_try_next: field === 'what_to_try_next' ? overBy1 : atLimit,
-      });
-      assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 502, `${field} one over must refuse`);
-    }
-  });
-
-  // Each field is broken ALONE. An over-budget fixture that breaks both at once passes even when one of the
-  // two checks is deleted, which is precisely what my first version of this casualty did.
-  await t.step('REFUSES an over-budget what_worked, with what_to_try_next left legal', async () => {
-    resetProvider();
-    geminiText = JSON.stringify({
-      version: 'gemini_coaching_v1',
-      what_worked: 'You clearly identified the problem and proposed a direct solution in twenty seconds',
-      what_to_try_next: 'End with a dated owner commitment.',
+      const long = field === 'what_worked'
+        ? 'You clearly identified the problem in your opening and then proposed a direct, practical solution to it in under twenty seconds'
+        : 'Replace tentative phrasing and filler words with one strong, dated commitment that your audience can actually act on before the next review';
+      geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: field === 'what_worked' ? long : 'Clear opening.', what_to_try_next: field === 'what_to_try_next' ? long : 'Pause first.' });
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 200);
+      assertEquals((await response.json() as { suggestions: Record<string, string> }).suggestions[field], long);
     });
-    const mock = mockSupabase({ session: savedSession() });
-    assertEquals((await handler(request(), mock.create)).status, 502);
-  });
+  }
 
-  await t.step('REFUSES an over-budget what_to_try_next, with what_worked left legal', async () => {
-    resetProvider();
-    geminiText = JSON.stringify({
-      version: 'gemini_coaching_v1',
-      what_worked: 'Risk-first opening clarified the launch decision.',
-      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
-    });
-    const mock = mockSupabase({ session: savedSession() });
-    assertEquals((await handler(request(), mock.create)).status, 502);
-  });
-
-  await t.step('REFUSES an over-budget answer rather than truncating it into something never said', async () => {
-    resetProvider();
-    geminiText = JSON.stringify({
-      version: 'gemini_coaching_v1',
-      // Exactly the shape 3.6 actually returned before the budget existed: valid JSON, right keys, far too long.
-      what_worked: 'You clearly identified the problem and proposed a direct solution in under twenty seconds',
-      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
-    });
-    const mock = mockSupabase({ session: savedSession() });
-    const response = await handler(request(), mock.create);
-    assertEquals(response.status, 502);
-    // And no partial coaching leaks into the error body.
-    const body = await response.text();
-    assertEquals(body.includes('what_worked'), false);
-    assertEquals(body.includes('tentative phrasing'), false);
-  });
-
-  await t.step('the prompt ASKS for the budget it will enforce', async () => {
+  await t.step('the prompt ASKS for the length target (a request, never a refusal)', async () => {
     resetProvider();
     const mock = mockSupabase({ session: savedSession() });
     await handler(request(), mock.create);
-    // Asking and enforcing must not drift: a parser stricter than the prompt is a 502 we cause ourselves.
-    assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_worked} words`);
-    assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_to_try_next} words`);
+    assertStringIncludes(lastPrompt, 'about 8-10 words each');
   });
 
   /*
@@ -805,13 +940,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // 3. The expected prompt is built INDEPENDENTLY from the contract — this test's own substitution over
     //    `contract.promptTemplate`, with the fabricated transcript and a metrics block assembled here —
     //    and compared for EQUALITY. Reordering it, or appending an instruction, changes the string.
+    // #1258 (PM 5952231855): the Open Mic input contract — the two direct delivery signals, nothing derived.
     const expectedMetrics = `
-      Metrics:
+      Delivery signals:
       - Words Per Minute (WPM): ${fabricated.wpm}
-      - Clarity Score: ${fabricated.clarity_score}%
-      - Total Words: ${fabricated.total_words}
-      - Duration: ${fabricated.duration} seconds
-      - Pause Metrics: ${JSON.stringify(fabricated.pause_metrics)}
       - Filler Words: ${JSON.stringify(fabricated.filler_words)}
     `;
     const expectedPrompt = coachingContract.promptTemplate.replace(
@@ -821,8 +953,13 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(lastPrompt, expectedPrompt);
 
     // And the two enforcement values production applies are the contract's, not copies that can drift.
-    assertEquals(COACHING_WORD_BUDGET, coachingContract.wordBudget);
+    assertEquals(COACHING_WORD_TARGET, coachingContract.wordTarget);
     assertEquals(AI_SUGGESTION_DAILY_LIMIT, coachingContract.uncachedGenerationCapPerUtcDay);
+    // PO 2026-10-02: the request to the AI service carries OUR word budget, and it is the contract's number —
+    // the request and the content-free within_target measurement cannot drift apart.
+    for (const target of new Set(Object.values(COACHING_WORD_TARGET))) {
+      assertStringIncludes(lastPrompt, `about 8-${target} words each`);
+    }
 
     /*
      * CASUALTIES FOR THE CHECKS THEMSELVES. Production cannot be mutated from inside its own suite, so
@@ -865,11 +1002,9 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // values the schema PERMITS must be the values the parser ACCEPTS.
     assertEquals((schema?.properties?.version as { enum?: string[] } | undefined)?.enum, ['gemini_coaching_v1']);
 
-    // The schema also has to carry a length ceiling for the two coaching fields. It cannot express "at most
-    // six words", so the exact rule lives in the parser - but a schema with no bound at all leaves the model
-    // free to write an essay that the parser then refuses, which is a 502 the provider could have prevented.
-    // The ceiling must be GENEROUS enough that a legal in-budget phrase is never rejected upstream.
-    for (const [field, budget] of Object.entries(COACHING_WORD_BUDGET)) {
+    // The schema carries the operational CHARACTER ceiling for the two coaching fields — the one size rule the server
+    // also enforces (PO 2026-10-02). It must be GENEROUS: far above any phrase near the word target.
+    for (const [field, budget] of Object.entries(COACHING_WORD_TARGET)) {
       const fieldSchema = schema?.properties?.[field] as {
         minLength?: number;
         maxLength?: number;
@@ -902,13 +1037,13 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(built.match(/Metrics:/g)?.length, 1);
   });
 
-  await t.step('the prompt exemplar obeys the same six-word contract it asks Gemini to follow', () => {
+  await t.step('the prompt exemplar obeys the same word target it asks Gemini to follow', () => {
     const built = buildCoachingPrompt('fabricated transcript', 'fabricated metrics');
     const exemplarMatch = /\{\s*"version": "gemini_coaching_v1",\s*"what_worked": "([^"]+)",\s*"what_to_try_next": "([^"]+)"\s*\}/.exec(built);
     assertEquals(exemplarMatch !== null, true, 'the exact two-field response exemplar must remain present');
     const [, whatWorked, whatToTryNext] = exemplarMatch!;
-    assertEquals(countWords(whatWorked) <= COACHING_WORD_BUDGET.what_worked, true);
-    assertEquals(countWords(whatToTryNext) <= COACHING_WORD_BUDGET.what_to_try_next, true);
+    assertEquals(countWords(whatWorked) <= COACHING_WORD_TARGET.what_worked, true);
+    assertEquals(countWords(whatToTryNext) <= COACHING_WORD_TARGET.what_to_try_next, true);
   });
 
   // ── #1258 — Focus Points context and the saved filler counts (runbook v12, PM order item 4) ─────────────────────

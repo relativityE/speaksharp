@@ -35,7 +35,7 @@
         "quotaScope",
         "whatWorkedItems",
         "whatToImproveItems",
-        "maxWhitespaceWordsPerPhrase",
+        "targetWhitespaceWordsPerPhrase",
         "cachedResultsReadable"
       ],
       "properties": {
@@ -44,7 +44,7 @@
         "quotaScope": { "const": "user_utc_day" },
         "whatWorkedItems": { "const": 1 },
         "whatToImproveItems": { "const": 1 },
-        "maxWhitespaceWordsPerPhrase": { "const": 6 },
+        "targetWhitespaceWordsPerPhrase": { "const": 10 },
         "cachedResultsReadable": { "const": true }
       }
     },

@@ -26,24 +26,26 @@ export const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/
 // return any version string the schema considers valid, which `parseSuggestions` then rejects - a 502 we
 // asked for. The values the parser demands and the values the schema permits have to be the same set.
 /**
- * #1424 A2 - the two-phrase coaching format, as ONE definition.
+ * #1424 A2 / #1258 - the two-phrase coaching format, as ONE definition.
  *
- * The product format is two phrases of at most 6 words each.
+ * The product format is the #1548 1 + 1 rule: ONE "what worked" phrase and ONE "what to try next" phrase.
  *
- * The release-and-iterate policy carried two different budgets - 6 for what worked, 8 for try next - which
- * gave two numbers to remember, two ways to be wrong, and no reason for the asymmetry. PO ruling: reconcile
- * both to one number. Six, and measured rather than chosen: 3.6 writes to FILL whatever budget it is given
- * - 5 and 5 words under a six-word budget, 6 and 7 under a seven-word one - so slack buys no margin, it just
- * gets spent. A field landing ON the limit is one word from a 502. Six is also the number the policy already
- * carried for "what worked", so this reconciles to an existing number rather than inventing one. The
- * shipped prompt never said so - its only length instruction was "concise enough to display in the app" -
- * so the model returned 22-36 words per field and nothing truncated it in the UI. The user read whatever
- * arrived.
+ * PO DECISION (2026-10-02, recorded 5952285329): length is a SOFT TARGET, not a validity rule. The prompt asks
+ * for about 8-10 words, one idea per phrase. The server enforces only what correctness needs - exact shape,
+ * recognised version, non-empty fields and a generous CHARACTER ceiling (the schema's own `maxLength`) - and
+ * records each served answer's word counts, whether it met the target, and whether it reads as a metric recital,
+ * content-free. A phrase of 13 or 18 words is valid coaching and is served; it is never a 502 and never truncated.
  *
- * The budget is enforced in all three places a violation can enter: asked for in the PROMPT, capped in the
- * SCHEMA, and refused by the PARSER. Prompt wording alone is a request; only the parser is a guarantee.
+ * History: a six-word PARSER gate turned schema-valid answers of seven short words into a non-retryable 502
+ * ("review unavailable", run 36955422629; real sessions 2026-09-14/15). Word count is a quality to measure and
+ * improve through the prompt, not a reason to withhold coaching.
  */
-export const COACHING_WORD_BUDGET = Object.freeze(coachingContract.wordBudget);
+export const COACHING_WORD_TARGET = Object.freeze(coachingContract.wordTarget);
+/** The generous operational ceiling, one number: the provider schema's `maxLength`, also enforced here. */
+export const COACHING_CHARACTER_CEILING = Object.freeze({
+  what_worked: coachingContract.generationConfig.responseSchema.properties.what_worked.maxLength,
+  what_to_try_next: coachingContract.generationConfig.responseSchema.properties.what_to_try_next.maxLength,
+});
 
 /** Words, counted the way a reader would: runs of non-whitespace. */
 export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
@@ -107,6 +109,8 @@ interface SessionEvidence {
   clarity_score: number | null;
   wpm: number | null;
   pause_metrics: unknown;
+  /** The product's own saved next action for this take (`{ metric, ... }`); selects Focus Points' one delivery signal. */
+  next_action_signal?: unknown;
   ai_suggestions: unknown;
   /** #1537: the durable product marker written at session creation; absent/NULL on rows created before it. */
   product?: unknown;
@@ -139,7 +143,7 @@ const forClient = (suggestions: AISuggestions, focusCapable: boolean): AISuggest
 const asProduct = (value: unknown): SessionProduct | null =>
   value === 'open_mic' || value === 'focus_points' ? value : null;
 const SESSION_EVIDENCE_COLUMNS =
-  'transcript, transcript_state, duration, total_words, filler_words, filler_counts, clarity_score, wpm, pause_metrics, ai_suggestions';
+  'transcript, transcript_state, duration, total_words, filler_words, filler_counts, clarity_score, wpm, pause_metrics, next_action_signal, ai_suggestions';
 /** Before migration 20260926190000 is applied the marker column does not exist; the row is then read as legacy. */
 const isMissingProductColumn = (error: { code?: string; message?: string } | null | undefined): boolean =>
   Boolean(error && (error.code === '42703' || error.code === 'PGRST204') && /product/.test(error.message ?? ''));
@@ -151,19 +155,16 @@ function authorityRpcUnavailable(error: unknown): boolean {
   return code === 'PGRST202' || code === '42883';
 }
 /**
- * `enforceWordBudget` separates two jobs this parser does, which are not the same contract (Codex P1).
+ * `enforceCharacterCeiling` separates two jobs this parser does, which are not the same contract (Codex P1).
  *
- * GENERATING: the model's fresh answer must obey the budget, or the user reads an essay where the product
- * promises a phrase.
+ * GENERATING: a fresh answer above the operational character ceiling is refused (a pathological answer, not a
+ * long phrase - the ceiling is generous). Word count is never a validity rule (PO 2026-10-02).
  *
- * READING WHAT IS ALREADY STORED: every review generated before the budget existed is 22-36 words - that is
- * precisely what the old prompt produced. Applying the budget to a stored row would make coaching a user
- * already received suddenly unreadable, and it would not merely hide it: an expired transcript would 409, an
- * expired account 403, and an active user would silently regenerate and spend quota to replace coaching that
- * was already fine. A rule introduced today must not retroactively invalidate what the product said
- * yesterday.
+ * READING WHAT IS ALREADY STORED: reviews generated under earlier prompts can be long (22-36 words). A rule
+ * introduced today must not retroactively make coaching a user already received unreadable, so stored reads
+ * apply shape and version only.
  */
-export function parseSuggestions(rawText: string, { enforceWordBudget = false } = {}): AISuggestions | null {
+export function parseSuggestions(rawText: string, { enforceCharacterCeiling = false } = {}): AISuggestions | null {
   try {
     const parsed = JSON.parse(rawText.trim()) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
@@ -173,12 +174,10 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
     if (typeof candidate.version !== 'string' || !COACHING_VERSIONS.has(candidate.version)) return null;
     if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
     if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
-    // #1424 A2: the word budget is REFUSED, not truncated. Cutting a coaching phrase mid-sentence produces
-    // something the coach never said, and presenting that as advice is worse than an honest failure the user
-    // can retry. Applied to GENERATION only — see the note on `enforceWordBudget`.
-    if (enforceWordBudget) {
-      if (countWords(candidate.what_worked) > COACHING_WORD_BUDGET.what_worked) return null;
-      if (countWords(candidate.what_to_try_next) > COACHING_WORD_BUDGET.what_to_try_next) return null;
+    // Refused, never truncated: cutting advice changes what the coach said.
+    if (enforceCharacterCeiling) {
+      if (candidate.what_worked.trim().length > COACHING_CHARACTER_CEILING.what_worked) return null;
+      if (candidate.what_to_try_next.trim().length > COACHING_CHARACTER_CEILING.what_to_try_next) return null;
     }
 
     return {
@@ -190,6 +189,65 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
     console.error('Failed to parse AI suggestions JSON:', error);
     return null;
   }
+}
+
+/**
+ * #1258 (run 36955422629, PM 5945472679) — WHY a generation failed, as a closed, content-free reason.
+ *
+ * Every provider-side failure used to end in one generic 502 line, so an Edge log could not say whether the provider
+ * refused, the answer had no text, the JSON was the wrong shape, a phrase was over the word budget, or the provider
+ * reported no model version. Only the reason and the provider's numeric status are recorded — never a body, a phrase
+ * or the transcript.
+ */
+export type CoachingFailureReason =
+  | 'provider_http_4xx'
+  | 'provider_http_5xx'
+  | 'provider_transport'
+  | 'missing_text'
+  | 'invalid_shape'
+  | 'over_character_ceiling'
+  | 'missing_model_version';
+
+/** Classify a provider answer's text: the parsed pair, or the reason it is unusable. The size ceiling is checked last. */
+export function classifyGeneratedSuggestions(rawText: unknown): { suggestions: AISuggestions } | { reason: CoachingFailureReason } {
+  if (typeof rawText !== 'string' || !rawText.trim()) return { reason: 'missing_text' };
+  if (!parseSuggestions(rawText)) return { reason: 'invalid_shape' };
+  const suggestions = parseSuggestions(rawText, { enforceCharacterCeiling: true });
+  return suggestions ? { suggestions } : { reason: 'over_character_ceiling' };
+}
+
+/**
+ * #1258 (PO 2026-10-02) — a phrase that only restates a measured number ("Your pace was 148 words per minute",
+ * "You used 4 fillers") instead of saying what to do. A QUALITY flag, recorded; never a reason to withhold coaching.
+ * A recital is a metric statement with almost nothing else in the phrase.
+ */
+const METRIC_STATEMENT = new RegExp(
+  [
+    String.raw`\b(?:your\s+)?(?:wpm|words per minute|pace|speaking rate|speed|clarity(?:\s+score)?)\s+(?:was|is|were|of|at|hit)\s+(?:about\s+)?\d+(?:\.\d+)?\s*(?:wpm|words per minute|%|percent)?`,
+    String.raw`\byou\s+(?:used|said|had)\s+\d+\s+(?:filler\s+words?|fillers?|ums?|uhs?|ahs?)\b`,
+    String.raw`\b\d+\s+(?:filler\s+words?|fillers?|ums?|uhs?|ahs?)\b`,
+  ].join('|'),
+  'i',
+);
+export function isMetricRecital(phrase: string): boolean {
+  const match = METRIC_STATEMENT.exec(phrase);
+  if (!match) return false;
+  const rest = (phrase.slice(0, match.index) + ' ' + phrase.slice(match.index + match[0].length)).replace(/[^A-Za-z']+/g, ' ');
+  return countWords(rest) <= 2;
+}
+
+/** Content-free quality measurement of a served pair: counts and flags only, never the phrases. */
+export function measureCoachingQuality(s: AISuggestions): {
+  what_worked_words: number; next_step_words: number; within_target: boolean; metric_recital: boolean;
+} {
+  const what_worked_words = countWords(s.what_worked);
+  const next_step_words = countWords(s.what_to_try_next);
+  return {
+    what_worked_words,
+    next_step_words,
+    within_target: what_worked_words <= COACHING_WORD_TARGET.what_worked && next_step_words <= COACHING_WORD_TARGET.what_to_try_next,
+    metric_recital: isMetricRecital(s.what_worked) || isMetricRecital(s.what_to_try_next),
+  };
 }
 
 /**
@@ -269,6 +327,41 @@ const quoteLabel = (text: string): string => `"${text.replace(/[\r\n"]+/g, ' ').
  * keyword matcher found, and the rules that make the two phrases about COVERING THESE POINTS: supported pace and
  * placement advice, no invented misses, and "not detected" never presented as proof a point was skipped.
  */
+/**
+ * #1258 (PM 5952231855) — THE COACHING INPUT CONTRACT: only the reliable signals.
+ *
+ * Open Mic: the finalized transcript (sent separately) + finalized filler counts + WPM. Focus Points: the transcript +
+ * the Focus Points results (`buildFocusCoachingText`) + AT MOST ONE delivery signal - the one the product's own saved
+ * next action for this take is about (`next_action_signal.metric`: `filler_rate` -> fillers, `wpm` -> pace); any other
+ * next action means no delivery signal, and the Focus evidence leads.
+ *
+ * NOT sent as coaching signals: clarity score (a composite of the same delivery evidence - it would double-count),
+ * raw pause metrics (not yet validated for coaching), total words and duration (WPM already carries them).
+ */
+export function buildDeliverySignals(session: SessionEvidence, focusContext: FocusContext): string {
+  // #1258: saves write `filler_counts` and strip `filler_words`; the legacy field is only a fallback for older rows.
+  const fillerEvidence = session.filler_counts ?? session.filler_words;
+  const fillers = `- Filler Words: ${fillerEvidence == null ? 'N/A' : JSON.stringify(fillerEvidence)}`;
+  const pace = `- Words Per Minute (WPM): ${session.wpm ?? 'N/A'}`;
+  if (focusContext.kind !== 'focus') {
+    return `
+      Delivery signals:
+      ${pace}
+      ${fillers}
+    `;
+  }
+  const metric = (session.next_action_signal as { metric?: unknown } | null | undefined)?.metric;
+  const chosen = metric === 'filler_rate' ? fillers : metric === 'wpm' ? pace : null;
+  return chosen
+    ? `
+      Delivery signal (the one most actionable for this take):
+      ${chosen}
+    `
+    : `
+      Delivery signals: none material for this take - coach from the Focus Points results.
+    `;
+}
+
 export function buildFocusCoachingText(context: FocusContext): string {
   if (context.kind !== 'focus') return '';
   const lines = context.points.map((point, index) => {
@@ -564,27 +657,22 @@ export async function handler(
       });
     }
 
-    // #1258: saves write `filler_counts` and strip `filler_words`, so reading only the legacy field told the model
-    // "N/A" for every new session. The legacy field remains the fallback for rows saved before the switch.
-    const fillerEvidence = session.filler_counts ?? session.filler_words;
-    const metricsText = `
-      Metrics:
-      - Words Per Minute (WPM): ${session.wpm ?? 'N/A'}
-      - Clarity Score: ${session.clarity_score ?? 'N/A'}%
-      - Total Words: ${session.total_words ?? 'N/A'}
-      - Duration: ${session.duration ?? 'N/A'} seconds
-      - Pause Metrics: ${session.pause_metrics == null ? 'N/A' : JSON.stringify(session.pause_metrics)}
-      - Filler Words: ${fillerEvidence == null ? 'N/A' : JSON.stringify(fillerEvidence)}
-    ` + buildFocusCoachingText(focusContext);
+    const metricsText = buildDeliverySignals(session, focusContext) + buildFocusCoachingText(focusContext);
 
     const prompt = buildCoachingPrompt(transcriptForPrompt, metricsText);
 
     let suggestions: AISuggestions | null = null;
     let observedProviderModel: string | null = null;
+    let failureReason: CoachingFailureReason | null = null;
+    let providerStatus: number | null = null;
 
     for (let providerAttempt = 1; providerAttempt <= AI_PROVIDER_ATTEMPTS; providerAttempt += 1) {
       // Only a transport error or a provider 5xx earns the second attempt. Set where the failure is known.
       let providerFailureIsRetryable = false;
+      // Each attempt states its own outcome; the reason reported is the last attempt's.
+      suggestions = null;
+      failureReason = null;
+      providerStatus = null;
       try {
         const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
           method: 'POST',
@@ -599,6 +687,8 @@ export async function handler(
           const errorBody = await geminiResponse.text();
           console.error('Gemini API request failed:', errorBody);
           providerFailureIsRetryable = geminiResponse.status >= 500;
+          providerStatus = geminiResponse.status;
+          failureReason = geminiResponse.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
         } else {
           const responseData = await geminiResponse.json();
           const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -606,14 +696,17 @@ export async function handler(
             && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
             ? responseData.modelVersion
             : null;
-          suggestions = typeof rawText === 'string'
-            // The model's FRESH answer — the one place the budget is enforced.
-            ? parseSuggestions(rawText, { enforceWordBudget: true })
-            : null;
+          providerStatus = geminiResponse.status;
+          // The model's FRESH answer — the one place the budget is enforced.
+          const classified = classifyGeneratedSuggestions(rawText);
+          if ('suggestions' in classified) suggestions = classified.suggestions;
+          else failureReason = classified.reason;
+          if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
         }
       } catch (error) {
         console.error('Gemini API request failed:', error);
         providerFailureIsRetryable = true;
+        failureReason = 'provider_transport';
       }
 
       // A complete answer ends the loop. So does a failure a second ask cannot change.
@@ -627,12 +720,17 @@ export async function handler(
     }
 
     if (!suggestions || !observedProviderModel) {
-      console.error('Gemini response did not contain valid suggestions JSON.');
-      return new Response(JSON.stringify({ error: 'AI coaching could not be generated. Please try again.' }), {
+      const reason: CoachingFailureReason = failureReason ?? (suggestions ? 'missing_model_version' : 'invalid_shape');
+      // Content-free: the closed reason and the provider's numeric status only (#1258).
+      console.error('Gemini response did not contain valid suggestions JSON.', JSON.stringify({ reason, providerStatus }));
+      return new Response(JSON.stringify({ error: 'AI coaching could not be generated. Please try again.', reason }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 502,
       });
     }
+
+    // #1258 (PO 2026-10-02): every served generation is measured, content-free — counts and flags, never phrases.
+    console.log('AI coaching quality', JSON.stringify(measureCoachingQuality(suggestions)));
 
     const quotaLimit = quotaResult?.limit;
     const quotaRequestNumber = quotaResult?.used;
