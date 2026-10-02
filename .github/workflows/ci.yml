@@ -607,6 +607,10 @@ jobs:
 
       - name: Organize Canonical Artifacts
         run: |
+          # pipefail: `find | sort` below must fail this step on a real find error, not let sort's success turn
+          # it into an empty match list. A shard with no report still exits 0 from find, and is rejected by the
+          # explicit count check with its own message. #1315.
+          set -o pipefail
           mkdir -p artifacts/coverage artifacts/playwright artifacts/lighthouse artifacts/metrics frontend
 
           if [ -d "artifacts/build-artifacts" ]; then
@@ -644,7 +648,10 @@ jobs:
               shard_error=1; continue
             fi
             mkdir -p "artifacts/playwright/shard-${shard}"
-            cp "$(printf '%s\n' "$matches" | head -1)" "artifacts/playwright/shard-${shard}/"
+            # count == 1 is established above, so $matches IS the single path. The former
+            # `printf | head -1` could only ever pick one line of an ambiguous set; without it, a future
+            # removal of the count guard fails here loudly instead of silently choosing a report. #1315.
+            cp "$matches" "artifacts/playwright/shard-${shard}/"
           done
           if [ "$shard_error" -ne 0 ]; then
             echo "::error::Playwright shard evidence is incomplete or ambiguous"; exit 1

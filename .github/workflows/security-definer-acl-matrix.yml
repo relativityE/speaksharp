@@ -67,7 +67,11 @@ jobs:
           psql --version
 
       - name: Record server version
-        run: psql -Atc 'select version()' | tee server-version.txt
+        run: |
+          # psql writes the file directly, so a connection failure fails this step under `-e`. Piping it
+          # through `tee` let tee's success mask that failure and leave an empty file behind. #1315.
+          psql -Atc 'select version()' > server-version.txt
+          cat server-version.txt
 
       - name: Apply hosted-state bootstrap
         run: psql -v ON_ERROR_STOP=1 -v include_hosted_drift=true -f tests/db/security-definer-acl-bootstrap.sql
