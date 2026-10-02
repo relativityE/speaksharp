@@ -614,7 +614,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('Practice again — Analytics action, then the completed review\'s repeat action', async () => {
                 generationsForTake = tap.sent('practice_loop_review_requested').length;
                 if (!persistedId) {
-                    practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null });
+                    practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null });
                     await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', []);
                     return;
                 }

@@ -422,7 +422,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await test.step('Practice again — Analytics action, then the completed review\'s Retry this set', async () => {
             generationsForTake = tap.sent('practice_loop_review_requested').length;
             if (!persistedId) {
-                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null });
+                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null });
                 await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', []);
                 return;
             }
