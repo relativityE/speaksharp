@@ -2,8 +2,9 @@
 
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-10-02
-**Last Verified:** 2026-10-02 — **baseline-only currentization** to `main@b435be36` (after #1550) so the currency guard measures the current mainline. Only the baseline, the deployed-release read and the lines that state them changed in this edit; the narrative sections below were last reconciled at `main@6bb7a543` (2026-09-19) and were **not** re-reconciled here.
+**Last Reviewed:** 2026-09-18
+**Last Verified:** 2026-09-19 — reconciled to `main@6bb7a543`, which is `main` after PR #1511 (#1501 piece 1: `merge_group` CI support), PR #1512 (the duplicate filler-word list removed from the popover), PR #1509 (G17 landing terms), PR #1510 (#1500: checked-in test credential removed; test-only), PR #1506 (Session `before`, G16), PR #1507 (FAQ first-session quote), PR #1508 (Sign Out lands on the anonymous landing), PR #1504 (FAQ currentization), PR #1503 (Focus Points set-up retheme, G7) and PR #1505 (#1498 P2 follow-ups), on top of PR #1502 (Share feedback retheme, G8), PR #1494 (Home, Design Correction Brief H-1…H-5) and PR #1498 (Session, S-8…S-14), on top of PR #1490 (#1259 received-receipt gaps), PR #1467 (Focus Points detection limit), PR #1486 (#1473 automatic Practice Loop suggestions), PR #1493 (Design Correction Brief shared slot map, S-1–S-7 / F-1–F-6), PR #1487 (#1475 G12 signed-out homepage) and PR #1492 (#1294 checkout email sourcing) merged. Open PRs, open issues, the Production migration ledger and the deployed release were re-read at the same time.
+**Baseline currentized:** 2026-10-02 — **baseline and deployed-release read only**, to `main@b435be36` (after #1550). ⚠️ **The narrative below is STALE:** it was last reconciled at `main@6bb7a543` (2026-09-19) and was not re-reconciled. Do not rely on it for open PRs, blockers or workflow state; read GitHub for those.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
@@ -17,7 +18,7 @@
 # Machine-readable state parsed by tests/config/documentationContract.test.ts.
 baseline: b435be3681fd77e0d93e2874d6653e384d18839e
 deployed-release: b435be3681fd77e0d93e2874d6653e384d18839e
-verified-on: 2026-10-02
+verified-on: 2026-09-20
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
