@@ -1,16 +1,18 @@
 packages:
   - 'backend/functions/*'
   - 'frontend'
-# P1.5: @huggingface/transformers@4.2.0 (dormant Private v4) directly imports `Tensor` from
+# P1.5: @huggingface/transformers (dormant Private v4; 4.2.0 and still 4.3.0) directly imports `Tensor` from
 # onnxruntime-common but does NOT declare it as a dependency; pnpm otherwise resolves the undeclared
 # import to the hoisted CommonJS onnxruntime-common@1.14.0 from the @xenova/transformers (v2) tree,
 # so the v4 ESM bundle fails at load with `SyntaxError: Named export 'Tensor' not found`. Declaring the
-# ESM 1.24.3 build directly beside the v4 package fixes the resolution. This does NOT touch production
+# ESM build directly beside the v4 package fixes the resolution. It is 1.30.0 to match the runtime the v4
+# package is pinned to (the `@huggingface/transformers>onnxruntime-web: 1.30.0` override in package.json,
+# PO 2026-09-28: stable ORT, never the 1.31 dev prerelease 4.3.0 declares). This does NOT touch production
 # Private v2 (@xenova/transformers@2.17.2), which keeps its own onnxruntime 1.14 tree.
 packageExtensions:
-  '@huggingface/transformers@4.2.0':
+  '@huggingface/transformers@4.3.0':
     dependencies:
-      onnxruntime-common: 1.24.3
+      onnxruntime-common: 1.30.0
 supportedArchitectures:
   os:
     - linux
