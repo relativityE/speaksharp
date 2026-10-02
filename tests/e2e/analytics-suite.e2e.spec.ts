@@ -23,7 +23,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
     // Verify Dashboard Heading
     const mainHeading = page.getByTestId('dashboard-heading');
     await expect(mainHeading).toBeVisible();
-    await expect(mainHeading).toHaveText('Your Analytics');
+    await expect(mainHeading).toHaveText('Your Progress'); // #1548 visible label; route stays /analytics
 
     // #G4: the focus explanation boxes + "selected together" subtitle are gone; the signals section leads
     // with a position-based heading instead.

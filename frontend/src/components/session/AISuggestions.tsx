@@ -193,9 +193,10 @@ export const AI_REVIEW_AUTO_RETRY_BACKOFF_MS = 2500;
  * A Focus Points take's prompt also carries its saved topic and point labels, so its line says so; Open Mic sends the
  * transcript only and keeps the transcript-only line. Exact PO wording: do not edit without PO approval.
  */
-const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.";
+// #1548 (PO, 1 Oct 2026): provider-neutral in the product UI; Privacy/Legal still names the actual provider.
+const OPEN_MIC_DISCLOSURE = 'Your audio stays on this device. We use an AI service to analyze your session transcript and create coaching.';
 const FOCUS_POINTS_DISCLOSURE =
-  "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
+  'Your audio stays on this device. We use an AI service to analyze your session transcript, Focus Points topic, and points to create coaching.';
 
 const UNAVAILABLE_MESSAGE = 'The review is unavailable right now. Your session is saved, and you can try again.';
 

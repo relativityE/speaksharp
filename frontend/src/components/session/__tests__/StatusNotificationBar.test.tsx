@@ -188,9 +188,9 @@ describe('StatusNotificationBar', () => {
             mockStore();
             renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved · Your transcript is ready.' }} analyticsAction={{}} />);
             const action = screen.getByTestId('post-save-review-session-link');
-            // Accessible name is exactly "Analytics" — the arrow icon must not contribute text.
-            expect(action).toHaveAccessibleName('Analytics');
-            expect(action).toHaveTextContent(/^Analytics$/);
+            // #1548: the visible label is "Progress" (route stays /analytics); the arrow icon must not contribute text.
+            expect(action).toHaveAccessibleName('Progress');
+            expect(action).toHaveTextContent(/^Progress$/);
             expect(screen.queryByText(/Check out Analytics/i)).toBeNull();
             expect(screen.queryByText(/View analytics/i)).toBeNull();
             // Destination is the existing /analytics route, not a new button.
@@ -280,7 +280,7 @@ describe('StatusNotificationBar', () => {
             mockStore();
             renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
             const action = screen.getByTestId('post-save-review-session-link');
-            expect(action).toHaveAccessibleName('Analytics');
+            expect(action).toHaveAccessibleName('Progress');
             expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
         });
 

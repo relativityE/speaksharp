@@ -9,7 +9,7 @@
  * The pricing strings here are the LANDING's own. `/pricing` keeps the shared `pricingTiers` / `offerDisclosure`
  * copy until its own follow-up; this route must not change it (delta scope: the unauthenticated landing only).
  */
-export const HERO_LINE = 'Speak. See what to fix. Say it again. Your audio never leaves the browser.';
+export const HERO_LINE = 'Speak. Know what to improve. Repeat with purpose. Your audio stays on your device.';
 
 /** L1 mention 1 — one line beside the hero CTA; `price` renders in the money role. */
 export const HERO_TERMS = Object.freeze({ lead: 'Free for 30 days, ', price: '$10/month', tail: ' after.' });

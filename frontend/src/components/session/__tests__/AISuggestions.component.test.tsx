@@ -532,8 +532,8 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             const disclosure = screen.getByTestId('ai-suggestions-disclosure');
-            expect(disclosure).toHaveTextContent(/Google Gemini/i);
-            expect(disclosure).toHaveTextContent(/Audio is never sent/i);
+            expect(disclosure).toHaveTextContent(/AI service/i);
+            expect(disclosure).toHaveTextContent(/Your audio stays on this device/i);
         });
     });
 
@@ -819,7 +819,7 @@ describe('AISuggestions Integration', () => {
     describe('Gemini disclosure persistence', () => {
         // Count-neutral by design: the edge function currently asks Gemini for four
         // suggestions, so the disclosure must not promise a specific number.
-        const DISCLOSURE = /sends this session's transcript to google gemini to create ai coaching\. audio is never sent\./i;
+        const DISCLOSURE = /your audio stays on this device\. we use an ai service to analyze your session transcript and create coaching\./i;
 
         it('shows the Gemini disclosure in the empty state', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
@@ -863,8 +863,8 @@ describe('AISuggestions Integration', () => {
 
         // #1538 (PO-approved wording, P1 r4117696897): a Focus Points take also sends its topic and points to Gemini,
         // so its disclosure says so. Open Mic keeps the transcript-only line — it sends nothing else.
-        const FOCUS_DISCLOSURE = "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
-        const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.";
+        const FOCUS_DISCLOSURE = 'Your audio stays on this device. We use an AI service to analyze your session transcript, Focus Points topic, and points to create coaching.';
+        const OPEN_MIC_DISCLOSURE = 'Your audio stays on this device. We use an AI service to analyze your session transcript and create coaching.';
 
         it('#1538 — a Focus Points take discloses its topic and points, exactly', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" product="focus_points" />);
@@ -899,8 +899,8 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             const disclosure = screen.getByTestId('ai-suggestions-disclosure');
-            expect(disclosure).toHaveTextContent(/Google Gemini/i);
-            expect(disclosure).toHaveTextContent(/Audio is never sent/i);
+            expect(disclosure).toHaveTextContent(/AI service/i);
+            expect(disclosure).toHaveTextContent(/Your audio stays on this device/i);
         });
     });
 

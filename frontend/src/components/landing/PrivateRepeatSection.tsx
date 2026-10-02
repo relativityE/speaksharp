@@ -23,7 +23,7 @@ export const PrivateRepeatSection = () => (
                     Never uploaded
                 </h3>
                 <p className="text-[17px] font-medium leading-[1.6] text-neutral-body">
-                    Your practice audio stays on your device. There is no recording to leak or delete.
+                    Your practice audio stays on your device. SpeakSharp does not upload or store it.
                 </p>
             </div>
             <div

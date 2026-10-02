@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for user-visible product requirements)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-15 — recent shipped foundations and the approved-but-unshipped G10/G12, Practice Loop, progress, filler, and model requirements were reconciled.
+**Last Reviewed:** 2026-10-01
+**Last Verified:** 2026-10-01 — the MVP product-polish decisions below were reconciled against `main@e4d5e9a54`; they are requirements, not claims that the polish is already shipped.
 **Applies To:** The SpeakSharp individual speaking-practice product. Enterprise expansion is future direction, not current scope.
 **Class:** Product requirement.
 **Authority:** User-visible product guarantees, failure behavior, non-goals, and the feature contract.
@@ -13,6 +13,115 @@
 > [!CAUTION]
 > **Currentized 15 Sep 2026 — shipped foundation and open product contract are distinct.** #1416 shipped direct product navigation, the accepted Share feedback form, corrected labels, and the red Stop control; #1466 shipped the bounded Practice Loop placement/reveal foundation. Still required: #1473 automatic 1+1 review availability and truthful retry, #1471/#1476 durable progress, #1472 filler completeness, and comparable **v2/v4** behavior validating v4 as provisional primary against v2 as fallback (Moonshine deferred until after RWT or MVP). #1474 owns the approved G10 during/after hierarchy and theme: the Practice Loop dominates the first usable post-save viewport while metrics/transcript are secondary. #1475 owns the approved G12 landing page and its full above-fold offer: **30 days free, no card. Then $10/month. Cancel any time.** Newest-one retention remains the approved target and is not activated by this document.
 <!-- /pm-currentization:2026-09-15 -->
+
+<!-- po-mvp-polish:2026-10-01 -->
+> [!IMPORTANT]
+> **PO MVP polish contract — 1 Oct 2026.** The product center is the repeatable private Practice Loop, not a dashboard of speech statistics: **give the person one evidence-backed thing to improve, let them practise it immediately, and show whether the next attempt changed.** Audio privacy is a differentiator, but customer copy must distinguish audio staying on-device from saved transcript text used for AI coaching. These requirements are accepted MVP polish and are separate from the active #1547 Open Mic freeze diagnostic. They do not authorize merge, deploy, migration, paid model execution, or Production writes.
+<!-- /po-mvp-polish:2026-10-01 -->
+
+## MVP polish contract — 2026-10-01
+
+### Product center
+
+The experience should make one loop obvious:
+
+> **Speak → get one clear, evidence-backed improvement → practise it again → see whether it changed.**
+
+A completed session is successful only when a user can quickly answer:
+
+> **What is the one thing SpeakSharp wants me to do differently on my next attempt, and why?**
+
+Metrics, transcript, Focus Points coverage, history, charts, and AI are evidence for that loop. They are not competing destinations or independent recommendation authorities.
+
+### A. Immediate, low-risk corrections
+
+These are copy/label changes or small presentation adjustments. Dev may implement them without redesigning product behavior.
+
+1. **Sharpen the public loop + privacy line.**
+   - Replace: `Speak. See what to fix. Say it again. Your audio never leaves the browser.`
+   - With: **`Speak. Know what to improve. Repeat with purpose. Your audio stays on your device.`**
+   - Intent: clearer outcome, fewer words, device-level privacy language, and an intentional repeat loop — the next take applies what the user learned rather than merely retrying.
+
+2. **Use an accurate audio-privacy claim.**
+   - Replace: `Your practice audio stays on your device. There is no recording to leak or delete.`
+   - With: **`Your practice audio stays on your device. SpeakSharp does not upload or store it.`**
+   - Do not imply that transcript text or all session data stays local.
+
+3. **Keep inline AI disclosure provider-agnostic.**
+   - Replace vendor-specific inline copy such as `Google Gemini` with:
+     **`Your audio stays on this device. We use an AI service to analyze your session transcript and create coaching.`**
+   - Product UI names the data and purpose, not a vendor that may change.
+   - Legal/privacy documentation may name the current provider(s) and must remain truthful.
+
+4. **Rename the user-facing destination from Analytics to Progress.**
+   - Visible nav/page/action labels use **Progress**.
+   - Internal route `/analytics`, component names, telemetry names, and persistence identifiers may remain unchanged for MVP.
+   - Analytics are evidence inside Progress; they are not the user's goal.
+
+5. **Make the Open Mic choice describe the outcome, not instrumentation.**
+   - Replace: `Just speak. Your transcript, fillers and pace, live.`
+   - With: **`Speak freely. See what worked and what to change next.`**
+
+### B. Practice Loop behavior polish
+
+These require implementation and focused tests; they are not copy-only changes.
+
+6. **Keep coaching concise without crushing it into six words.**
+   - Preserve the simple 1+1 review: **What went well** + **Try this next run**.
+   - Remove the six-word hard limit as the product contract.
+   - Prompt target: one short sentence per headline, normally **12 words or fewer**; hard parser ceiling **16 words** per headline.
+   - The user must get the honest bottom line, not a paragraph or metric dump.
+   - The next action must be specific, personalized, and executable on the next take.
+   - A recommendation that merely restates a metric is not valid coaching.
+
+7. **Make the supporting evidence explain the recommendation.**
+   - `From this session` must be evidence for the displayed recommendation, not an unrelated measurement placed beside it.
+   - Use authoritative saved facts:
+     - metric + value/comparator when the recommendation is metric-driven;
+     - a short transcript phrase/pattern only when it is verifiably present in the saved transcript;
+     - Focus Point + detected/not-detected status + timing when Focus evidence drives the recommendation.
+   - Show no more than **two short evidence lines**.
+   - Where measurable, add one concise **next-run check** (for example, `All 3 points introduced before 2:00`).
+   - No invented causal explanation and no unsupported transcript quotation.
+
+8. **Establish one canonical Current Practice Target.**
+   - Session review, Home resume, saved-session Progress detail, and the linked repeat must show/carry the **same target** for the same completed session.
+   - Progress-wide trend analysis may recommend changing the target only by explicitly replacing it; it must not silently compete with the current target.
+   - The target persists into **Practice this again** and the next comparable attempt records whether movement occurred.
+   - Focus Points uses the same target concept, biased toward placement, sequencing, transitions/signposting, and pacing around the user's chosen points rather than merely repeating a detected/not-detected count.
+
+### C. Privacy timing
+
+The first automatic AI coaching send must not be a surprise.
+
+- Before the first eligible transcript is sent for automatic AI coaching, the product must visibly state the provider-agnostic disclosure in A3.
+- This is disclosure, not a new consent-click gate.
+- Audio remains on-device; saved transcript text may leave the device for AI coaching.
+- Product UI stays provider-agnostic; Privacy/Legal carries the current provider detail.
+
+### D. RWT / MVP acceptance
+
+RWT must explicitly verify the Practice Loop rather than only the existence of cards and metrics.
+
+Required sequence:
+
+> **review visible → target understood → Practice this again selected → same target carried into the repeat → next outcome measured**
+
+The tester acceptance question is:
+
+> **What is the one thing SpeakSharp wants you to do differently on your next attempt, and why?**
+
+Pass requires the tester to answer both the **action** and its **evidence** from the visible product without interpreting raw charts or inventing the connection.
+
+Under the standing observability rule, any missing telemetry needed to prove these steps becomes part of the corresponding fix.
+
+### E. Deliberate hold
+
+**Landing hero CTA wording remains unchanged for now.**
+
+`Start your session` currently routes an anonymous visitor to account creation. `Start practicing free` may predict the immediate signup step more literally, but this is not accepted as an MVP change yet. Revisit with RWT/user evidence; do not change it merely for consistency.
+
+
 
 # SpeakSharp Product Requirements
 
@@ -75,7 +184,7 @@ The active customer journey is:
 
 > Public Home → Account Access → Practice Home → Open Mic or optional Focus Points → Practice Session → saved review and Progress.
 
-Existing authenticated users may skip Account Access. Public, signup, Practice, Pricing, Analytics, legal, and tester surfaces must all describe the same Private-only product.
+Existing authenticated users may skip Account Access. Public, signup, Practice, Pricing, **Progress** (internal route `/analytics`), legal, and tester surfaces must all describe the same Private-only product.
 
 Guided Rehearsal and Live Meeting Companion are not active customer products. They must not appear as available choices or entitlements.
 
@@ -147,7 +256,7 @@ server" and "the transcript is never stored" are different statements, and neith
 | Raw audio leaves the device | **Never** | No audio upload path; `ARCHITECTURE.md` §"Retention boundary" |
 | Transcript text leaves the device | **Yes, on save** | `lib/storage.ts` sends `p_final_transcript` to `complete_session_v2`; a `failed`/discarded session sends `null` |
 | Transcript text is stored server-side | **Yes, bounded** | `sessions.transcript`, retained only for the newest transcript-bearing saved session; every older transcript expires |
-| Transcript text reaches a third party | **Yes, on user request** | `get-ai-suggestions` reads the saved transcript and sends it to Google Gemini; a Focus Points take also sends its saved topic and point labels, and its disclosure says so (#1538); user-initiated, and refused unless `transcript_state = 'available'` |
+| Transcript text reaches a third party | **Yes, for AI coaching** | `get-ai-suggestions` reads the saved transcript and sends the minimum required text to the configured AI coaching provider; a Focus Points take may also send its saved topic and point labels. Customer UI names the data and purpose rather than binding the product contract to one vendor; Privacy/Legal records the current provider(s). |
 | Derived metrics are stored | **Yes** | Word counts, filler counts, clarity score, WPM, pause metrics |
 
 Customer copy may say that **audio** never leaves the device. It may **not** say or imply that nothing leaves the

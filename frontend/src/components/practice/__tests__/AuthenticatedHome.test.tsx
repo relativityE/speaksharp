@@ -75,7 +75,7 @@ describe('AuthenticatedHome — the page asks one question and offers two answer
     it('each card is eyebrow · title · ONE sentence · CTA', () => {
         renderHome();
         expect(screen.getByTestId('practice-card-freeform-sentence'))
-            .toHaveTextContent('Just speak. Your transcript, fillers and pace, live.');
+            .toHaveTextContent('Speak freely. See what worked and what to change next.');
         expect(screen.getByTestId('practice-card-objective-sentence'))
             .toHaveTextContent('Name the points that must land, then check which ones did.');
         for (const card of cards()) {

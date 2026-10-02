@@ -511,7 +511,7 @@ export const SessionPage: React.FC = () => {
         if (showAnalyticsPrompt) {
             return {
                 type: 'ready',
-                message: reconciliationCopy ?? '✓ Session saved. Review it in Analytics when you are ready.'
+                message: reconciliationCopy ?? '✓ Session saved. Review it in Progress when you are ready.'
             } as SttStatus;
         }
         return sttStatus as SttStatus;

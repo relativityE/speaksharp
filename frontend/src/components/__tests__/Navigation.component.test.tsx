@@ -112,7 +112,7 @@ describe('Navigation', () => {
 
             renderNavigation();
             expect(screen.getAllByText('Home')).toHaveLength(2); // Desktop + mobile
-            expect(screen.getAllByText('Analytics')).toHaveLength(2);
+            expect(screen.getAllByText('Progress')).toHaveLength(2); // #1548: the visible label for /analytics
             expect(screen.getByTestId('nav-products-button')).toHaveTextContent('Products');
             expect(screen.getByTestId('nav-mobile-open-mic-link')).toHaveTextContent('Open Mic');
             expect(screen.getByTestId('nav-mobile-focus-points-link')).toHaveTextContent('Focus Points');
@@ -335,7 +335,7 @@ describe('Navigation', () => {
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
-            const analyticsLinks = screen.getAllByRole('link', { name: /analytics/i });
+            const analyticsLinks = screen.getAllByRole('link', { name: /progress/i }); // #1548: route stays /analytics
             expect(analyticsLinks[0]).toHaveAttribute('href', '/analytics');
         });
     });
@@ -423,9 +423,9 @@ describe('Navigation', () => {
             ['/', 'Home'],
             ['/practice', 'Home'],
             ['/Practice', 'Home'],
-            ['/analytics', 'Analytics'],
-            ['/ANALYTICS', 'Analytics'],
-            ['/analytics/session-42', 'Analytics'],
+            ['/analytics', 'Progress'],
+            ['/ANALYTICS', 'Progress'],
+            ['/analytics/session-42', 'Progress'],
         ])('marks exactly one item current in the mobile nav on %s', (route, expectedLabel) => {
             // The mobile bar is the ONLY bar a mobile screen reader sees: the desktop nav is
             // `hidden lg:flex`, i.e. display:none there, which drops it from the a11y tree.
