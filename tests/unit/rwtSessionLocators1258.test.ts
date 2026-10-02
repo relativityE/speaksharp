@@ -79,6 +79,8 @@ export function readLocators(rel: string, fromStep: string, toStep: string): str
 const SESSION_PHASES = [
     { journey: 'Open Mic', rel: 'tests/live/rwt-open-mic-first-session.live.spec.ts', from: "test.step('row 3 —", to: "test.step('row 6 —" },
     { journey: 'Focus Points', rel: 'tests/live/helpers/rwtFocusPointsJourney.ts', from: "test.step('row 10 —", to: "test.step('Products menu opened on the session page" },
+    // #1550: the after-Stop FillerBreakdown read moved into its own bounded helper; it is a Session-page read too.
+    { journey: 'FillerBreakdown reader', rel: 'tests/live/helpers/rwtFillerBreakdown.ts', from: 'export async function readFillerBreakdown', to: 'if (outcome.kind' },
 ];
 
 describe('#1258 RWT Session-page locators exist in the rendered Session tree', () => {

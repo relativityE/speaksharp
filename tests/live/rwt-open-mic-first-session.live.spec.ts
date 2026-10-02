@@ -29,6 +29,7 @@ import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/rwtProductionTest';
 import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
 import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
+import { readFillerBreakdown } from './helpers/rwtFillerBreakdown';
 import { expect, type Response } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -96,6 +97,8 @@ const STOP_BOUND_MS = 240_000;
  * an unbounded read of an element the page no longer renders waited forever — that was the reproduced "freeze".
  */
 const LIVE_READ_TIMEOUT_MS = 15_000;
+/** The whole after-Stop FillerBreakdown read: visible wait (60 s) + bounded row and stats reads, under one deadline. */
+const BREAKDOWN_READ_BOUND_MS = 120_000;
 /**
  * #1258 follow-up (run 36863804680 hung after the take began and wrote nothing): a Node-side deadline around the WHOLE
  * traced take → Stop window — trace start, the speech wait, the live reads and Stop — that fires whether or not the page
@@ -387,22 +390,16 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('saved exactly once', saved === 1 ? 'PASS' : 'FAIL',
                     saved === 1 ? 'one completed session exists for this take' : 'the take was not saved exactly once', { completedSessions: saved ?? null });
 
-                // #1258: the per-word counts and the headline the person sees after Stop (FillerBreakdown). Bounded reads:
-                // a missing display leaves them unset, so the filler rows below FAIL visibly instead of waiting.
-                const breakdownShown = await expect(page.getByTestId('filler-breakdown')).toBeVisible({ timeout: 60_000 })
-                    .then(() => true).catch(() => false);
-                receipt.meta.fillerBreakdownShown = breakdownShown;
-                if (breakdownShown) {
-                    for (const row of await page.getByTestId('filler-breakdown-word').all()) {
-                        const word = normaliseKey((await row.getAttribute('data-word', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null)) ?? '');
-                        const shown = await row.getByTestId('filler-breakdown-count').innerText({ timeout: LIVE_READ_TIMEOUT_MS }).catch(() => '');
-                        const count = Number(shown.replace(/[^0-9]/g, ''));
-                        if (word && shown && Number.isInteger(count)) liveDisplay[word] = count;
-                    }
-                    const stats = await page.getByTestId('after-stats').innerText({ timeout: LIVE_READ_TIMEOUT_MS }).catch(() => '');
-                    const headline = /(\d+)\s+fillers?\b/.exec(stats);
-                    const empty = await page.getByTestId('filler-breakdown-empty').isVisible().catch(() => false);
-                    visibleFillers = headline ? Number(headline[1]) : empty ? 0 : null;
+                // #1258: the per-word counts and the headline the person sees after Stop (FillerBreakdown). The whole read
+                // runs inside one outer deadline (#1550 Codex P1 r4161811889): a missing or stalled display leaves them
+                // unset, so the filler rows below FAIL visibly instead of waiting.
+                const breakdown = await readFillerBreakdown(page, {
+                    boundMs: BREAKDOWN_READ_BOUND_MS, visibleTimeoutMs: 60_000, readTimeoutMs: LIVE_READ_TIMEOUT_MS, normaliseKey,
+                });
+                receipt.meta.fillerBreakdownRead = breakdown.state;
+                if (breakdown.state === 'read') {
+                    Object.assign(liveDisplay, breakdown.perWord);
+                    visibleFillers = breakdown.headline;
                 }
 
                 const card = page.getByTestId('ai-suggestions-card');
