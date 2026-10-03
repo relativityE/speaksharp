@@ -36,6 +36,7 @@ import {
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { RWT_BROWSER_IDENTITY_ARGS } from './helpers/rwtBrowserIdentity';
+import { openProductsItem, type ProductsMenuItem } from './helpers/productsMenu';
 
 const SUITE = 'returning-user-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -53,17 +54,10 @@ test.use({
     launchOptions: { args: [...RWT_BROWSER_IDENTITY_ARGS] },
 });
 
-/** Opens the Products menu item on whichever header this viewport renders. */
-async function products(page: Page, item: 'open-mic' | 'focus-points'): Promise<void> {
-    const desktop = page.getByTestId('nav-products-button');
-    if (await desktop.isVisible().catch(() => false)) {
-        await desktop.click();
-        await page.getByTestId(`nav-products-${item}`).click();
-        return;
-    }
-    await page.getByTestId('nav-mobile-products-button').click();
-    await page.getByTestId(`nav-mobile-products-${item}`).click();
-}
+/** Chooses a Products item; false (a FAIL row, not a 5-minute hang) when the menu did not open or offer it. */
+const products = (page: Page, item: ProductsMenuItem): Promise<boolean> =>
+    openProductsItem(page, item).then(() => true).catch(() => false);
+
 
 const readUid = async (page: Page) => extractUidFromAuthStorage(await page.evaluate(
     () => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })),
@@ -136,8 +130,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
 
             // ── Products bridge ───────────────────────────────────────────────────────────────────────────
             await test.step('Products → Open Mic ↔ Focus Points', async () => {
-                await products(page, 'open-mic');
-                const toOpenMic = await page.waitForURL(/\/session/, { timeout: 30_000 }).then(() => true).catch(() => false);
+                const toOpenMic = await products(page, 'open-mic') && await page.waitForURL(/\/session/, { timeout: 30_000 }).then(() => true).catch(() => false);
                 receipt.row('Products → Open Mic', toOpenMic ? 'PASS' : 'FAIL', toOpenMic ? 'landed on the Open Mic session' : 'did not reach the session');
                 // The returning user's access as the session page received it. This test records nothing, so an
                 // expired account is a state fact (HOLD for a recording journey), not a product failure.
@@ -148,13 +141,11 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                         ? 'the server lets this returning user start a recording' : 'this account cannot start a recording (expired or unentitled); not used for a recording journey',
                     { canStart: verdict?.can_start === true, trialActive: verdict?.trial_active === true, isPro: verdict?.is_pro === true });
 
-                await products(page, 'focus-points');
-                const setup = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+                const setup = await products(page, 'focus-points') && await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
                 receipt.row('Products → Focus Points', setup ? 'PASS' : 'FAIL', setup ? 'the Focus Points setup opened' : 'the setup did not open');
 
                 await page.keyboard.press('Escape');
-                await products(page, 'open-mic');
-                const back = await page.waitForURL(/\/session/, { timeout: 30_000 }).then(() => true).catch(() => false);
+                const back = await products(page, 'open-mic') && await page.waitForURL(/\/session/, { timeout: 30_000 }).then(() => true).catch(() => false);
                 receipt.row('back to Open Mic', back ? 'PASS' : 'FAIL', back ? 'returned to Open Mic' : 'could not return to Open Mic');
             });
 
