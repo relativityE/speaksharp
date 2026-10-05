@@ -35,6 +35,7 @@ import {
     telemetryClassRows,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
+import { RWT_BROWSER_IDENTITY_ARGS } from './helpers/rwtBrowserIdentity';
 
 const SUITE = 'returning-user-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -46,7 +47,11 @@ const admin = SUPABASE_URL && SERVICE_ROLE
 const RETURNING_EMAIL = process.env.RWT_RETURNING_EMAIL || process.env.FREE_TEST_EMAIL || '';
 const RETURNING_PASSWORD = process.env.RWT_RETURNING_PASSWORD || process.env.FREE_TEST_PASSWORD || '';
 
-test.use({ permissions: ['microphone'], trace: 'off', video: 'off', screenshot: 'off' });
+test.use({
+    permissions: ['microphone'], trace: 'off', video: 'off', screenshot: 'off',
+    // #1258: `navigator.webdriver` off, so PostHog's bot filter does not discard the run's telemetry.
+    launchOptions: { args: [...RWT_BROWSER_IDENTITY_ARGS] },
+});
 
 /** Opens the Products menu item on whichever header this viewport renders. */
 async function products(page: Page, item: 'open-mic' | 'focus-points'): Promise<void> {
