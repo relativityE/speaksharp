@@ -59,7 +59,7 @@ import {
     entitlementRow,
     runOwnedIdentityFailures,
     type FixtureKey,
-    type RunTarget,
+    type RunTarget, coachingFailureReason,
 } from './rwtJourney';
 
 const JOURNEY = 'focus_points';
@@ -133,7 +133,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     await suppressPageSnapshot(testInfo);
     // #1258: the coaching request as sent (its product marker only) and every coaching request of the journey —
     // Analytics must never request coaching again.
-    const coaching: { product: string | null; status: number | null; requests: number; acceptedVersions: unknown } = { product: null, status: null, requests: 0, acceptedVersions: null };
+    const coaching: { product: string | null; status: number | null; requests: number; acceptedVersions: unknown; reason: string | null } = { product: null, status: null, requests: 0, acceptedVersions: null, reason: null };
     page.on('request', (request) => {
         if (!request.url().includes('/functions/v1/get-ai-suggestions') || request.method() !== 'POST') return;
         coaching.requests += 1;
@@ -144,7 +144,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         } catch { coaching.product = null; coaching.acceptedVersions = null; }
     });
     page.on('response', (response) => {
-        if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') coaching.status = response.status();
+        if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
+            coaching.status = response.status();
+            // #1258: a failed generation names its closed, content-free reason in the receipt.
+            if (response.status() >= 400) void response.json().then((b) => { coaching.reason = coachingFailureReason(b); }, () => { coaching.reason = 'unreadable'; });
+        }
     });
     let savedCoaching: SavedCoaching | null = null;
 

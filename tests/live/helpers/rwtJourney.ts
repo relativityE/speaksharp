@@ -48,6 +48,20 @@ export const RWT_ACCOUNT_PREFIX = 'rwt-journey-';
 export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
+/**
+ * #1258 — the closed failure reasons `get-ai-suggestions` returns in its 502 body. Read so a failed coaching row names its
+ * cause in the receipt itself. Anything outside the closed set reads 'unrecognized', so no free text enters the receipt.
+ */
+export const COACHING_FAILURE_REASONS = [
+    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'missing_text', 'invalid_shape',
+    'over_character_ceiling', 'missing_model_version',
+] as const;
+export function coachingFailureReason(body: unknown): string | null {
+    const reason = body && typeof body === 'object' ? (body as { reason?: unknown }).reason : undefined;
+    if (reason === undefined || reason === null) return null;
+    return typeof reason === 'string' && (COACHING_FAILURE_REASONS as readonly string[]).includes(reason) ? reason : 'unrecognized';
+}
+
 /** #1258 (PO 2026-10-02) — the Edge coaching contract's SOFT word target per phrase: measured, never a failure. */
 const COACHING_PHRASE_TARGET_WORDS = 10;
 
@@ -1205,7 +1219,7 @@ export async function focusCoachingRows(
     admin: SupabaseClient,
     sessionId: string,
     uid: string,
-    request: { product: string | null; status: number | null; acceptedVersions?: unknown },
+    request: { product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null },
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
     const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
@@ -1224,7 +1238,7 @@ export async function focusCoachingRows(
     const two = terminal && state === 'ready' && well !== '' && next !== '';
     receipt.row('Focus coaching rendered', two ? 'PASS' : 'FAIL',
         two ? 'two coaching phrases rendered after Stop without any click' : `coaching did not render (state=${String(state)}, http=${String(request.status)})`,
-        { reviewState: state, httpStatus: request.status });
+        { reviewState: state, httpStatus: request.status, failureReason: request.reason ?? null });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
