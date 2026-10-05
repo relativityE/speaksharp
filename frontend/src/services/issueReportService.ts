@@ -227,6 +227,30 @@ export const buildIssueReportMetadata = (input: {
   };
 };
 
+/** The unique index that makes a retried draft one row (`20260904150000_share_feedback_redesign.sql`). */
+export const FEEDBACK_IDEMPOTENCY_CONSTRAINT = 'user_issue_reports_idempotency_key_unique';
+
+/**
+ * #1258 — is this insert error the database saying THIS DRAFT IS ALREADY STORED?
+ *
+ * Only a unique violation (23505) on the idempotency index qualifies. That happens when an earlier Send of the same
+ * draft committed but its response was lost, or when two deliveries race. A collision on that index is necessarily
+ * with the key this insert carried, so it IS this draft. The index name is the verifiable signal: Postgres omits the
+ * key values from the error detail when the role cannot SELECT them, and `authenticated` cannot. Any other 23505
+ * (another unique constraint), and every other error, is a real failure the user must be told about. If a detail
+ * does name a key, it must be THIS key.
+ */
+export function isIdempotentReplay(
+  error: { code?: unknown; message?: unknown; details?: unknown } | null | undefined,
+  idempotencyKey: string | null | undefined,
+): boolean {
+  if (!error || !idempotencyKey || error.code !== '23505') return false;
+  const message = typeof error.message === 'string' ? error.message : '';
+  if (!message.includes(`"${FEEDBACK_IDEMPOTENCY_CONSTRAINT}"`)) return false;
+  const details = typeof error.details === 'string' ? error.details : '';
+  return details === '' || details.includes(`(idempotency_key)=(${idempotencyKey})`);
+}
+
 export const issueReportService = {
   async submit(input: SubmitIssueReportInput): Promise<{ id: string | null }> {
     const supabase = getSupabaseClient();
@@ -252,12 +276,15 @@ export const issueReportService = {
         audio_attachment_note: audioAttachmentNote,
         idempotency_key: input.idempotencyKey ?? null,
       };
-    const query = input.idempotencyKey
-      ? supabase.from('user_issue_reports').upsert(row, { onConflict: 'idempotency_key', ignoreDuplicates: true })
-      : supabase.from('user_issue_reports').insert(row);
-    const { error } = await query;
+    // #1258 — A PLAIN INSERT, NOT AN UPSERT. `upsert(..., { onConflict: 'idempotency_key' })` executes
+    // `INSERT … ON CONFLICT (idempotency_key)`, and Postgres requires SELECT privilege on a conflict-target column.
+    // `authenticated` is deliberately granted INSERT only on this table (20260607023000, "without granting broad
+    // read access"), so that write is refused with 42501 before any row is stored: reproduced locally under the real
+    // migrations (#1258 5999397125). The unique index still makes a retried draft ONE row; its collision on this
+    // draft's own key is the database confirming the earlier delivery, so it is success, not a new failure.
+    const { error } = await supabase.from('user_issue_reports').insert(row);
 
-    if (error) {
+    if (error && !isIdempotentReplay(error, input.idempotencyKey)) {
       logger.error({ error, category: input.category, severity: input.severity }, '[issueReportService.submit]');
       // #1259 F09 — a storage failure currently reaches analytics as SILENCE, because
       // `report_issue_submitted` is emitted only on the success path below. Silence is also what a
