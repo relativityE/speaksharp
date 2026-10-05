@@ -91,18 +91,55 @@ export function emitFeedbackDialogOpened(): void {
     safeEmit('feedback_dialog_opened', {}, 'HIGH');
 }
 
+/**
+ * #1258 — WHY a storage write failed, as a closed category. RWT run 36955422629 recorded "no acknowledgement,
+ * stored 0" and nothing could say whether the database refused the row, the request never arrived, or it never
+ * settled. Classified from the SQLSTATE / PostgREST code and the transport error type only; the error message is
+ * read to recognise a transport failure and is NEVER sent.
+ */
+export const FEEDBACK_ERROR_CATEGORIES = [
+    'rls_denied', 'auth_missing', 'constraint_violation', 'conflict_target', 'schema_mismatch',
+    'network', 'timeout', 'server_error', 'unknown',
+] as const;
+export type FeedbackErrorCategory = (typeof FEEDBACK_ERROR_CATEGORIES)[number];
+
+export function classifyFeedbackStorageError(err: unknown): FeedbackErrorCategory {
+    const e = (err && typeof err === 'object' ? err : {}) as { code?: unknown; name?: unknown; message?: unknown };
+    const code = typeof e.code === 'string' ? e.code : '';
+    const name = typeof e.name === 'string' ? e.name : '';
+    const message = typeof e.message === 'string' ? e.message : '';
+    if (code === '42501') return 'rls_denied';
+    if (code === 'PGRST301' || code === 'PGRST302' || code === '28000' || code === '28P01') return 'auth_missing';
+    if (code === '42P10') return 'conflict_target';          // no unique index matching ON CONFLICT
+    if (/^23/.test(code)) return 'constraint_violation';      // check, not-null, foreign-key, unique
+    if (/^PGRST2/.test(code) || code === '42703' || code === '42P01') return 'schema_mismatch';
+    if (name === 'AbortError' || /timeout|timed out/i.test(message)) return 'timeout';
+    if (name === 'TypeError' || /failed to fetch|network|load failed/i.test(message)) return 'network';
+    if (/^(PGRST0|PGRST5|XX|53|57|58)/.test(code)) return 'server_error';
+    return 'unknown';
+}
+
 export function emitFeedbackSubmit(input: {
     outcome: 'attempted' | 'refused_by_gate' | 'storage_ok' | 'storage_failed';
     blockers?: readonly SubmitBlocker[];
     acknowledgementVisible?: boolean | null;
     /** FEEDBACK_SESSION_SELECTOR_SPEC §9: whether the report was sent linked to a session. Never the id, number or label. */
     hasSession?: boolean;
+    /** #1258: the closed reason a storage write failed (`storage_failed` only). */
+    errorCategory?: FeedbackErrorCategory;
+    /** #1258: milliseconds from `attempted` to this outcome, so a write that never settles is visible by absence. */
+    elapsedMs?: number;
+    /** #1258: which Send in this dialog opening; links `attempted` to its outcome inside the journey. */
+    submitSeq?: number;
 }): void {
     safeEmit('feedback_submit', {
         outcome: input.outcome,
         submit_blockers: input.blockers ? [...input.blockers] : null,
         acknowledgement_visible: input.acknowledgementVisible ?? null,
         ...(input.hasSession === undefined ? {} : { has_session: input.hasSession }),
+        ...(input.errorCategory === undefined ? {} : { error_category: input.errorCategory }),
+        ...(input.elapsedMs === undefined ? {} : { elapsed_ms: Math.max(0, Math.min(600_000, Math.round(input.elapsedMs))) }),
+        ...(input.submitSeq === undefined ? {} : { submit_seq: input.submitSeq }),
     }, 'HIGH');
 }
 

@@ -19,9 +19,13 @@ vi.mock('@/hooks/useLinkedRepeat', () => ({
 }));
 const revisited = vi.fn();
 const practiceSelected = vi.fn();
+const practiceAction = vi.fn();
+const practiceState = vi.fn();
 vi.mock('@/services/reviewSurfaceTelemetry', () => ({
     trackSavedReviewRevisited: (...args: unknown[]) => revisited(...args),
     trackSavedReviewPracticeSelected: (...args: unknown[]) => practiceSelected(...args),
+    trackSavedReviewPracticeAction: (...args: unknown[]) => practiceAction(...args),
+    trackSavedReviewPracticeState: (...args: unknown[]) => practiceState(...args),
 }));
 const setActiveObjectiveBrief = vi.fn();
 vi.mock('@/stores/useSessionStore', () => ({ useSessionStore: { getState: () => ({ setActiveObjectiveBrief }) } }));
@@ -31,7 +35,7 @@ const { SavedPracticeLoopReview } = await import('../SavedPracticeLoopReview');
 const PAIR = { kind: 'review' as const, review: { whatWorked: 'Opening definition landed clearly.', whatToTryNext: 'Name point three before point two.' } };
 const base: SavedSessionReview = { coaching: PAIR, product: 'open_mic', evidence: ['6.2 filler words a minute, above your target.'], focusBrief: null, focusPoints: [] };
 
-beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); revisited.mockReset(); practiceSelected.mockReset(); recommendationId = null; });
+beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); revisited.mockReset(); practiceSelected.mockReset(); practiceAction.mockReset(); practiceState.mockReset(); recommendationId = null; });
 
 describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
     // #1538 (Codex P1 r4117321439, PM 5860714332): an old generic pair on a Focus take is never shown as its Focus review.
@@ -135,5 +139,43 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         load.mockResolvedValue({ ...base, coaching: { kind: 'expired' } });
         render(<SavedPracticeLoopReview sessionId="s2" />);
         await waitFor(() => expect(revisited).toHaveBeenCalledWith('open_mic', 'expired', false));
+    });
+
+    describe('#1258 every press is recorded with the branch it took', () => {
+        it('Open Mic, terminal progress: open_session, link_state direct, action_seq 1 then 2', async () => {
+            load.mockResolvedValue(base);
+            render(<SavedPracticeLoopReview sessionId="s1" />);
+            const button = await screen.findByTestId('saved-review-practice');
+            fireEvent.click(button);
+            fireEvent.click(button);
+            expect(practiceAction.mock.calls.map(([p]) => [p.action, p.linkState, p.reviewState, p.product, p.actionSeq])).toEqual([
+                ['open_session', 'direct', 'loaded', 'open_mic', 1],
+                ['open_session', 'direct', 'loaded', 'open_mic', 2],
+            ]);
+            expect(navigate).toHaveBeenCalledWith('/session');
+        });
+
+        it('linked recommendation: accept_linked, and the attempt carries the same action_seq', async () => {
+            recommendationId = 'rec-1';
+            load.mockResolvedValue(base);
+            render(<SavedPracticeLoopReview sessionId="s1" />);
+            fireEvent.click(await screen.findByTestId('saved-review-practice'));
+            expect(practiceAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'accept_linked', linkState: 'linked', actionSeq: 1, intendedRoute: 'session' }));
+            expect(accept).toHaveBeenCalledWith(expect.any(Function), 1, 'session');
+        });
+
+        it('the recorded target matches the navigation: Focus without its set → open_focus_setup; unknown → open_practice', async () => {
+            load.mockResolvedValue({ ...base, product: 'focus_points', focusBrief: null, focusPoints: [] });
+            const { unmount } = render(<SavedPracticeLoopReview sessionId="s1" />);
+            fireEvent.click(await screen.findByTestId('saved-review-practice'));
+            expect(practiceAction).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'open_focus_setup', product: 'focus_points', intendedRoute: 'focus_setup' }));
+            expect(navigate).toHaveBeenLastCalledWith('/practice?product=focus-points');
+            unmount();
+            load.mockResolvedValue({ ...base, product: 'unknown', evidence: [] });
+            render(<SavedPracticeLoopReview sessionId="s2" />);
+            fireEvent.click(await screen.findByTestId('saved-review-practice'));
+            expect(practiceAction).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'open_practice', product: 'unknown', intendedRoute: 'practice' }));
+            expect(navigate).toHaveBeenLastCalledWith('/practice');
+        });
     });
 });

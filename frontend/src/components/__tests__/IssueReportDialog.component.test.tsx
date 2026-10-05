@@ -773,3 +773,44 @@ describe('Share feedback — which session is this about? (spec S-1…S-16)', ()
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
   });
 });
+
+describe('#1258 Share Feedback outcome names its cause and links to its attempt', () => {
+  beforeEach(() => {
+    submit.mockReset();
+    emitted.length = 0;
+    sessionStorage.clear();
+    clearLoginSessions();
+    setCurrentLogin(null, null);
+  });
+
+  const send = async () => {
+    const user = await open('/analytics/x');
+    await user.click(screen.getByTestId('feedback-type-praise'));
+    await user.type(screen.getByTestId('issue-report-description'), 'RWT automated journey check.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    return user;
+  };
+  const submits = () => emitted.filter((e) => e.event === 'feedback_submit').map((e) => e.props);
+
+  it('a database refusal (SQLSTATE 42501) → storage_failed, error_category rls_denied, same submit_seq as its attempt', async () => {
+    submit.mockRejectedValue({ code: '42501', message: 'new row violates row-level security policy' });
+    await send();
+    await screen.findByText('That didn’t go through. Try again?');
+    const [attempted, failed] = submits();
+    expect(attempted).toMatchObject({ outcome: 'attempted', submit_seq: 1 });
+    expect(failed).toMatchObject({ outcome: 'storage_failed', error_category: 'rls_denied', submit_seq: 1, acknowledgement_visible: true });
+    expect(typeof failed.elapsed_ms).toBe('number');
+    expect(JSON.stringify(failed)).not.toMatch(/row-level|policy/);
+  });
+
+  it('a retry is the next submit_seq; success carries elapsed and no error category', async () => {
+    submit.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({ id: 'report-1' });
+    const user = await send();
+    await screen.findByText('That didn’t go through. Try again?');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submits().some((p) => p.outcome === 'storage_ok')).toBe(true));
+    expect(submits().map((p) => [p.outcome, p.submit_seq, p.error_category])).toEqual([
+      ['attempted', 1, undefined], ['storage_failed', 1, 'network'], ['attempted', 2, undefined], ['storage_ok', 2, undefined],
+    ]);
+  });
+});

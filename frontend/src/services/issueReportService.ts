@@ -4,7 +4,7 @@ import type { TranscriptionMode } from '@/services/transcription/TranscriptionPo
 import { emitPrivateTelemetry, getLastPrivateIdentity, PRIVATE_TELEMETRY_EVENTS } from '@/services/transcription/privateTelemetry';
 import { issueAreasForContext, type PageContext } from '@/services/pageContext';
 import { pickPersistedRuntimeConfig, type PersistedRuntimeConfig } from '@/config/appRuntimeConfig';
-import { emitFeedbackSubmit } from '@/services/telemetry/feedbackTelemetry';
+import { classifyFeedbackStorageError, emitFeedbackSubmit } from '@/services/telemetry/feedbackTelemetry';
 
 // Stable slugs stored in the DB (never the display labels). The visible, user-facing labels
 // are mapped in IssueReportDialog. Kept in sync with the user_issue_reports_category_safe
@@ -294,7 +294,7 @@ export const issueReportService = {
       // observe whether the user was told anything. Reporting false from here would be a claim about a
       // screen this code has never seen — and false is the answer that makes the product look worse than
       // it may be, which is no better than the flattering guess.
-      emitFeedbackSubmit({ outcome: 'storage_failed', acknowledgementVisible: null });
+      emitFeedbackSubmit({ outcome: 'storage_failed', acknowledgementVisible: null, errorCategory: classifyFeedbackStorageError(error) });
       throw error;
     }
 
