@@ -519,6 +519,24 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((await handler(request(), quotaError.create)).status, 503);
   });
 
+  await t.step('#1258 (Codex r4189408877): only a SERVED pair enters the quality measurement — a 503 logs none', async () => {
+    const originalLog = console.log;
+    const logged: string[] = [];
+    console.log = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    try {
+      resetProvider();
+      assertEquals((await handler(request(), mockSupabase({ updateError: { message: 'write failed' } }).create)).status, 503);
+      resetProvider();
+      assertEquals((await handler(request(), mockSupabase({ readback: suggestionB }).create)).status, 503);
+      assertEquals(logged.filter((l) => l.startsWith('AI coaching quality')).length, 0, 'an unserved generation is not measured');
+      resetProvider();
+      assertEquals((await handler(request(), mockSupabase().create)).status, 200);
+      assertEquals(logged.filter((l) => l.startsWith('AI coaching quality')).length, 1, 'the served pair is measured once');
+    } finally {
+      console.log = originalLog;
+    }
+  });
+
   await t.step('requires exact persistence and readback before success', async () => {
     resetProvider();
     const failed = mockSupabase({ updateError: { message: 'write failed' } });

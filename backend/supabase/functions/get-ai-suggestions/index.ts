@@ -739,9 +739,6 @@ export async function handler(
       });
     }
 
-    // #1258 (PO 2026-10-02): every served generation is measured, content-free — counts and flags, never phrases.
-    console.log('AI coaching quality', JSON.stringify(measureCoachingQuality(suggestions)));
-
     const quotaLimit = quotaResult?.limit;
     const quotaRequestNumber = quotaResult?.used;
     if (!Number.isInteger(quotaLimit) || !Number.isInteger(quotaRequestNumber)
@@ -800,6 +797,10 @@ export async function handler(
       });
     }
 
+    // #1258 (PO 2026-10-02): every SERVED generation is measured, content-free — counts and flags, never phrases.
+    // Emitted only here, after save verification (Codex r4189408877): a generation that ends in 503 was never served,
+    // so it must not enter the served-answer quality measurement.
+    console.log('AI coaching quality', JSON.stringify(measureCoachingQuality(savedSuggestions)));
     return new Response(JSON.stringify({ suggestions: forClient(savedSuggestions, focusCapable) }), {
       headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status: 200,

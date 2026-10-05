@@ -59,7 +59,7 @@ import {
     entitlementRow,
     runOwnedIdentityFailures,
     type FixtureKey,
-    type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN,
+    type RunTarget, readCoachingFailureReason,
 } from './rwtJourney';
 
 const JOURNEY = 'focus_points';
@@ -369,8 +369,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // ── Row 11 (continued) — the Focus Points coaching pair after Stop ─────────────────────────────────
         await test.step('row 11 — Focus Points coaching after Stop', async () => {
             if (!persistedId) { receipt.row('Focus coaching rendered', 'HOLD', 'no saved session'); return; }
-            // The reason is read before its row is written; a read still pending at the bound is UNKNOWN, never `null`.
-            if (!(await settleCoachingReason(coaching.reasonRead))) coaching.reason = COACHING_REASON_UNKNOWN;
+            // focusCoachingRows settles the reason after its own terminal wait (Codex r4189408865).
             savedCoaching = await focusCoachingRows(page, receipt, admin as never, persistedId, owner.uid, coaching);
         });
 

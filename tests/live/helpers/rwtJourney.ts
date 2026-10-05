@@ -68,6 +68,16 @@ export function coachingFailureReason(body: unknown): string | null {
  * parse could still be pending when the row is written, and a named reason would be receipted as null. Never throws:
  * a body that is not JSON (an intermediary's HTML error page) reads 'unrecognized', inside the closed contract.
  */
+/**
+ * #1258 (Codex r4189408872) — which side of the 8-10-word band the out-of-band phrase(s) fall on, so the receipt text
+ * never contradicts its own word counts ("over" for a 3-word phrase did).
+ */
+export function bandSide(well: number, next: number, min: number, max: number): 'below' | 'above' | 'below and above' {
+    const below = well < min || next < min;
+    const above = well > max || next > max;
+    return below && above ? 'below and above' : below ? 'below' : 'above';
+}
+
 export async function readCoachingFailureReason(response: { json(): Promise<unknown> }): Promise<string | null> {
     try {
         return coachingFailureReason(await response.json());
@@ -1253,12 +1263,15 @@ export async function focusCoachingRows(
     admin: SupabaseClient,
     sessionId: string,
     uid: string,
-    request: { product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null },
+    request: { product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null },
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
     const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
         .toMatch(/^(ready|error|empty)$/).then(() => true).catch(() => false);
     const state = await card.getAttribute('data-review-state').catch(() => null);
+    // The failure response arrives during the terminal wait above, so its reason is settled HERE, after that wait and
+    // before any row is written (Codex r4189408865). A read still pending at the bound is UNKNOWN, never `null`.
+    if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;
     const phrase = async (headings: readonly string[]): Promise<string> => {
         for (const heading of headings) {
             const title = card.getByRole('heading', { name: heading, exact: true });
@@ -1281,7 +1294,7 @@ export async function focusCoachingRows(
     const withinTarget = inTarget(countWords(well)) && inTarget(countWords(next));
     receipt.row('Focus coaching length', 'PASS',
         withinTarget ? `both phrases within the ${COACHING_PHRASE_TARGET_MIN_WORDS}-${COACHING_PHRASE_TARGET_WORDS}-word target`
-            : `served whole; a phrase is over the ~${COACHING_PHRASE_TARGET_WORDS}-word target (a quality measure, not a failure)`,
+            : `served whole; a phrase is outside the ${COACHING_PHRASE_TARGET_MIN_WORDS}-${COACHING_PHRASE_TARGET_WORDS}-word band (${bandSide(countWords(well), countWords(next), COACHING_PHRASE_TARGET_MIN_WORDS, COACHING_PHRASE_TARGET_WORDS)}; a quality measure, not a failure)`,
         { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
     const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
     receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');

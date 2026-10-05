@@ -85,7 +85,7 @@ import {
     expectedReleaseSha,
     entitlementRow,
     runOwnedIdentityFailures,
-    type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN,
+    type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter } from './helpers/rwtOracles';
 
@@ -437,7 +437,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('coaching length', twoPhrases ? 'PASS' : 'HOLD',
                     !twoPhrases ? 'no phrases to measure'
                         : withinTarget ? `both phrases within the ${COACHING_WORD_TARGET_MIN}-${COACHING_WORD_TARGET}-word target`
-                            : `served whole; a phrase is over the ~${COACHING_WORD_TARGET}-word target (a quality measure, not a failure)`,
+                            : `served whole; a phrase is outside the ${COACHING_WORD_TARGET_MIN}-${COACHING_WORD_TARGET}-word band (${bandSide(well!, next!, COACHING_WORD_TARGET_MIN, COACHING_WORD_TARGET)}; a quality measure, not a failure)`,
                     { wellWords: well, nextWords: next, withinTarget });
                 const distinct = twoPhrases && samePhrase(shownWell, shownNext) === false;
                 receipt.row('coaching phrases distinct', distinct ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
