@@ -600,6 +600,25 @@ export class SpeechRuntimeController {
     private shadowEngine: MetricsEngine | null = null;
     /** #891 Phase 5.8 precursor: live filler counts snapshotted at STOP-entry, before finalize corrects the store. */
     private liveFillerDataAtStop: FillerCounts | null = null;
+
+    /**
+     * #1258 (PO 2026-10-02): the filler data the SAVED value is counted from: the finalized transcript, or the
+     * stop-entry live snapshot only when no finalized text exists. One selection, used by the save path AND by
+     * `filler_measurement.reported_fillers`, so the reported count cannot drift from the saved one (#1558 P1).
+     */
+    private finalizedFillerData(finalTranscript: string): FillerCounts | undefined {
+        if (finalTranscript.trim()) return countFillerWords(finalTranscript, this.userWords);
+        return isUsableFillerCounts(this.liveFillerDataAtStop) ? (this.liveFillerDataAtStop as FillerCounts) : undefined;
+    }
+
+    /** The headline count the save path reports for this finalized take; null when there is no filler evidence. */
+    private reportedFinalizedFillerCount(finalTranscript: string, durationSeconds: number): number | null {
+        const fillerData = this.finalizedFillerData(finalTranscript);
+        if (!fillerData) return null;
+        return calculateCoreSessionMetrics({
+            transcript: finalTranscript, durationSeconds, fillerData, userWords: this.userWords,
+        }).fillerCount;
+    }
     /** #891 Phase 5.8 precursor: filler divergence computed at finalization (over the selected save transcript), cached so it survives shadow-engine disposal. */
     private lastFillerDivergenceReport: FillerDivergenceReport | null = null;
     /** #891 Phase 5.8 Step 1: sanitized numbers-only artifact for the owner known-script take (custom words anonymized, no transcript text). */
@@ -5082,7 +5101,9 @@ export class SpeechRuntimeController {
                                 attributionState: 'pending',
                                 detectorInputWords: countWords(finalTranscript),
                                 detectorInputFillers: recountTotal,
-                                reportedFillers: getFillerTotal(this.liveFillerDataAtStop) ?? null,
+                                // #1558 (Codex P1 r4186339473): the count the product REPORTS is the finalized one the
+                                // save path below computes, from the same selection, not the stop-entry snapshot.
+                                reportedFillers: this.reportedFinalizedFillerCount(finalTranscript, duration),
                                 clarityScore: null,
                                 durationSeconds: Math.round(duration),
                             });
@@ -5239,9 +5260,7 @@ export class SpeechRuntimeController {
                             // (RWT run 36955422629). So the final value is counted from `finalTranscript`, the text
                             // that is saved and shown; the live snapshot is used only when no finalized text exists.
                             // (Supersedes the 2026-07-09 live-canonical rule, #944, for the SAVED value.)
-                            const finalizedFillers = finalTranscript.trim()
-                                ? countFillerWords(finalTranscript, this.userWords)
-                                : isUsableFillerCounts(this.liveFillerDataAtStop) ? this.liveFillerDataAtStop : undefined;
+                            const finalizedFillers = this.finalizedFillerData(finalTranscript);
                             const sessionMetrics = calculateCoreSessionMetrics({
                                 transcript: finalTranscript,
                                 durationSeconds: duration,

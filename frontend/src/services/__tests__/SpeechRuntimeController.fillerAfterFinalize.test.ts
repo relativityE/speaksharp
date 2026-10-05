@@ -20,6 +20,10 @@ vi.mock('../../lib/storage', () => ({
     heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
     completeSession: vi.fn().mockResolvedValue({ success: true }),
 }));
+const fillerMeasurements = vi.hoisted(() => [] as Array<{ reportedFillers: number | null; detectorInputFillers: number }>);
+vi.mock('@/services/telemetry/fillerMeasurement', () => ({
+    emitFillerMeasurement: (input: { reportedFillers: number | null; detectorInputFillers: number }) => { fillerMeasurements.push(input); },
+}));
 vi.mock('../../lib/supabaseClient', () => ({
     getSupabaseClient: vi.fn(() => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' } } } }) } })),
 }));
@@ -71,6 +75,7 @@ describe('#1258 — the saved filler count is finalized like the transcript', ()
         useSessionStore.getState().setRuntimeState('RECORDING');
         useSessionStore.getState().updateTranscript(BEFORE_STOP, '');
         vi.clearAllMocks();
+        fillerMeasurements.length = 0;
     });
     afterEach(() => { (controller as unknown as { service: unknown }).service = null; });
 
@@ -112,5 +117,25 @@ describe('#1258 — the saved filler count is finalized like the transcript', ()
         (controller as unknown as { service: unknown }).service = engine(null);
         await controller.stopRecording();
         expect(saved().metrics?.fillerCounts?.um).toBe(3);
+    });
+
+    it('telemetry reports the finalized count the product saved (#1558 Codex P1 r4186339473)', async () => {
+        // `filler_measurement.reported_fillers` is "what the product REPORTED to the user and to session_saved".
+        // With 3 um at Stop and a 4th decoded during finalizing, the product saves and shows 4. The report must say
+        // 4 as well, not the stop-entry snapshot's 3.
+        pressStopWith(BEFORE_STOP);
+        (controller as unknown as { service: unknown }).service = engine(DECODED_DURING_FINALIZING);
+        await controller.stopRecording();
+        expect(saved().metrics?.fillerCounts?.um).toBe(4);
+        expect(fillerMeasurements).toHaveLength(1);
+        expect(fillerMeasurements[0].reportedFillers).toBe(4);
+    });
+
+    it('telemetry reports the finalized count when the live preview over-counted', async () => {
+        pressStopWith(`${BEFORE_STOP} um`); // live showed 4; the finalized text holds 3
+        (controller as unknown as { service: unknown }).service = engine(null);
+        await controller.stopRecording();
+        expect(saved().metrics?.fillerCounts?.um).toBe(3);
+        expect(fillerMeasurements[0].reportedFillers).toBe(3);
     });
 });
