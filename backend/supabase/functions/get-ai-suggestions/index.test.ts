@@ -12,6 +12,7 @@ import {
   buildCoachingPrompt,
   buildFocusCoachingText,
   parseSuggestions,
+  COACHING_WORD_TARGET_MIN,
 } from './index.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
@@ -789,7 +790,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       const quality = logged.find((l) => l.startsWith('AI coaching quality'));
       assertStringIncludes(String(quality), `"what_worked_words":${words}`);
       assertStringIncludes(String(quality), `"next_step_words":${words}`);
-      assertStringIncludes(String(quality), `"within_target":${words <= 10}`);
+      assertStringIncludes(String(quality), `"within_target":${words >= 8 && words <= 10}`);
       assertEquals(String(quality).includes('Lead with the customer'), false, 'the quality record is content-free');
     });
   }
@@ -833,8 +834,15 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(response.status, 200);
     assertStringIncludes(String(logged.find((l) => l.startsWith('AI coaching quality'))), '"metric_recital":true');
     assertEquals(measureCoachingQuality({ version: 'gemini_coaching_v1', what_worked: 'Your opening clearly established the budget problem.', what_to_try_next: 'Pause before the revised number so it lands.' }), {
-      what_worked_words: 7, next_step_words: 8, within_target: true, metric_recital: false,
+      what_worked_words: 7, next_step_words: 8, within_target: false, metric_recital: false,
     });
+    // #1258 (Codex r4188372867): the target is ABOUT 8-10 words — the whole band is measured, not just the ceiling.
+    const pair = (a: string, b: string) => measureCoachingQuality({ version: 'gemini_coaching_v1', what_worked: a, what_to_try_next: b }).within_target;
+    const n = (k: number) => Array.from({ length: k }, (_, i) => `w${i}`).join(' ');
+    assertEquals(pair(n(3), n(9)), false, 'a 3-word phrase is below the target');
+    assertEquals(pair(n(8), n(8)), true);
+    assertEquals(pair(n(9), n(10)), true);
+    assertEquals(pair(n(10), n(11)), false, 'an 11-word phrase is above the target');
   });
 
   await t.step('#1258: the target is about 8-10 words and the ceiling is characters — the prompt asks, nothing refuses by word count', () => {
@@ -1010,8 +1018,9 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(AI_SUGGESTION_DAILY_LIMIT, coachingContract.uncachedGenerationCapPerUtcDay);
     // PO 2026-10-02: the request to the AI service carries OUR word budget, and it is the contract's number —
     // the request and the content-free within_target measurement cannot drift apart.
-    for (const target of new Set(Object.values(COACHING_WORD_TARGET))) {
-      assertStringIncludes(lastPrompt, `about 8-${target} words each`);
+    for (const field of ['what_worked', 'what_to_try_next'] as const) {
+      // Both ends of the measured band are the ones the prompt asks for (#1258, Codex r4188372867).
+      assertStringIncludes(lastPrompt, `about ${COACHING_WORD_TARGET_MIN[field]}-${COACHING_WORD_TARGET[field]} words each`);
     }
 
     /*

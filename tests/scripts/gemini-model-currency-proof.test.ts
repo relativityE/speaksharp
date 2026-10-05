@@ -35,8 +35,9 @@ const providerBody = (suggestions: Record<string, unknown>, modelVersion = 'gemi
 
 const validSuggestions = {
   version: 'gemini_coaching_v1',
-  what_worked: 'Clear opening named the decision.',
-  what_to_try_next: 'End with one dated commitment.',
+  // About 8-10 words each (9 and 9), inside the measured target band (#1258, Codex r4188372867).
+  what_worked: 'Your clear opening named the decision and its owner.',
+  what_to_try_next: 'End with one dated commitment the room can repeat.',
 };
 
 describe('trusted Gemini model proof', () => {
@@ -127,6 +128,9 @@ describe('trusted Gemini model proof', () => {
     expect(long).toMatchObject({ valid: true, within_target: false });
     expect(long.word_counts.what_to_try_next).toBe(18);
     expect(validateProviderBody(providerBody(validSuggestions), contract)).toMatchObject({ valid: true, within_target: true });
+    // #1258 (Codex r4188372867): the target is ABOUT 8-10 words; an undersized phrase is valid but NOT within target.
+    const short = validateProviderBody(providerBody({ ...validSuggestions, what_worked: 'Clear opening.' }), contract);
+    expect(short).toMatchObject({ valid: true, within_target: false });
   });
 
   it('CASUALTY: the harness has no credential and no network path at all', () => {

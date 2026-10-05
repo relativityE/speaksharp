@@ -85,7 +85,7 @@ import {
     expectedReleaseSha,
     entitlementRow,
     runOwnedIdentityFailures,
-    type RunTarget, coachingFailureReason,
+    type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter } from './helpers/rwtOracles';
 
@@ -117,6 +117,8 @@ const PROC_SAMPLE_MS = 5_000;
 const JOURNEY = 'open_mic';
 /** PO 2026-10-02: about 8-10 words per phrase is a SOFT target (the Edge contract's `wordTarget`), measured — never a failure. */
 const COACHING_WORD_TARGET = 10;
+/** #1258 (Codex r4188372867): ABOUT 8-10 words — a shorter phrase is not within the target. */
+const COACHING_WORD_TARGET_MIN = 8;
 /** Accepted headings (runbook (3) row 5: Akin also accepts "What to try next"). */
 const WELL_HEADINGS = ['What went well'] as const;
 const NEXT_HEADINGS = ['Try this next run', 'What to try next'] as const;
@@ -207,12 +209,12 @@ test.describe('RWT — Open Mic first session @live', () => {
         entitlement.attach(page);
         await installMicAcquisitionCounter(page);
         await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
-        const coaching: { status: number | null; requests: number; reason: string | null } = { status: null, requests: 0, reason: null };
+        const coaching: { status: number | null; requests: number; reason: string | null; reasonRead: Promise<void> | null } = { status: null, requests: 0, reason: null, reasonRead: null };
         page.on('response', (response: Response) => {
             if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
                 coaching.status = response.status();
                 // #1258: a failed generation names its closed, content-free reason in the receipt.
-                if (response.status() >= 400) void response.json().then((b) => { coaching.reason = coachingFailureReason(b); }, () => { coaching.reason = 'unreadable'; });
+                if (response.status() >= 400) coaching.reasonRead = readCoachingFailureReason(response).then((r) => { coaching.reason = r; });
                 coaching.requests += 1; // runbook v12: Analytics must never request coaching again
             }
         });
@@ -425,13 +427,16 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const well = shownWell ? countWords(shownWell) : null;
                 const next = shownNext ? countWords(shownNext) : null;
                 const twoPhrases = state === 'ready' && well !== null && next !== null;
-                const withinTarget = twoPhrases && well! <= COACHING_WORD_TARGET && next! <= COACHING_WORD_TARGET;
+                const inTarget = (n: number) => n >= COACHING_WORD_TARGET_MIN && n <= COACHING_WORD_TARGET;
+                const withinTarget = twoPhrases && inTarget(well!) && inTarget(next!);
+                // The reason is read before its row is written; a read still pending at the bound is UNKNOWN, never `null`.
+                if (!(await settleCoachingReason(coaching.reasonRead))) coaching.reason = COACHING_REASON_UNKNOWN;
                 receipt.row('coaching rendered', terminal && twoPhrases ? 'PASS' : 'FAIL',
                     twoPhrases ? 'exactly two coaching phrases rendered without any click' : `coaching did not render (state=${String(state)}, http=${String(coaching.status)})`,
                     { reviewState: state, httpStatus: coaching.status, failureReason: coaching.reason, stopToCoachingMs: coachingMs });
                 receipt.row('coaching length', twoPhrases ? 'PASS' : 'HOLD',
                     !twoPhrases ? 'no phrases to measure'
-                        : withinTarget ? `both phrases within the ~${COACHING_WORD_TARGET}-word target`
+                        : withinTarget ? `both phrases within the ${COACHING_WORD_TARGET_MIN}-${COACHING_WORD_TARGET}-word target`
                             : `served whole; a phrase is over the ~${COACHING_WORD_TARGET}-word target (a quality measure, not a failure)`,
                     { wellWords: well, nextWords: next, withinTarget });
                 const distinct = twoPhrases && samePhrase(shownWell, shownNext) === false;

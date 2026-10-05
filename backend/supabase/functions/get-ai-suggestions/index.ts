@@ -41,6 +41,11 @@ export const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/
  * improve through the prompt, not a reason to withhold coaching.
  */
 export const COACHING_WORD_TARGET = Object.freeze(coachingContract.wordTarget);
+/**
+ * #1258 (Codex r4188372867) — the PO's soft target is ABOUT 8-10 words per phrase (the prompt says so). `within_target`
+ * measures the whole band: a 1-7-word phrase is NOT within target. Measured content-free, never a validity rule.
+ */
+export const COACHING_WORD_TARGET_MIN = Object.freeze({ what_worked: 8, what_to_try_next: 8 });
 /** The generous operational ceiling, one number: the provider schema's `maxLength`, also enforced here. */
 export const COACHING_CHARACTER_CEILING = Object.freeze({
   what_worked: coachingContract.generationConfig.responseSchema.properties.what_worked.maxLength,
@@ -246,7 +251,8 @@ export function measureCoachingQuality(s: AISuggestions): {
   return {
     what_worked_words,
     next_step_words,
-    within_target: what_worked_words <= COACHING_WORD_TARGET.what_worked && next_step_words <= COACHING_WORD_TARGET.what_to_try_next,
+    within_target: what_worked_words >= COACHING_WORD_TARGET_MIN.what_worked && what_worked_words <= COACHING_WORD_TARGET.what_worked
+      && next_step_words >= COACHING_WORD_TARGET_MIN.what_to_try_next && next_step_words <= COACHING_WORD_TARGET.what_to_try_next,
     metric_recital: isMetricRecital(s.what_worked) || isMetricRecital(s.what_to_try_next),
   };
 }

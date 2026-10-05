@@ -25,6 +25,8 @@ const EXPECTED_VERSION = 'gemini_coaching_v1';
 const EXPECTED_REQUEST_CAP = 10;
 /** PO 2026-10-02: a SOFT length target — asked for in the prompt and measured, never a validity rule. */
 const EXPECTED_WORD_TARGET = 10;
+/** #1258 (Codex r4188372867): the target is ABOUT 8-10 words; shorter is not within it. Mirrors the Edge COACHING_WORD_TARGET_MIN. */
+const EXPECTED_WORD_TARGET_MIN = 8;
 const EXPECTED_SCHEMA_MAX_LENGTH = 240;
 
 const exactKeys = (value, expected) => JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
@@ -129,7 +131,7 @@ export function validateProviderBody(bodyText, contract) {
     }
     wordCounts[field] = words(parsed[field]);
   }
-  const withinTarget = COACHING_FIELDS.every((field) => wordCounts[field] <= contract.wordTarget[field]);
+  const withinTarget = COACHING_FIELDS.every((field) => wordCounts[field] >= EXPECTED_WORD_TARGET_MIN && wordCounts[field] <= contract.wordTarget[field]);
   return { valid: true, word_counts: wordCounts, within_target: withinTarget, parsed, model_version: envelope.modelVersion };
 }
 

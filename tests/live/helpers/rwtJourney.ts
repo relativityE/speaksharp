@@ -62,8 +62,42 @@ export function coachingFailureReason(body: unknown): string | null {
     return typeof reason === 'string' && (COACHING_FAILURE_REASONS as readonly string[]).includes(reason) ? reason : 'unrecognized';
 }
 
+/**
+ * #1258 (Codex r4188372882 / r4188372897) — read a failed coaching response's closed reason as a PROMISE the spec
+ * awaits before writing the receipt row. A Playwright listener does not await what it returns, so a fire-and-forget
+ * parse could still be pending when the row is written, and a named reason would be receipted as null. Never throws:
+ * a body that is not JSON (an intermediary's HTML error page) reads 'unrecognized', inside the closed contract.
+ */
+export async function readCoachingFailureReason(response: { json(): Promise<unknown> }): Promise<string | null> {
+    try {
+        return coachingFailureReason(await response.json());
+    } catch {
+        return 'unrecognized';
+    }
+}
+
+/**
+ * Receipt-side value for a failure reason whose read did not settle within the bound (PM 6003371116): explicitly
+ * UNKNOWN, a HOLD for classification — never `null`, which would claim the response carried no reason.
+ */
+export const COACHING_REASON_UNKNOWN = 'unknown';
+
+/**
+ * Wait for a pending reason read, bounded so a body that never completes cannot hold the receipt. Returns whether the
+ * read SETTLED: `false` means the caller must record COACHING_REASON_UNKNOWN, not a confirmed absence.
+ */
+export async function settleCoachingReason(pending: Promise<unknown> | null | undefined, boundMs = 5_000): Promise<boolean> {
+    if (!pending) return true;
+    return Promise.race([
+        pending.then(() => true, () => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), boundMs)),
+    ]);
+}
+
 /** #1258 (PO 2026-10-02) — the Edge coaching contract's SOFT word target per phrase: measured, never a failure. */
 const COACHING_PHRASE_TARGET_WORDS = 10;
+/** #1258 (Codex r4188372867): the target is ABOUT 8-10 words; a shorter phrase is not within it. */
+const COACHING_PHRASE_TARGET_MIN_WORDS = 8;
 
 export type FixtureKey = 'open_mic_tts' | 'focus_points_tts' | 'focus_points_partial_tts';
 
@@ -1243,9 +1277,10 @@ export async function focusCoachingRows(
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
     if (!two) return null;
-    const withinTarget = countWords(well) <= COACHING_PHRASE_TARGET_WORDS && countWords(next) <= COACHING_PHRASE_TARGET_WORDS;
+    const inTarget = (n: number) => n >= COACHING_PHRASE_TARGET_MIN_WORDS && n <= COACHING_PHRASE_TARGET_WORDS;
+    const withinTarget = inTarget(countWords(well)) && inTarget(countWords(next));
     receipt.row('Focus coaching length', 'PASS',
-        withinTarget ? `both phrases within the ~${COACHING_PHRASE_TARGET_WORDS}-word target`
+        withinTarget ? `both phrases within the ${COACHING_PHRASE_TARGET_MIN_WORDS}-${COACHING_PHRASE_TARGET_WORDS}-word target`
             : `served whole; a phrase is over the ~${COACHING_PHRASE_TARGET_WORDS}-word target (a quality measure, not a failure)`,
         { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
     const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
