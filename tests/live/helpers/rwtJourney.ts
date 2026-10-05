@@ -35,6 +35,7 @@ import {
     type AcquisitionTiming, type ReadbackPlan,
 } from './rwtOracles';
 import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
+import { readFeedbackUiState, readPracticeActionState, type PracticeActionState } from './rwtStepDiagnostics';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -756,12 +757,18 @@ export async function entitlementRow(receipt: RwtReceipt, tap: EntitlementTap, r
  * A step the page never reached is a HOLD with its reason — never a PASS. The detail is opened by URL; the list path
  * into it is proven by the reopen rows.
  */
+/** #1258 (PM 5944997435): one outer bound per diagnostic read, and a short per-call timeout inside it. */
+const STEP_DIAGNOSTIC_BOUND_MS = 10_000;
+const STEP_DIAGNOSTIC_READ_MS = 3_000;
+
 export interface PracticeAgainEvidence {
     analyticsActionOpened: boolean | null; sameSetPending: boolean | null;
     reviewReached: boolean | null; afterActionEnabledMs: number | null; holdSeen: boolean;
     /** The session id of the short take this pass saved (for the saved-product-marker row); null when not reached. */
     savedSessionId: string | null;
     afterStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
+    /** #1258 (PM 5944997435): the practice action's content-free state before the click, and after a click that did not open /session. */
+    actionBefore: PracticeActionState | null; actionAfter: PracticeActionState | null;
 }
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
@@ -772,6 +779,7 @@ export async function practiceAgainEvidence(
     const ev: PracticeAgainEvidence = {
         analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null,
         holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: null, savedSessionId: null,
+        actionBefore: null, actionAfter: null,
     };
     await page.goto(`/analytics/${sessionId}`);
     const practice = page.getByTestId('saved-review-practice');
@@ -781,9 +789,14 @@ export async function practiceAgainEvidence(
         ev.reason = 'the Analytics detail showed no enabled practice action';
         return ev;
     }
+    ev.actionBefore = await readPracticeActionState(page, { boundMs: STEP_DIAGNOSTIC_BOUND_MS, readTimeoutMs: STEP_DIAGNOSTIC_READ_MS });
     await practice.click();
     ev.analyticsActionOpened = await page.waitForURL('**/session', { timeout: 30_000 }).then(() => true).catch(() => false);
-    if (!ev.analyticsActionOpened) { ev.reason = 'the practice action did not open the session page'; return ev; }
+    if (!ev.analyticsActionOpened) {
+        ev.actionAfter = await readPracticeActionState(page, { boundMs: STEP_DIAGNOSTIC_BOUND_MS, readTimeoutMs: STEP_DIAGNOSTIC_READ_MS });
+        ev.reason = 'the practice action did not open the session page';
+        return ev;
+    }
     if (product === 'focus_points') {
         const rail = page.getByTestId('focus-points-rail');
         const shown = await rail.waitFor({ timeout: 30_000 }).then(async () => {
@@ -876,6 +889,16 @@ export async function productMarkerRows(
         { checked: ids.length, found: data.length, matched, expected });
 }
 
+/** The practice action's closed-enum state as flat receipt evidence: which click branch the page was in. */
+export function practiceActionEvidence(ev: Pick<PracticeAgainEvidence, 'actionBefore' | 'actionAfter'>): Record<string, string | boolean | null> {
+    const b = ev.actionBefore; const a = ev.actionAfter;
+    return {
+        beforeLinkState: b?.linkState ?? null, beforeLabel: b?.label ?? null,
+        afterRoute: a?.route ?? null, afterLinkState: a?.linkState ?? null, afterLabel: a?.label ?? null, afterEnabled: a?.enabled ?? null,
+        diagnosticTimedOut: Boolean(b?.timedOut || a?.timedOut),
+    };
+}
+
 /** Rows from one Practice-again pass: the Analytics action, the review's repeat action, and the microphone off. */
 export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'focus_points', ev: PracticeAgainEvidence): void {
     if (ev.analyticsActionOpened === null) {
@@ -885,7 +908,7 @@ export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'fo
         receipt.row('Analytics Practice again opens the product', ok ? 'PASS' : 'FAIL',
             ok ? (product === 'focus_points' ? 'the same Focus set opened, every point pending' : 'Open Mic opened, ready to record')
                 : !ev.analyticsActionOpened ? (ev.reason ?? 'the session page did not open') : 'the Focus set that opened was not the saved set, or not pending',
-            { sameSetPending: ev.sameSetPending });
+            { sameSetPending: ev.sameSetPending, ...practiceActionEvidence(ev) });
     }
     if (ev.reviewReached !== true) {
         receipt.row('review Practice again starts, no hold', 'HOLD', ev.reason ?? 'the completed-session review was not reached');
@@ -1091,9 +1114,12 @@ export async function shareFeedbackRows(
     const { data, error } = await admin.from('user_issue_reports').select('id').eq('user_id', uid).gte('created_at', since);
     if (error) throw new Error(`feedback read failed (fail closed): ${error.code ?? 'unknown'}`);
     const storedOnce = data?.length === 1;
+    // #1258 (PM 5944997435): without an acknowledgement, say which branch the dialog is in (closed booleans only).
+    const ui = acknowledged ? null
+        : await readFeedbackUiState(page, { boundMs: STEP_DIAGNOSTIC_BOUND_MS, readTimeoutMs: STEP_DIAGNOSTIC_READ_MS, kindTestId: 'feedback-type-praise' });
     receipt.row('feedback', acknowledged && storedOnce ? 'PASS' : 'FAIL',
         acknowledged ? (storedOnce ? 'acknowledged and stored once' : 'acknowledged but not stored exactly once') : 'no acknowledgement shown',
-        { stored: data?.length ?? 0 });
+        { stored: data?.length ?? 0, ...(ui ? { errorShown: ui.errorShown, dialogOpen: ui.dialogOpen, submitEnabled: ui.submitEnabled, kindChosen: ui.kindChosen, diagnosticTimedOut: ui.timedOut } : {}) });
     const id = storedOnce ? data?.[0]?.id : null;
     return typeof id === 'string' || typeof id === 'number' ? String(id) : null;
 }
