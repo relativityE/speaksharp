@@ -25,9 +25,9 @@ describe('#1258 practiceArrivalVerdict', () => {
         expect(v.evidence).toMatchObject({ presses: 2, arrived: 2, missing: 0, mismatched: 0 });
     });
 
-    it('FAIL: a press that never arrived (the Oct 2 symptom) names the action and link state', () => {
+    it('HOLD (not FAIL): a press with no observed arrival is missing evidence; it still names the action and link state', () => {
         const v = practiceArrivalVerdict([press(1, 'open_session', 'session', 'direct'), noise]);
-        expect(v.verdict).toBe('FAIL');
+        expect(v.verdict).toBe('HOLD');
         expect(v.evidence).toMatchObject({ missing: 1, first: 'seq 1: open_session (direct) never arrived' });
     });
 
@@ -42,8 +42,9 @@ describe('#1258 practiceArrivalVerdict', () => {
     });
 
     it('CASUALTY: an arrival with a DIFFERENT sequence, or one sent BEFORE the press, does not count', () => {
-        expect(practiceArrivalVerdict([press(1), arrive(2)]).verdict).toBe('FAIL');
-        expect(practiceArrivalVerdict([arrive(1), press(1)]).verdict).toBe('FAIL');
+        expect(practiceArrivalVerdict([press(1), arrive(2)]).verdict).not.toBe('PASS');
+        expect(practiceArrivalVerdict([arrive(1), press(1)]).verdict).not.toBe('PASS');
+        expect(practiceArrivalVerdict([press(1), arrive(2)]).verdict).toBe('HOLD');
     });
 
     it('CASUALTY: a reused sequence (a remount) pairs each press with its OWN arrival — one arrival cannot serve two presses', () => {
@@ -53,11 +54,16 @@ describe('#1258 practiceArrivalVerdict', () => {
 
     it('CASUALTY: a same-number arrival from ANOTHER boot (after a reload) never pairs; a cross-JOURNEY same-boot arrival does', () => {
         const inBoot = <T extends object>(e: T, bootId: string) => ({ ...e, bootId });
-        expect(practiceArrivalVerdict([inBoot(press(1), 'b1'), inBoot(arrive(1), 'b2')]).verdict).toBe('FAIL');
+        expect(practiceArrivalVerdict([inBoot(press(1), 'b1'), inBoot(arrive(1), 'b2')]).verdict).toBe('HOLD');
         // Entering /session mints a new journey; the arrival is still THIS press's (same boot), so it must pass.
         expect(practiceArrivalVerdict([{ ...inBoot(press(1), 'b1'), journeyId: 'j1' }, { ...inBoot(arrive(1), 'b1'), journeyId: 'j2' }]).verdict).toBe('PASS');
         expect(practiceArrivalVerdict([inBoot(press(1, 'accept_linked', 'session', 'linked'), 'b1'), inBoot(linked(1, 'server_failed'), 'b2'), inBoot(arrive(1), 'b2')]).evidence)
             .toMatchObject({ missing: 1, linkedFailed: 0, arrived: 0 });
+    });
+
+    it('an OBSERVED failure wins over missing evidence: one wrong route plus one missing arrival is FAIL, not HOLD', () => {
+        expect(practiceArrivalVerdict([press(1), arrive(1, 'other'), press(2)]).verdict).toBe('FAIL');
+        expect(feedbackOutcomeVerdict([fb('attempted', 1), fb('storage_failed', 1, 'network'), fb('attempted', 2)]).verdict).toBe('FAIL');
     });
 
     it('non-navigating presses are not counted; none at all is HOLD, never PASS', () => {
@@ -77,9 +83,9 @@ describe('#1258 feedbackOutcomeVerdict', () => {
         expect(v).toMatchObject({ verdict: 'FAIL', evidence: { failed: 1, errorCategory: 'privilege_denied' } });
     });
 
-    it('FAIL: an attempt that never resolved; CASUALTY: an outcome for a different submit_seq does not resolve it', () => {
-        expect(feedbackOutcomeVerdict([fb('attempted', 1)]).evidence).toMatchObject({ unresolved: 1 });
-        expect(feedbackOutcomeVerdict([fb('attempted', 1), fb('storage_ok', 2)]).verdict).toBe('FAIL');
+    it('HOLD (not FAIL): an attempt with no observed outcome; CASUALTY: an outcome for a different submit_seq does not resolve it', () => {
+        expect(feedbackOutcomeVerdict([fb('attempted', 1)])).toMatchObject({ verdict: 'HOLD', evidence: { unresolved: 1 } });
+        expect(feedbackOutcomeVerdict([fb('attempted', 1), fb('storage_ok', 2)]).verdict).toBe('HOLD');
     });
 
     it('CASUALTY: submit_seq is dialog-local — an outcome from another boot, or one sent BEFORE the attempt, never resolves it', () => {

@@ -289,9 +289,12 @@ export function practiceArrivalVerdict(events: readonly OutcomeEvent[]): { verdi
         }
     });
     const evidence = { presses: presses.length, arrived, mismatched, missing, linkedFailed, first: firstProblem[0] ?? 'none' };
+    // Truthful-proof rule (PM 6010721789): an OBSERVED failure (wrong route, failed linked attempt) is FAIL; a press with
+    // no arrival is missing evidence (e.g. not yet flushed) and is HOLD, never PASS and never FAIL.
+    if (mismatched > 0 || linkedFailed > 0) return { verdict: 'FAIL', detail: 'a Practice-again press reached the wrong route or its linked attempt failed', evidence };
     return arrived === presses.length
-        ? { verdict: 'PASS', detail: 'every Practice-again press arrived at its intended route (same action_seq)', evidence }
-        : { verdict: 'FAIL', detail: 'a Practice-again press did not arrive at its intended route', evidence };
+        ? { verdict: 'PASS', detail: 'every Practice-again press arrived at its intended route (same boot and action_seq)', evidence }
+        : { verdict: 'HOLD', detail: 'a Practice-again press has no observed arrival (missing evidence, not an observed failure)', evidence };
 }
 
 /** #1258 (#1563 closure) — each Share Feedback attempt resolved to a stored outcome with the SAME `submit_seq`. */
@@ -310,7 +313,8 @@ export function feedbackOutcomeVerdict(events: readonly OutcomeEvent[]): { verdi
         else { failed += 1; if (category === 'none') category = String(o.fields?.error_category ?? 'unknown'); }
     }
     const evidence = { attempts: attempts.length, stored, failed, unresolved, errorCategory: category };
+    if (failed > 0) return { verdict: 'FAIL', detail: 'a Share Feedback attempt failed to store (see errorCategory)', evidence };
     return stored === attempts.length
-        ? { verdict: 'PASS', detail: 'every Share Feedback attempt resolved to storage_ok with the same submit_seq', evidence }
-        : { verdict: 'FAIL', detail: failed > 0 ? 'a Share Feedback attempt failed to store (see errorCategory)' : 'a Share Feedback attempt never resolved', evidence };
+        ? { verdict: 'PASS', detail: 'every Share Feedback attempt resolved to storage_ok with the same boot and submit_seq', evidence }
+        : { verdict: 'HOLD', detail: 'a Share Feedback attempt has no observed outcome (missing evidence, not an observed failure)', evidence };
 }
