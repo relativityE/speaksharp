@@ -51,6 +51,15 @@ describe('#1258 practiceArrivalVerdict', () => {
         expect(practiceArrivalVerdict([press(1), press(1), arrive(1)]).evidence).toMatchObject({ arrived: 1, missing: 1 });
     });
 
+    it('CASUALTY: a same-number arrival from ANOTHER boot (after a reload) never pairs; a cross-JOURNEY same-boot arrival does', () => {
+        const inBoot = <T extends object>(e: T, bootId: string) => ({ ...e, bootId });
+        expect(practiceArrivalVerdict([inBoot(press(1), 'b1'), inBoot(arrive(1), 'b2')]).verdict).toBe('FAIL');
+        // Entering /session mints a new journey; the arrival is still THIS press's (same boot), so it must pass.
+        expect(practiceArrivalVerdict([{ ...inBoot(press(1), 'b1'), journeyId: 'j1' }, { ...inBoot(arrive(1), 'b1'), journeyId: 'j2' }]).verdict).toBe('PASS');
+        expect(practiceArrivalVerdict([inBoot(press(1, 'accept_linked', 'session', 'linked'), 'b1'), inBoot(linked(1, 'server_failed'), 'b2'), inBoot(arrive(1), 'b2')]).evidence)
+            .toMatchObject({ missing: 1, linkedFailed: 0, arrived: 0 });
+    });
+
     it('non-navigating presses are not counted; none at all is HOLD, never PASS', () => {
         const ignored = { event: 'saved_review_practice_action', fields: { action: 'refetch_progress', action_seq: 1, intended_route: 'none', link_state: 'error' } };
         expect(practiceArrivalVerdict([ignored]).verdict).toBe('HOLD');
@@ -71,6 +80,13 @@ describe('#1258 feedbackOutcomeVerdict', () => {
     it('FAIL: an attempt that never resolved; CASUALTY: an outcome for a different submit_seq does not resolve it', () => {
         expect(feedbackOutcomeVerdict([fb('attempted', 1)]).evidence).toMatchObject({ unresolved: 1 });
         expect(feedbackOutcomeVerdict([fb('attempted', 1), fb('storage_ok', 2)]).verdict).toBe('FAIL');
+    });
+
+    it('CASUALTY: submit_seq is dialog-local — an outcome from another boot, or one sent BEFORE the attempt, never resolves it', () => {
+        const inBoot = <T extends object>(e: T, bootId: string) => ({ ...e, bootId });
+        expect(feedbackOutcomeVerdict([inBoot(fb('attempted', 1), 'b1'), inBoot(fb('storage_ok', 1), 'b2')]).evidence).toMatchObject({ unresolved: 1, stored: 0 });
+        expect(feedbackOutcomeVerdict([fb('storage_ok', 1), fb('attempted', 1)]).evidence).toMatchObject({ unresolved: 1, stored: 0 });
+        expect(feedbackOutcomeVerdict([inBoot(fb('attempted', 1), 'b1'), inBoot(fb('storage_ok', 1), 'b1')]).verdict).toBe('PASS');
     });
 
     it('no attempt is HOLD, never PASS', () => {

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigationType } from 'react-router-dom';
 import { emitJourneyStep } from '@/services/telemetry/journeyStep';
 import { ensureJourneyBoundary } from '@/hooks/useJourneyBoundary';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -48,14 +48,18 @@ export function JourneyRouteTelemetry(): null {
 
     // #1258 (Codex r4191751371): a location reached by a saved-review practice press carries that press's
     // `action_seq` in router state. Emit its arrival once per history entry, with the closed class of where it landed.
+    // ONLY for the press's own PUSH/REPLACE: Back/Forward or a reload (POP) restores an OLD entry's state, and replaying
+    // its arrival could pair a later press that reuses the number (numbers reset on remount) — a false PASS.
+    const navigationType = useNavigationType();
     const arrived = React.useRef<string | null>(null);
     React.useEffect(() => {
+        if (navigationType === 'POP') return;
         const seq = (location.state as { practiceActionSeq?: unknown } | null)?.practiceActionSeq;
         if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 1 || seq > 100) return;
         if (arrived.current === location.key) return;
         arrived.current = location.key;
         trackSavedReviewPracticeArrived(seq, practiceArrivalRoute(location.pathname, location.search));
-    }, [location.key, location.state, location.pathname, location.search]);
+    }, [navigationType, location.key, location.state, location.pathname, location.search]);
 
     return null;
 }

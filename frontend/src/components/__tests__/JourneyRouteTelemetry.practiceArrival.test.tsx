@@ -25,11 +25,11 @@ beforeEach(() => {
     }) as never);
 });
 
-function Go({ id, to, state }: { id: string; to: string; state?: unknown }) {
+function Go({ id, to, state }: { id: string; to: string | number; state?: unknown }) {
     const navigate = useNavigate();
-    return <button data-testid={id} onClick={() => navigate(to, state === undefined ? undefined : { state })}>{id}</button>;
+    return <button data-testid={id} onClick={() => (typeof to === 'number' ? navigate(to) : navigate(to, state === undefined ? undefined : { state }))}>{id}</button>;
 }
-const mount = (buttons: Array<{ id: string; to: string; state?: unknown }>) => render(
+const mount = (buttons: Array<{ id: string; to: string | number; state?: unknown }>) => render(
     <MemoryRouter initialEntries={['/analytics/s1']}>
         <JourneyRouteTelemetry />
         {buttons.map((b) => <Go key={b.id} {...b} />)}
@@ -54,6 +54,29 @@ describe('#1258 saved_review_practice_arrived', () => {
         fireEvent.click(screen.getByTestId('press'));
         fireEvent.click(screen.getByTestId('later'));
         expect(arrivals).toEqual([{ action_seq: 1, route_class: 'session' }]);
+    });
+
+    it('CASUALTY: Back/Forward (POP) to an OLDER press entry does NOT replay its arrival — even after a later press moved on', () => {
+        mount([
+            { id: 'press1', to: '/session', state: { practiceActionSeq: 1 } },
+            { id: 'press2', to: '/practice', state: { practiceActionSeq: 2 } },
+            { id: 'back', to: -1 },
+            { id: 'forward', to: 1 },
+        ]);
+        fireEvent.click(screen.getByTestId('press1'));
+        fireEvent.click(screen.getByTestId('press2'));
+        fireEvent.click(screen.getByTestId('back'));      // POP onto press 1's entry: its state still says seq 1
+        fireEvent.click(screen.getByTestId('forward'));   // POP onto press 2's entry
+        expect(arrivals).toEqual([{ action_seq: 1, route_class: 'session' }, { action_seq: 2, route_class: 'practice' }]);
+    });
+
+    it('CASUALTY: an INITIAL load (POP) onto an entry carrying a sequence — a reload restoring old state — emits nothing', () => {
+        render(
+            <MemoryRouter initialEntries={[{ pathname: '/session', state: { practiceActionSeq: 4 } }]}>
+                <JourneyRouteTelemetry />
+            </MemoryRouter>,
+        );
+        expect(arrivals).toEqual([]);
     });
 
     it('CASUALTY: a missing, malformed or out-of-range sequence emits nothing', () => {
