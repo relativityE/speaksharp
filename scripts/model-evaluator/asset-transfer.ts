@@ -28,14 +28,17 @@ export class AssetTransferRecorder {
       return url.includes('/models/') || url.includes('/resolve/') ||
         url.includes('download.moonshine.ai/model/');
     };
-    page.on('request', (request) => {
+    // BrowserContext sees dedicated-worker requests as well as document requests. Page request
+    // events alone miss the large ONNX weight fetches made inside the v4 worker.
+    const context = page.context();
+    context.on('request', (request) => {
       if (!isModelAsset(request)) return;
       const now = performance.now();
       this.started.set(request, now);
       this.first = this.first === null ? now : Math.min(this.first, now);
       this.count += 1;
     });
-    page.on('requestfinished', (request) => {
+    context.on('requestfinished', (request) => {
       if (!this.started.has(request)) return;
       this.last = performance.now();
       this.started.delete(request);
@@ -43,7 +46,7 @@ export class AssetTransferRecorder {
         this.bytes += sizes.responseBodySize;
       }).catch(() => { this.failed += 1; }));
     });
-    page.on('requestfailed', (request) => {
+    context.on('requestfailed', (request) => {
       if (!this.started.has(request)) return;
       this.last = performance.now();
       this.started.delete(request);
