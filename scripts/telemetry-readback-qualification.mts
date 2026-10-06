@@ -324,6 +324,14 @@ async function main(): Promise<void> {
                 review_surface: cells[25] ?? null,
                 phase: cells[26] ?? null,
                 suggestions_present: cells[27] ?? null,
+                // #1258 (#1563): outcome-correlation fields, appended in query order.
+                action: cells[28] ?? null,
+                action_seq: cells[29] ?? null,
+                intended_route: cells[30] ?? null,
+                route_class: cells[31] ?? null,
+                link_state: cells[32] ?? null,
+                submit_seq: cells[33] ?? null,
+                error_category: cells[34] ?? null,
             },
         };
     });

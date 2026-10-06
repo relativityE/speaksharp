@@ -12,16 +12,19 @@ import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { JourneyRouteTelemetry } from '../JourneyRouteTelemetry';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { projectEventProps } from '@/services/telemetryAllowlist';
-import { __resetJourneyIdentityForTests } from '@/services/telemetry/journeyIdentity';
+import { currentJourneyId, __resetJourneyIdentityForTests } from '@/services/telemetry/journeyIdentity';
 import { __resetJourneyBoundaryForTests } from '@/hooks/useJourneyBoundary';
 
 let arrivals: Array<Record<string, unknown>> = [];
+let journeyAt: Array<{ event: string; journey: string }> = [];
 beforeEach(() => {
     __resetJourneyIdentityForTests();
     __resetJourneyBoundaryForTests();
     arrivals = [];
+    journeyAt = [];
     vi.spyOn(analyticsBuffer, 'push').mockImplementation(((name: string, props: Record<string, unknown>) => {
         if (name === 'saved_review_practice_arrived') arrivals.push(props);
+        journeyAt.push({ event: name, journey: currentJourneyId() });
     }) as never);
 });
 
@@ -29,8 +32,8 @@ function Go({ id, to, state }: { id: string; to: string | number; state?: unknow
     const navigate = useNavigate();
     return <button data-testid={id} onClick={() => (typeof to === 'number' ? navigate(to) : navigate(to, state === undefined ? undefined : { state }))}>{id}</button>;
 }
-const mount = (buttons: Array<{ id: string; to: string | number; state?: unknown }>) => render(
-    <MemoryRouter initialEntries={['/analytics/s1']}>
+const mount = (buttons: Array<{ id: string; to: string | number; state?: unknown }>, from = '/analytics/s1') => render(
+    <MemoryRouter initialEntries={[from]}>
         <JourneyRouteTelemetry />
         {buttons.map((b) => <Go key={b.id} {...b} />)}
     </MemoryRouter>,
@@ -77,6 +80,18 @@ describe('#1258 saved_review_practice_arrived', () => {
             </MemoryRouter>,
         );
         expect(arrivals).toEqual([]);
+    });
+
+    it('Codex r4196394184: the arrival lands in the PRESS\'s journey; route_change stays the first event of the NEW journey', () => {
+        mount([{ id: 'press', to: '/session', state: { practiceActionSeq: 3 } }], '/');
+        const pressJourney = currentJourneyId();
+        fireEvent.click(screen.getByTestId('press'));
+        const arrival = journeyAt.find((e) => e.event === 'saved_review_practice_arrived')!;
+        const entry = journeyAt.find((e) => e.event === 'journey_step')!;
+        expect(arrival.journey).toBe(pressJourney);
+        expect(entry.journey).not.toBe(pressJourney);
+        expect(journeyAt.findIndex((e) => e.event === 'saved_review_practice_arrived'))
+            .toBeLessThan(journeyAt.findIndex((e) => e.event === 'journey_step'));
     });
 
     it('CASUALTY: a missing, malformed or out-of-range sequence emits nothing', () => {

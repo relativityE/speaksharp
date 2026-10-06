@@ -704,7 +704,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                     first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
                 },
-                feedback: true, pdfExport: true,
+                feedback: true, pdfExport: true, practiceAgain: true,
             }),
                 tap.trafficTypes(), userJourneys);
         }

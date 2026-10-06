@@ -145,6 +145,7 @@ export function focusCoachingProvenanceVerdict(input: { savedVersion: string | n
  */
 export type { ReadbackBinding } from './rwtAcceptance';
 import type { ReadbackBinding } from './rwtAcceptance';
+import { correlateFeedbackAttempts, correlatePracticePresses, type CorrelationEvent } from '../../../frontend/src/services/telemetry/outcomeCorrelation';
 export interface ReadbackPlan { journeys: ReadbackBinding[]; reportedJourneyIds: string[]; missingBindings: string[] }
 
 /** A recording take the RUN pressed and saw record, identified by the Start the page sent — never by its save. */
@@ -189,6 +190,8 @@ export function bindReadbackJourneys(
         takes?: { first: ExpectedTake | null; repeat?: ExpectedTake | null };
         feedback: boolean;
         pdfExport?: boolean;
+        /** #1258 (#1563): the journey of the first canary Practice-again press is read back for press→arrival. */
+        practiceAgain?: boolean;
     },
 ): ReadbackPlan {
     const canary = events.filter((e) => e.trafficType === 'canary' && typeof e.journeyId === 'string' && e.journeyId !== '');
@@ -218,6 +221,7 @@ export function bindReadbackJourneys(
     if (plan.feedback) bind(anchor('feedback_submit'), ['share_feedback'], 'share_feedback');
     // The v12 PDF is downloaded after the detail reload (Back to Dashboard → Download PDF), so it binds to its own journey.
     if (plan.pdfExport) bind(anchor('session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
+    if (plan.practiceAgain) bind(anchor('saved_review_practice_action'), ['practice_again'], 'practice_again');
     const journeys = [...bound].map(([journeyId, { stages, attemptIds }]) => ({
         journeyId, stages,
         ...(journeyId === firstRecording ? { firstDownload: true } : {}),
@@ -265,56 +269,29 @@ export function persistedVerdictMismatches(
  * press whose attempt did not succeed names that outcome instead of an arrival. Closed values only.
  */
 type OutcomeEvent = { event: string; bootId?: string; fields?: Readonly<Record<string, string | number | boolean>> };
-const NAVIGATING = new Set(['open_session', 'open_focus_setup', 'open_practice', 'accept_linked']);
+const asCorrelation = (events: readonly OutcomeEvent[]): CorrelationEvent[] =>
+    events.map((e) => ({ event: e.event, bootId: e.bootId ?? null, props: e.fields ?? {} }));
 export function practiceArrivalVerdict(events: readonly OutcomeEvent[]): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, string | number> } {
-    const presses = events.map((e, i) => ({ e, i })).filter(({ e }) => e.event === 'saved_review_practice_action' && NAVIGATING.has(String(e.fields?.action)));
-    if (presses.length === 0) return { verdict: 'HOLD', detail: 'no navigating Practice-again press was sent', evidence: { presses: 0 } };
-    let arrived = 0; let mismatched = 0; let missing = 0; let linkedFailed = 0;
-    const firstProblem: string[] = [];
-    presses.forEach(({ e, i }, n) => {
-        const seq = e.fields?.action_seq;
-        const nextSame = presses.slice(n + 1).find((p) => p.e.fields?.action_seq === seq)?.i ?? events.length;
-        const window = events.slice(i + 1, nextSame);
-        // Same BOOT: a client-side navigation never crosses a reload, so an arrival from another boot is never this press's.
-        const sameBoot = (x: OutcomeEvent) => x.bootId === e.bootId;
-        const arrival = window.find((x) => x.event === 'saved_review_practice_arrived' && x.fields?.action_seq === seq && sameBoot(x));
-        const attempt = window.find((x) => x.event === 'saved_review_linked_attempt' && x.fields?.action_seq === seq && sameBoot(x));
-        if (arrival) {
-            if (arrival.fields?.route_class === e.fields?.intended_route) arrived += 1;
-            else { mismatched += 1; firstProblem.push(`seq ${String(seq)}: intended ${String(e.fields?.intended_route)}, arrived ${String(arrival.fields?.route_class)}`); }
-        } else if (attempt && attempt.fields?.outcome !== 'ok') {
-            linkedFailed += 1; firstProblem.push(`seq ${String(seq)}: linked attempt ${String(attempt.fields?.outcome)}`);
-        } else {
-            missing += 1; firstProblem.push(`seq ${String(seq)}: ${String(e.fields?.action)} (${String(e.fields?.link_state)}) never arrived`);
-        }
-    });
-    const evidence = { presses: presses.length, arrived, mismatched, missing, linkedFailed, first: firstProblem[0] ?? 'none' };
+    // The ONE pairing rule shared with the deployed readback (frontend/src/services/telemetry/outcomeCorrelation.ts).
+    const c = correlatePracticePresses(asCorrelation(events));
+    const evidence = { presses: c.presses, arrived: c.arrived, mismatched: c.mismatched, missing: c.missing, linkedFailed: c.linkedFailed, first: c.first };
+    if (c.presses === 0) return { verdict: 'HOLD', detail: 'no navigating Practice-again press was sent', evidence: { presses: 0 } };
     // Truthful-proof rule (PM 6010721789): an OBSERVED failure (wrong route, failed linked attempt) is FAIL; a press with
     // no arrival is missing evidence (e.g. not yet flushed) and is HOLD, never PASS and never FAIL.
-    if (mismatched > 0 || linkedFailed > 0) return { verdict: 'FAIL', detail: 'a Practice-again press reached the wrong route or its linked attempt failed', evidence };
-    return arrived === presses.length
+    if (c.mismatched > 0 || c.linkedFailed > 0) return { verdict: 'FAIL', detail: 'a Practice-again press reached the wrong route or its linked attempt failed', evidence };
+    return c.arrived === c.presses
         ? { verdict: 'PASS', detail: 'every Practice-again press arrived at its intended route (same boot and action_seq)', evidence }
         : { verdict: 'HOLD', detail: 'a Practice-again press has no observed arrival (missing evidence, not an observed failure)', evidence };
 }
 
-/** #1258 (#1563 closure) — each Share Feedback attempt resolved to a stored outcome with the SAME `submit_seq`. */
+/** #1258 (#1563 closure) — each Share Feedback attempt resolved to a stored outcome with the SAME boot and `submit_seq`;
+ * a reused `submit_seq` (reopened dialog) never lets one outcome resolve two attempts (Codex r4196394199). */
 export function feedbackOutcomeVerdict(events: readonly OutcomeEvent[]): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, string | number> } {
-    const sub = events.filter((e) => e.event === 'feedback_submit');
-    const attempts = sub.filter((e) => e.fields?.outcome === 'attempted');
-    if (attempts.length === 0) return { verdict: 'HOLD', detail: 'no Share Feedback attempt was sent', evidence: { attempts: 0 } };
-    // `submit_seq` is dialog-local: an outcome resolves an attempt only AFTER it, in the same boot, with the same number.
-    const outcomeOf = (a: OutcomeEvent) => sub.slice(sub.indexOf(a) + 1).find((e) => e.bootId === a.bootId && e.fields?.submit_seq === a.fields?.submit_seq
-        && (e.fields?.outcome === 'storage_ok' || e.fields?.outcome === 'storage_failed'));
-    let stored = 0; let failed = 0; let unresolved = 0; let category = 'none';
-    for (const a of attempts) {
-        const o = outcomeOf(a);
-        if (!o) unresolved += 1;
-        else if (o.fields?.outcome === 'storage_ok') stored += 1;
-        else { failed += 1; if (category === 'none') category = String(o.fields?.error_category ?? 'unknown'); }
-    }
-    const evidence = { attempts: attempts.length, stored, failed, unresolved, errorCategory: category };
-    if (failed > 0) return { verdict: 'FAIL', detail: 'a Share Feedback attempt failed to store (see errorCategory)', evidence };
-    return stored === attempts.length
+    const c = correlateFeedbackAttempts(asCorrelation(events));
+    if (c.attempts === 0) return { verdict: 'HOLD', detail: 'no Share Feedback attempt was sent', evidence: { attempts: 0 } };
+    const evidence = { attempts: c.attempts, stored: c.stored, failed: c.failed, unresolved: c.unresolved, errorCategory: c.errorCategory };
+    if (c.failed > 0) return { verdict: 'FAIL', detail: 'a Share Feedback attempt failed to store (see errorCategory)', evidence };
+    return c.stored === c.attempts
         ? { verdict: 'PASS', detail: 'every Share Feedback attempt resolved to storage_ok with the same boot and submit_seq', evidence }
         : { verdict: 'HOLD', detail: 'a Share Feedback attempt has no observed outcome (missing evidence, not an observed failure)', evidence };
 }

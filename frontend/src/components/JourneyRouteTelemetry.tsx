@@ -23,6 +23,24 @@ export function JourneyRouteTelemetry(): null {
     const location = useLocation();
     const previous = React.useRef<string | null>(null);
 
+    // #1258 (Codex r4191751371): a location reached by a saved-review practice press carries that press's
+    // `action_seq` in router state. Emit its arrival once per history entry, with the closed class of where it landed.
+    // ONLY for the press's own PUSH/REPLACE: Back/Forward or a reload (POP) restores an OLD entry's state, and replaying
+    // its arrival could pair a later press that reuses the number (numbers reset on remount) — a false PASS.
+    // DECLARED FIRST (Codex r4196394184): effects run in order, so the arrival is emitted BEFORE `ensureJourneyBoundary`
+    // below mints the product journey — it lands in the PRESS's journey as that press's terminal outcome, where the
+    // readback pairs them. `route_change` stays the first event of the new journey (#1421 P1 unchanged).
+    const navigationType = useNavigationType();
+    const arrived = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        if (navigationType === 'POP') return;
+        const seq = (location.state as { practiceActionSeq?: unknown } | null)?.practiceActionSeq;
+        if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 1 || seq > 100) return;
+        if (arrived.current === location.key) return;
+        arrived.current = location.key;
+        trackSavedReviewPracticeArrived(seq, practiceArrivalRoute(location.pathname, location.search));
+    }, [navigationType, location.key, location.state, location.pathname, location.search]);
+
     React.useEffect(() => {
         const to = location.pathname;
         const from = previous.current;
@@ -45,21 +63,6 @@ export function JourneyRouteTelemetry(): null {
             runtimeStateOnArrival: useSessionStore.getState().runtimeState ?? null,
         });
     }, [location.pathname]);
-
-    // #1258 (Codex r4191751371): a location reached by a saved-review practice press carries that press's
-    // `action_seq` in router state. Emit its arrival once per history entry, with the closed class of where it landed.
-    // ONLY for the press's own PUSH/REPLACE: Back/Forward or a reload (POP) restores an OLD entry's state, and replaying
-    // its arrival could pair a later press that reuses the number (numbers reset on remount) — a false PASS.
-    const navigationType = useNavigationType();
-    const arrived = React.useRef<string | null>(null);
-    React.useEffect(() => {
-        if (navigationType === 'POP') return;
-        const seq = (location.state as { practiceActionSeq?: unknown } | null)?.practiceActionSeq;
-        if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 1 || seq > 100) return;
-        if (arrived.current === location.key) return;
-        arrived.current = location.key;
-        trackSavedReviewPracticeArrived(seq, practiceArrivalRoute(location.pathname, location.search));
-    }, [navigationType, location.key, location.state, location.pathname, location.search]);
 
     return null;
 }

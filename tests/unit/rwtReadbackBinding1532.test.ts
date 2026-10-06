@@ -22,6 +22,14 @@ const RECORDING = ['session_during', 'session_after_open_mic'];
 const REPEAT = ['session_during', 'session_after_open_mic'];
 
 describe('bindReadbackJourneys', () => {
+    it('#1258 (#1563): practice_again binds to the journey of the first canary press — and is not imposed when declared off or never pressed', () => {
+        const events = [ev('session_saved', 1, 'A'), ev('saved_review_practice_action', 2, 'B'), ev('saved_review_practice_arrived', 3, 'B'), ev('feedback_submit', 4, 'B')];
+        const on = bindReadbackJourneys(events, { recording: RECORDING, feedback: true, practiceAgain: true });
+        expect(on.journeys.find((j) => j.journeyId === 'B')!.stages).toEqual(['share_feedback', 'practice_again']);
+        expect(bindReadbackJourneys(events, { recording: RECORDING, feedback: true }).journeys.find((j) => j.journeyId === 'B')!.stages).toEqual(['share_feedback']);
+        expect(bindReadbackJourneys([ev('session_saved', 1, 'A')], { recording: RECORDING, feedback: false, practiceAgain: true }).missingBindings).toEqual(['practice_again']);
+    });
+
     it('CASUALTY: recording in journey A and feedback after a reload in journey B are bound separately', () => {
         const events = [
             ev('session_started', 1, 'A'), ev('session_saved', 2, 'A'),

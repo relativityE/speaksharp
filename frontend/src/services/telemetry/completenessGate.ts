@@ -1,6 +1,7 @@
 import { GOVERNED_EVENTS, type GovernedEvent } from '../telemetryAllowlist';
 import { attemptedEventFamilies } from '../AnalyticsBuffer';
 import { EXACTLY_ONCE_RECEIPT_FAMILIES } from './deliveryReceiptGate';
+import { correlateFeedbackAttempts, correlatePracticePresses, type CorrelationEvent } from './outcomeCorrelation';
 
 /**
  * #1259 — a readback that finds nothing must say HOLD, not pass.
@@ -191,6 +192,42 @@ export interface DecodedTelemetryRow {
 
 
 const has = (rows: readonly DecodedTelemetryRow[], event: string) => rows.some(r => r?.event === event);
+
+/**
+ * #1258 (#1563, Codex r4196394184) — RECEIVED-side outcome correlation, by the SAME rule the RWT receipt applies to what
+ * the page sent (`outcomeCorrelation.ts`): same boot, same sequence, outcome after the item, each outcome consumed once.
+ * Rows are ordered by their received timestamp; if only some of them carry one, the order is unknowable and that HOLDs.
+ * Reasons say `FAIL:` for an OBSERVED failure (wrong route, failed linked attempt, storage_failed) and `HOLD:` for missing
+ * evidence, so the readback never reads absence as failure — or either as success.
+ */
+const CORRELATED_FAMILIES = new Set(['saved_review_practice_action', 'saved_review_practice_arrived', 'saved_review_linked_attempt', 'feedback_submit']);
+function correlationRows(rows: readonly DecodedTelemetryRow[]): CorrelationEvent[] | string {
+    const relevant = rows.filter((r) => CORRELATED_FAMILIES.has(r?.event));
+    const ts = relevant.map((r) => (r?.timestamp === null || r?.timestamp === undefined ? NaN : new Date(r.timestamp as string | number).getTime()));
+    const known = ts.filter((t) => Number.isFinite(t)).length;
+    if (known > 0 && known < relevant.length) return 'HOLD: some outcome rows have no readable timestamp, so their order is unknown';
+    const ordered = known === 0 ? relevant.map((r, i) => ({ r, i, t: i }))
+        : relevant.map((r, i) => ({ r, i, t: ts[i] })).sort((a, b) => (a.t - b.t) || (a.i - b.i));
+    return ordered.map(({ r }) => ({ event: r.event, bootId: r.bootId ?? null, props: r.properties ?? {} }));
+}
+const feedbackCorrelated = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const events = correlationRows(rows);
+    if (typeof events === 'string') return events;
+    const c = correlateFeedbackAttempts(events);
+    if (c.attempts === 0) return 'HOLD: no Share Feedback attempt was received';
+    if (c.failed > 0) return `FAIL: a received feedback outcome is storage_failed (${c.errorCategory}) — an observed failure`;
+    if (c.unresolved > 0) return `HOLD: ${c.unresolved} feedback attempt(s) have no received outcome with the same boot and submit_seq (${c.first})`;
+    return null;
+};
+const practiceCorrelated = (rows: readonly DecodedTelemetryRow[]): string | null => {
+    const events = correlationRows(rows);
+    if (typeof events === 'string') return events;
+    const c = correlatePracticePresses(events);
+    if (c.presses === 0) return 'HOLD: no navigating Practice-again press was received';
+    if (c.mismatched > 0 || c.linkedFailed > 0) return `FAIL: a received Practice-again press reached the wrong route or its linked attempt failed (${c.first}) — an observed failure`;
+    if (c.missing > 0) return `HOLD: ${c.missing} Practice-again press(es) have no received arrival with the same boot and action_seq (${c.first})`;
+    return null;
+};
 const propsOf = (rows: readonly DecodedTelemetryRow[], event: string) =>
     rows.filter(r => r?.event === event).map(r => r?.properties ?? {});
 
@@ -474,7 +511,18 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
             check: (rows) => (propsOf(rows, 'feedback_submit').some(p => p?.outcome === undefined || p?.outcome === null)
                 ? 'a feedback submit was recorded with no storage outcome'
                 : null),
+        }, {
+            // #1258 (Codex r4196394184): each received attempt resolves to ITS OWN received outcome (boot + submit_seq + order).
+            name: 'submit_resolves_to_its_received_outcome',
+            check: feedbackCorrelated,
         }],
+    },
+    {
+        // #1258 (Codex r4196394184): a Practice-again press is proven only when the SAME press's arrival (or its linked
+        // attempt's terminal outcome) was RECEIVED. Declared only for journeys that pressed it (`bindReadbackJourneys`).
+        stage: 'practice_again',
+        requiredFamilies: ['saved_review_practice_action'],
+        invariants: [{ name: 'press_reached_its_intended_route', check: practiceCorrelated }],
     },
     {
         stage: 'session_during',

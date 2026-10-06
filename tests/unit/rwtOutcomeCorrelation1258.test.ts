@@ -95,6 +95,14 @@ describe('#1258 feedbackOutcomeVerdict', () => {
         expect(feedbackOutcomeVerdict([inBoot(fb('attempted', 1), 'b1'), inBoot(fb('storage_ok', 1), 'b1')]).verdict).toBe('PASS');
     });
 
+    it('Codex r4196394199: a reopened dialog reusing submit_seq — two attempted(1), ONE later storage_ok — HOLDs the first, never PASSes both', () => {
+        const v = feedbackOutcomeVerdict([fb('attempted', 1), fb('attempted', 1), fb('storage_ok', 1)]);
+        expect(v.verdict).toBe('HOLD');
+        expect(v.evidence).toMatchObject({ attempts: 2, stored: 1, unresolved: 1 });
+        // and one outcome per attempt resolves both
+        expect(feedbackOutcomeVerdict([fb('attempted', 1), fb('storage_ok', 1), fb('attempted', 1), fb('storage_ok', 1)]).verdict).toBe('PASS');
+    });
+
     it('no attempt is HOLD, never PASS', () => {
         expect(feedbackOutcomeVerdict([fb('refused_by_gate', 1)]).verdict).toBe('HOLD');
     });

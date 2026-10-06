@@ -198,3 +198,14 @@ describe('#1421 P1 — the boot id identifies a boot, and a reload is a new boot
         expect(currentBootId(), 'a reload mints a different boot').not.toBe(first);
     });
 });
+
+describe('#1258 (#1563, Codex r4196394184) — the readback selects the outcome-correlation fields, appended', () => {
+    it('closed enums and bounded integers only, after every existing column', () => {
+        const q = buildReadbackQuery({ windowHours: 1, releaseSha: 'r', trafficType: 'canary', qualifyingIdentity: 'i', governedEvents: ['feedback_submit'], quote: (v) => `'${v}'` });
+        const order = ['suggestions_present', 'action', 'action_seq', 'intended_route', 'route_class', 'link_state', 'submit_seq', 'error_category']
+            .map((k) => q.indexOf(`AS ${k}`));
+        expect(order.every((i) => i > 0)).toBe(true);
+        expect([...order].sort((a, b) => a - b)).toEqual(order);
+        expect(q).not.toMatch(/properties\.(description|title|message|url|session_id)/);
+    });
+});

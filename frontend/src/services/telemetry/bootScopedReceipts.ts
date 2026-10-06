@@ -147,6 +147,8 @@ export function buildReadbackQuery(params: {
      * #1538 Codex P1 r4117960368: the coaching card's receipt fields that `focusCoachingRendered` reads — a
      * closed-set surface, a closed-set phase and a boolean — appended the same way. Without them every genuine
      * Focus Points journey held as "rendered no AI coaching" although the receipt was received.
+     * #1258 (#1563, Codex r4196394184): the outcome-correlation fields — closed enums and bounded integers — appended the
+     * same way, so the received Practice-again press→arrival and feedback submit→outcome can be paired.
      */
     return `
         SELECT event, timestamp, properties.journey_id AS journey_id, properties.boot_id AS boot_id,
@@ -166,7 +168,11 @@ export function buildReadbackQuery(params: {
                properties.dropped_count AS dropped_count,
                properties.comparison_evidence_document_id AS comparison_evidence_document_id,
                properties.review_surface AS review_surface, properties.phase AS phase,
-               properties.suggestions_present AS suggestions_present
+               properties.suggestions_present AS suggestions_present,
+               properties.action AS action, properties.action_seq AS action_seq,
+               properties.intended_route AS intended_route, properties.route_class AS route_class,
+               properties.link_state AS link_state, properties.submit_seq AS submit_seq,
+               properties.error_category AS error_category
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}
