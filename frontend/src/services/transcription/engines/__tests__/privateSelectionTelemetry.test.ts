@@ -131,9 +131,15 @@ describe('config-selected v4 telemetry is content-free and honestly attributed',
             expect(blob, 'no @-style email values').not.toMatch(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
             if (event === 'private_stt_v4_attempt') attempt = payload;
         }
-        // The run was chosen by a checked-in file, and the artifact must say so rather than naming a
-        // flag that no longer decides anything.
-        expect(attempt, 'canonical attempt event records config provenance')
-            .toMatchObject({ selectionSource: 'config' });
+        // The checked-in policy requested v4, but its init failed before the take began. The
+        // attempt receipt must preserve the original request and identify the v2 fallback as the
+        // observed candidate, with fallback provenance for the effective runtime path.
+        expect(attempt, 'attempt event preserves requested and observed candidates')
+            .toMatchObject({
+                selectionSource: 'pre_start_fallback',
+                requestedCandidateId: 'v4:base:q4',
+                observedCandidateId: 'v2:base.en',
+                finalProvider: 'transformers-js',
+            });
     });
 });
