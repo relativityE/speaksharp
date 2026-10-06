@@ -362,12 +362,19 @@ jobs:
               [ "$attempts" = "-" ] && attempts=
               [ -z "$journey" ] && continue
               ok=1
+              # #1258 (#1563, Codex r4197007854): exit 3 = an OBSERVED received failure. Received rows do not un-happen, so
+              # it is recorded as FAIL at once — never retried and never reported as missing evidence (HOLD).
               for attempt in 1 2 3; do
                 log="test-results/rwt/$(basename "$receipt" .receipt.json).$journey.readback.log"
-                if TELEMETRY_READBACK_ACQUISITION_RECEIPT="$first_download" QUALIFICATION_ATTEMPT_IDS="$attempts" QUALIFICATION_STAGES="$stages" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log"; then ok=0; break; fi
+                rc=0
+                TELEMETRY_READBACK_ACQUISITION_RECEIPT="$first_download" QUALIFICATION_ATTEMPT_IDS="$attempts" QUALIFICATION_STAGES="$stages" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log" || rc=${PIPESTATUS[0]}
+                if [ "$rc" -eq 0 ]; then ok=0; break; fi
+                if [ "$rc" -eq 3 ]; then ok=3; break; fi
                 sleep 60
               done
-              if [ $ok -eq 0 ]; then v=QUALIFIED; else v=HOLD; echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; fi
+              if [ $ok -eq 0 ]; then v=QUALIFIED
+              elif [ $ok -eq 3 ]; then v=FAIL; echo "::error::FAIL: readback received an observed failure for journey $journey ($stages, $(basename "$receipt"))"; status=1
+              else v=HOLD; echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; fi
               printf '%s %s %s\n' "$journey" "$stages" "$v" >> "$verdicts"
             done <<< "$bindings"
             node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const lines=fs.readFileSync(process.argv[2],"utf8").split("\n").filter(Boolean); const journeys=lines.map((l)=>{const [journeyId,stages,verdict]=l.split(" "); return {journeyId, stages: stages.split(","), verdict};}); fs.writeFileSync(process.argv[3], JSON.stringify({suite:r.suite, release:process.env.RELEASE_SHA, journeys, missingBindings:r.readback.missingBindings||[]}, null, 2)+"\n");' "$receipt" "$verdicts" "${verdicts%.jsonl}.json"

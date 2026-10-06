@@ -351,11 +351,13 @@ export interface FinalizationResult {
  * Untrusted input: it must name the SAME suite, release, bound journeys (with the same stages) and missing bindings as
  * the receipt, or it is a binding error. The row becomes PASS only when every bound journey QUALIFIED and nothing is
  * missing; otherwise it stays HOLD. No readback file leaves the row HOLD (fail closed).
+ * #1258 (#1563, Codex r4197007854): a journey whose readback RECEIVED an observed failure is `FAIL`, and the row is FAIL —
+ * an observed failure is never reported as missing evidence.
  */
 export interface ReadbackVerdicts {
     suite: string;
     release: string;
-    journeys: { journeyId: string; stages: string[]; verdict: 'QUALIFIED' | 'HOLD' }[];
+    journeys: { journeyId: string; stages: string[]; verdict: 'QUALIFIED' | 'HOLD' | 'FAIL' }[];
     missingBindings: string[];
 }
 const RECEIVED_ROW = 'journey telemetry received';
@@ -376,14 +378,16 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     if (JSON.stringify([...missing].map(String).sort()) !== JSON.stringify([...(receipt.readback?.missingBindings ?? [])].sort())) {
         return bad('do not match the receipt\'s missing bindings');
     }
-    if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD')) return bad('carry an unknown journey verdict');
+    if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD' && j.verdict !== 'FAIL')) return bad('carry an unknown journey verdict');
+    const failed = journeys.filter((j) => j.verdict === 'FAIL').length;
     const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');
     return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? r : {
         ...r,
-        verdict: qualified ? 'PASS' : 'HOLD',
-        detail: qualified ? 'every bound journey qualified in the PostHog readback (merged at finalization)'
-            : 'the PostHog readback did not qualify every bound journey',
-        evidence: { ...(r.evidence ?? {}), readbackJourneys: journeys.length, readbackQualified: journeys.filter((j) => j.verdict === 'QUALIFIED').length },
+        verdict: failed > 0 ? 'FAIL' : qualified ? 'PASS' : 'HOLD',
+        detail: failed > 0 ? 'the PostHog readback RECEIVED an observed failure for a bound journey (merged at finalization)'
+            : qualified ? 'every bound journey qualified in the PostHog readback (merged at finalization)'
+                : 'the PostHog readback did not qualify every bound journey',
+        evidence: { ...(r.evidence ?? {}), readbackJourneys: journeys.length, readbackQualified: journeys.filter((j) => j.verdict === 'QUALIFIED').length, readbackFailed: failed },
     }));
 }
 

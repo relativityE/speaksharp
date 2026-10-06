@@ -75,6 +75,19 @@ export const IN_JOURNEY_EVENT_FAMILIES: readonly GovernedEvent[] = Object.freeze
 
 export type CompletenessVerdict = 'QUALIFIED' | 'HOLD';
 
+/**
+ * #1258 (#1563, Codex r4197007854) — the received readback's verdict for one journey. An OBSERVED failure (a stage reason
+ * marked `FAIL:` — storage_failed, a wrong Practice-again route, a failed linked attempt) is FAIL, and it dominates: rows
+ * that were received do not un-happen, so it is never retried into, or reported as, missing evidence. Otherwise anything
+ * unproven is HOLD, and only a complete, correlated journey is QUALIFIED.
+ */
+export type ReadbackVerdict = CompletenessVerdict | 'FAIL';
+export const isObservedFailureReason = (reason: string): boolean => /(^|: )FAIL: /.test(reason);
+export function readbackVerdict(stageReasons: readonly string[], completeness: CompletenessVerdict, delivery: CompletenessVerdict): ReadbackVerdict {
+    if (stageReasons.some(isObservedFailureReason)) return 'FAIL';
+    return stageReasons.length > 0 || completeness !== 'QUALIFIED' || delivery !== 'QUALIFIED' ? 'HOLD' : 'QUALIFIED';
+}
+
 export interface CompletenessResult {
     verdict: CompletenessVerdict;
     missing: string[];
@@ -196,19 +209,30 @@ const has = (rows: readonly DecodedTelemetryRow[], event: string) => rows.some(r
 /**
  * #1258 (#1563, Codex r4196394184) — RECEIVED-side outcome correlation, by the SAME rule the RWT receipt applies to what
  * the page sent (`outcomeCorrelation.ts`): same boot, same sequence, outcome after the item, each outcome consumed once.
- * Rows are ordered by their received timestamp; if only some of them carry one, the order is unknowable and that HOLDs.
  * Reasons say `FAIL:` for an OBSERVED failure (wrong route, failed linked attempt, storage_failed) and `HOLD:` for missing
- * evidence, so the readback never reads absence as failure — or either as success.
+ * evidence, so the readback never reads absence as failure — or either as success (`readbackVerdict`).
+ *
+ * Codex r4197007868: rows are ordered by PRODUCER time — `$ts`, stamped by `AnalyticsBuffer.push` when the event happened
+ * (decoded as `producer_ts`) — never by PostHog's `timestamp`, which is the capture time of the flush: a press and its
+ * arrival drained together share it, and their order would be arbitrary. A same-millisecond tie is broken causally (an
+ * item before any outcome, since an outcome cannot precede its own press or attempt), then by query position. A
+ * correlated row with no producer time makes the order unknowable, and that HOLDs.
  */
 const CORRELATED_FAMILIES = new Set(['saved_review_practice_action', 'saved_review_practice_arrived', 'saved_review_linked_attempt', 'feedback_submit']);
+const isCorrelationItem = (r: DecodedTelemetryRow): boolean => r.event === 'saved_review_practice_action'
+    || (r.event === 'feedback_submit' && r.properties?.outcome === 'attempted');
+function producerTime(r: DecodedTelemetryRow): number {
+    const v = r.properties?.producer_ts;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+    if (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim())) return Number(v);
+    return NaN;
+}
 function correlationRows(rows: readonly DecodedTelemetryRow[]): CorrelationEvent[] | string {
     const relevant = rows.filter((r) => CORRELATED_FAMILIES.has(r?.event));
-    const ts = relevant.map((r) => (r?.timestamp === null || r?.timestamp === undefined ? NaN : new Date(r.timestamp as string | number).getTime()));
-    const known = ts.filter((t) => Number.isFinite(t)).length;
-    if (known > 0 && known < relevant.length) return 'HOLD: some outcome rows have no readable timestamp, so their order is unknown';
-    const ordered = known === 0 ? relevant.map((r, i) => ({ r, i, t: i }))
-        : relevant.map((r, i) => ({ r, i, t: ts[i] })).sort((a, b) => (a.t - b.t) || (a.i - b.i));
-    return ordered.map(({ r }) => ({ event: r.event, bootId: r.bootId ?? null, props: r.properties ?? {} }));
+    const keyed = relevant.map((r, i) => ({ r, i, t: producerTime(r), role: isCorrelationItem(r) ? 0 : 1 }));
+    if (keyed.some((k) => !Number.isFinite(k.t))) return 'HOLD: some outcome rows have no producer timestamp ($ts), so their order is unknown';
+    keyed.sort((a, b) => (a.t - b.t) || (a.role - b.role) || (a.i - b.i));
+    return keyed.map(({ r }) => ({ event: r.event, bootId: r.bootId ?? null, props: r.properties ?? {} }));
 }
 const feedbackCorrelated = (rows: readonly DecodedTelemetryRow[]): string | null => {
     const events = correlationRows(rows);

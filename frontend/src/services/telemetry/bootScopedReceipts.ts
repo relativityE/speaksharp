@@ -149,6 +149,8 @@ export function buildReadbackQuery(params: {
      * Focus Points journey held as "rendered no AI coaching" although the receipt was received.
      * #1258 (#1563, Codex r4196394184): the outcome-correlation fields — closed enums and bounded integers — appended the
      * same way, so the received Practice-again press→arrival and feedback submit→outcome can be paired.
+     * Codex r4197007868: plus the producer time `$ts` (`producer_ts`), which orders that pairing — the received
+     * `timestamp` is the flush's capture time, shared by events drained together.
      */
     return `
         SELECT event, timestamp, properties.journey_id AS journey_id, properties.boot_id AS boot_id,
@@ -172,7 +174,8 @@ export function buildReadbackQuery(params: {
                properties.action AS action, properties.action_seq AS action_seq,
                properties.intended_route AS intended_route, properties.route_class AS route_class,
                properties.link_state AS link_state, properties.submit_seq AS submit_seq,
-               properties.error_category AS error_category
+               properties.error_category AS error_category,
+               properties.$ts AS producer_ts
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}
