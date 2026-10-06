@@ -8,6 +8,7 @@ export interface ModelAdapter {
   finalize(): Promise<{ transcript: string; inputSha256: string }>;
   assetTransfer?(): Promise<AssetTransfer | null>;
   workerAcquisition?(): Promise<unknown | null>;
+  deviceEvidence?(): Promise<unknown | null>;
   dispose(): Promise<void>;
 }
 
@@ -16,6 +17,8 @@ export interface AdapterContext {
   expected: ModelIdentity;
   repositoryRoot: string;
   options: Record<string, unknown>;
+  headless: boolean;
+  expectedGpuVendor: string | null;
 }
 
 export type AdapterFactory = (context: AdapterContext) => ModelAdapter;

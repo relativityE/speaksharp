@@ -40,7 +40,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       const source = join(context.repositoryRoot, 'frontend/public/models/whisper-base.en');
       const digest = await assetDigest(source);
       const installed = require('@xenova/transformers/package.json') as { version: string };
-      browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({ headless: context.headless });
       page = await browser.newPage();
       page.setDefaultTimeout(180_000);
       await transfer.attach(page);

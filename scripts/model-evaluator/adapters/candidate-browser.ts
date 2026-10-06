@@ -60,6 +60,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
   let page: Page | null = null;
   let pending: { transcript: string; inputSha256: string } | null = null;
   let acquisition: unknown | null = null;
+  let gpuAdapter: { vendor: string; architecture: string; device: string } | null = null;
   const transfer = new AssetTransferRecorder();
   return {
     async initialize(): Promise<ModelIdentity> {
@@ -73,7 +74,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
         throw new Error(`PREREQUISITE_RUNTIME_VERSION_MISMATCH: expected ${context.expected.runtime}, installed ${runtime}`);
       }
       const digest = await configuredAssetDigest(context.repositoryRoot, candidateId, context.expected.modelId);
-      browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({ headless: context.headless });
       page = await browser.newPage();
       page.setDefaultTimeout(180_000);
       await transfer.attach(page);
@@ -89,6 +90,23 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       }
       await page.goto(new URL('/model-evaluator.local.html', context.baseUrl).toString());
       await page.waitForFunction(() => Boolean(window.__MODEL_EVALUATOR__));
+      if (context.expected.backend === 'webgpu') {
+        gpuAdapter = await page.evaluate(async () => {
+          const gpu = (navigator as Navigator & { gpu?: {
+            requestAdapter(): Promise<{ info: { vendor: string; architecture: string; device: string } } | null>;
+          } }).gpu;
+          const adapter = await gpu?.requestAdapter();
+          return adapter ? {
+            vendor: adapter.info.vendor,
+            architecture: adapter.info.architecture,
+            device: adapter.info.device,
+          } : null;
+        });
+        if (!gpuAdapter || gpuAdapter.vendor.toLowerCase() !== context.expectedGpuVendor?.toLowerCase() ||
+            /swiftshader|software/i.test(`${gpuAdapter.vendor} ${gpuAdapter.architecture} ${gpuAdapter.device}`)) {
+          throw new Error('real WebGPU adapter unavailable or differs from device manifest');
+        }
+      }
       const state = await page.evaluate((id) => window.__MODEL_EVALUATOR__!.initialize(id), candidateId) as BrowserRuntime;
       acquisition = state.workerAcquisition ?? null;
       if (acquisition && candidateId !== 'moonshine:streaming-medium' &&
@@ -141,6 +159,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
     },
     assetTransfer: () => transfer.snapshot(),
     async workerAcquisition() { return acquisition; },
+    async deviceEvidence() { return gpuAdapter; },
     async dispose() {
       try { await page?.evaluate(() => window.__MODEL_EVALUATOR__?.dispose()); }
       finally { await browser?.close(); browser = null; page = null; pending = null; }

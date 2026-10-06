@@ -16,7 +16,11 @@ type ArmManifest = {
   adapterOptions?: Record<string, unknown>;
 };
 type CorpusManifest = { version: 1; clips: Array<CorpusClip & { path: string; wavSha256: string }> };
-type DeviceManifest = { version: 1; baseUrl: string; label: string; backend: string };
+type DeviceManifest = {
+  version: 1; baseUrl: string; label: string; backend?: string;
+  baselineBackend?: string; candidateBackend?: string;
+  headless?: boolean; expectedGpuVendor?: string;
+};
 
 const sha = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 const arg = (name: string) => {
@@ -33,7 +37,7 @@ async function readManifest<T>(name: string): Promise<{ value: T; path: string; 
   return { value, path, sha256: sha(bytes) };
 }
 
-async function loadAdapter(manifest: ArmManifest, baseUrl: string): Promise<ModelAdapter> {
+async function loadAdapter(manifest: ArmManifest, device: DeviceManifest): Promise<ModelAdapter> {
   if (!manifest.adapterModule.startsWith('./') && !manifest.adapterModule.startsWith('../')) {
     throw new Error('adapterModule must be a local relative path');
   }
@@ -42,8 +46,10 @@ async function loadAdapter(manifest: ArmManifest, baseUrl: string): Promise<Mode
   const imported = await import(pathToFileURL(modulePath).href) as { createAdapter?: AdapterFactory };
   if (typeof imported.createAdapter !== 'function') throw new Error('adapter module has no createAdapter');
   return imported.createAdapter({
-    baseUrl, expected: manifest.identity, repositoryRoot: root,
+    baseUrl: device.baseUrl, expected: manifest.identity, repositoryRoot: root,
     options: manifest.adapterOptions ?? {},
+    headless: device.headless !== false,
+    expectedGpuVendor: device.expectedGpuVendor ?? null,
   });
 }
 
@@ -56,9 +62,13 @@ async function main(): Promise<void> {
   const policyBytes = policyPath ? await readFile(policyPath) : null;
   const policy = policyBytes ? JSON.parse(policyBytes.toString('utf8')) as EvaluatorPolicy : null;
   const out = resolve(arg('out'));
-  if (baselineManifest.value.identity.backend !== deviceManifest.value.backend ||
-      candidateManifest.value.identity.backend !== deviceManifest.value.backend) {
+  if (baselineManifest.value.identity.backend !== (deviceManifest.value.baselineBackend ?? deviceManifest.value.backend) ||
+      candidateManifest.value.identity.backend !== (deviceManifest.value.candidateBackend ?? deviceManifest.value.backend)) {
     throw new Error('device backend differs from an arm manifest');
+  }
+  if (candidateManifest.value.identity.backend === 'webgpu' &&
+      (deviceManifest.value.headless !== false || !deviceManifest.value.expectedGpuVendor)) {
+    throw new Error('real WebGPU evaluation needs a headed browser and expected GPU vendor');
   }
   const clips = corpusManifest.value.clips;
   if (!Array.isArray(clips) || !clips.length) throw new Error('empty corpus manifest');
@@ -77,8 +87,8 @@ async function main(): Promise<void> {
   const baseline: ModelArm = { manifest: baselineManifest.value.identity, observed: null, results: [] };
   const candidate: ModelArm = { manifest: candidateManifest.value.identity, observed: null, results: [] };
   const adapters: [ModelAdapter, ModelAdapter] = [
-    await loadAdapter(baselineManifest.value, deviceManifest.value.baseUrl),
-    await loadAdapter(candidateManifest.value, deviceManifest.value.baseUrl),
+    await loadAdapter(baselineManifest.value, deviceManifest.value),
+    await loadAdapter(candidateManifest.value, deviceManifest.value),
   ];
   const arms = [baseline, candidate] as const;
   const failures: string[] = [];
@@ -87,6 +97,7 @@ async function main(): Promise<void> {
   };
   const assetTransfers: [AssetTransfer | null, AssetTransfer | null] = [null, null];
   const workerAcquisitions: [unknown | null, unknown | null] = [null, null];
+  const deviceEvidence: [unknown | null, unknown | null] = [null, null];
   try {
     for (let armIndex = 0; armIndex < 2; armIndex += 1) {
       const started = performance.now();
@@ -145,6 +156,8 @@ async function main(): Promise<void> {
       catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_asset_transfer:${String(error)}`); }
       try { workerAcquisitions[index] = await adapters[index].workerAcquisition?.() ?? null; }
       catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_worker_acquisition:${String(error)}`); }
+      try { deviceEvidence[index] = await adapters[index].deviceEvidence?.() ?? null; }
+      catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_device_evidence:${String(error)}`); }
     }
     await Promise.allSettled(adapters.map((adapter) => adapter.dispose()));
   }
@@ -171,6 +184,7 @@ async function main(): Promise<void> {
     adapterInitializeMs,
     modelAssetTransfer: { baseline: assetTransfers[0], candidate: assetTransfers[1] },
     workerAcquisition: { baseline: workerAcquisitions[0], candidate: workerAcquisitions[1] },
+    deviceEvidence: { baseline: deviceEvidence[0], candidate: deviceEvidence[1] },
     baseline, candidate, comparison,
     acceptance,
     identityLimitations: [baseline, candidate].map((arm, index) => arm.manifest.engine === 'moonshine-streaming'
