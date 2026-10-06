@@ -146,6 +146,7 @@ export function focusCoachingProvenanceVerdict(input: { savedVersion: string | n
 export type { ReadbackBinding } from './rwtAcceptance';
 import type { ReadbackBinding } from './rwtAcceptance';
 import { correlateFeedbackAttempts, correlatePracticePresses, type CorrelationEvent } from '../../../frontend/src/services/telemetry/outcomeCorrelation';
+import { countFillerWords, createFillerPatterns } from '../../../frontend/src/utils/fillerWordUtils';
 export interface ReadbackPlan { journeys: ReadbackBinding[]; reportedJourneyIds: string[]; missingBindings: string[] }
 
 /** A recording take the RUN pressed and saw record, identified by the Start the page sent — never by its save. */
@@ -295,3 +296,38 @@ export function feedbackOutcomeVerdict(events: readonly OutcomeEvent[]): { verdi
         ? { verdict: 'PASS', detail: 'every Share Feedback attempt resolved to storage_ok with the same boot and submit_seq', evidence }
         : { verdict: 'HOLD', detail: 'a Share Feedback attempt has no observed outcome (missing evidence, not an observed failure)', evidence };
 }
+
+/**
+ * #1258 (RWT run 37514078995; Consultant-confirmed): the transcript-vs-saved filler check counted only the exact word
+ * (`\bum\b`), while the product's `um` key counts `um|umm|ummm|uhm` — so 2 "um" + 3 "umm" read as transcript 2 vs saved 5,
+ * an ORACLE mismatch, not a product count. Consistency is judged with the product's OWN matcher; the corpus-accuracy check
+ * keeps exact words (sharing the product matcher there would hide detector defects). Per-variant integer counts are
+ * recorded so the next receipt settles it. Integers and vocabulary tokens only — never transcript content.
+ */
+const normaliseFillerKey = (word: string): string => word.trim().toLowerCase().replace(/\s+/g, '_');
+
+/** The product's own count of the saved key (`filler_counts` naming, e.g. `um`, `you_know`) in `text`. */
+export function productFillerCount(text: string, key: string): number {
+    const counts = countFillerWords(text);
+    for (const [productKey, data] of Object.entries(counts)) {
+        if (normaliseFillerKey(productKey) === key) return data.count;
+    }
+    return 0;
+}
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Exact integer count of each alternative the product's pattern accepts for `key` (e.g. `{ um: 2, umm: 3, … }`), matched
+ * EXACTLY as the product writes it (a literal space stays one space), so the variants always sum to `productFillerCount`.
+ */
+export function fillerVariantCounts(text: string, key: string): Record<string, number> {
+    const entry = Object.entries(createFillerPatterns()).find(([productKey]) => normaliseFillerKey(productKey) === key);
+    const alternatives = entry?.[1].source.match(/^\\b\((.+)\)\\b$/)?.[1].split('|') ?? [];
+    return Object.fromEntries(alternatives.map((alt) => [alt,
+        (text.match(new RegExp(`\\b${escapeRegExp(alt)}\\b`, 'gi')) ?? []).length]));
+}
+
+/** Receipt evidence is flat primitives: `{ um: 2, umm: 3 }` → `{ variant_um: 2, variant_umm: 3 }`. */
+export const variantEvidence = (variants: Record<string, number>): Record<string, number> =>
+    Object.fromEntries(Object.entries(variants).map(([alt, n]) => [`variant_${alt.replace(/[^a-z0-9]+/gi, '_')}`, n]));

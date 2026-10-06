@@ -87,7 +87,7 @@ import {
     runOwnedIdentityFailures,
     type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
 } from './helpers/rwtJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, productFillerCount, fillerVariantCounts, variantEvidence } from './helpers/rwtOracles';
 
 const SUITE = 'open-mic-first-session';
 /** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
@@ -482,7 +482,11 @@ test.describe('RWT — Open Mic first session @live', () => {
 
                 // Per word: what the transcript contains, what the live display showed, what was saved.
                 for (const [spoken, key] of Object.entries(FILLER_KEY)) {
-                    const inTranscript = occurrences(transcript, spoken);
+                    // #1258 (run 37514078995): judged with the PRODUCT's matcher (`um` also counts umm/ummm/uhm); the exact
+                    // word and each variant are recorded as integers so a mismatch names its cause.
+                    const inTranscript = productFillerCount(transcript, key);
+                    const exactWord = occurrences(transcript, spoken);
+                    const variants = fillerVariantCounts(transcript, key);
                     const marked = liveMarks[key] ?? 0;
                     const saved = counts[key] ?? 0;
                     // #1550 Codex P1 r4161436378: the review (FillerBreakdown) renders only COACHABLE keys. A discourse
@@ -497,7 +501,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                                 : 'the transcript and the saved count agree (a discourse marker: tracked, not shown in the review by design)'
                             : rendered && shown !== saved ? 'the count the person saw differs from the count saved (misleading display)'
                                 : 'the saved count differs from the words in the saved transcript',
-                        { transcript: inTranscript, liveHighlighted: marked, displayed: rendered ? shown : null, displayRendered: rendered, saved });
+                        { transcript: inTranscript, transcriptExactWord: exactWord, ...variantEvidence(variants), liveHighlighted: marked, displayed: rendered ? shown : null, displayRendered: rendered, saved });
                 }
                 // Keys displayed that the saved row does not carry (or vice versa) are also a misleading display.
                 const shownOnly = Object.keys(liveDisplay).filter((k) => (counts[k] ?? 0) !== liveDisplay[k]);
@@ -524,9 +528,11 @@ test.describe('RWT — Open Mic first session @live', () => {
                             `every spoken "uh" (${expected}) is marked live and saved`);
                         continue;
                     }
+                    // ASR accuracy keeps EXACT words (the product matcher would hide detector defects); variants are evidence only.
+                    const corpusKey = FILLER_KEY[spoken] ?? normaliseKey(spoken);
                     receipt.row(`filler "${spoken}" vs corpus`, inTranscript === expected ? 'PASS' : 'FAIL',
                         inTranscript === expected ? 'the transcript holds every spoken instance' : 'the transcript misses or adds instances',
-                        { expected, transcript: inTranscript });
+                        { expected, transcript: inTranscript, ...variantEvidence(fillerVariantCounts(transcript, corpusKey)) });
                 }
             });
 
