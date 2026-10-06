@@ -91,6 +91,10 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       await page.waitForFunction(() => Boolean(window.__MODEL_EVALUATOR__));
       const state = await page.evaluate((id) => window.__MODEL_EVALUATOR__!.initialize(id), candidateId) as BrowserRuntime;
       acquisition = state.workerAcquisition ?? null;
+      if (acquisition && candidateId !== 'moonshine:streaming-medium' &&
+          (acquisition as { candidateId?: string }).candidateId !== candidateId) {
+        throw new Error('v4 worker acquisition named a different candidate');
+      }
       if (state.candidateId !== candidateId || !state.runtime) {
         throw new Error('browser candidate did not publish runtime identity');
       }

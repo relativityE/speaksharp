@@ -55,8 +55,8 @@ async function initialize(candidateId: ArmId): Promise<HarnessState> {
   const candidate = CANDIDATES[candidateId as CandidateId];
   if (candidate.engine === 'transformers-js-v4') {
     const v4Variant = candidateId === 'v4:distil:q4' ? 'distil_q4' : 'base_q4';
-    const options: TranscriptionModeOptions & { v4Variant: typeof v4Variant } = {
-      v4Variant, onTranscriptUpdate: () => {}, onReady: () => {},
+    const options: TranscriptionModeOptions & { v4Variant: typeof v4Variant; evaluatorCandidateId: ArmId } = {
+      v4Variant, evaluatorCandidateId: candidateId, onTranscriptUpdate: () => {}, onReady: () => {},
     };
     engine = new TransformersJSV4Engine(options);
   } else {
