@@ -226,6 +226,7 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'Analytics Practice again opens the product', 'review Practice again starts, no hold', 'repeated take stopped, microphone off',
     'saved product marker', 'next Start', 'next take stopped, microphone off', 'telemetry sent', 'coaching telemetry sent',
     'inventory events sent', 'revisit is not a generation', 'model download vs setup timing', 'feedback retention',
+    'Practice again press → arrival (sent)', 'feedback outcome (sent)',
 ]);
 const FOCUS_PRODUCT_ROWS = Object.freeze([
     'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',

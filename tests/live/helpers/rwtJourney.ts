@@ -447,6 +447,27 @@ export interface SentEvent {
     stage?: string;
     /** `private_model_acquisition_success` timing only (integers and closed enums; v12 download-vs-setup row). */
     acquisition?: AcquisitionTiming;
+    /** #1258: closed enum / integer fields of the outcome events (OUTCOME_FIELDS only) — never content. */
+    fields?: Readonly<Record<string, string | number | boolean>>;
+}
+
+/** #1258 (#1563): the ONLY properties kept from these events, so a press can be paired with its arrival and a feedback
+ * attempt with its outcome inside the receipt. Every key is a governed closed enum or bounded integer. */
+export const OUTCOME_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+    saved_review_practice_action: ['action', 'action_seq', 'intended_route', 'link_state'],
+    saved_review_practice_arrived: ['action_seq', 'route_class'],
+    saved_review_linked_attempt: ['outcome', 'action_seq', 'intended_route'],
+    feedback_submit: ['outcome', 'submit_seq', 'error_category'],
+});
+function outcomeFields(event: string, props: Record<string, unknown>): SentEvent['fields'] {
+    const keys = OUTCOME_FIELDS[event];
+    if (!keys) return undefined;
+    const kept: Record<string, string | number | boolean> = {};
+    for (const key of keys) {
+        const v = props[key];
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') kept[key] = v;
+    }
+    return kept;
 }
 
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
@@ -474,6 +495,7 @@ export class AnalyticsTap {
                     trafficType: text('traffic_type'),
                     reason: text('reason'),
                     stage: text('stage'),
+                    ...(OUTCOME_FIELDS[record.event] ? { fields: outcomeFields(record.event, props) } : {}),
                     ...(record.event === 'private_model_acquisition_success' ? { acquisition: {
                         cacheResult: text('cache_result'), completeness: text('measurement_completeness'),
                         downloadMs: typeof props.download_ms === 'number' ? props.download_ms : null,

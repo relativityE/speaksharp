@@ -256,3 +256,56 @@ export function persistedVerdictMismatches(
     if (ordered.length !== rail.length) mismatches.add(-1);
     return [...mismatches].sort((a, b) => a - b);
 }
+
+/**
+ * #1258 (#1563 closure) — a Practice-again press is proven only when the SAME press arrived where it meant to go.
+ * Pairs each navigating `saved_review_practice_action` with the next `saved_review_practice_arrived` carrying its
+ * `action_seq` (entering a product mints a new journey, so pairing is by sequence and order, not journey). A linked
+ * press whose attempt did not succeed names that outcome instead of an arrival. Closed values only.
+ */
+type OutcomeEvent = { event: string; fields?: Readonly<Record<string, string | number | boolean>> };
+const NAVIGATING = new Set(['open_session', 'open_focus_setup', 'open_practice', 'accept_linked']);
+export function practiceArrivalVerdict(events: readonly OutcomeEvent[]): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, string | number> } {
+    const presses = events.map((e, i) => ({ e, i })).filter(({ e }) => e.event === 'saved_review_practice_action' && NAVIGATING.has(String(e.fields?.action)));
+    if (presses.length === 0) return { verdict: 'HOLD', detail: 'no navigating Practice-again press was sent', evidence: { presses: 0 } };
+    let arrived = 0; let mismatched = 0; let missing = 0; let linkedFailed = 0;
+    const firstProblem: string[] = [];
+    presses.forEach(({ e, i }, n) => {
+        const seq = e.fields?.action_seq;
+        const nextSame = presses.slice(n + 1).find((p) => p.e.fields?.action_seq === seq)?.i ?? events.length;
+        const window = events.slice(i + 1, nextSame);
+        const arrival = window.find((x) => x.event === 'saved_review_practice_arrived' && x.fields?.action_seq === seq);
+        const attempt = window.find((x) => x.event === 'saved_review_linked_attempt' && x.fields?.action_seq === seq);
+        if (arrival) {
+            if (arrival.fields?.route_class === e.fields?.intended_route) arrived += 1;
+            else { mismatched += 1; firstProblem.push(`seq ${String(seq)}: intended ${String(e.fields?.intended_route)}, arrived ${String(arrival.fields?.route_class)}`); }
+        } else if (attempt && attempt.fields?.outcome !== 'ok') {
+            linkedFailed += 1; firstProblem.push(`seq ${String(seq)}: linked attempt ${String(attempt.fields?.outcome)}`);
+        } else {
+            missing += 1; firstProblem.push(`seq ${String(seq)}: ${String(e.fields?.action)} (${String(e.fields?.link_state)}) never arrived`);
+        }
+    });
+    const evidence = { presses: presses.length, arrived, mismatched, missing, linkedFailed, first: firstProblem[0] ?? 'none' };
+    return arrived === presses.length
+        ? { verdict: 'PASS', detail: 'every Practice-again press arrived at its intended route (same action_seq)', evidence }
+        : { verdict: 'FAIL', detail: 'a Practice-again press did not arrive at its intended route', evidence };
+}
+
+/** #1258 (#1563 closure) — each Share Feedback attempt resolved to a stored outcome with the SAME `submit_seq`. */
+export function feedbackOutcomeVerdict(events: readonly OutcomeEvent[]): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, string | number> } {
+    const sub = events.filter((e) => e.event === 'feedback_submit');
+    const attempts = sub.filter((e) => e.fields?.outcome === 'attempted');
+    if (attempts.length === 0) return { verdict: 'HOLD', detail: 'no Share Feedback attempt was sent', evidence: { attempts: 0 } };
+    const outcomeOf = (seq: unknown) => sub.find((e) => e.fields?.submit_seq === seq && (e.fields?.outcome === 'storage_ok' || e.fields?.outcome === 'storage_failed'));
+    let stored = 0; let failed = 0; let unresolved = 0; let category = 'none';
+    for (const a of attempts) {
+        const o = outcomeOf(a.fields?.submit_seq);
+        if (!o) unresolved += 1;
+        else if (o.fields?.outcome === 'storage_ok') stored += 1;
+        else { failed += 1; if (category === 'none') category = String(o.fields?.error_category ?? 'unknown'); }
+    }
+    const evidence = { attempts: attempts.length, stored, failed, unresolved, errorCategory: category };
+    return stored === attempts.length
+        ? { verdict: 'PASS', detail: 'every Share Feedback attempt resolved to storage_ok with the same submit_seq', evidence }
+        : { verdict: 'FAIL', detail: failed > 0 ? 'a Share Feedback attempt failed to store (see errorCategory)' : 'a Share Feedback attempt never resolved', evidence };
+}
