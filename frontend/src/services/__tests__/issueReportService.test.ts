@@ -272,11 +272,9 @@ describe('issueReportService', () => {
       idempotencyKey,
     });
 
-    expect(insert).not.toHaveBeenCalled();
-    expect(upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ idempotency_key: idempotencyKey }),
-      { onConflict: 'idempotency_key', ignoreDuplicates: true },
-    );
+    // #1258: a plain insert carrying the draft key (the unique index dedupes), never an ON CONFLICT upsert.
+    expect(upsert).not.toHaveBeenCalled();
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ idempotency_key: idempotencyKey }));
   });
 
   it('#1306: the persisted payload NEVER carries a transcript field, and the audio note is excluded unless opted in', async () => {
