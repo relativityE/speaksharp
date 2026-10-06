@@ -33,6 +33,8 @@ const send = (key: string | null = KEY) => issueReportService.submit({
   description: BODY, pageUrl: '/session', metadata: { route: '/session', feedback_kind: 'comment', feedback_type: 'idea' },
   includeAudio: false, idempotencyKey: key,
 });
+// Codex r4195165652: the DIALOG is the single `feedback_submit` emitter (it owns submit_seq and sees the screen); the
+// storage layer emitting too doubled every outcome and left an uncorrelatable orphan. So this layer emits none.
 const submits = () => emitted.filter((e) => e.event === 'feedback_submit').map((e) => e.props);
 
 beforeEach(() => {
@@ -49,14 +51,14 @@ describe('#1258 Share Feedback plain insert', () => {
     expect(insert).toHaveBeenCalledTimes(1);
     expect(insert.mock.calls[0]).toHaveLength(1); // no ON CONFLICT options
     expect(insert.mock.calls[0][0]).toMatchObject({ idempotency_key: KEY, user_id: 'user-1' });
-    expect(submits()).toEqual([expect.objectContaining({ outcome: 'storage_ok' })]);
+    expect(submits()).toEqual([]);
   });
 
   it('retry after a lost response / duplicate delivery: THIS draft\'s idempotency collision is success, not a failure', async () => {
     insert.mockResolvedValueOnce({ error: null }).mockResolvedValueOnce({ error: replay() });
     await expect(send()).resolves.toEqual({ id: null });
     await expect(send()).resolves.toEqual({ id: null });
-    expect(submits().map((p) => p.outcome)).toEqual(['storage_ok', 'storage_ok']);
+    expect(submits()).toEqual([]);
   });
 
   it('concurrent delivery: one insert wins, the racing one collides on the same key, and both resolve stored', async () => {
@@ -71,10 +73,10 @@ describe('#1258 Share Feedback plain insert', () => {
     ['a permission refusal', { code: '42501', message: 'permission denied for table user_issue_reports' }],
     ['a row-level security refusal', { code: '42501', message: 'new row violates row-level security policy for table "user_issue_reports"' }],
     ['a network failure', { code: '', message: 'TypeError: Failed to fetch' }],
-  ])('%s stays a FAILURE: it throws and records storage_failed', async (_label, error) => {
+  ])('%s stays a FAILURE: it throws (the dialog records the one storage_failed)', async (_label, error) => {
     insert.mockResolvedValue({ error });
     await expect(send()).rejects.toBe(error);
-    expect(submits()).toEqual([expect.objectContaining({ outcome: 'storage_failed' })]);
+    expect(submits()).toEqual([]);
   });
 
   it('a draft with no key never treats a collision as stored', async () => {

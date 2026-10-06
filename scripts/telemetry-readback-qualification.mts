@@ -32,11 +32,11 @@ import {
     evaluateTelemetryCompleteness,
     REQUIRED_EVENT_FAMILIES,
     PRE_JOURNEY_EVENT_FAMILIES,
-    type CompletenessResult,
 } from '../frontend/src/services/telemetry/completenessGate';
 import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
 import { resolveQualifyingIdentity } from '../frontend/src/services/telemetry/qualifyingIdentity';
-import { QUALIFICATION_STAGES, declaresRecordingStage, evaluateQualificationStage, exactlyOnceFamiliesForStages, requiredFamiliesForStages } from '../frontend/src/services/telemetry/completenessGate';
+import { QUALIFICATION_STAGES, declaresRecordingStage, evaluateQualificationStage, exactlyOnceFamiliesForStages, isObservedFailureReason, readbackVerdict, requiredFamiliesForStages, type ReadbackVerdict } from '../frontend/src/services/telemetry/completenessGate';
+
 import { evaluateAttemptScopedDelivery } from '../frontend/src/services/telemetry/deliveryReceiptGate';
 import {
     bootScopedReceiptFamilies,
@@ -54,6 +54,9 @@ import {
  */
 const CONTROLLED_EVIDENCE_TRAFFIC: readonly (typeof TRAFFIC_TYPES[number])[] = ['canary', 'internal_test'];
 import { GOVERNED_EVENTS } from '../frontend/src/services/telemetryAllowlist';
+
+/** #1258 (#1563): the exit code for an OBSERVED received failure, distinct from HOLD (1). rc-gates.yml records it as FAIL. */
+const READBACK_FAIL_EXIT = 3;
 
 type Evidence = {
     gate: 'TELEMETRY-READBACK-COMPLETENESS';
@@ -81,7 +84,7 @@ type Evidence = {
     window_hours: number;
     observed_families: string[];
     required_families: string[];
-    verdict: CompletenessResult['verdict'];
+    verdict: ReadbackVerdict;
     missing: string[];
     unrecognised: string[];
     reasons: string[];
@@ -324,6 +327,16 @@ async function main(): Promise<void> {
                 review_surface: cells[25] ?? null,
                 phase: cells[26] ?? null,
                 suggestions_present: cells[27] ?? null,
+                // #1258 (#1563): outcome-correlation fields, appended in query order.
+                action: cells[28] ?? null,
+                action_seq: cells[29] ?? null,
+                intended_route: cells[30] ?? null,
+                route_class: cells[31] ?? null,
+                link_state: cells[32] ?? null,
+                submit_seq: cells[33] ?? null,
+                error_category: cells[34] ?? null,
+                // Codex r4197007868: the producer time (`$ts`) that orders outcome correlation.
+                producer_ts: cells[35] ?? null,
             },
         };
     });
@@ -389,11 +402,8 @@ async function main(): Promise<void> {
     // so the unsaved repeat and next-Start takes in the same journey neither count against it nor hide its absence.
     const expectedAttempts = (process.env.QUALIFICATION_ATTEMPT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const delivery = evaluateAttemptScopedDelivery(deliveryRows, exactlyOnceFamiliesForStages(declared), expectedAttempts);
-    const verdict: CompletenessResult['verdict'] = stageReasons.length > 0
-        || result.verdict !== 'QUALIFIED'
-        || delivery.verdict !== 'QUALIFIED'
-        ? 'HOLD'
-        : 'QUALIFIED';
+    // #1258 (#1563, Codex r4197007854): an OBSERVED failure is FAIL (exit 3, never retried into HOLD); missing is HOLD.
+    const verdict: ReadbackVerdict = readbackVerdict(stageReasons, result.verdict, delivery.verdict);
     const evidence: Evidence = {
         gate: 'TELEMETRY-READBACK-COMPLETENESS',
         release_sha: releaseSha,
@@ -472,11 +482,16 @@ async function main(): Promise<void> {
         console.log(`ACQUISITION_RECEIPT ${JSON.stringify({ release_sha: releaseSha, journey_id: journeyId, traffic_type: trafficType, state, received: receipts.length, first: first ?? null })}`);
         // Required evidence for a first-visit RWT journey: anything but a measured cold download is a HOLD, so a green
         // event-family qualification can never stand in for the download timing the PO asked for.
-        if (state !== 'RECEIVED_COLD_DOWNLOAD') {
+        // An observed failure is already this journey's verdict; a missing acquisition receipt cannot downgrade it to HOLD.
+        if (state !== 'RECEIVED_COLD_DOWNLOAD' && verdict !== 'FAIL') {
             hold(`first-download receipt is ${state}: a measured cold network download (cache miss, network used, download_ms) was not received for journey ${journeyId}`);
         }
     }
 
+    if (verdict === 'FAIL') {
+        console.error(`FAIL — an observed failure was received: ${stageReasons.filter(isObservedFailureReason).join('; ')}`);
+        process.exit(READBACK_FAIL_EXIT);
+    }
     if (verdict !== 'QUALIFIED') {
         console.error(`HOLD — ${[...result.reasons, ...delivery.reasons, ...stageReasons].join('; ')}`);
         process.exit(1);

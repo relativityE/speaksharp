@@ -13,6 +13,7 @@ import {
     OPEN_MIC_POST_STOP_CHAIN,
     QUALIFICATION_STAGES,
     evaluateQualificationStage,
+    readbackVerdict,
     type DecodedTelemetryRow,
     type QualificationStage,
 } from '../completenessGate';
@@ -30,7 +31,13 @@ let MODEL: string = MODELS[0];
 /** A complete, honest journey for one stage: every required family, every invariant satisfied. */
 const completeRows = (stage: QualificationStage, model: string = MODELS[0]): DecodedTelemetryRow[] => (
     MODEL = model, stage.requiredFamilies.flatMap((family): DecodedTelemetryRow | DecodedTelemetryRow[] => {
-    if (family === 'feedback_submit') return row(family, { outcome: 'stored' });
+    // #1258 (#1563): a received attempt and ITS outcome (same boot, same submit_seq, outcome after the attempt).
+    if (family === 'feedback_submit') return [row(family, { outcome: 'attempted', submit_seq: 1, producer_ts: 1_000 }), row(family, { outcome: 'storage_ok', submit_seq: 1, producer_ts: 1_001 })];
+    // #1258 (#1563): a received Practice-again press and the SAME press's arrival at its intended route.
+    if (family === 'saved_review_practice_action') return [
+        row(family, { action: 'open_session', action_seq: 1, intended_route: 'session', link_state: 'direct', producer_ts: 2_000 }),
+        row('saved_review_practice_arrived', { action_seq: 1, route_class: 'session', producer_ts: 2_001 }),
+    ];
     // #1258: the coaching card's own receipt — a validated pair on screen (required for Focus Points).
     // #1538: the envelope's attempt_id binds it to the saved take.
     if (family === 'practice_loop') return row(family, { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true, attempt_id: 'attempt-1' });
@@ -229,5 +236,112 @@ describe('#1421 P1 — every UI stage must be evidenced at readback', () => {
                 'private_model_acquisition_start',
                 'private_model_acquisition_success',
             ]));
+    });
+});
+
+describe('#1258 (#1563, Codex r4196394184) — RECEIVED outcome correlation: FAIL only when observed, HOLD when missing', () => {
+    // `t` is the PRODUCER time (`$ts` → `producer_ts`); the received `timestamp` defaults to it but can be set apart.
+    const at = (event: string, properties: Record<string, unknown>, bootId: string, t: number, received: number = t): DecodedTelemetryRow =>
+        ({ event, properties: { ...properties, producer_ts: Date.UTC(2026, 9, 6, 12, 0, t) }, bootId, timestamp: new Date(Date.UTC(2026, 9, 6, 12, 0, received)).toISOString() });
+    const feedback = stageNamed('share_feedback');
+    const practice = stageNamed('practice_again');
+    const base = (stage: QualificationStage) => completeRows(stage).filter((r) => !['feedback_submit', 'saved_review_practice_action', 'saved_review_practice_arrived'].includes(r.event));
+    const reasons = (stage: QualificationStage, rows: DecodedTelemetryRow[]) => evaluateQualificationStage(stage, [...base(stage), ...rows]);
+
+    it('feedback: attempt + its own received outcome qualifies', () => {
+        expect(reasons(feedback, [at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 1), at('feedback_submit', { outcome: 'storage_ok', submit_seq: 1 }, 'b1', 2)])).toEqual([]);
+    });
+    it('feedback: a received storage_failed is an OBSERVED failure (FAIL:), with its closed category', () => {
+        const r = reasons(feedback, [at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 1), at('feedback_submit', { outcome: 'storage_failed', submit_seq: 1, error_category: 'privilege_denied' }, 'b1', 2)]);
+        expect(r.join(' ')).toMatch(/share_feedback: FAIL: .*storage_failed \(privilege_denied\)/);
+    });
+    it('feedback: an attempt with no received outcome is missing evidence (HOLD:), never FAIL', () => {
+        const r = reasons(feedback, [at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 1)]);
+        expect(r.join(' ')).toMatch(/share_feedback: HOLD: 1 feedback attempt/);
+        expect(r.join(' ')).not.toMatch(/FAIL:/);
+    });
+    it('CASUALTY r4196394199: two received attempted(1) and ONE later storage_ok HOLD the first — never qualify both', () => {
+        const r = reasons(feedback, [at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 1), at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 2), at('feedback_submit', { outcome: 'storage_ok', submit_seq: 1 }, 'b1', 3)]);
+        expect(r.join(' ')).toMatch(/HOLD: 1 feedback attempt/);
+    });
+    it('CASUALTY: an outcome from ANOTHER boot, or one received BEFORE the attempt, does not resolve it', () => {
+        expect(reasons(feedback, [at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 1), at('feedback_submit', { outcome: 'storage_ok', submit_seq: 1 }, 'b2', 2)]).join(' ')).toMatch(/HOLD:/);
+        expect(reasons(feedback, [at('feedback_submit', { outcome: 'storage_ok', submit_seq: 1 }, 'b1', 1), at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 2)]).join(' ')).toMatch(/HOLD:/);
+    });
+    it('ORDER is by producer time, not row order; a correlated row with no producer time HOLDs', () => {
+        expect(reasons(feedback, [at('feedback_submit', { outcome: 'storage_ok', submit_seq: 1 }, 'b1', 5), at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 1)])).toEqual([]);
+        expect(reasons(feedback, [at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 1), { event: 'feedback_submit', properties: { outcome: 'storage_ok', submit_seq: 1 }, bootId: 'b1', timestamp: new Date(Date.UTC(2026, 9, 6, 12, 0, 2)).toISOString() }]).join(' ')).toMatch(/no producer timestamp/);
+    });
+    // Codex r4197007868: PostHog's `timestamp` is the flush's capture time, so a press and its arrival drained together
+    // share it (and the query cannot order them); the producer time `$ts` is when each happened.
+    it('CASUALTY r4197007868: a press and its arrival with the SAME received timestamp, returned arrival-first, qualify by producer time', () => {
+        expect(reasons(practice, [
+            at('saved_review_practice_arrived', { action_seq: 1, route_class: 'session' }, 'b1', 2, 9),
+            at('saved_review_practice_action', { action: 'open_session', action_seq: 1, intended_route: 'session', link_state: 'direct' }, 'b1', 1, 9),
+        ])).toEqual([]);
+    });
+    it('CASUALTY r4197007868: producer order wins over a REVERSED received order', () => {
+        expect(reasons(feedback, [
+            at('feedback_submit', { outcome: 'storage_ok', submit_seq: 1 }, 'b1', 2, 1),
+            at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 1, 3),
+        ])).toEqual([]);
+    });
+    it('a same-millisecond producer tie is broken causally: the item before its outcome, whatever the row order', () => {
+        expect(reasons(practice, [
+            at('saved_review_practice_arrived', { action_seq: 1, route_class: 'session' }, 'b1', 1),
+            at('saved_review_practice_action', { action: 'open_session', action_seq: 1, intended_route: 'session', link_state: 'direct' }, 'b1', 1),
+        ])).toEqual([]);
+        expect(reasons(feedback, [
+            at('feedback_submit', { outcome: 'storage_ok', submit_seq: 1 }, 'b1', 1),
+            at('feedback_submit', { outcome: 'attempted', submit_seq: 1 }, 'b1', 1),
+        ])).toEqual([]);
+    });
+    it('an outcome whose PRODUCER time precedes its item still never resolves it (HOLD)', () => {
+        expect(reasons(practice, [
+            at('saved_review_practice_arrived', { action_seq: 1, route_class: 'session' }, 'b1', 1, 5),
+            at('saved_review_practice_action', { action: 'open_session', action_seq: 1, intended_route: 'session', link_state: 'direct' }, 'b1', 2, 4),
+        ]).join(' ')).toMatch(/practice_again: HOLD:/);
+    });
+    it('practice: press + its own received arrival at the intended route qualifies', () => {
+        expect(reasons(practice, [at('saved_review_practice_action', { action: 'open_session', action_seq: 1, intended_route: 'session', link_state: 'direct' }, 'b1', 1), at('saved_review_practice_arrived', { action_seq: 1, route_class: 'session' }, 'b1', 2)])).toEqual([]);
+    });
+    it('practice: a wrong route or a failed linked attempt is an OBSERVED failure (FAIL:)', () => {
+        expect(reasons(practice, [at('saved_review_practice_action', { action: 'open_session', action_seq: 1, intended_route: 'session' }, 'b1', 1), at('saved_review_practice_arrived', { action_seq: 1, route_class: 'other' }, 'b1', 2)]).join(' ')).toMatch(/practice_again: FAIL: .*intended session, arrived other/);
+        expect(reasons(practice, [at('saved_review_practice_action', { action: 'accept_linked', action_seq: 1, intended_route: 'session', link_state: 'linked' }, 'b1', 1), at('saved_review_linked_attempt', { outcome: 'server_failed', action_seq: 1 }, 'b1', 2)]).join(' ')).toMatch(/FAIL: .*linked attempt server_failed/);
+    });
+    it('practice: a press with no received arrival is missing evidence (HOLD:); a cross-boot arrival never pairs', () => {
+        expect(reasons(practice, [at('saved_review_practice_action', { action: 'open_session', action_seq: 1, intended_route: 'session', link_state: 'direct' }, 'b1', 1)]).join(' ')).toMatch(/practice_again: HOLD: 1 Practice-again press/);
+        expect(reasons(practice, [at('saved_review_practice_action', { action: 'open_session', action_seq: 1, intended_route: 'session' }, 'b1', 1), at('saved_review_practice_arrived', { action_seq: 1, route_class: 'session' }, 'b2', 2)]).join(' ')).toMatch(/HOLD:/);
+    });
+    it('a journey that never pressed is not judged on practice_again unless it was declared (no imposed stage)', () => {
+        expect(QUALIFICATION_STAGES.find((s) => s.stage === 'practice_again')!.requiredFamilies).toEqual(['saved_review_practice_action']);
+    });
+});
+
+describe('#1258 (#1563, Codex r4197007854) — readbackVerdict: an OBSERVED failure is FAIL, missing evidence is HOLD', () => {
+    it('a stage reason marked FAIL: is FAIL, and it dominates missing evidence and incomplete families', () => {
+        expect(readbackVerdict(['share_feedback: FAIL: a received feedback outcome is storage_failed (rls_denied) — an observed failure'], 'QUALIFIED', 'QUALIFIED')).toBe('FAIL');
+        expect(readbackVerdict([
+            'practice_again: HOLD: 1 Practice-again press(es) have no received arrival',
+            'practice_again: FAIL: a received Practice-again press reached the wrong route',
+        ], 'HOLD', 'HOLD')).toBe('FAIL');
+    });
+    it('missing evidence alone is HOLD, never FAIL', () => {
+        expect(readbackVerdict(['share_feedback: HOLD: 1 feedback attempt(s) have no received outcome'], 'QUALIFIED', 'QUALIFIED')).toBe('HOLD');
+        expect(readbackVerdict(['session_after: missing required family session_saved'], 'QUALIFIED', 'QUALIFIED')).toBe('HOLD');
+        expect(readbackVerdict([], 'HOLD', 'QUALIFIED')).toBe('HOLD');
+        expect(readbackVerdict([], 'QUALIFIED', 'HOLD')).toBe('HOLD');
+    });
+    it('a reason that merely MENTIONS failure is not an observed failure', () => {
+        expect(readbackVerdict(['share_feedback: a feedback submit was recorded with no storage outcome (FAIL: none)'], 'QUALIFIED', 'QUALIFIED')).toBe('HOLD');
+    });
+    it('only a complete, correlated journey is QUALIFIED', () => {
+        expect(readbackVerdict([], 'QUALIFIED', 'QUALIFIED')).toBe('QUALIFIED');
+    });
+    it('end to end: a received storage_failed makes the journey FAIL through the real stage evaluation', () => {
+        const stage = stageNamed('share_feedback');
+        const rows = completeRows(stage).map((r) => (r.event === 'feedback_submit' && r.properties?.outcome === 'storage_ok'
+            ? { ...r, properties: { ...r.properties, outcome: 'storage_failed', error_category: 'rls_denied' } } : r));
+        expect(readbackVerdict(evaluateQualificationStage(stage, rows), 'QUALIFIED', 'QUALIFIED')).toBe('FAIL');
     });
 });

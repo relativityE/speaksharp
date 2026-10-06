@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { trackSavedReviewLinkedAttempt, type LinkedAttemptOutcome, type PracticeIntendedRoute } from '@/services/reviewSurfaceTelemetry';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
@@ -50,19 +51,25 @@ export function useLinkedRepeat(sessionId: string) {
     // A second press in the same frame reads the same `accepting` state; the ref makes the attempt single-flight.
     const acceptingRef = useRef(false);
 
-    const accept = async (afterLinked: () => void): Promise<void> => {
-        if (!recommendationId || !userId || accepting || acceptingRef.current || pendingPreviousAttempt) return;
+    const accept = async (afterLinked: () => void, actionSeq = 1, intendedRoute: PracticeIntendedRoute = 'none'): Promise<void> => {
+        const startedAt = performance.now();
+        if (!recommendationId || !userId || accepting || acceptingRef.current || pendingPreviousAttempt) {
+            trackSavedReviewLinkedAttempt('not_started', 0, actionSeq, intendedRoute);
+            return;
+        }
+        // #1258: the outcome of THIS attempt, emitted once in `finally`; an exception with no recorded stage is 'threw'.
+        let outcome: LinkedAttemptOutcome = 'threw';
         acceptingRef.current = true;
         setAccepting(true);
         setActionError(null);
         setRetryBlocked(false);
         try {
             const pending = await readPendingRecommendationAttempt(recommendationId);
-            if (pending.status === 'blocked') throw new Error('pending-attempt-readback-failed');
+            if (pending.status === 'blocked') { outcome = 'readback_blocked'; throw new Error('pending-attempt-readback-failed'); }
             const attemptId = pending.status === 'one'
                 ? pending.attemptId
                 : await recordRecommendationAttempt(recommendationId);
-            if (!attemptId) throw new Error('server-attempt-failed');
+            if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
             const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId });
             if (!handoffStored) {
                 const abandoned = await abandonRecommendationAttempt(attemptId);
@@ -70,8 +77,10 @@ export function useLinkedRepeat(sessionId: string) {
                     ? 'The repeat could not be linked. Nothing was left pending; please try again.'
                     : 'The repeat could not be linked or safely closed. Retry is unavailable until the pending attempt is reconciled.');
                 setRetryBlocked(!abandoned);
+                outcome = abandoned ? 'handoff_failed_abandoned' : 'handoff_failed_unclosed';
                 return;
             }
+            outcome = 'ok';
             afterLinked();
         } catch (err) {
             logger.warn({ err, sessionId }, '[progress] accept recommendation failed');
@@ -79,6 +88,7 @@ export function useLinkedRepeat(sessionId: string) {
         } finally {
             acceptingRef.current = false;
             setAccepting(false);
+            trackSavedReviewLinkedAttempt(outcome, performance.now() - startedAt, actionSeq, intendedRoute);
         }
     };
 

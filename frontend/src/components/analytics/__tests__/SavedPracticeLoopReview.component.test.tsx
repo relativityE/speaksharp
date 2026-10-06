@@ -7,21 +7,31 @@ const load = vi.fn<(id: string) => Promise<SavedSessionReview>>();
 vi.mock('@/services/review/savedSessionReview', () => ({ loadSavedSessionReview: (id: string) => load(id) }));
 const navigate = vi.fn();
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
+// #1258 (Codex r4191751371): every practice navigation carries its press's action_seq in router state.
+const PRACTICE_NAV = { state: { practiceActionSeq: expect.any(Number) } };
 const accept = vi.fn(async (after: () => void) => { after(); });
 let recommendationId: string | null = null;
+// Codex r4195165663: a refetch that FAILS after an earlier success — TanStack keeps the old data and sets isError.
+let cachedView: { status: string } | undefined;
+let queryIsError = false;
 vi.mock('@/hooks/useLinkedRepeat', () => ({
     // A settled progress answer: `linked` when an eligible recommendation exists, else a terminal `direct`. The
     // pending/error/single-flight paths run against the REAL hook in SavedPracticeLoopReview.linkedRepeat.test.tsx.
     useLinkedRepeat: () => ({
-        recommendationId, linkState: recommendationId ? 'linked' : 'direct', query: { refetch: vi.fn(), isFetching: false },
+        recommendationId, linkState: queryIsError ? 'error' : recommendationId ? 'linked' : 'direct', view: cachedView,
+        query: { refetch: vi.fn(), isFetching: false, isPending: false, isError: queryIsError },
         accept, accepting: false, actionError: null, retryBlocked: false,
     }),
 }));
 const revisited = vi.fn();
 const practiceSelected = vi.fn();
+const practiceAction = vi.fn();
+const practiceState = vi.fn();
 vi.mock('@/services/reviewSurfaceTelemetry', () => ({
     trackSavedReviewRevisited: (...args: unknown[]) => revisited(...args),
     trackSavedReviewPracticeSelected: (...args: unknown[]) => practiceSelected(...args),
+    trackSavedReviewPracticeAction: (...args: unknown[]) => practiceAction(...args),
+    trackSavedReviewPracticeState: (...args: unknown[]) => practiceState(...args),
 }));
 const setActiveObjectiveBrief = vi.fn();
 vi.mock('@/stores/useSessionStore', () => ({ useSessionStore: { getState: () => ({ setActiveObjectiveBrief }) } }));
@@ -31,7 +41,7 @@ const { SavedPracticeLoopReview } = await import('../SavedPracticeLoopReview');
 const PAIR = { kind: 'review' as const, review: { whatWorked: 'Opening definition landed clearly.', whatToTryNext: 'Name point three before point two.' } };
 const base: SavedSessionReview = { coaching: PAIR, product: 'open_mic', evidence: ['6.2 filler words a minute, above your target.'], focusBrief: null, focusPoints: [] };
 
-beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); revisited.mockReset(); practiceSelected.mockReset(); recommendationId = null; });
+beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); revisited.mockReset(); practiceSelected.mockReset(); practiceAction.mockReset(); practiceState.mockReset(); recommendationId = null; cachedView = undefined; queryIsError = false; });
 
 describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
     // #1538 (Codex P1 r4117321439, PM 5860714332): an old generic pair on a Focus take is never shown as its Focus review.
@@ -65,7 +75,7 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         render(<SavedPracticeLoopReview sessionId="s1" />);
         fireEvent.click(await screen.findByTestId('saved-review-practice'));
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(null);
-        expect(navigate).toHaveBeenCalledWith('/session');
+        expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
         expect(accept).not.toHaveBeenCalled();
     });
 
@@ -74,7 +84,7 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         render(<SavedPracticeLoopReview sessionId="s1" />);
         fireEvent.click(await screen.findByTestId('saved-review-practice'));
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith({ projectId: 'p1', briefId: 'b1', points: ['One', 'Two'], topic: 'Weekly handoff', paceGuideSecPerPoint: null });
-        expect(navigate).toHaveBeenCalledWith('/session');
+        expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
     });
 
     it('Focus Points without its saved set opens Focus Points setup instead of guessing', async () => {
@@ -82,15 +92,15 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         render(<SavedPracticeLoopReview sessionId="s1" />);
         fireEvent.click(await screen.findByTestId('saved-review-practice'));
         expect(setActiveObjectiveBrief).not.toHaveBeenCalled();
-        expect(navigate).toHaveBeenCalledWith('/practice?product=focus-points');
+        expect(navigate).toHaveBeenCalledWith('/practice?product=focus-points', PRACTICE_NAV);
     });
 
     it('#1535 Codex P2: an UNKNOWN product (no durable authority) opens the product chooser — never Open Mic, and no brief is cleared', async () => {
         load.mockResolvedValue({ ...base, product: 'unknown', evidence: [] });
         render(<SavedPracticeLoopReview sessionId="s1" />);
         fireEvent.click(await screen.findByTestId('saved-review-practice'));
-        expect(navigate).toHaveBeenCalledWith('/practice');
-        expect(navigate).not.toHaveBeenCalledWith('/session');
+        expect(navigate).toHaveBeenCalledWith('/practice', PRACTICE_NAV);
+        expect(navigate).not.toHaveBeenCalledWith('/session', expect.anything());
         expect(setActiveObjectiveBrief).not.toHaveBeenCalled();
         expect(screen.queryByText(/Open Mic/), 'no product is claimed').toBeNull();
     });
@@ -102,7 +112,7 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         fireEvent.click(await screen.findByTestId('saved-review-practice'));
         expect(accept).toHaveBeenCalledTimes(1);
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1' }));
-        expect(navigate).toHaveBeenCalledWith('/session');
+        expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
     });
 
     it.each([
@@ -135,5 +145,73 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         load.mockResolvedValue({ ...base, coaching: { kind: 'expired' } });
         render(<SavedPracticeLoopReview sessionId="s2" />);
         await waitFor(() => expect(revisited).toHaveBeenCalledWith('open_mic', 'expired', false));
+    });
+
+    describe('#1258 every press is recorded with the branch it took', () => {
+        it('Open Mic, terminal progress: open_session, link_state direct, action_seq 1 then 2', async () => {
+            load.mockResolvedValue(base);
+            render(<SavedPracticeLoopReview sessionId="s1" />);
+            const button = await screen.findByTestId('saved-review-practice');
+            fireEvent.click(button);
+            fireEvent.click(button);
+            expect(practiceAction.mock.calls.map(([p]) => [p.action, p.linkState, p.reviewState, p.product, p.actionSeq])).toEqual([
+                ['open_session', 'direct', 'loaded', 'open_mic', 1],
+                ['open_session', 'direct', 'loaded', 'open_mic', 2],
+            ]);
+            expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
+        });
+
+        it('linked recommendation: accept_linked, and the attempt carries the same action_seq', async () => {
+            recommendationId = 'rec-1';
+            load.mockResolvedValue(base);
+            render(<SavedPracticeLoopReview sessionId="s1" />);
+            fireEvent.click(await screen.findByTestId('saved-review-practice'));
+            expect(practiceAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'accept_linked', linkState: 'linked', actionSeq: 1, intendedRoute: 'session' }));
+            expect(accept).toHaveBeenCalledWith(expect.any(Function), 1, 'session');
+        });
+
+        it('Codex r4191751371: each navigation carries the SAME action_seq its press recorded — direct and linked', async () => {
+            load.mockResolvedValue(base);
+            const { unmount } = render(<SavedPracticeLoopReview sessionId="s1" />);
+            const button = await screen.findByTestId('saved-review-practice');
+            fireEvent.click(button);
+            fireEvent.click(button);
+            expect(practiceAction.mock.calls.map(([p]) => p.actionSeq)).toEqual([1, 2]);
+            expect(navigate.mock.calls).toEqual([
+                ['/session', { state: { practiceActionSeq: 1 } }],
+                ['/session', { state: { practiceActionSeq: 2 } }],
+            ]);
+            unmount();
+            navigate.mockReset(); practiceAction.mockReset();
+            recommendationId = 'rec-1';
+            render(<SavedPracticeLoopReview sessionId="s1" />);
+            fireEvent.click(await screen.findByTestId('saved-review-practice'));
+            await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+            expect(practiceAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'accept_linked', actionSeq: 1 }));
+            expect(navigate).toHaveBeenCalledWith('/session', { state: { practiceActionSeq: 1 } });
+        });
+
+        it('Codex r4195165663: a FAILED refetch records read_error — never the stale cached status the page no longer trusts', async () => {
+            cachedView = { status: 'eligible' };
+            queryIsError = true;
+            load.mockResolvedValue(base);
+            render(<SavedPracticeLoopReview sessionId="s1" />);
+            fireEvent.click(await screen.findByTestId('saved-review-practice'));
+            expect(practiceAction).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'refetch_progress', linkState: 'error', progressStatus: 'read_error' }));
+        });
+
+        it('the recorded target matches the navigation: Focus without its set → open_focus_setup; unknown → open_practice', async () => {
+            load.mockResolvedValue({ ...base, product: 'focus_points', focusBrief: null, focusPoints: [] });
+            const { unmount } = render(<SavedPracticeLoopReview sessionId="s1" />);
+            fireEvent.click(await screen.findByTestId('saved-review-practice'));
+            expect(practiceAction).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'open_focus_setup', product: 'focus_points', intendedRoute: 'focus_setup' }));
+            expect(navigate).toHaveBeenLastCalledWith('/practice?product=focus-points', PRACTICE_NAV);
+            unmount();
+            load.mockResolvedValue({ ...base, product: 'unknown', evidence: [] });
+            render(<SavedPracticeLoopReview sessionId="s2" />);
+            fireEvent.click(await screen.findByTestId('saved-review-practice'));
+            expect(practiceAction).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'open_practice', product: 'unknown', intendedRoute: 'practice' }));
+            expect(navigate).toHaveBeenLastCalledWith('/practice', PRACTICE_NAV);
+        });
     });
 });

@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import {
@@ -466,6 +466,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             { reviewRequested: generationsForFirstTake });
         receipt.row('inventory events sent', focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
             'products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusTelemetry);
+        // #1258 (#1563, Codex r4197420116): Focus presses Practice again too, so it proves the same correlation Open Mic does —
+        // each press reached its intended route (same boot + action_seq) — and, in the full run that shares feedback, each
+        // attempt resolved (same boot + submit_seq). Sent here; received is the `practice_again` / `share_feedback` readback.
+        const practiceArrival = practiceArrivalVerdict(tap.events);
+        receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail, practiceArrival.evidence);
+        if (fixtureKey === 'focus_points_tts') {
+            const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
+            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail, feedbackOutcome.evidence);
+        }
         // Point text and topic are the person's content: they must never reach the receipt.
         const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));
         receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no point text, topic or credential in the receipt' : 'the receipt carried a forbidden value');
@@ -493,6 +502,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
                 },
                 feedback: fixtureKey === 'focus_points_tts',
+                // #1258 (#1563, Codex r4197420116): the received press→arrival is required of Focus as of Open Mic.
+                practiceAgain: true,
             }),
             tap.trafficTypes(), userJourneys);
     }

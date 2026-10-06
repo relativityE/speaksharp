@@ -26,10 +26,7 @@ import {
 } from '@/services/feedbackDraft';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
-import {
-  submitBlockers, lengthBand, emitFeedbackFieldState, emitFeedbackDialogOpened, emitFeedbackSubmit,
-  type FeedbackField,
-} from '@/services/telemetry/feedbackTelemetry';
+import { submitBlockers, lengthBand, emitFeedbackFieldState, emitFeedbackDialogOpened, emitFeedbackSubmit, type FeedbackField, classifyFeedbackStorageError } from '@/services/telemetry/feedbackTelemetry';
 
 interface IssueReportDialogProps {
   userId?: string | null;
@@ -230,6 +227,8 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   const typeRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const severityRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const draftOwnerRef = React.useRef<string | null>(userId ?? null);
+  // #1258: which Send this is in the current opening (links `attempted` to its outcome), reset on open.
+  const submitSeqRef = React.useRef(0);
 
   // #1416 — the reveal follows the CURRENT motion preference, not the one that happened to be set
   // when this component mounted. Reading it once looks harmless because a dialog is short lived, but
@@ -382,6 +381,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       setAttempted(null);
       setError(null);
       setShowDisclosure(false);
+      submitSeqRef.current = 0;
     }
     setOpen(next);
   };
@@ -432,10 +432,12 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     }
     setIsSubmitting(true);
     setError(null);
+    const submitSeq = Math.min(100, ++submitSeqRef.current);
+    const attemptedAt = performance.now();
     // The ATTEMPT, recorded before anything can fail. Without it a submit that throws before reaching
     // storage is indistinguishable from a user who never pressed Send — and "I reported it and nothing
     // happened" is precisely the report this instrumentation exists to make legible.
-    emitFeedbackSubmit({ outcome: 'attempted' });
+    emitFeedbackSubmit({ outcome: 'attempted', submitSeq });
     try {
       const feedbackKind: FeedbackKind = type === 'broke' ? 'issue' : 'comment';
       // #1416 — NULL, NOT A GUESS.
@@ -474,13 +476,19 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       // `acknowledgementVisible: true` from the storage path, which asserted the user had been told
       // something by code that cannot see the screen. Emitted after the toast call, so the fact follows
       // the render rather than predicting it.
-      emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: true, hasSession: selectedSessionId !== null });
-    } catch {
+      emitFeedbackSubmit({
+        outcome: 'storage_ok', acknowledgementVisible: true, hasSession: selectedSessionId !== null,
+        submitSeq, elapsedMs: performance.now() - attemptedAt,
+      });
+    } catch (err) {
       setAttempted({ key: idempotencyKey, signature: draftSignature });
       setError('That didn’t go through. Try again?');
       // The user was told it failed, and the draft was kept for the retry. Both are facts about what they
       // can now see and do, and neither is knowable from the storage layer.
-      emitFeedbackSubmit({ outcome: 'storage_failed', acknowledgementVisible: true });
+      emitFeedbackSubmit({
+        outcome: 'storage_failed', acknowledgementVisible: true, errorCategory: classifyFeedbackStorageError(err),
+        submitSeq, elapsedMs: performance.now() - attemptedAt,
+      });
     } finally {
       setIsSubmitting(false);
     }

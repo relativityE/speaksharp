@@ -145,6 +145,7 @@ export function focusCoachingProvenanceVerdict(input: { savedVersion: string | n
  */
 export type { ReadbackBinding } from './rwtAcceptance';
 import type { ReadbackBinding } from './rwtAcceptance';
+import { correlateFeedbackAttempts, correlatePracticePresses, type CorrelationEvent } from '../../../frontend/src/services/telemetry/outcomeCorrelation';
 export interface ReadbackPlan { journeys: ReadbackBinding[]; reportedJourneyIds: string[]; missingBindings: string[] }
 
 /** A recording take the RUN pressed and saw record, identified by the Start the page sent — never by its save. */
@@ -189,6 +190,8 @@ export function bindReadbackJourneys(
         takes?: { first: ExpectedTake | null; repeat?: ExpectedTake | null };
         feedback: boolean;
         pdfExport?: boolean;
+        /** #1258 (#1563): the journey of the first canary Practice-again press is read back for press→arrival. */
+        practiceAgain?: boolean;
     },
 ): ReadbackPlan {
     const canary = events.filter((e) => e.trafficType === 'canary' && typeof e.journeyId === 'string' && e.journeyId !== '');
@@ -218,6 +221,7 @@ export function bindReadbackJourneys(
     if (plan.feedback) bind(anchor('feedback_submit'), ['share_feedback'], 'share_feedback');
     // The v12 PDF is downloaded after the detail reload (Back to Dashboard → Download PDF), so it binds to its own journey.
     if (plan.pdfExport) bind(anchor('session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
+    if (plan.practiceAgain) bind(anchor('saved_review_practice_action'), ['practice_again'], 'practice_again');
     const journeys = [...bound].map(([journeyId, { stages, attemptIds }]) => ({
         journeyId, stages,
         ...(journeyId === firstRecording ? { firstDownload: true } : {}),
@@ -255,4 +259,39 @@ export function persistedVerdictMismatches(
     });
     if (ordered.length !== rail.length) mismatches.add(-1);
     return [...mismatches].sort((a, b) => a - b);
+}
+
+/**
+ * #1258 (#1563 closure) — a Practice-again press is proven only when the SAME press arrived where it meant to go.
+ * Pairs each navigating `saved_review_practice_action` with the next `saved_review_practice_arrived` carrying its
+ * `action_seq` in the SAME boot (entering a product mints a new journey, so pairing is by boot, sequence and order, never
+ * journey). A linked
+ * press whose attempt did not succeed names that outcome instead of an arrival. Closed values only.
+ */
+type OutcomeEvent = { event: string; bootId?: string; fields?: Readonly<Record<string, string | number | boolean>> };
+const asCorrelation = (events: readonly OutcomeEvent[]): CorrelationEvent[] =>
+    events.map((e) => ({ event: e.event, bootId: e.bootId ?? null, props: e.fields ?? {} }));
+export function practiceArrivalVerdict(events: readonly OutcomeEvent[]): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, string | number> } {
+    // The ONE pairing rule shared with the deployed readback (frontend/src/services/telemetry/outcomeCorrelation.ts).
+    const c = correlatePracticePresses(asCorrelation(events));
+    const evidence = { presses: c.presses, arrived: c.arrived, mismatched: c.mismatched, missing: c.missing, linkedFailed: c.linkedFailed, first: c.first };
+    if (c.presses === 0) return { verdict: 'HOLD', detail: 'no navigating Practice-again press was sent', evidence: { presses: 0 } };
+    // Truthful-proof rule (PM 6010721789): an OBSERVED failure (wrong route, failed linked attempt) is FAIL; a press with
+    // no arrival is missing evidence (e.g. not yet flushed) and is HOLD, never PASS and never FAIL.
+    if (c.mismatched > 0 || c.linkedFailed > 0) return { verdict: 'FAIL', detail: 'a Practice-again press reached the wrong route or its linked attempt failed', evidence };
+    return c.arrived === c.presses
+        ? { verdict: 'PASS', detail: 'every Practice-again press arrived at its intended route (same boot and action_seq)', evidence }
+        : { verdict: 'HOLD', detail: 'a Practice-again press has no observed arrival (missing evidence, not an observed failure)', evidence };
+}
+
+/** #1258 (#1563 closure) — each Share Feedback attempt resolved to a stored outcome with the SAME boot and `submit_seq`;
+ * a reused `submit_seq` (reopened dialog) never lets one outcome resolve two attempts (Codex r4196394199). */
+export function feedbackOutcomeVerdict(events: readonly OutcomeEvent[]): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, string | number> } {
+    const c = correlateFeedbackAttempts(asCorrelation(events));
+    if (c.attempts === 0) return { verdict: 'HOLD', detail: 'no Share Feedback attempt was sent', evidence: { attempts: 0 } };
+    const evidence = { attempts: c.attempts, stored: c.stored, failed: c.failed, unresolved: c.unresolved, errorCategory: c.errorCategory };
+    if (c.failed > 0) return { verdict: 'FAIL', detail: 'a Share Feedback attempt failed to store (see errorCategory)', evidence };
+    return c.stored === c.attempts
+        ? { verdict: 'PASS', detail: 'every Share Feedback attempt resolved to storage_ok with the same boot and submit_seq', evidence }
+        : { verdict: 'HOLD', detail: 'a Share Feedback attempt has no observed outcome (missing evidence, not an observed failure)', evidence };
 }

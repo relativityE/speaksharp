@@ -483,6 +483,11 @@ export const EVENT_SCHEMAS = Object.freeze({
         acknowledgement_visible: { kind: 'bool' } as FieldRule,
         // FEEDBACK_SESSION_SELECTOR_SPEC §9: whether the stored report was linked to a session. Never the id, number or label.
         has_session: { kind: 'bool' } as FieldRule,
+        // #1258: the closed reason a write failed, the attempt→outcome time, and which Send it answers.
+        error_category: enumOf(['rls_denied', 'privilege_denied', 'auth_missing', 'constraint_violation', 'conflict_target', 'schema_mismatch',
+            'network', 'timeout', 'server_error', 'unknown']),
+        elapsed_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        submit_seq: { kind: 'int', min: 1, max: 100 } as FieldRule,
     },
 
     /**
@@ -582,6 +587,40 @@ export const EVENT_SCHEMAS = Object.freeze({
     saved_review_practice_selected: {
         product: enumOf(['open_mic', 'focus_points', 'unknown']),
         linked_repeat: { kind: 'bool' } as FieldRule,
+    },
+    // #1258 — EVERY press of the saved review's practice action, with what the page knew and what it did. RWT run
+    // 36955422629 saw an enabled action that never opened the session page, and nothing recorded which branch ran.
+    // The opened page itself is `journey_step` route_change; `action_seq` links this press to its linked attempt.
+    saved_review_practice_action: {
+        product: enumOf(['open_mic', 'focus_points', 'unknown']),
+        link_state: enumOf(['pending', 'error', 'blocked', 'linked', 'direct']),
+        review_state: enumOf(['loading', 'loaded', 'read_failed', 'focus_read_failed']),
+        progress_status: enumOf(['loading', 'read_error', 'insufficient', 'ineligible', 'unavailable', 'error', 'eligible', 'unknown']),
+        action: enumOf(['ignored', 'reread_review', 'refetch_progress', 'accept_linked', 'open_session', 'open_focus_setup', 'open_practice']),
+        action_seq: { kind: 'int', min: 1, max: 100 } as FieldRule,
+        // Where this press is meant to land; success is THIS press reaching it (journey_step route_change), not any route.
+        intended_route: enumOf(['session', 'focus_setup', 'practice', 'none']),
+    },
+    // #1258 — the practice action's availability as it CHANGES, so a disabled or blocked action (which cannot be
+    // pressed, and so emits no press) is still observable. De-duplicated: one event per distinct state.
+    saved_review_practice_state: {
+        product: enumOf(['open_mic', 'focus_points', 'unknown']),
+        link_state: enumOf(['pending', 'error', 'blocked', 'linked', 'direct']),
+        review_state: enumOf(['loading', 'loaded', 'read_failed', 'focus_read_failed']),
+        enabled: { kind: 'bool' } as FieldRule,
+        blocked_reason: enumOf(['none', 'review_loading', 'progress_pending', 'previous_attempt_pending', 'linking', 'retry_blocked', 'progress_refetching']),
+    },
+    saved_review_linked_attempt: {
+        outcome: enumOf(['ok', 'not_started', 'readback_blocked', 'server_failed', 'handoff_failed_abandoned', 'handoff_failed_unclosed', 'threw']),
+        elapsed_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        action_seq: { kind: 'int', min: 1, max: 100 } as FieldRule,
+        intended_route: enumOf(['session', 'focus_setup', 'practice', 'none']),
+    },
+    // #1258 (Codex r4191751371): the terminal ARRIVAL of a practice press, carrying the same `action_seq`, so received
+    // telemetry proves which press caused which landing. `other` = landed somewhere unexpected (a redirect).
+    saved_review_practice_arrived: {
+        action_seq: { kind: 'int', min: 1, max: 100 } as FieldRule,
+        route_class: enumOf(['session', 'focus_setup', 'practice', 'other']),
     },
     products_menu_opened: { surface: enumOf(['desktop', 'mobile']) },
     // Was entirely UNGOVERNED: a real producer whose properties were all dropped.

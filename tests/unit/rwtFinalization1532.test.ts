@@ -81,6 +81,15 @@ describe('finalizeReceipt merges the readback outcome', () => {
             { ...readbackOk, journeys: [] },
         ]) expect(finalizeReceipt(receipt, worksheetDone(), rb).finalAcceptance).toBe('INCOMPLETE');
     });
+    // #1258 (#1563, Codex r4197007854): an OBSERVED received failure is FAIL, never folded into missing evidence (HOLD).
+    it('CASUALTY r4197007854: a FAIL journey makes journey telemetry received FAIL → final FAIL (never INCOMPLETE, never PASS)', () => {
+        const r = finalizeReceipt(receipt, worksheetDone(), { ...readbackOk, journeys: [{ ...readbackOk.journeys[0], verdict: 'FAIL' }] });
+        expect(r.errors).toEqual([]);
+        const row = r.rows.find((x) => x.step === 'journey telemetry received');
+        expect(row?.verdict).toBe('FAIL');
+        expect(row?.evidence).toMatchObject({ readbackFailed: 1, readbackQualified: 0 });
+        expect(r.finalAcceptance).toBe('FAIL');
+    });
     it('CASUALTY: a readback for another suite, release, journey set or stage set is a binding error, never PASS', () => {
         for (const rb of [
             { ...readbackOk, suite: 'focus-points-session' },

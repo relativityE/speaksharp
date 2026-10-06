@@ -87,7 +87,7 @@ import {
     runOwnedIdentityFailures,
     type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
 } from './helpers/rwtJourney';
-import { bindReadbackJourneys, takeStartedAfter } from './helpers/rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 
 const SUITE = 'open-mic-first-session';
 /** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
@@ -651,6 +651,13 @@ test.describe('RWT — Open Mic first session @live', () => {
             receipt.row('telemetry sent', tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0 ? 'PASS' : 'FAIL',
                 'session_saved and feedback_submit left the page (sent, not yet received)',
                 { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length });
+            // #1258 (#1563 closure): the outcome telemetry must CORRELATE, not merely be sent — each Practice-again press
+            // reached its intended route (same action_seq), and each Share Feedback attempt resolved (same submit_seq).
+            // Sent here; received is the deployed PostHog readback. Closed enums and integers only.
+            const practiceArrival = practiceArrivalVerdict(tap.events);
+            receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail, practiceArrival.evidence);
+            const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
+            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail, feedbackOutcome.evidence);
             // Coaching telemetry the page SENT. RECEIVED is proven by the PostHog readback of the declared
             // session_after_open_mic stage: its post-Stop chain requires a received stage_latency "review_rendered", which
             // the app emits only once a validated two-phrase review is on screen.
@@ -697,7 +704,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                     first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
                 },
-                feedback: true, pdfExport: true,
+                feedback: true, pdfExport: true, practiceAgain: true,
             }),
                 tap.trafficTypes(), userJourneys);
         }

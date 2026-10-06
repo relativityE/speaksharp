@@ -27,6 +27,8 @@ const loadReview = vi.fn<(id: string) => Promise<SavedSessionReview>>();
 vi.mock('@/services/review/savedSessionReview', () => ({ loadSavedSessionReview: (id: string) => loadReview(id) }));
 const navigate = vi.fn();
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
+// #1258 (Codex r4191751371): every practice navigation carries its press's action_seq in router state.
+const PRACTICE_NAV = { state: { practiceActionSeq: expect.any(Number) } };
 vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ user: { id: 'user-1' } }) }));
 const loadProgress = vi.fn<(id: string) => Promise<unknown>>();
 vi.mock('@/services/progress/loadSessionProgress', () => ({ loadSessionProgress: (id: string) => loadProgress(id) }));
@@ -41,9 +43,15 @@ vi.mock('@/services/progress/recordProgress', () => ({
 const setOpenAttempt = vi.fn((_attempt: unknown) => true);
 vi.mock('@/services/progress/openAttempt', () => ({ setOpenAttempt: (a: unknown) => setOpenAttempt(a) }));
 const practiceSelected = vi.fn();
+const practiceAction = vi.fn();
+const practiceState = vi.fn();
+const linkedAttempt = vi.fn();
 vi.mock('@/services/reviewSurfaceTelemetry', () => ({
     trackSavedReviewRevisited: vi.fn(),
     trackSavedReviewPracticeSelected: (...args: unknown[]) => practiceSelected(...args),
+    trackSavedReviewPracticeAction: (...args: unknown[]) => practiceAction(...args),
+    trackSavedReviewPracticeState: (...args: unknown[]) => practiceState(...args),
+    trackSavedReviewLinkedAttempt: (...args: unknown[]) => linkedAttempt(...args),
 }));
 const setActiveObjectiveBrief = vi.fn();
 vi.mock('@/stores/useSessionStore', () => ({ useSessionStore: { getState: () => ({ setActiveObjectiveBrief }) } }));
@@ -93,7 +101,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
         expect(action()).toBeEnabled();
         fireEvent.click(action());
-        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
         expect(readPending).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledWith('rec-1');
@@ -111,7 +119,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         renderReview();
         await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'direct'));
         fireEvent.click(action());
-        expect(navigate).toHaveBeenCalledWith('/session');
+        expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
         expect(recordAttempt).not.toHaveBeenCalled();
         expect(practiceSelected).toHaveBeenCalledWith('focus_points', false);
     });
@@ -177,7 +185,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
         fireEvent.click(action());
         fireEvent.click(action());
-        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
@@ -200,7 +208,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(loadReview).toHaveBeenCalledTimes(2));
         await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
         fireEvent.click(action());
-        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
@@ -228,7 +236,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(screen.queryByTestId('saved-review-pending-attempt')).not.toBeInTheDocument();
         fireEvent.click(action());
         fireEvent.click(action());
-        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(setOpenAttempt).toHaveBeenCalledTimes(1);
@@ -248,7 +256,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
         fireEvent.click(action());
         expect(navigate).toHaveBeenCalledTimes(1);
-        expect(navigate).toHaveBeenCalledWith('/session');
+        expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
     });
 
@@ -259,7 +267,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'direct'));
         expect(action()).toHaveTextContent('Practice this again');
         fireEvent.click(action());
-        expect(navigate).toHaveBeenCalledWith('/practice');
+        expect(navigate).toHaveBeenCalledWith('/practice', PRACTICE_NAV);
         expect(practiceSelected).toHaveBeenCalledWith('unknown', false);
         expect(loadReview).toHaveBeenCalledTimes(1);
     });
@@ -279,5 +287,79 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(readPending).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(setOpenAttempt).toHaveBeenCalledTimes(1);
+    });
+
+    describe('#1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook)', () => {
+        const OPEN_MIC: SavedSessionReview = { ...FOCUS, product: 'open_mic', focusBrief: null, focusPoints: [] };
+
+        it('Progress UNAVAILABLE (no next-action recommendation): enabled "Try again", the press only re-checks — recorded, no navigation', async () => {
+            loadReview.mockResolvedValue(OPEN_MIC);
+            loadProgress.mockResolvedValue({ status: 'unavailable', sessionId: 's1', message: 'Your next action is not available yet. Retry to check again.' });
+            renderReview();
+            await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'error'));
+            await waitFor(() => expect(action()).toBeEnabled());
+            expect(action()).toHaveTextContent('Try again');
+            fireEvent.click(action());
+            expect(practiceAction).toHaveBeenCalledWith(expect.objectContaining({
+                product: 'open_mic', linkState: 'error', reviewState: 'loaded', progressStatus: 'unavailable', action: 'refetch_progress', actionSeq: 1,
+            }));
+            expect(navigate).not.toHaveBeenCalled();
+        });
+
+        it('CONTROL (expected, not a failure): a short INELIGIBLE take opens Open Mic directly — open_session, intended route session, no linked attempt', async () => {
+            loadReview.mockResolvedValue(OPEN_MIC);
+            loadProgress.mockResolvedValue({ status: 'ineligible', sessionId: 's1', reasons: ['too_few_words', 'too_short'] });
+            renderReview();
+            await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'direct'));
+            await waitFor(() => expect(action()).toBeEnabled());
+            fireEvent.click(action());
+            expect(practiceAction).toHaveBeenCalledWith(expect.objectContaining({
+                product: 'open_mic', linkState: 'direct', progressStatus: 'ineligible', action: 'open_session', intendedRoute: 'session', actionSeq: 1,
+            }));
+            expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
+            expect(recordAttempt).not.toHaveBeenCalled();
+            expect(linkedAttempt).not.toHaveBeenCalled();
+        });
+
+        it('linked attempt succeeds: accept_linked, then outcome ok with the same action_seq, then the session opens', async () => {
+            loadReview.mockResolvedValue(OPEN_MIC);
+            loadProgress.mockResolvedValue(ELIGIBLE);
+            renderReview();
+            await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+            fireEvent.click(action());
+            await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
+            expect(practiceAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'accept_linked', progressStatus: 'eligible', actionSeq: 1 }));
+            expect(linkedAttempt).toHaveBeenCalledWith('ok', expect.any(Number), 1, 'session');
+        });
+
+        it.each([
+            ['server_failed', () => { recordAttempt.mockResolvedValue(null); }],
+            ['readback_blocked', () => { readPending.mockResolvedValue({ status: 'blocked' }); }],
+            ['threw', () => { recordAttempt.mockRejectedValue(new Error('network')); }],
+            ['handoff_failed_abandoned', () => { setOpenAttempt.mockReturnValue(false); abandon.mockResolvedValue(true); }],
+            ['handoff_failed_unclosed', () => { setOpenAttempt.mockReturnValue(false); abandon.mockResolvedValue(false); }],
+        ] as const)('linked attempt %s: the outcome is recorded, the page stays, nothing navigates', async (outcome, arrange) => {
+            arrange();
+            loadReview.mockResolvedValue(OPEN_MIC);
+            loadProgress.mockResolvedValue(ELIGIBLE);
+            renderReview();
+            await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+            fireEvent.click(action());
+            await waitFor(() => expect(linkedAttempt).toHaveBeenCalledWith(outcome, expect.any(Number), 1, 'session'));
+            expect(navigate).not.toHaveBeenCalled();
+        });
+
+        it('a PENDING progress read disables the action: the state is observed (enabled=false, progress_pending), then enabled', async () => {
+            const progress = deferred<unknown>();
+            loadReview.mockResolvedValue(OPEN_MIC);
+            loadProgress.mockReturnValue(progress.promise);
+            renderReview();
+            await waitFor(() => expect(practiceState).toHaveBeenCalledWith(expect.objectContaining({ enabled: false, blockedReason: 'progress_pending', linkState: 'pending' })));
+            expect(action()).toBeDisabled();
+            await act(async () => { progress.resolve({ status: 'insufficient', sessionId: 's1' }); });
+            await waitFor(() => expect(practiceState).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true, blockedReason: 'none', linkState: 'direct' })));
+            const signatures = practiceState.mock.calls.map(([p]) => JSON.stringify(p));
+            expect(new Set(signatures).size).toBe(signatures.length);
+        });
     });
 });
