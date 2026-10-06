@@ -59,6 +59,8 @@ describe('sanitizeV4TelemetryProps — privacy allowlist', () => {
             attemptedProvider: 'transformers-js-v4',
             finalProvider: 'transformers-js-v4',
             fallbackProvider: null,
+            requestedCandidateId: 'v4:base:q4',
+            observedCandidateId: 'v2:base.en',
         };
         const out = sanitizeV4TelemetryProps(input);
         expect(out).toEqual(input);

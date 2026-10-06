@@ -66,6 +66,9 @@ import { assetRequestsFor, acquisitionScopeFor } from '../candidateAssetRequests
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
 import { receiptMatches, type AcquisitionAttempt, type AcquisitionReceipt } from '../acquisitionAttempt';
 import type { AcquisitionTrigger } from '../modelAcquisitionTelemetry';
+import {
+    decidePreStartFallback, ExplicitV4DowngradeRefusedError, FUTURE_V4_PRIMARY_POLICY,
+} from '../preStartFallbackPolicy';
 // Stale import removed
 
 declare global {
@@ -124,6 +127,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     protected serviceId: string = 'unknown';
     protected runId: string = 'unknown';
     private runtimePath: PrivateRuntimeDecision | null = null;
+    /** Frozen for this strategy instance; a take never changes model after initialization. */
+    private selectedCandidateId: CandidateId | null = null;
+    private takeStarted = false;
+    private failedInitializationCleanup = false;
     // True ONLY when the AUTO (flag) path successfully initialized v4. Gates the
     // decode-time fallback to v2-base; the strict explicit-override path never sets it.
 
@@ -272,6 +279,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected override async onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+        this.failedInitializationCleanup = false;
         const options = this.options as PrivateSTTInitOptions;
 
         this.serviceId = options.serviceId || 'unknown';
@@ -322,43 +330,116 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
         }
 
-        // DEFAULT (AUTO) PATH — on-device only. After the whisper-turbo (WebGPU)
-        // retirement, the auto path resolves to the configured CPU engine
-        // (transformers-js): never strand a user without on-device STT, and never
-        // silently send audio off-device (cloud is never a fallback). CPU is the
-        // product floor, so there is nothing safer to fall back to — if it fails,
-        // surface the error rather than loop.
+        // DEFAULT (AUTO) PATH — on-device only. The configured candidate selects the
+        // primary engine. The future v4-primary policy can use the named v2 candidate
+        // only if v4 preparation fails before Start; cloud is never a fallback.
         const autoEngine = await this.resolveAutoPrivateEngine(selectedEngine);
         logger.info({ sId: this.serviceId, rId: this.runId, provider: autoEngine, configured: selectedEngine, source: 'auto' }, '[PrivateSTT] Initializing auto-selected private provider');
         const initStart = performance.now();
-        // AN EXPLICITLY SELECTED CANDIDATE IS NEVER SUBSTITUTED.
-        //
-        // The v4 -> v2 fallback existed when v4 was a percentage rollout: a flagged user must not be
-        // stranded, and which model they got was not a claim anyone relied on. Selection is now a
-        // reviewed config decision, so substituting silently produces a v2 recording under the
-        // selected candidate's id — a comparison of distil against v2 would be v2 against v2, and the
-        // difference would be read as quality. The safety kill remains the way to move traffic to v2,
-        // and it is explicit and recorded as `remote_safety_kill`.
-        const explicitlySelected = this.runtimePath?.selectionSource === 'config'
-            || this.runtimePath?.selectionSource === 'runtime_switch';
-
+        // A programmatic forceEngine request has already taken the strict path above. For configured
+        // selection, the future policy permits only the named base-q4 -> v2 fallback before Start;
+        // distil and other candidates remain strict. The actual initialized candidate is recorded.
         const primary = await this.initSelectedEngine(autoEngine, timeoutMs, isMock);
         if (primary.isOk) {
+            if (this.runtimePath) {
+                this.runtimePath = {
+                    ...this.runtimePath,
+                    requestedCandidateId: this.selectedCandidateId ?? undefined,
+                    observedCandidateId: this.selectedCandidateId ?? undefined,
+                };
+                publishPrivateRuntimeDebug(this.runtimePath);
+            }
             this.emitV4FlagTelemetry(null, Math.round(performance.now() - initStart));
             return Result.ok(undefined);
         }
 
-        if (autoEngine === 'transformers-js-v4' && !explicitlySelected) {
-            logger.warn({ sId: this.serviceId, rId: this.runId, error: (primary as { error?: Error }).error }, '[PrivateSTT] v4 init failed; falling back to v2-base');
-            const fallback = await this.initSafeEngine(timeoutMs, isMock);
-            this.emitV4FlagTelemetry('v4_init_failed', Math.round(performance.now() - initStart));
-            return fallback.isOk ? Result.ok(undefined) : (fallback as Result<void, Error>);
+        if (autoEngine === 'transformers-js-v4' && this.failedInitializationCleanup) {
+            return {
+                isOk: false,
+                error: new Error('Private v4 initialization failed and its resources could not be confirmed released; v2 fallback was withheld.'),
+            };
+        }
+
+        if (autoEngine === 'transformers-js-v4') {
+            const requestedCandidateId = this.selectedCandidateId ?? effectiveCandidate().candidate.id;
+            const decision = decidePreStartFallback({
+                policy: FUTURE_V4_PRIMARY_POLICY,
+                requestedCandidateId,
+                cause: 'v4_init_failed',
+                takeStarted: this.takeStarted,
+                preparationCancelled: this.isTerminated,
+                strictExplicitRequest: false,
+            });
+            if (decision.useFallback) {
+                // Change the acquisition subject before starting the fallback load. The attempted v4
+                // failure remains in its own receipt; v2's load and saved identity name v2.
+                this.selectedCandidateId = decision.candidateId;
+                const fallback = await this.initSelectedEngine('transformers-js', timeoutMs, isMock);
+                if (fallback.isOk) {
+                    const current = this.runtimePath;
+                    if (current) {
+                        this.runtimePath = {
+                            ...current,
+                            provider: 'transformers-js',
+                            selectionSource: 'pre_start_fallback',
+                            requestedCandidateId: decision.fromCandidateId,
+                            observedCandidateId: decision.candidateId,
+                            fallbackReason: decision.cause,
+                            attemptedProvider: 'transformers-js-v4',
+                        };
+                        publishPrivateRuntimeDebug(this.runtimePath);
+                    }
+                    this.emitV4FlagTelemetry(decision.cause, Math.round(performance.now() - initStart),
+                        (primary as { error?: Error }).error?.name ?? null);
+                    (this.options as TranscriptionModeOptions).onStatusChange?.({
+                        type: 'fallback',
+                        message: 'Private v4 could not start. Using the Private v2 compatibility model for this take.',
+                    });
+                    return Result.ok(undefined);
+                }
+                // Preserve both failures so Retry can explain which engine failed without suggesting
+                // that an audio take was created on either one.
+                const fallbackError = (fallback as { error?: Error }).error;
+                const current = this.runtimePath;
+                if (current) {
+                    this.runtimePath = {
+                        ...current,
+                        requestedCandidateId: decision.fromCandidateId,
+                        observedCandidateId: undefined,
+                        fallbackReason: decision.cause,
+                        attemptedProvider: 'transformers-js-v4',
+                    };
+                    publishPrivateRuntimeDebug(this.runtimePath);
+                }
+                this.emitV4FlagTelemetry(decision.cause, Math.round(performance.now() - initStart),
+                    (primary as { error?: Error }).error?.name ?? null);
+                if (this.isTerminated) {
+                    return {
+                        isOk: false,
+                        error: new Error('Private v4 setup failed; the v2 compatibility fallback was cancelled before initialization.'),
+                    };
+                }
+                if (this.failedInitializationCleanup) {
+                    return {
+                        isOk: false,
+                        error: new Error('Private v4 setup failed; the v2 compatibility fallback failed and its resources could not be confirmed released.'),
+                    };
+                }
+                return {
+                    isOk: false,
+                    error: new Error(`Private v4 setup and the v2 compatibility fallback both failed (${(primary as { error?: Error }).error?.name ?? 'Error'} / ${fallbackError?.name ?? 'Error'}).`),
+                };
+            }
+            if (requestedCandidateId === FUTURE_V4_PRIMARY_POLICY.primaryCandidate &&
+                (this.takeStarted || this.isTerminated)) {
+                return { isOk: false, error: new ExplicitV4DowngradeRefusedError((primary as { error?: Error }).error) };
+            }
         }
 
         if (autoEngine === 'transformers-js-v4') {
             // Reported as a v4 failure, then surfaced. Silence here would look like a working session.
             logger.error({ sId: this.serviceId, rId: this.runId, error: (primary as { error?: Error }).error },
-                '[PrivateSTT] explicitly selected v4 failed to initialise; REFUSING to substitute v2-base');
+                '[PrivateSTT] v4 failed to initialise; no permitted pre-Start fallback was available');
             this.emitV4FlagTelemetry('v4_init_failed_no_substitution', Math.round(performance.now() - initStart));
         }
         return primary as Result<void, Error>;
@@ -396,6 +477,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // nothing else: no URL parameter, no localStorage key, no flag payload and no cohort reaches
         // this decision, and the kill can only ever force the v2 floor.
         const { candidate, fallbackCause } = effectiveCandidate();
+        this.selectedCandidateId = candidate.id;
 
         // A candidate that REQUIRES an accelerator is refused HERE, visibly, rather than being quietly
         // downgraded to WASM further down. A slow run recorded under the same candidate id would be
@@ -491,7 +573,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const d = this.runtimePath;
             // The decision records the ATTEMPTED provider, so this still fires when v4 was tried and
             // fell back to the v2 floor — which is the case most worth recording.
-            if (d?.provider !== 'transformers-js-v4') return;
+            const attemptedProvider = d?.attemptedProvider ?? d?.provider;
+            if (attemptedProvider !== 'transformers-js-v4') return;
             const variant = d?.v4Variant ?? null;
             const variantCfg = variant ? PRIV_STT_V4_VARIANTS[variant] : null;
             const payload = {
@@ -505,11 +588,13 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 selectedVariant: variant,
                 model: variantCfg?.MODEL_ID ?? null,
                 dtype: variantCfg ? JSON.stringify(variantCfg.DTYPE) : null,
-                requestedDevice: d?.provider === 'transformers-js-v4' ? 'webgpu' : 'cpu',
+                requestedDevice: 'cpu',
                 resolvedDevice: d?.runtime ?? null,
-                attemptedProvider: d?.provider ?? null,
+                attemptedProvider,
                 finalProvider: this._engineType ?? null,
                 fallbackProvider: fallbackReason ? (this._engineType ?? null) : null,
+                requestedCandidateId: d?.requestedCandidateId ?? this.selectedCandidateId,
+                observedCandidateId: d?.observedCandidateId ?? this.selectedCandidateId,
                 fallbackReason,
                 loadMs: loadMs ?? null,
                 errorClass: errorClass ?? null, // class name only — never message/stack (no PII)
@@ -532,7 +617,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 variant,
                 model: variantCfg?.MODEL_ID ?? null,
                 dtype: variantCfg ? JSON.stringify(variantCfg.DTYPE) : null,
-                requestedDevice: d?.provider === 'transformers-js-v4' ? 'webgpu' : 'cpu',
+                requestedDevice: 'cpu',
                 resolvedDevice: d?.runtime ?? null,
                 webgpuAvailable: d?.webgpuAvailable,
                 fallbackReason,
@@ -551,7 +636,14 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
     protected async onStart(mic?: MicStream, userWords: string[] = []): Promise<void> {
         if (this.engine) {
+            this.takeStarted = true;
             await this.engine.start(mic, userWords);
+            if (this.runtimePath?.selectionSource === 'pre_start_fallback') {
+                (this.options as TranscriptionModeOptions).onStatusChange?.({
+                    type: 'fallback',
+                    message: 'Recording with the Private v2 compatibility model.',
+                });
+            }
         }
     }
 
@@ -767,6 +859,11 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // lookups — and leaving it out systematically understated setup, in the flattering direction.
         const acquisitionStartedAt = performance.now();
         const cacheResult = await probeCache(this.acquisitionAssets);
+        // Disposal can race the asynchronous cache probe. Do not start a new model acquisition after
+        // the owning strategy has been cancelled while that probe was in flight.
+        if (this.isTerminated) {
+            return { isOk: false, error: new Error('Private engine initialization cancelled before model load') };
+        }
         // A SEPARATE clock for the DOWNLOAD window. `download_ms` is derived only from Resource Timing
         // and must not absorb probe time: cache inspection is not a download, and folding it in would
         // invent transfer duration out of a local lookup.
@@ -873,8 +970,11 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * are allowed to say plainly rather than paper over with a name.
      */
     private resolveAcquisitionCandidate(): Candidate | null {
+        if (this.selectedCandidateId) return CANDIDATES[this.selectedCandidateId] ?? null;
         try {
-            return effectiveCandidate().candidate;
+            const candidate = effectiveCandidate().candidate;
+            this.selectedCandidateId = candidate.id;
+            return candidate;
         } catch {
             return null;
         }
@@ -979,15 +1079,18 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      */
     private async initSafeEngine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
         const options = this.options as TranscriptionModeOptions;
+        let candidateEngine: IPrivateSTTEngine | null = null;
         try {
             // 1. Registry Lookup (Mocks)
             const factory = getEngine('transformers-js');
             if (factory) {
                 logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ TransformersJS resolved via Registry');
                 const engine = factory(options);
+                candidateEngine = engine as unknown as IPrivateSTTEngine;
                 validateEngine(engine);
                 const result = await engine.init(timeoutMs, isMock);
                 if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
+                    await this.disposeFailedInitialization(candidateEngine);
                     return { isOk: false, error: (result as { error: Error }).error };
                 }
                 this.engine = engine;
@@ -999,10 +1102,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production TransformersJS module...');
             const { TransformersJSEngine } = await import('./TransformersJSEngine');
             const engine = new TransformersJSEngine(options);
+            candidateEngine = engine as unknown as IPrivateSTTEngine;
             validateEngine(engine);
             const resultRaw = await engine.init(timeoutMs, isMock);
             const result = resultRaw as unknown as Record<string, unknown>;
             if (result && 'isOk' in result && result.isOk === false) {
+                await this.disposeFailedInitialization(candidateEngine);
                 return { isOk: false, error: result.error as Error };
             }
 
@@ -1010,6 +1115,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             this._engineType = 'transformers-js';
             return { isOk: true, data: 'transformers-js' as EngineType };
         } catch (error) {
+            await this.disposeFailedInitialization(candidateEngine);
             const e = error instanceof Error ? error : new Error(String(error));
             return { isOk: false, error: e };
         }
@@ -1020,14 +1126,17 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // into the engine via options. Override path (no resolver) defaults to base_q4.
         const variant = this.runtimePath?.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT;
         const options = { ...(this.options as TranscriptionModeOptions), v4Variant: variant } as TranscriptionModeOptions;
+        let candidateEngine: IPrivateSTTEngine | null = null;
         try {
             const factory = getEngine('transformers-js-v4');
             if (factory) {
                 logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🧪 TransformersJSV4 resolved via Registry');
                 const engine = factory(options);
+                candidateEngine = engine as unknown as IPrivateSTTEngine;
                 validateEngine(engine);
                 const result = await engine.init(timeoutMs, isMock);
                 if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
+                    await this.disposeFailedInitialization(candidateEngine);
                     return { isOk: false, error: (result as { error: Error }).error };
                 }
                 this.engine = engine as unknown as IPrivateSTTEngine;
@@ -1038,10 +1147,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production TransformersJSV4 module...');
             const { TransformersJSV4Engine } = await import('./TransformersJSV4Engine');
             const engine = new TransformersJSV4Engine(options);
+            candidateEngine = engine as unknown as IPrivateSTTEngine;
             validateEngine(engine);
             const resultRaw = await engine.init(timeoutMs, isMock);
             const result = resultRaw as unknown as Record<string, unknown>;
             if (result && 'isOk' in result && result.isOk === false) {
+                await this.disposeFailedInitialization(candidateEngine);
                 return { isOk: false, error: result.error as Error };
             }
 
@@ -1049,8 +1160,20 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             this._engineType = 'transformers-js-v4';
             return { isOk: true, data: 'transformers-js-v4' as EngineType };
         } catch (error) {
+            await this.disposeFailedInitialization(candidateEngine);
             const e = error instanceof Error ? error : new Error(String(error));
             return { isOk: false, error: e };
+        }
+    }
+
+    /** Release a partially initialized model before trying the explicitly named fallback. */
+    private async disposeFailedInitialization(engine: IPrivateSTTEngine | null): Promise<void> {
+        if (!engine) return;
+        try {
+            await engine.terminate?.();
+        } catch (error) {
+            this.failedInitializationCleanup = true;
+            logger.warn({ error }, '[PrivateSTT] Failed to dispose an engine after initialization failure');
         }
     }
 

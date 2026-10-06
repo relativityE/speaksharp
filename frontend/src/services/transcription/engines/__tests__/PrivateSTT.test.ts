@@ -415,6 +415,109 @@ describe('PrivateSTT (Routing Logic)', () => {
         }
     });
 
+    it('uses labelled v2 compatibility fallback when configured v4 base fails before Start', async () => {
+        globalThis.__TEST__ = false;
+        const v4Error = new Error('v4 weights unavailable');
+        mockV4Init.mockResolvedValueOnce({ isOk: false, error: v4Error });
+        const onStatusChange = vi.fn();
+
+        vi.resetModules();
+        vi.doMock('../../candidateSelection', async (importOriginal) => {
+            const actual = await importOriginal<typeof import('../../candidateSelection')>();
+            const { CANDIDATES } = await import('../../candidateRegistry');
+            return {
+                ...actual,
+                effectiveCandidate: () => ({ candidate: CANDIDATES['v4:base:q4'], fallbackCause: null }),
+            };
+        });
+        try {
+            await setupStrictZero();
+            const { sttRegistry } = await import('../../STTRegistry');
+            sttRegistry.register('transformers-js', (options) => new StubTJ(options));
+            sttRegistry.register('transformers-js-v4', (options) => new StubV4(options));
+
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({
+                onTranscriptUpdate: vi.fn(), onReady: vi.fn(), onStatusChange,
+            });
+            const result = await pstt.init();
+
+            expect(result.isOk).toBe(true);
+            expect(mockV4Init).toHaveBeenCalledOnce();
+            expect(mockTJInit).toHaveBeenCalledOnce();
+            expect(pstt.getEngineType()).toBe('transformers-js');
+            expect(pstt.getMetadata().candidateId).toBe('v2:base.en');
+            expect(pstt.getRuntimePath()).toMatchObject({
+                selectionSource: 'pre_start_fallback',
+                requestedCandidateId: 'v4:base:q4',
+                observedCandidateId: 'v2:base.en',
+                fallbackReason: 'v4_init_failed',
+                attemptedProvider: 'transformers-js-v4',
+                provider: 'transformers-js',
+            });
+            expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({
+                type: 'fallback',
+                message: expect.stringContaining('v2 compatibility model'),
+            }));
+
+            await pstt.start();
+            expect(pstt.getEngineType()).toBe('transformers-js');
+            expect(pstt.getRuntimePath()?.observedCandidateId).toBe('v2:base.en');
+            expect(onStatusChange).toHaveBeenLastCalledWith(expect.objectContaining({
+                type: 'fallback',
+                message: 'Recording with the Private v2 compatibility model.',
+            }));
+        } finally {
+            vi.doUnmock('../../candidateSelection');
+            vi.resetModules();
+        }
+    });
+
+    it('surfaces a failed v2 fallback without claiming either model initialized', async () => {
+        globalThis.__TEST__ = false;
+        mockV4Init.mockResolvedValueOnce({ isOk: false, error: new Error('v4 init failed') });
+        mockTJInit.mockResolvedValueOnce({ isOk: false, error: new Error('v2 init failed') });
+        const onStatusChange = vi.fn();
+
+        vi.resetModules();
+        vi.doMock('../../candidateSelection', async (importOriginal) => {
+            const actual = await importOriginal<typeof import('../../candidateSelection')>();
+            const { CANDIDATES } = await import('../../candidateRegistry');
+            return {
+                ...actual,
+                effectiveCandidate: () => ({ candidate: CANDIDATES['v4:base:q4'], fallbackCause: null }),
+            };
+        });
+        try {
+            await setupStrictZero();
+            const { sttRegistry } = await import('../../STTRegistry');
+            sttRegistry.register('transformers-js', (options) => new StubTJ(options));
+            sttRegistry.register('transformers-js-v4', (options) => new StubV4(options));
+
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({
+                onTranscriptUpdate: vi.fn(), onReady: vi.fn(), onStatusChange,
+            });
+            const result = await pstt.init();
+
+            expect(result.isOk).toBe(false);
+            if (result.isOk) throw new Error('Expected both configured primary and fallback initialization to fail');
+            expect(result.error.message).toContain('both failed');
+            expect(mockV4Init).toHaveBeenCalledOnce();
+            expect(mockTJInit).toHaveBeenCalledOnce();
+            expect(pstt.getRuntimePath()).toMatchObject({
+                requestedCandidateId: 'v4:base:q4',
+                observedCandidateId: undefined,
+                fallbackReason: 'v4_init_failed',
+                attemptedProvider: 'transformers-js-v4',
+            });
+            expect(onStatusChange).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'fallback' }));
+        } finally {
+            vi.doUnmock('../../candidateSelection');
+            vi.resetModules();
+        }
+    });
+
     it('contract: does not fall back to a non-configured registry provider when configured provider is absent', async () => {
         await setupStrictZero();
         const { sttRegistry } = await import('../../STTRegistry');
