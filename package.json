@@ -260,7 +260,7 @@
       "glob": ">=10.5.0",
       "basic-ftp": "^5.2.0",
       "protobufjs": "^7.5.5",
-      "shell-quote": ">=1.8.4",
+      "shell-quote": ">=1.11.0",
       "@huggingface/transformers>onnxruntime-web": "1.27.0"
     },
     "auditConfig": {
