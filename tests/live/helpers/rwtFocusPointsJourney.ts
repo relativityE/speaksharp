@@ -59,7 +59,7 @@ import {
     entitlementRow,
     runOwnedIdentityFailures,
     type FixtureKey,
-    type RunTarget,
+    type RunTarget, readCoachingFailureReason,
 } from './rwtJourney';
 
 const JOURNEY = 'focus_points';
@@ -133,7 +133,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     await suppressPageSnapshot(testInfo);
     // #1258: the coaching request as sent (its product marker only) and every coaching request of the journey —
     // Analytics must never request coaching again.
-    const coaching: { product: string | null; status: number | null; requests: number; acceptedVersions: unknown } = { product: null, status: null, requests: 0, acceptedVersions: null };
+    const coaching: { product: string | null; status: number | null; requests: number; acceptedVersions: unknown; reason: string | null; reasonRead: Promise<void> | null } = { product: null, status: null, requests: 0, acceptedVersions: null, reason: null, reasonRead: null };
     page.on('request', (request) => {
         if (!request.url().includes('/functions/v1/get-ai-suggestions') || request.method() !== 'POST') return;
         coaching.requests += 1;
@@ -144,7 +144,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         } catch { coaching.product = null; coaching.acceptedVersions = null; }
     });
     page.on('response', (response) => {
-        if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') coaching.status = response.status();
+        if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
+            coaching.status = response.status();
+            // #1258: a failed generation names its closed, content-free reason in the receipt.
+            if (response.status() >= 400) coaching.reasonRead = readCoachingFailureReason(response).then((r) => { coaching.reason = r; });
+        }
     });
     let savedCoaching: SavedCoaching | null = null;
 
@@ -365,6 +369,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // ── Row 11 (continued) — the Focus Points coaching pair after Stop ─────────────────────────────────
         await test.step('row 11 — Focus Points coaching after Stop', async () => {
             if (!persistedId) { receipt.row('Focus coaching rendered', 'HOLD', 'no saved session'); return; }
+            // focusCoachingRows settles the reason after its own terminal wait (Codex r4189408865).
             savedCoaching = await focusCoachingRows(page, receipt, admin as never, persistedId, owner.uid, coaching);
         });
 

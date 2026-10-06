@@ -48,6 +48,67 @@ export const RWT_ACCOUNT_PREFIX = 'rwt-journey-';
 export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
+/**
+ * #1258 — the closed failure reasons `get-ai-suggestions` returns in its 502 body. Read so a failed coaching row names its
+ * cause in the receipt itself. Anything outside the closed set reads 'unrecognized', so no free text enters the receipt.
+ */
+export const COACHING_FAILURE_REASONS = [
+    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'missing_text', 'invalid_shape',
+    'over_character_ceiling', 'missing_model_version',
+] as const;
+export function coachingFailureReason(body: unknown): string | null {
+    const reason = body && typeof body === 'object' ? (body as { reason?: unknown }).reason : undefined;
+    if (reason === undefined || reason === null) return null;
+    return typeof reason === 'string' && (COACHING_FAILURE_REASONS as readonly string[]).includes(reason) ? reason : 'unrecognized';
+}
+
+/**
+ * #1258 (Codex r4188372882 / r4188372897) — read a failed coaching response's closed reason as a PROMISE the spec
+ * awaits before writing the receipt row. A Playwright listener does not await what it returns, so a fire-and-forget
+ * parse could still be pending when the row is written, and a named reason would be receipted as null. Never throws:
+ * a body that is not JSON (an intermediary's HTML error page) reads 'unrecognized', inside the closed contract.
+ */
+/**
+ * #1258 (Codex r4189408872) — which side of the 8-10-word band the out-of-band phrase(s) fall on, so the receipt text
+ * never contradicts its own word counts ("over" for a 3-word phrase did).
+ */
+export function bandSide(well: number, next: number, min: number, max: number): 'below' | 'above' | 'below and above' {
+    const below = well < min || next < min;
+    const above = well > max || next > max;
+    return below && above ? 'below and above' : below ? 'below' : 'above';
+}
+
+export async function readCoachingFailureReason(response: { json(): Promise<unknown> }): Promise<string | null> {
+    try {
+        return coachingFailureReason(await response.json());
+    } catch {
+        return 'unrecognized';
+    }
+}
+
+/**
+ * Receipt-side value for a failure reason whose read did not settle within the bound (PM 6003371116): explicitly
+ * UNKNOWN, a HOLD for classification — never `null`, which would claim the response carried no reason.
+ */
+export const COACHING_REASON_UNKNOWN = 'unknown';
+
+/**
+ * Wait for a pending reason read, bounded so a body that never completes cannot hold the receipt. Returns whether the
+ * read SETTLED: `false` means the caller must record COACHING_REASON_UNKNOWN, not a confirmed absence.
+ */
+export async function settleCoachingReason(pending: Promise<unknown> | null | undefined, boundMs = 5_000): Promise<boolean> {
+    if (!pending) return true;
+    return Promise.race([
+        pending.then(() => true, () => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), boundMs)),
+    ]);
+}
+
+/** #1258 (PO 2026-10-02) — the Edge coaching contract's SOFT word target per phrase: measured, never a failure. */
+const COACHING_PHRASE_TARGET_WORDS = 10;
+/** #1258 (Codex r4188372867): the target is ABOUT 8-10 words; a shorter phrase is not within it. */
+const COACHING_PHRASE_TARGET_MIN_WORDS = 8;
+
 export type FixtureKey = 'open_mic_tts' | 'focus_points_tts' | 'focus_points_partial_tts';
 
 const FIXTURE_DIR = fileURLToPath(new URL('../../fixtures/rwt/', import.meta.url));
@@ -1192,7 +1253,7 @@ const OMISSION_CLAIM = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t 
 
 /**
  * #1258 (runbook v12 Product 2 row 5) — the Focus Points coaching pair after Stop, as the person sees it. The same
- * contract as Open Mic (two distinct phrases ≤ 6 words, visible = saved, server receipt) plus the Focus rules: the
+ * contract as Open Mic (two distinct phrases (about 8–10 words: a soft target), visible = saved, server receipt) plus the Focus rules: the
  * request is marked focus_points, and neither phrase claims a point was missed or skipped. Relevance to the chosen
  * points stays a human judgement (HOLD). Text is compared in Node and returned only for the Analytics comparison.
  */
@@ -1202,12 +1263,15 @@ export async function focusCoachingRows(
     admin: SupabaseClient,
     sessionId: string,
     uid: string,
-    request: { product: string | null; status: number | null; acceptedVersions?: unknown },
+    request: { product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null },
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
     const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
         .toMatch(/^(ready|error|empty)$/).then(() => true).catch(() => false);
     const state = await card.getAttribute('data-review-state').catch(() => null);
+    // The failure response arrives during the terminal wait above, so its reason is settled HERE, after that wait and
+    // before any row is written (Codex r4189408865). A read still pending at the bound is UNKNOWN, never `null`.
+    if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;
     const phrase = async (headings: readonly string[]): Promise<string> => {
         for (const heading of headings) {
             const title = card.getByRole('heading', { name: heading, exact: true });
@@ -1221,14 +1285,17 @@ export async function focusCoachingRows(
     const two = terminal && state === 'ready' && well !== '' && next !== '';
     receipt.row('Focus coaching rendered', two ? 'PASS' : 'FAIL',
         two ? 'two coaching phrases rendered after Stop without any click' : `coaching did not render (state=${String(state)}, http=${String(request.status)})`,
-        { reviewState: state, httpStatus: request.status });
+        { reviewState: state, httpStatus: request.status, failureReason: request.reason ?? null });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
     if (!two) return null;
-    const within = countWords(well) <= 6 && countWords(next) <= 6;
-    receipt.row('Focus coaching length', within ? 'PASS' : 'FAIL', within ? 'both phrases within 6 words' : 'a phrase exceeds 6 words',
-        { wellWords: countWords(well), nextWords: countWords(next) });
+    const inTarget = (n: number) => n >= COACHING_PHRASE_TARGET_MIN_WORDS && n <= COACHING_PHRASE_TARGET_WORDS;
+    const withinTarget = inTarget(countWords(well)) && inTarget(countWords(next));
+    receipt.row('Focus coaching length', 'PASS',
+        withinTarget ? `both phrases within the ${COACHING_PHRASE_TARGET_MIN_WORDS}-${COACHING_PHRASE_TARGET_WORDS}-word target`
+            : `served whole; a phrase is outside the ${COACHING_PHRASE_TARGET_MIN_WORDS}-${COACHING_PHRASE_TARGET_WORDS}-word band (${bandSide(countWords(well), countWords(next), COACHING_PHRASE_TARGET_MIN_WORDS, COACHING_PHRASE_TARGET_WORDS)}; a quality measure, not a failure)`,
+        { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
     const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
     receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');
     const claims = OMISSION_CLAIM.test(well) || OMISSION_CLAIM.test(next);

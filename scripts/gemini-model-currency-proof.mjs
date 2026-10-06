@@ -23,23 +23,26 @@ const COACHING_FIELDS = ['what_worked', 'what_to_try_next'];
 const EXPECTED_MODEL = 'gemini-3.6-flash';
 const EXPECTED_VERSION = 'gemini_coaching_v1';
 const EXPECTED_REQUEST_CAP = 10;
-const EXPECTED_WORD_BUDGET = 6;
-const EXPECTED_SCHEMA_MAX_LENGTH = 90;
+/** PO 2026-10-02: a SOFT length target — asked for in the prompt and measured, never a validity rule. */
+const EXPECTED_WORD_TARGET = 10;
+/** #1258 (Codex r4188372867): the target is ABOUT 8-10 words; shorter is not within it. Mirrors the Edge COACHING_WORD_TARGET_MIN. */
+const EXPECTED_WORD_TARGET_MIN = 8;
+const EXPECTED_SCHEMA_MAX_LENGTH = 240;
 
 const exactKeys = (value, expected) => JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
 const words = (value) => value.trim().split(/\s+/).filter(Boolean).length;
 
 export function validateContract(contract) {
   if (!contract || typeof contract !== 'object' || Array.isArray(contract)) throw new Error('contract must be an object');
-  if (!exactKeys(contract, ['model', 'version', 'uncachedGenerationCapPerUtcDay', 'wordBudget', 'generationConfig', 'promptTemplate'])) {
+  if (!exactKeys(contract, ['model', 'version', 'uncachedGenerationCapPerUtcDay', 'wordTarget', 'generationConfig', 'promptTemplate'])) {
     throw new Error(`unexpected contract keys: ${JSON.stringify(Object.keys(contract).sort())}`);
   }
   if (contract.model !== EXPECTED_MODEL) throw new Error(`model must be ${EXPECTED_MODEL}`);
   if (contract.version !== EXPECTED_VERSION) throw new Error(`version must be ${EXPECTED_VERSION}`);
   if (contract.uncachedGenerationCapPerUtcDay !== EXPECTED_REQUEST_CAP) throw new Error(`uncached generation cap must be ${EXPECTED_REQUEST_CAP}`);
-  if (!contract.wordBudget || !exactKeys(contract.wordBudget, COACHING_FIELDS)) throw new Error('word budget must define exactly the two coaching fields');
+  if (!contract.wordTarget || !exactKeys(contract.wordTarget, COACHING_FIELDS)) throw new Error('word target must define exactly the two coaching fields');
   for (const field of COACHING_FIELDS) {
-    if (contract.wordBudget[field] !== EXPECTED_WORD_BUDGET) throw new Error(`${field} word budget must be ${EXPECTED_WORD_BUDGET}`);
+    if (contract.wordTarget[field] !== EXPECTED_WORD_TARGET) throw new Error(`${field} word target must be ${EXPECTED_WORD_TARGET}`);
   }
 
   const config = contract.generationConfig;
@@ -73,7 +76,8 @@ export function validateContract(contract) {
   }
   const unknownMarkers = contract.promptTemplate.match(/\{\{[^}]+\}\}/g)?.filter((marker) => !['{{TRANSCRIPT}}', '{{METRICS}}'].includes(marker)) ?? [];
   if (unknownMarkers.length) throw new Error(`unknown prompt markers: ${JSON.stringify(unknownMarkers)}`);
-  if (!contract.promptTemplate.includes('AT MOST 6 words')) throw new Error('prompt does not state the six-word budget');
+  // The request to the AI service carries our word budget (PO 2026-10-02), as the contract's number.
+  if (!contract.promptTemplate.includes(`about 8-${EXPECTED_WORD_TARGET} words each`)) throw new Error(`prompt does not ask for about 8-${EXPECTED_WORD_TARGET} words`);
   return contract;
 }
 
@@ -120,12 +124,15 @@ export function validateProviderBody(bodyText, contract) {
   const wordCounts = {};
   for (const field of COACHING_FIELDS) {
     if (typeof parsed[field] !== 'string' || !parsed[field].trim()) return { valid: false, reason: `${field} was blank or non-string` };
-    wordCounts[field] = words(parsed[field]);
-    if (wordCounts[field] > contract.wordBudget[field]) {
-      return { valid: false, reason: `${field} exceeded ${contract.wordBudget[field]} words`, word_counts: wordCounts };
+    // The one size rule is the generous character ceiling; word count is measured, never a refusal (PO 2026-10-02).
+    const ceiling = contract.generationConfig.responseSchema.properties[field].maxLength;
+    if (parsed[field].trim().length > ceiling) {
+      return { valid: false, reason: `${field} exceeded the ${ceiling}-character ceiling` };
     }
+    wordCounts[field] = words(parsed[field]);
   }
-  return { valid: true, word_counts: wordCounts, parsed, model_version: envelope.modelVersion };
+  const withinTarget = COACHING_FIELDS.every((field) => wordCounts[field] >= EXPECTED_WORD_TARGET_MIN && wordCounts[field] <= contract.wordTarget[field]);
+  return { valid: true, word_counts: wordCounts, within_target: withinTarget, parsed, model_version: envelope.modelVersion };
 }
 
 /**
@@ -140,7 +147,7 @@ const FIXTURE_VALID = {
   what_to_try_next: 'End with one dated commitment.',
 };
 const FIXTURE_REFUSALS = [
-  ['over the word budget', { ...FIXTURE_VALID, what_to_try_next: 'one two three four five six seven' }],
+  ['over the character ceiling', { ...FIXTURE_VALID, what_to_try_next: 'word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w' }],
   ['a blank coaching field', { ...FIXTURE_VALID, what_worked: '   ' }],
   ['an extra key', { ...FIXTURE_VALID, extra: true }],
   ['a wrong response version', { ...FIXTURE_VALID, version: 'wrong' }],

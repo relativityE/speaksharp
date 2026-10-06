@@ -50,7 +50,7 @@ export const LOCKED_GEMINI_CONTRACT = Object.freeze({
   quotaScope: 'user_utc_day',
   whatWorkedItems: 1,
   whatToImproveItems: 1,
-  maxWhitespaceWordsPerPhrase: 6,
+  targetWhitespaceWordsPerPhrase: 10,
   cachedResultsReadable: true,
 });
 
