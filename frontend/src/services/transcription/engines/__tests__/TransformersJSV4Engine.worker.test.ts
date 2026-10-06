@@ -162,8 +162,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
         const result = await engine.init();
 
         expect(result.isOk).toBe(false);
-        expect(fakeWorkerInstances[0]?.postMessage).not.toHaveBeenCalled();
-        expect(fakeWorkerInstances[0]?.terminate).toHaveBeenCalled();
+        expect(fakeWorkerInstances).toHaveLength(0);
     });
 
     it('refuses evaluator selection when the remote safety kill forces v2', async () => {
@@ -177,8 +176,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
         const result = await engine.init();
 
         expect(result.isOk).toBe(false);
-        expect(fakeWorkerInstances[0]?.postMessage).not.toHaveBeenCalled();
-        expect(fakeWorkerInstances[0]?.terminate).toHaveBeenCalled();
+        expect(fakeWorkerInstances).toHaveLength(0);
     });
 
     it('refuses an evaluator candidate whose loaded v4 variant differs', async () => {
@@ -191,8 +189,23 @@ describe('TransformersJSV4Engine worker message contract', () => {
         const result = await engine.init();
 
         expect(result.isOk).toBe(false);
-        expect(fakeWorkerInstances[0]?.postMessage).not.toHaveBeenCalled();
-        expect(fakeWorkerInstances[0]?.terminate).toHaveBeenCalled();
+        expect(fakeWorkerInstances).toHaveLength(0);
+    });
+
+    it('refuses evaluator selection when the browser cannot use the worker path', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        (globalThis as { Worker?: unknown }).Worker = undefined;
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(false);
+        expect((result as { isOk: false; error: Error }).error.message).toContain('worker path');
+        expect(mockPipeline).not.toHaveBeenCalled();
+        expect(fakeWorkerInstances).toHaveLength(0);
     });
 
     it('contract: init resolves when the v4 worker responds with ready', async () => {

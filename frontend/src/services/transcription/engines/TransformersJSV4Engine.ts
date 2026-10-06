@@ -174,7 +174,22 @@ export class TransformersJSV4Engine extends STTEngine {
         }
 
         try {
-            if (this.shouldUseWorker()) {
+            const useWorker = this.shouldUseWorker();
+            const evaluatorCandidateId = (this.options as { evaluatorCandidateId?: string })?.evaluatorCandidateId;
+            if (evaluatorCandidateId) {
+                const selected = effectiveCandidate({
+                    candidate: evaluatorCandidateId,
+                    acknowledgeNotProductionReady: true,
+                }).candidate;
+                if (selected.id !== evaluatorCandidateId || selected.model.id !== v4Model.MODEL_ID ||
+                    v4VariantFor(selected) !== variant) {
+                    throw new Error('evaluator candidate, loaded v4 variant, or safety selection differs');
+                }
+                // The evaluator's acquisition and resolved-backend evidence comes from the worker.
+                // Refuse the main-thread fallback instead of loading an unverified arm.
+                if (!useWorker) throw new Error('evaluator v4 candidate requires the worker path');
+            }
+            if (useWorker) {
                 await this.initWorker(isMock, v4Model);
                 options.onModelLoadProgress?.(100);
                 this.updateHeartbeat();
