@@ -458,7 +458,7 @@ test.describe('#1437 — Practice Loop journey on canonical Production', () => {
                     timeout: 180_000,
                     message: 'the review must reach a terminal state on its own',
                 })
-                .toMatch(/^(ready|error|empty)$/);
+                .toMatch(/^(ready|error|empty|blocked)$/);
 
             /*
              * TERMINAL OUTCOMES COME FROM TELEMETRY, NOT THE DOM (Codex `3996845164`). The previous head

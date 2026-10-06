@@ -3,6 +3,7 @@ import { render, screen, cleanup, waitFor } from '../../../../tests/support/test
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import AISuggestions from '@/components/session/AISuggestions';
+import { deriveReviewState } from '@/components/session/reviewState';
 import { OnDeviceCountsContext } from '@/components/session/onDeviceCounts';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 
@@ -467,6 +468,58 @@ describe('AISuggestions Integration', () => {
 
             rerender(<AISuggestions transcript="Hello world" canReview sessionId="s-later" />);
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+        });
+
+        // #1258 (RWT run 37514078995, F4): the journey read `empty` ~20 ms before the automatic request started, recorded
+        // "coaching did not render" and navigated away. Every state the card publishes is recorded here, so a transient
+        // `empty` during save or request start fails the test, not only a wrong final state.
+        const recordStates = () => {
+            const seen: string[] = [];
+            const push = () => {
+                const v = screen.queryByTestId('ai-suggestions-card')?.getAttribute('data-review-state') ?? null;
+                if (v && seen[seen.length - 1] !== v) seen.push(v);
+            };
+            push();
+            const observer = new MutationObserver(push);
+            observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-review-state'], childList: true });
+            return { seen, stop: () => { push(); observer.disconnect(); } };
+        };
+
+        it('CASUALTY F4: while the session is still saving (not reviewable) the card is `pending`, never `empty`', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            render(<AISuggestions transcript="Hello world" canReview={false} sessionId="s-saving" />);
+            await new Promise((r) => setTimeout(r, 30));
+            expect(card()).toHaveAttribute('data-review-state', 'pending');
+        });
+
+        it('a stated reason that no review can be requested is `blocked` (settled), not `pending`', () => {
+            render(<AISuggestions transcript="Hello world" canReview={false} sessionId="s-block" blockedReason="We could not check them." />);
+            expect(card()).toHaveAttribute('data-review-state', 'blocked');
+        });
+
+        it('CASUALTY F4: a DELAYED save goes pending → loading → ready and never publishes `empty` on the way', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            const states = recordStates();
+            const { rerender } = render(<AISuggestions transcript="Hello world" canReview={false} sessionId="s-delayed" />);
+            await new Promise((r) => setTimeout(r, 30));
+            rerender(<AISuggestions transcript="Hello world" canReview sessionId="s-delayed" />);
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'ready'));
+            states.stop();
+            expect(states.seen).not.toContain('empty');
+            expect(states.seen[0]).toBe('pending');
+            expect(states.seen[states.seen.length - 1]).toBe('ready');
+        });
+
+        it('CASUALTY F4: reviewable at mount — request start never exposes a settled-looking state before the answer', async () => {
+            let answer: (v: unknown) => void = () => undefined;
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise((r) => { answer = r; }));
+            const states = recordStates();
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-start" />);
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'loading'));
+            answer(ok);
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'ready'));
+            states.stop();
+            expect(states.seen.filter((s) => !['pending', 'loading', 'ready'].includes(s))).toEqual([]);
         });
 
         it('does not fire twice while the first request is still in flight', async () => {
@@ -1304,5 +1357,27 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         await waitFor(() => expect(vi.mocked(trackPracticeLoopReviewFailed).mock.calls.length).toBe(1));
 
         expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
+    });
+});
+
+/**
+ * #1258 (F4; Consultant review): every combination of the inputs that decide the published review state. Only a returned
+ * request (`ready` / `error`) or a stated block settles the card; no combination may publish `empty`.
+ */
+describe('deriveReviewState — exhaustive', () => {
+    const bools = [false, true];
+    const combos = bools.flatMap((isLoading) => bools.flatMap((retrying) => bools.flatMap((error) => bools.flatMap((hasSuggestions) =>
+        bools.flatMap((reviewReady) => bools.map((blocked) => ({ isLoading, retrying, error, hasSuggestions, reviewReady, blocked })))))));
+    const expected = (c: (typeof combos)[number]) => (c.isLoading || c.retrying ? 'loading' : c.error ? 'error' : c.hasSuggestions ? 'ready'
+        : !c.reviewReady && c.blocked ? 'blocked' : 'pending');
+    it.each(combos)('%o', (c) => {
+        expect(deriveReviewState(c)).toBe(expected(c));
+    });
+    it('covers all 64 combinations and never publishes a settled-looking `empty`', () => {
+        expect(combos).toHaveLength(64);
+        expect(new Set(combos.map((c) => deriveReviewState(c)))).toEqual(new Set(['loading', 'error', 'ready', 'blocked', 'pending']));
+    });
+    it('CASUALTY F4 (Consultant counterexample): eligible, request not yet issued, nothing loading, no suggestions → pending', () => {
+        expect(deriveReviewState({ isLoading: false, retrying: false, error: false, hasSuggestions: false, reviewReady: true, blocked: false })).toBe('pending');
     });
 });

@@ -1289,7 +1289,7 @@ export async function focusCoachingRows(
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
     const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
-        .toMatch(/^(ready|error|empty)$/).then(() => true).catch(() => false);
+        .toMatch(/^(ready|error|empty|blocked)$/).then(() => true).catch(() => false);
     const state = await card.getAttribute('data-review-state').catch(() => null);
     // The failure response arrives during the terminal wait above, so its reason is settled HERE, after that wait and
     // before any row is written (Codex r4189408865). A read still pending at the bound is UNKNOWN, never `null`.
