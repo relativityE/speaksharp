@@ -9,6 +9,9 @@
 import { describe, it, expect } from 'vitest';
 import { practiceArrivalVerdict, feedbackOutcomeVerdict } from '../live/helpers/rwtOracles';
 import { OUTCOME_FIELDS } from '../live/helpers/rwtJourney';
+import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 const press = (seq: number, action = 'open_session', intended = 'session', link = 'direct') =>
     ({ event: 'saved_review_practice_action', fields: { action, action_seq: seq, intended_route: intended, link_state: link } });
@@ -112,5 +115,39 @@ describe('#1258 OUTCOME_FIELDS keeps only closed, governed keys', () => {
     it('captures exactly the keys the oracles read — no ids, routes, text or provider detail', () => {
         const all = Object.values(OUTCOME_FIELDS).flat();
         expect(all.every((k) => /^(action|action_seq|intended_route|link_state|route_class|outcome|submit_seq|error_category)$/.test(k))).toBe(true);
+    });
+});
+
+/**
+ * #1258 (#1563, Codex r4197420116) — the correlation proof belongs to EVERY RWT journey that exercises the action, not to
+ * Open Mic alone: a journey that presses Practice again must require the sent press→arrival row and declare the received
+ * `practice_again` binding; a journey that shares feedback must require the sent feedback-outcome row.
+ */
+describe('every RWT journey that presses Practice again proves its correlation (Codex r4197420116)', () => {
+    const PRESS_ROW = 'Practice again press → arrival (sent)';
+    const FEEDBACK_ROW = 'feedback outcome (sent)';
+    const product = (suite: string) => requiredAutomatedRows(suite)?.product ?? [];
+
+    it('the acceptance inventory requires the press→arrival row of Open Mic and both Focus fixtures', () => {
+        for (const suite of ['open-mic-first-session', 'focus-points-session', 'focus-points-partial']) {
+            expect({ suite, requires: product(suite).includes(PRESS_ROW) }).toEqual({ suite, requires: true });
+        }
+    });
+    it('the feedback-outcome row is required exactly where Share Feedback runs (Open Mic, full Focus), never of the partial probe', () => {
+        expect(product('open-mic-first-session')).toContain(FEEDBACK_ROW);
+        expect(product('focus-points-session')).toContain(FEEDBACK_ROW);
+        expect(product('focus-points-partial')).not.toContain(FEEDBACK_ROW);
+    });
+    it('SOURCE CONTRACT: each live journey that calls practiceAgainEvidence declares practiceAgain: true and writes the row', () => {
+        const live = resolve(__dirname, '../live');
+        const files = [...readdirSync(live).map((f) => join(live, f)), ...readdirSync(join(live, 'helpers')).map((f) => join(live, 'helpers', f))]
+            .filter((f) => f.endsWith('.ts') && !f.endsWith('rwtJourney.ts'));
+        const pressing = files.filter((f) => /practiceAgainEvidence\(/.test(readFileSync(f, 'utf8')));
+        expect(pressing.length).toBeGreaterThanOrEqual(2);
+        for (const f of pressing) {
+            const src = readFileSync(f, 'utf8');
+            expect({ file: f, bindsPracticeAgain: /bindReadbackJourneys\([\s\S]*?practiceAgain:\s*true/.test(src), writesRow: src.includes(`'${PRESS_ROW}'`) })
+                .toEqual({ file: f, bindsPracticeAgain: true, writesRow: true });
+        }
     });
 });
