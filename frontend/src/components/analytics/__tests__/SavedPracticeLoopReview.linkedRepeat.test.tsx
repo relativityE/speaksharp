@@ -143,6 +143,22 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(loadProgress.mock.calls.length).toBe(calls + 1)); // the retry re-reads progress
     });
 
+    it.each([
+        ['an error view with its read diagnostic', () => loadProgress.mockResolvedValue({ status: 'error', sessionId: 's1', message: 'x',
+            diagnostic: { stage: 'history_prior', code: 'PGRST201' } }), { stage: 'history_prior', code: 'PGRST201' }],
+        ['a thrown read', () => loadProgress.mockRejectedValue(new Error('Could not embed sessions')), { stage: 'query', code: 'threw' }],
+        ['an error view without a diagnostic', () => loadProgress.mockResolvedValue({ status: 'error', sessionId: 's1', message: 'x' }),
+            { stage: 'none', code: 'none' }],
+    ])('#1258 F3: %s is named on the state and the press by closed stage/code only, and still never navigates', async (_label, arrange, progressRead) => {
+        arrange();
+        renderReview();
+        await waitFor(() => expect(practiceState).toHaveBeenLastCalledWith(expect.objectContaining({ linkState: 'error', progressRead })));
+        fireEvent.click(action());
+        expect(practiceAction).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'refetch_progress', progressRead }));
+        expect(navigate).not.toHaveBeenCalled();
+        expect(JSON.stringify([practiceState.mock.calls, practiceAction.mock.calls])).not.toMatch(/embed|sessions/i);
+    });
+
     it('CASUALTY (PM cycle 2): eligible WITHOUT a recommendation fails closed — error + retry, never a direct open', async () => {
         loadProgress.mockResolvedValue({ status: 'eligible', sessionId: 's1', recommendationId: null });
         renderReview();

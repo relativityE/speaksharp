@@ -11,6 +11,8 @@ let currentError: unknown = null;
 let currentSession: Record<string, unknown> | null = { created_at: '2026-08-03T12:00:00Z' };
 let priorSessions: Record<string, unknown>[] = [];
 let priorError: unknown = null;
+/** Only the prior-history LIST read (not the current session's own row) fails with this. */
+let priorListError: unknown = null;
 let chronologyRows: Record<string, unknown>[] = [];
 let priorOrFilters: string[] = [];
 let sessionsSelects: string[] = [];
@@ -68,7 +70,7 @@ function query(table: string) {
     };
     chain.then = (resolve: (value: unknown) => void) => resolve(table === 'sessions'
         ? state.embedError ? { data: null, error: state.embedError }
-            : { data: state.inMode ? chronologyRows : priorSessions, error: priorError }
+            : { data: state.inMode ? chronologyRows : priorSessions, error: state.inMode ? priorError : priorListError ?? priorError }
         : { data: state.inMode ? references : null, error: null });
     return chain;
 }
@@ -85,7 +87,7 @@ const ev = (session_id: string, over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
     current = null; references = []; recommendation = rec('rec-default'); recommendationError = null; attempt = null; currentError = null;
-    currentSession = { created_at: '2026-08-03T12:00:00Z' }; priorSessions = []; priorError = null; from.mockClear();
+    currentSession = { created_at: '2026-08-03T12:00:00Z' }; priorSessions = []; priorError = null; priorListError = null; from.mockClear();
     chronologyRows = [
         { id: 's0', created_at: '2026-08-03T10:00:00Z' },
         { id: 's1', created_at: '2026-08-03T11:00:00Z' },
@@ -298,6 +300,28 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(view).toMatchObject({ status: 'eligible', comparison: 'baseline', recommendationId: 'rec-default' });
         const historySelect = sessionsSelects.find((columns) => columns.includes('session_progress_evaluations'));
         expect(historySelect).toBe('id, session_progress_evaluations!session_progress_evaluations_session_id_fkey!inner(cohort_key)');
+    });
+
+    it('#1258 F3: a refused history read names its stage and allowlisted code — never the database message', async () => {
+        current = ev('s2');
+        priorListError = {
+            code: 'PGRST201', message: "Could not embed because more than one relationship was found for 'sessions' and 'session_progress_evaluations'",
+            details: [{ relationship: 'session_progress_evaluations_baseline_session_id_fkey using sessions(id) and session_progress_evaluations(baseline_session_id)' }],
+            hint: "Try changing 'session_progress_evaluations' to 'session_progress_evaluations!session_progress_evaluations_session_id_fkey'",
+        };
+        const view = await loadSessionProgress('s2');
+        expect(view).toEqual({ status: 'error', sessionId: 's2', message: 'Comparison history could not be verified.',
+            diagnostic: { stage: 'history_prior', code: 'PGRST201' } });
+        expect(JSON.stringify(view)).not.toMatch(/embed|relationship|fkey|baseline_session_id/);
+    });
+
+    it.each([
+        ['current_evaluation', () => { currentError = { code: '42501', message: 'permission denied for table session_progress_evaluations' }; }, '42501'],
+        ['history_session', () => { current = ev('s2'); priorError = { code: '', message: 'TypeError: fetch failed' }; }, 'network'],
+        ['recommendation', () => { current = ev('s2'); recommendationError = { code: 'XX000', message: 'internal error near row 7' }; }, 'other'],
+    ] as const)('#1258 F3: a failed %s read is named with code %s', async (stage, arrange, code) => {
+        arrange();
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'error', diagnostic: { stage, code } });
     });
 
     it('fails closed when server chronology cannot be verified', async () => {

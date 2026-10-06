@@ -2,6 +2,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import { hasCompleteEligibleProgressEvidence, PROGRESS_FORMULA_VERSION, type ExclusionReason, type ProgressEvaluation } from './buildProgressEvaluation';
 import { describeDirection, buildTakeaways, type DirectionResult, type Takeaways } from './progressPresentation';
 import { reconcileProgressRecommendation } from './recordProgress';
+import { progressReadDiagnostic, type ProgressReadDiagnostic } from './progressReadDiagnostic';
 
 export type ProgressAttemptView = {
     id: string;
@@ -39,8 +40,9 @@ export interface ProgressDisclosure {
 export type SessionProgressResult =
     | { status: 'insufficient'; sessionId: string }
     | { status: 'ineligible'; sessionId: string; reasons: ExclusionReason[] }
-    | { status: 'unavailable'; sessionId: string; message: string }
-    | { status: 'error'; sessionId: string; message: string }
+    | { status: 'unavailable'; sessionId: string; message: string; diagnostic?: ProgressReadDiagnostic }
+    // #1258 F3: which read failed and how, as closed codes only (progressReadDiagnostic.ts).
+    | { status: 'error'; sessionId: string; message: string; diagnostic?: ProgressReadDiagnostic }
     | {
         status: 'eligible';
         sessionId: string;
@@ -110,7 +112,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         .eq('formula_version', PROGRESS_FORMULA_VERSION)
         .maybeSingle();
 
-    if (currentError) return { status: 'error', sessionId, message: 'Progress could not be loaded.' };
+    if (currentError) return { status: 'error', sessionId, message: 'Progress could not be loaded.', diagnostic: progressReadDiagnostic('current_evaluation', currentError) };
     if (!currentData) return { status: 'insufficient', sessionId };
     const currentRow = currentData as EvalRow;
     if (!currentRow.eligible) {
@@ -128,7 +130,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
             .select(EVAL_FIELDS)
             .eq('formula_version', PROGRESS_FORMULA_VERSION)
             .in('session_id', referenceIds);
-        if (error || !data) return { status: 'error', sessionId, message: 'Progress comparisons could not be loaded.' };
+        if (error || !data) return { status: 'error', sessionId, message: 'Progress comparisons could not be loaded.', diagnostic: progressReadDiagnostic('reference_evaluations', error) };
         references = data as EvalRow[];
     }
 
@@ -139,7 +141,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
             .from('sessions')
             .select('id, created_at')
             .in('id', chronologyIds);
-        if (error || !data) return { status: 'error', sessionId, message: 'Comparison chronology could not be verified.' };
+        if (error || !data) return { status: 'error', sessionId, message: 'Comparison chronology could not be verified.', diagnostic: progressReadDiagnostic('chronology', error) };
         const chronologyCounts = new Map<string, number>();
         for (const row of data as Array<{ id: string; created_at: string | null }>) {
             chronologyCounts.set(row.id, (chronologyCounts.get(row.id) ?? 0) + 1);
@@ -195,7 +197,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
             .eq('id', sessionId)
             .maybeSingle();
         if (sessionError || !(sessionRow as { created_at?: string } | null)?.created_at) {
-            return { status: 'error', sessionId, message: 'Comparison history could not be verified.' };
+            return { status: 'error', sessionId, message: 'Comparison history could not be verified.', diagnostic: progressReadDiagnostic('history_session', sessionError) };
         }
         const createdAt = (sessionRow as { created_at: string }).created_at;
         const { data: priorRows, error: priorError } = await supabase
@@ -210,7 +212,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
             .eq('session_progress_evaluations.eligible', true)
             .neq('session_progress_evaluations.cohort_key', currentRow.cohort_key)
             .limit(1);
-        if (priorError || !priorRows) return { status: 'error', sessionId, message: 'Comparison history could not be verified.' };
+        if (priorError || !priorRows) return { status: 'error', sessionId, message: 'Comparison history could not be verified.', diagnostic: progressReadDiagnostic('history_prior', priorError) };
         comparison = priorRows.length > 0 ? 'restarted' : 'baseline';
     }
 
@@ -220,7 +222,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         .eq('source_session_id', sessionId)
         .eq('formula_version', PROGRESS_FORMULA_VERSION)
         .maybeSingle();
-    if (recError) return { status: 'error', sessionId, message: 'Your next action could not be loaded.' };
+    if (recError) return { status: 'error', sessionId, message: 'Your next action could not be loaded.', diagnostic: progressReadDiagnostic('recommendation', recError) };
     let recommendationRow = rec as RecommendationRow | null;
     let recommendationId = recommendationRow?.id ?? null;
     if (!recommendationId) {
@@ -235,7 +237,8 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
             .eq('formula_version', PROGRESS_FORMULA_VERSION)
             .maybeSingle();
         if (recoveredError || !recovered) {
-            return { status: 'unavailable', sessionId, message: 'Your next action is not available yet. Retry to check again.' };
+            return { status: 'unavailable', sessionId, message: 'Your next action is not available yet. Retry to check again.',
+                diagnostic: progressReadDiagnostic('recommendation_readback', recoveredError) };
         }
         recommendationRow = recovered as RecommendationRow;
     }
@@ -259,7 +262,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
             .order('accepted_at', { ascending: false })
             .limit(1)
             .maybeSingle();
-        if (attemptError) return { status: 'error', sessionId, message: 'Your repeat outcome could not be loaded.' };
+        if (attemptError) return { status: 'error', sessionId, message: 'Your repeat outcome could not be loaded.', diagnostic: progressReadDiagnostic('latest_attempt', attemptError) };
         latestAttempt = (attempt as ProgressAttemptView | null) ?? null;
     }
 

@@ -49,6 +49,7 @@ vi.mock('@/lib/supabaseClient', () => ({
 vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ user: { id: USER } }) }));
 const { loadSessionProgress } = await import('../../frontend/src/services/progress/loadSessionProgress');
 const { useLinkedRepeat } = await import('../../frontend/src/hooks/useLinkedRepeat');
+const { progressReadDiagnostic } = await import('../../frontend/src/services/progress/progressReadDiagnostic');
 
 /** The embed the shipped service sends, read from its source so this proof cannot drift from the code under test. */
 const SHIPPED_SELECT = /\.select\('(id, session_progress_evaluations[^']*)'\)/.exec(readFileSync(
@@ -56,12 +57,14 @@ const SHIPPED_SELECT = /\.select\('(id, session_progress_evaluations[^']*)'\)/.e
 
 const session = (id: string, user: string, createdAt: string) =>
     `INSERT INTO public.sessions VALUES ('${id}', '${user}', '${createdAt}');`;
-const evaluation = (sessionId: string, user: string, cohort: string, refs: { baseline?: string } = {}) => `
+type ReferenceColumn = 'baseline_session_id' | 'previous_comparable_session_id';
+const evaluation = (sessionId: string, user: string, cohort: string, refs: Partial<Record<ReferenceColumn, string>> = {}) => `
     INSERT INTO public.session_progress_evaluations (user_id, session_id, formula_version, duration_seconds, word_count,
         clarity_evidence_available, engine, engine_version, model_name, attribution_status, eligible, clarity_raw,
-        filler_count, error_marker_count, wpm, cohort_key, baseline_session_id)
+        filler_count, error_marker_count, wpm, cohort_key, baseline_session_id, previous_comparable_session_id)
     VALUES ('${user}', '${sessionId}', 'clarity_v1', 60, 120, true, 'private', 'v2', 'base', 'verified', true, 84,
-        3, 0, 130, '${cohort}', ${refs.baseline ? `'${refs.baseline}'` : 'NULL'});`;
+        3, 0, 130, '${cohort}', ${refs.baseline_session_id ? `'${refs.baseline_session_id}'` : 'NULL'},
+        ${refs.previous_comparable_session_id ? `'${refs.previous_comparable_session_id}'` : 'NULL'});`;
 const recommendation = (sessionId: string, user: string) => `
     INSERT INTO public.progress_recommendations (id, user_id, source_session_id, formula_version, target_metric,
         target_direction, target_value, target_units, source_metric_value, shown_text)
@@ -100,6 +103,10 @@ describe('#1258 F3 Progress history through real PostgREST under the migration-d
         // PostgREST lists every candidate relationship; the shipped embed must be one it offers, verbatim.
         const offered = JSON.stringify([error?.hint, error?.details]);
         expect(offered).toContain('session_progress_evaluations_session_id_fkey');
+        // The real refusal is recorded as closed codes only; none of the server's wording survives.
+        const diagnostic = progressReadDiagnostic('history_prior', error);
+        expect(diagnostic).toEqual({ stage: 'history_prior', code: 'PGRST201' });
+        expect(JSON.stringify(diagnostic)).not.toMatch(/embed|relationship|fkey/i);
         expect(SHIPPED_SELECT).toBe('id, session_progress_evaluations!session_progress_evaluations_session_id_fkey!inner(cohort_key)');
     });
 
@@ -115,14 +122,26 @@ describe('#1258 F3 Progress history through real PostgREST under the migration-d
     });
 
     it('an earlier eligible session in ANOTHER cohort restarts the comparison (the timestamp filter crosses HTTP intact)', async () => {
+        // Discriminating in the other direction too: nothing REFERENCES EARLIER, so a join through baseline/previous
+        // would find no prior session and wrongly report a first-ever baseline.
         sql(evaluation(EARLIER, USER, OTHER_COHORT));
         await expect(loadSessionProgress(CURRENT)).resolves.toMatchObject({ status: 'eligible', comparison: 'restarted' });
     });
 
-    it('the history joins each prior session to its OWN evaluation, never to one that merely references it', async () => {
-        // EARLIER has no evaluation of its own; a LATER, other-cohort evaluation names it as a baseline. Joined through
-        // the baseline relationship this would read as a prior other-cohort session ("restarted"); it is not one.
-        sql(`${evaluation(LATER, USER, OTHER_COHORT, { baseline: EARLIER })}`);
+    it.each(['baseline_session_id', 'previous_comparable_session_id'] as const)(
+        'a session referenced ONLY through %s is not history: each prior session joins to its own evaluation', async (column) => {
+            // EARLIER has no evaluation of its own; a LATER, other-cohort evaluation names it through `column`. Joined
+            // through that relationship it would read as a prior other-cohort session ("restarted"); it is not one.
+            sql(evaluation(LATER, USER, OTHER_COHORT, { [column]: EARLIER }));
+            expect(sql(`SELECT count(*) FROM public.session_progress_evaluations WHERE ${column} = '${EARLIER}'`)).toBe('1');
+            expect(sql(`SELECT count(*) FROM public.session_progress_evaluations WHERE session_id = '${EARLIER}'`)).toBe('0');
+            await expect(loadSessionProgress(CURRENT)).resolves.toMatchObject({ status: 'eligible', comparison: 'baseline' });
+        });
+
+    it('an INELIGIBLE earlier evaluation is not history: the eligibility filter survives the embed', async () => {
+        sql(`INSERT INTO public.session_progress_evaluations (user_id, session_id, formula_version, duration_seconds, word_count,
+                clarity_evidence_available, eligible, exclusion_reasons)
+             VALUES ('${USER}', '${EARLIER}', 'clarity_v1', 5, 3, false, false, '{too_few_words}');`);
         await expect(loadSessionProgress(CURRENT)).resolves.toMatchObject({ status: 'eligible', comparison: 'baseline' });
     });
 

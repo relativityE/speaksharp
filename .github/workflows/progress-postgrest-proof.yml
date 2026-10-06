@@ -9,6 +9,7 @@ on:
   pull_request:
     paths:
       - 'frontend/src/services/progress/loadSessionProgress.ts'
+      - 'frontend/src/services/progress/progressReadDiagnostic.ts'
       - 'frontend/src/hooks/useLinkedRepeat.ts'
       - 'backend/supabase/migrations/20260731120000_session_progress_evaluations.sql'
       - 'backend/supabase/migrations/20260731130000_progress_recommendations.sql'
