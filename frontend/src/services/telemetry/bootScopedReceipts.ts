@@ -121,6 +121,15 @@ export function bootScopedReceiptFamilies(
  * replaces carried a comment claiming "a rule expressed only in SQL cannot be driven by a casualty"
  * and then left the rule in SQL, where two successive defects hid.
  */
+/**
+ * #1258 (RWT run 37514078995, F1): the readback MUST bound and order its own result. Without a LIMIT the PostHog query API
+ * applies its default row cap and returns an arbitrary subset (no ORDER BY) — that run's identity needed 187 rows, and whole
+ * journeys read as "never observed" although PostHog held them. The explicit cap is far above one run's volume; a result
+ * that REACHES it is truncated and HOLDs (`readbackTruncated`), because an incomplete answer can never prove absence.
+ */
+export const READBACK_ROW_LIMIT = 10_000;
+export const readbackTruncated = (rowCount: number): boolean => rowCount >= READBACK_ROW_LIMIT;
+
 export function buildReadbackQuery(params: {
     windowHours: number;
     releaseSha: string;
@@ -182,6 +191,8 @@ export function buildReadbackQuery(params: {
           AND properties.traffic_type = ${quote(trafficType)}
           AND distinct_id = ${quote(qualifyingIdentity)}
           AND event IN (${governedList})
+        ORDER BY timestamp ASC
+        LIMIT ${READBACK_ROW_LIMIT}
     `;
 }
 

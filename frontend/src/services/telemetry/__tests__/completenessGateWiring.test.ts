@@ -231,6 +231,16 @@ describe('#1259 completeness gate wiring', () => {
             .toEqual({ transports: 1, sharedHelper: true });
     });
 
+    // #1258 (RWT run 37514078995, F1): an answer the query API cut short read as "never observed".
+    it('CASUALTY F1: a truncated answer HOLDs — the shared transport refuses hasMore, and the readback refuses a full cap', () => {
+        const src = readFileSync(join(REPO, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+        const transport = src.slice(src.indexOf('async function runQuery('), src.indexOf('return rows;', src.indexOf('async function runQuery(')));
+        expect({
+            hasMoreHolds: /\.hasMore === true\) hold\(/.test(transport),
+            capHolds: /if \(readbackTruncated\(rows\.length\)\) hold\(/.test(src),
+        }).toEqual({ hasMoreHolds: true, capHolds: true });
+    });
+
     it('CASUALTY: received-vendor rows preserve cardinality and name the delivery boundary', () => {
         // The former caller collapsed rows through `new Set(...)`, which proved only that a family was
         // present. Two singleton receipts looked identical to one, and a missing page-load receipt had

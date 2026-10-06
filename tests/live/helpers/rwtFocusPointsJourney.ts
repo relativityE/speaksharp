@@ -60,6 +60,8 @@ import {
     runOwnedIdentityFailures,
     type FixtureKey,
     type RunTarget, readCoachingFailureReason,
+    sentVerdict,
+    sentDetail,
 } from './rwtJourney';
 
 const JOURNEY = 'focus_points';
@@ -447,8 +449,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         });
     } finally {
         const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
-        receipt.row('coverage_evaluation sent', tap.sent('coverage_evaluation').length > 0 ? 'PASS' : 'FAIL',
-            'the coverage evaluation left the page (sent, not yet received)', { sent: tap.sent('coverage_evaluation').length });
+        const coverageSeen = tap.sent('coverage_evaluation').length > 0;
+        receipt.row('coverage_evaluation sent', sentVerdict(coverageSeen, tap),
+            sentDetail('the coverage evaluation left the page (sent, not yet received)', coverageSeen, tap), { sent: tap.sent('coverage_evaluation').length, blindBeacons: tap.blindBeacons });
         // The Focus review's coaching receipts (the readback's Focus stage now requires the coaching card's rendered
         // receipt, not only the rail's) and the PM's inventory events. SENT here; RECEIVED = the PostHog readback.
         const focusTelemetry = {
@@ -457,15 +460,17 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             productsMenuOpened: tap.sent('products_menu_opened').length,
             savedReviewRevisited: tap.sent('saved_review_revisited').length,
         };
-        receipt.row('Focus coaching telemetry sent', focusTelemetry.reviewRendered > 0 ? 'PASS' : 'FAIL',
-            'the coaching review rendered receipt left the page (sent; received = session_after_focus_points readback)', focusTelemetry);
+        const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
+        receipt.row('Focus coaching telemetry sent', sentVerdict(focusCoachingSeen, tap),
+            sentDetail('the coaching review rendered receipt left the page (sent; received = session_after_focus_points readback)', focusCoachingSeen, tap), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
         // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
         const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
-        receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : 'FAIL',
+        receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : generationsForFirstTake === 0 && tap.blindBeacons > 0 ? 'HOLD' : 'FAIL',
             generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none' : 'the generation count is not exactly one for this take',
             { reviewRequested: generationsForFirstTake });
-        receipt.row('inventory events sent', focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
-            'products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusTelemetry);
+        const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
+        receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap),
+            sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
         // #1258 (#1563, Codex r4197420116): Focus presses Practice again too, so it proves the same correlation Open Mic does —
         // each press reached its intended route (same boot + action_seq) — and, in the full run that shares feedback, each
         // attempt resolved (same boot + submit_seq). Sent here; received is the `practice_again` / `share_feedback` readback.

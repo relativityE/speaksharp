@@ -41,6 +41,8 @@ import { evaluateAttemptScopedDelivery } from '../frontend/src/services/telemetr
 import {
     bootScopedReceiptFamilies,
     buildReadbackQuery,
+    READBACK_ROW_LIMIT,
+    readbackTruncated,
     resolveBootAuthority,
     stageEvidenceRows,
 } from '../frontend/src/services/telemetry/bootScopedReceipts';
@@ -204,6 +206,9 @@ async function main(): Promise<void> {
         // Not an array means the API shape changed under us. Treating an unreadable answer as an empty
         // one would report "nothing was emitted" for what is really "we cannot read the answer".
         if (!Array.isArray(rows)) hold(`${label} response had no results array — the shape is not what we decode`);
+        // #1258 (RWT run 37514078995, F1): the query API marks a result it cut short. A truncated answer is not an
+        // absence — reading it as one reported whole journeys as "never observed" while PostHog held them.
+        if ((payload as { hasMore?: unknown }).hasMore === true) hold(`${label} was truncated by the query API (hasMore) — an incomplete answer cannot prove absence`);
         return rows;
     }
 
@@ -292,6 +297,7 @@ async function main(): Promise<void> {
     });
 
     const rows = await runQuery(query, 'the readback');
+    if (readbackTruncated(rows.length)) hold(`the readback reached its explicit row limit (${READBACK_ROW_LIMIT}) — the result may be truncated, so absence cannot be proven`);
 
     // Deliberately unsanitised: the evaluator's own contract is that it receives whatever the readback
     // saw, junk included, because a decoder that tidies its input cannot report that the input was wrong.

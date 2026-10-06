@@ -86,6 +86,8 @@ import {
     entitlementRow,
     runOwnedIdentityFailures,
     type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
+    sentVerdict,
+    sentDetail,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 
@@ -648,8 +650,9 @@ test.describe('RWT — Open Mic first session @live', () => {
             Object.assign(receipt.meta, diag.snapshot());
             // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
             const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
-            receipt.row('telemetry sent', tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0 ? 'PASS' : 'FAIL',
-                'session_saved and feedback_submit left the page (sent, not yet received)',
+            const telemetrySeen = tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0;
+            receipt.row('telemetry sent', sentVerdict(telemetrySeen, tap),
+                sentDetail('session_saved and feedback_submit left the page (sent, not yet received)', telemetrySeen, tap),
                 { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length });
             // #1258 (#1563 closure): the outcome telemetry must CORRELATE, not merely be sent — each Practice-again press
             // reached its intended route (same action_seq), and each Share Feedback attempt resolved (same submit_seq).
@@ -671,9 +674,9 @@ test.describe('RWT — Open Mic first session @live', () => {
                 reviewRenderedStage: reviewRendered,
             };
             const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
-            receipt.row('coaching telemetry sent', coachingSent ? 'PASS' : 'FAIL',
+            receipt.row('coaching telemetry sent', sentVerdict(coachingSent, tap),
                 coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
-                    : 'a coaching outcome event did not leave the page', coachingEvents);
+                    : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap), { ...coachingEvents, blindBeacons: tap.blindBeacons });
             // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
             // RECEIVED is the deployed PostHog readback for this journey.
             const inventory = {
@@ -682,11 +685,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                 savedReviewRevisited: tap.sent('saved_review_revisited').length,
                 reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
             };
-            receipt.row('inventory events sent', inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
-                'products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventory);
+            const inventorySeen = inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0;
+            receipt.row('inventory events sent', sentVerdict(inventorySeen, tap),
+                sentDetail('products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventorySeen, tap), { ...inventory, blindBeacons: tap.blindBeacons });
             // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
             const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
-            receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : 'FAIL',
+            receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : generationsForFirstTake === 0 && tap.blindBeacons > 0 ? 'HOLD' : 'FAIL',
                 generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none'
                     : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake });
             // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
