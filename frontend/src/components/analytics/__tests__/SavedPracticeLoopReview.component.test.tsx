@@ -11,11 +11,15 @@ vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
 const PRACTICE_NAV = { state: { practiceActionSeq: expect.any(Number) } };
 const accept = vi.fn(async (after: () => void) => { after(); });
 let recommendationId: string | null = null;
+// Codex r4195165663: a refetch that FAILS after an earlier success — TanStack keeps the old data and sets isError.
+let cachedView: { status: string } | undefined;
+let queryIsError = false;
 vi.mock('@/hooks/useLinkedRepeat', () => ({
     // A settled progress answer: `linked` when an eligible recommendation exists, else a terminal `direct`. The
     // pending/error/single-flight paths run against the REAL hook in SavedPracticeLoopReview.linkedRepeat.test.tsx.
     useLinkedRepeat: () => ({
-        recommendationId, linkState: recommendationId ? 'linked' : 'direct', query: { refetch: vi.fn(), isFetching: false },
+        recommendationId, linkState: queryIsError ? 'error' : recommendationId ? 'linked' : 'direct', view: cachedView,
+        query: { refetch: vi.fn(), isFetching: false, isPending: false, isError: queryIsError },
         accept, accepting: false, actionError: null, retryBlocked: false,
     }),
 }));
@@ -37,7 +41,7 @@ const { SavedPracticeLoopReview } = await import('../SavedPracticeLoopReview');
 const PAIR = { kind: 'review' as const, review: { whatWorked: 'Opening definition landed clearly.', whatToTryNext: 'Name point three before point two.' } };
 const base: SavedSessionReview = { coaching: PAIR, product: 'open_mic', evidence: ['6.2 filler words a minute, above your target.'], focusBrief: null, focusPoints: [] };
 
-beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); revisited.mockReset(); practiceSelected.mockReset(); practiceAction.mockReset(); practiceState.mockReset(); recommendationId = null; });
+beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); revisited.mockReset(); practiceSelected.mockReset(); practiceAction.mockReset(); practiceState.mockReset(); recommendationId = null; cachedView = undefined; queryIsError = false; });
 
 describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
     // #1538 (Codex P1 r4117321439, PM 5860714332): an old generic pair on a Focus take is never shown as its Focus review.
@@ -185,6 +189,15 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
             await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
             expect(practiceAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'accept_linked', actionSeq: 1 }));
             expect(navigate).toHaveBeenCalledWith('/session', { state: { practiceActionSeq: 1 } });
+        });
+
+        it('Codex r4195165663: a FAILED refetch records read_error — never the stale cached status the page no longer trusts', async () => {
+            cachedView = { status: 'eligible' };
+            queryIsError = true;
+            load.mockResolvedValue(base);
+            render(<SavedPracticeLoopReview sessionId="s1" />);
+            fireEvent.click(await screen.findByTestId('saved-review-practice'));
+            expect(practiceAction).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'refetch_progress', linkState: 'error', progressStatus: 'read_error' }));
         });
 
         it('the recorded target matches the navigation: Focus without its set → open_focus_setup; unknown → open_practice', async () => {

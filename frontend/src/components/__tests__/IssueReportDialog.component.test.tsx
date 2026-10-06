@@ -796,6 +796,8 @@ describe('#1258 Share Feedback outcome names its cause and links to its attempt'
     submit.mockRejectedValue({ code: '42501', message: 'new row violates row-level security policy' });
     await send();
     await screen.findByText('That didn’t go through. Try again?');
+    // Codex r4195165652: exactly ONE outcome per Send — the dialog is the single feedback_submit emitter.
+    expect(submits()).toHaveLength(2);
     const [attempted, failed] = submits();
     expect(attempted).toMatchObject({ outcome: 'attempted', submit_seq: 1 });
     expect(failed).toMatchObject({ outcome: 'storage_failed', error_category: 'rls_denied', submit_seq: 1, acknowledgement_visible: true });

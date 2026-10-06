@@ -69,11 +69,12 @@ describe('#1258 Share Feedback through real PostgREST under the migration-define
         expect(count()).toBe(0);
     });
 
-    it('GREEN — first send stores ONE row linked to the owned session; storage_ok is emitted without content', async () => {
+    it('GREEN — first send stores ONE row linked to the owned session; the storage layer emits no feedback outcome or content', async () => {
         await expect(send(randomUUID())).resolves.toEqual({ id: null });
         expect(count()).toBe(1);
         expect(count(`session_id = '${OWN_SESSION}'`)).toBe(1);
-        expect(emitted.filter((e) => e.event === 'feedback_submit').map((e) => e.props.outcome)).toEqual(['storage_ok']);
+        // Codex r4195165652: the dialog is the single feedback_submit emitter; the storage layer sends none.
+        expect(emitted.filter((e) => e.event === 'feedback_submit')).toEqual([]);
         expect(JSON.stringify(emitted)).not.toContain(BODY);
     });
 
@@ -99,7 +100,7 @@ describe('#1258 Share Feedback through real PostgREST under the migration-define
     it('ownership: a report claiming ANOTHER sender is refused by RLS (failure, nothing stored)', async () => {
         await expect(send(randomUUID(), { userId: OTHER })).rejects.toMatchObject({ code: '42501' });
         expect(count()).toBe(0);
-        expect(emitted.filter((e) => e.event === 'feedback_submit').map((e) => e.props.outcome)).toEqual(['storage_failed']);
+        expect(emitted.filter((e) => e.event === 'feedback_submit')).toEqual([]);
     });
 
     it('ownership: a link to a session the sender does not own is dropped, the report kept', async () => {
@@ -142,19 +143,19 @@ describe('#1258 Share Feedback through real PostgREST under the migration-define
         expect(wire).not.toMatch(/permission denied|row-level|duplicate key|fetch failed|user_issue_reports|ECONNREFUSED/i);
     };
 
-    it('PERMISSION failure — no JWT (anon): refused, nothing stored, storage_failed with no content', async () => {
+    it('PERMISSION failure — no JWT (anon): refused, nothing stored, no storage-layer outcome and no content', async () => {
         current = client(null);
         const key = randomUUID();
         await expect(send(key)).rejects.toBeTruthy();
         expect(count()).toBe(0);
-        expect(outcomes()).toEqual(['storage_failed']);
+        expect(outcomes()).toEqual([]);
         sanitized(key);
     });
 
-    it('PERMISSION failure — RLS (another sender): storage_failed with no content', async () => {
+    it('PERMISSION failure — RLS (another sender): refused; no storage-layer outcome and no content', async () => {
         const key = randomUUID();
         await expect(send(key, { userId: OTHER })).rejects.toMatchObject({ code: '42501' });
-        expect(outcomes()).toEqual(['storage_failed']);
+        expect(outcomes()).toEqual([]);
         sanitized(key);
     });
 
@@ -163,15 +164,15 @@ describe('#1258 Share Feedback through real PostgREST under the migration-define
         const key = randomUUID();
         await expect(send(key)).rejects.toBeTruthy();
         expect(count()).toBe(0);
-        expect(outcomes()).toEqual(['storage_failed']);
+        expect(outcomes()).toEqual([]);
         sanitized(key);
     });
 
-    it('success and replay telemetry carry no content either', async () => {
+    it('success and replay send no storage-layer outcome and no content', async () => {
         const key = randomUUID();
         await send(key);
         await send(key);
-        expect(outcomes()).toEqual(['storage_ok', 'storage_ok']);
+        expect(outcomes()).toEqual([]);
         sanitized(key);
     });
 });

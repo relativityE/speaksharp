@@ -100,8 +100,10 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
         const actionSeq = Math.min(100, ++actionSeqRef.current);
         const reviewState: PracticeReviewState = !review ? 'loading'
             : review.reviewReadFailed ? 'read_failed' : review.focusReadFailed ? 'focus_read_failed' : 'loaded';
-        const progressStatus: PracticeProgressStatus = repeat.view?.status
-            ?? (repeat.query.isPending ? 'loading' : repeat.query.isError ? 'read_error' : 'unknown');
+        // Query state FIRST (Codex r4195165663): a failed refetch keeps the old data and sets isError, and the page then
+        // shows "Try again" — recording the stale cached status would misstate what it currently knows.
+        const progressStatus: PracticeProgressStatus = repeat.query.isPending ? 'loading'
+            : repeat.query.isError ? 'read_error' : (repeat.view?.status ?? 'unknown');
         const record = (action: PracticeActionTaken) => trackSavedReviewPracticeAction({
             product: review?.product ?? 'unknown', linkState: repeat.linkState, reviewState, progressStatus, action, actionSeq,
             intendedRoute: action === 'accept_linked' ? routeClass(productTarget())
