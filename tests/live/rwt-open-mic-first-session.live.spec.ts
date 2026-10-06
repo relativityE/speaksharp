@@ -88,6 +88,7 @@ import {
     type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
     sentVerdict,
     sentDetail,
+    exactCountVerdict,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 
@@ -226,6 +227,8 @@ test.describe('RWT — Open Mic first session @live', () => {
         let persistedId: string | null = null;
         // The take's own generation count, snapshotted before the Practice-again pass records more takes.
         let generationsForTake: number | null = null;
+        // Codex r4200925124: when the generation count was snapshotted — the end of its blind-beacon window.
+        let generationsAt = 0;
         // #1532 Codex P1 r4124290575: sent-stream windows around each take's Start, so the takes are identified by the Start the
         // page sent (takeStartedAfter), independently of whether their saves arrive.
         let firstTakeFrom = 0;
@@ -627,6 +630,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Practice again through the rendered controls: Analytics → take → the review's own repeat (#1533) ───
             await test.step('Practice again — Analytics action, then the completed review\'s repeat action', async () => {
                 generationsForTake = tap.sent('practice_loop_review_requested').length;
+                generationsAt = Date.now();
                 if (!persistedId) {
                     practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null });
                     await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', []);
@@ -693,9 +697,11 @@ test.describe('RWT — Open Mic first session @live', () => {
                 sentDetail('products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventorySeen, tap, inventoryFrom), { ...inventory, blindBeacons: tap.blindBeacons });
             // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
             const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
-            receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : generationsForFirstTake === 0 && sentVerdict(false, tap, stoppedAt) === 'HOLD' ? 'HOLD' : 'FAIL',
-                generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none'
-                    : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake });
+            const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
+            receipt.row('revisit is not a generation', generationVerdict,
+                generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none'
+                    : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); the received readback decides'
+                        : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
             // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
             // "analytics detail shows both AI suggestions").
             const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));

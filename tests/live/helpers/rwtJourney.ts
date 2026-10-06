@@ -495,6 +495,19 @@ export function sentDetail(detail: string, allSeen: boolean, tap: BlindTimes, si
         : `${detail} — not seen, but ${blind} PostHog beacon(s) sent after this step carried a body the browser does not expose; the received readback decides`;
 }
 
+/**
+ * #1258 (#1570, Codex r4200925124) — an EXACT-count "sent" claim (e.g. "the Analytics revisit generated no second review")
+ * is proven only when no beacon that could carry an extra event was blind. Counted between `fromMs` (the step that starts
+ * the window, e.g. Stop) and `toMs` (when the count was snapshotted): an observed EXTRA is definitive (FAIL); the expected
+ * count — or fewer — with an in-window blind beacon is unproven (HOLD); the expected count with every body exposed PASSes.
+ */
+export function exactCountVerdict(count: number, expected: number, tap: BlindTimes, fromMs: number, toMs: number): 'PASS' | 'FAIL' | 'HOLD' {
+    if (count > expected) return 'FAIL';
+    const blind = tap.blindAt.filter((t) => t >= fromMs && t <= toMs).length;
+    if (blind > 0) return 'HOLD';
+    return count === expected ? 'PASS' : 'FAIL';
+}
+
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
 export class AnalyticsTap {
     readonly events: SentEvent[] = [];

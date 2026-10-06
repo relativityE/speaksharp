@@ -62,6 +62,7 @@ import {
     type RunTarget, readCoachingFailureReason,
     sentVerdict,
     sentDetail,
+    exactCountVerdict,
 } from './rwtJourney';
 
 const JOURNEY = 'focus_points';
@@ -166,6 +167,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     // that step's events. Declared here because the rows run in `finally`, outside the steps' scope.
     let rowsStoppedAt = 0;
     let focusInventoryFrom = 0;
+    let rowsGenerationsAt = 0;
     try {
         await test.step('account — sign up, canary claim (if authorized), sign back in', async () => {
             await page.goto('/auth/signup');
@@ -434,6 +436,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // ── Practice again through the rendered controls: Analytics → the same set → the review's Retry (#1533) ──
         await test.step('Practice again — Analytics action, then the completed review\'s Retry this set', async () => {
             generationsForTake = tap.sent('practice_loop_review_requested').length;
+            rowsGenerationsAt = Date.now();
             if (!persistedId) {
                 practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null });
                 await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', []);
@@ -471,9 +474,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             sentDetail('the coaching review rendered receipt left the page (sent; received = session_after_focus_points readback)', focusCoachingSeen, tap, rowsStoppedAt), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
         // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
         const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
-        receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : generationsForFirstTake === 0 && sentVerdict(false, tap, rowsStoppedAt) === 'HOLD' ? 'HOLD' : 'FAIL',
-            generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none' : 'the generation count is not exactly one for this take',
-            { reviewRequested: generationsForFirstTake });
+        const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
+        receipt.row('revisit is not a generation', generationVerdict,
+            generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); the received readback decides' : 'the generation count is not exactly one for this take',
+            { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
         const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
         receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap, focusInventoryFrom),
             sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap, focusInventoryFrom), { ...focusTelemetry, blindBeacons: tap.blindBeacons });

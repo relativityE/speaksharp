@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { AnalyticsTap, RwtReceipt, sentDetail, sentVerdict, telemetryClassRows } from '../live/helpers/rwtJourney';
+import { AnalyticsTap, RwtReceipt, exactCountVerdict, sentDetail, sentVerdict, telemetryClassRows } from '../live/helpers/rwtJourney';
 
 type Handler = (request: unknown) => void;
 const fakePage = () => {
@@ -88,6 +88,38 @@ describe('sentVerdict — a "sent" row FAILS only when every body that could car
         expect(sentDetail('x left the page', false, tap(10, 150, 200), 100)).toMatch(/not seen, but 2 PostHog beacon\(s\) sent after this step.*received readback decides/);
         expect(sentDetail('x left the page', true, tap(150), 100)).toBe('x left the page');
         expect(sentDetail('x left the page', false, tap(10), 100)).toBe('x left the page');
+    });
+});
+
+/**
+ * Codex r4200925124: "revisit is not a generation" is an EXACT-count claim. Window = Stop (100) → count snapshot (500).
+ */
+describe('exactCountVerdict — an exact count is proven only with every in-window body exposed (r4200925124)', () => {
+    const tap = (...blindAt: number[]) => ({ blindAt });
+    it('CASUALTY: the expected count with a blind beacon INSIDE the window → HOLD (a second request could be hidden)', () => {
+        expect(exactCountVerdict(1, 1, tap(250), 100, 500)).toBe('HOLD');
+        expect(exactCountVerdict(1, 1, tap(100), 100, 500)).toBe('HOLD');
+        expect(exactCountVerdict(1, 1, tap(500), 100, 500)).toBe('HOLD');
+    });
+    it('a blind beacon only BEFORE Stop, or only AFTER the snapshot, cannot hide a request in the window → PASS', () => {
+        expect(exactCountVerdict(1, 1, tap(50), 100, 500)).toBe('PASS');
+        expect(exactCountVerdict(1, 1, tap(900), 100, 500)).toBe('PASS');
+        expect(exactCountVerdict(1, 1, tap(), 100, 500)).toBe('PASS');
+    });
+    it('an observed EXTRA request is definitive → FAIL, even with blind beacons', () => {
+        expect(exactCountVerdict(2, 1, tap(), 100, 500)).toBe('FAIL');
+        expect(exactCountVerdict(2, 1, tap(250), 100, 500)).toBe('FAIL');
+    });
+    it('fewer than expected: HOLD when a body in the window was hidden, FAIL when every body was exposed', () => {
+        expect(exactCountVerdict(0, 1, tap(250), 100, 500)).toBe('HOLD');
+        expect(exactCountVerdict(0, 1, tap(), 100, 500)).toBe('FAIL');
+    });
+    it('SOURCE CONTRACT: both products grade "revisit is not a generation" with exactCountVerdict over Stop → count snapshot', () => {
+        const om = readFileSync(resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        const focus = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
+        expect(om).toContain("exactCountVerdict(generationsForFirstTake, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt)");
+        expect(focus).toContain("exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt)");
+        for (const src of [om, focus]) expect(src).toMatch(/receipt\.row\('revisit is not a generation', generationVerdict,/);
     });
 });
 
