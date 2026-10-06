@@ -8,6 +8,8 @@ import { performance } from 'node:perf_hooks';
 import { compareModelArms, type CorpusClip, type EvaluatorPolicy, type ModelArm, type ModelIdentity } from '../../tests/evidence/modelEvaluator';
 import { decodeWav16kMono } from './wav';
 import type { AdapterFactory, ModelAdapter } from './adapter';
+import type { AssetTransfer } from './asset-transfer';
+import { countFillerWords } from '../../frontend/src/utils/fillerWordUtils';
 
 type ArmManifest = {
   version: 1; identity: ModelIdentity; adapterModule: string;
@@ -83,6 +85,7 @@ async function main(): Promise<void> {
   const adapterInitializeMs: { baseline: number | null; candidate: number | null } = {
     baseline: null, candidate: null,
   };
+  const assetTransfers: [AssetTransfer | null, AssetTransfer | null] = [null, null];
   try {
     for (let armIndex = 0; armIndex < 2; armIndex += 1) {
       const started = performance.now();
@@ -90,7 +93,10 @@ async function main(): Promise<void> {
         arms[armIndex].observed = await adapters[armIndex].initialize();
         adapterInitializeMs[armIndex ? 'candidate' : 'baseline'] = performance.now() - started;
       }
-      catch (error) { failures.push(`${armIndex ? 'candidate' : 'baseline'}_init:${String(error)}`); }
+      catch (error) {
+        adapterInitializeMs[armIndex ? 'candidate' : 'baseline'] = performance.now() - started;
+        failures.push(`${armIndex ? 'candidate' : 'baseline'}_init:${String(error)}`);
+      }
     }
     const trials = Math.max(2, Number.isInteger(policy?.minTrials) ? policy!.minTrials : 2);
     for (let trial = 0; trial < trials; trial += 1) {
@@ -113,11 +119,30 @@ async function main(): Promise<void> {
               inputSha256 = result.inputSha256;
             } catch (caught) { error = String(caught); }
           } else error = 'adapter_initialization_failed';
-          arm.results.push({ clipId: clip.id, trial, transcript, inputSha256, finalLatencyMs, error });
+          const expectedFillers = countFillerWords(clip.reference);
+          const detectedFillers = transcript === null ? null : countFillerWords(transcript);
+          const fillerDetection = detectedFillers === null ? null : {
+            referenceCount: expectedFillers.total.count,
+            detectedCount: detectedFillers.total.count,
+            detectedByKey: Object.fromEntries(Object.entries(detectedFillers)
+              .filter(([key, value]) => key !== 'total' && value.count > 0)
+              .map(([key, value]) => [key, value.count])),
+          };
+          const audioDurationMs = clip.pcm.length / 16;
+          arm.results.push({
+            clipId: clip.id, trial, transcript, inputSha256, finalLatencyMs,
+            audioDurationMs,
+            realTimeFactor: finalLatencyMs === null ? null : finalLatencyMs / audioDurationMs,
+            fillerDetection, error,
+          });
         }
       }
     }
   } finally {
+    for (let index = 0; index < adapters.length; index += 1) {
+      try { assetTransfers[index] = await adapters[index].assetTransfer?.() ?? null; }
+      catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_asset_transfer:${String(error)}`); }
+    }
     await Promise.allSettled(adapters.map((adapter) => adapter.dispose()));
   }
   const comparison = compareModelArms(clips, baseline, candidate, policy);
@@ -141,14 +166,15 @@ async function main(): Promise<void> {
     },
     inputFailures: failures,
     adapterInitializeMs,
+    modelAssetTransfer: { baseline: assetTransfers[0], candidate: assetTransfers[1] },
     baseline, candidate, comparison,
     acceptance,
     identityLimitations: [baseline, candidate].map((arm, index) => arm.manifest.engine === 'moonshine-streaming'
       ? `${index ? 'candidate' : 'baseline'}: Moonshine model/revision come from verified configured pins; runtime exposes no introspected model identity. Init, decode and WASM backend are observed.`
       : null).filter(Boolean),
     unsupportedMetrics: [
-      'first_useful_partial', 'cold_model_load_isolated', 'download_cache_size',
-      'browser_worker_memory', 'product_start_stop_next_take', 'filler_detection', 'focus_keyword_coverage',
+      'first_useful_partial', 'cold_model_load_isolated', 'persistent_cache_size',
+      'browser_worker_memory', 'product_start_stop_next_take', 'focus_keyword_coverage',
     ],
   };
   await mkdir(dirname(out), { recursive: true });

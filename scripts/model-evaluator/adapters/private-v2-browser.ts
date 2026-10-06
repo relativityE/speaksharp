@@ -5,6 +5,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import type { AdapterContext, ModelAdapter } from '../adapter';
 import type { ModelIdentity } from '../../../tests/evidence/modelEvaluator';
+import { AssetTransferRecorder } from '../asset-transfer';
 
 const require = createRequire(import.meta.url);
 
@@ -33,6 +34,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
   let browser: Browser | null = null;
   let page: Page | null = null;
   let pending: { transcript: string; inputSha256: string } | null = null;
+  const transfer = new AssetTransferRecorder();
   return {
     async initialize(): Promise<ModelIdentity> {
       const source = join(context.repositoryRoot, 'frontend/public/models/whisper-base.en');
@@ -41,6 +43,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       browser = await chromium.launch({ headless: true });
       page = await browser.newPage();
       page.setDefaultTimeout(180_000);
+      await transfer.attach(page);
       const base = new URL(context.baseUrl);
       await page.route('**/*', async (route) => {
         if (new URL(route.request().url()).origin !== base.origin) await route.abort('blockedbyclient');
@@ -80,6 +83,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       pending = null;
       return result;
     },
+    assetTransfer: () => transfer.snapshot(),
     async dispose() {
       await browser?.close();
       browser = null; page = null; pending = null;

@@ -26,6 +26,9 @@ export interface ModelArm {
     trial: number;
     transcript: string | null;
     finalLatencyMs: number | null;
+    audioDurationMs?: number;
+    realTimeFactor?: number | null;
+    fillerDetection?: { referenceCount: number; detectedCount: number; detectedByKey: Record<string, number> } | null;
     inputSha256: string;
     error?: string;
   }>;

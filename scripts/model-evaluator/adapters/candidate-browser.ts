@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AdapterContext, ModelAdapter } from '../adapter';
 import type { ModelIdentity } from '../../../tests/evidence/modelEvaluator';
+import { AssetTransferRecorder } from '../asset-transfer';
 
 type CandidateId = 'v4:base:q4' | 'v4:distil:q4' | 'moonshine:streaming-medium';
 const v4Files = [
@@ -57,6 +58,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
   let browser: Browser | null = null;
   let page: Page | null = null;
   let pending: { transcript: string; inputSha256: string } | null = null;
+  const transfer = new AssetTransferRecorder();
   return {
     async initialize(): Promise<ModelIdentity> {
       const packageName = candidateId === 'moonshine:streaming-medium'
@@ -72,6 +74,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       browser = await chromium.launch({ headless: true });
       page = await browser.newPage();
       page.setDefaultTimeout(180_000);
+      await transfer.attach(page);
       if (candidateId === 'moonshine:streaming-medium') {
         // Vite prebundles the package JS but does not copy its adjacent Emscripten binary. Without
         // this local-only route, `/node_modules/.vite/deps/moonshine.wasm` returns index.html ("<!do")
@@ -129,6 +132,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       pending = null;
       return result;
     },
+    assetTransfer: () => transfer.snapshot(),
     async dispose() {
       try { await page?.evaluate(() => window.__MODEL_EVALUATOR__?.dispose()); }
       finally { await browser?.close(); browser = null; page = null; pending = null; }
