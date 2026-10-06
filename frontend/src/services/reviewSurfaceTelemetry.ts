@@ -69,3 +69,15 @@ export const trackSavedReviewLinkedAttempt = (
 
 export const trackProductsMenuOpened = (surface: 'desktop' | 'mobile'): void =>
   emit('products_menu_opened', { surface });
+
+/** #1258 (Codex r4191751371): where a practice press actually ARRIVED. `route_class` is the closed class of the landed
+ * location, with `other` for anywhere unexpected, so a redirect is visible. No path, id or query value is sent. */
+export type PracticeArrivalRoute = 'session' | 'focus_setup' | 'practice' | 'other';
+export function practiceArrivalRoute(pathname: string, search: string): PracticeArrivalRoute {
+  if (pathname === '/session') return 'session';
+  if (pathname === '/practice') return new URLSearchParams(search).get('product') === 'focus-points' ? 'focus_setup' : 'practice';
+  return 'other';
+}
+export function trackSavedReviewPracticeArrived(actionSeq: number, routeClass: PracticeArrivalRoute): void {
+  emit('saved_review_practice_arrived', { action_seq: actionSeq, route_class: routeClass });
+}

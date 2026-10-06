@@ -27,6 +27,8 @@ const loadReview = vi.fn<(id: string) => Promise<SavedSessionReview>>();
 vi.mock('@/services/review/savedSessionReview', () => ({ loadSavedSessionReview: (id: string) => loadReview(id) }));
 const navigate = vi.fn();
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
+// #1258 (Codex r4191751371): every practice navigation carries its press's action_seq in router state.
+const PRACTICE_NAV = { state: { practiceActionSeq: expect.any(Number) } };
 vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ user: { id: 'user-1' } }) }));
 const loadProgress = vi.fn<(id: string) => Promise<unknown>>();
 vi.mock('@/services/progress/loadSessionProgress', () => ({ loadSessionProgress: (id: string) => loadProgress(id) }));
@@ -99,7 +101,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
         expect(action()).toBeEnabled();
         fireEvent.click(action());
-        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
         expect(readPending).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledWith('rec-1');
@@ -117,7 +119,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         renderReview();
         await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'direct'));
         fireEvent.click(action());
-        expect(navigate).toHaveBeenCalledWith('/session');
+        expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
         expect(recordAttempt).not.toHaveBeenCalled();
         expect(practiceSelected).toHaveBeenCalledWith('focus_points', false);
     });
@@ -183,7 +185,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
         fireEvent.click(action());
         fireEvent.click(action());
-        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
@@ -206,7 +208,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(loadReview).toHaveBeenCalledTimes(2));
         await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
         fireEvent.click(action());
-        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
@@ -234,7 +236,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(screen.queryByTestId('saved-review-pending-attempt')).not.toBeInTheDocument();
         fireEvent.click(action());
         fireEvent.click(action());
-        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(setOpenAttempt).toHaveBeenCalledTimes(1);
@@ -254,7 +256,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
         fireEvent.click(action());
         expect(navigate).toHaveBeenCalledTimes(1);
-        expect(navigate).toHaveBeenCalledWith('/session');
+        expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
     });
 
@@ -265,7 +267,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'direct'));
         expect(action()).toHaveTextContent('Practice this again');
         fireEvent.click(action());
-        expect(navigate).toHaveBeenCalledWith('/practice');
+        expect(navigate).toHaveBeenCalledWith('/practice', PRACTICE_NAV);
         expect(practiceSelected).toHaveBeenCalledWith('unknown', false);
         expect(loadReview).toHaveBeenCalledTimes(1);
     });
@@ -314,7 +316,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
             expect(practiceAction).toHaveBeenCalledWith(expect.objectContaining({
                 product: 'open_mic', linkState: 'direct', progressStatus: 'ineligible', action: 'open_session', intendedRoute: 'session', actionSeq: 1,
             }));
-            expect(navigate).toHaveBeenCalledWith('/session');
+            expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
             expect(recordAttempt).not.toHaveBeenCalled();
             expect(linkedAttempt).not.toHaveBeenCalled();
         });
@@ -325,7 +327,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
             renderReview();
             await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
             fireEvent.click(action());
-            await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+            await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
             expect(practiceAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'accept_linked', progressStatus: 'eligible', actionSeq: 1 }));
             expect(linkedAttempt).toHaveBeenCalledWith('ok', expect.any(Number), 1, 'session');
         });

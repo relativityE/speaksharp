@@ -98,7 +98,7 @@ export function emitFeedbackDialogOpened(): void {
  * read to recognise a transport failure and is NEVER sent.
  */
 export const FEEDBACK_ERROR_CATEGORIES = [
-    'rls_denied', 'auth_missing', 'constraint_violation', 'conflict_target', 'schema_mismatch',
+    'rls_denied', 'privilege_denied', 'auth_missing', 'constraint_violation', 'conflict_target', 'schema_mismatch',
     'network', 'timeout', 'server_error', 'unknown',
 ] as const;
 export type FeedbackErrorCategory = (typeof FEEDBACK_ERROR_CATEGORIES)[number];
@@ -108,7 +108,9 @@ export function classifyFeedbackStorageError(err: unknown): FeedbackErrorCategor
     const code = typeof e.code === 'string' ? e.code : '';
     const name = typeof e.name === 'string' ? e.name : '';
     const message = typeof e.message === 'string' ? e.message : '';
-    if (code === '42501') return 'rls_denied';
+    // 42501 is Postgres' general insufficient_privilege: RLS refusal AND a missing grant (Codex r4191751378). Only a
+    // message naming row-level security is an RLS refusal; the message is read here and never sent.
+    if (code === '42501') return /row-level security/i.test(message) ? 'rls_denied' : 'privilege_denied';
     if (code === 'PGRST301' || code === 'PGRST302' || code === '28000' || code === '28P01') return 'auth_missing';
     if (code === '42P10') return 'conflict_target';          // no unique index matching ON CONFLICT
     if (/^23/.test(code)) return 'constraint_violation';      // check, not-null, foreign-key, unique

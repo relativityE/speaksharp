@@ -62,7 +62,10 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
         if (review?.product === 'focus_points') return review.focusBrief && review.focusPoints.length > 0 ? 'open_session' : 'open_focus_setup';
         return review?.product === 'open_mic' ? 'open_session' : 'open_practice';
     };
-    const openProduct = () => {
+    // #1258 (Codex r4191751371): the press's `action_seq` travels in router state (memory only, never the URL), so the
+    // destination can emit `saved_review_practice_arrived` proving THIS press caused THIS arrival.
+    const openProduct = (actionSeq: number) => {
+        const go = (to: string) => navigate(to, { state: { practiceActionSeq: actionSeq } });
         const store = useSessionStore.getState();
         if (review?.product === 'focus_points') {
             if (review.focusBrief && review.focusPoints.length > 0) {
@@ -74,18 +77,18 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
                     // The pace guide is not saved with the session; the next take runs without one.
                     paceGuideSecPerPoint: null,
                 });
-                navigate('/session');
+                go('/session');
             } else {
-                navigate('/practice?product=focus-points');
+                go('/practice?product=focus-points');
             }
             return;
         }
         if (review?.product === 'open_mic') {
             store.setActiveObjectiveBrief(null);
-            navigate('/session');
+            go('/session');
             return;
         }
-        navigate('/practice');
+        go('/practice');
     };
     // #1258 (PM RETURN, #1535 cycle 1): act only on a KNOWN progress answer. While it is loading nothing navigates (a
     // fast click must not skip a valid linked repeat); a failed read stays here with its error and a retry; an eligible
@@ -123,10 +126,10 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
         trackSavedReviewPracticeSelected(review.product, repeat.linkState === 'linked');
         if (repeat.linkState === 'linked') {
             record('accept_linked');
-            void repeat.accept(openProduct, actionSeq, routeClass(productTarget()));
+            void repeat.accept(() => openProduct(actionSeq), actionSeq, routeClass(productTarget()));
         } else {
             record(productTarget());
-            openProduct();
+            openProduct(actionSeq);
         }
     };
     const progressReadFailed = repeat.linkState === 'error' && !repeat.query.isFetching;

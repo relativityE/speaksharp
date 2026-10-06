@@ -27,6 +27,10 @@ const survivesProjection = (event: string, props: Record<string, unknown>) => {
 describe('#1258 Share Feedback storage outcome', () => {
     it.each([
         [{ code: '42501', message: 'new row violates row-level security policy for table "user_issue_reports"' }, 'rls_denied'],
+        // Codex r4191751378: 42501 is Postgres' general insufficient_privilege. A missing grant (the original Share
+        // Feedback ON CONFLICT cause) is NOT an RLS refusal and must not send the RWT to the wrong boundary.
+        [{ code: '42501', message: 'permission denied for table user_issue_reports' }, 'privilege_denied'],
+        [{ code: '42501', message: '' }, 'privilege_denied'],
         [{ code: 'PGRST301', message: 'JWT expired' }, 'auth_missing'],
         [{ code: '42P10', message: 'there is no unique or exclusion constraint matching the ON CONFLICT specification' }, 'conflict_target'],
         [{ code: '23514', message: 'violates check constraint "user_issue_reports_title_length"' }, 'constraint_violation'],
@@ -46,7 +50,7 @@ describe('#1258 Share Feedback storage outcome', () => {
     it('the category set is exactly the governed enum, and no error text reaches the event', () => {
         emitFeedbackSubmit({
             outcome: 'storage_failed', acknowledgementVisible: true,
-            errorCategory: classifyFeedbackStorageError({ code: '42501', message: 'policy for table "user_issue_reports" (secret detail)' }),
+            errorCategory: classifyFeedbackStorageError({ code: '42501', message: 'new row violates row-level security policy for table "user_issue_reports" (secret detail)' }),
             submitSeq: 1, elapsedMs: 412.6,
         });
         const [event, props] = pushed[0];

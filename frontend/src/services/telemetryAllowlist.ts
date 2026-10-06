@@ -484,7 +484,7 @@ export const EVENT_SCHEMAS = Object.freeze({
         // FEEDBACK_SESSION_SELECTOR_SPEC §9: whether the stored report was linked to a session. Never the id, number or label.
         has_session: { kind: 'bool' } as FieldRule,
         // #1258: the closed reason a write failed, the attempt→outcome time, and which Send it answers.
-        error_category: enumOf(['rls_denied', 'auth_missing', 'constraint_violation', 'conflict_target', 'schema_mismatch',
+        error_category: enumOf(['rls_denied', 'privilege_denied', 'auth_missing', 'constraint_violation', 'conflict_target', 'schema_mismatch',
             'network', 'timeout', 'server_error', 'unknown']),
         elapsed_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
         submit_seq: { kind: 'int', min: 1, max: 100 } as FieldRule,
@@ -615,6 +615,12 @@ export const EVENT_SCHEMAS = Object.freeze({
         elapsed_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
         action_seq: { kind: 'int', min: 1, max: 100 } as FieldRule,
         intended_route: enumOf(['session', 'focus_setup', 'practice', 'none']),
+    },
+    // #1258 (Codex r4191751371): the terminal ARRIVAL of a practice press, carrying the same `action_seq`, so received
+    // telemetry proves which press caused which landing. `other` = landed somewhere unexpected (a redirect).
+    saved_review_practice_arrived: {
+        action_seq: { kind: 'int', min: 1, max: 100 } as FieldRule,
+        route_class: enumOf(['session', 'focus_setup', 'practice', 'other']),
     },
     products_menu_opened: { surface: enumOf(['desktop', 'mobile']) },
     // Was entirely UNGOVERNED: a real producer whose properties were all dropped.

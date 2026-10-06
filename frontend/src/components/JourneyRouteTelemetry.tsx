@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { emitJourneyStep } from '@/services/telemetry/journeyStep';
 import { ensureJourneyBoundary } from '@/hooks/useJourneyBoundary';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { practiceArrivalRoute, trackSavedReviewPracticeArrived } from '@/services/reviewSurfaceTelemetry';
 
 /**
  * #1259 F08 — route transitions, so a journey has a shape.
@@ -44,6 +45,17 @@ export function JourneyRouteTelemetry(): null {
             runtimeStateOnArrival: useSessionStore.getState().runtimeState ?? null,
         });
     }, [location.pathname]);
+
+    // #1258 (Codex r4191751371): a location reached by a saved-review practice press carries that press's
+    // `action_seq` in router state. Emit its arrival once per history entry, with the closed class of where it landed.
+    const arrived = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        const seq = (location.state as { practiceActionSeq?: unknown } | null)?.practiceActionSeq;
+        if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 1 || seq > 100) return;
+        if (arrived.current === location.key) return;
+        arrived.current = location.key;
+        trackSavedReviewPracticeArrived(seq, practiceArrivalRoute(location.pathname, location.search));
+    }, [location.key, location.state, location.pathname, location.search]);
 
     return null;
 }
