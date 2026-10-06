@@ -162,6 +162,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let firstTakeFrom = 0;
     let repeatWindow: [number, number] | null = null;
     let claimed = false;
+    // Codex r4199883470: step markers the finally-block "sent" rows read — a blind beacon sent before a step cannot carry
+    // that step's events. Declared here because the rows run in `finally`, outside the steps' scope.
+    let rowsStoppedAt = 0;
+    let focusInventoryFrom = 0;
     try {
         await test.step('account — sign up, canary claim (if authorized), sign back in', async () => {
             await page.goto('/auth/signup');
@@ -304,6 +308,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // ── Row 11 — Stop: verdicts, n/4, average ───────────────────────────────────────────────────────
         await test.step('row 11 — Stop: verdicts, count and average', async () => {
             stoppedAt = Date.now();
+            rowsStoppedAt = stoppedAt;
             await stopBenchmarkRecording(page, suite, 180_000);
             await waitForBenchmarkSaveCandidate(page, suite, 180_000);
             await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
@@ -377,6 +382,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
         // ── Row 12 — Analytics ──────────────────────────────────────────────────────────────────────────
         await test.step('Products menu opened on the session page (inventory, recording journey)', async () => {
+            focusInventoryFrom = Date.now();
             // #1532 Codex P1 r4121232419: emitted inside the recording journey (a product route; nothing navigates), where the
             // analytics_inventory stage proves it was received.
             const opened = await openProductsMenuInPlace(page);
@@ -450,8 +456,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     } finally {
         const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
         const coverageSeen = tap.sent('coverage_evaluation').length > 0;
-        receipt.row('coverage_evaluation sent', sentVerdict(coverageSeen, tap),
-            sentDetail('the coverage evaluation left the page (sent, not yet received)', coverageSeen, tap), { sent: tap.sent('coverage_evaluation').length, blindBeacons: tap.blindBeacons });
+        receipt.row('coverage_evaluation sent', sentVerdict(coverageSeen, tap, rowsStoppedAt),
+            sentDetail('the coverage evaluation left the page (sent, not yet received)', coverageSeen, tap, rowsStoppedAt), { sent: tap.sent('coverage_evaluation').length, blindBeacons: tap.blindBeacons });
         // The Focus review's coaching receipts (the readback's Focus stage now requires the coaching card's rendered
         // receipt, not only the rail's) and the PM's inventory events. SENT here; RECEIVED = the PostHog readback.
         const focusTelemetry = {
@@ -461,16 +467,16 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             savedReviewRevisited: tap.sent('saved_review_revisited').length,
         };
         const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
-        receipt.row('Focus coaching telemetry sent', sentVerdict(focusCoachingSeen, tap),
-            sentDetail('the coaching review rendered receipt left the page (sent; received = session_after_focus_points readback)', focusCoachingSeen, tap), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
+        receipt.row('Focus coaching telemetry sent', sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
+            sentDetail('the coaching review rendered receipt left the page (sent; received = session_after_focus_points readback)', focusCoachingSeen, tap, rowsStoppedAt), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
         // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
         const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
-        receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : generationsForFirstTake === 0 && tap.blindBeacons > 0 ? 'HOLD' : 'FAIL',
+        receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : generationsForFirstTake === 0 && sentVerdict(false, tap, rowsStoppedAt) === 'HOLD' ? 'HOLD' : 'FAIL',
             generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none' : 'the generation count is not exactly one for this take',
             { reviewRequested: generationsForFirstTake });
         const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
-        receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap),
-            sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
+        receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap, focusInventoryFrom),
+            sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap, focusInventoryFrom), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
         // #1258 (#1563, Codex r4197420116): Focus presses Practice again too, so it proves the same correlation Open Mic does —
         // each press reached its intended route (same boot + action_seq) — and, in the full run that shares feedback, each
         // attempt resolved (same boot + submit_seq). Sent here; received is the `practice_again` / `share_feedback` readback.

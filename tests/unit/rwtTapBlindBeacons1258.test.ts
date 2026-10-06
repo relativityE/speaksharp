@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { AnalyticsTap, sentDetail, sentVerdict } from '../live/helpers/rwtJourney';
+import { AnalyticsTap, RwtReceipt, sentDetail, sentVerdict, telemetryClassRows } from '../live/helpers/rwtJourney';
 
 type Handler = (request: unknown) => void;
 const fakePage = () => {
@@ -47,20 +47,59 @@ describe('AnalyticsTap — a PostHog body the browser hides is counted, never si
     });
 });
 
-describe('sentVerdict — a "sent" row FAILS only when every body was readable', () => {
-    it('all expected events seen → PASS, blind or not', () => {
-        expect([sentVerdict(true, { blindBeacons: 0 }), sentVerdict(true, { blindBeacons: 3 })]).toEqual(['PASS', 'PASS']);
+describe('telemetry decodable — never claims bodies the browser did not expose (Codex r4199883459)', () => {
+    const decodable = (fires: Array<ReturnType<typeof request>>) => {
+        const { page, fire } = fakePage();
+        const t = new AnalyticsTap();
+        t.attach(page as never);
+        fires.forEach(fire);
+        const receipt = new RwtReceipt('unit');
+        telemetryClassRows(receipt, t, false);
+        return receipt.rows.find((r) => r.step === 'telemetry decodable')!;
+    };
+    it('CASUALTY: one readable event + one blind beacon cannot yield the absolute "every analytics body decoded"', () => {
+        const row = decodable([request('https://us.i.posthog.com/e/?ip=0', 'POST', batch('session_saved')), request('https://us.i.posthog.com/e/?beacon=1', 'POST', null)]);
+        expect(row.detail).not.toBe('every analytics body decoded');
+        expect(row.detail).toMatch(/^every exposed analytics body decoded; 1 beacon body\(ies\) not exposed/);
+        expect(row.evidence).toMatchObject({ events: 1, undecodable: 0, blindBeacons: 1 });
     });
-    it('CASUALTY: an event missing while beacons were blind → HOLD (missing evidence), not FAIL', () => {
-        expect(sentVerdict(false, { blindBeacons: 2 })).toBe('HOLD');
+    it('with every body exposed, the absolute claim stands', () => {
+        const row = decodable([request('https://us.i.posthog.com/e/?ip=0', 'POST', batch('session_saved'))]);
+        expect([row.verdict, row.detail]).toEqual(['PASS', 'every analytics body decoded']);
+    });
+});
+
+describe('sentVerdict — a "sent" row FAILS only when every body that could carry the event was readable', () => {
+    const tap = (...blindAt: number[]) => ({ blindAt });
+    it('all expected events seen → PASS, blind or not', () => {
+        expect([sentVerdict(true, tap(), 100), sentVerdict(true, tap(150, 200), 100)]).toEqual(['PASS', 'PASS']);
+    });
+    it('CASUALTY: an event missing while a beacon sent AFTER its step was blind → HOLD (missing evidence), not FAIL', () => {
+        expect(sentVerdict(false, tap(150), 100)).toBe('HOLD');
+        expect(sentVerdict(false, tap(100), 100)).toBe('HOLD');
+    });
+    it('CASUALTY r4199883470: a blind beacon from BEFORE the step (an earlier reload) cannot mask a later absence → FAIL', () => {
+        expect(sentVerdict(false, tap(10, 50), 100)).toBe('FAIL');
     });
     it('an event missing with every body readable → FAIL (an observed absence)', () => {
-        expect(sentVerdict(false, { blindBeacons: 0 })).toBe('FAIL');
+        expect(sentVerdict(false, tap(), 100)).toBe('FAIL');
     });
-    it('the HOLD detail names the blind beacons and defers to the received readback; other details are unchanged', () => {
-        expect(sentDetail('x left the page', false, { blindBeacons: 2 })).toMatch(/not seen, but 2 PostHog beacon\(s\).*received readback decides/);
-        expect(sentDetail('x left the page', true, { blindBeacons: 2 })).toBe('x left the page');
-        expect(sentDetail('x left the page', false, { blindBeacons: 0 })).toBe('x left the page');
+    it('the HOLD detail counts only beacons after the step; other details are unchanged', () => {
+        expect(sentDetail('x left the page', false, tap(10, 150, 200), 100)).toMatch(/not seen, but 2 PostHog beacon\(s\) sent after this step.*received readback decides/);
+        expect(sentDetail('x left the page', true, tap(150), 100)).toBe('x left the page');
+        expect(sentDetail('x left the page', false, tap(10), 100)).toBe('x left the page');
+    });
+});
+
+describe('AnalyticsTap records WHEN each blind beacon was sent', () => {
+    it('blindAt has one timestamp per blind request, in order', () => {
+        const { page, fire } = fakePage();
+        const t = new AnalyticsTap();
+        t.attach(page as never);
+        fire(request('https://us.i.posthog.com/e/?beacon=1', 'POST', null));
+        fire(request('https://us.i.posthog.com/e/?ip=0', 'POST', batch('session_saved')));
+        fire(request('https://us.i.posthog.com/e/?beacon=1', 'POST', null));
+        expect({ blind: t.blindBeacons, stamps: t.blindAt.length, ordered: t.blindAt[0] <= t.blindAt[1] }).toEqual({ blind: 2, stamps: 2, ordered: true });
     });
 });
 
@@ -73,5 +112,13 @@ describe('SOURCE CONTRACT: no live journey grades a "… sent" row FAIL without 
             .filter((m) => /\? 'PASS' : 'FAIL'/.test(m[2]) && !m[2].includes('sentVerdict('))
             .map((m) => `${f.split('/tests/')[1]}: ${m[1]}`));
         expect(offenders).toEqual([]);
+    });
+    it('every live sentVerdict/sentDetail call is scoped by a since-marker (three or four arguments)', () => {
+        const live = resolve(__dirname, '../live');
+        const files = [...readdirSync(live).map((f) => join(live, f)), ...readdirSync(join(live, 'helpers')).map((f) => join(live, 'helpers', f))]
+            .filter((f) => f.endsWith('.ts') && !f.endsWith('rwtJourney.ts'));
+        const unscoped = files.flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/sentVerdict\(([^()]*)\)/g)]
+            .filter((m) => m[1].split(',').length < 3).map((m) => `${f.split('/tests/')[1]}: sentVerdict(${m[1]})`));
+        expect(unscoped).toEqual([]);
     });
 });

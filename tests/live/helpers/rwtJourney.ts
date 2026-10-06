@@ -282,7 +282,10 @@ export async function markRunOwnedAccountCanary(
 export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claimed: boolean, qualifies = true): { canaryJourneys: string[]; userJourneys: string[] } {
     const canaryJourneys = tap.journeyIds('canary');
     const userJourneys = tap.journeyIds('user');
-    receipt.row('telemetry decodable', tap.undecodable === 0 && tap.events.length > 0 ? 'PASS' : 'FAIL', 'every analytics body decoded',
+    // Codex r4199883459: the claim is limited to bodies the browser EXPOSES; Blob beacons are counted, never claimed decoded.
+    receipt.row('telemetry decodable', tap.undecodable === 0 && tap.events.length > 0 ? 'PASS' : 'FAIL',
+        tap.blindBeacons === 0 ? 'every analytics body decoded'
+            : `every exposed analytics body decoded; ${tap.blindBeacons} beacon body(ies) not exposed by the browser (not claimed — the received readback decides)`,
         { events: tap.events.length, undecodable: tap.undecodable, blindBeacons: tap.blindBeacons });
     receipt.row('signup-stage telemetry (user class)', userJourneys.length > 0 ? 'PASS' : 'HOLD',
         'pre-claim signup events were sent as ordinary user traffic (sent, not yet received)',
@@ -471,19 +474,25 @@ function outcomeFields(event: string, props: Record<string, unknown>): SentEvent
 }
 
 /**
- * #1258 (RWT run 37514078995, F2): a "sent" row may FAIL only when the tap could read every PostHog body. posthog-js
- * flushes its queue on page-hide with `navigator.sendBeacon(url, new Blob([body]))`, and Chromium exposes no body for a
- * Blob beacon — neither `postDataBuffer()` nor CDP `Network.getRequestPostData` (verified locally). Those events DID
- * leave the page (PostHog received `feedback_submit` and `session_pdf_downloaded` that the tap reported as unsent), so
- * an event missing while beacons were blind is missing EVIDENCE — HOLD, decided by the received readback — never FAIL.
+ * #1258 (RWT run 37514078995, F2): a "sent" row may FAIL only when the tap could read every PostHog body that could carry
+ * the event. posthog-js flushes its queue on page-hide with `navigator.sendBeacon(url, new Blob([body]))`, and Chromium
+ * exposes no body for a Blob beacon — neither `postDataBuffer()` nor CDP `Network.getRequestPostData` (verified locally).
+ * Those events DID leave the page (PostHog received `feedback_submit` and `session_pdf_downloaded` that the tap reported as
+ * unsent), so an event missing while a beacon that could carry it was blind is missing EVIDENCE — HOLD, decided by the
+ * received readback — never FAIL.
+ * Codex r4199883470: only a blind beacon sent AT OR AFTER the step that emits the event can carry it, so `sinceMs` scopes
+ * the uncertainty: an earlier reload's blind beacon never turns a later genuine absence into HOLD.
  */
-export function sentVerdict(allSeen: boolean, tap: Pick<AnalyticsTap, 'blindBeacons'>): 'PASS' | 'FAIL' | 'HOLD' {
+type BlindTimes = Pick<AnalyticsTap, 'blindAt'>;
+const blindSince = (tap: BlindTimes, sinceMs: number): number => tap.blindAt.filter((t) => t >= sinceMs).length;
+export function sentVerdict(allSeen: boolean, tap: BlindTimes, sinceMs: number): 'PASS' | 'FAIL' | 'HOLD' {
     if (allSeen) return 'PASS';
-    return tap.blindBeacons > 0 ? 'HOLD' : 'FAIL';
+    return blindSince(tap, sinceMs) > 0 ? 'HOLD' : 'FAIL';
 }
-export function sentDetail(detail: string, allSeen: boolean, tap: Pick<AnalyticsTap, 'blindBeacons'>): string {
-    return allSeen || tap.blindBeacons === 0 ? detail
-        : `${detail} — not seen, but ${tap.blindBeacons} PostHog beacon(s) carried a body the browser does not expose; the received readback decides`;
+export function sentDetail(detail: string, allSeen: boolean, tap: BlindTimes, sinceMs: number): string {
+    const blind = blindSince(tap, sinceMs);
+    return allSeen || blind === 0 ? detail
+        : `${detail} — not seen, but ${blind} PostHog beacon(s) sent after this step carried a body the browser does not expose; the received readback decides`;
 }
 
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
@@ -492,6 +501,8 @@ export class AnalyticsTap {
     undecodable = 0;
     /** PostHog POSTs whose body the browser does not expose (a Blob `sendBeacon` on page-hide). See `sentVerdict`. */
     blindBeacons = 0;
+    /** When each blind request was sent (ms), so uncertainty is scoped to the step that could have produced it. */
+    readonly blindAt: number[] = [];
 
     attach(page: Page): void {
         page.on('request', (request) => {
@@ -499,7 +510,7 @@ export class AnalyticsTap {
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
             const body = request.postDataBuffer();
-            if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; return; }
+            if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; this.blindAt.push(Date.now()); return; }
             for (const entry of this.decode(body)) {
                 const record = entry as { event?: unknown; properties?: Record<string, unknown> };
                 if (typeof record?.event !== 'string') continue;
