@@ -45,6 +45,8 @@ const mockV4Init = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 // Construction spy: proves the v4 engine object is never even instantiated on the flag-off path.
 const mockV4Construct = vi.fn();
 const mockEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
+const mockTJConstruct = vi.fn();
+const mockTJDestroy = vi.fn();
 
 // A stub registered under a NON-CONFIGURED provider key, to prove PrivateSTT never
 // auto-selects a stray registry entry (the key 'whisper-turbo' was retired).
@@ -62,13 +64,17 @@ class StubWTE extends STTEngine {
 
 class StubTJ extends STTEngine {
     type = 'transformers-js' as const;
+    constructor(options?: ConstructorParameters<typeof STTEngine>[0]) {
+        super(options);
+        mockTJConstruct();
+    }
     checkAvailability = vi.fn().mockResolvedValue({ available: true });
     protected onInit = mockTJInit;
     onStart = vi.fn().mockResolvedValue(undefined);
     onStop = vi.fn().mockResolvedValue(undefined);
     onPause = vi.fn().mockResolvedValue(undefined);
     onResume = vi.fn().mockResolvedValue(undefined);
-    onDestroy = vi.fn().mockResolvedValue(undefined);
+    onDestroy = mockTJDestroy.mockResolvedValue(undefined);
     transcribe = vi.fn();
 }
 
@@ -307,6 +313,9 @@ describe('PrivateSTT (Routing Logic)', () => {
         mockV4Init.mockResolvedValueOnce({ isOk: false, error: v4Error });
 
         const { PrivateSTT } = await import('../PrivateSTT');
+        const { sttRegistry } = await import('../../STTRegistry');
+        const v2Factory = vi.fn((options) => new StubTJ(options));
+        sttRegistry.register('transformers-js', v2Factory);
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js-v4' } as never);
         const result = await pstt.init();
 
@@ -316,6 +325,8 @@ describe('PrivateSTT (Routing Logic)', () => {
         }
         expect(result.error).toBe(v4Error);
         expect(mockV4Init).toHaveBeenCalledOnce();
+        expect(v2Factory).not.toHaveBeenCalled();
+        expect(mockTJConstruct).not.toHaveBeenCalled();
         expect(mockTJInit).not.toHaveBeenCalled();
     });
 
@@ -432,6 +443,8 @@ describe('PrivateSTT (Routing Logic)', () => {
         });
         try {
             await setupStrictZero();
+            const { analyticsBuffer } = await import('@/services/AnalyticsBuffer');
+            const pushSpy = vi.spyOn(analyticsBuffer, 'push');
             const { sttRegistry } = await import('../../STTRegistry');
             sttRegistry.register('transformers-js', (options) => new StubTJ(options));
             sttRegistry.register('transformers-js-v4', (options) => new StubV4(options));
@@ -447,6 +460,13 @@ describe('PrivateSTT (Routing Logic)', () => {
             expect(mockTJInit).toHaveBeenCalledOnce();
             expect(pstt.getEngineType()).toBe('transformers-js');
             expect(pstt.getMetadata().candidateId).toBe('v2:base.en');
+            const attempt = pushSpy.mock.calls.find(([event]) => event === 'private_stt_v4_attempt')?.[1];
+            expect(attempt).toMatchObject({
+                requestedCandidateId: 'v4:base:q4',
+                observedCandidateId: 'v2:base.en',
+                requestedDevice: 'wasm',
+                resolvedDevice: 'wasm',
+            });
             expect(pstt.getRuntimePath()).toMatchObject({
                 selectionSource: 'pre_start_fallback',
                 requestedCandidateId: 'v4:base:q4',
@@ -467,6 +487,16 @@ describe('PrivateSTT (Routing Logic)', () => {
                 type: 'fallback',
                 message: 'Recording with the Private v2 compatibility model.',
             }));
+
+            // A take stays locked to the engine that initialized. A genuinely new facade resolves the
+            // configured primary again rather than inheriting the previous take's v2 fallback.
+            await pstt.terminate();
+            pstt = null;
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const retry = await pstt.init();
+            expect(retry.isOk).toBe(true);
+            expect(pstt.getEngineType()).toBe('transformers-js-v4');
+            expect(pstt.getMetadata().candidateId).toBe('v4:base:q4');
         } finally {
             vi.doUnmock('../../candidateSelection');
             vi.resetModules();
@@ -490,6 +520,8 @@ describe('PrivateSTT (Routing Logic)', () => {
         });
         try {
             await setupStrictZero();
+            const { analyticsBuffer } = await import('@/services/AnalyticsBuffer');
+            const pushSpy = vi.spyOn(analyticsBuffer, 'push');
             const { sttRegistry } = await import('../../STTRegistry');
             sttRegistry.register('transformers-js', (options) => new StubTJ(options));
             sttRegistry.register('transformers-js-v4', (options) => new StubV4(options));
@@ -511,7 +543,118 @@ describe('PrivateSTT (Routing Logic)', () => {
                 fallbackReason: 'v4_init_failed',
                 attemptedProvider: 'transformers-js-v4',
             });
+            const attempt = pushSpy.mock.calls.find(([event]) => event === 'private_stt_v4_attempt')?.[1];
+            expect(attempt).toMatchObject({ requestedCandidateId: 'v4:base:q4' });
+            expect(attempt?.observedCandidateId).toBeNull();
             expect(onStatusChange).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'fallback' }));
+        } finally {
+            vi.doUnmock('../../candidateSelection');
+            vi.resetModules();
+        }
+    });
+
+    it('cancellation during v2 fallback init cleans the late engine and never reports a successful take', async () => {
+        globalThis.__TEST__ = false;
+        mockV4Init.mockResolvedValueOnce({ isOk: false, error: new Error('v4 init failed') });
+        let finishV2Init!: (value: { isOk: true; data: undefined }) => void;
+        mockTJInit.mockImplementationOnce(() => new Promise((resolve) => { finishV2Init = resolve; }));
+        vi.resetModules();
+        vi.doMock('../../candidateSelection', async (importOriginal) => {
+            const actual = await importOriginal<typeof import('../../candidateSelection')>();
+            const { CANDIDATES } = await import('../../candidateRegistry');
+            return { ...actual, effectiveCandidate: () => ({ candidate: CANDIDATES['v4:base:q4'], fallbackCause: null }) };
+        });
+        try {
+            await setupStrictZero();
+            const { sttRegistry } = await import('../../STTRegistry');
+            sttRegistry.register('transformers-js', (options) => new StubTJ(options));
+            sttRegistry.register('transformers-js-v4', (options) => new StubV4(options));
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+
+            const initPromise = pstt.init();
+            await vi.waitFor(() => expect(mockTJInit).toHaveBeenCalledOnce());
+            await pstt.terminate();
+            finishV2Init({ isOk: true, data: undefined });
+            const result = await initPromise;
+
+            expect(result.isOk).toBe(false);
+            expect(mockTJDestroy).toHaveBeenCalledOnce();
+            expect(pstt.getRuntimePath()?.observedCandidateId).toBeUndefined();
+            expect(pstt.getEngineType()).toBe('transformers-js');
+        } finally {
+            vi.doUnmock('../../candidateSelection');
+            vi.resetModules();
+        }
+    });
+
+    it('withholds v2 fallback when failed v4 cleanup rejects', async () => {
+        globalThis.__TEST__ = false;
+        mockV4Init.mockResolvedValueOnce({ isOk: false, error: new Error('v4 init failed') });
+        vi.resetModules();
+        vi.doMock('../../candidateSelection', async (importOriginal) => {
+            const actual = await importOriginal<typeof import('../../candidateSelection')>();
+            const { CANDIDATES } = await import('../../candidateRegistry');
+            return { ...actual, effectiveCandidate: () => ({ candidate: CANDIDATES['v4:base:q4'], fallbackCause: null }) };
+        });
+        try {
+            await setupStrictZero();
+            const { sttRegistry } = await import('../../STTRegistry');
+            const failedV4 = new StubV4();
+            vi.spyOn(failedV4, 'terminate').mockRejectedValue(new Error('cleanup not confirmed'));
+            sttRegistry.register('transformers-js-v4', () => failedV4);
+            const v2Factory = vi.fn((options) => new StubTJ(options));
+            sttRegistry.register('transformers-js', v2Factory);
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+
+            const result = await pstt.init();
+
+            expect(result.isOk).toBe(false);
+            expect(v2Factory).not.toHaveBeenCalled();
+            expect(mockTJInit).not.toHaveBeenCalled();
+            expect(pstt.getRuntimePath()?.observedCandidateId).toBeUndefined();
+        } finally {
+            vi.doUnmock('../../candidateSelection');
+            vi.resetModules();
+        }
+    });
+
+    it('reports the requested WebGPU device for a successful strict distil candidate', async () => {
+        globalThis.__TEST__ = false;
+        Object.defineProperty(navigator, 'gpu', {
+            value: { requestAdapter: vi.fn().mockResolvedValue({ name: 'mock-adapter' }) },
+            writable: true,
+            configurable: true,
+        });
+        vi.resetModules();
+        vi.doMock('../../candidateSelection', async (importOriginal) => {
+            const actual = await importOriginal<typeof import('../../candidateSelection')>();
+            const { CANDIDATES } = await import('../../candidateRegistry');
+            return {
+                ...actual,
+                effectiveCandidate: () => ({ candidate: CANDIDATES['v4:distil:q4'], fallbackCause: null }),
+            };
+        });
+        try {
+            await setupStrictZero();
+            const { analyticsBuffer } = await import('@/services/AnalyticsBuffer');
+            const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+            const { sttRegistry } = await import('../../STTRegistry');
+            sttRegistry.register('transformers-js-v4', (options) => new StubV4(options));
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+
+            const result = await pstt.init();
+
+            expect(result.isOk).toBe(true);
+            const attempt = pushSpy.mock.calls.find(([event]) => event === 'private_stt_v4_attempt')?.[1];
+            expect(attempt).toMatchObject({
+                requestedCandidateId: 'v4:distil:q4',
+                observedCandidateId: 'v4:distil:q4',
+                requestedDevice: 'webgpu',
+                resolvedDevice: 'webgpu',
+            });
         } finally {
             vi.doUnmock('../../candidateSelection');
             vi.resetModules();

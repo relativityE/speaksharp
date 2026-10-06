@@ -577,6 +577,18 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             if (attemptedProvider !== 'transformers-js-v4') return;
             const variant = d?.v4Variant ?? null;
             const variantCfg = variant ? PRIV_STT_V4_VARIANTS[variant] : null;
+            const requestedCandidateId = d?.requestedCandidateId ?? this.selectedCandidateId;
+            const requestedCandidate = requestedCandidateId && requestedCandidateId in CANDIDATES
+                ? CANDIDATES[requestedCandidateId as CandidateId]
+                : null;
+            // The frozen candidate contract names the requested device. Runtime resolution names the
+            // device that actually initialized; a v2 fallback always resolves on WASM, even when the
+            // failed v4 attempt had selected WebGPU.
+            const requestedDevice = requestedCandidate?.model.device
+                ?? (d?.runtime === 'webgpu' ? 'webgpu' : 'wasm');
+            const resolvedDevice = this._engineType === 'transformers-js-v4'
+                ? (d?.runtime === 'webgpu' ? 'webgpu' : 'wasm')
+                : this._engineType === 'transformers-js' ? 'wasm' : null;
             const payload = {
                 // Provenance of the selection, so evidence can tell a checked-in config choice from a
                 // safety-kill fallback or a dev harness run. Read from the decision — NOT derived from
@@ -588,13 +600,16 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 selectedVariant: variant,
                 model: variantCfg?.MODEL_ID ?? null,
                 dtype: variantCfg ? JSON.stringify(variantCfg.DTYPE) : null,
-                requestedDevice: 'cpu',
-                resolvedDevice: d?.runtime ?? null,
+                requestedDevice,
+                resolvedDevice,
                 attemptedProvider,
                 finalProvider: this._engineType ?? null,
                 fallbackProvider: fallbackReason ? (this._engineType ?? null) : null,
-                requestedCandidateId: d?.requestedCandidateId ?? this.selectedCandidateId,
-                observedCandidateId: d?.observedCandidateId ?? this.selectedCandidateId,
+                requestedCandidateId,
+                // Undefined here is intentional after both the primary and fallback failed. Do not
+                // infer an observed model from selectedCandidateId, which may already name v2 only
+                // because it was being attempted.
+                observedCandidateId: d?.observedCandidateId ?? null,
                 fallbackReason,
                 loadMs: loadMs ?? null,
                 errorClass: errorClass ?? null, // class name only — never message/stack (no PII)
@@ -617,8 +632,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 variant,
                 model: variantCfg?.MODEL_ID ?? null,
                 dtype: variantCfg ? JSON.stringify(variantCfg.DTYPE) : null,
-                requestedDevice: 'cpu',
-                resolvedDevice: d?.runtime ?? null,
+                requestedDevice,
+                resolvedDevice,
                 webgpuAvailable: d?.webgpuAvailable,
                 fallbackReason,
                 loadMs: loadMs ?? null,
@@ -1093,6 +1108,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     await this.disposeFailedInitialization(candidateEngine);
                     return { isOk: false, error: (result as { error: Error }).error };
                 }
+                if (this.isTerminated) {
+                    await this.disposeFailedInitialization(candidateEngine);
+                    return { isOk: false, error: new Error('Private v2 initialization cancelled before completion') };
+                }
                 this.engine = engine;
                 this._engineType = 'transformers-js';
                 return { isOk: true, data: 'transformers-js' as EngineType };
@@ -1109,6 +1128,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             if (result && 'isOk' in result && result.isOk === false) {
                 await this.disposeFailedInitialization(candidateEngine);
                 return { isOk: false, error: result.error as Error };
+            }
+            if (this.isTerminated) {
+                await this.disposeFailedInitialization(candidateEngine);
+                return { isOk: false, error: new Error('Private v2 initialization cancelled before completion') };
             }
 
             this.engine = engine;
@@ -1139,6 +1162,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     await this.disposeFailedInitialization(candidateEngine);
                     return { isOk: false, error: (result as { error: Error }).error };
                 }
+                if (this.isTerminated) {
+                    await this.disposeFailedInitialization(candidateEngine);
+                    return { isOk: false, error: new Error('Private v4 initialization cancelled before completion') };
+                }
                 this.engine = engine as unknown as IPrivateSTTEngine;
                 this._engineType = 'transformers-js-v4';
                 return { isOk: true, data: 'transformers-js-v4' as EngineType };
@@ -1154,6 +1181,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             if (result && 'isOk' in result && result.isOk === false) {
                 await this.disposeFailedInitialization(candidateEngine);
                 return { isOk: false, error: result.error as Error };
+            }
+            if (this.isTerminated) {
+                await this.disposeFailedInitialization(candidateEngine);
+                return { isOk: false, error: new Error('Private v4 initialization cancelled before completion') };
             }
 
             this.engine = engine;
