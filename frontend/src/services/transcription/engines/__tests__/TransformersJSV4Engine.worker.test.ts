@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import posthog from 'posthog-js';
 
 const { mockPipeline } = vi.hoisted(() => ({
     mockPipeline: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock('@huggingface/transformers', () => ({
         INFO: 'info',
     },
 }));
+vi.mock('posthog-js', () => ({ default: { isFeatureEnabled: vi.fn() } }));
 
 type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-error';
 
@@ -106,6 +108,8 @@ describe('TransformersJSV4Engine worker message contract', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+        vi.mocked(posthog.isFeatureEnabled).mockReset().mockReturnValue(false);
         mockPipeline.mockReset();
         window.localStorage.clear();
         fakeWorkerMode = 'ready';
@@ -125,6 +129,70 @@ describe('TransformersJSV4Engine worker message contract', () => {
         vi.useRealTimers();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+    });
+
+    it('binds an internal evaluator attempt to the selected v4 model and variant', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(true);
+        expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'init', model: 'onnx-community/whisper-base.en',
+                attempt: expect.objectContaining({ candidateId: 'v4:base:q4' }),
+            }),
+            [],
+        );
+        await engine.destroy();
+    });
+
+    it('refuses evaluator selection outside an internal build before worker init', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'false');
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(false);
+        expect(fakeWorkerInstances[0]?.postMessage).not.toHaveBeenCalled();
+        expect(fakeWorkerInstances[0]?.terminate).toHaveBeenCalled();
+    });
+
+    it('refuses evaluator selection when the remote safety kill forces v2', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        vi.mocked(posthog.isFeatureEnabled).mockReturnValue(true);
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(false);
+        expect(fakeWorkerInstances[0]?.postMessage).not.toHaveBeenCalled();
+        expect(fakeWorkerInstances[0]?.terminate).toHaveBeenCalled();
+    });
+
+    it('refuses an evaluator candidate whose loaded v4 variant differs', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:distil:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(false);
+        expect(fakeWorkerInstances[0]?.postMessage).not.toHaveBeenCalled();
+        expect(fakeWorkerInstances[0]?.terminate).toHaveBeenCalled();
     });
 
     it('contract: init resolves when the v4 worker responds with ready', async () => {
