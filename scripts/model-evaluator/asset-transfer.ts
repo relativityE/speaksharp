@@ -6,10 +6,10 @@ export type AssetTransfer = {
   failedRequests: number;
   responseBodyBytes: number;
   requestWindowMs: number | null;
-  cacheDisabled: true;
+  pageCacheDisabled: true;
 };
 
-/** Measures the uncached model-asset HTTP request window, not model parsing or initialization. */
+/** Measures browser-visible model-asset requests, not model parsing or initialization. */
 export class AssetTransferRecorder {
   private readonly started = new Map<Request, number>();
   private readonly pending: Promise<void>[] = [];
@@ -28,8 +28,8 @@ export class AssetTransferRecorder {
       return url.includes('/models/') || url.includes('/resolve/') ||
         url.includes('download.moonshine.ai/model/');
     };
-    // BrowserContext sees dedicated-worker requests as well as document requests. Page request
-    // events alone miss the large ONNX weight fetches made inside the v4 worker.
+    // Context scope sees more than page scope, but dedicated-worker cross-origin weights can still
+    // be absent. The v4 worker's own acquisition receipt is reported separately.
     const context = page.context();
     context.on('request', (request) => {
       if (!isModelAsset(request)) return;
@@ -61,7 +61,7 @@ export class AssetTransferRecorder {
       failedRequests: this.failed,
       responseBodyBytes: this.bytes,
       requestWindowMs: this.first === null || this.last === null ? null : this.last - this.first,
-      cacheDisabled: true,
+      pageCacheDisabled: true,
     };
   }
 }
