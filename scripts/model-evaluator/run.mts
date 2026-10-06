@@ -86,6 +86,7 @@ async function main(): Promise<void> {
     baseline: null, candidate: null,
   };
   const assetTransfers: [AssetTransfer | null, AssetTransfer | null] = [null, null];
+  const workerAcquisitions: [unknown | null, unknown | null] = [null, null];
   try {
     for (let armIndex = 0; armIndex < 2; armIndex += 1) {
       const started = performance.now();
@@ -142,6 +143,8 @@ async function main(): Promise<void> {
     for (let index = 0; index < adapters.length; index += 1) {
       try { assetTransfers[index] = await adapters[index].assetTransfer?.() ?? null; }
       catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_asset_transfer:${String(error)}`); }
+      try { workerAcquisitions[index] = await adapters[index].workerAcquisition?.() ?? null; }
+      catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_worker_acquisition:${String(error)}`); }
     }
     await Promise.allSettled(adapters.map((adapter) => adapter.dispose()));
   }
@@ -167,6 +170,7 @@ async function main(): Promise<void> {
     inputFailures: failures,
     adapterInitializeMs,
     modelAssetTransfer: { baseline: assetTransfers[0], candidate: assetTransfers[1] },
+    workerAcquisition: { baseline: workerAcquisitions[0], candidate: workerAcquisitions[1] },
     baseline, candidate, comparison,
     acceptance,
     identityLimitations: [baseline, candidate].map((arm, index) => arm.manifest.engine === 'moonshine-streaming'

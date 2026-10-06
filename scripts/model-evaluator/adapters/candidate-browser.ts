@@ -37,6 +37,7 @@ export async function configuredAssetDigest(root: string, candidateId: Candidate
 type BrowserRuntime = {
   candidateId: CandidateId | null;
   runtime: unknown;
+  workerAcquisition: unknown;
 };
 
 declare global {
@@ -58,6 +59,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
   let browser: Browser | null = null;
   let page: Page | null = null;
   let pending: { transcript: string; inputSha256: string } | null = null;
+  let acquisition: unknown | null = null;
   const transfer = new AssetTransferRecorder();
   return {
     async initialize(): Promise<ModelIdentity> {
@@ -88,6 +90,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       await page.goto(new URL('/model-evaluator.local.html', context.baseUrl).toString());
       await page.waitForFunction(() => Boolean(window.__MODEL_EVALUATOR__));
       const state = await page.evaluate((id) => window.__MODEL_EVALUATOR__!.initialize(id), candidateId) as BrowserRuntime;
+      acquisition = state.workerAcquisition ?? null;
       if (state.candidateId !== candidateId || !state.runtime) {
         throw new Error('browser candidate did not publish runtime identity');
       }
@@ -133,6 +136,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       return result;
     },
     assetTransfer: () => transfer.snapshot(),
+    async workerAcquisition() { return acquisition; },
     async dispose() {
       try { await page?.evaluate(() => window.__MODEL_EVALUATOR__?.dispose()); }
       finally { await browser?.close(); browser = null; page = null; pending = null; }

@@ -13,6 +13,7 @@ type HarnessState = {
   lastInputSha256: string | null;
   lastTranscript: string | null;
   runtime: unknown;
+  workerAcquisition: unknown;
 };
 
 declare global {
@@ -32,6 +33,7 @@ if (import.meta.env.VITE_INTERNAL_BUILD !== 'true') {
 
 const state: HarnessState = {
   candidateId: null, decodedCount: 0, lastInputSha256: null, lastTranscript: null, runtime: null,
+  workerAcquisition: null,
 };
 let engine: Engine | null = null;
 
@@ -42,6 +44,7 @@ async function dispose(): Promise<void> {
   state.lastInputSha256 = null;
   state.lastTranscript = null;
   state.runtime = null;
+  state.workerAcquisition = null;
 }
 
 async function initialize(candidateId: ArmId): Promise<HarnessState> {
@@ -68,6 +71,8 @@ async function initialize(candidateId: ArmId): Promise<HarnessState> {
   state.runtime = candidate.engine === 'transformers-js-v4'
     ? (window as unknown as { __PRIVATE_V4_RUNTIME__?: unknown }).__PRIVATE_V4_RUNTIME__ ?? null
     : (engine as MoonshineStreamingEngine).getMetadata();
+  state.workerAcquisition = engine instanceof TransformersJSV4Engine
+    ? engine.getAcquisitionReceipt() : null;
   return { ...state };
 }
 

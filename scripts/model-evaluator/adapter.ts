@@ -7,6 +7,7 @@ export interface ModelAdapter {
   decode(pcm16k: Float32Array): Promise<void>;
   finalize(): Promise<{ transcript: string; inputSha256: string }>;
   assetTransfer?(): Promise<AssetTransfer | null>;
+  workerAcquisition?(): Promise<unknown | null>;
   dispose(): Promise<void>;
 }
 
