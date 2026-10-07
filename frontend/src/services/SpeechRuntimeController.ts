@@ -871,6 +871,52 @@ export class SpeechRuntimeController {
     }
 
     /**
+     * #1258 — retire a service that already ran a take, on behalf of a Start that is about to need one.
+     * Detaches it (killing every binding it holds), then AWAITS its destruction, because the factory keeps
+     * handing it back until it is TERMINATED. Returns whether that Start may continue.
+     *
+     * The await is a suspension. A hard reset may cut the lifecycle meanwhile, or the user may press Start
+     * again — a newer intent, a newer recording id. Either way this Start no longer owns anything: it stands
+     * down without touching the service or the newer owner's lock, and the newer owner retires the service
+     * for itself (destruction is idempotent, so it joins the same termination).
+     */
+    private async retireSpentServiceForStart(
+        spentService: TranscriptionService,
+        intentToken: string,
+        recordingId: string,
+        token: LifecycleToken,
+    ): Promise<boolean> {
+        const spent = this.detachService(spentService);
+        pushNativeRuntimeTrace('controller_start_retire_spent_service');
+        try {
+            await spent?.destroy();
+        } catch (destroyError: unknown) {
+            logger.warn({ code: destroyError instanceof Error ? destroyError.name : 'unknown' },
+                '[controller] destroying the previous take\'s service failed');
+        }
+        if (token.cancelled || token.version !== this.lifecycleVersion
+            || this.currentRecordingId !== recordingId || !isCurrentIntent(intentToken)) {
+            pushNativeRuntimeTrace('controller_start_superseded_while_retiring');
+            retireRecordingIntent('superseded', intentToken);
+            this.releaseRefusedStartLock();
+            return false;
+        }
+        if (spent && !spent.isServiceDestroyed()) {
+            this.refuseStartOnSpentService(intentToken);
+            return false;
+        }
+        return true;
+    }
+
+    /** #1258 — a previous take's service would not terminate: refuse rather than run this take on it. */
+    private refuseStartOnSpentService(intentToken: string): void {
+        pushNativeRuntimeTrace('controller_start_spent_service_not_retired');
+        retireRecordingIntent('acquisition_failed', intentToken, new Error('PREVIOUS_TAKE_SERVICE_NOT_RETIRED'));
+        // Aborting before INITIATING — release the Start-intent lock, as the other pre-INITIATING exits do.
+        this.releaseRefusedStartLock();
+    }
+
+    /**
      * ✅ Authoritative Reset Hook for E2E Tests
      * Purges the singleton instance and all internal execution state.
      */
@@ -4075,30 +4121,7 @@ export class SpeechRuntimeController {
              * engine off before Start — so destruction only releases what the old service still holds.
              */
             if (this.service && this.servicesThatRecorded.has(this.service)) {
-                const spent = this.detachService(this.service);
-                pushNativeRuntimeTrace('controller_start_retire_spent_service');
-                try {
-                    await spent?.destroy();
-                } catch (destroyError: unknown) {
-                    logger.warn({ code: destroyError instanceof Error ? destroyError.name : 'unknown' },
-                        '[controller] destroying the previous take\'s service failed');
-                }
-                if (spent && !spent.isServiceDestroyed()) {
-                    pushNativeRuntimeTrace('controller_start_spent_service_not_retired');
-                    retireRecordingIntent('acquisition_failed', intent.token, new Error('PREVIOUS_TAKE_SERVICE_NOT_RETIRED'));
-                    // Aborting before INITIATING — release the Start-intent lock, as the other pre-INITIATING exits do.
-                    this.engineSelectionIntentLocked = false;
-                    this.publishLockState();
-                    return;
-                }
-                // The await is a suspension: a reset or newer Start may have taken the lifecycle meanwhile.
-                if (_token.cancelled || _token.version !== this.lifecycleVersion) {
-                    pushNativeRuntimeTrace('controller_start_skip_version_changed_while_retiring');
-                    retireRecordingIntent('superseded', intent.token);
-                    this.engineSelectionIntentLocked = false;
-                    this.publishLockState();
-                    return;
-                }
+                if (!await this.retireSpentServiceForStart(this.service, intent.token, recordingId, _token)) return;
             }
 
             if (!this.service) {
@@ -4107,6 +4130,26 @@ export class SpeechRuntimeController {
                     this.callbacksForNewService(this.subscriberCallbacks),
                     this.lock
                 );
+                /**
+                 * #1258 — THE FACTORY CAN STILL HAND BACK A SPENT SERVICE.
+                 *
+                 * A hard reset detaches the service without waiting for it, and it resets the command queue, so a
+                 * Start can reach this line while the previous take's service is still terminating. Until it is
+                 * TERMINATED the factory returns it — with this take's callbacks just rebound onto it. Retire it
+                 * exactly as above (detaching kills that binding), then ask for a service once more.
+                 */
+                if (this.servicesThatRecorded.has(this.service)) {
+                    if (!await this.retireSpentServiceForStart(this.service, intent.token, recordingId, _token)) return;
+                    this.service = getTranscriptionService(
+                        this.callbacksForNewService(this.subscriberCallbacks),
+                        this.lock
+                    );
+                    if (this.servicesThatRecorded.has(this.service)) {
+                        this.detachService(this.service);
+                        this.refuseStartOnSpentService(intent.token);
+                        return;
+                    }
+                }
             }
 
             pushE2EEvent('SR_START_ENTER');

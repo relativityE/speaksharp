@@ -239,3 +239,165 @@ describe('#1258 — after a Stop whose save failed, the next take gets its own s
         expect(serviceA.startTranscription, "A's service was not started again").toHaveBeenCalledTimes(1);
     });
 });
+
+/**
+ * #1258 — A RETIREMENT THAT COMPLETES AFTER A NEWER OWNER TOOK OVER.
+ *
+ * B's Start suspends while A's service terminates. Before that destruction completes, either a hard reset
+ * (navigation, sign-out) cuts the lifecycle, or the user presses Start again. When A finally terminates, the
+ * suspended Start must not resume as if it still owned the lifecycle, and the newer owner must neither run
+ * on A's dying service nor hear A's engine.
+ *
+ * A's `destroy()` is held open here; like the real `TranscriptionService.destroy()` it is idempotent — a
+ * second caller joins the same termination — and the service is terminal only once it resolves.
+ */
+const holdRetirement = (serviceA: ReturnType<typeof recordingService>) => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let terminating: Promise<void> | null = null;
+    serviceA.destroy.mockImplementation(() => {
+        terminating ??= gate.then(() => { serviceA.destroyed = true; });
+        return terminating;
+    });
+    return () => release();
+};
+
+/** Every channel A's engine can still speak through after it was superseded. */
+const emitFromA = (callbacks: Partial<TranscriptionServiceOptions>) => {
+    callbacks.onTranscriptUpdate?.(finalUpdate('Alpha late straggler.') as never);
+    callbacks.onHistoryUpdate?.([{ text: 'Alpha history line.', isFinal: true }] as never);
+    callbacks.onStatusChange?.({ type: 'error', message: 'Alpha engine status' } as never);
+};
+
+const outcomeOf = (p: Promise<unknown>) => p.then(() => 'resolved', (e: Error) => e.message);
+
+/** A failed and was discarded; B's Start is now suspended in A's (held) retirement. */
+const suspendedInRetirement = async (first: Product, second: Product) => {
+    const c = newController();
+    c.state = 'READY';
+    const serviceA = recordingService('A');
+    const serviceB = recordingService('B');
+    const releaseA = holdRetirement(serviceA);
+    factory.queue.push(serviceA, serviceB);
+
+    enterProduct(first, BRIEF_A);
+    await c.startRecording(POLICY, []);
+    vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+    await expect(c.stopRecording()).rejects.toThrow('SESSION_COMPLETION_FAILED');
+    await settle();
+    expect(await c.discardUnresolvedRecording()).toEqual(expect.objectContaining({ outcome: 'discarded' }));
+
+    enterProduct(second, BRIEF_B);
+    const staleStart = outcomeOf(c.startRecording(POLICY, []));
+    await settle();
+    expect(serviceA.destroy, "B's Start is waiting on A's termination").toHaveBeenCalled();
+    expect(serviceA.destroyed, 'A has not terminated yet').toBe(false);
+
+    // Whoever the factory hands a service to next: was the selection still locked at that moment?
+    const lockedWhenBHandedOut: boolean[] = [];
+    const bind = serviceB.updateCallbacks.getMockImplementation()!;
+    serviceB.updateCallbacks.mockImplementation((callbacks) => {
+        lockedWhenBHandedOut.push((c as unknown as SpeechRuntimeController).isEngineSelectionLocked());
+        bind(callbacks);
+    });
+
+    return { c, serviceA, serviceB, releaseA, staleStart, lockedWhenBHandedOut };
+};
+
+describe('#1258 — a retirement superseded before it completes', () => {
+    beforeEach(() => {
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        factory.queue.length = 0;
+        factory.active = null;
+        vi.mocked(saveSession).mockReset()
+            .mockResolvedValueOnce({ status: 'saved', session: { id: 'session-A' } } as never)
+            .mockResolvedValueOnce({ status: 'saved', session: { id: 'session-C' } } as never);
+        vi.mocked(completeSession).mockReset().mockResolvedValue({ success: true } as never);
+    });
+
+    describe.each(JOURNEYS)('%s → %s', (first, second) => {
+        it('a hard reset during the retirement: the suspended Start never admits, and A reaches no one', async () => {
+            const { c, serviceA, serviceB, releaseA, staleStart } = await suspendedInRetirement(first, second);
+
+            (c as unknown as SpeechRuntimeController).reset('navigation');
+            const liveAtReset = serviceA.live;
+            releaseA();
+            await settle();
+
+            expect(await staleStart, 'the superseded Start reports that it did not record').not.toBe('resolved');
+            expect(c.acceptedAttempt, 'nothing was admitted').toBeNull();
+            expect(c.state, 'the suspended Start did not take the lifecycle back').not.toBe('RECORDING');
+            expect(serviceB.startTranscription, 'no engine started for the superseded Start').not.toHaveBeenCalled();
+            expect(serviceA.startTranscription, "A's service was never started again").toHaveBeenCalledTimes(1);
+            expect((c as unknown as SpeechRuntimeController).isEngineSelectionLocked(),
+                'the superseded Start left no lock behind').toBe(false);
+
+            emitFromA(liveAtReset);
+            emitFromA(serviceA.live);
+            await settle();
+            expect(useSessionStore.getState().transcript.transcript, "A's emissions are dropped").toBe('');
+        });
+
+        it('a reset, then a NEW Start while A is still terminating: the new take waits for its own service', async () => {
+            const { c, serviceA, serviceB, releaseA, staleStart, lockedWhenBHandedOut } =
+                await suspendedInRetirement(first, second);
+
+            (c as unknown as SpeechRuntimeController).reset('navigation');
+            enterProduct(second, BRIEF_B);
+            const newerStart = outcomeOf(c.startRecording(POLICY, []));
+            await settle();
+            expect(c.acceptedAttempt, 'the newer Start is not admitted on the dying service').toBeNull();
+            expect(serviceA.startTranscription, "A's dying service was not started for the newer take")
+                .toHaveBeenCalledTimes(1);
+
+            // A's engine speaks through whatever its service holds — including a binding handed to it meanwhile.
+            emitFromA(serviceA.live);
+            releaseA();
+            await settle();
+
+            expect(await staleStart, 'the superseded Start did not record').not.toBe('resolved');
+            expect(await newerStart, 'the newer Start recorded').toBe('resolved');
+            expect(c.acceptedAttempt?.service, 'the newer take runs on a fresh service').toBe(serviceB);
+            expect(serviceB.startTranscription, 'exactly one engine start, for the newer take').toHaveBeenCalledTimes(1);
+            expect(lockedWhenBHandedOut, 'engine selection stayed locked until the newer take owned its service')
+                .toEqual([true]);
+            expect(c.recordingProgressMode.mode, "the newer take's product").toBe(second);
+
+            emitFromA(serviceA.live);
+            await settle();
+            expect(useSessionStore.getState().transcript.transcript, "A's emissions are dropped").toBe('');
+
+            // POSITIVE CONTROL — the newer take's own engine is delivered.
+            serviceB.live.onTranscriptUpdate?.(finalUpdate('Charlie take words.') as never);
+            await settle();
+            const after = useSessionStore.getState().transcript.transcript;
+            expect(after).toContain('Charlie');
+            expect(after).not.toContain('Alpha');
+        });
+
+        it('a second Start pressed during the retirement: only the newest Start records', async () => {
+            const { c, serviceA, serviceB, releaseA, staleStart, lockedWhenBHandedOut } =
+                await suspendedInRetirement(first, second);
+
+            const newerStart = outcomeOf(c.startRecording(POLICY, []));
+            releaseA();
+            await settle();
+
+            expect(await staleStart, 'the replaced Start did not record').not.toBe('resolved');
+            expect(await newerStart, 'the newest Start recorded').toBe('resolved');
+            expect(c.state).toBe('RECORDING');
+            expect(c.acceptedAttempt?.service, 'the newest take runs on a fresh service').toBe(serviceB);
+            expect(serviceB.startTranscription, 'exactly one engine start').toHaveBeenCalledTimes(1);
+            expect(lockedWhenBHandedOut).toEqual([true]);
+
+            emitFromA(serviceA.live);
+            await settle();
+            expect(useSessionStore.getState().transcript.transcript, "A's emissions are dropped").toBe('');
+            serviceB.live.onTranscriptUpdate?.(finalUpdate('Charlie take words.') as never);
+            await settle();
+            expect(useSessionStore.getState().transcript.transcript).toContain('Charlie');
+        });
+    });
+});
