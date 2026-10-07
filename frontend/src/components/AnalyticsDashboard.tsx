@@ -19,6 +19,7 @@ import { TrendsCard } from './analytics/TrendsCard';
 import type { TrendDataPoint } from './analytics/trendMetrics';
 import { SavedFocusPointsCoverage } from './analytics/SavedFocusPointsCoverage';
 import { SavedPracticeLoopReview } from './analytics/SavedPracticeLoopReview';
+import { ProgressHeader } from './analytics/ProgressHeader';
 import { trackSessionPdfDownloaded, type PdfSurface } from '@/services/reviewSurfaceTelemetry';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
@@ -81,6 +82,8 @@ interface AnalyticsDashboardProps {
     isProUser?: boolean;
     sessionHistory: PracticeSession[];
     overallStats: OverallStats;
+    /** #1258 D5: the oldest counted session's `created_at` (null while unknown) — the header's "since {date}". */
+    firstSessionAt?: string | null;
     loading: boolean;
     error: Error | null;
     onUpgrade: () => void;
@@ -509,6 +512,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     isProUser: effectiveIsProUser,
     sessionHistory,
     overallStats,
+    firstSessionAt = null,
     loading,
     error,
     onUpgrade,
@@ -598,9 +602,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     }, [customAnalysisSlides, isCustomFocus, selectedToolGroup]);
 
     const focusLabel = isCustomFocus ? 'Custom' : selectedToolGroup.label;
-    const focusPurpose = isCustomFocus
-        ? 'Inspect specific metrics when you already know the signal you want to measure.'
-        : selectedToolGroup.purpose;
 
     const toggleCustomStatCard = (cardId: string) => {
         setCustomStatCards(prev => {
@@ -715,8 +716,59 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         return Number.isNaN(created.getTime()) ? null : created.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     }, [targetSession]);
 
+    // #1258 D5 (Rev 2 §5.2): the existing focus menu, unchanged inside, restyled as an outline control on the ink header.
+    const focusControl = (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    className="inline-flex h-10 items-center gap-2 self-start rounded-lg border border-ink-muted px-3.5 text-[14px] font-bold text-white hover:bg-ink-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature"
+                    data-testid={TEST_IDS.ANALYTICS_FOCUS_TRIGGER}
+                >
+                    Choose focus
+                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuLabel>Choose what you want to improve</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup
+                    value={selectedFocusId}
+                    onValueChange={(value) => setSelectedFocusId(value as AnalyticsFocusId)}
+                >
+                    {ANALYTICS_TOOL_GROUPS.map(group => (
+                        <DropdownMenuRadioItem key={group.id} value={group.id} className="items-start">
+                            <span className="flex flex-col gap-0.5">
+                                <span className="font-semibold">{group.label}</span>
+                                <span className="text-xs leading-snug text-muted-foreground">{group.outcome}</span>
+                            </span>
+                        </DropdownMenuRadioItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuRadioItem value="custom" className="items-start">
+                        <span className="flex flex-col gap-0.5">
+                            <span className="font-semibold">Custom</span>
+                            <span className="text-xs leading-snug text-muted-foreground">Advanced: choose specific metrics when you already know what to inspect.</span>
+                        </span>
+                    </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+    const newestSession = !sessionId && sessionHistory && sessionHistory.length > 0 ? sessionHistory[0] : null;
+
     return (
         <div className="space-y-6" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
+            {/* #1258 D5: on the overview the ink header leads every state and owns the page h1. */}
+            {!sessionId && (
+                <ProgressHeader
+                    sessionCount={Number(overallStats.totalSessions) || 0}
+                    firstSessionAt={firstSessionAt}
+                    latest={newestSession ? { product: newestSession.product ?? null, createdAt: newestSession.created_at } : null}
+                    focusLabel={focusLabel}
+                    focusControl={newestSession ? focusControl : null}
+                />
+            )}
             {loading ? (
                 <AnalyticsDashboardSkeleton />
             ) : error ? (
@@ -882,65 +934,20 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             ) : (
                 <>
 
-                    <Card className="rounded-xl border border-border bg-card surface-shadow">
-                        <CardHeader className="space-y-4">
-                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                <div className="space-y-1">
-                                    <p className="text-xs font-bold uppercase tracking-wider text-signature-text">Working on</p>
-                                    <CardTitle className="text-2xl font-extrabold text-foreground">{focusLabel}</CardTitle>
-                                    <p className="max-w-3xl text-sm font-semibold leading-snug text-foreground/75">
-                                        {focusPurpose}
-                                    </p>
-                                </div>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="gap-2 self-start border-[hsl(var(--border-strong))] font-semibold text-foreground hover:border-primary hover:bg-primary/10 hover:text-signature-text"
-                                            data-testid={TEST_IDS.ANALYTICS_FOCUS_TRIGGER}
-                                        >
-                                            Choose focus
-                                            <ChevronDown className="h-4 w-4" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-72">
-                                        <DropdownMenuLabel>Choose what you want to improve</DropdownMenuLabel>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuRadioGroup
-                                            value={selectedFocusId}
-                                            onValueChange={(value) => setSelectedFocusId(value as AnalyticsFocusId)}
-                                        >
-                                            {ANALYTICS_TOOL_GROUPS.map(group => (
-                                                <DropdownMenuRadioItem key={group.id} value={group.id} className="items-start">
-                                                    <span className="flex flex-col gap-0.5">
-                                                        <span className="font-semibold">{group.label}</span>
-                                                        <span className="text-xs leading-snug text-muted-foreground">{group.outcome}</span>
-                                                    </span>
-                                                </DropdownMenuRadioItem>
-                                            ))}
-                                            <DropdownMenuSeparator />
-                                            <DropdownMenuRadioItem value="custom" className="items-start">
-                                                <span className="flex flex-col gap-0.5">
-                                                    <span className="font-semibold">Custom</span>
-                                                    <span className="text-xs leading-snug text-muted-foreground">Advanced: choose specific metrics when you already know what to inspect.</span>
-                                                </span>
-                                            </DropdownMenuRadioItem>
-                                        </DropdownMenuRadioGroup>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </div>
-                        </CardHeader>
-                    </Card>
 
-                    {/* #G4 §2: the four cards explain their relationship by POSITION, not a sentence. Heading left,
-                        the evidence window right. The prior "selected together…" subtitle + focus explanation
-                        boxes are deleted (explanation lives behind the focus control / a ? , not as prose). */}
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div className="space-y-1">
-                            <h2 className="text-lg font-semibold text-foreground">{"What that’s based on"}</h2>
-                            <p className="text-sm font-medium text-muted-foreground">Across your last 6 sessions</p>
-                        </div>
+                    {/* #1258 D5: Your latest review — the newest session's SAVED pair, read-only; nothing when none was saved. */}
+                    {newestSession && (
+                        <SavedPracticeLoopReview
+                            sessionId={newestSession.id}
+                            sessionLabel={`${shortDate(newestSession.created_at)}, ${shortTime(newestSession.created_at)}`}
+                            eyebrow="Your latest review"
+                            footerLink={{ to: `/analytics/${newestSession.id}`, label: 'Open this session' }}
+                            onlyWhenSaved
+                        />
+                    )}
+
+                    {/* The Custom focus keeps its stat-card picker (the "What that's based on" heading is retired). */}
+                    <div className="flex justify-end empty:hidden">
                         {isCustomFocus && (
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -1055,8 +1062,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         ))}
                     </div>
 
-                    <GoalsSection />
-
                     {/* #1258 D7: Trends — one card, every row collapsed on mount; the selected focus picks the rows. The custom
                         focus keeps its analysis-tool picker beside the heading. */}
                     <div className="space-y-6">
@@ -1131,6 +1136,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 )}
                             </div>
                         </div>
+
+                        {/* #1258 D5 (Rev 2 §5.3): goals follow Recent sessions, unchanged. */}
+                        <GoalsSection />
                     </div>
 
                     {

@@ -367,7 +367,7 @@ export async function setupE2EManifest(
       table: string,
       single: boolean = false,
       filters: QueryFilter[] = [],
-      options: { count?: string; head?: boolean; range?: [number, number] } = {}
+      options: { count?: string; head?: boolean; range?: [number, number]; ascending?: boolean } = {}
     ) => {
       if (table === 'user_profiles') {
         return Promise.resolve({ data: single ? e2eProfile : [e2eProfile], error: null, count: 1 });
@@ -422,6 +422,9 @@ export async function setupE2EManifest(
           rows = rows.filter((row) => matchesFilters(row as Record<string, unknown>, [filter]));
         }
         rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+        // #1258 D5: only an EXPLICIT `order('created_at', { ascending: true })` (the Progress header's oldest-session
+        // read) flips the order; every other read keeps the newest-first order it has always had.
+        if (options.ascending) rows.reverse();
         const count = rows.length;
         if (options.range) {
           const [from, to] = options.range;
@@ -442,7 +445,7 @@ export async function setupE2EManifest(
 
     const makeQueryBuilder = (table: string) => {
       const filters: QueryFilter[] = [];
-      const options: { count?: string; head?: boolean; range?: [number, number] } = {};
+      const options: { count?: string; head?: boolean; range?: [number, number]; ascending?: boolean } = {};
       let pendingMutation: { type: 'update' | 'insert' | 'upsert' | 'delete'; payload?: Record<string, unknown> | Record<string, unknown>[] } | null = null;
       const commitMutation = () => {
         if (!pendingMutation) return null;
@@ -532,7 +535,10 @@ export async function setupE2EManifest(
           return builder;
         },
         or: () => builder,
-        order: () => builder,
+        order: (column?: string, orderOptions?: { ascending?: boolean }) => {
+          if (column === 'created_at' && orderOptions?.ascending === true) options.ascending = true;
+          return builder;
+        },
         range: (from: number, to: number) => {
           options.range = [from, to];
           return builder;

@@ -183,15 +183,19 @@ describe('AnalyticsDashboard', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
 
         expect(screen.getByTestId('analytics-dashboard')).toBeInTheDocument();
-        expect(screen.getByText('Working on')).toBeInTheDocument();
-        expect(screen.getByText('Sound Confident')).toBeInTheDocument();
+        // #1258 D5: the ink header leads — "Your progress" owns the h1 and names the focus in its latest line.
+        expect(screen.getByTestId('progress-header')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1, name: 'Your progress' })).toHaveAttribute('data-testid', 'dashboard-heading');
+        expect(screen.getByTestId('progress-header-latest')).toHaveTextContent('Working on Sound Confident');
+        // The white WORKING ON card and the "What that's based on / Across your last 6 sessions" heading are retired.
+        expect(screen.queryByText('Working on', { exact: true })).not.toBeInTheDocument();
         expect(screen.queryByText(/SpeakSharp Score/i)).not.toBeInTheDocument();
         // #G4: the explanation boxes + "selected together" subtitle are gone; the section leads with a
         // position-based heading instead of a sentence.
         expect(screen.queryByText('Why these tools are here')).not.toBeInTheDocument();
         expect(screen.queryByText(/These cards are selected together/i)).not.toBeInTheDocument();
-        expect(screen.getByText(/that.s based on/i)).toBeInTheDocument();
-        expect(screen.getAllByText(/Across your last 6 sessions/i).length).toBeGreaterThan(0);
+        expect(screen.queryByText(/that.s based on/i)).not.toBeInTheDocument();
+        expect(screen.queryByText('Across your last 6 sessions')).not.toBeInTheDocument(); // the heading (exact text)
         expect(screen.getByTestId('stat-card-clarity_score')).toBeInTheDocument();
         expect(screen.queryByText('Delivery Control')).not.toBeInTheDocument();
         expect(screen.queryByText('Message Clarity')).not.toBeInTheDocument();
@@ -230,9 +234,8 @@ describe('AnalyticsDashboard', () => {
 
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        expect(screen.getByRole('heading', { name: label })).toBeInTheDocument();
-        // #G4: focus explanation boxes deleted; signals section leads with a position-based heading.
-        expect(screen.getByText(/that.s based on/i)).toBeInTheDocument();
+        // #1258 D5: the focus is named on the ink header's latest line.
+        expect(screen.getByTestId('progress-header-latest')).toHaveTextContent(`Working on ${label}`);
         for (const testId of statCards) {
             expect(screen.getByTestId(testId)).toBeInTheDocument();
         }
@@ -272,7 +275,7 @@ describe('AnalyticsDashboard', () => {
 
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        expect(screen.getByRole('heading', { name: expectedLabel })).toBeInTheDocument();
+        expect(screen.getByTestId('progress-header-latest')).toHaveTextContent(`Working on ${expectedLabel}`);
         expect(screen.queryByRole('heading', { name: 'Delivery Control' })).not.toBeInTheDocument();
         expect(screen.queryByRole('heading', { name: 'Message Clarity' })).not.toBeInTheDocument();
         expect(screen.queryByRole('heading', { name: 'Habit Progress' })).not.toBeInTheDocument();
@@ -287,8 +290,7 @@ describe('AnalyticsDashboard', () => {
 
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        expect(screen.getByRole('heading', { name: 'Custom' })).toBeInTheDocument();
-        expect(screen.getByText(/specific metrics/i)).toBeInTheDocument();
+        expect(screen.getByTestId('progress-header-latest')).toHaveTextContent('Working on Custom');
         // #G4: the focus explanation boxes + "interpreted independently" subtitle are deleted.
         expect(screen.getByRole('button', { name: /choose stat cards/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /choose analysis tools/i })).toBeInTheDocument();
