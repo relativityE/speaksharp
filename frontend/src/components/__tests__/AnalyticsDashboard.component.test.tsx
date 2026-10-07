@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '../../../tests/support/test-utils';
+import { fireEvent, render, screen, within } from '../../../tests/support/test-utils';
 import { AnalyticsDashboard } from '../AnalyticsDashboard';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import React from 'react';
@@ -106,18 +106,27 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('analytics-dashboard-skeleton')).toBeInTheDocument();
     });
 
-    it('saved-session (PDF report) row uses current vocabulary labels, not the old WPM/Fillers/Clarity card labels', () => {
-        renderComponent({ sessionHistory: mockSessionHistory });
-        // New product vocabulary on the saved-session row (matches the stat cards + PDF generator;
-        // getAllByText because the same vocabulary intentionally appears on the stat cards too).
-        expect(screen.getAllByText('Speaking Pace').length).toBeGreaterThan(0);
-        // #894: the filler metric label is now "Detected filler words" (transcript-derived, honest lower bound).
-        expect(screen.getAllByText('Detected filler words').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Clear Delivery').length).toBeGreaterThan(0);
-        // The stale bare card labels are gone. "WPM" survives ONLY as the unit beside the value,
-        // never as a standalone label element.
-        expect(screen.queryByText('Fillers')).not.toBeInTheDocument();
-        expect(screen.queryByText('Clarity')).not.toBeInTheDocument();
+    it('#1258 D9: a Recent sessions row — date/time title, product tag, units in labels, ink Open, yellow PDF', () => {
+        const [base] = mockSessionHistory;
+        renderComponent({ sessionHistory: [{ ...base, product: 'focus_points' }, { ...base, id: 'legacy-1', product: null }] });
+        const row = screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-session-1`);
+        const text = row.textContent ?? '';
+        // Units live in the labels; the values are bare and uncoloured.
+        for (const label of ['Pace (wpm)', 'Fillers', 'Clear delivery (%)']) expect(text).toContain(label);
+        expect(row.querySelectorAll('.text-success, .text-signature-text')).toHaveLength(0);
+        // Removed: the WPM unit, the old labels, the clock/duration line, the timestamp title and the bullet.
+        expect(text).not.toMatch(/WPM|Detected filler words|Speaking Pace|duration|•|Practice Session/);
+        expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+        expect(screen.getByTestId('session-detail-link-session-1').textContent).toMatch(/^\d{1,2} [A-Z][a-z]{2,3}( \d{4})?, \d{1,2}:\d{2}/);
+        expect(text).toMatch(/10:00/); // mm:ss duration (600 s)
+        // The product comes from the persisted field only; a legacy row with no product shows no tag.
+        expect(within(row).getByTestId('session-product-tag')).toHaveTextContent('Focus Points');
+        expect(within(screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-legacy-1`)).queryByTestId('session-product-tag')).toBeNull();
+        expect(screen.getByTestId('open-session-detail-session-1')).toHaveClass('bg-ink');
+        expect(screen.getByTestId('download-pdf-btn-session-1')).toHaveClass('bg-signature');
+        expect(within(row).getByRole('checkbox', { name: /^Compare Focus Points, / })).toBeInTheDocument();
+        // One responsive row: the separate mobile block is gone.
+        expect(screen.queryByTestId('download-pdf-btn-mobile-session-1')).toBeNull();
     });
 
     it('#1258 D7: Trends lists every selected tool as a collapsed row; a chart mounts only when its row opens', () => {
@@ -596,7 +605,8 @@ describe('AnalyticsDashboard', () => {
     it('shows an explicit open-session link on each history item so testers can verify saved sessions', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        const openLink = screen.getAllByRole('link', { name: /open saved session details/i })[0];
+        const openLink = screen.getByTestId('open-session-detail-session-1');
+        expect(openLink).toHaveTextContent('Open');
 
         expect(openLink).toHaveAttribute('href', '/analytics/session-1');
     });
@@ -624,10 +634,10 @@ describe('AnalyticsDashboard', () => {
         // actually handed to the browser (the generator resolves true) — never before generation, never on a failed
         // generation (resolves false; the toast already tells the person) and never on a rejection. Exactly one event,
         // carrying only its closed-enum surface.
-        type Surface = 'history_list' | 'history_list_mobile' | 'session_detail';
+        // #1258 D9: one responsive row replaced the separate mobile block, so the list has ONE surface (`history_list`).
+        type Surface = 'history_list' | 'session_detail';
         const press: Record<Surface, () => void> = {
             history_list: () => fireEvent.click(screen.getByTestId('download-pdf-btn-sx')),
-            history_list_mobile: () => fireEvent.click(screen.getByTestId('download-pdf-btn-mobile-sx')),
             session_detail: () => fireEvent.click(screen.getByRole('button', { name: /Export PDF/i })),
         };
         const renderFor = (surface: Surface) => surface === 'session_detail'
@@ -639,7 +649,7 @@ describe('AnalyticsDashboard', () => {
             ['rejected', () => Promise.reject(new Error('boom')), 0],
         ] as const;
 
-        for (const surface of ['history_list', 'history_list_mobile', 'session_detail'] as const) {
+        for (const surface of ['history_list', 'session_detail'] as const) {
             for (const [label, result, events] of outcomes) {
                 it(`#1258: PDF from ${surface}, ${label} → ${events} session_pdf_downloaded`, async () => {
                     const { generateSessionPdf } = await import('../../lib/pdfGenerator');
@@ -664,7 +674,7 @@ describe('AnalyticsDashboard', () => {
         // #1258 (RWT run 36955422629): the list row is the metrics-only LIST select and never carries `transcript`, so a
         // PDF downloaded from the list had no transcript page. A list download builds the PDF from THIS session's detail
         // row; a failed detail read still produces the metrics PDF from the list row; the detail surface reads nothing.
-        for (const surface of ['history_list', 'history_list_mobile'] as const) {
+        for (const surface of ['history_list'] as const) {
             it(`#1258: a PDF from ${surface} is built from this session's detail row, which carries the transcript`, async () => {
                 const { generateSessionPdf } = await import('../../lib/pdfGenerator');
                 vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
@@ -740,7 +750,7 @@ describe('AnalyticsDashboard', () => {
         });
     });
 
-    it('#1306 a history item with unmeasured pace (NULL total_words) shows N/A, never a sentinel zero', () => {
+    it('#1306 a history item with unmeasured pace (NULL total_words) shows a dash, never a sentinel zero', () => {
         renderComponent({
             sessionHistory: [{
                 id: 'nc-1', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
@@ -748,8 +758,9 @@ describe('AnalyticsDashboard', () => {
             }],
         });
         const row = screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-nc-1`);
-        expect(row.textContent).toContain('N/A');
-        expect(row.textContent).not.toMatch(/\b0\s*WPM\b/);
+        // #1258 D9: unmeasured reads "—" beside its label; a measured zero would read "0".
+        expect(row.textContent).toContain('Pace (wpm)—');
+        expect(row.textContent).not.toMatch(/Pace \(wpm\)0|\b0\s*WPM\b/);
     });
 
     // ---------------------------------------------------------------------------------------------
