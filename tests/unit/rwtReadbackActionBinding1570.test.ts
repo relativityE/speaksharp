@@ -8,7 +8,7 @@ const RELEASE = 'a'.repeat(40);
 const RUN_ID = '37658306531';
 const RUN_ATTEMPT = '2';
 const BASE = [
-    { event: 'telemetry_positive_control', at: 1, journeyId: 'journey-current', bootId: 'boot-current', releaseSha: RELEASE, trafficType: 'canary' },
+    { event: 'telemetry_positive_control', at: 1, journeyId: 'journey-pre-product', bootId: 'boot-current', releaseSha: RELEASE, trafficType: 'canary' },
     { event: 'journey_step', at: 2, journeyId: 'journey-current', bootId: 'boot-current', releaseSha: RELEASE, trafficType: 'canary', journeyStep: 'route_change', toRoute: '/analytics/id' },
 ];
 const action = (stage: ReadbackActionStage, overrides: Partial<ReadbackActionBinding> = {}): ReadbackActionBinding => ({
@@ -25,7 +25,7 @@ describe('#1570 P1 — action-time readback bindings survive blind anchor beacon
         const result = plan([action('share_feedback'), action('session_pdf_export')]);
         expect(result).toEqual({
             journeys: [{ journeyId: 'journey-current', stages: ['share_feedback', 'session_pdf_export'] }],
-            reportedJourneyIds: [], missingBindings: [],
+            reportedJourneyIds: ['journey-pre-product'], missingBindings: [],
         });
         expect(JSON.stringify(result)).not.toMatch(/boot-current|37658306531|session_id|transcript|email/i);
     });
@@ -75,9 +75,13 @@ describe('#1570 P1 — action-time readback bindings survive blind anchor beacon
         expect(result.missingBindings).toEqual(['share_feedback']);
     });
 
-    it('does not accept a positive control from another journey or traffic class', () => {
+    it('accepts the boot-scoped positive control from the pre-product journey', () => {
+        expect(plan([action('share_feedback'), action('session_pdf_export')]).missingBindings).toEqual([]);
+    });
+
+    it('does not accept a positive control from another boot or traffic class', () => {
         for (const control of [
-            { ...BASE[0], journeyId: 'journey-other' },
+            { ...BASE[0], bootId: 'boot-other' },
             { ...BASE[0], trafficType: 'user' },
         ]) {
             const result = bindReadbackJourneys([control, BASE[1]], {

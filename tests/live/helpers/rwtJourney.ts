@@ -610,7 +610,7 @@ export class AnalyticsTap {
             || !/^[a-f0-9]{40}$/.test(releaseSha) || route.releaseSha !== releaseSha
             || !/^\d{1,20}$/.test(runId) || !/^\d{1,4}$/.test(runAttempt)) return null;
         const bootObserved = this.events.some((e) => e.event === 'telemetry_positive_control'
-            && e.journeyId === route.journeyId && e.bootId === route.bootId
+            && e.bootId === route.bootId
             && e.releaseSha === releaseSha && e.trafficType === 'canary');
         if (!bootObserved) return null;
         const binding: ReadbackActionBinding = {

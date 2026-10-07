@@ -231,7 +231,7 @@ export function bindReadbackJourneys(
             && event.releaseSha === binding.releaseSha && event.trafficType === 'canary'
             && ['/analytics', '/analytics/id'].includes(event.toRoute ?? ''));
         const bootWasObserved = events.some((event) => event.event === 'telemetry_positive_control'
-            && event.journeyId === binding.journeyId && event.bootId === binding.bootId
+            && event.bootId === binding.bootId
             && event.releaseSha === binding.releaseSha && event.trafficType === 'canary');
         const identityIsValid = Boolean(binding.journeyId && binding.bootId)
             && binding.trafficType === 'canary'
