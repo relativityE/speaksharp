@@ -15,6 +15,7 @@ import {
 } from '@/services/practiceLoopTelemetry';
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
+import { deriveReviewState } from './reviewState';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -548,14 +549,20 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   /**
    * #1422 — ONE SETTLED/UNSETTLED SIGNAL, published where the journey can read it.
    *
-   * `loading` is the only state that is still in motion. Everything else is an answer the user can act
+   * `loading` and `pending` are still in motion. `ready`, `error` and `blocked` are answers the user can act
    * on, including `error`: a malformed review response is a real outcome, and the card says so rather
    * than spinning. The E2E lane needs this because "the review settled honestly" and "the review is
    * still loading" are otherwise indistinguishable from outside, and the previous test worked around
    * that by asserting fabricated verdict prose that was always present.
    */
   // #1473 — a scheduled automatic retry is still in motion, so it reads as `loading` to the journey lane.
-  const reviewState = (isLoading || retrying) ? 'loading' : (error ? 'error' : (suggestions ? 'ready' : 'empty'));
+  // #1258 (RWT run 37514078995, F4) — "no review yet" is NOT a settled answer. The card used to publish `empty` while the
+  // session was still saving (`!reviewReady`) and in the instant between review eligibility and the automatic request,
+  // and the journey read that as terminal: it recorded "coaching did not render" ~20 ms before the request started and
+  // navigated away, superseding a request that had in fact been made. Every settled lifecycle outcome ends in
+  // `ready` or `error`, so anything else is `pending` (still coming) — or `blocked` when a stated reason means no review
+  // can be requested for this take. `empty` is no longer published: no settled eligible outcome leaves the card empty.
+  const reviewState = deriveReviewState({ isLoading, retrying, error: Boolean(error), hasSuggestions: Boolean(suggestions), reviewReady, blocked: Boolean(blockedReason) });
 
   /**
    * S-12 / S-14 — slot B's content, on the ink ground the shell owns. It carries no card chrome of its
