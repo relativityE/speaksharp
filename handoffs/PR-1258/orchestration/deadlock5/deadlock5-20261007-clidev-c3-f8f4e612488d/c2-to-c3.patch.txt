@@ -1,0 +1,665 @@
+diff -ruN a/rwt-pr-handoff-v4.6.16/README.md b/rwt-pr-handoff-v4.6.16/README.md
+--- a/rwt-pr-handoff-v4.6.16/README.md
++++ b/rwt-pr-handoff-v4.6.16/README.md
+@@ -10,6 +10,13 @@
+ - `review_handoffs` record the exact reviewed head, disposition and instruction. The board delivers each one with a `RECEIPT RH-…` token, and it counts as acknowledged only when the owner echoes that token.
+ - `refresh_reviews`: the PM instructions no longer omit it. The journal key is canonical (one refresh per PR/head/base). Concurrent requests claim by insert. Each lifecycle step is journaled and resumed after a crash without a second cycle. Ready is read back. An existing review is OBSERVED, not executed. Lifecycle completion is recorded separately from review completion, and a later exact-head Code review wakes PM once for disposition. Unsupported action kinds become named, recoverable board blockers.
+ - The per-PR share location (`handoffs/PR-<n>/` on the documentation branch) is visible to PM, Dev, the dashboard, packet manifests and `GET /api/handoff-location?pr=<n>`. The board names the location but never pushes to it.
++- Candidate 3 (Browser PM review 6048387240):
++  - A refresh's identity is semantic (PR/head/base). The source comment of every request is kept as separate provenance, so a second authorized source cannot start another cycle.
++  - A restart after the Ready write landed but before the journal commit reconciles by readback, with no write.
++  - An ask can be `dispatched` to a review handoff of the same turn. It stays open until the owner echoes the handoff's RECEIPT token.
++  - A handoff with no receipt gets one PM recovery, then becomes a board blocker.
++  - HOLD/BLOCKED/UNCONFIRMED action results hold a dependent Dev handoff (`dev_depends_on_actions`), including the board's none→dev correction for an active assignment. Independent Dev work still proceeds.
++  - `GET /api/handoff-verify` reads a published packet back at an exact commit and checks every manifest hash.
+ 
+ The live deadlock.4 worker rejected the #1570 assignment before Claude invocation because the new target worktree was not yet present. Its generic error did not identify the missing path, and no PM recovery delivery followed. This patch makes that failure diagnosable and recoverable while keeping the single-writer guard.
+ 
+diff -ruN a/rwt-pr-handoff-v4.6.16/TEST_RECEIPT.md b/rwt-pr-handoff-v4.6.16/TEST_RECEIPT.md
+--- a/rwt-pr-handoff-v4.6.16/TEST_RECEIPT.md
++++ b/rwt-pr-handoff-v4.6.16/TEST_RECEIPT.md
+@@ -1,18 +1,19 @@
+-# deadlock.5 verification — 2026-10-07 (candidate 2: isolated repair)
++# deadlock.5 verification — 2026-10-07 (candidate 3: Browser PM review 6048387240)
+ 
+-Python regression suite: **226 passed** (196 from the first deadlock.5 checkpoint + 30 new in `test_deadlock5.py`). Node UI smoke: **passed**. Run on the CLI Dev Mac under the shared `host-interlock` lease, from a scratch copy of this bundle with loopback-only ephemeral ports and a temporary state DB per test. No live board, installed app, GitHub write or PR lifecycle was touched.
++Python regression suite: **235 passed** (196 from the first deadlock.5 checkpoint, 30 in candidate 2, 9 more in candidate 3, all in `test_deadlock5.py`). Node UI smoke: **passed**. Run on the CLI Dev Mac under the shared `host-interlock` lease, which was claimed fresh for this candidate. The run used a scratch copy of this bundle with loopback-only ephemeral ports, a temporary state DB per test and a fake GitHub adapter. No live board, installed app, GitHub write or PR lifecycle was touched.
+ 
+-The new tests cover:
+-- pre-invocation recovery: exactly one recovery; exempt from the depth cap and `auto_handoff=0`; restart sweep of a crash-owed recovery; historical failures not swept; a repeated unchanged tuple escalates to a blocker;
+-- the retry API: refused before and after recovery, still allowed after invocation;
+-- dispatch and lease: PM `next=dev` to an unresolvable tuple; lease transfer only to a verified tuple, preserved on rejection; successful bootstrap handed to Dev once;
+-- asks: multi-ask posts; history not replayed; noisy newer events; a generic reply vs typed dispositions; an unpublished reply; numbered external dispositions; one bounded watchdog wake, then a blocker;
+-- review handoffs: a CLI Dev receipt token bound to its delivery; App Dev token comments; no duplicate delivery;
+-- `refresh_reviews` through a fake GitHub adapter: parsed plan to executor; canonical dedupe; concurrency; interrupted Ready write resumed after restart; a crashed running row; a lost Draft write; stale/Draft HOLD; observed review; review-completion wake; unsupported kind; instructions/schema/prompt parity;
+-- the share location in the API, manifests and both prompts.
++Candidate 3 adds:
++- refresh deduplication across distinct authorized sources, with provenance kept;
++- restart after the Ready write landed but before the journal commit;
++- an unsupported action or a disabled executor holding a dependent Dev handoff, including the active-assignment none→dev correction;
++- independent Dev work proceeding despite a blocked action;
++- `dispatched` requiring a handoff from the same turn;
++- an end-to-end run with no PO relay: ask → refresh → exact-head review → PM handoff (ask dispatched) → Dev invoked (handoff received) → Dev receipt (handoff acknowledged, ask closed);
++- a stalled handoff getting one recovery, then a blocker;
++- exact-commit remote packet readback with hash verification, refusing branch refs and paths outside the PR.
+ 
+-RED evidence: the new file errors on the captured first checkpoint (no `canonical_key`). Three targeted mutants each fail their tests: restoring the old instruction list, removing the retry guard, and routing recovery through `maybe_handoff` again.
++RED: mutants that remove the active-assignment hold or put the source id back into the refresh key fail 2 and 3 tests respectively. Candidate 2's three mutants are retained.
+ 
+-Fixture changes to existing tests: `test_refresh_reviews.py`'s fake now clears `draft` on the Ready mutation, as GitHub does, because deadlock.5 reads Ready back. Two assertions now expect `EXECUTED`/`OBSERVED` result prefixes.
++A live read-only demonstration of `verify_remote_packet` on published commit `6f765c602c934d8b22a69d9acf95c60807770230` verified all five files of the candidate 2 packet. It reported 0 mismatched and 0 missing.
+ 
+-Not verified here: installed-board restart, live worker wake-up after a real preflight failure, a live GitHub refresh, external Browser PM/App Dev receipt in practice, and remote readback of a published packet by the GitHub connector. These need separately authorized installed acceptance. This release adds no merge, deployment, migration or Production-run authority.
++Not verified here: installed-board restart, a live worker wake-up, a live GitHub refresh, and external Browser PM/App Dev receipts in practice. These need separately authorized installed acceptance. This release adds no merge, deployment, migration or Production-run authority.
+diff -ruN a/rwt-pr-handoff-v4.6.16/pm-instructions.md b/rwt-pr-handoff-v4.6.16/pm-instructions.md
+--- a/rwt-pr-handoff-v4.6.16/pm-instructions.md
++++ b/rwt-pr-handoff-v4.6.16/pm-instructions.md
+@@ -87,6 +87,10 @@
+ 
+ The board records every `REQUEST:` in a Dev/Browser PM/PO post as its own ask, including each numbered item in a multi-ask post, and shows them under OPEN ASKS on every turn. A newer event does not close or replace an older ask. Close an ask only with a typed `ask_dispositions` entry: `pin` (full 40-hex candidate in evidence), `hold` (exact reason, dependency and owner), `po_decision`, `completed` or `superseded` (each with a link, comment id or SHA). A generic reply, an unrelated action, or the fact that your reply was published does not close an ask. An overdue ask gets one recovery wake; if it is still open after that, it becomes a board blocker and you receive no further wakes for it. An unrelated PR HOLD does not block an independent ask.
+ 
++To answer an ask by handing work to a Dev, return the handoff in `review_handoffs` and an `ask_dispositions` entry with `disposition=dispatched` and `review_handoff_index` pointing at it. The ask stays open (dispatched) until the owner's receipt arrives; a handoff without a receipt gets one recovery wake, then becomes a board blocker.
++
++Set `dev_depends_on_actions=true` when your Dev handoff needs this turn's pm_actions to succeed: an action that ends HOLD, BLOCKED or UNCONFIRMED then holds that handoff. Use false only for Dev work that is independent of those actions.
++
+ For review findings, return `review_handoffs` naming the exact reviewed head, the review/comment ids, the disposition and an explicit instruction to the owning Dev. The board delivers it with a `RECEIPT RH-…` token. CLI Dev gets it as a task-bound delivery; App Dev gets it in your published reply. The handoff is complete only when the owner echoes its token. A review log entry or generic ACK is not delivery.
+ 
+ Shared files for a PR/task live under the SHARED ARTIFACTS location: `handoffs/PR-<n>/<packet-id>/` on the documentation branch named there. Treat a packet as readable by other agents only after its publisher reports the remote head/tree and file URLs.
+diff -ruN a/rwt-pr-handoff-v4.6.16/pm-route.schema.json b/rwt-pr-handoff-v4.6.16/pm-route.schema.json
+--- a/rwt-pr-handoff-v4.6.16/pm-route.schema.json
++++ b/rwt-pr-handoff-v4.6.16/pm-route.schema.json
+@@ -326,7 +326,8 @@
+               "hold",
+               "po_decision",
+               "completed",
+-              "superseded"
++              "superseded",
++              "dispatched"
+             ]
+           },
+           "evidence": {
+@@ -344,6 +345,13 @@
+               "string",
+               "null"
+             ]
++          },
++          "review_handoff_index": {
++            "type": [
++              "integer",
++              "null"
++            ],
++            "description": "With disposition=dispatched: index into this response's review_handoffs. The ask stays open until that owner echoes the RECEIPT token."
+           }
+         },
+         "required": [
+@@ -351,7 +359,8 @@
+           "disposition",
+           "evidence",
+           "owner",
+-          "dependency"
++          "dependency",
++          "review_handoff_index"
+         ]
+       }
+     },
+@@ -412,6 +421,10 @@
+           "instruction"
+         ]
+       }
++    },
++    "dev_depends_on_actions": {
++      "type": "boolean",
++      "description": "true when next=dev needs this turn's pm_actions to succeed; a HOLD/BLOCKED/UNCONFIRMED action then holds the Dev handoff. false only for independent Dev work."
+     }
+   },
+   "required": [
+@@ -421,6 +434,7 @@
+     "pm_actions",
+     "publish",
+     "ask_dispositions",
+-    "review_handoffs"
++    "review_handoffs",
++    "dev_depends_on_actions"
+   ]
+ }
+diff -ruN a/rwt-pr-handoff-v4.6.16/server.py b/rwt-pr-handoff-v4.6.16/server.py
+--- a/rwt-pr-handoff-v4.6.16/server.py
++++ b/rwt-pr-handoff-v4.6.16/server.py
+@@ -171,7 +171,8 @@
+         _add_column(c, "queue", "preflight_recovery_due INTEGER NOT NULL DEFAULT 0")
+         for definition in ("kind TEXT NOT NULL DEFAULT ''", "action_json TEXT NOT NULL DEFAULT ''",
+                            "phase TEXT NOT NULL DEFAULT ''", "review_state TEXT NOT NULL DEFAULT ''",
+-                           "pr_number INTEGER", "head TEXT NOT NULL DEFAULT ''", "updated_at TEXT"):
++                           "pr_number INTEGER", "head TEXT NOT NULL DEFAULT ''", "updated_at TEXT",
++                           "provenance TEXT NOT NULL DEFAULT '[]'"):
+             _add_column(c, "pm_action_journal", definition)
+         c.executescript('''
+         CREATE TABLE IF NOT EXISTS asks(
+@@ -190,6 +191,9 @@
+           source_queue_id INTEGER, created_at TEXT NOT NULL, delivered_at TEXT, received_at TEXT, acknowledged_at TEXT,
+           UNIQUE(pr_number, head, reviewed_ref, owner));
+         ''')
++        _add_column(c, "asks", "handoff_id INTEGER")
++        for definition in ("recovery_count INTEGER NOT NULL DEFAULT 0", "last_recovery_at TEXT", "escalated INTEGER NOT NULL DEFAULT 0"):
++            _add_column(c, "review_handoffs", definition)
+         # Only asks posted after the ledger exists are tracked; history is not replayed as new work.
+         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('asks_ingest_since',?)", (now(),))
+         # A journaled action that was mid-flight when the process died has an unknown outcome.
+@@ -1192,10 +1196,11 @@
+     return added
+ 
+ 
+-VALID_DISPOSITIONS = ('pin', 'hold', 'po_decision', 'completed', 'superseded')
++VALID_DISPOSITIONS = ('pin', 'hold', 'po_decision', 'completed', 'superseded', 'dispatched')
++OPEN_ASK_STATES = ('pending', 'dispatched')
+ 
+ 
+-def apply_ask_dispositions(q, dispositions, published_ref):
++def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
+     """Close asks only with a typed, evidenced, source-linked disposition."""
+     applied, rejected = [], []
+     for d in dispositions or []:
+@@ -1206,8 +1211,13 @@
+         owner = str(d.get('owner') or '').strip()
+         dependency = str(d.get('dependency') or '').strip()
+         why = None
++        hid = (handoff_index or {}).get(d.get('review_handoff_index')) if isinstance(d.get('review_handoff_index'), int) else None
+         if kind not in VALID_DISPOSITIONS:
+             why = f'unknown disposition {kind!r}'
++        elif kind == 'dispatched' and not hid:
++            why = 'dispatched needs review_handoff_index naming a handoff recorded in this turn'
++        elif kind != 'dispatched' and d.get('review_handoff_index') is not None:
++            why = 'review_handoff_index is only valid with disposition=dispatched'
+         elif kind == 'pin' and not re.search(r'\b[0-9a-f]{40}\b', evidence):
+             why = 'pin needs the full 40-hex candidate in evidence'
+         elif kind == 'hold' and not (owner and dependency and evidence):
+@@ -1222,8 +1232,14 @@
+                 why = why or f"ask {row['id']} already {row['state']}"
+             if why:
+                 rejected.append(f"ask {d.get('ask_id')}: {why}"); continue
+-            c.execute("UPDATE asks SET state='dispositioned',disposition=?,disposition_owner=?,disposition_ref=?,dispositioned_at=? WHERE id=?",
+-                      (kind, owner, f"{published_ref} · {evidence[:300]}", now(), row['id']))
++            if kind == 'dispatched':
++                # Still OPEN: closes only when the owner echoes this handoff's receipt token.
++                h = c.execute("SELECT token,owner FROM review_handoffs WHERE id=?", (hid,)).fetchone()
++                c.execute("UPDATE asks SET state='dispatched',disposition='dispatched',disposition_owner=?,disposition_ref=?,handoff_id=? WHERE id=?",
++                          (h['owner'], f"{published_ref} · {h['token']} · {evidence[:300]}", hid, row['id']))
++            else:
++                c.execute("UPDATE asks SET state='dispositioned',disposition=?,disposition_owner=?,disposition_ref=?,dispositioned_at=? WHERE id=?",
++                          (kind, owner, f"{published_ref} · {evidence[:300]}", now(), row['id']))
+             applied.append(row['id'])
+     if rejected:
+         add_activity('SYSTEM', 'Rejected ask dispositions (ask stays pending): ' + '; '.join(rejected)[:1000], 'none', 'error',
+@@ -1233,13 +1249,17 @@
+ 
+ def list_asks(state=None):
+     sql, args = "SELECT * FROM asks", ()
+-    if state:
++    if state == 'open':
++        sql += " WHERE state IN ('pending','dispatched')"
++    elif state:
+         sql += " WHERE state=?"; args = (state,)
+     with DB_LOCK, con() as c:
+         rows = [dict(r) for r in c.execute(sql + " ORDER BY source_comment_id, ask_index", args).fetchall()]
+     for r in rows:
+         r['age_seconds'] = age_seconds(r.get('source_at') or r.get('recorded_at'))
+-        if r['state'] == 'pending':
++        if r['state'] == 'dispatched':
++            r['next_action'] = 'Dispatched to owner; closes only on the owner\'s task-specific RECEIPT'
++        elif r['state'] == 'pending':
+             r['next_action'] = ('ESCALATED board blocker: PM recovery did not disposition it' if r['escalated']
+                                 else 'PM recovery woke once; awaiting typed disposition' if r['recovery_count']
+                                 else 'Awaiting PM typed disposition')
+@@ -1297,9 +1317,9 @@
+     Returns (cli_dev_rows, published_blocks). A review log entry is never delivery completion:
+     states go recorded → delivered → received (Dev invoked) → acknowledged (token echoed).
+     """
+-    dev_rows, blocks, rejected = [], [], []
++    dev_rows, blocks, rejected, index_map = [], [], [], {}
+     items = {x['item_key']: x for x in list_work_items()}
+-    for h in handoffs or []:
++    for index, h in enumerate(handoffs or []):
+         if not isinstance(h, dict):
+             rejected.append('non-object handoff'); continue
+         head = str(h.get('head') or '').lower()
+@@ -1325,8 +1345,13 @@
+             cur = c.execute("INSERT OR IGNORE INTO review_handoffs(pr_number,head,reviewed_ref,disposition,owner,work_item_key,instruction,source_queue_id,created_at) "
+                             "VALUES(?,?,?,?,?,?,?,?,?)", (int(h.get('pr_number') or 0), head, ref, disposition, owner, key, instruction, q.get('id'), now()))
+             if not cur.rowcount:
++                prior = c.execute("SELECT id FROM review_handoffs WHERE pr_number=? AND head=? AND reviewed_ref=? AND owner=?",
++                                  (int(h.get('pr_number') or 0), head, ref, owner)).fetchone()
++                if prior:
++                    index_map[index] = prior['id']
+                 continue  # duplicate event/restart: already recorded and delivered once
+             hid = cur.lastrowid
++            index_map[index] = hid
+             token = f"RH-{hid}-{head[:8]}"
+             c.execute("UPDATE review_handoffs SET token=? WHERE id=?", (token, hid))
+         text = (f"REVIEW HANDOFF {token} → {owner}: #{h.get('pr_number')} reviewed at exact head {head} ({ref}); "
+@@ -1338,7 +1363,7 @@
+             blocks.append((hid, text))
+     if rejected:
+         add_activity('SYSTEM', 'Rejected review handoffs: ' + '; '.join(rejected)[:1000], 'none', 'error', trigger_queue_id=q.get('id'))
+-    return dev_rows, blocks
++    return dev_rows, blocks, index_map
+ 
+ 
+ def _mark_handoff(hid, **fields):
+@@ -1370,6 +1395,9 @@
+                     continue
+                 c.execute("UPDATE review_handoffs SET state='acknowledged',ack_ref=?,acknowledged_at=? WHERE id=?",
+                           (f"{origin}:{ref}", now(), row['id']))
++                c.execute("UPDATE asks SET state='dispositioned',disposition='completed',dispositioned_at=?,"
++                          "disposition_ref=disposition_ref || ' · receipt ' || ? WHERE handoff_id=? AND state='dispatched'",
++                          (now(), f"{origin}:{ref}", row['id']))
+                 acked.append(row['id'])
+     return acked
+ 
+@@ -1378,10 +1406,46 @@
+     with DB_LOCK, con() as c:
+         rows = [dict(r) for r in c.execute("SELECT * FROM review_handoffs ORDER BY id").fetchall()]
+     for r in rows:
+-        r['age_seconds'] = age_seconds(r.get('delivered_at') or r.get('created_at'))
++        r['age_seconds'] = age_seconds(r.get('received_at') or r.get('delivered_at') or r.get('created_at'))
+     return rows
+ 
+ 
++def pending_handoff_watchdog():
++    """A delivered/received/blocked handoff with no receipt gets ONE PM recovery, then a board blocker."""
++    if not bool_setting('auto_pm_github_control', True):
++        return None
++    open_h = [h for h in list_review_handoffs() if h['state'] in ('delivered', 'received', 'blocked')]
++    stale = [h for h in open_h if h['recovery_count'] and not h['escalated']
++             and (age_seconds(h.get('last_recovery_at')) or 0) >= ASK_ESCALATE_SECONDS]
++    if stale:
++        with DB_LOCK, con() as c:
++            for h in stale:
++                c.execute("UPDATE review_handoffs SET escalated=1 WHERE id=?", (h['id'],))
++        set_setting('pm_handoff_blocker', f"{len(stale)} review handoff(s) without owner receipt after one PM recovery: " +
++                    ', '.join(f"{h['token']} ({h['owner']}, {h['state']})" for h in stale))
++        add_activity('SYSTEM', 'BOARD BLOCKER: ' + get_setting('pm_handoff_blocker'), 'none', 'error')
++    overdue = [h for h in open_h if not h['recovery_count'] and (h['age_seconds'] or 0) >= ASK_OVERDUE_SECONDS]
++    if not overdue:
++        return None
++    agent = get_agent('pm') or {}
++    if agent.get('paused') or agent.get('status') in ('running', 'auth_required', 'error') or _has_pending_delivery('pm'):
++        return None
++    lines = [f"- {h['token']} → {h['owner']} ({h['work_item_key'] or 'no task'}): state {h['state'].upper()} for {h['age_seconds']}s"
++             + (f"; {h['ack_ref']}" if h['ack_ref'] else '') for h in overdue]
++    msg = ('PM handoff watchdog: these review handoffs have no task-specific owner receipt. Inspect each delivery record. '
++           'Re-dispatch only through a verified tuple (a NEW handoff for changed facts); never replay a write. '
++           'A HOLD needs owner+dependency. This wake retries reconciliation only.\n' + '\n'.join(lines))
++    with DB_LOCK, con() as c:
++        aid = c.execute("INSERT INTO activity(actor,message,route,status,created_at) VALUES(?,?,?,?,?)",
++                        ('SYSTEM', msg, 'pm', 'posted', now())).lastrowid
++        qid = c.execute("INSERT INTO queue(activity_id,recipient,content,status,created_at,source_actor,handoff_depth,auto_handoff,attempts,kind) "
++                        "VALUES(?,?,?,?,?,?,?,?,0,?)", (aid, 'pm', msg, 'queued', now(), 'SYSTEM', 0, 1, 'handoff_recovery')).lastrowid
++        for h in overdue:
++            c.execute("UPDATE review_handoffs SET recovery_count=recovery_count+1,last_recovery_at=? WHERE id=? AND recovery_count=0",
++                      (now(), h['id']))
++    return qid
++
++
+ def pending_pin_watchdog():
+     """One read-only reconciliation wake per complete packet, never an action retry."""
+     if not bool_setting('auto_pm_github_control', True):
+@@ -1477,6 +1541,7 @@
+                 if time.time() >= GH_BACKOFF_UNTIL:
+                     poll_refreshed_reviews()
+                 pending_ask_watchdog()
++                pending_handoff_watchdog()
+             STOP.wait(cfg.get('watch_interval_seconds',GITHUB_WATCH_INTERVAL))
+         except Exception as e:
+             add_activity('SYSTEM', f'GitHub watcher error: {type(e).__name__}: {e}', 'none', 'error')
+@@ -1503,9 +1568,65 @@
+         'tree_url': f'https://github.com/{HANDOFF_REMOTE_REPO}/tree/{quote(branch, safe="/")}/{path}' if branch else '',
+         'raw_base': f'https://raw.githubusercontent.com/{HANDOFF_REMOTE_REPO}/{quote(branch, safe="/")}/{path}' if branch else '',
+         'publication': 'immutable <packet-id>/ directories; UTF-8 patch/source + manifest with SHA-256; explicit push pin + remote readback required',
++        'verify': f'GET /api/handoff-verify?pr={n}&path=<packet dir under {path}>&ref=<40-hex commit>',
+     }
+ 
+ 
++def _gh_raw(path, ref):
++    p = subprocess.run(['gh', 'api', '-H', 'Accept: application/vnd.github.raw',
++                        f'repos/{HANDOFF_REMOTE_REPO}/contents/{quote(path)}?ref={ref}'], capture_output=True, timeout=30)
++    if p.returncode:
++        raise FileNotFoundError((p.stderr or b'').decode(errors='replace')[:200])
++    return p.stdout
++
++
++def verify_remote_packet(pr_or_task, packet_path, ref, fetch=None):
++    """Read a published packet back at an EXACT commit and verify every manifest hash.
++
++    A branch name is mutable and is refused: immutability means a 40-hex commit.
++    Supports the board's own manifests (files[].sha256) and packet manifests (packet_files_sha256).
++    """
++    loc = handoff_location(pr_or_task)
++    ref = str(ref or '').lower()
++    if not re.fullmatch(r'[0-9a-f]{40}', ref):
++        raise ValueError('ref must be the exact 40-hex commit that was read back, not a branch')
++    packet_path = str(packet_path or '').strip().strip('/')
++    if not packet_path.startswith(loc['remote_path']) or '..' in packet_path.split('/') or '\\' in packet_path:
++        raise ValueError(f"packet path must be inside {loc['remote_path']}")
++    fetch = fetch or _gh_raw
++    manifest_name = next((n for n in ('manifest.json', 'MANIFEST.json') if _try_fetch(fetch, f'{packet_path}/{n}', ref) is not None), None)
++    if not manifest_name:
++        return {'ok': False, 'ref': ref, 'path': packet_path, 'error': 'no manifest.json at this commit'}
++    manifest = json.loads(fetch(f'{packet_path}/{manifest_name}', ref).decode('utf-8'))
++    expected = dict(manifest.get('packet_files_sha256') or {})
++    for f in manifest.get('files') or []:
++        if isinstance(f, dict) and f.get('name') and f.get('sha256'):
++            expected[f['name']] = f['sha256']
++    if not expected:
++        return {'ok': False, 'ref': ref, 'path': packet_path, 'manifest': manifest_name, 'verified': [], 'mismatched': [], 'missing': [],
++                'error': 'manifest lists no per-file SHA-256 in a supported format (files[].sha256 or packet_files_sha256)'}
++    verified, mismatched, missing = [], [], []
++    for name, sha in sorted(expected.items()):
++        if '..' in Path(name).parts or name.startswith('/'):
++            mismatched.append(name); continue
++        raw = _try_fetch(fetch, f'{packet_path}/{name}', ref)
++        if raw is None:
++            missing.append(name)
++        elif hashlib.sha256(raw).hexdigest() == sha:
++            verified.append(name)
++        else:
++            mismatched.append(name)
++    return {'ok': bool(verified) and not mismatched and not missing, 'ref': ref, 'path': packet_path,
++            'manifest': manifest_name, 'verified': verified, 'mismatched': mismatched, 'missing': missing}
++
++
++def _try_fetch(fetch, path, ref):
++    try:
++        return fetch(path, ref)
++    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
++        return None
++
++
+ def save_files(files, handoff_pr=None, handoff_topic="attachments"):
+     """Immutable per-task packets. Validate every file before publishing a packet."""
+     if not files:
+@@ -1669,8 +1790,8 @@
+ def pm_ledger_context():
+     """Open asks, review handoffs and the share location travel with EVERY PM turn,
+     so a coalesced newer event cannot hide an older unresolved ask."""
+-    asks = [{k: a[k] for k in ('id', 'source_comment_id', 'ask_index', 'source_actor', 'task_ref', 'candidate', 'request',
+-                                'age_seconds', 'recovery_count', 'escalated')} for a in list_asks('pending')]
++    asks = [{k: a[k] for k in ('id', 'state', 'source_comment_id', 'ask_index', 'source_actor', 'task_ref', 'candidate', 'request',
++                                'age_seconds', 'recovery_count', 'escalated', 'handoff_id')} for a in list_asks('open')]
+     handoffs = [{k: h[k] for k in ('id', 'token', 'pr_number', 'head', 'owner', 'work_item_key', 'disposition', 'state', 'age_seconds')}
+                 for h in list_review_handoffs() if h['state'] != 'acknowledged']
+     try:
+@@ -1851,7 +1972,8 @@
+             raise ValueError('publish must be boolean')
+         return {"message": msg, "next": nxt, "publish": obj.get('publish', True), "board_updates": obj.get("board_updates"),
+                 "pm_actions": obj.get("pm_actions") or [], "ask_dispositions": obj.get("ask_dispositions") or [],
+-                "review_handoffs": obj.get("review_handoffs") or [], "parse_error": None}
++                "review_handoffs": obj.get("review_handoffs") or [],
++                "dev_depends_on_actions": obj.get("dev_depends_on_actions") is not False, "parse_error": None}
+     except Exception as e:
+         # Fail safe: never auto-send malformed PM output to Dev.
+         return {"message": text, "next": "po", "board_updates": None, "parse_error": str(e)}
+@@ -2225,6 +2347,27 @@
+     return state, result
+ 
+ 
++def _record_provenance(c, key, action, q):
++    """Authorization provenance is kept per request, separate from the semantic operation identity."""
++    row = c.execute('SELECT provenance FROM pm_action_journal WHERE action_key=?', (key,)).fetchone()
++    try:
++        prov = json.loads(row['provenance']) if row else []
++    except (ValueError, TypeError):
++        prov = []
++    entry = {'source_comment_id': action.get('source_comment_id'), 'queue_id': q.get('id'), 'at': now()}
++    if not any(p.get('source_comment_id') == entry['source_comment_id'] and p.get('queue_id') == entry['queue_id'] for p in prov):
++        prov = (prov + [entry])[-50:]
++        c.execute('UPDATE pm_action_journal SET provenance=? WHERE action_key=?', (json.dumps(prov), key))
++
++
++BLOCKING_RESULT_PREFIXES = ('HOLD:', 'BLOCKED', 'UNCONFIRMED:', 'RECORDED: running', 'RECORDED: unconfirmed')
++
++
++def action_results_block(results):
++    """Typed gate: any action that did not reach a safe terminal state blocks DEPENDENT continuation."""
++    return [r for r in results if str(r).startswith(BLOCKING_RESULT_PREFIXES)]
++
++
+ def execute_pm_actions(q, actions):
+     if not isinstance(actions, list) or len(actions)>2:
+         record_pm_action_blocker(q, 'BLOCKED (invalid PM action batch): pm_actions must be a list of at most 2 typed actions. '
+@@ -2245,6 +2388,8 @@
+         resume_phase = None
+         with DB_LOCK, con() as c:
+             row=c.execute('SELECT * FROM pm_action_journal WHERE action_key=?',(key,)).fetchone()
++            if row:
++                _record_provenance(c, key, action, q)
+             if row and kind == 'refresh_reviews' and row['status'] == 'unconfirmed' and row['phase']:
+                 resume_phase = row['phase']
+                 c.execute("UPDATE pm_action_journal SET status='running',updated_at=? WHERE action_key=? AND status='unconfirmed'",
+@@ -2262,6 +2407,7 @@
+                                int(action.get('pr_number') or 0) or None,str(action.get('head') or ''),now()))
+                 except sqlite3.IntegrityError:
+                     results.append('RECORDED: running · concurrent request already claimed this action'); continue
++                _record_provenance(c, key, action, q)
+         if resume_phase:
+             state, result = _resume_refresh(key, action, resume_phase)
+         else:
+@@ -2478,12 +2624,19 @@
+         return
+     set_setting('pm_reconciliation_status', 'Task/player checkpoint applied at ' + now())
+     results = execute_pm_actions(q, routed.get('pm_actions') or [])
+-    if any(x.startswith(('HOLD:', 'BLOCKED', 'UNCONFIRMED:', 'RECORDED: running', 'RECORDED: unconfirmed')) for x in results):
++    blocking = action_results_block(results)
++    dependent_hold = bool(blocking) and routed.get('dev_depends_on_actions', True)
++    if dependent_hold:
++        # The requested Dev continuation depends on these actions; hold it. Board updates,
++        # publication and independent asks/handoffs still proceed.
++        if routed['next'] == 'dev':
++            add_activity('SYSTEM', 'Dependent Dev handoff held: required PM action did not complete — ' + blocking[0][:300],
++                         'none', 'blocker', trigger_queue_id=q['id'])
+         routed['next'] = 'none'
+     if results:
+         routed['message'] += '\n\nBOUNDED EXECUTOR RESULTS:\n' + '\n'.join(results)
+     dispositions = routed.get('ask_dispositions') or []
+-    handoff_dev_rows, handoff_blocks = record_review_handoffs(q, routed.get('review_handoffs') or [])
++    handoff_dev_rows, handoff_blocks, handoff_index = record_review_handoffs(q, routed.get('review_handoffs') or [])
+     if handoff_blocks:
+         routed['message'] += '\n\n' + '\n\n'.join(text for _, text in handoff_blocks)
+     assigned_dev_item = _actionable_cli_dev_assignment(updates)
+@@ -2504,7 +2657,7 @@
+         out = c.execute('SELECT status,comment_id FROM pm_outbox WHERE queue_id=?', (q['id'],)).fetchone()
+     published_ref = (f"comment {out['comment_id']}" if out and out['comment_id'] else f"board delivery {q['id']}")
+     # Asks close and App Dev handoffs count as delivered only after the reply actually published.
+-    apply_ask_dispositions(q, dispositions, published_ref)
++    apply_ask_dispositions(q, dispositions, published_ref, handoff_index)
+     for hid, _ in handoff_blocks:
+         _mark_handoff(hid, state='delivered', delivered_at=now(), delivery_comment_id=(out['comment_id'] if out else None))
+     for hid, key, text in handoff_dev_rows:
+@@ -2522,7 +2675,7 @@
+     nxt = routed["next"]
+     # A board assignment is not execution. Never end a PM turn with active CLI-Dev work
+     # and no Dev delivery merely because the model returned next=none.
+-    if assigned_dev_item and nxt == 'none' and bool_setting("auto_pm_to_dev", True):
++    if assigned_dev_item and nxt == 'none' and not dependent_hold and bool_setting("auto_pm_to_dev", True):
+         nxt = 'dev'
+         routed["message"] = (routed["message"] + "\n\nEXECUTION HANDOFF: CLI Dev has active assigned work "
+             + assigned_dev_item.get('item_key','') + ". Start it now and return an acknowledgment/evidence packet.")
+@@ -2929,7 +3082,8 @@
+         "reconciliation": get_setting("pm_reconciliation_status", "Awaiting first structured PM checkpoint"),
+         "comms": {"poll":get_setting("github_watch_last_poll", ""),"wake":get_setting("github_watch_last_wake", ""),"error":get_setting("github_watch_last_error", ""),"outbox":get_setting("pm_outbox_status", "Awaiting PM reply")},
+         "recent_completed": pr.get("recent_completed") or [],
+-        "asks": list_asks('pending'),
++        "asks": list_asks('open'),
++        "handoff_blocker": get_setting("pm_handoff_blocker", ""),
+         "ask_blocker": get_setting("pm_ask_blocker", ""),
+         "review_handoffs": [h for h in list_review_handoffs() if h['state'] != 'acknowledged'],
+         "action_blockers": json.loads(get_setting("pm_action_blockers", "[]") or "[]"),
+@@ -3036,6 +3190,12 @@
+             qs = parse_qs(u.query)
+             try:
+                 return self.sendj(200, handoff_location(qs.get("pr", [""])[0] or None))
++            except ValueError as e:
++                return self.sendj(400, {"error": str(e)})
++        if u.path == "/api/handoff-verify":
++            qs = parse_qs(u.query)
++            try:
++                return self.sendj(200, verify_remote_packet(qs.get("pr", [""])[0] or None, qs.get("path", [""])[0], qs.get("ref", [""])[0]))
+             except ValueError as e:
+                 return self.sendj(400, {"error": str(e)})
+         if u.path == "/api/validate-worktree":
+diff -ruN a/rwt-pr-handoff-v4.6.16/test_deadlock5.py b/rwt-pr-handoff-v4.6.16/test_deadlock5.py
+--- a/rwt-pr-handoff-v4.6.16/test_deadlock5.py
++++ b/rwt-pr-handoff-v4.6.16/test_deadlock5.py
+@@ -500,5 +500,153 @@
+         self.assertIn('handoffs/PR-N/', server.compose_for_dev({'id': 1, 'content': 'm'}))
+ 
+ 
++    # ---------- c3: Browser PM review 6048387240 ----------
++    def verified(self):
++        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40}
++        p = patch.object(server, 'validate_worktree', return_value=ok)
++        p.start()
++        self.addCleanup(p.stop)
++        self.assign(worktree='/wt/ok')
++
++    def test_distinct_source_requests_share_one_operation_and_keep_provenance(self):
++        gh = FakeGitHub()
++        with patch.object(server, '_pm_request', side_effect=gh.request):
++            server.execute_pm_actions({'id': 1}, [refresh_action(source_comment_id=6048244445)])
++            again = server.execute_pm_actions({'id': 2}, [refresh_action(source_comment_id=6048289237)])
++        self.assertEqual(gh.writes, ['draft', 'ready'])  # second authorized source cannot start another cycle
++        self.assertTrue(again[0].startswith('RECORDED: completed'))
++        prov = json.loads(self.journal()[0]['provenance'])
++        self.assertEqual([x['source_comment_id'] for x in prov], [6048244445, 6048289237])
++
++    def test_restart_after_ready_landed_before_journal_commit_reconciles_without_writes(self):
++        gh = FakeGitHub(draft=False)  # Ready write landed; the process died before ready_confirmed
++        with server.con() as c:
++            c.execute("INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,phase,pr_number,head,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
++                      (canonical_key(refresh_action()), 'running', 'x', 'refresh_reviews', json.dumps(refresh_action()), 'ready_requested', 1570, HEAD, server.now()))
++        server.init_db()
++        with patch.object(server, '_pm_request', side_effect=gh.request):
++            out = server.execute_pm_actions({'id': 5}, [refresh_action(source_comment_id=777)])
++            self.assertTrue(server.execute_pm_actions({'id': 6}, [refresh_action()])[0].startswith('RECORDED: completed'))
++        self.assertTrue(out[0].startswith('RESUMED'))
++        self.assertEqual(gh.writes, [])
++        j = self.journal()[0]
++        self.assertEqual((j['status'], j['phase'], j['review_state']), ('completed', 'ready_confirmed', 'pending'))
++
++    def dependent_route(self, actions, depends=True, nxt='dev'):
++        return {'message': 'CLI Dev: continue after the action', 'next': nxt, 'pm_actions': actions, 'dev_depends_on_actions': depends,
++                'board_updates': {'work_items': [{'item_key': KEY, 'owner': 'cli_dev', 'state': 'active', 'notes': 'n'}],
++                                  'players': [{'player_id': 'cli_dev', 'status': 'assigned', 'work_item_key': KEY}]}}
++
++    def dev_rows(self):
++        return [r for r in server.list_queue(500) if r['recipient'] == 'dev']
++
++    def test_unsupported_action_holds_dependent_dev_handoff(self):
++        self.verified()
++        self.run_pm_with(self.dependent_route([dict(refresh_action(), kind='merge_pr')]))
++        self.assertEqual(self.dev_rows(), [])
++        self.assertTrue(any('Dependent Dev handoff held' in a['message'] for a in server.list_activity()))
++
++    def test_disabled_executor_holds_dependent_dev_handoff_even_for_active_assignment(self):
++        self.verified()
++        server.set_setting('pm_bounded_actions', '0')
++        self.run_pm_with(self.dependent_route([refresh_action()], nxt='none'))  # none→dev auto-correction must not reopen it
++        self.assertEqual(self.dev_rows(), [])
++
++    def test_independent_dev_work_proceeds_despite_blocked_action(self):
++        self.verified()
++        self.run_pm_with(self.dependent_route([dict(refresh_action(), kind='merge_pr')], depends=False))
++        self.assertEqual(len(self.dev_rows()), 1)
++
++    def test_dispatched_disposition_requires_a_handoff_of_this_turn(self):
++        server.ingest_control_asks([self.comment(101, self.MULTI)])
++        ask = server.list_asks('pending')[0]['id']
++        route = {'message': 'm', 'next': 'none', 'pm_actions': [], 'board_updates': board(), 'ask_dispositions': [
++            {'ask_id': ask, 'disposition': 'dispatched', 'evidence': 'sent', 'owner': None, 'dependency': None, 'review_handoff_index': 0}]}
++        self.run_pm_with(route)
++        self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask)['state'], 'pending')
++
++    def test_end_to_end_review_to_owner_receipt_without_po_relay(self):
++        """Ask → refresh → review completes → PM handoff (ask dispatched) → Dev invoked (received) → Dev receipt → ask closed."""
++        self.verified()
++        server.ingest_control_asks([self.comment(400, 'Browser PM → CLI PM — #1570 — P1 OPEN — REQUEST: route the P1 fix to the owner')])
++        ask = server.list_asks('pending')[0]['id']
++        gh = FakeGitHub()
++        with patch.object(server, '_pm_request', side_effect=gh.request):
++            server.execute_pm_actions({'id': 1}, [refresh_action()])
++            gh.reviews = [{'id': 4212726964, 'commit_id': HEAD, 'user': {'login': 'chatgpt-codex-connector[bot]'}}]
++            wake = server.poll_refreshed_reviews()[0]
++        wake_row = next(r for r in server.list_queue() if r['id'] == wake)
++        route = {'message': 'P1 is FIX NOW for CLI Dev', 'next': 'none', 'pm_actions': [], 'board_updates': board(KEY),
++                 'review_handoffs': [{'pr_number': 1570, 'head': HEAD, 'reviewed_ref': 'review 4212726964', 'disposition': 'fix_now',
++                                      'owner': 'cli_dev', 'work_item_key': KEY, 'instruction': 'Bind Focus feedback after Analytics reload'}],
++                 'ask_dispositions': [{'ask_id': ask, 'disposition': 'dispatched', 'evidence': 'review 4212726964 → CLI Dev',
++                                       'owner': 'cli_dev', 'dependency': None, 'review_handoff_index': 0}]}
++        server.PM_MODE = 'codex'
++        with patch.object(server, '_run_pm_codex', return_value=(route, 'thread')), \
++             patch.object(server, 'compact_pr_context', return_value='Current #1570'):
++            server.run_pm(wake_row)  # the board's own wake, not a PO message
++        self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask)['state'], 'dispatched')
++        h = server.list_review_handoffs()[0]
++        dev = next(r for r in self.dev_rows() if r['kind'] == 'review_handoff')
++        seen = {}
++
++        def fake_claude(content, cwd, sid, existing):
++            seen['state'] = server.list_review_handoffs()[0]['state']  # Dev invoked = received
++            return 0, f"RECEIPT {h['token']} — started the binding fix", sid, None, ''
++        with patch.object(server, 'resolved_bin', return_value='/bin/true'), patch.object(server, '_run_claude_once', side_effect=fake_claude):
++            server.run_dev(dev)
++        self.assertEqual(seen['state'], 'received')
++        self.assertEqual(server.list_review_handoffs()[0]['state'], 'acknowledged')
++        closed = next(a for a in server.list_asks() if a['id'] == ask)
++        self.assertEqual((closed['state'], closed['disposition']), ('dispositioned', 'completed'))
++        self.assertIn('receipt dev:' + str(dev['id']), closed['disposition_ref'])
++        self.assertFalse([r for r in server.list_queue(500) if r['source_actor'] == 'PO'])
++
++    def test_stalled_handoff_gets_one_recovery_then_blocker(self):
++        route = {'message': 'm', 'next': 'none', 'pm_actions': [], 'board_updates': board(),
++                 'review_handoffs': [{'pr_number': 1570, 'head': HEAD, 'reviewed_ref': 'r1', 'disposition': 'fix_now',
++                                      'owner': 'app_dev', 'work_item_key': None, 'instruction': 'fix'}]}
++        self.run_pm_with(route)
++        with server.con() as c:
++            c.execute("UPDATE review_handoffs SET delivered_at='2000-01-01T00:00:00+00:00'")
++        qid = server.pending_handoff_watchdog()
++        self.assertEqual(next(r for r in server.list_queue() if r['id'] == qid)['kind'], 'handoff_recovery')
++        server.update_queue(qid, status='responded')
++        self.assertIsNone(server.pending_handoff_watchdog())
++        with server.con() as c:
++            c.execute("UPDATE review_handoffs SET last_recovery_at='2000-01-01T00:00:00+00:00'")
++        self.assertIsNone(server.pending_handoff_watchdog())
++        self.assertIn('without owner receipt', server.get_setting('pm_handoff_blocker'))
++        self.assertEqual(len([r for r in server.list_queue() if r.get('kind') == 'handoff_recovery']), 1)
++
++    def test_remote_packet_readback_is_exact_commit_and_hash_verified(self):
++        import hashlib
++        base = 'handoffs/PR-1258/orchestration/deadlock5/pkt'
++        files = {f'{base}/a.patch.txt': b'diff', f'{base}/b.zip': b'PK\x03\x04'}
++        files[f'{base}/manifest.json'] = json.dumps({'packet_files_sha256': {
++            'a.patch.txt': hashlib.sha256(b'diff').hexdigest(), 'b.zip': hashlib.sha256(b'PK\x03\x04').hexdigest()}}).encode()
++        def fetch(path, ref):
++            self.assertEqual(ref, 'f' * 40)
++            if path not in files:
++                raise FileNotFoundError(path)
++            return files[path]
++        ok = server.verify_remote_packet(1258, base, 'f' * 40, fetch)
++        self.assertTrue(ok['ok'])
++        self.assertEqual(ok['verified'], ['a.patch.txt', 'b.zip'])
++        files[f'{base}/b.zip'] = b'tampered'
++        bad = server.verify_remote_packet(1258, base, 'f' * 40, fetch)
++        self.assertEqual((bad['ok'], bad['mismatched']), (False, ['b.zip']))
++        files[f'{base}/manifest.json'] = json.dumps({'changed_files': {'x': 'y'}}).encode()
++        self.assertIn('no per-file SHA-256', server.verify_remote_packet(1258, base, 'f' * 40, fetch)['error'])
++        with self.assertRaisesRegex(ValueError, 'not a branch'):
++            server.verify_remote_packet(1258, base, 'docs/1258-orchestration-deadlock5-20261007', fetch)
++        with self.assertRaisesRegex(ValueError, 'inside handoffs/PR-1258/'):
++            server.verify_remote_packet(1258, 'handoffs/PR-1570/x', 'f' * 40, fetch)
++        with self.assertRaises(ValueError):
++            server.verify_remote_packet(1258, 'handoffs/PR-1258/../../etc', 'f' * 40, fetch)
++        with patch.object(server, 'compact_pr_context', return_value='x'):
++            self.assertIn('/api/handoff-verify', server.compose_for_pm({'id': 1, 'content': 'm'}))
++
++
+ if __name__ == '__main__':
+     unittest.main()
