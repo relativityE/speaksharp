@@ -1,0 +1,122 @@
+diff -ruN a/rwt-pr-handoff-v4.6.16/README.md b/rwt-pr-handoff-v4.6.16/README.md
+--- a/rwt-pr-handoff-v4.6.16/README.md
++++ b/rwt-pr-handoff-v4.6.16/README.md
+@@ -17,6 +17,7 @@
+   - A handoff with no receipt gets one PM recovery, then becomes a board blocker.
+   - HOLD/BLOCKED/UNCONFIRMED action results hold a dependent Dev handoff (`dev_depends_on_actions`), including the board's none→dev correction for an active assignment. Independent Dev work still proceeds.
+   - `GET /api/handoff-verify` reads a published packet back at an exact commit and checks every manifest hash.
++- Candidate 4 (PM disposition, delivery 91): resuming an `unconfirmed` refresh now requires winning the atomic `unconfirmed→running` claim. A request that loses the claim, including to another connection or process between its read and its claim, returns RECORDED and executes nothing.
+ 
+ The live deadlock.4 worker rejected the #1570 assignment before Claude invocation because the new target worktree was not yet present. Its generic error did not identify the missing path, and no PM recovery delivery followed. This patch makes that failure diagnosable and recoverable while keeping the single-writer guard.
+ 
+diff -ruN a/rwt-pr-handoff-v4.6.16/TEST_RECEIPT.md b/rwt-pr-handoff-v4.6.16/TEST_RECEIPT.md
+--- a/rwt-pr-handoff-v4.6.16/TEST_RECEIPT.md
++++ b/rwt-pr-handoff-v4.6.16/TEST_RECEIPT.md
+@@ -1,6 +1,6 @@
+-# deadlock.5 verification — 2026-10-07 (candidate 3: Browser PM review 6048387240)
++# deadlock.5 verification — 2026-10-07 (candidate 4: resume-claim race; includes candidate 3)
+ 
+-Python regression suite: **235 passed** (196 from the first deadlock.5 checkpoint, 30 in candidate 2, 9 more in candidate 3, all in `test_deadlock5.py`). Node UI smoke: **passed**. Run on the CLI Dev Mac under the shared `host-interlock` lease, which was claimed fresh for this candidate. The run used a scratch copy of this bundle with loopback-only ephemeral ports, a temporary state DB per test and a fake GitHub adapter. No live board, installed app, GitHub write or PR lifecycle was touched.
++Python regression suite: **237 passed** (196 from the first deadlock.5 checkpoint, 30 in candidate 2, 9 in candidate 3 and 2 in candidate 4, all in `test_deadlock5.py`). Node UI smoke: **passed**. Run on the CLI Dev Mac under the shared `host-interlock` lease, which was claimed fresh for this candidate. The run used a scratch copy of this bundle with loopback-only ephemeral ports, a temporary state DB per test and a fake GitHub adapter. No live board, installed app, GitHub write or PR lifecycle was touched.
+ 
+ Candidate 3 adds:
+ - refresh deduplication across distinct authorized sources, with provenance kept;
+@@ -11,6 +11,8 @@
+ - an end-to-end run with no PO relay: ask → refresh → exact-head review → PM handoff (ask dispatched) → Dev invoked (handoff received) → Dev receipt (handoff acknowledged, ask closed);
+ - a stalled handoff getting one recovery, then a blocker;
+ - exact-commit remote packet readback with hash verification, refusing branch refs and paths outside the PR.
++
++Candidate 4 adds a deterministic regression where a second database connection claims the unconfirmed row between the request's read and its claim (the loser makes no GitHub write), and a two-thread race on one unconfirmed candidate (exactly one resume, one Ready write). RED: reverting only the claim check fails the interleaving test.
+ 
+ RED: mutants that remove the active-assignment hold or put the source id back into the refresh key fail 2 and 3 tests respectively. Candidate 2's three mutants are retained.
+ 
+diff -ruN a/rwt-pr-handoff-v4.6.16/server.py b/rwt-pr-handoff-v4.6.16/server.py
+--- a/rwt-pr-handoff-v4.6.16/server.py
++++ b/rwt-pr-handoff-v4.6.16/server.py
+@@ -2391,9 +2391,13 @@
+             if row:
+                 _record_provenance(c, key, action, q)
+             if row and kind == 'refresh_reviews' and row['status'] == 'unconfirmed' and row['phase']:
++                # Resume only with a won atomic claim. Another connection/process may have claimed
++                # the row between our read and this UPDATE; the loser must not execute.
++                claimed = c.execute("UPDATE pm_action_journal SET status='running',updated_at=? WHERE action_key=? AND status='unconfirmed'",
++                                    (now(), key)).rowcount
++                if claimed != 1:
++                    results.append('RECORDED: running · another request already claimed this resume'); continue
+                 resume_phase = row['phase']
+-                c.execute("UPDATE pm_action_journal SET status='running',updated_at=? WHERE action_key=? AND status='unconfirmed'",
+-                          (now(), key))
+             elif row and row['status']!='held':
+                 results.append('RECORDED: '+row['status']+' · '+row['result']); continue
+             else:
+diff -ruN a/rwt-pr-handoff-v4.6.16/test_deadlock5.py b/rwt-pr-handoff-v4.6.16/test_deadlock5.py
+--- a/rwt-pr-handoff-v4.6.16/test_deadlock5.py
++++ b/rwt-pr-handoff-v4.6.16/test_deadlock5.py
+@@ -648,5 +648,67 @@
+             self.assertIn('/api/handoff-verify', server.compose_for_pm({'id': 1, 'content': 'm'}))
+ 
+ 
++    # ---------- c4: PM disposition (delivery 91) ----------
++    def unconfirmed_draft_row(self):
++        with server.con() as c:
++            c.execute("INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,phase,pr_number,head,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
++                      (canonical_key(refresh_action()), 'unconfirmed', 'x', 'refresh_reviews', json.dumps(refresh_action()), 'draft_confirmed', 1570, HEAD, server.now()))
++
++    def test_resume_loser_between_read_and_claim_never_executes(self):
++        """Another process claims the unconfirmed row after our SELECT, before our conditional UPDATE."""
++        import sqlite3
++        self.unconfirmed_draft_row()
++        gh = FakeGitHub(draft=True)
++        real_con = server.con
++        key = canonical_key(refresh_action())
++
++        class Interleaving:
++            def __init__(self, c):
++                self.c = c
++            def __getattr__(self, name):
++                return getattr(self.c, name)
++            def execute(self, sql, args=()):
++                cur = self.c.execute(sql, args)
++                if sql.startswith('SELECT * FROM pm_action_journal WHERE action_key=?'):
++                    other = sqlite3.connect(server.DB, timeout=0.1)  # a second board process
++                    try:
++                        self.c.commit()  # release our read snapshot so the other writer can commit
++                        other.execute("UPDATE pm_action_journal SET status='running' WHERE action_key=? AND status='unconfirmed'", (key,))
++                        other.commit()
++                    finally:
++                        other.close()
++                return cur
++
++        from contextlib import contextmanager
++
++        @contextmanager
++        def con():
++            with real_con() as c:
++                yield Interleaving(c)
++        with patch.object(server, 'con', con), patch.object(server, '_pm_request', side_effect=gh.request):
++            out = server.execute_pm_actions({'id': 7}, [refresh_action(source_comment_id=888)])
++        self.assertTrue(out[0].startswith('RECORDED: running'), out)
++        self.assertEqual(gh.writes, [])
++        self.assertTrue(gh.pr['draft'])  # the winner (the other process) owns the resume
++
++    def test_two_requests_racing_one_unconfirmed_candidate_resume_once(self):
++        self.unconfirmed_draft_row()
++        gh = FakeGitHub(draft=True)
++        out, barrier = [], threading.Barrier(2)
++
++        def go(src):
++            barrier.wait()
++            out.extend(server.execute_pm_actions({'id': src}, [refresh_action(source_comment_id=src)]))
++        with patch.object(server, '_pm_request', side_effect=gh.request):
++            threads = [threading.Thread(target=go, args=(s,)) for s in (901, 902)]
++            for th in threads:
++                th.start()
++            for th in threads:
++                th.join()
++        self.assertEqual(gh.writes, ['ready'])
++        self.assertEqual(sum(1 for r in out if r.startswith('RESUMED')), 1)
++        self.assertEqual(sum(1 for r in out if r.startswith('RECORDED')), 1)
++
++
+ if __name__ == '__main__':
+     unittest.main()

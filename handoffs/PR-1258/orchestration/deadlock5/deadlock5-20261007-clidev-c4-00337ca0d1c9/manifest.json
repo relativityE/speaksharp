@@ -1,0 +1,88 @@
+{
+  "candidate_id": "deadlock5-20261007-clidev-c4-00337ca0d1c9",
+  "status": "DRAFT / NOT ACCEPTED",
+  "supersedes": [
+    {
+      "candidate": "deadlock5-20261007-clidev-c3-f8f4e612488d",
+      "commit": "7ff39a86a331d30d63526691a6b45ae93ab0ff10"
+    },
+    {
+      "candidate": "deadlock5-20261007-clidev-6ac2913a3162",
+      "commit": "6f765c602c934d8b22a69d9acf95c60807770230"
+    }
+  ],
+  "answers": [
+    "PM delivery 91 P1 (resume claim race)",
+    "https://github.com/relativityE/speaksharp/issues/1258#issuecomment-6048387240"
+  ],
+  "lineage": {
+    "baseline_sha256": "c543cdf93bacbc45e0bacd0ef1743f42fecb5f3533537e3562e202a89edaec4b",
+    "captured_patch_sha256": "6936d6cad96d59fb2f5abaaa8c4185ed80127f558aa7439e8a5e003da2fbe725",
+    "not_combined_with": "deadlock5-20261007-c488bf92c914 (0447adcc…)"
+  },
+  "repo_base_commit": "18a601dcc18413744ccb50cdbf00beffb8219d75",
+  "isolated_tuple": {
+    "branch": "fix/rwt-deadlock5-isolated-6048172525",
+    "head": "18a601dcc18413744ccb50cdbf00beffb8219d75",
+    "tree": "da79db0d0b947a340dd5521343ceb1ab49bb6bb1"
+  },
+  "packet_files_sha256": {
+    "README.md": "f862b757b41765e2531d40a3f01927a17f14ea3f550fb23afcf5eb22c54863a2",
+    "c3-to-c4.patch.txt": "89bcd9f8a2e37918d4ff5ceeb6207761c0721ccbff9caaf588360714a693176e",
+    "deadlock4-to-deadlock5-c4.patch.txt": "122a407444fa2881b46e9f2fe4f98cee877706ec3ec1df2835191a1a16879cb7",
+    "replacement-files/rwt-pr-handoff-v4.6.16/handoffs/PR-1258/designer/5e77cf0dbf6c/README.md": "8214770bc5b76fe8a30486c453271c3f7d6a24ff88cd684570b71ea9a8c3b6a4",
+    "rwt-pr-handoff-v4.6.16-deadlock.5-c4.zip": "00337ca0d1c9bf8ca703b6df2186316046f87fc6318edf509c6d9e1f7a3f9d9b"
+  },
+  "bundle_source_digest": "837ec746151c6b9e3d149f39934a4a6f3bf591c51ae25d45355c140930453019",
+  "bundle_files_sha256": {
+    "README.md": "fa8bcfbe3d23e08e7994b24e01f41d113236e4748737822248bba8ad67ffca1b",
+    "TEST_RECEIPT.md": "d672af579da5a5b6c59c25d16d1e58e0f1ca805f06c2fa83421550b0b3a3c0fb",
+    "guarded_pm.py": "434f42ef6ebc702add97d3fa7f54c69664fcb9786e54a9597ca3bd1cfc3c6213",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/PM_OVERRIDES.md": "4584d209fea749d5ea2fdf5cf0300057f6f2102ec8c16669970f353c5daad499",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/README.md": "8214770bc5b76fe8a30486c453271c3f7d6a24ff88cd684570b71ea9a8c3b6a4",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/RWT_PUNCHLIST_DESIGN.md": "6bc44defbf4018fdb0d9ee46d61bc3544ed15c155b4f16cc10c672e605df7488",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/RWT_PUNCHLIST_IMPLEMENTATION.md": "40ac1cb2f8d68a262909066d8d35101e20b394c367fc5d874b62574c564ade8a",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/SESSION_PAGE_SPEC.md": "3bca63987697f98a21d316528dc476012a44f88f0c45648797d15b21bc683087",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/SESSION_REVIEW_RWT_SPEC.md": "555fcab20928822fec946eb2b216e3abfd527f96d92163493bf74ec9e17bfddb",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/manifest.json": "420a79f2f5fae6bc65e9ccd75304b82f4d76f90161818a4b3ac7ac6af230b925",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/PM_REV2_NOTES.md": "8810b7d776da2300a7358b43c1693fd0d9689c5d039a346c46712a1d21addc47",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/README_FOR_DEV.md": "dab6c5f0f03a9c9075a320051ab7a557c53d0088eadbe23c9e4fa8aac824ac42",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/RWT_PUNCHLIST_CHANGES_REV2.md": "49f49e629ad9c84a8ce53daca58622decd1ce55f85026988113d7cc56ad02f1e",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/RWT_PUNCHLIST_DESIGN.md": "ca715be6838ab15bab849b31409c54bc37eb5c59fcac44d3276c80f8bdea3fd4",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/RWT_PUNCHLIST_IMPLEMENTATION.md": "2870b064755ebbeb3acec07b6745806a16612eb851a1d2cf28b9c8fee79d7931",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/manifest.json": "bc3007584acaf7fe0558b7bebbaf873648f6fd84130e199ed5d7f3e0be23e9c2",
+    "migrate_state.py": "43acf94a6e319d9776fd1a1a624b4d622a40ef9d53bcc8638381e091a01b3579",
+    "pm-instructions.md": "a6bf3bea2d1adcdf9d98e964186e46f9c025551d58c249dee8ca2b813e7bbe7c",
+    "pm-route.schema.json": "dacfc96b57872e4c71de4d081e2ce02eda1254867bcab6e1ae33e5da171a95f8",
+    "rwt-five-player-protocol.md": "fbb9a69376e8bf6778331693fa2570b08b28533b1cbb79e315fb397accb9de38",
+    "server.py": "6ffe7c7fb911c1521c857de3a22352e1a6e1c0e118fe78af29c58d22226ea787",
+    "start-rwt-handoff.sh": "639ccc667fc1240f35ae88dcb247b94499168237c18dac136e019846f0b8af0a",
+    "static/index.html": "e9654f2a7775154115da90dca98781bc72bdcc5c047faef877a5a44c0265ef3f",
+    "test_comms.py": "59cc8d66f227f0b8d66a794192bcb5aeb199c767e48dbdb035ab80f6dbc79336",
+    "test_deadlock.py": "6045cf12f2d201ca8d7c5f2490bdbc717d34a586b4809959d628de2e6b9d2c4e",
+    "test_deadlock5.py": "ab8af22735374a178c52ab767b66e0f929ca63f5f85843612aff6578e7bb486f",
+    "test_event_delivery.py": "8a76e3008fa7487f5c4274c7cdd01b606f2b1cd097f59d245dec373ca8405560",
+    "test_handoffs.py": "f1a4a50935835b43878c27e7b6b5795c72035ed0cb5f9ed6a550c392fff84260",
+    "test_poll_budget.py": "a70e5b5879f416cb0bb99af72b1c60c317323697b3cc2dca8722ad20b0a20023",
+    "test_reconciliation.py": "982846b01b5c9ba21a60671bf368445018c5e9074be5204035c24c868fa420b5",
+    "test_refresh_reviews.py": "39ef57b40f9f3bf81dbbce481d7a7de207b6e3d8a041673025132d5afa067d30",
+    "test_regressions.py": "17f0c08b98f290afa2b729d6dbddff38f64c61979b6df29cf9fd5096be67912c",
+    "test_server.py": "7bb15023eb7d32de303d1f3153525487d01ab7b9753badf0aa74908fdfeea54a",
+    "test_ui.js": "d6fdb4ff31b0650ca1e5386b69fa77af49299f69a1f880d51593eea48b8bf067",
+    "test_watchdog.py": "7a7457984ec90a6edc17b7a698260841c6bb52afbf9b694214c6d35e7f437498"
+  },
+  "tests": {
+    "python": "237 passed",
+    "node_ui_smoke": "passed",
+    "lease": "host-interlock hold local; acquired 23:07:25Z holder 48115; released 23:08:18Z",
+    "race_repeat": "2 new tests x5 all OK",
+    "red": "claim check reverted -> interleaving test fails"
+  },
+  "hold": [
+    "installed-board restart and live acceptance",
+    "live refresh_reviews on a real PR (not run)",
+    "real external App Dev receipt traffic",
+    "connector re-review of this commit"
+  ],
+  "authority": "Draft packet publication only; no install/restart, live refresh, merge, deployment or Production action"
+}
