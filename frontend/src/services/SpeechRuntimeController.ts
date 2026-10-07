@@ -3,6 +3,7 @@ import { currentLogin, recordSavedSessionFor, type LoginIdentity } from './login
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
+import { rememberReviewSubject } from './telemetry/reviewSubject';
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
 import {
@@ -1388,6 +1389,8 @@ export class SpeechRuntimeController {
                          * is stale and must not overwrite that newer take's.
                          */
                         useSessionStore.getState().setCompletedSessionId(targetSessionId);
+                        // #1258: the coaching events for this session name this take (subject), never the session id.
+                        rememberReviewSubject(targetSessionId, fullSave.subject);
                         });
                     }
                 }
@@ -5594,6 +5597,8 @@ export class SpeechRuntimeController {
                                 // optional analysis whose failure is non-fatal, and the review reader used to depend on it: a
                                 // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
                                 useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
+                                // #1258: the coaching events for this session name this take (subject), never the session id.
+                                rememberReviewSubject(sessionId, takeSubject);
                             });
 
                             // Track 1 finalized reconciliation (disclosure-only). Computed against the

@@ -16,6 +16,7 @@ import {
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
+import { nextReviewRequestSeq } from '@/services/telemetry/reviewSubject';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -266,6 +267,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
   const reviewCardRef = useRef<HTMLDivElement>(null);
   const renderedReceiptRef = useRef<string | null>(null);
+  /** #1258: the lifecycle that generated the pair now shown, so the rendered receipt can name it (stored pairs have none). */
+  const generatedRef = useRef<{ sessionId: string; requestSeq: number } | null>(null);
 
   /**
    * #1258 G20 — "From this session", read from what the session SAVED (the same reader Analytics uses), once the
@@ -331,7 +334,14 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     const publishVisibleReview = () => {
       if (renderedReceiptRef.current === sessionId) return;
       renderedReceiptRef.current = sessionId;
-      trackPracticeLoopReviewRendered();
+      // #1258 (contract 6037393538): a pair this card generated carries its lifecycle; a stored pair carries none,
+      // so a revisit or reload can never be counted as a generation.
+      const generated = generatedRef.current?.sessionId === sessionId ? generatedRef.current : null;
+      trackPracticeLoopReviewRendered({
+        sessionId, product,
+        source: generated ? 'generated' : 'stored',
+        ...(generated ? { requestSeq: generated.requestSeq } : {}),
+      });
       emitPracticeLoop({
         // The validated card has intersected the viewport. This is the only phase that can claim that.
         phase: 'rendered',
@@ -368,7 +378,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     }, { threshold: 0.01 });
     observer.observe(card);
     return () => observer?.disconnect();
-  }, [sessionId, suggestions]);
+  }, [sessionId, suggestions, product]);
 
   /**
    * #1466 Codex P1 (PM RETURN) — READINESS IS NOT RENDERING.
@@ -447,7 +457,10 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       && activeSessionRef.current === requestSessionId
       && requestGenerationRef.current === requestGeneration;
 
-    trackPracticeLoopReviewRequested();
+    // #1258 (contract 6037393538): one logical lifecycle = one request seq, shared by requested and its terminal event.
+    const lifecycle = { sessionId: requestSessionId, product, requestSeq: nextReviewRequestSeq() } as const;
+    let invocations = 0;
+    trackPracticeLoopReviewRequested(lifecycle);
 
     /**
      * #1473 — ONE BOUNDED LIFECYCLE PER REQUEST (the automatic first request, or one manual press).
@@ -468,6 +481,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       try {
         const supabase = getSupabaseClient();
         if (!supabase) throw new Error("Supabase client not available");
+        invocations += 1;
         const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
           // The edge function loads transcript and measurements from this authenticated saved session.
           // Never send caller-owned evidence that could be swapped between session ids.
@@ -489,8 +503,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         if (persistedSuggestions) {
           if (isCurrentRequest()) {
             // Success from this endpoint means the exact result was persisted and read back server-side.
-            trackPracticeLoopReviewCompleted();
-            trackPracticeLoopReviewPersisted();
+            trackPracticeLoopReviewCompleted({ ...lifecycle, invocations });
+            trackPracticeLoopReviewPersisted({ ...lifecycle, invocations });
+            generatedRef.current = { sessionId: requestSessionId, requestSeq: lifecycle.requestSeq };
             setView({ sessionId: requestSessionId, suggestions: persistedSuggestions, isLoading: false, error: null, retrying: false });
           }
           return;
@@ -530,7 +545,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         continue;
       }
 
-      trackPracticeLoopReviewFailed(failure.reason);
+      trackPracticeLoopReviewFailed(failure.reason, { ...lifecycle, invocations });
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: false });
       return;
     }
