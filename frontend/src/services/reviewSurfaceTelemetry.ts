@@ -8,6 +8,7 @@
  */
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import type { GovernedEvent } from '@/services/telemetryAllowlist';
+import type { ProgressReadDiagnostic } from '@/services/progress/progressReadDiagnostic';
 
 export type ReviewProduct = 'open_mic' | 'focus_points' | 'unknown';
 export type PdfSurface = 'history_list' | 'history_list_mobile' | 'session_detail';
@@ -38,24 +39,29 @@ export type PracticeIntendedRoute = 'session' | 'focus_setup' | 'practice' | 'no
 export type PracticeBlockedReason = 'none' | 'review_loading' | 'progress_pending' | 'previous_attempt_pending' | 'linking' | 'retry_blocked' | 'progress_refetching';
 export type LinkedAttemptOutcome = 'ok' | 'not_started' | 'readback_blocked' | 'server_failed' | 'handoff_failed_abandoned' | 'handoff_failed_unclosed' | 'threw';
 
-/** #1258 — every press of the saved review's practice action: what the page knew, and which branch ran. */
+/** #1258 — every press of the saved review's practice action: what the page knew, and which branch ran.
+ * `progressRead` (#1258 F3) names a failed Progress read by closed stage/code only — never its message. */
 export const trackSavedReviewPracticeAction = (input: {
   product: ReviewProduct; linkState: PracticeLinkState; reviewState: PracticeReviewState;
   progressStatus: PracticeProgressStatus; action: PracticeActionTaken; actionSeq: number; intendedRoute: PracticeIntendedRoute;
+  progressRead: ProgressReadDiagnostic;
 }): void =>
   emit('saved_review_practice_action', {
     product: input.product, link_state: input.linkState, review_state: input.reviewState,
     progress_status: input.progressStatus, action: input.action, action_seq: Math.min(100, Math.max(1, input.actionSeq)),
     intended_route: input.intendedRoute,
+    progress_read_stage: input.progressRead.stage, progress_read_code: input.progressRead.code,
   });
 
 /** #1258 — the practice action's availability, emitted by the caller only when it CHANGES. */
 export const trackSavedReviewPracticeState = (input: {
   product: ReviewProduct; linkState: PracticeLinkState; reviewState: PracticeReviewState; enabled: boolean; blockedReason: PracticeBlockedReason;
+  progressRead: ProgressReadDiagnostic;
 }): void =>
   emit('saved_review_practice_state', {
     product: input.product, link_state: input.linkState, review_state: input.reviewState,
     enabled: input.enabled, blocked_reason: input.blockedReason,
+    progress_read_stage: input.progressRead.stage, progress_read_code: input.progressRead.code,
   });
 
 /** #1258 — the linked repeat attempt a press started, and how it ended. `action_seq` names the press. */

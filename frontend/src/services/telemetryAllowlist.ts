@@ -37,6 +37,7 @@ import {
     CONVERSION_SOURCES, UTM_SOURCES, UTM_MEDIUMS, UTM_CAMPAIGNS, closedWith,
 } from './conversionVocabulary';
 import { PROGRESS_DEBT_PHASES, PROGRESS_DEBT_REASONS, PROGRESS_DEBT_TRIGGERS } from './progress/progressDebtVocabulary';
+import { PROGRESS_READ_CODES, PROGRESS_READ_STAGES } from './progress/progressReadDiagnostic';
 
 /** The checked-in Report Issue vocabularies — the same slugs the database stores. */
 const ISSUE_CATEGORIES = [
@@ -600,6 +601,9 @@ export const EVENT_SCHEMAS = Object.freeze({
         action_seq: { kind: 'int', min: 1, max: 100 } as FieldRule,
         // Where this press is meant to land; success is THIS press reaching it (journey_step route_change), not any route.
         intended_route: enumOf(['session', 'focus_setup', 'practice', 'none']),
+        // #1258 F3: which Progress read failed and how — closed codes only, never the database message.
+        progress_read_stage: enumOf(PROGRESS_READ_STAGES),
+        progress_read_code: enumOf(PROGRESS_READ_CODES),
     },
     // #1258 — the practice action's availability as it CHANGES, so a disabled or blocked action (which cannot be
     // pressed, and so emits no press) is still observable. De-duplicated: one event per distinct state.
@@ -609,6 +613,8 @@ export const EVENT_SCHEMAS = Object.freeze({
         review_state: enumOf(['loading', 'loaded', 'read_failed', 'focus_read_failed']),
         enabled: { kind: 'bool' } as FieldRule,
         blocked_reason: enumOf(['none', 'review_loading', 'progress_pending', 'previous_attempt_pending', 'linking', 'retry_blocked', 'progress_refetching']),
+        progress_read_stage: enumOf(PROGRESS_READ_STAGES),
+        progress_read_code: enumOf(PROGRESS_READ_CODES),
     },
     saved_review_linked_attempt: {
         outcome: enumOf(['ok', 'not_started', 'readback_blocked', 'server_failed', 'handoff_failed_abandoned', 'handoff_failed_unclosed', 'threw']),

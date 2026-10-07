@@ -10,6 +10,7 @@ import {
     trackSavedReviewPracticeAction, trackSavedReviewPracticeSelected, trackSavedReviewPracticeState, trackSavedReviewRevisited,
     type PracticeActionTaken, type PracticeBlockedReason, type PracticeIntendedRoute, type PracticeProgressStatus, type PracticeReviewState,
 } from '@/services/reviewSurfaceTelemetry';
+import { NO_PROGRESS_READ_DIAGNOSTIC, type ProgressReadDiagnostic } from '@/services/progress/progressReadDiagnostic';
 
 const PRACTICE_AGAIN = 'Practice this again';
 /** A MARKED Focus Points take whose saved results couldn't be read; its practice action retries the read. */
@@ -96,6 +97,10 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
     // #1258: every press is recorded with the branch it took (`saved_review_practice_action`); `action_seq` links a
     // press to the linked attempt it started. Closed enums only: no session id, review text or route.
     const actionSeqRef = useRef(0);
+    // #1258 F3: a failed Progress read is named by closed stage/code (a thrown read is `query/threw`), never its message.
+    const progressRead: ProgressReadDiagnostic = repeat.query.isError ? { stage: 'query', code: 'threw' }
+        : (repeat.view?.status === 'error' || repeat.view?.status === 'unavailable') && repeat.view.diagnostic
+            ? repeat.view.diagnostic : NO_PROGRESS_READ_DIAGNOSTIC;
     const practise = () => {
         const actionSeq = Math.min(100, ++actionSeqRef.current);
         const reviewState: PracticeReviewState = !review ? 'loading'
@@ -105,7 +110,7 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
         const progressStatus: PracticeProgressStatus = repeat.query.isPending ? 'loading'
             : repeat.query.isError ? 'read_error' : (repeat.view?.status ?? 'unknown');
         const record = (action: PracticeActionTaken) => trackSavedReviewPracticeAction({
-            product: review?.product ?? 'unknown', linkState: repeat.linkState, reviewState, progressStatus, action, actionSeq,
+            product: review?.product ?? 'unknown', linkState: repeat.linkState, reviewState, progressStatus, action, actionSeq, progressRead,
             intendedRoute: action === 'accept_linked' ? routeClass(productTarget())
                 : action === 'open_session' || action === 'open_focus_setup' || action === 'open_practice' ? routeClass(action) : 'none',
         });
@@ -149,12 +154,13 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
     const stateSignature = useRef<string | null>(null);
     useEffect(() => {
         const state = { product: review?.product ?? 'unknown', linkState: repeat.linkState, reviewState: stateReviewState,
-            enabled: blockedReason === 'none', blockedReason } as const;
+            enabled: blockedReason === 'none', blockedReason,
+            progressRead: { stage: progressRead.stage, code: progressRead.code } } as const;
         const signature = JSON.stringify(state);
         if (signature === stateSignature.current) return;
         stateSignature.current = signature;
         trackSavedReviewPracticeState(state);
-    }, [review?.product, repeat.linkState, stateReviewState, blockedReason]);
+    }, [review?.product, repeat.linkState, stateReviewState, blockedReason, progressRead.stage, progressRead.code]);
 
     const action = (
         <div>

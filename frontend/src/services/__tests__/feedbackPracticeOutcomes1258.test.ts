@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { projectEventProps } from '../telemetryAllowlist';
+import { NO_PROGRESS_READ_DIAGNOSTIC, PROGRESS_READ_CODES, PROGRESS_READ_STAGES } from '../progress/progressReadDiagnostic';
 
 const pushed: Array<[string, Record<string, unknown>]> = [];
 vi.mock('@/services/AnalyticsBuffer', () => ({
@@ -78,12 +79,13 @@ describe('#1258 Share Feedback storage outcome', () => {
 describe('#1258 Practice again: every press and its linked attempt', () => {
     it('a press records what the page knew and the branch it took', () => {
         trackSavedReviewPracticeAction({
-            product: 'open_mic', linkState: 'error', reviewState: 'loaded', progressStatus: 'unavailable',
-            action: 'refetch_progress', actionSeq: 1, intendedRoute: 'none',
+            product: 'open_mic', linkState: 'error', reviewState: 'loaded', progressStatus: 'error',
+            action: 'refetch_progress', actionSeq: 1, intendedRoute: 'none', progressRead: { stage: 'history_prior', code: 'PGRST201' },
         });
         expect(pushed[0]).toEqual(['saved_review_practice_action', {
-            product: 'open_mic', link_state: 'error', review_state: 'loaded', progress_status: 'unavailable',
+            product: 'open_mic', link_state: 'error', review_state: 'loaded', progress_status: 'error',
             action: 'refetch_progress', action_seq: 1, intended_route: 'none',
+            progress_read_stage: 'history_prior', progress_read_code: 'PGRST201',
         }]);
         survivesProjection(...pushed[0]);
     });
@@ -94,13 +96,27 @@ describe('#1258 Practice again: every press and its linked attempt', () => {
         const reviews = ['loading', 'loaded', 'read_failed', 'focus_read_failed'] as const;
         const statuses = ['loading', 'read_error', 'insufficient', 'ineligible', 'unavailable', 'error', 'eligible', 'unknown'] as const;
         for (const action of actions) for (const linkState of links) {
-            trackSavedReviewPracticeAction({ product: 'focus_points', linkState, reviewState: reviews[0], progressStatus: statuses[0], action, actionSeq: 3, intendedRoute: 'session' });
+            trackSavedReviewPracticeAction({ product: 'focus_points', linkState, reviewState: reviews[0], progressStatus: statuses[0], action, actionSeq: 3, intendedRoute: 'session', progressRead: NO_PROGRESS_READ_DIAGNOSTIC });
         }
         for (const reviewState of reviews) for (const progressStatus of statuses) {
-            trackSavedReviewPracticeAction({ product: 'unknown', linkState: 'direct', reviewState, progressStatus, action: 'ignored', actionSeq: 1, intendedRoute: 'none' });
+            trackSavedReviewPracticeAction({ product: 'unknown', linkState: 'direct', reviewState, progressStatus, action: 'ignored', actionSeq: 1, intendedRoute: 'none', progressRead: NO_PROGRESS_READ_DIAGNOSTIC });
         }
         expect(pushed).toHaveLength(actions.length * links.length + reviews.length * statuses.length);
         for (const [event, props] of pushed) survivesProjection(event, props);
+    });
+
+    it('#1258 F3: every Progress read stage and code is governed on both practice events', () => {
+        for (const stage of PROGRESS_READ_STAGES) for (const code of PROGRESS_READ_CODES) {
+            trackSavedReviewPracticeAction({ product: 'open_mic', linkState: 'error', reviewState: 'loaded', progressStatus: 'error',
+                action: 'refetch_progress', actionSeq: 1, intendedRoute: 'none', progressRead: { stage, code } });
+            trackSavedReviewPracticeState({ product: 'open_mic', linkState: 'error', reviewState: 'loaded', enabled: true,
+                blockedReason: 'none', progressRead: { stage, code } });
+        }
+        expect(pushed).toHaveLength(PROGRESS_READ_STAGES.length * PROGRESS_READ_CODES.length * 2);
+        for (const [event, props] of pushed) survivesProjection(event, props);
+        // An unlisted stage or code never crosses: the allowlist, not the caller, decides.
+        expect(projectEventProps('saved_review_practice_state', { progress_read_stage: 'sessions?select=id', progress_read_code: 'Could not embed' }).dropped.sort())
+            .toEqual(['progress_read_code', 'progress_read_stage']);
     });
 
     it('the linked attempt reports its outcome, elapsed time and the press it answers', () => {
@@ -121,9 +137,9 @@ describe('#1258 Practice again: every press and its linked attempt', () => {
     it('a disabled or blocked action is observable: every blocked reason is governed, with enabled=false', () => {
         const reasons = ['review_loading', 'progress_pending', 'previous_attempt_pending', 'linking', 'retry_blocked', 'progress_refetching'] as const;
         for (const blockedReason of reasons) {
-            trackSavedReviewPracticeState({ product: 'open_mic', linkState: 'pending', reviewState: 'loading', enabled: false, blockedReason });
+            trackSavedReviewPracticeState({ product: 'open_mic', linkState: 'pending', reviewState: 'loading', enabled: false, blockedReason, progressRead: NO_PROGRESS_READ_DIAGNOSTIC });
         }
-        trackSavedReviewPracticeState({ product: 'open_mic', linkState: 'direct', reviewState: 'loaded', enabled: true, blockedReason: 'none' });
+        trackSavedReviewPracticeState({ product: 'open_mic', linkState: 'direct', reviewState: 'loaded', enabled: true, blockedReason: 'none', progressRead: NO_PROGRESS_READ_DIAGNOSTIC });
         expect(pushed.map(([e]) => e)).toEqual(Array(7).fill('saved_review_practice_state'));
         for (const [event, props] of pushed) survivesProjection(event, props);
     });

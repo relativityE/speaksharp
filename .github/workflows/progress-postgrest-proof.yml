@@ -1,29 +1,30 @@
-name: "Share Feedback PostgREST proof (disposable stack)"
-# #1258 — the API-layer rung for the Share Feedback write. PGlite proves the database refuses
-# `INSERT … ON CONFLICT (idempotency_key)` for `authenticated` (INSERT-only); this drives the REAL issueReportService
-# through the installed @supabase/postgrest-js, with signed JWTs, against a real PostgREST on a disposable Postgres
-# holding ONLY the migration-defined grants. No Production access, no secrets: the JWT secret below is disposable.
-# Postgres 16/17 match the existing PostgREST contract matrix (postgrest-contract-matrix.yml).
+name: "Progress history PostgREST proof (disposable stack)"
+# #1258 F3 — the API-layer rung for the Progress history read. `session_progress_evaluations` has three foreign keys to
+# `sessions`, so an un-hinted embed is ambiguous to PostgREST (PGRST201) — a defect no mocked client can show. This
+# drives the REAL loadSessionProgress and useLinkedRepeat through the installed @supabase/postgrest-js, with signed
+# JWTs, against a real PostgREST on a disposable Postgres holding the migration-defined Progress relationships.
+# No Production access, no secrets: the JWT secret below is disposable. Mirrors feedback-postgrest-proof.yml.
 on:
   workflow_dispatch: {}
   pull_request:
     paths:
-      - 'frontend/src/services/issueReportService.ts'
-      - 'backend/supabase/migrations/*user_issue_reports*.sql'
-      - 'backend/supabase/migrations/20260721130000_report_session_ownership_guard.sql'
-      - 'backend/supabase/migrations/20260903140000_feedback_kind_severity_contract.sql'
-      - 'backend/supabase/migrations/20260904150000_share_feedback_redesign.sql'
-      - 'scripts/feedback-postgrest-bootstrap.sh'
-      - 'tests/http/**'
-      - '.github/workflows/feedback-postgrest-proof.yml'
+      - 'frontend/src/services/progress/loadSessionProgress.ts'
+      - 'frontend/src/services/progress/progressReadDiagnostic.ts'
+      - 'frontend/src/hooks/useLinkedRepeat.ts'
+      - 'backend/supabase/migrations/20260731120000_session_progress_evaluations.sql'
+      - 'backend/supabase/migrations/20260731130000_progress_recommendations.sql'
+      - 'scripts/progress-postgrest-bootstrap.sh'
+      - 'tests/http/progress-history-postgrest.http.ts'
+      - 'tests/http/vitest.http.config.mjs'
+      - '.github/workflows/progress-postgrest-proof.yml'
 permissions:
   contents: read
 concurrency:
-  group: feedback-postgrest-${{ github.event.pull_request.number || github.ref }}
+  group: progress-postgrest-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   proof:
-    name: "Share Feedback PostgREST (postgres:${{ matrix.pg }})"
+    name: "Progress history PostgREST (postgres:${{ matrix.pg }})"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -65,11 +66,11 @@ jobs:
           set -o pipefail
           psql -Atc 'select version()'
 
-      - name: Bootstrap the disposable schema (migration-defined grants only)
+      - name: Bootstrap the disposable schema (migration-defined relationships only)
         run: |
           # BEFORE PostgREST starts: its anonymous role (`anon`, as on Supabase) must exist for the readiness probe.
           set -o pipefail
-          bash scripts/feedback-postgrest-bootstrap.sh | tee feedback-pgrst-${{ matrix.pg }}.txt
+          bash scripts/progress-postgrest-bootstrap.sh | tee progress-pgrst-${{ matrix.pg }}.txt
 
       - name: Start disposable PostgREST
         run: |
@@ -86,14 +87,13 @@ jobs:
           done
           curl -sf "http://127.0.0.1:${PGRST_PORT}/" >/dev/null || { echo '::error::PostgREST did not become ready'; docker logs pgrst; exit 1; }
 
-      - name: Share Feedback PostgREST proof (real service + installed postgrest-js)
+      - name: Progress history PostgREST proof (real service + installed postgrest-js)
         env:
-          FEEDBACK_PGRST_URL: http://127.0.0.1:3999
+          PROGRESS_PGRST_URL: http://127.0.0.1:3999
         run: |
           # pipefail is REQUIRED: GitHub runs steps with `bash -e` only, and a tee would otherwise mask a FAIL.
           set -o pipefail
-          # This stack holds ONLY the feedback schema: run its own proof, not every tests/http proof.
-          pnpm exec vitest run --config tests/http/vitest.http.config.mjs --reporter=verbose tests/http/share-feedback-postgrest.http.ts 2>&1 | tee -a feedback-pgrst-${{ matrix.pg }}.txt
+          pnpm exec vitest run --config tests/http/vitest.http.config.mjs --reporter=verbose tests/http/progress-history-postgrest.http.ts 2>&1 | tee -a progress-pgrst-${{ matrix.pg }}.txt
 
       - name: PostgREST logs on failure
         if: failure()
@@ -103,8 +103,8 @@ jobs:
         if: always()
         run: |
           {
-            echo "### Share Feedback PostgREST proof — postgres:${{ matrix.pg }}"
+            echo "### Progress history PostgREST proof — postgres:${{ matrix.pg }}"
             echo '```'
-            grep -E '^bootstrap:|✓|×|Tests |Test Files' feedback-pgrst-${{ matrix.pg }}.txt 2>/dev/null || echo 'no result captured'
+            grep -E '^bootstrap:|✓|×|Tests |Test Files' progress-pgrst-${{ matrix.pg }}.txt 2>/dev/null || echo 'no result captured'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

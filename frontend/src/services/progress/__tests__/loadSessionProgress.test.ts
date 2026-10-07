@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 let current: Record<string, unknown> | null = null;
 let references: Record<string, unknown>[] = [];
@@ -9,8 +11,32 @@ let currentError: unknown = null;
 let currentSession: Record<string, unknown> | null = { created_at: '2026-08-03T12:00:00Z' };
 let priorSessions: Record<string, unknown>[] = [];
 let priorError: unknown = null;
+/** Only the prior-history LIST read (not the current session's own row) fails with this. */
+let priorListError: unknown = null;
 let chronologyRows: Record<string, unknown>[] = [];
 let priorOrFilters: string[] = [];
+let sessionsSelects: string[] = [];
+
+/**
+ * #1258 F3 (run 37514078995): the stub must answer the embed the way PostgREST does. `session_progress_evaluations`
+ * has THREE foreign keys to `sessions` (its own session, baseline, previous), so an un-hinted embed from `sessions` is
+ * ambiguous and PostgREST refuses it (PGRST201) — which a select-blind stub never showed. The relationships are read
+ * from the migration that creates them, so the stub cannot drift from the schema.
+ */
+const SPE_MIGRATION = readFileSync(path.resolve(__dirname,
+    '../../../../../backend/supabase/migrations/20260731120000_session_progress_evaluations.sql'), 'utf8');
+const SPE_TO_SESSIONS_FKEYS = [...SPE_MIGRATION.matchAll(/^\s+(\w+)\s+uuid\b[^\n]*REFERENCES public\.sessions\(id\)/gm)]
+    .map(([, column]) => ({ column, name: `session_progress_evaluations_${column}_fkey` }));
+function postgrestEmbedError(columns: string): { code: string; message: string } | null {
+    const embed = /session_progress_evaluations((?:!\w+)*)\(/.exec(columns);
+    if (!embed) return null;
+    const hints = embed[1].split('!').filter((hint) => hint && hint !== 'inner' && hint !== 'left');
+    const candidates = hints.length ? SPE_TO_SESSIONS_FKEYS.filter((fk) => hints.includes(fk.name)) : SPE_TO_SESSIONS_FKEYS;
+    if (candidates.length > 1) return { code: 'PGRST201', message: 'Could not embed because more than one relationship was found' };
+    if (candidates.length === 0) return { code: 'PGRST200', message: 'Could not find a relationship' };
+    // The cohort filter must apply to the PRIOR session's own evaluation, not to a row that merely references it.
+    return candidates[0].column === 'session_id' ? null : { code: 'TEST', message: `embedded via ${candidates[0].column}` };
+}
 
 const rec = (id: string, over: Record<string, unknown> = {}) => ({
     id,
@@ -23,9 +49,12 @@ const rec = (id: string, over: Record<string, unknown> = {}) => ({
 });
 
 function query(table: string) {
-    const state: { inMode: boolean } = { inMode: false };
+    const state: { inMode: boolean; embedError: unknown } = { inMode: false, embedError: null };
     const chain: Record<string, unknown> = {};
-    chain.select = () => chain;
+    chain.select = (columns: string) => {
+        if (table === 'sessions') { sessionsSelects.push(columns); state.embedError = postgrestEmbedError(columns); }
+        return chain;
+    };
     chain.eq = () => chain;
     chain.neq = () => chain;
     chain.lt = () => chain;
@@ -40,7 +69,8 @@ function query(table: string) {
         return { data: attempt, error: null };
     };
     chain.then = (resolve: (value: unknown) => void) => resolve(table === 'sessions'
-        ? { data: state.inMode ? chronologyRows : priorSessions, error: priorError }
+        ? state.embedError ? { data: null, error: state.embedError }
+            : { data: state.inMode ? chronologyRows : priorSessions, error: state.inMode ? priorError : priorListError ?? priorError }
         : { data: state.inMode ? references : null, error: null });
     return chain;
 }
@@ -57,13 +87,14 @@ const ev = (session_id: string, over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
     current = null; references = []; recommendation = rec('rec-default'); recommendationError = null; attempt = null; currentError = null;
-    currentSession = { created_at: '2026-08-03T12:00:00Z' }; priorSessions = []; priorError = null; from.mockClear();
+    currentSession = { created_at: '2026-08-03T12:00:00Z' }; priorSessions = []; priorError = null; priorListError = null; from.mockClear();
     chronologyRows = [
         { id: 's0', created_at: '2026-08-03T10:00:00Z' },
         { id: 's1', created_at: '2026-08-03T11:00:00Z' },
         { id: 's2', created_at: '2026-08-03T12:00:00Z' },
     ];
     priorOrFilters = [];
+    sessionsSelects = [];
     rpc.mockReset();
     rpc.mockImplementation(async (name: string) => {
         if (name === 'record_progress_recommendation') recommendation = rec('rec-recovered');
@@ -257,6 +288,40 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(await loadSessionProgress('s2')).toMatchObject({ status: 'eligible', comparison: 'baseline' });
         priorSessions = [{ id: 's-earlier' }];
         expect(await loadSessionProgress('s2')).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+    });
+
+    it('#1258 F3: a first eligible session reads its history through the one unambiguous relationship', async () => {
+        // The schema really is ambiguous: an un-hinted embed is refused, exactly as Production refused it.
+        expect(SPE_TO_SESSIONS_FKEYS.map((fk) => fk.column)).toEqual(['session_id', 'baseline_session_id', 'previous_comparable_session_id']);
+        expect(postgrestEmbedError('id, session_progress_evaluations!inner(cohort_key)')).toMatchObject({ code: 'PGRST201' });
+        current = ev('s2');
+        priorSessions = [];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'baseline', recommendationId: 'rec-default' });
+        const historySelect = sessionsSelects.find((columns) => columns.includes('session_progress_evaluations'));
+        expect(historySelect).toBe('id, session_progress_evaluations!session_progress_evaluations_session_id_fkey!inner(cohort_key)');
+    });
+
+    it('#1258 F3: a refused history read names its stage and allowlisted code — never the database message', async () => {
+        current = ev('s2');
+        priorListError = {
+            code: 'PGRST201', message: "Could not embed because more than one relationship was found for 'sessions' and 'session_progress_evaluations'",
+            details: [{ relationship: 'session_progress_evaluations_baseline_session_id_fkey using sessions(id) and session_progress_evaluations(baseline_session_id)' }],
+            hint: "Try changing 'session_progress_evaluations' to 'session_progress_evaluations!session_progress_evaluations_session_id_fkey'",
+        };
+        const view = await loadSessionProgress('s2');
+        expect(view).toEqual({ status: 'error', sessionId: 's2', message: 'Comparison history could not be verified.',
+            diagnostic: { stage: 'history_prior', code: 'PGRST201' } });
+        expect(JSON.stringify(view)).not.toMatch(/embed|relationship|fkey|baseline_session_id/);
+    });
+
+    it.each([
+        ['current_evaluation', () => { currentError = { code: '42501', message: 'permission denied for table session_progress_evaluations' }; }, '42501'],
+        ['history_session', () => { current = ev('s2'); priorError = { code: '', message: 'TypeError: fetch failed' }; }, 'network'],
+        ['recommendation', () => { current = ev('s2'); recommendationError = { code: 'XX000', message: 'internal error near row 7' }; }, 'other'],
+    ] as const)('#1258 F3: a failed %s read is named with code %s', async (stage, arrange, code) => {
+        arrange();
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'error', diagnostic: { stage, code } });
     });
 
     it('fails closed when server chronology cannot be verified', async () => {
