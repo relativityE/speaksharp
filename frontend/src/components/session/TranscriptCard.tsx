@@ -47,6 +47,8 @@ export interface TranscriptCardProps {
     headerMeta?: React.ReactNode;
     /** Footer strip below the body (e.g. the live note, or the after stats strip). */
     footer?: React.ReactNode;
+    /** D10 (#1258 punch list) — the take has ended (after state): title "Transcript", no tick, card height fits content. */
+    ended?: boolean;
     /**
      * #1231 R1: recording → show a "● Live" chip in the header. The transcript is being written + corrected
      * in real time; the chip (plus the settling-text treatment in LiveTranscript) tells the user the live
@@ -102,6 +104,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
     onRerollPrompt,
     headerMeta,
     footer,
+    ended = false,
     live,
     finalizing,
     isPrivate,
@@ -151,7 +154,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
 
     return (
         <div
-            className="flex h-full flex-col rounded-xl border border-neutral-border bg-white p-4"
+            className={`flex ${ended ? '' : 'h-full '}flex-col rounded-xl border border-neutral-border bg-white p-4`}
             data-testid="transcript-card"
             data-transcript-state={hasContent ? 'content' : hasChosenPrompt ? 'prompt' : showingOffer ? 'offer' : 'empty'}
         >
@@ -168,6 +171,16 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 </div>
             ) : (
             <div className="mb-3 flex items-center justify-between">
+                {ended ? (
+                    <div className="flex items-baseline gap-1.5">
+                        <h2 className="text-[16px] font-extrabold text-neutral-heading">Transcript</h2>
+                        {headerMeta && (
+                            <span className="text-[14px] font-semibold text-neutral-muted" data-testid="transcript-header-meta">
+                                · {headerMeta}
+                            </span>
+                        )}
+                    </div>
+                ) : (
                 <div className="flex items-center gap-2">
                     <OrangeTick />
                     <h2 className="text-[14px] font-extrabold text-neutral-body">Live Transcript</h2>
@@ -177,6 +190,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                         </span>
                     )}
                 </div>
+                )}
                 <div className="flex items-center gap-3">
                     {showingEmpty && !hidePromptOffer && (
                         <button
@@ -218,7 +232,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 <>
                     <div
                         ref={contentRef}
-                        className={`min-h-0 flex-1 overflow-y-auto${isCapped ? ' max-h-[280px]' : ''}`}
+                        className={`min-h-0 ${ended ? '' : 'flex-1 '}overflow-y-auto${isCapped ? ' max-h-[280px]' : ''}`}
                         data-testid="transcript-content"
                         data-transcript-capped={isCapped ? 'true' : 'false'}
                     >
