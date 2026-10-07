@@ -1,0 +1,25 @@
+{
+  "reviewed_candidate": "40e9cf38c09df361cbc508c22bf283bcde1836b4",
+  "baseline_zip_sha256": "c543cdf93bacbc45e0bacd0ef1743f42fecb5f3533537e3562e202a89edaec4b",
+  "bundle_manifest_file_hashes_matched": 35,
+  "independent_existing_python_suite": {
+    "result": "237 passed",
+    "seconds": 4.214
+  },
+  "independent_node_ui_smoke": "passed",
+  "additional_failure_probes": {
+    "result": "16 reproduced",
+    "seconds": 0.128,
+    "interpretation": "passing probes confirm current defects, not acceptance"
+  },
+  "runtime": "isolated Linux workspace; temporary SQLite; fake adapters; loopback only for existing suite",
+  "not_executed": [
+    "Mac CLI agent invocation",
+    "installed board acceptance",
+    "external App Dev/Browser PM wake",
+    "live review refresh",
+    "product or Production journey"
+  ],
+  "requirements": 42,
+  "finding_groups": 16
+}

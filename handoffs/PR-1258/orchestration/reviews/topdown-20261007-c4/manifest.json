@@ -1,0 +1,10 @@
+{
+  "status": "SOURCE REVIEW / CANDIDATE HOLD",
+  "reviewed_candidate": "40e9cf38c09df361cbc508c22bf283bcde1836b4",
+  "packet_files_sha256": {
+    "REVIEW.md": "4b45f9fee9648f141da783624e55e64d3060a4148d4b100dcb6dc0ad9b4da003",
+    "reproduce_c4_gaps.py": "2e7f89102e8f7e647c77181c2be6137e346ac172df83aeeb09908397870c0553",
+    "probe-results.txt": "7eafe19c1e1ec794de94dd694b5fe1dd3a45c661478c107443f10c9e7cbeef92",
+    "verification.json": "b16f48c31da7511c97b18f59efe8277c503ae761b0275ade4a5d932faccfde74"
+  }
+}

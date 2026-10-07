@@ -1,0 +1,21 @@
+test_01_recorded_handoff_not_resumed (__main__.C4GapProbes.test_01_recorded_handoff_not_resumed) ... ok
+test_02_explicit_handoff_bypasses_required_action_hold (__main__.C4GapProbes.test_02_explicit_handoff_bypasses_required_action_hold) ... ok
+test_03_external_not_done_closes_ask (__main__.C4GapProbes.test_03_external_not_done_closes_ask) ... ok
+test_04_other_actor_quoted_receipt_acks_undelivered_handoff (__main__.C4GapProbes.test_04_other_actor_quoted_receipt_acks_undelivered_handoff) ... ok
+test_05_hold_retires_dependency_followup (__main__.C4GapProbes.test_05_hold_retires_dependency_followup) ... ok
+test_06_parser_drops_second_request_line (__main__.C4GapProbes.test_06_parser_drops_second_request_line) ... ok
+test_07_review_and_next_dev_double_enqueue (__main__.C4GapProbes.test_07_review_and_next_dev_double_enqueue) ... ok
+test_08_anti_idle_bypasses_persisted_action_hold (__main__.C4GapProbes.test_08_anti_idle_bypasses_persisted_action_hold) ... ok
+test_09_initial_comment_read_has_no_since (__main__.C4GapProbes.test_09_initial_comment_read_has_no_since) ... ok
+test_10_packet_reader_ignores_shared_backoff (__main__.C4GapProbes.test_10_packet_reader_ignores_shared_backoff) ... ok
+test_11_transient_resume_read_turns_into_unrecoverable_draft_hold (__main__.C4GapProbes.test_11_transient_resume_read_turns_into_unrecoverable_draft_hold) ... ok
+test_12_command_adapter_loses_structured_handoffs (__main__.C4GapProbes.test_12_command_adapter_loses_structured_handoffs) ... ok
+test_13_enqueue_does_not_freeze_candidate_head (__main__.C4GapProbes.test_13_enqueue_does_not_freeze_candidate_head) ... ok
+test_14_second_database_init_reclassifies_running_claim (__main__.C4GapProbes.test_14_second_database_init_reclassifies_running_claim) ... ok
+test_15_non_authorizing_source_text_can_trigger_refresh (__main__.C4GapProbes.test_15_non_authorizing_source_text_can_trigger_refresh) ... ok
+test_16_train_auto_selection_overrides_explicit_selected_pr (__main__.C4GapProbes.test_16_train_auto_selection_overrides_explicit_selected_pr) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.128s
+
+OK
