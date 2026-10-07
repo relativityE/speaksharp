@@ -524,6 +524,11 @@ export function exactCountVerdict(count: number, expected: number, tap: BlindTim
     return count === expected ? 'PASS' : 'FAIL';
 }
 
+/** An Analytics page path (`/analytics`, `/analytics/<id>`, or the app's normalized `/analytics/id`); anything else is not. */
+export function analyticsRoute(path: string | null | undefined): boolean {
+    return typeof path === 'string' && /^\/analytics(\/[^/]+)?\/?$/.test(path);
+}
+
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
 export class AnalyticsTap {
     readonly events: SentEvent[] = [];
@@ -533,9 +538,20 @@ export class AnalyticsTap {
     blindBeacons = 0;
     /** When each blind request was sent (ms), so uncertainty is scoped to the step that could have produced it. */
     readonly blindAt: number[] = [];
+    /** The latest main-frame document load (ms) and its path: every boot after it is the page the person is on now. */
+    documentAt = 0;
+    documentPath: string | null = null;
+
+    noteDocument(url: string, at = Date.now()): void {
+        this.documentAt = at;
+        try { this.documentPath = new URL(url).pathname; } catch { this.documentPath = null; }
+    }
 
     attach(page: Page): void {
         page.on('request', (request) => {
+            let mainDocument = false;
+            try { mainDocument = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { mainDocument = false; }
+            if (mainDocument) { this.noteDocument(request.url()); return; }
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
@@ -600,22 +616,37 @@ export class AnalyticsTap {
 
     /**
      * Snapshot the current Analytics journey immediately BEFORE the feedback/PDF event is serialized.
-     * The identity must already be visible on a decoded route-change event and its boot control; the action anchor is
-     * deliberately not consulted, so a blind Blob beacon cannot erase the readback target or supply its own identity.
+     * The identity must already be visible on decoded events of the CURRENT boot; the action anchor is deliberately not
+     * consulted, so a blind Blob beacon cannot erase the readback target or supply its own identity.
+     * #1570 Codex P1 r4212726964: the current boot is the one whose positive control was sent after the latest document
+     * load. A hard reload emits no `route_change` on its first render, so a boot without one is bound to the journey its
+     * own positive control carries (entered directly on Analytics) — never to the pre-reload boot's route.
      */
-    captureActionBinding(stage: ReadbackActionStage, releaseSha: string, runId: string, runAttempt: string): ReadbackActionBinding | null {
-        const route = [...this.events].reverse().find((e) => e.event === 'journey_step' && e.journeyStep === 'route_change');
-        if (!route || !['/analytics', '/analytics/id'].includes(route.toRoute ?? '')
-            || !route.journeyId || !route.bootId || route.trafficType !== 'canary'
-            || !/^[a-f0-9]{40}$/.test(releaseSha) || route.releaseSha !== releaseSha
-            || !/^\d{1,20}$/.test(runId) || !/^\d{1,4}$/.test(runAttempt)) return null;
-        const bootObserved = this.events.some((e) => e.event === 'telemetry_positive_control'
-            && e.bootId === route.bootId
-            && e.releaseSha === releaseSha && e.trafficType === 'canary');
-        if (!bootObserved) return null;
+    captureActionBinding(stage: ReadbackActionStage, releaseSha: string, runId: string, runAttempt: string, pageUrl: string): ReadbackActionBinding | null {
+        if (!/^[a-f0-9]{40}$/.test(releaseSha) || !/^\d{1,20}$/.test(runId) || !/^\d{1,4}$/.test(runAttempt)) return null;
+        let pagePath: string | null = null;
+        try { pagePath = new URL(pageUrl).pathname; } catch { pagePath = null; }
+        if (!analyticsRoute(pagePath)) return null;
+        const control = [...this.events].reverse().find((e) => e.event === 'telemetry_positive_control'
+            && e.at >= this.documentAt && e.trafficType === 'canary' && e.releaseSha === releaseSha);
+        if (!control?.bootId || !control.journeyId) return null;
+        const route = [...this.events].reverse().find((e) => e.event === 'journey_step' && e.journeyStep === 'route_change'
+            && e.bootId === control.bootId);
+        let journeyId: string | undefined;
+        let entry: ReadbackActionBinding['entry'];
+        if (route) {
+            if (!analyticsRoute(route.toRoute) || route.releaseSha !== releaseSha || route.trafficType !== 'canary') return null;
+            journeyId = route.journeyId;
+            entry = 'route_change';
+        } else {
+            if (!analyticsRoute(this.documentPath)) return null;
+            journeyId = control.journeyId;
+            entry = 'boot_load';
+        }
+        if (!journeyId) return null;
         const binding: ReadbackActionBinding = {
-            stage, journeyId: route.journeyId, bootId: route.bootId, releaseSha,
-            trafficType: route.trafficType, runId, runAttempt,
+            stage, journeyId, bootId: control.bootId, releaseSha,
+            trafficType: 'canary', runId, runAttempt, entry, capturedAt: Date.now(),
         };
         this.actionBindings.push(binding);
         return binding;
@@ -1278,7 +1309,7 @@ export async function shareFeedbackRows(
     await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('feedback-type-praise').click();
     await page.getByTestId('issue-report-description').fill('RWT automated journey check from a disposable account. Please ignore.');
-    tap?.captureActionBinding('share_feedback', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '');
+    tap?.captureActionBinding('share_feedback', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '', page.url());
     await page.getByTestId('issue-report-submit').click();
     const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
         .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);

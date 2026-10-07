@@ -225,14 +225,23 @@ export function bindReadbackJourneys(
         const expectedRelease = plan.expectedReleaseSha ?? '';
         const expectedRunId = plan.expectedRunId ?? '';
         const expectedRunAttempt = plan.expectedRunAttempt ?? '';
-        const routeWasObserved = events.some((event) => event.event === 'journey_step'
-            && event.journeyStep === 'route_change'
-            && event.journeyId === binding.journeyId && event.bootId === binding.bootId
-            && event.releaseSha === binding.releaseSha && event.trafficType === 'canary'
-            && ['/analytics', '/analytics/id'].includes(event.toRoute ?? ''));
-        const bootWasObserved = events.some((event) => event.event === 'telemetry_positive_control'
-            && event.bootId === binding.bootId
-            && event.releaseSha === binding.releaseSha && event.trafficType === 'canary');
+        // #1570 Codex P1 r4212726964: re-check the binding as of the action. Its boot's control must be the latest one sent
+        // by then (a hard reload starts a new boot), and its journey must be that boot's latest Analytics route — or, for a
+        // boot with no route_change (loaded directly on Analytics), the journey its own positive control carries.
+        const isControl = (event: (typeof events)[number]) => event.event === 'telemetry_positive_control'
+            && event.trafficType === 'canary' && event.releaseSha === binding.releaseSha;
+        const controls = events.filter((event) => isControl(event) && event.at <= binding.capturedAt).sort((a, b) => a.at - b.at);
+        const latestControl = controls[controls.length - 1];
+        const bootWasObserved = latestControl?.bootId === binding.bootId;
+        const bootRoutes = events.filter((event) => event.event === 'journey_step' && event.journeyStep === 'route_change'
+            && event.bootId === binding.bootId && event.at <= binding.capturedAt).sort((a, b) => a.at - b.at);
+        const lastRoute = bootRoutes[bootRoutes.length - 1];
+        const routeWasObserved = binding.entry === 'route_change'
+            ? lastRoute !== undefined && lastRoute.journeyId === binding.journeyId
+                && lastRoute.releaseSha === binding.releaseSha && lastRoute.trafficType === 'canary'
+                && ['/analytics', '/analytics/id'].includes(lastRoute.toRoute ?? '')
+            : binding.entry === 'boot_load' && bootRoutes.length === 0
+                && latestControl?.journeyId === binding.journeyId;
         const identityIsValid = Boolean(binding.journeyId && binding.bootId)
             && binding.trafficType === 'canary'
             && /^[a-f0-9]{40}$/.test(expectedRelease)

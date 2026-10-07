@@ -23,6 +23,14 @@ export interface ReadbackActionBinding {
     trafficType: string;
     runId: string;
     runAttempt: string;
+    /**
+     * How the journey was observed (#1570 Codex P1 r4212726964, hard reload): `route_change` — the boot's latest decoded route
+     * transition into Analytics; `boot_load` — the boot loaded directly onto Analytics (a reload emits no route_change), so
+     * its journey is the one its own positive control carries.
+     */
+    entry: 'route_change' | 'boot_load';
+    /** Node-side capture time, so the oracle re-checks "latest boot / latest route" as of the action, not as of readback. */
+    capturedAt: number;
 }
 
 /** Every canary journey the run observed — bound (qualified) or reported only. Worksheet and finalizer bind to this set. */
