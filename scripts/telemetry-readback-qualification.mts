@@ -345,8 +345,8 @@ async function main(): Promise<void> {
                 error_category: cells[34] ?? null,
                 // Codex r4197007868: the producer time (`$ts`) that orders outcome correlation.
                 producer_ts: cells[35] ?? null,
+                // #1258 successor: a product-bearing row in this journey must agree with the declared product.
                 product: cells[36] ?? null,
-                request_id: cells[37] ?? null,
             },
         };
     });
@@ -415,8 +415,8 @@ async function main(): Promise<void> {
     /**
      * #1258 successor — received coaching coverage is part of the same journey verdict. The query has
      * already restricted release, traffic, identity and bounded time; this binds each coaching event
-     * to the selected journey/boot, product, saved attempt and logical request. Missing producer fields
-     * stay HOLD until the product emits them.
+     * to the selected journey/boot and the envelope attempt of each declared saved take, and checks the
+     * declared product against product-bearing rows in the journey. Unattributable rows stay HOLD.
      */
     let coachingReadback: Evidence['coaching_readback'];
     const coachingReasons: string[] = [];

@@ -185,7 +185,7 @@ export function buildReadbackQuery(params: {
                properties.link_state AS link_state, properties.submit_seq AS submit_seq,
                properties.error_category AS error_category,
                properties.$ts AS producer_ts,
-               properties.product AS product, properties.request_id AS request_id
+               properties.product AS product
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}

@@ -2,9 +2,20 @@
  * #1258 — received-side Practice Loop proof for one RWT recording journey.
  *
  * The PostHog query already binds rows to the controlled identity, release, traffic class and bounded
- * time window. This evaluator adds the product-level binding the query cannot infer: exact journey/boot,
- * saved recording attempt, product and one logical request ID. Missing or mismatched ownership is HOLD;
- * an observed failed outcome, conflicting terminal outcomes, duplicates, or extra requests is FAIL.
+ * time window. This evaluator adds the take-level binding the query cannot infer, using ONLY fields the
+ * governed producers emit today:
+ *
+ *   - `journey_id` / `boot_id` — the envelope's, attached to every event at the capture boundary;
+ *   - `attempt_id` — the envelope's open recording attempt. A normal Stop leaves it open until the next
+ *     accepted Start, so the review that follows a saved take carries that take's id;
+ *   - product — a journey is one pass through one product (journeyIdentity.ts). The practice_loop_review_*
+ *     events carry no product field, so product is bound through the declared journey, and any received
+ *     row in the same journey/boot that names a different product contradicts the binding.
+ *
+ * The producers emit no request id. One `practice_loop_review_requested` is one generation request (a
+ * bounded retry inside one request does not re-emit it), so per-take request cardinality is the count of
+ * received `requested` rows for that take. Missing or unattributable evidence is HOLD; an observed failed
+ * outcome, conflicting terminal outcomes, duplicate outcomes or more than one request for a take is FAIL.
  * `saved_review_revisited` is intentionally outside this event set: opening cached feedback is not a new
  * generation request.
  */
@@ -20,6 +31,8 @@ const ALL_PRACTICE_LOOP_FAMILIES = new Set<string>([
     'practice_loop_review_failed',
 ]);
 
+export type PracticeLoopProduct = 'open_mic' | 'focus_points';
+
 export interface ReceivedPracticeLoopRow {
     event: string;
     journeyId?: string | null;
@@ -31,7 +44,7 @@ export interface ReceivedPracticeLoopRow {
 export interface ReceivedPracticeLoopBinding {
     journeyId: string;
     bootId: string;
-    product: 'open_mic' | 'focus_points';
+    product: PracticeLoopProduct;
     attemptIds: readonly string[];
 }
 
@@ -42,6 +55,8 @@ export interface ReceivedPracticeLoopResult {
     reasons: string[];
 }
 
+const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
+
 /** Evaluate all declared saved takes in one journey against only received PostHog rows. */
 export function evaluateReceivedPracticeLoop(
     rows: readonly ReceivedPracticeLoopRow[],
@@ -50,83 +65,60 @@ export function evaluateReceivedPracticeLoop(
     const reasons: string[] = [];
     const fail = (reason: string) => reasons.push(`FAIL: ${reason}`);
     const hold = (reason: string) => reasons.push(`HOLD: ${reason}`);
-    const ids = [...new Set(binding.attemptIds.filter((id) => typeof id === 'string' && id.trim() !== ''))];
-    if (!binding.journeyId.trim() || !binding.bootId.trim() || ids.length === 0
+    const ids = [...new Set(binding.attemptIds.filter(nonEmpty))];
+    if (!nonEmpty(binding.journeyId) || !nonEmpty(binding.bootId) || ids.length === 0
         || ids.length !== binding.attemptIds.length) {
         hold('the RWT receipt does not declare one journey, boot and every saved attempt for coaching readback');
     }
 
+    const inJourney = (row: ReceivedPracticeLoopRow) => row.journeyId === binding.journeyId && row.bootId === binding.bootId;
+    const contradicting = rows.filter((row) => inJourney(row) && nonEmpty(row.properties?.product)
+        && row.properties?.product !== 'unknown' && row.properties?.product !== binding.product);
+    if (contradicting.length > 0) {
+        hold(`received ${[...new Set(contradicting.map((row) => row.event))].join(', ')} in this journey names a product other than the declared ${binding.product}`);
+    }
+
     const relevant = rows.filter((row) => ALL_PRACTICE_LOOP_FAMILIES.has(row?.event));
-    const expectedAttemptIds = new Set(ids);
-    const bound = relevant.filter((row) => row.journeyId === binding.journeyId && row.bootId === binding.bootId);
-    if (relevant.some((row) => expectedAttemptIds.has(String(row.properties?.subject_attempt_id ?? ''))
-        && (row.journeyId !== binding.journeyId || row.bootId !== binding.bootId))) {
+    if (relevant.some((row) => ids.includes(String(row.properties?.attempt_id ?? '')) && !inJourney(row))) {
         hold('a received coaching event for a declared saved attempt belongs to a different or unknown journey/boot');
     }
 
     const byAttempt = new Map<string, ReceivedPracticeLoopRow[]>();
-    for (const row of bound) {
-        const props = row.properties ?? {};
-        const attemptId = props.subject_attempt_id;
-        const product = props.product;
-        const requestId = props.request_id;
-        if (typeof attemptId !== 'string' || !attemptId.trim()
-            || typeof product !== 'string' || !product
-            || typeof requestId !== 'string' || !requestId.trim()) {
-            hold(`received ${row.event} lacks saved-attempt, product or request ownership`);
+    for (const row of relevant.filter(inJourney)) {
+        const attemptId = row.properties?.attempt_id;
+        if (!nonEmpty(attemptId)) {
+            // Unattributable: it could be a second request for a declared take.
+            hold(`received ${row.event} in this journey carries no attempt_id, so it cannot be bound to a saved take`);
             continue;
         }
-        if (product !== binding.product) {
-            hold(`received ${row.event} product does not match the declared ${binding.product} journey`);
-            continue;
-        }
-        if (!ids.includes(attemptId)) {
-            hold(`received ${row.event} names an attempt not declared by this RWT receipt`);
-            continue;
-        }
+        // Another take in the same journey (an unsaved short take never generates a review) is not this take's evidence.
+        if (!ids.includes(attemptId)) continue;
         const group = byAttempt.get(attemptId) ?? [];
         group.push(row);
         byAttempt.set(attemptId, group);
     }
 
     let receivedRequests = 0;
-    const requestOwners = new Map<string, string>();
     for (const attemptId of ids) {
-        const attemptRows = byAttempt.get(attemptId) ?? [];
-        const requestIds = [...new Set(attemptRows.map((row) => row.properties?.request_id).filter((id): id is string => typeof id === 'string' && id.length > 0))];
-        receivedRequests += requestIds.length;
-        for (const requestId of requestIds) {
-            const owner = requestOwners.get(requestId);
-            if (owner && owner !== attemptId) hold('one request ID is reused by more than one saved attempt');
-            else requestOwners.set(requestId, attemptId);
-        }
-        if (requestIds.length === 0) {
-            hold(`attempt ${attemptId} has no received coaching request`);
-            continue;
-        }
-        if (requestIds.length > 1) fail(`attempt ${attemptId} has ${requestIds.length} distinct coaching requests; exactly one is allowed`);
-
-        const requestRows = attemptRows.filter((row) => row.properties?.request_id === requestIds[0]);
         const counts = new Map<string, number>();
-        for (const row of requestRows) counts.set(row.event, (counts.get(row.event) ?? 0) + 1);
-        const duplicates = [...counts].filter(([, count]) => count > 1).map(([event]) => event);
-        if (duplicates.length > 0) fail(`attempt ${attemptId} has duplicate received coaching events: ${duplicates.join(', ')}`);
+        for (const row of byAttempt.get(attemptId) ?? []) counts.set(row.event, (counts.get(row.event) ?? 0) + 1);
+        const requested = counts.get('practice_loop_review_requested') ?? 0;
+        receivedRequests += requested;
+        if (requested > 1) fail(`attempt ${attemptId} has ${requested} received coaching requests; exactly one is allowed`);
+
+        const duplicates = PRACTICE_LOOP_RECEIPT_FAMILIES.slice(1).filter((family) => (counts.get(family) ?? 0) > 1);
+        if (duplicates.length > 0) fail(`attempt ${attemptId} has duplicate received coaching outcomes: ${duplicates.join(', ')}`);
 
         const failedCount = counts.get('practice_loop_review_failed') ?? 0;
         const successCount = PRACTICE_LOOP_RECEIPT_FAMILIES.slice(1).reduce((sum, family) => sum + (counts.get(family) ?? 0), 0);
-        if (failedCount > 0 && successCount > 0) {
-            fail(`attempt ${attemptId} has conflicting failed and successful coaching outcomes`);
-            continue;
-        }
         if (failedCount > 0) {
-            fail(`attempt ${attemptId} received a failed coaching outcome`);
+            fail(successCount > 0
+                ? `attempt ${attemptId} has conflicting failed and successful coaching outcomes`
+                : `attempt ${attemptId} received a failed coaching outcome`);
             continue;
         }
         const missing = PRACTICE_LOOP_RECEIPT_FAMILIES.filter((family) => (counts.get(family) ?? 0) === 0);
-        if (missing.length > 0) {
-            hold(`attempt ${attemptId} is missing received coaching events: ${missing.join(', ')}`);
-            continue;
-        }
+        if (missing.length > 0) hold(`attempt ${attemptId} is missing received coaching events: ${missing.join(', ')}`);
     }
 
     return {
