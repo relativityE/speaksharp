@@ -17,6 +17,8 @@ import {
 import {
     bootScopedReceiptFamilies,
     buildReadbackQuery,
+    READBACK_ROW_LIMIT,
+    readbackTruncated,
     resolveBootAuthority,
     receiptBelongsToBoot,
 } from '../bootScopedReceipts';
@@ -215,5 +217,26 @@ describe('#1258 (#1563, Codex r4196394184) — the readback selects the outcome-
         const select = q.slice(q.indexOf('SELECT') + 'SELECT'.length, q.indexOf('FROM events'));
         const columns = select.split(',').map((c) => c.trim()).filter(Boolean);
         expect(columns.findIndex((c) => c.endsWith('AS producer_ts'))).toBe(35);
+    });
+});
+
+/**
+ * #1258 (RWT run 37514078995, F1): an unbounded, unordered readback got the query API's default row cap and an arbitrary
+ * subset — the run needed 187 rows, and whole journeys read as "never observed" while PostHog held them.
+ */
+describe('#1258 F1 — the readback bounds and orders its own result, and a full result is truncated', () => {
+    const q = buildReadbackQuery({ windowHours: 1, releaseSha: 'r', trafficType: 'canary', qualifyingIdentity: 'i', governedEvents: ['feedback_submit'], quote: (v) => `'${v}'` });
+    it('CASUALTY: orders by timestamp and carries an explicit LIMIT, after the WHERE clause', () => {
+        const where = q.indexOf('WHERE');
+        const order = q.search(/ORDER BY timestamp ASC/);
+        const limit = q.search(new RegExp(`LIMIT ${READBACK_ROW_LIMIT}\\b`));
+        expect({ where: where > 0, order: order > where, limit: limit > order }).toEqual({ where: true, order: true, limit: true });
+    });
+    it('the explicit cap is far above one run (187 rows in run 37514078995)', () => {
+        expect(READBACK_ROW_LIMIT).toBeGreaterThanOrEqual(5_000);
+    });
+    it('a result that REACHES the cap is truncated (absence cannot be proven); one below it is not', () => {
+        expect([readbackTruncated(READBACK_ROW_LIMIT - 1), readbackTruncated(READBACK_ROW_LIMIT), readbackTruncated(READBACK_ROW_LIMIT + 1)])
+            .toEqual([false, true, true]);
     });
 });

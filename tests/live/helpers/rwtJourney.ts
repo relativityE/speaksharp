@@ -282,8 +282,11 @@ export async function markRunOwnedAccountCanary(
 export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claimed: boolean, qualifies = true): { canaryJourneys: string[]; userJourneys: string[] } {
     const canaryJourneys = tap.journeyIds('canary');
     const userJourneys = tap.journeyIds('user');
-    receipt.row('telemetry decodable', tap.undecodable === 0 && tap.events.length > 0 ? 'PASS' : 'FAIL', 'every analytics body decoded',
-        { events: tap.events.length, undecodable: tap.undecodable });
+    // Codex r4199883459: the claim is limited to bodies the browser EXPOSES; Blob beacons are counted, never claimed decoded.
+    receipt.row('telemetry decodable', tap.undecodable === 0 && tap.events.length > 0 ? 'PASS' : 'FAIL',
+        tap.blindBeacons === 0 ? 'every analytics body decoded'
+            : `every exposed analytics body decoded; ${tap.blindBeacons} beacon body(ies) not exposed by the browser (not claimed — the received readback decides)`,
+        { events: tap.events.length, undecodable: tap.undecodable, blindBeacons: tap.blindBeacons });
     receipt.row('signup-stage telemetry (user class)', userJourneys.length > 0 ? 'PASS' : 'HOLD',
         'pre-claim signup events were sent as ordinary user traffic (sent, not yet received)',
         { userEvents: tap.events.filter((e) => e.trafficType === 'user').length, userJourneys: userJourneys.length });
@@ -470,17 +473,71 @@ function outcomeFields(event: string, props: Record<string, unknown>): SentEvent
     return kept;
 }
 
+/**
+ * #1258 (RWT run 37514078995, F2): a "sent" row may FAIL only when the tap could read every PostHog body that could carry
+ * the event. posthog-js flushes its queue on page-hide with `navigator.sendBeacon(url, new Blob([body]))`, and Chromium
+ * exposes no body for a Blob beacon — neither `postDataBuffer()` nor CDP `Network.getRequestPostData` (verified locally).
+ * Those events DID leave the page (PostHog received `feedback_submit` and `session_pdf_downloaded` that the tap reported as
+ * unsent), so an event missing while a beacon that could carry it was blind is missing EVIDENCE — HOLD, decided by the
+ * received readback — never FAIL.
+ * Codex r4199883470: only a blind beacon sent AT OR AFTER the step that emits the event can carry it, so `sinceMs` scopes
+ * the uncertainty: an earlier reload's blind beacon never turns a later genuine absence into HOLD.
+ */
+type BlindTimes = Pick<AnalyticsTap, 'blindAt'>;
+const blindSince = (tap: BlindTimes, sinceMs: number): number => tap.blindAt.filter((t) => t >= sinceMs).length;
+export function sentVerdict(allSeen: boolean, tap: BlindTimes, sinceMs: number): 'PASS' | 'FAIL' | 'HOLD' {
+    if (allSeen) return 'PASS';
+    return blindSince(tap, sinceMs) > 0 ? 'HOLD' : 'FAIL';
+}
+/**
+ * #1258 (#1570, Codex r4201644107; CLI PM option 1a, 6029321428) — a blind HOLD is settled only by RECEIVED evidence the
+ * finalizer can actually read: `receivedBy` names the qualification stages whose readback requires these events
+ * (`QUALIFICATION_STAGES` in completenessGate.ts). Rows whose events no stage receives say so and stay HOLD.
+ */
+export function sentDetail(detail: string, allSeen: boolean, tap: BlindTimes, sinceMs: number, receivedBy: readonly string[] = []): string {
+    const blind = blindSince(tap, sinceMs);
+    if (allSeen || blind === 0) return detail;
+    const unseen = `${detail} — not seen, but ${blind} PostHog beacon(s) sent after this step carried a body the browser does not expose`;
+    return receivedBy.length > 0
+        ? `${unseen}; settled at finalization only if every bound journey declaring ${receivedBy.join(', ')} qualifies in the PostHog readback`
+        : `${unseen}; no readback stage receives these events, so this row stays HOLD`;
+}
+
+/** Flat evidence that lets `finalizeReceipt --readback` settle this row's blind HOLD from the named received stages. */
+export function readbackSettlement(receivedBy: readonly string[], tap: BlindTimes, sinceMs: number): { receivedByStages: string; blindSinceStep: number } {
+    return { receivedByStages: receivedBy.join(','), blindSinceStep: blindSince(tap, sinceMs) };
+}
+
+/**
+ * #1258 (#1570, Codex r4200925124) — an EXACT-count "sent" claim (e.g. "the Analytics revisit generated no second review")
+ * is proven only when no beacon that could carry an extra event was blind. Counted between `fromMs` (the step that starts
+ * the window, e.g. Stop) and `toMs` (when the count was snapshotted): an observed EXTRA is definitive (FAIL); the expected
+ * count — or fewer — with an in-window blind beacon is unproven (HOLD); the expected count with every body exposed PASSes.
+ */
+export function exactCountVerdict(count: number, expected: number, tap: BlindTimes, fromMs: number, toMs: number): 'PASS' | 'FAIL' | 'HOLD' {
+    if (count > expected) return 'FAIL';
+    const blind = tap.blindAt.filter((t) => t >= fromMs && t <= toMs).length;
+    if (blind > 0) return 'HOLD';
+    return count === expected ? 'PASS' : 'FAIL';
+}
+
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
 export class AnalyticsTap {
     readonly events: SentEvent[] = [];
     undecodable = 0;
+    /** PostHog POSTs whose body the browser does not expose (a Blob `sendBeacon` on page-hide). See `sentVerdict`. */
+    blindBeacons = 0;
+    /** When each blind request was sent (ms), so uncertainty is scoped to the step that could have produced it. */
+    readonly blindAt: number[] = [];
 
     attach(page: Page): void {
         page.on('request', (request) => {
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
-            for (const entry of this.decode(request.postDataBuffer())) {
+            const body = request.postDataBuffer();
+            if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; this.blindAt.push(Date.now()); return; }
+            for (const entry of this.decode(body)) {
                 const record = entry as { event?: unknown; properties?: Record<string, unknown> };
                 if (typeof record?.event !== 'string') continue;
                 const props = record.properties ?? {};
