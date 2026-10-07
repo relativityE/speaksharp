@@ -703,6 +703,12 @@ export class SpeechRuntimeController {
      * generation must not be allowed to fail the replacement lifecycle.
      */
     private serviceGeneration = 0;
+    /**
+     * #1258 — services that have been admitted to a take. A service runs ONE take: the next Start never
+     * reuses one, whatever path left it attached (see `startRecording`). Weak, so a retired service is not
+     * kept alive by being remembered.
+     */
+    private readonly servicesThatRecorded = new WeakSet<TranscriptionService>();
     private policy: TranscriptionPolicy | null = null;
     private userWords: string[] = [];
 
@@ -4052,6 +4058,49 @@ export class SpeechRuntimeController {
                 this.detachService(this.service);
             }
 
+            /**
+             * #1258 — A SERVICE THAT RAN A TAKE IS NEVER THE NEXT TAKE'S SERVICE.
+             *
+             * Only the normal stop terminal detaches and destroys the service. A Stop whose engine stopped but
+             * whose save failed ends in FAILED with the take's service still attached — undestroyed, strategy
+             * kept, FSM back in READY — and nothing between there and here retires it. Reusing it skipped the
+             * new callback binding, so the service generation never moved and the previous take's callbacks
+             * were indistinguishable from this take's: its engine's emissions landed in this transcript.
+             *
+             * Detaching moves the generation synchronously, so the old binding is dead from this point on.
+             * That is not enough by itself: the service factory hands back its cached service until that
+             * service is TERMINATED, rebinding the new take's callbacks onto the old engine. Destruction is
+             * therefore AWAITED, and a service that is still not terminal afterwards refuses this Start rather
+             * than letting the new take run on it. The engine is already stopped — the page proves the prior
+             * engine off before Start — so destruction only releases what the old service still holds.
+             */
+            if (this.service && this.servicesThatRecorded.has(this.service)) {
+                const spent = this.detachService(this.service);
+                pushNativeRuntimeTrace('controller_start_retire_spent_service');
+                try {
+                    await spent?.destroy();
+                } catch (destroyError: unknown) {
+                    logger.warn({ code: destroyError instanceof Error ? destroyError.name : 'unknown' },
+                        '[controller] destroying the previous take\'s service failed');
+                }
+                if (spent && !spent.isServiceDestroyed()) {
+                    pushNativeRuntimeTrace('controller_start_spent_service_not_retired');
+                    retireRecordingIntent('acquisition_failed', intent.token, new Error('PREVIOUS_TAKE_SERVICE_NOT_RETIRED'));
+                    // Aborting before INITIATING — release the Start-intent lock, as the other pre-INITIATING exits do.
+                    this.engineSelectionIntentLocked = false;
+                    this.publishLockState();
+                    return;
+                }
+                // The await is a suspension: a reset or newer Start may have taken the lifecycle meanwhile.
+                if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                    pushNativeRuntimeTrace('controller_start_skip_version_changed_while_retiring');
+                    retireRecordingIntent('superseded', intent.token);
+                    this.engineSelectionIntentLocked = false;
+                    this.publishLockState();
+                    return;
+                }
+            }
+
             if (!this.service) {
                 pushNativeRuntimeTrace('controller_start_create_service');
                 this.service = getTranscriptionService(
@@ -4306,6 +4355,7 @@ export class SpeechRuntimeController {
                     serviceGeneration: this.serviceGeneration,
                     service,
                 };
+                this.servicesThatRecorded.add(service);
 
                 // NOW the invariant may run: the service has confirmed RECORDING, so publishing the state
                 // is a report of something that happened rather than a prediction. See the note above the
