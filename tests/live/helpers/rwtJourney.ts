@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
 import {
     AUDIO_ARGS,
@@ -448,6 +448,9 @@ export interface SentEvent {
     /** Closed enums / opaque ids only — never content. */
     reason?: string;
     stage?: string;
+    /** Closed route-transition fields retained only to bind a later action before its own event is sent. */
+    journeyStep?: string;
+    toRoute?: string;
     /** `private_model_acquisition_success` timing only (integers and closed enums; v12 download-vs-setup row). */
     acquisition?: AcquisitionTiming;
     /** #1258: closed enum / integer fields of the outcome events (OUTCOME_FIELDS only) — never content. */
@@ -524,6 +527,7 @@ export function exactCountVerdict(count: number, expected: number, tap: BlindTim
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
 export class AnalyticsTap {
     readonly events: SentEvent[] = [];
+    readonly actionBindings: ReadbackActionBinding[] = [];
     undecodable = 0;
     /** PostHog POSTs whose body the browser does not expose (a Blob `sendBeacon` on page-hide). See `sentVerdict`. */
     blindBeacons = 0;
@@ -552,6 +556,8 @@ export class AnalyticsTap {
                     trafficType: text('traffic_type'),
                     reason: text('reason'),
                     stage: text('stage'),
+                    journeyStep: text('step'),
+                    toRoute: text('to_route'),
                     ...(OUTCOME_FIELDS[record.event] ? { fields: outcomeFields(record.event, props) } : {}),
                     ...(record.event === 'private_model_acquisition_success' ? { acquisition: {
                         cacheResult: text('cache_result'), completeness: text('measurement_completeness'),
@@ -591,6 +597,29 @@ export class AnalyticsTap {
     }
 
     sent(event: string): SentEvent[] { return this.events.filter((e) => e.event === event); }
+
+    /**
+     * Snapshot the current Analytics journey immediately BEFORE the feedback/PDF event is serialized.
+     * The identity must already be visible on a decoded route-change event and its boot control; the action anchor is
+     * deliberately not consulted, so a blind Blob beacon cannot erase the readback target or supply its own identity.
+     */
+    captureActionBinding(stage: ReadbackActionStage, releaseSha: string, runId: string, runAttempt: string): ReadbackActionBinding | null {
+        const route = [...this.events].reverse().find((e) => e.event === 'journey_step' && e.journeyStep === 'route_change');
+        if (!route || !['/analytics', '/analytics/id'].includes(route.toRoute ?? '')
+            || !route.journeyId || !route.bootId || route.trafficType !== 'canary'
+            || !/^[a-f0-9]{40}$/.test(releaseSha) || route.releaseSha !== releaseSha
+            || !/^\d{1,20}$/.test(runId) || !/^\d{1,4}$/.test(runAttempt)) return null;
+        const bootObserved = this.events.some((e) => e.event === 'telemetry_positive_control'
+            && e.journeyId === route.journeyId && e.bootId === route.bootId
+            && e.releaseSha === releaseSha && e.trafficType === 'canary');
+        if (!bootObserved) return null;
+        const binding: ReadbackActionBinding = {
+            stage, journeyId: route.journeyId, bootId: route.bootId, releaseSha,
+            trafficType: route.trafficType, runId, runAttempt,
+        };
+        this.actionBindings.push(binding);
+        return binding;
+    }
     /** Journeys to read back. With a class, only journeys whose events carried it (the pre-claim signup is `user`). */
     journeyIds(trafficType?: string): string[] {
         return [...new Set(this.events
@@ -1242,12 +1271,14 @@ export async function shareFeedbackRows(
     receipt: RwtReceipt,
     admin: { from: (t: string) => { select: (c: string) => { eq: (c: string, v: string) => { gte: (c: string, v: string) => Promise<{ data: Array<{ id: unknown }> | null; error: { code?: string } | null }> } } } },
     uid: string,
+    tap?: AnalyticsTap,
 ): Promise<string | null> {
     const since = new Date(Date.now() - 1_000).toISOString();
     await page.getByTestId('nav-report-issue-button').first().click();
     await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('feedback-type-praise').click();
     await page.getByTestId('issue-report-description').fill('RWT automated journey check from a disposable account. Please ignore.');
+    tap?.captureActionBinding('share_feedback', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '');
     await page.getByTestId('issue-report-submit').click();
     const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
         .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);

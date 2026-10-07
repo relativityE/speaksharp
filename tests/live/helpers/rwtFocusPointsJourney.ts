@@ -55,6 +55,7 @@ import {
     suppressPageSnapshot,
     telemetryClassRows,
     canaryClaimRow,
+    expectedReleaseSha,
     EntitlementTap,
     entitlementRow,
     runOwnedIdentityFailures,
@@ -430,7 +431,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // and qualified there for its own stages (share_feedback), never claimed for the recording journey.
         if (fixtureKey === 'focus_points_tts') {
             await test.step('share feedback', async () => {
-                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, owner.uid);
+                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, owner.uid, tap);
             });
         }
 
@@ -524,6 +525,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 feedback: fixtureKey === 'focus_points_tts',
                 // #1258 (#1563, Codex r4197420116): the received press→arrival is required of Focus as of Open Mic.
                 practiceAgain: true,
+                actionBindings: tap.actionBindings,
+                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
+                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
             }),
             tap.trafficTypes(), userJourneys);
     }

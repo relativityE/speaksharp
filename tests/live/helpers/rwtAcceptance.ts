@@ -13,6 +13,18 @@
 /** `attemptIds`: the recording attempts this binding must show exactly one start and one save for (judged per attempt). */
 export interface ReadbackBinding { journeyId: string; stages: string[]; firstDownload?: boolean; attemptIds?: string[] }
 
+/** In-memory action-time identity captured before feedback/PDF event serialization; never written into the receipt. */
+export type ReadbackActionStage = 'share_feedback' | 'session_pdf_export';
+export interface ReadbackActionBinding {
+    stage: ReadbackActionStage;
+    journeyId: string;
+    bootId: string;
+    releaseSha: string;
+    trafficType: string;
+    runId: string;
+    runAttempt: string;
+}
+
 /** Every canary journey the run observed — bound (qualified) or reported only. Worksheet and finalizer bind to this set. */
 export function runJourneyIds(plan: { journeys: readonly ReadbackBinding[]; reportedJourneyIds: readonly string[] }): string[] {
     return [...new Set([...plan.journeys.map((j) => j.journeyId), ...plan.reportedJourneyIds])];

@@ -144,7 +144,7 @@ export function focusCoachingProvenanceVerdict(input: { savedVersion: string | n
  * its own stage families, singletons and (no) acquisition — `exactlyOnceFamiliesForStages` / `declaresRecordingStage`.
  */
 export type { ReadbackBinding } from './rwtAcceptance';
-import type { ReadbackBinding } from './rwtAcceptance';
+import type { ReadbackActionBinding, ReadbackActionStage, ReadbackBinding } from './rwtAcceptance';
 import { correlateFeedbackAttempts, correlatePracticePresses, type CorrelationEvent } from '../../../frontend/src/services/telemetry/outcomeCorrelation';
 export interface ReadbackPlan { journeys: ReadbackBinding[]; reportedJourneyIds: string[]; missingBindings: string[] }
 
@@ -174,7 +174,10 @@ export function takeStartedAfter(
 }
 
 export function bindReadbackJourneys(
-    events: readonly { event: string; at: number; journeyId?: string; trafficType?: string }[],
+    events: readonly {
+        event: string; at: number; journeyId?: string; trafficType?: string; bootId?: string; releaseSha?: string;
+        journeyStep?: string; toRoute?: string;
+    }[],
     /**
      * `takes` (#1532 Codex P1 r4124290575, PM RETURNs 5873754861 / 5874333083): the recording takes the run itself pressed —
      * the first take and the save-producing Practice-again take — each identified by the Start the page sent
@@ -192,6 +195,11 @@ export function bindReadbackJourneys(
         pdfExport?: boolean;
         /** #1258 (#1563): the journey of the first canary Practice-again press is read back for press→arrival. */
         practiceAgain?: boolean;
+        /** Present in live suites: strict action-time binding is mandatory, even if the decoded anchor exists. */
+        actionBindings?: readonly ReadbackActionBinding[];
+        expectedReleaseSha?: string;
+        expectedRunId?: string;
+        expectedRunAttempt?: string;
     },
 ): ReadbackPlan {
     const canary = events.filter((e) => e.trafficType === 'canary' && typeof e.journeyId === 'string' && e.journeyId !== '');
@@ -207,6 +215,37 @@ export function bindReadbackJourneys(
             attemptIds: attemptId && !prev.attemptIds.includes(attemptId) ? [...prev.attemptIds, attemptId] : prev.attemptIds,
         });
     };
+    const actionJourney = (stage: ReadbackActionStage, anchorName: string): string | null => {
+        // Keep legacy pure-oracle callers explicit: live RWT call sites always pass the array, including an empty one,
+        // which makes independent action-time identity mandatory and prevents fallback to the anchor under review.
+        if (plan.actionBindings === undefined) return anchor(anchorName);
+        const candidates = plan.actionBindings.filter((binding) => binding.stage === stage);
+        if (candidates.length !== 1) return null;
+        const binding = candidates[0];
+        const expectedRelease = plan.expectedReleaseSha ?? '';
+        const expectedRunId = plan.expectedRunId ?? '';
+        const expectedRunAttempt = plan.expectedRunAttempt ?? '';
+        const routeWasObserved = events.some((event) => event.event === 'journey_step'
+            && event.journeyStep === 'route_change'
+            && event.journeyId === binding.journeyId && event.bootId === binding.bootId
+            && event.releaseSha === binding.releaseSha && event.trafficType === 'canary'
+            && ['/analytics', '/analytics/id'].includes(event.toRoute ?? ''));
+        const bootWasObserved = events.some((event) => event.event === 'telemetry_positive_control'
+            && event.journeyId === binding.journeyId && event.bootId === binding.bootId
+            && event.releaseSha === binding.releaseSha && event.trafficType === 'canary');
+        const identityIsValid = Boolean(binding.journeyId && binding.bootId)
+            && binding.trafficType === 'canary'
+            && /^[a-f0-9]{40}$/.test(expectedRelease)
+            && binding.releaseSha === expectedRelease
+            && /^\d{1,20}$/.test(expectedRunId) && binding.runId === expectedRunId
+            && /^\d{1,4}$/.test(expectedRunAttempt) && binding.runAttempt === expectedRunAttempt
+            && routeWasObserved && bootWasObserved;
+        if (!identityIsValid) return null;
+        const sentAnchor = [...canary].filter((event) => event.event === anchorName).sort((a, b) => a.at - b.at)[0];
+        if (sentAnchor && (sentAnchor.journeyId !== binding.journeyId
+            || sentAnchor.bootId !== binding.bootId || sentAnchor.releaseSha !== binding.releaseSha)) return null;
+        return binding.journeyId;
+    };
     let firstRecording: string | null = null;
     if (plan.recording.length > 0) {
         const first = plan.takes ? plan.takes.first : null;
@@ -218,9 +257,9 @@ export function bindReadbackJourneys(
         const repeat = plan.takes?.repeat ?? null;
         bind(repeat?.journeyId ?? null, plan.repeatRecording, 'repeat_recording', repeat?.attemptId);
     }
-    if (plan.feedback) bind(anchor('feedback_submit'), ['share_feedback'], 'share_feedback');
+    if (plan.feedback) bind(actionJourney('share_feedback', 'feedback_submit'), ['share_feedback'], 'share_feedback');
     // The v12 PDF is downloaded after the detail reload (Back to Dashboard → Download PDF), so it binds to its own journey.
-    if (plan.pdfExport) bind(anchor('session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
+    if (plan.pdfExport) bind(actionJourney('session_pdf_export', 'session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
     if (plan.practiceAgain) bind(anchor('saved_review_practice_action'), ['practice_again'], 'practice_again');
     const journeys = [...bound].map(([journeyId, { stages, attemptIds }]) => ({
         journeyId, stages,

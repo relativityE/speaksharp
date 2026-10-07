@@ -566,6 +566,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                     const button = page.getByTestId(`download-pdf-btn-${persistedId}`).or(page.getByTestId(`download-pdf-btn-mobile-${persistedId}`)).first();
                     const offered = await button.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
                     if (!offered) { receipt.row('session PDF', 'FAIL', 'no PDF download offered for this session'); return; }
+                    tap.captureActionBinding('session_pdf_export', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '');
                     // Outside every uploaded path (#1532 Codex P1 r4126003354): a killed run skips `finally`.
                     const transient = transientPrivateDir('pdf');
                     const file = transient.file('rwt-session.pdf');
@@ -598,7 +599,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             // minted a new journey, so feedback is bound and qualified there for its own stages (share_feedback); the recording
             // journey keeps the take, the Products menu and the first saved-review revisit; the PDF binds where it lands. ───────────────────────────
             await test.step('row 7 — share feedback', async () => {
-                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid);
+                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid, tap);
             });
 
             // ── The next Start is not held behind the Progress evaluation (#1471) ───────────────────────
@@ -722,6 +723,9 @@ test.describe('RWT — Open Mic first session @live', () => {
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
                 },
                 feedback: true, pdfExport: true, practiceAgain: true,
+                actionBindings: tap.actionBindings,
+                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
+                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
             }),
                 tap.trafficTypes(), userJourneys);
         }
