@@ -4,7 +4,7 @@
  * sent, while PostHog received both. posthog-js flushes its queue on page-hide with `sendBeacon(url, new Blob([body]))`,
  * and Chromium exposes no body for a Blob beacon, so the tap silently dropped those requests and the receipt FAILED
  * "sent" rows for events that did leave the page. A blind request is now counted, and an event missing while requests
- * were blind is missing evidence (HOLD — the received readback decides), never an observed failure.
+ * were blind is missing evidence (HOLD — settled only by a qualifying received stage), never an observed failure.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -85,7 +85,9 @@ describe('sentVerdict — a "sent" row FAILS only when every body that could car
         expect(sentVerdict(false, tap(), 100)).toBe('FAIL');
     });
     it('the HOLD detail counts only beacons after the step; other details are unchanged', () => {
-        expect(sentDetail('x left the page', false, tap(10, 150, 200), 100)).toMatch(/not seen, but 2 PostHog beacon\(s\) sent after this step.*received readback decides/);
+        // #1570 Codex r4201644107: the HOLD text names what can settle it — the receiving stages, or none.
+        expect(sentDetail('x left the page', false, tap(10, 150, 200), 100)).toMatch(/not seen, but 2 PostHog beacon\(s\) sent after this step.*no readback stage receives these events, so this row stays HOLD$/);
+        expect(sentDetail('x left the page', false, tap(10, 150, 200), 100, ['share_feedback'])).toMatch(/settled at finalization only if every bound journey declaring share_feedback qualifies in the PostHog readback$/);
         expect(sentDetail('x left the page', true, tap(150), 100)).toBe('x left the page');
         expect(sentDetail('x left the page', false, tap(10), 100)).toBe('x left the page');
     });

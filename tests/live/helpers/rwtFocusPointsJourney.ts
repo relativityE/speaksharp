@@ -62,6 +62,7 @@ import {
     type RunTarget, readCoachingFailureReason,
     sentVerdict,
     sentDetail,
+    readbackSettlement,
     exactCountVerdict,
 } from './rwtJourney';
 
@@ -459,8 +460,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     } finally {
         const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
         const coverageSeen = tap.sent('coverage_evaluation').length > 0;
+        const coverageReceivedBy = ['session_after_focus_points'] as const;
         receipt.row('coverage_evaluation sent', sentVerdict(coverageSeen, tap, rowsStoppedAt),
-            sentDetail('the coverage evaluation left the page (sent, not yet received)', coverageSeen, tap, rowsStoppedAt), { sent: tap.sent('coverage_evaluation').length, blindBeacons: tap.blindBeacons });
+            sentDetail('the coverage evaluation left the page (sent, not yet received)', coverageSeen, tap, rowsStoppedAt, coverageReceivedBy),
+            { sent: tap.sent('coverage_evaluation').length, blindBeacons: tap.blindBeacons, ...readbackSettlement(coverageReceivedBy, tap, rowsStoppedAt) });
         // The Focus review's coaching receipts (the readback's Focus stage now requires the coaching card's rendered
         // receipt, not only the rail's) and the PM's inventory events. SENT here; RECEIVED = the PostHog readback.
         const focusTelemetry = {
@@ -471,16 +474,18 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         };
         const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
         receipt.row('Focus coaching telemetry sent', sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
-            sentDetail('the coaching review rendered receipt left the page (sent; received = session_after_focus_points readback)', focusCoachingSeen, tap, rowsStoppedAt), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
+            sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
         // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
         const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
         const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
         receipt.row('revisit is not a generation', generationVerdict,
-            generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); the received readback decides' : 'the generation count is not exactly one for this take',
+            generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD' : 'the generation count is not exactly one for this take',
             { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
         const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
+        const focusInventoryReceivedBy = ['analytics_inventory'] as const;
         receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap, focusInventoryFrom),
-            sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap, focusInventoryFrom), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
+            sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap, focusInventoryFrom, focusInventoryReceivedBy),
+            { ...focusTelemetry, blindBeacons: tap.blindBeacons, ...readbackSettlement(focusInventoryReceivedBy, tap, focusInventoryFrom) });
         // #1258 (#1563, Codex r4197420116): Focus presses Practice again too, so it proves the same correlation Open Mic does —
         // each press reached its intended route (same boot + action_seq) — and, in the full run that shares feedback, each
         // attempt resolved (same boot + submit_seq). Sent here; received is the `practice_again` / `share_feedback` readback.

@@ -362,6 +362,35 @@ export interface ReadbackVerdicts {
 }
 const RECEIVED_ROW = 'journey telemetry received';
 
+/**
+ * #1258 (#1570, Codex r4201644107; CLI PM option 1a, 6029321428) — RECEIVED EVIDENCE SETTLES A BLIND "SENT" HOLD.
+ *
+ * A sent row HOLDs when its event may have left inside a Blob beacon the browser does not expose. It becomes PASS only
+ * when the row names the qualification stages that receive its events (`receivedByStages`) and, for EVERY named stage,
+ * at least one bound journey declares it and every journey declaring it QUALIFIED: received implies sent. Anything less —
+ * an unnamed stage, a stage no journey declared, a journey that HOLD or FAILed — leaves the row exactly as written. Rows
+ * whose events no stage receives (coaching outcomes, the exact generation count) carry no stages and so stay HOLD. Only
+ * a HOLD caused by a blind beacon (`blindSinceStep > 0`) is eligible; a FAIL or PASS is never rewritten.
+ */
+function settleBlindHold(row: ReceiptRow, journeys: readonly { stages: readonly string[]; verdict: string }[]): ReceiptRow {
+    const stagesField = row.evidence?.receivedByStages;
+    const blind = row.evidence?.blindSinceStep;
+    if (row.verdict !== 'HOLD' || typeof stagesField !== 'string' || typeof blind !== 'number' || blind <= 0) return row;
+    const stages = stagesField.split(',').filter(Boolean);
+    if (stages.length === 0) return row;
+    const settled = stages.every((stage) => {
+        const declaring = journeys.filter((j) => j.stages.includes(stage));
+        return declaring.length > 0 && declaring.every((j) => j.verdict === 'QUALIFIED');
+    });
+    if (!settled) return row;
+    return {
+        ...row,
+        verdict: 'PASS',
+        detail: `received: every bound journey declaring ${stages.join(', ')} qualified in the PostHog readback, so the events the browser could not show did arrive (settled at finalization)`,
+        evidence: { ...row.evidence, settledByReadback: true },
+    };
+}
+
 function applyReadback(receipt: ReceiptForFinalization, readback: unknown, errors: string[]): ReceiptRow[] {
     const rb = readback as Partial<ReadbackVerdicts> | null;
     const bad = (why: string) => { errors.push(`readback verdicts ${why}`); return receipt.rows; };
@@ -381,7 +410,7 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD' && j.verdict !== 'FAIL')) return bad('carry an unknown journey verdict');
     const failed = journeys.filter((j) => j.verdict === 'FAIL').length;
     const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');
-    return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? r : {
+    return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? settleBlindHold(r, journeys) : {
         ...r,
         verdict: failed > 0 ? 'FAIL' : qualified ? 'PASS' : 'HOLD',
         detail: failed > 0 ? 'the PostHog readback RECEIVED an observed failure for a bound journey (merged at finalization)'

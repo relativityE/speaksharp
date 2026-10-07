@@ -489,10 +489,23 @@ export function sentVerdict(allSeen: boolean, tap: BlindTimes, sinceMs: number):
     if (allSeen) return 'PASS';
     return blindSince(tap, sinceMs) > 0 ? 'HOLD' : 'FAIL';
 }
-export function sentDetail(detail: string, allSeen: boolean, tap: BlindTimes, sinceMs: number): string {
+/**
+ * #1258 (#1570, Codex r4201644107; CLI PM option 1a, 6029321428) — a blind HOLD is settled only by RECEIVED evidence the
+ * finalizer can actually read: `receivedBy` names the qualification stages whose readback requires these events
+ * (`QUALIFICATION_STAGES` in completenessGate.ts). Rows whose events no stage receives say so and stay HOLD.
+ */
+export function sentDetail(detail: string, allSeen: boolean, tap: BlindTimes, sinceMs: number, receivedBy: readonly string[] = []): string {
     const blind = blindSince(tap, sinceMs);
-    return allSeen || blind === 0 ? detail
-        : `${detail} — not seen, but ${blind} PostHog beacon(s) sent after this step carried a body the browser does not expose; the received readback decides`;
+    if (allSeen || blind === 0) return detail;
+    const unseen = `${detail} — not seen, but ${blind} PostHog beacon(s) sent after this step carried a body the browser does not expose`;
+    return receivedBy.length > 0
+        ? `${unseen}; settled at finalization only if every bound journey declaring ${receivedBy.join(', ')} qualifies in the PostHog readback`
+        : `${unseen}; no readback stage receives these events, so this row stays HOLD`;
+}
+
+/** Flat evidence that lets `finalizeReceipt --readback` settle this row's blind HOLD from the named received stages. */
+export function readbackSettlement(receivedBy: readonly string[], tap: BlindTimes, sinceMs: number): { receivedByStages: string; blindSinceStep: number } {
+    return { receivedByStages: receivedBy.join(','), blindSinceStep: blindSince(tap, sinceMs) };
 }
 
 /**

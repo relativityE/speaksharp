@@ -88,6 +88,7 @@ import {
     type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
     sentVerdict,
     sentDetail,
+    readbackSettlement,
     exactCountVerdict,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
@@ -658,9 +659,10 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
             const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
             const telemetrySeen = tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0;
+            const telemetryReceivedBy = ['session_after_open_mic', 'share_feedback'] as const;
             receipt.row('telemetry sent', sentVerdict(telemetrySeen, tap, stoppedAt),
-                sentDetail('session_saved and feedback_submit left the page (sent, not yet received)', telemetrySeen, tap, stoppedAt),
-                { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length });
+                sentDetail('session_saved and feedback_submit left the page (sent, not yet received)', telemetrySeen, tap, stoppedAt, telemetryReceivedBy),
+                { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length, ...readbackSettlement(telemetryReceivedBy, tap, stoppedAt) });
             // #1258 (#1563 closure): the outcome telemetry must CORRELATE, not merely be sent — each Practice-again press
             // reached its intended route (same action_seq), and each Share Feedback attempt resolved (same submit_seq).
             // Sent here; received is the deployed PostHog readback. Closed enums and integers only.
@@ -693,14 +695,16 @@ test.describe('RWT — Open Mic first session @live', () => {
                 reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
             };
             const inventorySeen = inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0;
+            const inventoryReceivedBy = ['analytics_inventory', 'session_pdf_export'] as const;
             receipt.row('inventory events sent', sentVerdict(inventorySeen, tap, inventoryFrom),
-                sentDetail('products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventorySeen, tap, inventoryFrom), { ...inventory, blindBeacons: tap.blindBeacons });
+                sentDetail('products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventorySeen, tap, inventoryFrom, inventoryReceivedBy),
+                { ...inventory, blindBeacons: tap.blindBeacons, ...readbackSettlement(inventoryReceivedBy, tap, inventoryFrom) });
             // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
             const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
             const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
             receipt.row('revisit is not a generation', generationVerdict,
                 generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none'
-                    : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); the received readback decides'
+                    : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD'
                         : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
             // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
             // "analytics detail shows both AI suggestions").
