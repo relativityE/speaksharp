@@ -20,18 +20,21 @@ test.describe('Analytics Suite & Data Matrix', () => {
     await waitForFeature(page, 'analytics');
     await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
 
-    // Verify Dashboard Heading
+    // #1258 D5 (Rev 2 §5.1–5.2): the ink header owns the h1, greets without a name, and names the focus.
     const mainHeading = page.getByTestId('dashboard-heading');
     await expect(mainHeading).toBeVisible();
-    await expect(mainHeading).toHaveText('Your Analytics');
-
-    // #G4: the focus explanation boxes + "selected together" subtitle are gone; the signals section leads
-    // with a position-based heading instead.
-    // exact:true — "Working on" (the focus eyebrow) must not collide with the goals encouragement
-    // sentence ("…Keep working on clarity"), which contains the same substring.
-    await expect(page.getByText('Working on', { exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Sound Confident', exact: true })).toBeVisible();
-    await expect(page.getByText(/that.s based on/i)).toBeVisible();
+    await expect(mainHeading).toHaveText('Your progress');
+    await expect(page.getByText('Your Analytics')).toHaveCount(0);
+    await expect(page.getByTestId('progress-header-latest')).toContainText('Working on Sound Confident');
+    // "since {date}" comes from the oldest-session read (not the newest page row); a short date, never ISO.
+    await expect(page.getByTestId('progress-header-line')).toHaveText(/^You've done \d+ sessions since \d{1,2} [A-Z][a-z]{2,3}( \d{4})?\.$/);
+    // CASUALTY: the mock history spans several days, so "since" must be the OLDEST session's day, not the newest row's.
+    const newestDay = ((await page.getByTestId(/session-detail-link-/).first().innerText()).split(',')[0] ?? '').trim();
+    await expect(page.getByTestId('progress-header-line')).not.toContainText(`since ${newestDay}.`);
+    await expect(page.getByTestId('analytics-focus-trigger')).toBeVisible();
+    // The white WORKING ON card and the "What that's based on" heading are retired.
+    await expect(page.getByText('Working on', { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/that.s based on/i)).toHaveCount(0);
     await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible();
     await expect(page.getByTestId('stat-card-filler_words_per_min')).toBeVisible();
     await expect(page.getByTestId('stat-card-clarity_score')).toBeVisible();

@@ -123,10 +123,11 @@ describe('AnalyticsPage', () => {
     });
 
     describe('Dashboard View (No Session ID)', () => {
-        it('should render dashboard heading', () => {
+        it('#1258 D5: the page adds no heading of its own on the overview — the dashboard\'s ink header owns the h1', () => {
             renderAnalyticsPage('/analytics');
-            expect(screen.getByTestId('dashboard-heading')).toHaveTextContent('Your Analytics');
-            expect(screen.getByText('Track your speaking progress and improvements')).toBeInTheDocument();
+            // The dashboard is mocked here, so no heading renders at all; the real header is covered by ProgressHeader tests.
+            expect(screen.queryByTestId('dashboard-heading')).toBeNull();
+            expect(screen.queryByText(/Your Analytics|Track your speaking progress and improvements/)).toBeNull();
         });
 
         it('should render AnalyticsDashboard component', () => {

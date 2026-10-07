@@ -44,10 +44,6 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
 
     // Different heading and description based on whether viewing a specific session
     const isSessionView = !!sessionId;
-    const heading = isSessionView ? 'Session Analysis' : 'Your Analytics';
-    const description = isSessionView
-        ? 'A detailed breakdown of your recent practice session.'
-        : 'Track your speaking progress and improvements';
 
     // Only surface/track the upgrade CTA when payments are live — otherwise it is a dead/no-op button.
     const showUpgrade = !isSessionView && !isPro && arePaymentsEnabled();
@@ -60,10 +56,16 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
 
     return (
         <div className="mb-8">
-            <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
-            {/* Solid role, not foreground/70: this copy sits on the surface-session ground, where the blended
-                value measures 3.93:1 (CI run 35033614218). surface-session-text measures 7.11:1 there. */}
-            <p className="mb-4 text-sm font-medium text-muted-foreground sm:text-base">{description}</p>
+            {/* #1258 D5 (Rev 2 §5.1): on the overview the dashboard's ink ProgressHeader owns the h1; the session view
+                keeps its own heading here. */}
+            {isSessionView && (
+                <>
+                    <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">Session Analysis</h1>
+                    {/* Solid role, not foreground/70: this copy sits on the surface-session ground, where the blended
+                        value measures 3.93:1 (CI run 35033614218). surface-session-text measures 7.11:1 there. */}
+                    <p className="mb-4 text-sm font-medium text-muted-foreground sm:text-base">A detailed breakdown of your recent practice session.</p>
+                </>
+            )}
 
             {/* Plan Banner — upgrade CTA only when payments are live (no dead/no-op button) */}
             {showUpgrade && (
@@ -101,7 +103,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const queryClient = useQueryClient();
-    const { sessionHistory, overallStats, loading, error } = useAnalytics();
+    const { sessionHistory, overallStats, firstSessionAt, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const { data: usageLimit } = useUsageLimit();
     const [upgradeLoading, setUpgradeLoading] = useState(false);
@@ -232,6 +234,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                     isProUser={isProUser}
                     sessionHistory={sessionHistory || []}
                     overallStats={overallStats}
+                    firstSessionAt={firstSessionAt}
                     loading={isLoading}
                     error={error || null}
                     onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}
