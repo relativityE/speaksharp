@@ -1,0 +1,95 @@
+{
+  "candidate_id": "deadlock5-20261007-clidev-6ac2913a3162",
+  "status": "DRAFT / NOT ACCEPTED",
+  "board": "rwt-pr-handoff",
+  "version": "4.6.16",
+  "build": "deadlock.5",
+  "repo_base_commit": "18a601dcc18413744ccb50cdbf00beffb8219d75",
+  "isolated_tuple": {
+    "branch": "fix/rwt-deadlock5-isolated-6048172525",
+    "head": "18a601dcc18413744ccb50cdbf00beffb8219d75",
+    "tree": "da79db0d0b947a340dd5521343ceb1ab49bb6bb1"
+  },
+  "baseline": {
+    "name": "rwt-pr-handoff-v4.6.16-deadlock.4.zip",
+    "sha256": "c543cdf93bacbc45e0bacd0ef1743f42fecb5f3533537e3562e202a89edaec4b"
+  },
+  "captured_patch": {
+    "name": "deadlock4-to-deadlock5.patch.txt (CLI Dev checkpoint 1, packet deadlock5-e4831995ff36)",
+    "sha256": "6936d6cad96d59fb2f5abaaa8c4185ed80127f558aa7439e8a5e003da2fbe725"
+  },
+  "not_derived_from": "deadlock5-20261007-c488bf92c914 (captured patch 0447adcc…)",
+  "packet_files_sha256": {
+    "README.md": "b1a0b383a5454fcdadada0a30515bc1e34f6266b63e5e495118107de886c126e",
+    "checkpoint1-to-c2.patch.txt": "e0bbfc93773a17677a516756407b1cd40b6ae34f37fd8f23d55fc2331989d293",
+    "deadlock4-to-deadlock5-c2.patch.txt": "cb59b20617e81e84d08c5670e85f53e5f74ccb67a5ad6838a839543116335ea2",
+    "replacement-files/rwt-pr-handoff-v4.6.16/handoffs/PR-1258/designer/5e77cf0dbf6c/README.md": "8214770bc5b76fe8a30486c453271c3f7d6a24ff88cd684570b71ea9a8c3b6a4",
+    "rwt-pr-handoff-v4.6.16-deadlock.5-c2.zip": "6ac2913a31621588b1876daf822f0cd6948b836e1d23d6f6dceef0cd11991bce"
+  },
+  "bundle_source_digest": "118d724067f40e0da6752c46b0b303c15da557e15833367c771bcd373fe645fc",
+  "bundle_files_sha256": {
+    "README.md": "9a97220e1cd0c813719f435a3214c208162a4ec5f1cc249a71f87cb895bb0c37",
+    "TEST_RECEIPT.md": "6cfda0f7ce1bcf07830d9e0b3057e054fe09b0fe3f6b203959e18659f8c0c249",
+    "guarded_pm.py": "434f42ef6ebc702add97d3fa7f54c69664fcb9786e54a9597ca3bd1cfc3c6213",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/PM_OVERRIDES.md": "4584d209fea749d5ea2fdf5cf0300057f6f2102ec8c16669970f353c5daad499",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/README.md": "8214770bc5b76fe8a30486c453271c3f7d6a24ff88cd684570b71ea9a8c3b6a4",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/RWT_PUNCHLIST_DESIGN.md": "6bc44defbf4018fdb0d9ee46d61bc3544ed15c155b4f16cc10c672e605df7488",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/RWT_PUNCHLIST_IMPLEMENTATION.md": "40ac1cb2f8d68a262909066d8d35101e20b394c367fc5d874b62574c564ade8a",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/SESSION_PAGE_SPEC.md": "3bca63987697f98a21d316528dc476012a44f88f0c45648797d15b21bc683087",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/SESSION_REVIEW_RWT_SPEC.md": "555fcab20928822fec946eb2b216e3abfd527f96d92163493bf74ec9e17bfddb",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/manifest.json": "420a79f2f5fae6bc65e9ccd75304b82f4d76f90161818a4b3ac7ac6af230b925",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/PM_REV2_NOTES.md": "8810b7d776da2300a7358b43c1693fd0d9689c5d039a346c46712a1d21addc47",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/README_FOR_DEV.md": "dab6c5f0f03a9c9075a320051ab7a557c53d0088eadbe23c9e4fa8aac824ac42",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/RWT_PUNCHLIST_CHANGES_REV2.md": "49f49e629ad9c84a8ce53daca58622decd1ce55f85026988113d7cc56ad02f1e",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/RWT_PUNCHLIST_DESIGN.md": "ca715be6838ab15bab849b31409c54bc37eb5c59fcac44d3276c80f8bdea3fd4",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/RWT_PUNCHLIST_IMPLEMENTATION.md": "2870b064755ebbeb3acec07b6745806a16612eb851a1d2cf28b9c8fee79d7931",
+    "handoffs/PR-1258/designer/65f8714ebab2-rev2/manifest.json": "bc3007584acaf7fe0558b7bebbaf873648f6fd84130e199ed5d7f3e0be23e9c2",
+    "migrate_state.py": "43acf94a6e319d9776fd1a1a624b4d622a40ef9d53bcc8638381e091a01b3579",
+    "pm-instructions.md": "d612e8a778908822d726415e3db75e68bb614c08a5b61899d0c1dc6f2185dcb7",
+    "pm-route.schema.json": "163f2a7eddbf02146518b278a7e3d0e6b86a048eaa4c8b743ca545410e21f0ea",
+    "rwt-five-player-protocol.md": "fbb9a69376e8bf6778331693fa2570b08b28533b1cbb79e315fb397accb9de38",
+    "server.py": "93fbc4efc0ebb324d99094124dc79d07af82bf7d3052660e0537f587318f804a",
+    "start-rwt-handoff.sh": "639ccc667fc1240f35ae88dcb247b94499168237c18dac136e019846f0b8af0a",
+    "static/index.html": "e9654f2a7775154115da90dca98781bc72bdcc5c047faef877a5a44c0265ef3f",
+    "test_comms.py": "59cc8d66f227f0b8d66a794192bcb5aeb199c767e48dbdb035ab80f6dbc79336",
+    "test_deadlock.py": "6045cf12f2d201ca8d7c5f2490bdbc717d34a586b4809959d628de2e6b9d2c4e",
+    "test_deadlock5.py": "ec3d0a776897e2f9887be21b4b5b6992aa564e28465ccaecd271291127918de6",
+    "test_event_delivery.py": "8a76e3008fa7487f5c4274c7cdd01b606f2b1cd097f59d245dec373ca8405560",
+    "test_handoffs.py": "f1a4a50935835b43878c27e7b6b5795c72035ed0cb5f9ed6a550c392fff84260",
+    "test_poll_budget.py": "a70e5b5879f416cb0bb99af72b1c60c317323697b3cc2dca8722ad20b0a20023",
+    "test_reconciliation.py": "982846b01b5c9ba21a60671bf368445018c5e9074be5204035c24c868fa420b5",
+    "test_refresh_reviews.py": "39ef57b40f9f3bf81dbbce481d7a7de207b6e3d8a041673025132d5afa067d30",
+    "test_regressions.py": "17f0c08b98f290afa2b729d6dbddff38f64c61979b6df29cf9fd5096be67912c",
+    "test_server.py": "7bb15023eb7d32de303d1f3153525487d01ab7b9753badf0aa74908fdfeea54a",
+    "test_ui.js": "d6fdb4ff31b0650ca1e5386b69fa77af49299f69a1f880d51593eea48b8bf067",
+    "test_watchdog.py": "7a7457984ec90a6edc17b7a698260841c6bb52afbf9b694214c6d35e7f437498"
+  },
+  "changed_vs_baseline": [
+    "README.md",
+    "TEST_RECEIPT.md",
+    "guarded_pm.py",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/README.md",
+    "handoffs/PR-1258/designer/5e77cf0dbf6c/manifest.json",
+    "pm-instructions.md",
+    "pm-route.schema.json",
+    "server.py",
+    "static/index.html",
+    "test_deadlock5.py (new)",
+    "test_event_delivery.py",
+    "test_refresh_reviews.py",
+    "test_regressions.py",
+    "test_ui.js"
+  ],
+  "tests": {
+    "python": "226 passed (196 + 30 new)",
+    "node_ui_smoke": "passed",
+    "lease": "shared host-interlock hold local",
+    "red": "new file errors on checkpoint 1; 3 targeted mutants fail"
+  },
+  "hold": [
+    "connector readback of this packet",
+    "installed-board restart and live acceptance",
+    "live refresh_reviews on a real PR (deliberately not run)"
+  ],
+  "authority": "Draft packet publication only; no install/restart, live board mutation, merge, deployment or Production action"
+}
