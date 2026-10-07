@@ -23,8 +23,15 @@ const MAX_FILLER_COUNT = 999_999_999;
 const isValidCount = (v: unknown): v is number =>
     typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_FILLER_COUNT;
 
-const TRUE_FILLER_SET: ReadonlySet<string> = new Set(TRUE_FILLER_WORDS);
-const DISCOURSE_SET: ReadonlySet<string> = new Set(DISCOURSE_MARKER_WORDS);
+/**
+ * #1258 D4 — ONE spelling for tier lookup. Saved rows use the persisted snake_case keys (`you_know`), live counts use
+ * the display keys (`You Know`), so an exact-spelling lookup missed every multi-word discourse marker on a saved row
+ * and counted it as a custom word (a saved `{ you_know: 1, so: 1 }` read as 1 filler while the same take live read 0).
+ * Every lookup normalises: lowercase, underscores and runs of spaces to one space.
+ */
+export const fillerTierKey = (word: string): string => word.toLowerCase().replace(/[_\s]+/g, ' ').trim();
+const TRUE_FILLER_SET: ReadonlySet<string> = new Set(TRUE_FILLER_WORDS.map(fillerTierKey));
+const DISCOURSE_SET: ReadonlySet<string> = new Set(DISCOURSE_MARKER_WORDS.map(fillerTierKey));
 
 export interface FillerTierBreakdown {
     /** um/uh/ah — non-lexical hesitation sounds. Always in the headline. */
@@ -67,8 +74,8 @@ export const fillerTierBreakdown = (
     if (!fillerWords || typeof fillerWords !== 'object' || Array.isArray(fillerWords)) return null;
 
     // Case-insensitive set of the user's explicit words (keys are stored with mixed case, e.g. "Kind Of").
-    const userWordSet: ReadonlySet<string> = new Set(userWords.map((w) => w.toLowerCase()));
-    const isUserWord = (key: string): boolean => userWordSet.has(key.toLowerCase());
+    const userWordSet: ReadonlySet<string> = new Set(userWords.map(fillerTierKey));
+    const isUserWord = (key: string): boolean => userWordSet.has(fillerTierKey(key));
 
     let trueFillers = 0;
     let discourseMarkers = 0;
@@ -87,9 +94,10 @@ export const fillerTierBreakdown = (
         // Precedence: a word the user explicitly tracks always counts (custom tier), even if it also happens
         // to be a built-in discourse marker; then true fillers; then discourse; then any other untracked key
         // is a legacy/removed user word and still counts.
+        const tierKey = fillerTierKey(word);
         if (isUserWord(word)) customWords += c;
-        else if (TRUE_FILLER_SET.has(word)) trueFillers += c;
-        else if (DISCOURSE_SET.has(word)) discourseMarkers += c;
+        else if (TRUE_FILLER_SET.has(tierKey)) trueFillers += c;
+        else if (DISCOURSE_SET.has(tierKey)) discourseMarkers += c;
         else customWords += c; // outside the 13 patterns = a custom word (present or historical)
     }
 
@@ -124,7 +132,7 @@ export const countedFillerMap = (
     { includeDiscourseMarkers = false, userWords = [] }: FillerTierOptions = {},
 ): FillerCounts | null => {
     if (!fillerWords || typeof fillerWords !== 'object' || Array.isArray(fillerWords)) return null;
-    const userWordSet: ReadonlySet<string> = new Set(userWords.map((w) => w.toLowerCase()));
+    const userWordSet: ReadonlySet<string> = new Set(userWords.map(fillerTierKey));
     const out: Record<string, { count: number; color: string }> = {};
     for (const word in fillerWords) {
         if (word === 'total') continue;
@@ -132,10 +140,11 @@ export const countedFillerMap = (
         const c = typeof raw === 'number' ? raw : (raw as { count?: unknown } | null)?.count;
         if (!isValidCount(c) || c <= 0) continue;
         // Same precedence as fillerTierBreakdown: user word > true filler > discourse (opt-in) > custom.
-        const counts = userWordSet.has(word.toLowerCase())
-            || TRUE_FILLER_SET.has(word)
-            || (!TRUE_FILLER_SET.has(word) && !DISCOURSE_SET.has(word)) // untracked = custom, always counts
-            || (includeDiscourseMarkers && DISCOURSE_SET.has(word));
+        const tierKey = fillerTierKey(word);
+        const counts = userWordSet.has(tierKey)
+            || TRUE_FILLER_SET.has(tierKey)
+            || (!TRUE_FILLER_SET.has(tierKey) && !DISCOURSE_SET.has(tierKey)) // untracked = custom, always counts
+            || (includeDiscourseMarkers && DISCOURSE_SET.has(tierKey));
         if (counts) out[word] = { count: c, color: '' };
     }
     return out as unknown as FillerCounts;
@@ -145,3 +154,18 @@ export const countedFillerTotal = (
     fillerWords?: Record<string, number> | FillerCounts | null,
     options: FillerTierOptions = {},
 ): number | null => fillerTierBreakdown(fillerWords, options)?.countedTotal ?? null;
+
+/**
+ * #1258 D4 (PO 2026-10-07: "true fillers only") — does a highlighted transcript token belong to the COUNTING tier?
+ * Highlights and timeline marks read this, the counts read `countedFillerMap`, and both apply the same precedence,
+ * so a word is highlighted exactly when it is counted: user words and true fillers always, discourse markers only when
+ * opted in, and any other token the tokenizer flagged (a custom word) always.
+ */
+export const isCountedFillerText = (text: string, { includeDiscourseMarkers = false, userWords = [] }: FillerTierOptions = {}): boolean => {
+    const key = fillerTierKey(text.replace(/[^\p{L}\p{N}\s'_-]/gu, ''));
+    if (!key) return false;
+    if (userWords.some((w) => fillerTierKey(w) === key)) return true;
+    if (TRUE_FILLER_SET.has(key)) return true;
+    if (DISCOURSE_SET.has(key)) return includeDiscourseMarkers;
+    return true;
+};
