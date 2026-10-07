@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
+import { PRODUCT_LABEL, shortDate } from '@/lib/displayFormat';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
@@ -106,6 +107,17 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const [upgradeLoading, setUpgradeLoading] = useState(false);
 
     const { setReady } = useReadinessStore();
+
+    // #1258 punch list §1.5: "Your progress · SpeakSharp", or "{Product} · {date} · Progress · SpeakSharp" for one saved
+    // session. Product comes from the persisted `session.product`, never the title; an unknown (legacy) product is omitted.
+    const titledSession = sessionId ? sessionHistory?.find((s) => s.id === sessionId) : undefined;
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        if (!sessionId) { document.title = 'Your progress · SpeakSharp'; return; }
+        if (!titledSession) return;
+        const product = titledSession.product ? PRODUCT_LABEL[titledSession.product] : null;
+        document.title = [product, shortDate(titledSession.created_at), 'Progress', 'SpeakSharp'].filter(Boolean).join(' · ');
+    }, [sessionId, titledSession]);
 
     // Signal to E2E tests when session data has finished loading OR failing
     useEffect(() => {

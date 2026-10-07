@@ -182,7 +182,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
 
         // The re-read returns the saved set: the review is Focus again and the repeat runs once, on THIS set.
         await waitFor(() => expect(screen.queryByTestId('saved-review-focus-error')).not.toBeInTheDocument());
-        await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
+        await waitFor(() => expect(action()).toHaveTextContent('Practice again?'));
         fireEvent.click(action());
         fireEvent.click(action());
         await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
@@ -206,7 +206,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(recordAttempt).not.toHaveBeenCalled();
         expect(setActiveObjectiveBrief).not.toHaveBeenCalled();
         await waitFor(() => expect(loadReview).toHaveBeenCalledTimes(2));
-        await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
+        await waitFor(() => expect(action()).toHaveTextContent('Practice again?'));
         fireEvent.click(action());
         await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
         expect(navigate).toHaveBeenCalledTimes(1);
@@ -253,7 +253,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(navigate).not.toHaveBeenCalled();
         expect(practiceSelected).not.toHaveBeenCalled();
         await waitFor(() => expect(loadReview).toHaveBeenCalledTimes(2));
-        await waitFor(() => expect(action()).toHaveTextContent('Practice this again'));
+        await waitFor(() => expect(action()).toHaveTextContent('Practice again?'));
         fireEvent.click(action());
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
@@ -265,7 +265,7 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         loadProgress.mockResolvedValue({ status: 'insufficient', sessionId: 's1' });
         renderReview();
         await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'direct'));
-        expect(action()).toHaveTextContent('Practice this again');
+        expect(action()).toHaveTextContent('Practice again?');
         fireEvent.click(action());
         expect(navigate).toHaveBeenCalledWith('/practice', PRACTICE_NAV);
         expect(practiceSelected).toHaveBeenCalledWith('unknown', false);

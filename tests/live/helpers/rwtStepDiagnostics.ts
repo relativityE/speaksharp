@@ -91,7 +91,7 @@ export type PracticeActionState = {
 const LINK_STATES: ReadonlySet<string> = new Set(['pending', 'error', 'blocked', 'linked', 'direct']);
 function labelClass(text: string): PracticeLabel {
     const t = text.trim();
-    if (/^Practice this again$/i.test(t)) return 'practice_again';
+    if (/^(Practice this again|Practice again\?)$/i.test(t)) return 'practice_again';
     if (/^Try again$/i.test(t)) return 'try_again';
     if (/^Linking repeat/i.test(t)) return 'linking';
     if (/^Checking your next practice/i.test(t)) return 'checking';

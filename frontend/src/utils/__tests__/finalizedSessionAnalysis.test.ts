@@ -123,7 +123,7 @@ describe('reconcileFinalizedFillers — observation vs explicit source selection
         const r = reconcileFinalizedFillers('a clean sentence with no fillers', canonical({}));
         expect(r.persistedTotal).toBe(0);
         expect(r.notVisibleGapTotal).toBe(0);
-        expect(reconciliationStatusCopy(r)).toBe('Session saved · Your transcript is ready.');
+        expect(reconciliationStatusCopy(r)).toBe('Session saved.');
     });
 
     it('malformed / null input fails safe (no throw, sane zeros)', () => {
@@ -173,7 +173,7 @@ describe('reconciliationStatusCopy — status-bar-only, mode-aware, three approv
         expect(r.notVisibleGapTotal).toBeGreaterThan(0);
         const copy = reconciliationStatusCopy(r, { mode: 'private' });
         expect(copy).not.toMatch(/Browser/);
-        expect(copy).toBe('Session saved · Your transcript is ready.');
+        expect(copy).toBe('Session saved.');
     });
 
     it('mode omitted → conservative (no Browser copy)', () => {
@@ -192,7 +192,7 @@ describe('reconciliationStatusCopy — status-bar-only, mode-aware, three approv
     it('no discrepancy → plain ready copy', () => {
         const r = reconcileFinalizedFillers('um and um', canonical({ um: 2 }));
         expect(reconciliationStatusCopy(r, { mode: 'native', priorDisplayedTotal: 2 })).toBe(
-            'Session saved · Your transcript is ready.',
+            'Session saved.',
         );
     });
 

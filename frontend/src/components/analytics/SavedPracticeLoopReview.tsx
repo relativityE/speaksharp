@@ -11,7 +11,7 @@ import {
     type PracticeActionTaken, type PracticeBlockedReason, type PracticeIntendedRoute, type PracticeProgressStatus, type PracticeReviewState,
 } from '@/services/reviewSurfaceTelemetry';
 
-const PRACTICE_AGAIN = 'Practice this again';
+const PRACTICE_AGAIN = 'Practice again?';
 /** A MARKED Focus Points take whose saved results couldn't be read; its practice action retries the read. */
 const FOCUS_RESULTS_READ_FAILED = 'This take’s Focus Points couldn’t be loaded, so practice wasn’t started. Try again.';
 
