@@ -112,6 +112,21 @@ export type FieldRule =
 const enumOf = (values: readonly string[]): FieldRule => ({ kind: 'enum', values });
 const slug = (maxLength = 64): FieldRule => ({ kind: 'slug', maxLength });
 
+/**
+ * #1258 (contract 6037393538) — ownership of a Practice Loop review event, without a session id: the saved take's
+ * frozen subject identity (as on `model_attribution_receipt`), the product, the logical request lifecycle, how many
+ * server calls that lifecycle made, and whether a rendered pair was generated now or already stored. Every field is
+ * optional: an event whose take this tab did not record omits the subject rather than guessing it.
+ */
+const REVIEW_OWNERSHIP_FIELDS = {
+    subject_boot_id: slug(64), subject_journey_id: slug(64), subject_attempt_id: slug(64),
+    subject_attempt_seq: { kind: 'int', min: 1, max: 1_000_000 } as FieldRule,
+    product: enumOf(['open_mic', 'focus_points']),
+    review_request_seq: { kind: 'int', min: 1, max: 1000 } as FieldRule,
+    invocations: { kind: 'int', min: 1, max: 10 } as FieldRule,
+    review_source: enumOf(['generated', 'stored']),
+} as const;
+
 /** Shared fragments. Composed per event — never a global name→rule map. */
 const EXPERIMENT_FIELDS = {
     session_coaching_experiment: slug(),
@@ -630,21 +645,25 @@ export const EVENT_SCHEMAS = Object.freeze({
     // Practice Loop review. No session id, transcript, generated prose or provider error crosses the
     // analytics boundary: success is represented only by field-presence booleans and failure by a
     // closed reason code.
-    practice_loop_review_requested: { review_ready: { kind: 'bool' } as FieldRule },
+    practice_loop_review_requested: { review_ready: { kind: 'bool' } as FieldRule, ...REVIEW_OWNERSHIP_FIELDS },
     practice_loop_review_completed: {
         has_what_went_well: { kind: 'bool' } as FieldRule,
         has_what_to_improve: { kind: 'bool' } as FieldRule,
+        ...REVIEW_OWNERSHIP_FIELDS,
     },
     practice_loop_review_persisted: {
         has_what_went_well: { kind: 'bool' } as FieldRule,
         has_what_to_improve: { kind: 'bool' } as FieldRule,
+        ...REVIEW_OWNERSHIP_FIELDS,
     },
     practice_loop_review_rendered: {
         has_what_went_well: { kind: 'bool' } as FieldRule,
         has_what_to_improve: { kind: 'bool' } as FieldRule,
+        ...REVIEW_OWNERSHIP_FIELDS,
     },
     practice_loop_review_failed: {
         reason: enumOf(PRACTICE_LOOP_REVIEW_FAILURE_REASONS),
+        ...REVIEW_OWNERSHIP_FIELDS,
     },
 
     // ── live-coaching experiment ────────────────────────────────────────────
