@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { evaluateReceivedPracticeLoop, PRACTICE_LOOP_RECEIPT_FAMILIES, type ReceivedPracticeLoopRow } from '../receivedPracticeLoopGate';
+import { evaluateReceivedPracticeLoop, PRACTICE_LOOP_RECEIPT_FAMILIES, PRODUCER_GAP_REASON, type ReceivedPracticeLoopRow } from '../receivedPracticeLoopGate';
 import { buildReadbackQuery } from '../bootScopedReceipts';
 
 const binding = { journeyId: 'journey-a', bootId: 'boot-a', product: 'open_mic' as const, attemptIds: ['attempt-a'] };
@@ -36,19 +36,22 @@ describe('received Practice Loop readback', () => {
         expect(producer).not.toMatch(/request_id|product/);
     });
 
-    it('one complete lifecycle for the saved take qualifies', () => {
-        expect(evaluateReceivedPracticeLoop(complete(), binding)).toMatchObject({ verdict: 'QUALIFIED', expectedRequests: 1, receivedRequests: 1 });
+    it('PRODUCER GAP: one complete lifecycle for the saved take HOLDs with only the producer-gap reason; it never qualifies', () => {
+        expect(evaluateReceivedPracticeLoop(complete(), binding)).toEqual({
+            verdict: 'HOLD', expectedRequests: 1, receivedRequests: 1, reasons: [PRODUCER_GAP_REASON],
+        });
     });
 
-    it('reload/cached revisit is not a generation request', () => {
+    it('reload/cached revisit is not a generation request: it adds no reason beyond the producer gap', () => {
         const rows = [...complete(), { event: 'saved_review_revisited', journeyId: 'journey-a', bootId: 'boot-a', properties: { product: 'open_mic', attempt_id: 'attempt-a' } }];
-        expect(evaluateReceivedPracticeLoop(rows, binding).verdict).toBe('QUALIFIED');
+        expect(evaluateReceivedPracticeLoop(rows, binding)).toMatchObject({ verdict: 'HOLD', receivedRequests: 1, reasons: [PRODUCER_GAP_REASON] });
     });
 
-    it('HOLDs a sent-but-not-yet-received or partially ingested lifecycle; a later complete readback can qualify', () => {
-        expect(evaluateReceivedPracticeLoop(complete().slice(0, 2), binding).verdict).toBe('HOLD');
-        expect(evaluateReceivedPracticeLoop([], binding).verdict).toBe('HOLD');
-        expect(evaluateReceivedPracticeLoop(complete(), binding).verdict).toBe('QUALIFIED');
+    it('HOLDs a sent-but-not-yet-received or partially ingested lifecycle, and names what is missing', () => {
+        const partial = evaluateReceivedPracticeLoop(complete().slice(0, 2), binding);
+        expect(partial.verdict).toBe('HOLD');
+        expect(partial.reasons.join(' ')).toMatch(/missing received coaching events: practice_loop_review_persisted, practice_loop_review_rendered/);
+        expect(evaluateReceivedPracticeLoop([], binding).reasons.join(' ')).toMatch(/missing received coaching events: practice_loop_review_requested/);
     });
 
     it('HOLDs when the declared take\'s events arrive under another journey or boot', () => {
@@ -66,7 +69,7 @@ describe('received Practice Loop readback', () => {
         const rows = [...complete(), { event: 'saved_review_practice_action', journeyId: 'journey-a', bootId: 'boot-a', properties: { product: 'focus_points' } }];
         expect(evaluateReceivedPracticeLoop(rows, binding).verdict).toBe('HOLD');
         const unknown = [...complete(), { event: 'saved_review_practice_action', journeyId: 'journey-a', bootId: 'boot-a', properties: { product: 'unknown' } }];
-        expect(evaluateReceivedPracticeLoop(unknown, binding).verdict).toBe('QUALIFIED');
+        expect(evaluateReceivedPracticeLoop(unknown, binding).reasons).toEqual([PRODUCER_GAP_REASON]);
     });
 
     it('HOLDs an incomplete receipt binding (no boot, no attempts, duplicate attempt ids)', () => {
@@ -86,18 +89,25 @@ describe('received Practice Loop readback', () => {
         expect(evaluateReceivedPracticeLoop([...complete(), row('practice_loop_review_rendered')], binding).verdict).toBe('FAIL');
     });
 
+    it('NEVER QUALIFIED while the producer gap stands, for any input', () => {
+        for (const rows of [complete(), [...complete(), ...complete('attempt-other')], []]) {
+            expect(evaluateReceivedPracticeLoop(rows, binding).verdict).not.toBe('QUALIFIED');
+        }
+    });
+
     it('a conflict outranks missing evidence: FAIL, not HOLD', () => {
         expect(evaluateReceivedPracticeLoop([row('practice_loop_review_requested'), row('practice_loop_review_requested')], binding).verdict).toBe('FAIL');
     });
 
     it('each declared saved take needs its own lifecycle; one take cannot borrow another\'s events', () => {
         const both = { ...binding, attemptIds: ['attempt-a', 'attempt-b'] };
-        expect(evaluateReceivedPracticeLoop([...complete('attempt-a'), ...complete('attempt-b')], both)).toMatchObject({ verdict: 'QUALIFIED', expectedRequests: 2, receivedRequests: 2 });
-        expect(evaluateReceivedPracticeLoop(complete('attempt-a'), both).verdict).toBe('HOLD');
-        expect(evaluateReceivedPracticeLoop(complete('attempt-b'), binding).verdict).toBe('HOLD');
+        expect(evaluateReceivedPracticeLoop([...complete('attempt-a'), ...complete('attempt-b')], both)).toMatchObject({ verdict: 'HOLD', expectedRequests: 2, receivedRequests: 2, reasons: [PRODUCER_GAP_REASON] });
+        expect(evaluateReceivedPracticeLoop(complete('attempt-a'), both).reasons.join(' ')).toMatch(/attempt attempt-b is missing/);
+        expect(evaluateReceivedPracticeLoop(complete('attempt-b'), binding).reasons.join(' ')).toMatch(/attempt attempt-a is missing/);
     });
 
     it('an undeclared take in the same journey neither counts against the declared take nor fills its gap', () => {
-        expect(evaluateReceivedPracticeLoop([...complete(), ...complete('attempt-other')], binding).verdict).toBe('QUALIFIED');
+        expect(evaluateReceivedPracticeLoop([...complete(), ...complete('attempt-other')], binding)).toMatchObject({ receivedRequests: 1, reasons: [PRODUCER_GAP_REASON] });
+        expect(evaluateReceivedPracticeLoop(complete('attempt-other'), binding).reasons.join(' ')).toMatch(/attempt attempt-a is missing/);
     });
 });

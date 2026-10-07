@@ -376,9 +376,19 @@ jobs:
               if [ $ok -eq 0 ]; then v=QUALIFIED
               elif [ $ok -eq 3 ]; then v=FAIL; echo "::error::FAIL: readback received an observed failure for journey $journey ($stages, $(basename "$receipt"))"; status=1
               else v=HOLD; echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; fi
-              printf '%s %s %s\n' "$journey" "$stages" "$v" >> "$verdicts"
+              # #1258 successor (PM delivery #308): the received coaching verdict is reported beside, never inside, the journey
+              # verdict. It settles only the coaching / generation-count rows. A received coaching conflict FAILs the step; a
+              # coaching HOLD (including the standing producer gap) is a warning that leaves those rows HOLD at finalization.
+              coaching=-
+              if [ -n "$product" ]; then
+                coaching=$(grep -E '^RWT_COACHING_READBACK_VERDICT=(QUALIFIED|HOLD|FAIL)$' "$log" | tail -n 1 | cut -d= -f2)
+                [ -z "$coaching" ] && coaching=HOLD
+                if [ "$coaching" = "FAIL" ]; then echo "::error::FAIL: received coaching readback found a conflict for journey $journey ($(basename "$receipt"))"; status=1
+                elif [ "$coaching" = "HOLD" ]; then echo "::warning::HOLD: received coaching readback did not qualify journey $journey ($(basename "$receipt"))"; fi
+              fi
+              printf '%s %s %s %s\n' "$journey" "$stages" "$v" "$coaching" >> "$verdicts"
             done <<< "$bindings"
-            node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const lines=fs.readFileSync(process.argv[2],"utf8").split("\n").filter(Boolean); const journeys=lines.map((l)=>{const [journeyId,stages,verdict]=l.split(" "); return {journeyId, stages: stages.split(","), verdict};}); fs.writeFileSync(process.argv[3], JSON.stringify({suite:r.suite, release:process.env.RELEASE_SHA, journeys, missingBindings:r.readback.missingBindings||[]}, null, 2)+"\n");' "$receipt" "$verdicts" "${verdicts%.jsonl}.json"
+            node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const lines=fs.readFileSync(process.argv[2],"utf8").split("\n").filter(Boolean); const journeys=lines.map((l)=>{const [journeyId,stages,verdict,coaching]=l.split(" "); return {journeyId, stages: stages.split(","), verdict, ...(coaching&&coaching!=="-"?{coaching}:{})};}); fs.writeFileSync(process.argv[3], JSON.stringify({suite:r.suite, release:process.env.RELEASE_SHA, journeys, missingBindings:r.readback.missingBindings||[]}, null, 2)+"\n");' "$receipt" "$verdicts" "${verdicts%.jsonl}.json"
             rm -f "$verdicts"
           done
           exit $status

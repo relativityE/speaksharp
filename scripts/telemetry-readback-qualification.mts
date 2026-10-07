@@ -413,10 +413,12 @@ async function main(): Promise<void> {
     const expectedAttempts = (process.env.QUALIFICATION_ATTEMPT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const delivery = evaluateAttemptScopedDelivery(deliveryRows, exactlyOnceFamiliesForStages(declared), expectedAttempts);
     /**
-     * #1258 successor — received coaching coverage is part of the same journey verdict. The query has
-     * already restricted release, traffic, identity and bounded time; this binds each coaching event
-     * to the selected journey/boot and the envelope attempt of each declared saved take, and checks the
-     * declared product against product-bearing rows in the journey. Unattributable rows stay HOLD.
+     * #1258 successor — received coaching outcomes and per-take request cardinality. The query has already
+     * restricted release, traffic, identity and bounded time; this binds each coaching event to the selected
+     * journey/boot and the envelope attempt of each declared saved take. It is reported as its OWN verdict
+     * (the `RWT_COACHING_READBACK_VERDICT=` line), never folded into the journey verdict: until the producer
+     * gap closes it cannot qualify (PM delivery #308), and its HOLD must not hold the stage evidence it does
+     * not affect. Only the coaching and generation-count receipt rows settle from it.
      */
     let coachingReadback: Evidence['coaching_readback'];
     const coachingReasons: string[] = [];
@@ -442,7 +444,7 @@ async function main(): Promise<void> {
         }
     }
     // #1258 (#1563, Codex r4197007854): an OBSERVED failure is FAIL (exit 3, never retried into HOLD); missing is HOLD.
-    const verdict: ReadbackVerdict = readbackVerdict([...stageReasons, ...coachingReasons], result.verdict, delivery.verdict);
+    const verdict: ReadbackVerdict = readbackVerdict(stageReasons, result.verdict, delivery.verdict);
     const evidence: Evidence = {
         gate: 'TELEMETRY-READBACK-COMPLETENESS',
         release_sha: releaseSha,
@@ -468,6 +470,8 @@ async function main(): Promise<void> {
         reasons: [...result.reasons, ...delivery.reasons],
     };
     console.log(`TELEMETRY_READBACK_QUALIFICATION_EVIDENCE ${JSON.stringify(evidence)}`);
+    // Machine-read by the rc-gates RWT readback step. Absent (no recording stage, or an earlier exit) = not applicable / HOLD there.
+    if (coachingReadback) console.log(`RWT_COACHING_READBACK_VERDICT=${coachingReadback.verdict}`);
 
     /**
      * RWT FIRST-DOWNLOAD RECEIPT (opt-in; set only for first-visit RWT journeys, where it is REQUIRED evidence).
@@ -529,14 +533,14 @@ async function main(): Promise<void> {
     }
 
     if (verdict === 'FAIL') {
-        console.error(`FAIL — an observed failure was received: ${[...stageReasons, ...coachingReasons].filter(isObservedFailureReason).join('; ')}`);
+        console.error(`FAIL — an observed failure was received: ${stageReasons.filter(isObservedFailureReason).join('; ')}`);
         process.exit(READBACK_FAIL_EXIT);
     }
     if (verdict !== 'QUALIFIED') {
-        console.error(`HOLD — ${[...result.reasons, ...delivery.reasons, ...stageReasons, ...coachingReasons].join('; ')}`);
+        console.error(`HOLD — ${[...result.reasons, ...delivery.reasons, ...stageReasons].join('; ')}`);
         process.exit(1);
     }
-    console.log(`QUALIFIED — required governed families, singleton receipts and bound coaching outcomes were received for journey ${journeyId} on ${releaseSha}.`);
+    console.log(`QUALIFIED — every required governed family was INGESTED and singleton receipts arrived once for journey ${journeyId} on ${releaseSha}.`);
 }
 
 await main();

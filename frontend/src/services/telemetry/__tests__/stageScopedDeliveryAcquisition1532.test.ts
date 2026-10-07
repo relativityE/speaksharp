@@ -64,6 +64,13 @@ describe('the readback script applies both checks per declared stage set', () =>
         expect(script).toContain('attemptIds: expectedAttempts');
     });
 
+    it('#1258 successor (PM #308): the coaching verdict is its own marker line and never enters the journey verdict', () => {
+        expect(script).toContain('const verdict: ReadbackVerdict = readbackVerdict(stageReasons, result.verdict, delivery.verdict);');
+        expect(script).toContain('console.log(`RWT_COACHING_READBACK_VERDICT=${coachingReadback.verdict}`)');
+        expect(script).not.toMatch(/readbackVerdict\(\[[^\]]*coachingReasons/);
+        expect(script).not.toMatch(/HOLD — \$\{\[[^\]]*coachingReasons/);
+    });
+
     it('the first-download receipt is required only of a recording binding, and says so when it is not applicable', () => {
         expect(script).toMatch(/const acquisitionRequired = process\.env\.TELEMETRY_READBACK_ACQUISITION_RECEIPT === '1' && declaresRecordingStage\(declared\);/);
         expect(script).toMatch(/if \(acquisitionRequired\) \{\n\s+const acquisitionRows = await runQuery/);

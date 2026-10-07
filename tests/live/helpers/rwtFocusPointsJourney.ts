@@ -473,16 +473,16 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             savedReviewRevisited: tap.sent('saved_review_revisited').length,
         };
         const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
-        const coachingReceivedBy = ['session_after_focus_points'] as const;
+        const coachingReceivedBy = ['coaching_readback'] as const;
         receipt.row('Focus coaching telemetry sent', sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
-            sentDetail('the coaching review rendered receipt left the page (sent; received coaching outcomes are qualified by session_after_focus_points)', focusCoachingSeen, tap, rowsStoppedAt, coachingReceivedBy),
+            sentDetail('the coaching review rendered receipt left the page (sent; received coaching outcomes are judged by the separate coaching readback)', focusCoachingSeen, tap, rowsStoppedAt, coachingReceivedBy),
             { ...focusTelemetry, blindBeacons: tap.blindBeacons, ...readbackSettlement(coachingReceivedBy, tap, rowsStoppedAt) });
         // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
         const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
         const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
-        const generationReceivedBy = ['session_after_focus_points'] as const;
+        const generationReceivedBy = ['coaching_readback'] as const;
         receipt.row('revisit is not a generation', generationVerdict,
-            generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); received request cardinality is decided by session_after_focus_points' : 'the generation count is not exactly one for this take',
+            generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); received per-take request cardinality is judged by the separate coaching readback' : 'the generation count is not exactly one for this take',
             { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons, ...readbackSettlement(generationReceivedBy, tap, rowsStoppedAt) });
         const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
         const focusInventoryReceivedBy = ['analytics_inventory'] as const;

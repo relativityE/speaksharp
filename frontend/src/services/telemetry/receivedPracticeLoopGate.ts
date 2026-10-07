@@ -6,18 +6,20 @@
  * governed producers emit today:
  *
  *   - `journey_id` / `boot_id` — the envelope's, attached to every event at the capture boundary;
- *   - `attempt_id` — the envelope's open recording attempt. A normal Stop leaves it open until the next
- *     accepted Start, so the review that follows a saved take carries that take's id;
- *   - product — a journey is one pass through one product (journeyIdentity.ts). The practice_loop_review_*
- *     events carry no product field, so product is bound through the declared journey, and any received
- *     row in the same journey/boot that names a different product contradicts the binding.
+ *   - `attempt_id` — the envelope's open recording attempt. A normal Stop -> READY leaves it open until the
+ *     next accepted Start; a hard reset, unmount or idle reclamation clears it, and a row without it is HOLD;
+ *   - product — the practice_loop_review_* events carry none. A received row in the same journey/boot that
+ *     names a different product contradicts the declared binding (HOLD); absence is part of the gap below.
  *
- * The producers emit no request id. One `practice_loop_review_requested` is one generation request (a
- * bounded retry inside one request does not re-emit it), so per-take request cardinality is the count of
- * received `requested` rows for that take. Missing or unattributable evidence is HOLD; an observed failed
- * outcome, conflicting terminal outcomes, duplicate outcomes or more than one request for a take is FAIL.
- * `saved_review_revisited` is intentionally outside this event set: opening cached feedback is not a new
- * generation request.
+ * PRODUCER GAP (#1258 comment 6037347459; PM delivery #308). The events carry no saved-session id, no
+ * product and no request id, and `requested` is emitted once per review lifecycle, outside its internal
+ * retry loop, so it does not identify the server request(s). Ownership and one-request pairing therefore
+ * cannot be PROVEN from received rows, and this gate never returns QUALIFIED: a complete lifecycle is HOLD
+ * with `PRODUCER_GAP_REASON`. What the received rows CAN prove is a conflict, and that is FAIL: more than
+ * one `requested` for one take (each is a separate review lifecycle), a failed outcome, failed alongside
+ * success, or a duplicated outcome. Missing or unattributable evidence is HOLD. Ownership is never
+ * inferred beyond the envelope's own fields. `saved_review_revisited` is intentionally outside this event
+ * set: opening cached feedback is not a new generation request.
  */
 export const PRACTICE_LOOP_RECEIPT_FAMILIES = Object.freeze([
     'practice_loop_review_requested',
@@ -25,6 +27,9 @@ export const PRACTICE_LOOP_RECEIPT_FAMILIES = Object.freeze([
     'practice_loop_review_persisted',
     'practice_loop_review_rendered',
 ] as const);
+
+/** Lifted only when the producers emit the ownership fields App Dev publishes; until then no coaching readback qualifies. */
+export const PRODUCER_GAP_REASON = 'HOLD: producer gap — practice_loop_review_* carry no saved-session, product or request id, so take ownership and one-request pairing cannot be proven from received rows (#1258 comment 6037347459)';
 
 const ALL_PRACTICE_LOOP_FAMILIES = new Set<string>([
     ...PRACTICE_LOOP_RECEIPT_FAMILIES,
@@ -49,6 +54,7 @@ export interface ReceivedPracticeLoopBinding {
 }
 
 export interface ReceivedPracticeLoopResult {
+    /** QUALIFIED is reserved for when the producer gap closes; this evaluator cannot return it today. */
     verdict: 'QUALIFIED' | 'HOLD' | 'FAIL';
     expectedRequests: number;
     receivedRequests: number;
@@ -121,8 +127,9 @@ export function evaluateReceivedPracticeLoop(
         if (missing.length > 0) hold(`attempt ${attemptId} is missing received coaching events: ${missing.join(', ')}`);
     }
 
+    reasons.push(PRODUCER_GAP_REASON);
     return {
-        verdict: reasons.some((reason) => reason.startsWith('FAIL:')) ? 'FAIL' : reasons.length > 0 ? 'HOLD' : 'QUALIFIED',
+        verdict: reasons.some((reason) => reason.startsWith('FAIL:')) ? 'FAIL' : 'HOLD',
         expectedRequests: ids.length,
         receivedRequests,
         reasons,

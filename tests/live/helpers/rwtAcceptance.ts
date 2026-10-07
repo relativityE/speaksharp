@@ -364,7 +364,8 @@ export interface FinalizationResult {
 export interface ReadbackVerdicts {
     suite: string;
     release: string;
-    journeys: { journeyId: string; stages: string[]; verdict: 'QUALIFIED' | 'HOLD' | 'FAIL' }[];
+    /** `coaching`: the received coaching verdict, present only on bindings whose saved takes were read back for coaching. */
+    journeys: { journeyId: string; stages: string[]; verdict: 'QUALIFIED' | 'HOLD' | 'FAIL'; coaching?: 'QUALIFIED' | 'HOLD' | 'FAIL' }[];
     missingBindings: string[];
 }
 const RECEIVED_ROW = 'journey telemetry received';
@@ -376,18 +377,38 @@ const RECEIVED_ROW = 'journey telemetry received';
  * when the row names the qualification stages that receive its events (`receivedByStages`) and, for EVERY named stage,
  * at least one bound journey declares it and every journey declaring it QUALIFIED: received implies sent. Anything less —
  * an unnamed stage, a stage no journey declared, a journey that HOLD or FAILed — leaves the row exactly as written. Rows
- * whose events no stage receives (coaching outcomes, the exact generation count) carry no stages and so stay HOLD. Only
+ * whose events no stage receives carry no stages and so stay HOLD. Only
  * a HOLD caused by a blind beacon (`blindSinceStep > 0`) is eligible; a FAIL or PASS is never rewritten.
+ *
+ * #1258 successor (PM delivery #308) — `COACHING_READBACK_STAGE` is not a qualification stage: coaching outcomes and the
+ * per-take generation count are judged by the separate received coaching verdict. A row naming it is "declared" by every
+ * journey that carries a `coaching` verdict, and settles only when each of those journeys AND its coaching QUALIFIED.
+ * A received coaching FAIL (an extra request, a failed, conflicting or duplicated outcome) makes the row FAIL whatever the
+ * browser saw: received rows do not un-happen.
  */
-function settleBlindHold(row: ReceiptRow, journeys: readonly { stages: readonly string[]; verdict: string }[]): ReceiptRow {
+export const COACHING_READBACK_STAGE = 'coaching_readback';
+type SettlingJourney = { stages: readonly string[]; verdict: string; coaching?: string };
+function settleBlindHold(row: ReceiptRow, journeys: readonly SettlingJourney[]): ReceiptRow {
     const stagesField = row.evidence?.receivedByStages;
     const blind = row.evidence?.blindSinceStep;
+    if (row.verdict !== 'FAIL' && typeof stagesField === 'string' && stagesField.split(',').includes(COACHING_READBACK_STAGE)
+        && journeys.some((j) => j.coaching === 'FAIL')) {
+        return {
+            ...row,
+            verdict: 'FAIL',
+            detail: 'received: the coaching readback found a conflict (an extra generation request, or a failed, conflicting or duplicated outcome) for a bound saved take (merged at finalization)',
+            evidence: { ...row.evidence, settledByReadback: true },
+        };
+    }
     if (row.verdict !== 'HOLD' || typeof stagesField !== 'string' || typeof blind !== 'number' || blind <= 0) return row;
     const stages = stagesField.split(',').filter(Boolean);
     if (stages.length === 0) return row;
     const settled = stages.every((stage) => {
-        const declaring = journeys.filter((j) => j.stages.includes(stage));
-        return declaring.length > 0 && declaring.every((j) => j.verdict === 'QUALIFIED');
+        const declaring = stage === COACHING_READBACK_STAGE
+            ? journeys.filter((j) => j.coaching !== undefined)
+            : journeys.filter((j) => j.stages.includes(stage));
+        return declaring.length > 0 && declaring.every((j) => j.verdict === 'QUALIFIED'
+            && (stage !== COACHING_READBACK_STAGE || j.coaching === 'QUALIFIED'));
     });
     if (!settled) return row;
     return {
@@ -415,6 +436,13 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
         return bad('do not match the receipt\'s missing bindings');
     }
     if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD' && j.verdict !== 'FAIL')) return bad('carry an unknown journey verdict');
+    if (journeys.some((j) => j.coaching !== undefined && j.coaching !== 'QUALIFIED' && j.coaching !== 'HOLD' && j.coaching !== 'FAIL')) {
+        return bad('carry an unknown coaching verdict');
+    }
+    // A coaching verdict binds to exactly the receipt's product-bearing (saved-take) journeys: none dropped, none added.
+    const coachingKeys = journeys.filter((j) => j.coaching !== undefined).map((j) => String(j.journeyId)).sort();
+    const productKeys = (receipt.readback?.journeys ?? []).filter((j) => j.product !== undefined).map((j) => String(j.journeyId)).sort();
+    if (JSON.stringify(coachingKeys) !== JSON.stringify(productKeys)) return bad('do not carry a coaching verdict for exactly the receipt\'s saved-take journeys');
     const failed = journeys.filter((j) => j.verdict === 'FAIL').length;
     const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');
     return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? settleBlindHold(r, journeys) : {

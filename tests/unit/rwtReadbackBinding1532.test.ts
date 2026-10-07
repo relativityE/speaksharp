@@ -72,6 +72,18 @@ describe('bindReadbackJourneys', () => {
         }).journeys).toEqual([{ journeyId: 'A', stages: RECORDING, firstDownload: true, attemptIds: ['attempt-a'], product: 'open_mic' }]);
     });
 
+    it('PM #308: only a binding that names saved-take attempts carries product (feedback-only and attempt-less bindings do not)', () => {
+        const take = { attemptId: 'attempt-a', journeyId: 'A' };
+        expect(bindReadbackJourneys([ev('session_saved', 1, 'A'), ev('feedback_submit', 2, 'B')], {
+            recording: RECORDING, feedback: true, takes: { first: take }, product: 'open_mic',
+        }).journeys).toEqual([
+            { journeyId: 'A', stages: RECORDING, firstDownload: true, attemptIds: ['attempt-a'], product: 'open_mic' },
+            { journeyId: 'B', stages: ['share_feedback'] },
+        ]);
+        expect(bindReadbackJourneys([ev('session_saved', 1, 'A')], { recording: RECORDING, feedback: false, product: 'open_mic' }).journeys)
+            .toEqual([{ journeyId: 'A', stages: RECORDING, firstDownload: true }]);
+    });
+
     it('CASUALTY: a required binding with no anchor event is reported missing (fail closed), never silently dropped', () => {
         const r = bindReadbackJourneys([ev('session_saved', 1, 'A')], { recording: RECORDING, feedback: true });
         expect(r.missingBindings).toEqual(['share_feedback']);
@@ -94,20 +106,20 @@ describe('rc-gates RWT readback step', () => {
     const step = Object.values(workflow.jobs as Record<string, { steps?: Array<{ name?: string; run?: string }> }>)
         .flatMap((job) => job.steps ?? []).find((s) => s.name === 'RWT telemetry readback (PostHog, per journey)');
 
-    const runStep = (readback: unknown, hold = '', fail = '') => {
+    const runStep = (readback: unknown, hold = '', fail = '', coachingVerdicts = '') => {
         const dir = mkdtempSync(join(tmpdir(), 'rwt-readback-'));
         const bin = join(dir, 'bin');
         mkdirSync(join(dir, 'test-results', 'rwt'), { recursive: true });
         mkdirSync(bin);
         writeFileSync(join(dir, 'test-results', 'rwt', 'suite.receipt.json'), JSON.stringify({ suite: 'suite', readback }));
-        writeFileSync(join(bin, 'pnpm'), '#!/usr/bin/env bash\nj=""; t=""; while [ $# -gt 0 ]; do case "$1" in --journey-id) j="$2"; shift;; --traffic-type) t="$2"; shift;; esac; shift; done\necho "$t|$j|${QUALIFICATION_STAGES:-}" >> "$STUB_LOG"\necho "$j|${TELEMETRY_READBACK_ACQUISITION_RECEIPT:-}|${QUALIFICATION_ATTEMPT_IDS:-}" >> "$STUB_LOG.acq"\necho "$j|${QUALIFICATION_PRODUCT:-}|${QUALIFICATION_ATTEMPT_IDS:-}" >> "$STUB_LOG.coach"\ncase " ${STUB_FAIL:-} " in *" $j "*) exit 3;; esac\ncase " ${STUB_HOLD:-} " in *" $j "*) exit 1;; esac\n');
+        writeFileSync(join(bin, 'pnpm'), '#!/usr/bin/env bash\nj=""; t=""; while [ $# -gt 0 ]; do case "$1" in --journey-id) j="$2"; shift;; --traffic-type) t="$2"; shift;; esac; shift; done\necho "$t|$j|${QUALIFICATION_STAGES:-}" >> "$STUB_LOG"\necho "$j|${TELEMETRY_READBACK_ACQUISITION_RECEIPT:-}|${QUALIFICATION_ATTEMPT_IDS:-}" >> "$STUB_LOG.acq"\necho "$j|${QUALIFICATION_PRODUCT:-}|${QUALIFICATION_ATTEMPT_IDS:-}" >> "$STUB_LOG.coach"\necho "decoy: not a marker RWT_COACHING_READBACK_VERDICT=QUALIFIED"\nfor kv in ${STUB_COACHING:-}; do [ "${kv%%=*}" = "$j" ] && echo "RWT_COACHING_READBACK_VERDICT=${kv#*=}"; done\ncase " ${STUB_FAIL:-} " in *" $j "*) exit 3;; esac\ncase " ${STUB_HOLD:-} " in *" $j "*) exit 1;; esac\n');
         writeFileSync(join(bin, 'sleep'), '#!/usr/bin/env bash\nexit 0\n');
         chmodSync(join(bin, 'pnpm'), 0o755); chmodSync(join(bin, 'sleep'), 0o755);
         const log = join(dir, 'calls.log');
         writeFileSync(log, '');
         let exit = 0;
         try {
-            execFileSync('bash', ['-c', step!.run!], { cwd: dir, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, STUB_LOG: log, STUB_HOLD: hold, STUB_FAIL: fail, RELEASE_SHA: 'a'.repeat(40) }, stdio: 'pipe' });
+            execFileSync('bash', ['-c', step!.run!], { cwd: dir, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, STUB_LOG: log, STUB_HOLD: hold, STUB_FAIL: fail, STUB_COACHING: coachingVerdicts, RELEASE_SHA: 'a'.repeat(40) }, stdio: 'pipe' });
         } catch (e) { exit = (e as { status?: number }).status ?? 1; }
         const verdictPath = join(dir, 'test-results', 'rwt', 'suite.readback-verdicts.json');
         let verdicts: unknown = null;
@@ -153,6 +165,31 @@ describe('rc-gates RWT readback step', () => {
         });
         expect(exit).toBe(0);
         expect(coaching).toEqual(['A|focus_points|att-focus-1']);
+    });
+
+    const SAVED_AND_FEEDBACK = {
+        journeys: [{ journeyId: 'A', stages: RECORDING, product: 'open_mic', attemptIds: ['att-1'] }, { journeyId: 'B', stages: ['share_feedback'] }],
+        reportedJourneyIds: [], missingBindings: [], userStageJourneyIds: [],
+    };
+
+    it('PM #308: the coaching verdict is written beside the journey verdict, only for saved-take bindings; a coaching HOLD does not fail the step', () => {
+        const { exit, verdicts } = runStep(SAVED_AND_FEEDBACK, '', '', 'A=HOLD');
+        expect(exit).toBe(0);
+        expect((verdicts as { journeys: unknown[] }).journeys).toEqual([
+            { journeyId: 'A', stages: RECORDING, verdict: 'QUALIFIED', coaching: 'HOLD' },
+            { journeyId: 'B', stages: ['share_feedback'], verdict: 'QUALIFIED' },
+        ]);
+    });
+
+    it('CASUALTY: a received coaching conflict (marker FAIL) fails the step and is recorded as FAIL', () => {
+        const { exit, verdicts } = runStep(SAVED_AND_FEEDBACK, '', '', 'A=FAIL');
+        expect(exit).toBe(1);
+        expect((verdicts as { journeys: { coaching?: string }[] }).journeys[0].coaching).toBe('FAIL');
+    });
+
+    it('fail closed: a saved-take binding whose qualifier printed no anchored marker records coaching HOLD, never QUALIFIED', () => {
+        const { verdicts } = runStep(SAVED_AND_FEEDBACK);
+        expect((verdicts as { journeys: { coaching?: string }[] }).journeys[0].coaching).toBe('HOLD');
     });
 
     it('CASUALTY: each bound journey is qualified against ONLY its own stages; reported journeys are never qualified', () => {
