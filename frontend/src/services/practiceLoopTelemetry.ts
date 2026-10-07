@@ -2,6 +2,7 @@
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import type { GovernedEvent } from '@/services/telemetryAllowlist';
 import { reviewSubjectFor } from '@/services/telemetry/reviewSubject';
+import type { RecordingSubject } from '@/services/telemetry/recordingSubject';
 
 export type PracticeLoopReviewFailureReason =
   | 'access_denied'
@@ -13,6 +14,8 @@ export type PracticeLoopReviewFailureReason =
   | 'transcript_unavailable'
   | 'unavailable';
 
+export type PracticeLoopReviewDiscardReason = 'unmount' | 'session_changed' | 'superseded';
+
 /**
  * #1258 (contract 6037393538) — who the event is about, never what was said.
  *  - `sessionId` is used ONLY to look up the saved take's frozen `subject_*` identity; it is never emitted.
@@ -22,6 +25,8 @@ export type PracticeLoopReviewFailureReason =
  */
 export type PracticeLoopReviewContext = {
   sessionId?: string | null;
+  /** Frozen at request start so a late terminal event cannot pick up another take's identity. */
+  subject?: RecordingSubject | null;
   product?: 'open_mic' | 'focus_points';
   requestSeq?: number;
   invocations?: number;
@@ -30,7 +35,7 @@ export type PracticeLoopReviewContext = {
 
 const ownership = (ctx: PracticeLoopReviewContext | undefined): Record<string, string | number> => {
   if (!ctx) return {};
-  const out: Record<string, string | number> = { ...(reviewSubjectFor(ctx.sessionId) ?? {}) };
+  const out: Record<string, string | number> = { ...(ctx.subject ?? reviewSubjectFor(ctx.sessionId) ?? {}) };
   if (ctx.product) out.product = ctx.product;
   if (ctx.requestSeq !== undefined) out.review_request_seq = ctx.requestSeq;
   if (ctx.invocations !== undefined) out.invocations = ctx.invocations;
@@ -66,3 +71,7 @@ export const trackPracticeLoopReviewRendered = (ctx?: PracticeLoopReviewContext)
 
 export const trackPracticeLoopReviewFailed = (reason: PracticeLoopReviewFailureReason, ctx?: PracticeLoopReviewContext): void =>
   emit('practice_loop_review_failed', { reason, ...ownership(ctx) });
+
+/** A stale response was deliberately ignored; this is lifecycle telemetry, never a provider failure. */
+export const trackPracticeLoopReviewDiscarded = (reason: PracticeLoopReviewDiscardReason, ctx?: PracticeLoopReviewContext): void =>
+  emit('practice_loop_review_discarded', { discard_reason: reason, ...ownership(ctx) });

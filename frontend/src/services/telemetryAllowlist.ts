@@ -671,6 +671,10 @@ export const EVENT_SCHEMAS = Object.freeze({
         reason: enumOf(PRACTICE_LOOP_REVIEW_FAILURE_REASONS),
         ...REVIEW_OWNERSHIP_FIELDS,
     },
+    practice_loop_review_discarded: {
+        discard_reason: enumOf(['unmount', 'session_changed', 'superseded']),
+        ...REVIEW_OWNERSHIP_FIELDS,
+    },
 
     // ── live-coaching experiment ────────────────────────────────────────────
     // `target_label` is deliberately ABSENT: generated copy ("Next target 7.5"), not a dimension.

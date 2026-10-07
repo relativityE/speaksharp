@@ -7,16 +7,18 @@ import { emitPracticeLoop } from '@/services/telemetry/practiceLoopTelemetry';
 import { markCompletionStage } from '@/services/telemetry/completionStages';
 import {
   trackPracticeLoopReviewCompleted,
+  trackPracticeLoopReviewDiscarded,
   trackPracticeLoopReviewFailed,
   trackPracticeLoopReviewPersisted,
   trackPracticeLoopReviewRendered,
   trackPracticeLoopReviewRequested,
   type PracticeLoopReviewFailureReason,
+  type PracticeLoopReviewContext,
 } from '@/services/practiceLoopTelemetry';
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
-import { nextReviewRequestSeq } from '@/services/telemetry/reviewSubject';
+import { nextReviewRequestSeq, reviewSubjectFor } from '@/services/telemetry/reviewSubject';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -245,7 +247,11 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 }) => {
   const activeSessionRef = useRef(sessionId);
   const requestGenerationRef = useRef(0);
+  const activeReviewRequestsRef = useRef(new Map<number, { lifecycle: PracticeLoopReviewContext; discardReason?: 'unmount' | 'session_changed' | 'superseded'; reported: boolean }>());
   if (activeSessionRef.current !== sessionId) {
+    for (const request of activeReviewRequestsRef.current.values()) {
+      request.discardReason ??= 'session_changed';
+    }
     activeSessionRef.current = sessionId;
     requestGenerationRef.current += 1;
   }
@@ -268,7 +274,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   const reviewCardRef = useRef<HTMLDivElement>(null);
   const renderedReceiptRef = useRef<string | null>(null);
   /** #1258: the lifecycle that generated the pair now shown, so the rendered receipt can name it (stored pairs have none). */
-  const generatedRef = useRef<{ sessionId: string; requestSeq: number } | null>(null);
+  const generatedRef = useRef<{ sessionId: string; requestSeq: number; subject: PracticeLoopReviewContext['subject'] } | null>(null);
 
   /**
    * #1258 G20 — "From this session", read from what the session SAVED (the same reader Analytics uses), once the
@@ -338,7 +344,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       // so a revisit or reload can never be counted as a generation.
       const generated = generatedRef.current?.sessionId === sessionId ? generatedRef.current : null;
       trackPracticeLoopReviewRendered({
-        sessionId, product,
+        sessionId, subject: generated?.subject, product,
         source: generated ? 'generated' : 'stored',
         ...(generated ? { requestSeq: generated.requestSeq } : {}),
       });
@@ -419,6 +425,14 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
   /** #1473 — the single scheduled automatic retry, so leaving the page or starting a new lifecycle can cancel it. */
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** #1258 — settles a cancelled wait as "do not proceed", so its lifecycle reaches a discard instead of hanging. */
+  const retryWaitResolveRef = useRef<((proceed: boolean) => void) | null>(null);
+  const cancelRetryWait = useCallback(() => {
+    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+    const resolve = retryWaitResolveRef.current;
+    retryWaitResolveRef.current = null;
+    resolve?.(false);
+  }, []);
 
   /**
    * #1486 Codex P1 — LEAVING IS A MOUNT FACT, NOT A GENERATION BUMP.
@@ -442,23 +456,49 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      cancelRetryWait();
     };
-  }, []);
+  }, [cancelRetryWait]);
 
   const fetchSuggestions = useCallback(async () => {
     if (!reviewReady || !sessionId) return;
     const requestSessionId = sessionId;
     const requestGeneration = requestGenerationRef.current + 1;
+    for (const [generation, request] of activeReviewRequestsRef.current) {
+      if (generation !== requestGeneration) request.discardReason ??= 'superseded';
+    }
     requestGenerationRef.current = requestGeneration;
-    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+    cancelRetryWait();
     const isCurrentRequest = () =>
       mountedRef.current
       && activeSessionRef.current === requestSessionId
       && requestGenerationRef.current === requestGeneration;
+    const waitForRetry = () => new Promise<boolean>((resolve) => {
+      retryWaitResolveRef.current = resolve;
+      retryTimerRef.current = setTimeout(() => {
+        retryTimerRef.current = null;
+        retryWaitResolveRef.current = null;
+        resolve(isCurrentRequest());
+      }, retryBackoffMs);
+    });
 
     // #1258 (contract 6037393538): one logical lifecycle = one request seq, shared by requested and its terminal event.
-    const lifecycle = { sessionId: requestSessionId, product, requestSeq: nextReviewRequestSeq() } as const;
+    const requestSeq = nextReviewRequestSeq();
+    const lifecycle: PracticeLoopReviewContext = {
+      sessionId: requestSessionId,
+      subject: reviewSubjectFor(requestSessionId),
+      product,
+      requestSeq,
+    };
+    const trackedRequest: { lifecycle: PracticeLoopReviewContext; discardReason?: 'unmount' | 'session_changed' | 'superseded'; reported: boolean } = { lifecycle, reported: false };
+    activeReviewRequestsRef.current.set(requestGeneration, trackedRequest);
+    const reportDiscard = () => {
+      if (trackedRequest.reported) return;
+      trackedRequest.reported = true;
+      const reason = trackedRequest.discardReason ?? (mountedRef.current ? 'superseded' : 'unmount');
+      trackPracticeLoopReviewDiscarded(reason, { ...lifecycle, invocations });
+      activeReviewRequestsRef.current.delete(requestGeneration);
+    };
     let invocations = 0;
     trackPracticeLoopReviewRequested(lifecycle);
 
@@ -471,8 +511,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
      * automatic retry after a bounded backoff; while it waits, the failure stays visible and no attempt is claimed
      * to be active. Exhaustion is terminal. Exactly one terminal outcome is reported per lifecycle.
      *
-     * #1422 — A SUPERSEDED REQUEST REPORTS NOTHING AND RENDERS NOTHING: every outcome is checked against the current
-     * request first, so a late answer for session A never counts or shows after the user moved to session B.
+     * #1422/#1258 — a superseded request never completes or renders into the current card. It emits only the bounded
+     * discard receipt, so a late answer for session A never counts as a provider failure or appears under session B.
      */
     let pendingWaits = 0;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -505,8 +545,11 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
             // Success from this endpoint means the exact result was persisted and read back server-side.
             trackPracticeLoopReviewCompleted({ ...lifecycle, invocations });
             trackPracticeLoopReviewPersisted({ ...lifecycle, invocations });
-            generatedRef.current = { sessionId: requestSessionId, requestSeq: lifecycle.requestSeq };
+            generatedRef.current = { sessionId: requestSessionId, requestSeq, subject: lifecycle.subject ?? null };
             setView({ sessionId: requestSessionId, suggestions: persistedSuggestions, isLoading: false, error: null, retrying: false });
+            activeReviewRequestsRef.current.delete(requestGeneration);
+          } else {
+            reportDiscard();
           }
           return;
         }
@@ -516,40 +559,32 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         // never an error), without consuming a lifecycle attempt. Bounded by FOCUS_RESULTS_PENDING_WAITS.
         if (errorStatus(err) === 425 && pendingWaits < FOCUS_RESULTS_PENDING_WAITS) {
           pendingWaits += 1;
-          if (!isCurrentRequest()) return;
-          const proceed = await new Promise<boolean>((resolve) => {
-            retryTimerRef.current = setTimeout(() => {
-              retryTimerRef.current = null;
-              resolve(isCurrentRequest());
-            }, retryBackoffMs);
-          });
-          if (!proceed) return;
+          if (!isCurrentRequest()) { reportDiscard(); return; }
+          const proceed = await waitForRetry();
+          if (!proceed) { reportDiscard(); return; }
           attempt -= 1;
           continue;
         }
+        if (!isCurrentRequest()) { reportDiscard(); return; }
         logger.error({ err }, "Error fetching AI suggestions:");
         failure = getSafeAiSuggestionError(err, await readClosedCode(err));
       }
 
-      if (!isCurrentRequest()) return;
+      if (!isCurrentRequest()) { reportDiscard(); return; }
 
       if (attempt === 1 && !TERMINAL_REASONS.has(failure.reason)) {
         setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: true });
-        const proceed = await new Promise<boolean>((resolve) => {
-          retryTimerRef.current = setTimeout(() => {
-            retryTimerRef.current = null;
-            resolve(isCurrentRequest());
-          }, retryBackoffMs);
-        });
-        if (!proceed) return;
+        const proceed = await waitForRetry();
+        if (!proceed) { reportDiscard(); return; }
         continue;
       }
 
       trackPracticeLoopReviewFailed(failure.reason, { ...lifecycle, invocations });
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: false });
+      activeReviewRequestsRef.current.delete(requestGeneration);
       return;
     }
-  }, [reviewReady, sessionId, retryBackoffMs, product]);
+  }, [reviewReady, sessionId, retryBackoffMs, product, cancelRetryWait]);
 
   useEffect(() => {
     if (!reviewReady || !sessionId) return;

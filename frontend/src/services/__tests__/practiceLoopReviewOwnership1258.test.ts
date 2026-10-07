@@ -8,6 +8,7 @@ import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { projectEventProps } from '@/services/telemetryAllowlist';
 import {
   trackPracticeLoopReviewCompleted,
+  trackPracticeLoopReviewDiscarded,
   trackPracticeLoopReviewFailed,
   trackPracticeLoopReviewRendered,
   trackPracticeLoopReviewRequested,
@@ -69,6 +70,16 @@ describe('coaching events carry the saved take and request lifecycle (no session
       product: 'sales_call',
       review_source: 'cache',
     }).dropped.sort()).toEqual(['invocations', 'product', 'review_request_seq', 'review_source', 'subject_attempt_id']);
+  });
+
+  it('discard telemetry is content-free and accepts only the three lifecycle reasons', () => {
+    rememberReviewSubject(SESSION, SUBJECT);
+    trackPracticeLoopReviewDiscarded('session_changed', { sessionId: SESSION, product: 'open_mic', requestSeq: 7, invocations: 1 });
+    const [{ event, props }] = pushed();
+    expect(event).toBe('practice_loop_review_discarded');
+    expect(props).toMatchObject({ ...SUBJECT, product: 'open_mic', review_request_seq: 7, invocations: 1, discard_reason: 'session_changed' });
+    expect(projectEventProps(event, props).dropped).toEqual([]);
+    expect(projectEventProps(event, { discard_reason: 'provider_failed', transcript: 'private words' }).dropped.sort()).toEqual(['discard_reason', 'transcript']);
   });
 
   it('the registry keeps only sanitized subjects, bounded, and the seq wraps inside its declared range', () => {
