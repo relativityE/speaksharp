@@ -20,12 +20,14 @@ import type { TrendDataPoint } from './analytics/trendMetrics';
 import { SavedFocusPointsCoverage } from './analytics/SavedFocusPointsCoverage';
 import { SavedPracticeLoopReview } from './analytics/SavedPracticeLoopReview';
 import { ProgressHeader } from './analytics/ProgressHeader';
+import { RuleCard } from './analytics/RuleCard';
+import { metricConfig, type TrendMetric } from './analytics/trendMetrics';
 import { trackSessionPdfDownloaded, type PdfSurface } from '@/services/reviewSurfaceTelemetry';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
-import { getSessionPauseCount } from '@/lib/analyticsUtils';
+import { getSessionAnalysisMetrics, calculateRatePerMinute, ANALYTICS_THRESHOLDS } from '@/utils/sessionAnalysis';
+import { calculateOverallStats, getSessionPauseCount } from '@/lib/analyticsUtils';
 import { hasValidPauseEvidence } from '@/utils/metricValidity';
-import { PRODUCT_LABEL, mmss, shortDate, shortTime } from '@/lib/displayFormat';
+import { PRODUCT_LABEL, mmss, plural, shortDate, shortTime } from '@/lib/displayFormat';
 import {
     decodePace,
     decodePauseRhythm,
@@ -96,25 +98,13 @@ interface StatCardProps {
     value: string | number | null;
     unit?: string;
     description?: string;
-    microcopy?: string;
     interpretation?: CoachingMetric;
+    /** #1258 D5 (Rev 2 §5.6): the metric's colour dot (from TrendChart's palette) and, for pace, the target. */
+    metric?: TrendMetric;
     className?: string;
     testId?: string;
 }
 
-// #G4 §2: one chip scale + number color for the four signal cards. `nodata` = no evidence yet (NEED 2 MORE),
-// `ontrack` = on target (good), `fix` = needs attention (watch/off). Colors from the four-role palette.
-type G4Status = 'fix' | 'ontrack' | 'nodata';
-const G4_CHIP: Record<G4Status, { text: string; cls: string }> = {
-    fix: { text: 'FIX THIS', cls: 'bg-signature-ground text-signature-text' },
-    ontrack: { text: 'ON TRACK', cls: 'bg-state-success-ground text-status' },
-    nodata: { text: 'NEED 2 MORE', cls: 'bg-neutral-band text-neutral-secondary' },
-};
-const G4_NUM_COLOR: Record<G4Status, string> = {
-    fix: 'text-regression',
-    ontrack: 'text-status',
-    nodata: 'text-neutral-muted',
-};
 
 interface SessionHistoryItemProps {
     session: PracticeSession;
@@ -130,18 +120,31 @@ interface SessionHistoryItemProps {
 // Add new stat cards here for future analytics features
 
 
+/**
+ * #1258 D5 (PO 2026-10-07): the newest-sessions window some cards read — the newest 4 sessions, valid measurements
+ * only. `stats` is that window's `calculateOverallStats`, `fillersPerSession` the mean measured filler count in it.
+ */
+type RecentWindow = { sessions: number; stats: OverallStats | null; fillersPerSession: number | null };
+const RECENT_WINDOW_SESSIONS = 4;
+/** OverallStats averages are `string | number | null` (rates arrive via `toFixed`); a non-finite or absent value is null. */
+const numberOrNull = (v: unknown): number | null => {
+    const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : null;
+};
+
 type StatCardConfig = {
     id: string;
+    /** The name in the Custom picker; the card shows `getLabel` when present. */
     label: string;
+    getLabel?: (recent: RecentWindow) => string;
     icon: React.ReactNode;
-    getValue: (stats: OverallStats) => string | number | null;
+    getValue: (stats: OverallStats, recent: RecentWindow) => string | number | null;
     unit?: string;
     description?: string;
-    // Short supporting microcopy shown under the (now secondary) number on a decoded card.
-    microcopy?: string;
-    // Narrative-first: decode the raw value into a plain label (Fast / Choppy / Strong …) so the card
-    // leads with the coaching read and keeps the number as secondary detail.
-    getInterpretation?: (stats: OverallStats) => CoachingMetric;
+    /** #1258 D5: the metric's colour dot on the card (TrendChart's palette). */
+    metric?: TrendMetric;
+    // Narrative-first: decode the raw value into a plain label (Fast / Choppy / Strong …).
+    getInterpretation?: (stats: OverallStats, recent: RecentWindow) => CoachingMetric;
 };
 
 const STAT_CARD_OPTIONS: StatCardConfig[] = [
@@ -159,18 +162,20 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.averageWPM,
         unit: 'WPM',
         description: 'Average words per minute',
-        microcopy: 'Target 130–150',
+        metric: 'wpm',
         getInterpretation: (stats) => decodePace(stats.averageWPM),
     },
     {
         id: 'filler_words_per_min',
-        label: 'Avg. Filler Words / Min',
+        // #1258 D5 (PO 2026-10-07): a COUNT per session over the newest 4 sessions (measured zeroes in, missing out),
+        // replacing the all-session per-minute rate. Decimals are fine for an average.
+        label: 'Average fillers per session',
+        getLabel: (recent) => `Average fillers per session · last ${plural(recent.sessions, 'session', 'sessions')}`,
         icon: <TrendingUp size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.avgFillerWordsPerMin,
-        unit: '/min',
-        description: 'Filler word frequency per minute',
-        microcopy: 'Swap a filler for a brief pause',
-        getInterpretation: (stats) => decodeFillers(stats.avgFillerWordsPerMin),
+        getValue: (_stats, recent) => recent.fillersPerSession === null ? null : recent.fillersPerSession.toFixed(1),
+        description: 'Filler words counted per session, averaged over your newest sessions',
+        metric: 'fillers',
+        getInterpretation: (_stats, recent) => decodeFillers(recent.stats?.avgFillerWordsPerMin ?? null),
     },
     {
         id: 'total_practice_time',
@@ -182,12 +187,12 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     },
     {
         id: 'clarity_score',
-        label: 'Clear Delivery',
+        label: 'Clear delivery',
         icon: <Target size={24} className="text-foreground/70" />,
+        metric: 'clarity',
         getValue: (stats) => stats.avgClarity,
         unit: '%',
         description: 'Based on pace, fillers, and structure — not transcription accuracy.',
-        microcopy: 'Pace + fillers + structure',
         getInterpretation: (stats) => decodeClarity(stats.avgClarity),
     },
     {
@@ -197,7 +202,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.avgPausesPerMin,
         unit: '/min',
         description: 'Pauses per minute. Healthy pauses make key ideas easier to follow.',
-        microcopy: 'Steady spacing helps ideas land',
+        metric: 'pauses',
         getInterpretation: (stats) => decodePauseRhythm(stats.avgPausesPerMin),
     },
     // Future stat cards can be added here
@@ -339,7 +344,7 @@ const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
 
 // --- Sub-components ---
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, microcopy, interpretation, className = '', testId }) => {
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, interpretation, metric, className = '', testId }) => {
     const resolvedTestId = testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
     // #1045: a card may only show a number, a unit, or a judgment when the evidence supports it.
@@ -356,21 +361,21 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
     if (interpretation) {
         // #G4 §2: every signal card is the SAME four parts in the same order — name, status chip, coloured
         // number+unit, one sentence. `nodata` states its unlock path instead of a dead "Not enough data".
-        const status: G4Status = evidenceMissing ? 'nodata' : (interpretation.tone === 'good' ? 'ontrack' : 'fix');
-        const chip = G4_CHIP[status];
+        // #1258 D5 (Rev 2 §5.6): no status chip and no coloured number — the value is plain, the one sentence names the
+        // read ("Slow · target 130–150" for pace, the label alone otherwise), and a dot carries the metric's colour.
         const unitText = displayUnit ? (displayUnit === 'WPM' ? ' wpm' : displayUnit) : '';
         const sentence = evidenceMissing
             ? 'A couple more sessions and we can read this.'
-            : status === 'ontrack'
-                ? `${interpretation.label} — leave this alone.`
-                : `${interpretation.label}${microcopy ? ` — ${microcopy}` : ''}`;
+            : metric === 'wpm'
+                ? `${interpretation.label} · target ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}–${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX}`
+                : interpretation.label;
         return (
-            <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
-                <div className="flex items-start justify-between gap-2">
+            <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId} data-status={evidenceMissing ? 'nodata' : interpretation.tone}>
+                <div className="flex items-start gap-2">
+                    {metric && <span aria-hidden className="mt-[3px] h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: metricConfig[metric].color }} data-testid={`${resolvedTestId}-dot`} />}
                     <p className="text-[12px] font-extrabold uppercase tracking-wide text-neutral-secondary">{label}</p>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${chip.cls}`} data-testid={`${resolvedTestId}-chip`}>{chip.text}</span>
                 </div>
-                <p className={`mt-3 text-[34px] font-extrabold leading-none ${G4_NUM_COLOR[status]}`} data-testid={`${resolvedTestId}-interpretation`}>
+                <p className="mt-3 text-[34px] font-extrabold leading-none text-neutral-heading" data-testid={`${resolvedTestId}-interpretation`}>
                     {evidenceMissing ? '—' : <>{displayValue}<span className="ml-1 text-[14px] font-bold text-neutral-secondary">{unitText}</span></>}
                 </p>
                 <p className="mt-2 text-[13px] leading-snug text-neutral-secondary" data-testid={`${resolvedTestId}-detail`}>{sentence}</p>
@@ -688,6 +693,26 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         });
     }, [sessionHistory]);
 
+    // #1258 D5 (PO 2026-10-07): the rule card and the filler card read the NEWEST 4 sessions, equally weighted.
+    // `calculateOverallStats` already counts each metric only over sessions that measured it (a measured zero counts,
+    // missing data doesn't); the filler average is the mean of the window's measured filler counts.
+    const recent = useMemo((): RecentWindow => {
+        const windowed = (sessionHistory ?? []).slice(0, RECENT_WINDOW_SESSIONS);
+        if (windowed.length === 0) return { sessions: 0, stats: null, fillersPerSession: null };
+        const counts = windowed.map((s) => getSessionAnalysisMetrics(s).fillerCount).filter((n): n is number => n !== null);
+        return {
+            sessions: windowed.length,
+            stats: calculateOverallStats(windowed) as OverallStats,
+            fillersPerSession: counts.length > 0 ? counts.reduce((a, b) => a + b, 0) / counts.length : null,
+        };
+    }, [sessionHistory]);
+    const recentSummary = useMemo(() => recent.stats ? getNarrativeSummary({
+        avgWpm: recent.stats.averageWPM,
+        avgPausesPerMin: recent.stats.avgPausesPerMin,
+        avgFillerWordsPerMin: recent.stats.avgFillerWordsPerMin,
+        avgClarity: recent.stats.avgClarity,
+    }) : null, [recent]);
+
     logger.debug({ loading, error, sessions: sessionHistory?.length }, '[AnalyticsDashboard] Rendering');
 
     const targetSession = useMemo(() => {
@@ -980,71 +1005,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         )}
                     </div>
 
-                    {/* #G4 §1 HERO — "Do this next". The single instruction leads (imperative sentence), the
-                        quantified evidence sits directly beneath it (numbers bold, inline), and three concrete
-                        "what to try" steps sit in the purple insight column. Quantitative drives qualitative. */}
-                    {Number(overallStats.totalSessions) > 0 && (() => {
-                        const summary = getNarrativeSummary({
-                            avgWpm: overallStats.averageWPM,
-                            avgPausesPerMin: overallStats.avgPausesPerMin,
-                            avgFillerWordsPerMin: overallStats.avgFillerWordsPerMin,
-                            avgClarity: overallStats.avgClarity,
-                        });
-                        const wpm = Math.round(Number(overallStats.averageWPM) || 0);
-                        const fillers = Math.round((Number(overallStats.avgFillerWordsPerMin) || 0) * 10) / 10;
-                        const clarity = Math.round(Number(overallStats.avgClarity) || 0);
-                        const pauses = Math.round((Number(overallStats.avgPausesPerMin) || 0) * 10) / 10;
-                        // Per-driver evidence (numbers bold inline) + three physical steps. Falls back to a
-                        // maintenance instruction when every signal is on target (summary.driver === null).
-                        const detail: { evidence: React.ReactNode; steps: string[] } = (() => {
-                            switch (summary.driver) {
-                                case 'pace':
-                                    return { evidence: <>You&rsquo;re averaging <strong>{wpm} wpm</strong> against your <strong>130&ndash;150</strong> target. {summary.why}</>,
-                                        steps: ['Read your opening 20% faster than feels right.', 'Slow down only for the one line you most want remembered.', 'Stop at 60 seconds and check the pace band.'] };
-                                case 'filler words':
-                                    return { evidence: <>You&rsquo;re at <strong>{fillers}/min</strong> filler words. {summary.why}</>,
-                                        steps: ['Swap one filler for a half-second silent pause.', 'Slow the sentence you rush most — fillers cluster there.', 'Re-record the same 30 seconds and count them out loud.'] };
-                                case 'pause rhythm':
-                                    return { evidence: <>Your pauses run <strong>{pauses}/min</strong>. {summary.why}</>,
-                                        steps: ['Finish the whole phrase before you pause.', 'Take one deliberate breath before the key point.', 'Cut mid-word restarts — pause, then continue.'] };
-                                case 'clear delivery':
-                                    return { evidence: <>Your clarity is <strong>{clarity}%</strong>. {summary.why}</>,
-                                        steps: ['Say the main point first, the context second.', 'One idea per sentence — split the long ones.', 'End each thought on a falling tone, not a trailing one.'] };
-                                default:
-                                    return { evidence: <>{summary.why}</>,
-                                        steps: ['Keep the pace steady.', 'Land the takeaway cleanly.', 'Record another take to hold the trend.'] };
-                            }
-                        })();
-                        return (
-                            <div className="rounded-xl border border-neutral-border border-t-[3px] border-t-signature bg-white p-6 shadow-sm" data-testid="try-this-next">
-                                <div className="grid gap-6 md:grid-cols-[1fr_300px] md:items-start">
-                                    <div>
-                                        <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-signature-text">◎ Do this next</p>
-                                        <p className="mt-2 text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] text-neutral-body" data-testid="try-this-next-action">{summary.action}</p>
-                                        <p className="mt-3 text-[16px] leading-relaxed text-neutral-body" data-testid="try-this-next-why">{detail.evidence}</p>
-                                        <div className="mt-5 flex items-center gap-4">
-                                            <a href="/session" className="inline-flex items-center rounded-[10px] bg-signature px-4 py-2.5 text-[15px] font-bold text-ink hover:brightness-95" data-testid="hero-practise-now">Practise this now</a>
-                                            <details className="text-[13px] font-bold text-signature-text">
-                                                <summary className="cursor-pointer list-none hover:underline" data-testid="hero-method">How we worked this out</summary>
-                                                <p className="mt-2 max-w-md text-[13px] font-normal leading-snug text-neutral-secondary">We compare each delivery signal (pace, fillers, clarity, pause rhythm) against its target across your last 6 sessions and surface the one with the largest, most persistent gap — never more than one at a time.</p>
-                                            </details>
-                                        </div>
-                                    </div>
-                                    <div className="rounded-lg bg-neutral-band p-4" data-testid="hero-what-to-try">
-                                        <p className="text-[11px] font-extrabold uppercase tracking-wide text-neutral-secondary">What to try</p>
-                                        <ol className="mt-3 space-y-3">
-                                            {detail.steps.map((step, i) => (
-                                                <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-neutral-body">
-                                                    <span className="font-extrabold text-signature-text">{i + 1}</span>
-                                                    <span>{step}</span>
-                                                </li>
-                                            ))}
-                                        </ol>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })()}
+                    {/* #1258 D5 (Rev 2 §5.5): the rule card — one data statement from the newest 4 sessions (PO 2026-10-07)
+                        and one practice action; it replaces the "Do this next" hero. Not rendered below 2 sessions. */}
+                    <RuleCard
+                        sessionsUsed={recent.sessions}
+                        driver={recentSummary?.driver ?? null}
+                        wpm={numberOrNull(recent.stats?.averageWPM)}
+                        fillersPerSession={recent.fillersPerSession}
+                        clarity={numberOrNull(recent.stats?.avgClarity)}
+                        pausesPerMin={numberOrNull(recent.stats?.avgPausesPerMin)}
+                    />
 
                     {/* Dynamic Stat Cards */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1052,11 +1022,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             <StatCard
                                 key={option.id}
                                 icon={option.icon}
-                                label={option.label}
-                                value={option.getValue(overallStats)}
+                                label={option.getLabel?.(recent) ?? option.label}
+                                value={option.getValue(overallStats, recent)}
                                 unit={option.unit}
-                                microcopy={option.microcopy}
-                                interpretation={option.getInterpretation?.(overallStats)}
+                                interpretation={option.getInterpretation?.(overallStats, recent)}
+                                metric={option.metric}
                                 testId={`stat-card-${option.id}`}
                             />
                         ))}

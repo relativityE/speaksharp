@@ -243,24 +243,76 @@ describe('AnalyticsDashboard', () => {
         expect(screen.queryByTestId('accuracy-comparison')).not.toBeInTheDocument();
     });
 
-    it('decodes Sound Confident tools into plain labels and shows one Try this next action', () => {
-        // mockStats: averageWPM 120 → Slow (off); avgPausesPerMin 8 → Smooth; avgClarity 85 → Strong.
-        localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
-        renderComponent({ sessionHistory: mockSessionHistory });
+    describe('#1258 D5 rule card and stat cards (Rev 2 §5.5–5.6; PO 2026-10-07: newest 4 sessions)', () => {
+        const PAUSES = { silencePercentage: 12, transitionPauses: 6, extendedPauses: 2, longestPause: 1.4 };
+        const row = (n: number, wpm: number, filler_counts: unknown) => ({
+            id: `w${n}`, user_id: 'test-user', created_at: `2026-10-0${n}T10:00:00Z`, duration: 600, total_words: wpm * 10,
+            wpm, clarity_score: 95, pause_metrics: PAUSES, filler_counts, status: 'completed', product: 'open_mic',
+            next_action_signal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+        });
+        // Newest first. The OLDEST session (outside the window) is fast with many fillers: averaged over all five the
+        // pace would read "over", so "under" proves the card reads only the newest four.
+        const history = [row(5, 100, { um: 2 }), row(4, 100, { um: 1 }), row(3, 100, {}), row(2, 100, null), row(1, 900, { um: 50 })];
 
-        // #G4 §2: cards lead with the NUMBER; the coaching label + guidance sit in the one sentence below.
-        expect(screen.getByTestId('stat-card-speaking_pace-detail')).toHaveTextContent('Slow');
-        expect(screen.getByTestId('stat-card-pause_rhythm-detail')).toHaveTextContent('Smooth');
-        expect(screen.getByTestId('stat-card-clarity_score-detail')).toHaveTextContent('Strong');
-        // The status chip carries the one scale (fix / on track / need more).
-        expect(screen.getByTestId('stat-card-speaking_pace-chip')).toHaveTextContent('FIX THIS');
-        expect(screen.getByTestId('stat-card-pause_rhythm-chip')).toHaveTextContent('ON TRACK');
+        it('CASUALTY (window): the rule card states the newest-4 pace with its real count and one Practise action', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            renderComponent({ sessionHistory: history });
+            const card = screen.getByTestId('try-this-next');
+            expect(within(card).getByTestId('rule-card-window')).toHaveTextContent('From your last 4 sessions');
+            expect(screen.getByTestId('try-this-next-action')).toHaveTextContent('Your pace averaged 100 words a minute, under the 130–150 target.');
+            expect(within(card).getByTestId('rule-card-chip')).toHaveTextContent('Focus: pace');
+            expect(within(card).getByRole('link', { name: 'Practise pace' })).toHaveAttribute('href', '/session');
+            expect(within(card).getByText('How we worked this out')).toBeInTheDocument();
+            // Retired: the ◎ "Do this next" eyebrow, the imperative headline, the WHAT TO TRY list and the yellow button.
+            expect(card.textContent).not.toMatch(/Do this next|What to try|Practise this now|Pick up the pace on familiar points/i);
+            expect(card.querySelector('.bg-signature')).toBeNull();
+        });
 
-        // #G4 §1 hero: the imperative action leads; the evidence paragraph carries the connecting "why".
-        expect(screen.getByTestId('try-this-next-action'))
-            .toHaveTextContent('Pick up the pace on familiar points.');
-        expect(screen.getByTestId('try-this-next-why'))
-            .toHaveTextContent('Your pause rhythm and clear delivery are steady; pace is the main adjustment.');
+        it('stat cards: no chips, uncoloured numbers, a metric dot, pace target in the sentence, filler count per session', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            renderComponent({ sessionHistory: history });
+            for (const id of ['speaking_pace', 'pause_rhythm', 'filler_words_per_min', 'clarity_score']) {
+                expect(screen.queryByTestId(`stat-card-${id}-chip`)).toBeNull();
+                expect(screen.getByTestId(`stat-card-${id}-interpretation`)).toHaveClass('text-neutral-heading');
+                expect(screen.getByTestId(`stat-card-${id}-dot`)).toBeInTheDocument();
+            }
+            expect(screen.queryByText(/FIX THIS|ON TRACK|NEED 2 MORE|leave this alone/)).toBeNull();
+            // mockStats (all sessions): 120 wpm → Slow.
+            expect(screen.getByTestId('stat-card-speaking_pace-detail')).toHaveTextContent('Slow · target 130–150');
+            // Filler card: newest 4 only, measured zeroes in, the unmeasured (null) session out → (2 + 1 + 0) / 3.
+            const filler = screen.getByTestId('stat-card-filler_words_per_min');
+            expect(filler).toHaveTextContent('Average fillers per session · last 4 sessions');
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^1\.0$/);
+            expect(screen.getByTestId('stat-card-clarity_score')).toHaveTextContent('Clear delivery');
+        });
+
+        it('fewer than two sessions: no rule card', () => {
+            renderComponent({ sessionHistory: [history[0]] });
+            expect(screen.queryByTestId('try-this-next')).toBeNull();
+        });
+
+        it('CASUALTY (CLI PM 6048239789): newest sessions with no measurable signal show no rule card, never "all on target"', () => {
+            const unmeasured = [5, 4, 3].map((n) => ({
+                id: `u${n}`, user_id: 'test-user', created_at: `2026-10-0${n}T10:00:00Z`, duration: 600,
+                filler_counts: null, status: 'completed', product: 'open_mic',
+                next_action_signal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+            }));
+            renderComponent({ sessionHistory: unmeasured });
+            expect(screen.queryByTestId('try-this-next')).toBeNull();
+            expect(screen.queryByText('Pace, fillers and clarity are all on target.')).toBeNull();
+        });
+
+        it('every signal on target: the on-target sentence, no chip and no Practise button', () => {
+            // 80 meaningful pauses in 10 minutes = 8 a minute (Smooth); 140 wpm; no fillers; clarity 95.
+            const smooth = { silencePercentage: 12, transitionPauses: 60, extendedPauses: 20, longestPause: 1.4 };
+            const steady = [row(5, 140, {}), row(4, 140, {}), row(3, 140, {})].map((r) => ({ ...r, pause_metrics: smooth }));
+            renderComponent({ sessionHistory: steady });
+            const card = screen.getByTestId('try-this-next');
+            expect(within(card).getByTestId('rule-card-window')).toHaveTextContent('From your last 3 sessions');
+            expect(screen.getByTestId('try-this-next-action')).toHaveTextContent('Pace, fillers and clarity are all on target.');
+            expect(within(card).queryByTestId('rule-card-chip')).toBeNull();
+            expect(within(card).queryByRole('link', { name: /Practise/ })).toBeNull();
+        });
     });
 
     it.each([
