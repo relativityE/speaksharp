@@ -381,6 +381,15 @@ jobs:
             rm -f "$verdicts"
           done
           exit $status
+      # PO 2026-10-07: "print the suggestions in the github run results". Synthetic-voice takes only (the writer and this
+      # renderer both refuse any other fixture kind). Printed to the run summary, never added to the uploaded artifact below.
+      - name: AI suggestions from synthetic takes → run summary
+        if: ${{ always() && startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
+        run: |
+          shopt -s nullglob
+          files=(test-results/rwt/*.coaching-text.json)
+          if [ ${#files[@]} -eq 0 ]; then echo "No synthetic-take coaching text was written in this run." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          node scripts/rwt-coaching-text-summary.mjs "${files[@]}" >> "$GITHUB_STEP_SUMMARY"
       # RWT receipts, readback outputs and human worksheets are content-free by construction (verdicts, counts, durations, ids,
       # observation names; the suites fail a receipt that carries point text, topic, email or a credential). The worksheet is
       # the run-bound input `pnpm rwt:finalize` requires (#1532 Codex P2 r4120338762). Only these are uploaded — never test-results/ as a
