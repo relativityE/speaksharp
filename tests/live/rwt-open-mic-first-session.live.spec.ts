@@ -683,9 +683,11 @@ test.describe('RWT — Open Mic first session @live', () => {
                 reviewRenderedStage: reviewRendered,
             };
             const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
+            const coachingReceivedBy = ['session_after_open_mic'] as const;
             receipt.row('coaching telemetry sent', sentVerdict(coachingSent, tap, stoppedAt),
-                coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
-                    : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt), { ...coachingEvents, blindBeacons: tap.blindBeacons });
+                coachingSent ? sentDetail('review completed, persisted and rendered left the page (sent; received coaching outcomes are qualified by session_after_open_mic)', coachingSent, tap, stoppedAt, coachingReceivedBy)
+                    : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt, coachingReceivedBy),
+                { ...coachingEvents, blindBeacons: tap.blindBeacons, ...readbackSettlement(coachingReceivedBy, tap, stoppedAt) });
             // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
             // RECEIVED is the deployed PostHog readback for this journey.
             const inventory = {
@@ -702,10 +704,12 @@ test.describe('RWT — Open Mic first session @live', () => {
             // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
             const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
             const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
+            const generationReceivedBy = ['session_after_open_mic'] as const;
             receipt.row('revisit is not a generation', generationVerdict,
                 generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none'
-                    : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD'
-                        : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
+                    : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); received request cardinality is decided by session_after_open_mic'
+                        : 'the generation count is not exactly one for this take',
+                { reviewGenerationsRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons, ...readbackSettlement(generationReceivedBy, tap, stoppedAt) });
             // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
             // "analytics detail shows both AI suggestions").
             const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
@@ -722,6 +726,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
                 },
                 feedback: true, pdfExport: true, practiceAgain: true,
+                product: 'open_mic',
             }),
                 tap.trafficTypes(), userJourneys);
         }

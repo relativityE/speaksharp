@@ -190,6 +190,8 @@ export function bindReadbackJourneys(
         takes?: { first: ExpectedTake | null; repeat?: ExpectedTake | null };
         feedback: boolean;
         pdfExport?: boolean;
+        /** Product bound to every saved-attempt coaching receipt in this RWT journey. */
+        product?: 'open_mic' | 'focus_points';
         /** #1258 (#1563): the journey of the first canary Practice-again press is read back for press→arrival. */
         practiceAgain?: boolean;
     },
@@ -197,14 +199,16 @@ export function bindReadbackJourneys(
     const canary = events.filter((e) => e.trafficType === 'canary' && typeof e.journeyId === 'string' && e.journeyId !== '');
     const anchor = (name: string): string | null =>
         [...canary].filter((e) => e.event === name).sort((a, b) => a.at - b.at)[0]?.journeyId ?? null;
-    const bound = new Map<string, { stages: string[]; attemptIds: string[] }>();
+    const bound = new Map<string, { stages: string[]; attemptIds: string[]; product?: 'open_mic' | 'focus_points' }>();
     const missingBindings: string[] = [];
     const bind = (journeyId: string | null, stages: readonly string[], label: string, attemptId?: string) => {
         if (!journeyId) { missingBindings.push(label); return; }
-        const prev = bound.get(journeyId) ?? { stages: [], attemptIds: [] };
+        const prev = bound.get(journeyId) ?? { stages: [], attemptIds: [], product: plan.product };
+        if (prev.product && plan.product && prev.product !== plan.product) missingBindings.push('conflicting_product_binding');
         bound.set(journeyId, {
             stages: [...new Set([...prev.stages, ...stages])],
             attemptIds: attemptId && !prev.attemptIds.includes(attemptId) ? [...prev.attemptIds, attemptId] : prev.attemptIds,
+            ...(prev.product ?? plan.product ? { product: prev.product ?? plan.product } : {}),
         });
     };
     let firstRecording: string | null = null;
@@ -222,10 +226,11 @@ export function bindReadbackJourneys(
     // The v12 PDF is downloaded after the detail reload (Back to Dashboard → Download PDF), so it binds to its own journey.
     if (plan.pdfExport) bind(anchor('session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
     if (plan.practiceAgain) bind(anchor('saved_review_practice_action'), ['practice_again'], 'practice_again');
-    const journeys = [...bound].map(([journeyId, { stages, attemptIds }]) => ({
+    const journeys = [...bound].map(([journeyId, { stages, attemptIds, product }]) => ({
         journeyId, stages,
         ...(journeyId === firstRecording ? { firstDownload: true } : {}),
         ...(attemptIds.length > 0 ? { attemptIds } : {}),
+        ...(product ? { product } : {}),
     }));
     const reportedJourneyIds = [...new Set(canary.map((e) => e.journeyId as string))].filter((j) => !bound.has(j));
     return { journeys, reportedJourneyIds, missingBindings };

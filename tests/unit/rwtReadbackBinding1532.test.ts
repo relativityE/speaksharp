@@ -65,6 +65,13 @@ describe('bindReadbackJourneys', () => {
             .toEqual([{ journeyId: 'FIRST', stages: RECORDING, firstDownload: true }]);
     });
 
+    it('#1258 successor: the recording journey carries its declared product into received coaching readback', () => {
+        const take = { attemptId: 'attempt-a', journeyId: 'A' };
+        expect(bindReadbackJourneys([ev('session_saved', 1, 'A')], {
+            recording: RECORDING, feedback: false, takes: { first: take }, product: 'open_mic',
+        }).journeys).toEqual([{ journeyId: 'A', stages: RECORDING, firstDownload: true, attemptIds: ['attempt-a'], product: 'open_mic' }]);
+    });
+
     it('CASUALTY: a required binding with no anchor event is reported missing (fail closed), never silently dropped', () => {
         const r = bindReadbackJourneys([ev('session_saved', 1, 'A')], { recording: RECORDING, feedback: true });
         expect(r.missingBindings).toEqual(['share_feedback']);
@@ -93,7 +100,7 @@ describe('rc-gates RWT readback step', () => {
         mkdirSync(join(dir, 'test-results', 'rwt'), { recursive: true });
         mkdirSync(bin);
         writeFileSync(join(dir, 'test-results', 'rwt', 'suite.receipt.json'), JSON.stringify({ suite: 'suite', readback }));
-        writeFileSync(join(bin, 'pnpm'), '#!/usr/bin/env bash\nj=""; t=""; while [ $# -gt 0 ]; do case "$1" in --journey-id) j="$2"; shift;; --traffic-type) t="$2"; shift;; esac; shift; done\necho "$t|$j|${QUALIFICATION_STAGES:-}" >> "$STUB_LOG"\necho "$j|${TELEMETRY_READBACK_ACQUISITION_RECEIPT:-}|${QUALIFICATION_ATTEMPT_IDS:-}" >> "$STUB_LOG.acq"\ncase " ${STUB_FAIL:-} " in *" $j "*) exit 3;; esac\ncase " ${STUB_HOLD:-} " in *" $j "*) exit 1;; esac\n');
+        writeFileSync(join(bin, 'pnpm'), '#!/usr/bin/env bash\nj=""; t=""; while [ $# -gt 0 ]; do case "$1" in --journey-id) j="$2"; shift;; --traffic-type) t="$2"; shift;; esac; shift; done\necho "$t|$j|${QUALIFICATION_STAGES:-}" >> "$STUB_LOG"\necho "$j|${TELEMETRY_READBACK_ACQUISITION_RECEIPT:-}|${QUALIFICATION_ATTEMPT_IDS:-}" >> "$STUB_LOG.acq"\necho "$j|${QUALIFICATION_PRODUCT:-}|${QUALIFICATION_ATTEMPT_IDS:-}" >> "$STUB_LOG.coach"\ncase " ${STUB_FAIL:-} " in *" $j "*) exit 3;; esac\ncase " ${STUB_HOLD:-} " in *" $j "*) exit 1;; esac\n');
         writeFileSync(join(bin, 'sleep'), '#!/usr/bin/env bash\nexit 0\n');
         chmodSync(join(bin, 'pnpm'), 0o755); chmodSync(join(bin, 'sleep'), 0o755);
         const log = join(dir, 'calls.log');
@@ -107,7 +114,9 @@ describe('rc-gates RWT readback step', () => {
         try { verdicts = JSON.parse(readFileSync(verdictPath, 'utf8')); } catch { verdicts = null; }
         let acquisition: string[] = [];
         try { acquisition = readFileSync(`${log}.acq`, 'utf8').trim().split('\n').filter(Boolean); } catch { acquisition = []; }
-        return { calls: readFileSync(log, 'utf8').trim().split('\n').filter(Boolean), exit, verdicts, acquisition };
+        let coaching: string[] = [];
+        try { coaching = readFileSync(`${log}.coach`, 'utf8').trim().split('\n').filter(Boolean); } catch { coaching = []; }
+        return { calls: readFileSync(log, 'utf8').trim().split('\n').filter(Boolean), exit, verdicts, acquisition, coaching };
     };
 
     it('the step exists', () => { expect(step?.run).toBeTruthy(); });
@@ -135,6 +144,15 @@ describe('rc-gates RWT readback step', () => {
         expect(exit).toBe(0);
         expect(calls).toEqual([`canary|A|${RECORDING.join(',')}`, `canary|B|${[...REPEAT, 'share_feedback'].join(',')}`]);
         expect(acquisition).toEqual(['A|1|', 'B|0|']);
+    });
+
+    it('#1258 successor: the RWT product and saved attempt are passed to received coaching qualification', () => {
+        const { exit, coaching } = runStep({
+            journeys: [{ journeyId: 'A', stages: RECORDING, product: 'focus_points', attemptIds: ['att-focus-1'] }],
+            reportedJourneyIds: [], missingBindings: [], userStageJourneyIds: [],
+        });
+        expect(exit).toBe(0);
+        expect(coaching).toEqual(['A|focus_points|att-focus-1']);
     });
 
     it('CASUALTY: each bound journey is qualified against ONLY its own stages; reported journeys are never qualified', () => {

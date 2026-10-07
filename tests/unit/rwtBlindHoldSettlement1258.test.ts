@@ -6,7 +6,7 @@
  * one. Before this change `applyReadback` touched only `journey telemetry received`, so a QUALIFIED readback could never
  * resolve those HOLDs and every such run finalized INCOMPLETE while the row text claimed "the received readback decides".
  * Now a row that names its receiving qualification stages becomes PASS when every bound journey declaring them qualified;
- * rows no stage receives (coaching outcomes, the exact generation count) stay HOLD and say so.
+ * coaching outcome and request-cardinality rows settle only when the recording stage's extended readback qualifies.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -97,11 +97,24 @@ describe('a QUALIFIED readback settles a blind sent HOLD (Codex r4201644107)', (
         expect(finalRow(out, 'telemetry sent').verdict).toBe('HOLD');
     });
 
-    it('uncovered rows (coaching outcomes, the exact generation count) stay HOLD under a fully qualified readback', () => {
-        const receipt = receiptWith([...COVERED, blindHold('coaching telemetry sent', []), blindHold('revisit is not a generation', [])]);
+    it('a fully qualified coaching readback settles coaching and generation-cardinality HOLDs', () => {
+        const receipt = receiptWith([...COVERED,
+            blindHold('coaching telemetry sent', ['session_after_open_mic']),
+            blindHold('revisit is not a generation', ['session_after_open_mic']),
+        ]);
         const out = finalizeReceipt(receipt, worksheetFor(receipt), readback('QUALIFIED', 'QUALIFIED'));
+        expect(finalRow(out, 'coaching telemetry sent')).toMatchObject({ verdict: 'PASS', evidence: { settledByReadback: true } });
+        expect(finalRow(out, 'revisit is not a generation')).toMatchObject({ verdict: 'PASS', evidence: { settledByReadback: true } });
+        expect(out.finalAcceptance).toBe('PASS');
+    });
+
+    it('a partial coaching readback cannot settle those rows', () => {
+        const receipt = receiptWith([
+            blindHold('coaching telemetry sent', ['session_after_open_mic']),
+            blindHold('revisit is not a generation', ['session_after_open_mic']),
+        ]);
+        const out = finalizeReceipt(receipt, worksheetFor(receipt), readback('HOLD', 'QUALIFIED'));
         expect(finalRow(out, 'coaching telemetry sent').verdict).toBe('HOLD');
-        expect(finalRow(out, 'coaching telemetry sent').detail).toMatch(/no readback stage receives these events, so this row stays HOLD$/);
         expect(finalRow(out, 'revisit is not a generation').verdict).toBe('HOLD');
         expect(out.finalAcceptance).toBe('INCOMPLETE');
     });
@@ -130,12 +143,19 @@ describe('SOURCE CONTRACT: each settling row names stages that really receive it
         { file: '../live/rwt-open-mic-first-session.live.spec.ts', constant: 'inventoryReceivedBy', stages: ['analytics_inventory', 'session_pdf_export'], events: ['products_menu_opened', 'saved_review_revisited', 'session_pdf_downloaded'] },
         { file: '../live/helpers/rwtFocusPointsJourney.ts', constant: 'coverageReceivedBy', stages: ['session_after_focus_points'], events: ['coverage_evaluation'] },
         { file: '../live/helpers/rwtFocusPointsJourney.ts', constant: 'focusInventoryReceivedBy', stages: ['analytics_inventory'], events: ['products_menu_opened', 'saved_review_revisited'] },
+        { file: '../live/rwt-open-mic-first-session.live.spec.ts', constant: 'coachingReceivedBy', stages: ['session_after_open_mic'], events: ['practice_loop_review_requested', 'practice_loop_review_completed', 'practice_loop_review_persisted', 'practice_loop_review_rendered'] },
+        { file: '../live/helpers/rwtFocusPointsJourney.ts', constant: 'coachingReceivedBy', stages: ['session_after_focus_points'], events: ['practice_loop_review_requested', 'practice_loop_review_completed', 'practice_loop_review_persisted', 'practice_loop_review_rendered'] },
     ];
     it.each(CLAIMS)('$constant: the declared stages require every event the row counts', ({ file, constant, stages, events }) => {
         const source = readFileSync(path.resolve(__dirname, file), 'utf8');
         expect(source).toContain(`const ${constant} = [${stages.map((s) => `'${s}'`).join(', ')}] as const;`);
         const received = familiesOf(stages);
-        expect(events.filter((e) => !received.has(e))).toEqual([]);
+        const gate = readFileSync(path.resolve(__dirname, '../../frontend/src/services/telemetry/receivedPracticeLoopGate.ts'), 'utf8');
+        const missing = constant === 'coachingReceivedBy'
+            ? events.filter((event) => !gate.includes(event))
+            : events.filter((event) => !received.has(event));
+        expect(constant !== 'coachingReceivedBy' || gate.includes('PRACTICE_LOOP_RECEIPT_FAMILIES')).toBe(true);
+        expect(missing).toEqual([]);
     });
     it('no live receipt text still claims "the received readback decides" for a HOLD', () => {
         for (const file of ['../live/rwt-open-mic-first-session.live.spec.ts', '../live/helpers/rwtFocusPointsJourney.ts']) {

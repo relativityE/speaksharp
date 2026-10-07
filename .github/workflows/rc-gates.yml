@@ -347,7 +347,7 @@ jobs:
             # #1532 Codex P1 r4119969323: each journey is qualified against ONLY the stages it exercised (a reload mints
             # a new journey, so recording and feedback land in different journeys). Reported journeys are never qualified.
             missing=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.stdout.write((r.readback.missingBindings||[]).join(","))' "$receipt")
-            bindings=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); for (const b of (r.readback.journeys||[])) process.stdout.write(`${b.journeyId} ${(b.stages||[]).join(",")} ${b.firstDownload===true?1:0} ${(b.attemptIds||[]).join(",")||"-"}\n`)' "$receipt")
+            bindings=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); for (const b of (r.readback.journeys||[])) process.stdout.write(`${b.journeyId} ${(b.stages||[]).join(",")} ${b.firstDownload===true?1:0} ${(b.attemptIds||[]).join(",")||"-"} ${b.product||"-"}\n`)' "$receipt")
             # Signup stage: ordinary `user` traffic, reported (received counts) but never qualifying.
             for ujourney in $(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.stdout.write((r.readback.userStageJourneyIds||[]).join(" "))' "$receipt"); do
               ulog="test-results/rwt/$(basename "$receipt" .receipt.json).$ujourney.user-stage.readback.log"
@@ -358,8 +358,9 @@ jobs:
             # #1532 Codex P1 r4121232394: the per-journey outcome is written for `pnpm rwt:finalize --readback`.
             verdicts="test-results/rwt/$(basename "$receipt" .receipt.json).readback-verdicts.jsonl"
             : > "$verdicts"
-            while read -r journey stages first_download attempts; do
+            while read -r journey stages first_download attempts product; do
               [ "$attempts" = "-" ] && attempts=
+              [ "$product" = "-" ] && product=
               [ -z "$journey" ] && continue
               ok=1
               # #1258 (#1563, Codex r4197007854): exit 3 = an OBSERVED received failure. Received rows do not un-happen, so
@@ -367,7 +368,7 @@ jobs:
               for attempt in 1 2 3; do
                 log="test-results/rwt/$(basename "$receipt" .receipt.json).$journey.readback.log"
                 rc=0
-                TELEMETRY_READBACK_ACQUISITION_RECEIPT="$first_download" QUALIFICATION_ATTEMPT_IDS="$attempts" QUALIFICATION_STAGES="$stages" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log" || rc=${PIPESTATUS[0]}
+                TELEMETRY_READBACK_ACQUISITION_RECEIPT="$first_download" QUALIFICATION_ATTEMPT_IDS="$attempts" QUALIFICATION_STAGES="$stages" QUALIFICATION_PRODUCT="$product" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log" || rc=${PIPESTATUS[0]}
                 if [ "$rc" -eq 0 ]; then ok=0; break; fi
                 if [ "$rc" -eq 3 ]; then ok=3; break; fi
                 sleep 60

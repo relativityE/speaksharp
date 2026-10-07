@@ -473,14 +473,17 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             savedReviewRevisited: tap.sent('saved_review_revisited').length,
         };
         const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
+        const coachingReceivedBy = ['session_after_focus_points'] as const;
         receipt.row('Focus coaching telemetry sent', sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
-            sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
+            sentDetail('the coaching review rendered receipt left the page (sent; received coaching outcomes are qualified by session_after_focus_points)', focusCoachingSeen, tap, rowsStoppedAt, coachingReceivedBy),
+            { ...focusTelemetry, blindBeacons: tap.blindBeacons, ...readbackSettlement(coachingReceivedBy, tap, rowsStoppedAt) });
         // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
         const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
         const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
+        const generationReceivedBy = ['session_after_focus_points'] as const;
         receipt.row('revisit is not a generation', generationVerdict,
-            generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD' : 'the generation count is not exactly one for this take',
-            { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
+            generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); received request cardinality is decided by session_after_focus_points' : 'the generation count is not exactly one for this take',
+            { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons, ...readbackSettlement(generationReceivedBy, tap, rowsStoppedAt) });
         const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
         const focusInventoryReceivedBy = ['analytics_inventory'] as const;
         receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap, focusInventoryFrom),
@@ -524,6 +527,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 feedback: fixtureKey === 'focus_points_tts',
                 // #1258 (#1563, Codex r4197420116): the received press→arrival is required of Focus as of Open Mic.
                 practiceAgain: true,
+                product: 'focus_points',
             }),
             tap.trafficTypes(), userJourneys);
     }

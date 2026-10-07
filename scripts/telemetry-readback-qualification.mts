@@ -46,6 +46,7 @@ import {
     resolveBootAuthority,
     stageEvidenceRows,
 } from '../frontend/src/services/telemetry/bootScopedReceipts';
+import { evaluateReceivedPracticeLoop } from '../frontend/src/services/telemetry/receivedPracticeLoopGate';
 
 /**
  * The only traffic classes that may qualify controlled Production evidence.
@@ -81,6 +82,7 @@ type Evidence = {
     /** Received-vendor cardinality and a named failure when a singleton receipt is absent. */
     received_counts?: Record<string, number>;
     duplicate_families?: string[];
+    coaching_readback?: { verdict: 'QUALIFIED' | 'HOLD' | 'FAIL'; expected_requests: number; received_requests: number; reasons: string[] };
     delivery_failures?: ReturnType<typeof evaluateAttemptScopedDelivery>['deliveryFailures'];
     identity_bound?: boolean;
     window_hours: number;
@@ -343,6 +345,8 @@ async function main(): Promise<void> {
                 error_category: cells[34] ?? null,
                 // Codex r4197007868: the producer time (`$ts`) that orders outcome correlation.
                 producer_ts: cells[35] ?? null,
+                product: cells[36] ?? null,
+                request_id: cells[37] ?? null,
             },
         };
     });
@@ -408,8 +412,37 @@ async function main(): Promise<void> {
     // so the unsaved repeat and next-Start takes in the same journey neither count against it nor hide its absence.
     const expectedAttempts = (process.env.QUALIFICATION_ATTEMPT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const delivery = evaluateAttemptScopedDelivery(deliveryRows, exactlyOnceFamiliesForStages(declared), expectedAttempts);
+    /**
+     * #1258 successor — received coaching coverage is part of the same journey verdict. The query has
+     * already restricted release, traffic, identity and bounded time; this binds each coaching event
+     * to the selected journey/boot, product, saved attempt and logical request. Missing producer fields
+     * stay HOLD until the product emits them.
+     */
+    let coachingReadback: Evidence['coaching_readback'];
+    const coachingReasons: string[] = [];
+    if (declaresRecordingStage(declared)) {
+        const product = process.env.QUALIFICATION_PRODUCT;
+        if (product !== 'open_mic' && product !== 'focus_points') {
+            coachingReasons.push('HOLD: QUALIFICATION_PRODUCT must name open_mic or focus_points for recording readback');
+            coachingReadback = { verdict: 'HOLD', expected_requests: expectedAttempts.length, received_requests: 0, reasons: [...coachingReasons] };
+        } else {
+            const evaluated = evaluateReceivedPracticeLoop(readback, {
+                journeyId,
+                bootId: boot.bootId,
+                product,
+                attemptIds: expectedAttempts,
+            });
+            coachingReasons.push(...evaluated.reasons);
+            coachingReadback = {
+                verdict: evaluated.verdict,
+                expected_requests: evaluated.expectedRequests,
+                received_requests: evaluated.receivedRequests,
+                reasons: evaluated.reasons,
+            };
+        }
+    }
     // #1258 (#1563, Codex r4197007854): an OBSERVED failure is FAIL (exit 3, never retried into HOLD); missing is HOLD.
-    const verdict: ReadbackVerdict = readbackVerdict(stageReasons, result.verdict, delivery.verdict);
+    const verdict: ReadbackVerdict = readbackVerdict([...stageReasons, ...coachingReasons], result.verdict, delivery.verdict);
     const evidence: Evidence = {
         gate: 'TELEMETRY-READBACK-COMPLETENESS',
         release_sha: releaseSha,
@@ -428,6 +461,7 @@ async function main(): Promise<void> {
         received_counts: delivery.receivedCounts,
         duplicate_families: delivery.duplicateFamilies,
         delivery_failures: delivery.deliveryFailures,
+        ...(coachingReadback ? { coaching_readback: coachingReadback } : {}),
         verdict,
         missing: [...new Set([...result.missing, ...delivery.missingFamilies])],
         unrecognised: result.unrecognised,
@@ -495,14 +529,14 @@ async function main(): Promise<void> {
     }
 
     if (verdict === 'FAIL') {
-        console.error(`FAIL — an observed failure was received: ${stageReasons.filter(isObservedFailureReason).join('; ')}`);
+        console.error(`FAIL — an observed failure was received: ${[...stageReasons, ...coachingReasons].filter(isObservedFailureReason).join('; ')}`);
         process.exit(READBACK_FAIL_EXIT);
     }
     if (verdict !== 'QUALIFIED') {
-        console.error(`HOLD — ${[...result.reasons, ...delivery.reasons, ...stageReasons].join('; ')}`);
+        console.error(`HOLD — ${[...result.reasons, ...delivery.reasons, ...stageReasons, ...coachingReasons].join('; ')}`);
         process.exit(1);
     }
-    console.log(`QUALIFIED — every required governed family was INGESTED and singleton receipts arrived once for journey ${journeyId} on ${releaseSha}.`);
+    console.log(`QUALIFIED — required governed families, singleton receipts and bound coaching outcomes were received for journey ${journeyId} on ${releaseSha}.`);
 }
 
 await main();

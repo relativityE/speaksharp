@@ -57,6 +57,13 @@ describe('the readback script applies both checks per declared stage set', () =>
         expect(script).not.toMatch(/evaluate(DeliveryReceipts|AttemptScopedDelivery)\(deliveryRows\)/);
     });
 
+    it('#1258 successor: recording qualification includes received coaching ownership and request cardinality', () => {
+        expect(script).toContain('evaluateReceivedPracticeLoop(readback');
+        expect(script).toContain('process.env.QUALIFICATION_PRODUCT');
+        expect(script).toContain('bootId: boot.bootId');
+        expect(script).toContain('attemptIds: expectedAttempts');
+    });
+
     it('the first-download receipt is required only of a recording binding, and says so when it is not applicable', () => {
         expect(script).toMatch(/const acquisitionRequired = process\.env\.TELEMETRY_READBACK_ACQUISITION_RECEIPT === '1' && declaresRecordingStage\(declared\);/);
         expect(script).toMatch(/if \(acquisitionRequired\) \{\n\s+const acquisitionRows = await runQuery/);
