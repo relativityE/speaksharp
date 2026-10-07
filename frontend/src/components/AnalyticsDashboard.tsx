@@ -3,7 +3,7 @@ import { getSessionById, resolveTranscriptView } from '@/lib/storage';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
 import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 import { NavLink } from 'react-router-dom';
-import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Eye, ChevronDown, AudioLines } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, ChevronDown, AudioLines } from 'lucide-react';
 import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
-import { formatDateTime } from '../lib/dateUtils';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendsCard } from './analytics/TrendsCard';
@@ -25,7 +24,7 @@ import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
 import { getSessionPauseCount } from '@/lib/analyticsUtils';
 import { hasValidPauseEvidence } from '@/utils/metricValidity';
-import { shortDate } from '@/lib/displayFormat';
+import { PRODUCT_LABEL, mmss, shortDate, shortTime } from '@/lib/displayFormat';
 import {
     decodePace,
     decodePauseRhythm,
@@ -35,7 +34,7 @@ import {
     type CoachingMetric,
 } from '@/utils/coachingNarrative';
 
-import type { PracticeSession } from '@/types/session';
+import type { PracticeSession, SessionProduct } from '@/types/session';
 import type { UserProfile } from '@/types/user';
 import type { OverallStats } from '@/types/analytics';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -407,82 +406,61 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
     );
 };
 
+/** #1258 D9 (Rev 2 §5.9): the product pill on a Recent sessions row. Only the persisted product is shown — never inferred. */
+const ProductTag: React.FC<{ product: SessionProduct }> = ({ product }) => (
+    <span
+        className={`rounded-full border px-[9px] py-[3px] text-[11px] font-extrabold uppercase tracking-[0.06em] ${product === 'focus_points'
+            ? 'border-focus-points-border bg-focus-points-ground text-focus-points'
+            : 'border-signature-border bg-signature-ground text-ink'}`}
+        data-testid="session-product-tag"
+    >
+        {PRODUCT_LABEL[product]}
+    </span>
+);
+
+/** Label left, value right in one fixed column so the same metric lines up row to row (Rev 2 §0.2b/§0.2c). */
+const RowMetric: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => (
+    <span className="flex justify-between gap-2.5 whitespace-nowrap">
+        <span>{k}</span>
+        <strong className="text-right font-extrabold text-neutral-heading">{v}</strong>
+    </span>
+);
+
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessionHistory, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
     const metrics = getSessionAnalysisMetrics(session);
-    const durationMins = Math.floor(session.duration / 60);
-    const durationSecs = session.duration % 60;
-    const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
-
     // #1306 metrics-only: a metric shows iff its value is persisted (metric-presence provenance).
-    const wpm = typeof session.wpm === 'number' ? metrics.wpm : 'N/A';
-    const clarity = typeof session.clarity_score === 'number' ? metrics.clarityScore : 'N/A';
-    const totalFillers = metrics.fillerCount === null ? 'N/A' : metrics.fillerCount;
+    const wpm = typeof session.wpm === 'number' ? metrics.wpm : null;
+    const clarity = typeof session.clarity_score === 'number' ? metrics.clarityScore : null;
+    const product = session.product ?? null;
+    const when = `${shortDate(session.created_at)}, ${shortTime(session.created_at)}`;
 
     return (
-        <div
-            className="group mb-3 flex flex-col items-stretch justify-between rounded-xl border border-[hsl(var(--border))] bg-muted p-4 transition-colors last:mb-0 hover:border-[hsl(var(--border-strong))] hover:bg-white surface-shadow md:flex-row md:items-center"
-            data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
-        >
-            <div className="mb-4 flex min-w-0 w-full items-center gap-4 md:mb-0 md:w-auto">
-                <div className="flex items-center h-full">
-                    <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => onToggleSelect(session.id)}
-                        className="mr-4"
-                        aria-label={`Select session for comparison`}
-                    />
-                </div>
+        <div className="flex flex-col gap-1.5 px-5 py-4 hover:bg-neutral-band" data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}>
+            <div className="flex flex-wrap items-center gap-3">
+                {product && <ProductTag product={product} />}
                 <NavLink
                     to={`/analytics/${session.id}`}
                     data-testid={`session-detail-link-${session.id}`}
-                    className="flex min-w-0 flex-1 items-center gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="rounded-sm text-[15px] font-extrabold text-neutral-heading underline decoration-neutral-border-strong underline-offset-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                    <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
-                        <Mic className="w-6 h-6 text-secondary" />
-                    </div>
-                    <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            {/* #G4 chunk 3: per-row engine/PRIVATE badge removed — the section footer already
-                                makes the privacy promise ("Private to you…"), so the per-row pill was
-                                redundant clutter. Recording mode remains available on the session detail view. */}
-                            <p className="max-w-full truncate text-base font-semibold text-foreground md:max-w-[200px]">{session.title || 'Practice Session'}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground/70">
-                            <Clock className="w-3 h-3" />
-                            <span>{durationStr} duration</span>
-                            <span className="text-foreground/50">•</span>
-                            <span>{formatDateTime(session.created_at)}</span>
-                        </div>
-                    </div>
+                    {when}
                 </NavLink>
-            </div>
-
-            <div className="grid w-full grid-cols-3 items-start gap-2 px-0 sm:px-4 md:flex md:w-auto md:items-center md:justify-end md:gap-8 md:px-0">
-                <div className="min-w-0 text-center">
-                    <p className="font-bold text-foreground text-lg">{wpm}{typeof wpm === 'number' && <span className="ml-0.5 text-xs font-normal text-neutral-secondary">WPM</span>}</p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Speaking Pace</p>
-                </div>
-                <div className="min-w-0 text-center">
-                    <p className={`font-bold text-lg ${typeof totalFillers === 'number' && totalFillers <= 3 ? "text-success" : "text-signature-text"}`}>
-                        {totalFillers}
-                    </p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Detected filler words</p>
-                </div>
-                <div className="min-w-0 text-center">
-                    <p className="font-bold text-signature-text text-lg">{typeof clarity === 'number' ? `${clarity.toFixed(0)}%` : clarity}</p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clear Delivery</p>
-                </div>
-
-                {/* #G4 chunk 3: Open (outlined) + PDF (teal-filled) button pair — the PDF is the emphasised
-                    action while it's still downloadable within the 2-session retention window. */}
-                <div className="hidden items-center gap-2 border-l border-border pl-4 md:flex" data-testid={`download-pdf-container-${session.id}`}>
+                <span className="ml-auto text-[14px] font-bold tabular-nums text-neutral-secondary">{mmss(session.duration)}</span>
+                <label className="inline-flex min-h-11 items-center gap-2 text-[13px] font-bold text-neutral-secondary">
+                    Compare
+                    <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => onToggleSelect(session.id)}
+                        aria-label={`Compare ${product ? PRODUCT_LABEL[product] : 'session'}, ${when}`}
+                    />
+                </label>
+                <div className="flex items-center gap-3" data-testid={`download-pdf-container-${session.id}`}>
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-signature-border bg-white px-[14px] py-[9px] text-[13px] font-bold text-signature-text transition-colors hover:bg-signature-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        aria-label="Open saved session details"
                         data-testid={`open-session-detail-${session.id}`}
+                        aria-label={`Open ${product ? PRODUCT_LABEL[product] : 'session'}, ${when}`}
+                        className="inline-flex h-9 items-center rounded-lg bg-ink px-4 text-[14px] font-extrabold text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2"
                     >
-                        <Eye className="h-4 w-4" aria-hidden="true" />
                         Open
                     </NavLink>
                     <button
@@ -494,37 +472,16 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                         }}
                         title="Download Session PDF"
                         data-testid={`download-pdf-btn-${session.id}`}
-                        className="inline-flex items-center justify-center gap-2 rounded-[9px] bg-signature px-[14px] py-[9px] text-[13px] font-bold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-signature px-3.5 text-[14px] font-extrabold text-ink hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
-                        <Download className="h-4 w-4" aria-hidden="true" />
-                        PDF
+                        <Download className="h-4 w-4" aria-hidden="true" />PDF
                     </button>
                 </div>
             </div>
-            <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4" data-testid={`download-pdf-container-mobile-${session.id}`}>
-                <div className="flex w-full flex-col gap-2">
-                    <NavLink
-                        to={`/analytics/${session.id}`}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] border border-signature-border bg-white px-[14px] py-[9px] text-[13px] font-bold text-signature-text transition-colors hover:bg-signature-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        aria-label="Open saved session details"
-                        data-testid={`open-session-detail-mobile-${session.id}`}
-                    >
-                        <Eye className="h-4 w-4" aria-hidden="true" />
-                        Open Saved Session
-                    </NavLink>
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            downloadSessionPdf('history_list_mobile', session, profileName, _isPro, sessionHistory);
-                        }}
-                        data-testid={`download-pdf-btn-mobile-${session.id}`}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] bg-signature px-[14px] py-[9px] text-[13px] font-bold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                        <Download className="h-4 w-4" aria-hidden="true" /> Download Session PDF
-                    </button>
-                </div>
+            <div className="grid grid-cols-1 gap-x-7 text-[14px] font-semibold tabular-nums text-neutral-secondary min-[480px]:grid-cols-[repeat(3,minmax(0,190px))]">
+                <RowMetric k="Pace (wpm)" v={wpm ?? '—'} />
+                <RowMetric k="Fillers" v={metrics.fillerCount ?? '—'} />
+                <RowMetric k="Clear delivery (%)" v={clarity === null ? '—' : clarity.toFixed(0)} />
             </div>
         </div>
     );
@@ -1141,43 +1098,38 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
-                            <Card className="rounded-xl p-5">
-                                {/* #G4 §5: "Recent sessions" — exactly the 2 most recent (the retention window, not a
-                                    truncation). Transcripts + audio purge beyond 2 (R1/R2 live in prod), metrics rows
-                                    persist permanently — so the "we keep only 2" promise is now honest. */}
-                                <div className="mb-4 flex items-start justify-between gap-3">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-foreground">Recent sessions</h2>
+                            {/* #G4 §5: "Recent sessions" — exactly the 2 most recent (the retention window, not a
+                                truncation). #1258 D9: one white card, rows divided by a hairline. */}
+                            <div className="mb-3 flex items-start justify-between gap-3">
+                                <h2 className="text-[20px] font-extrabold text-neutral-heading">Recent sessions</h2>
+                                {selectedSessions.length === 2 && (
+                                    <Button
+                                        onClick={() => setShowComparison(true)}
+                                        className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
+                                    >
+                                        Compare Selected (2)
+                                    </Button>
+                                )}
+                            </div>
+                            <div className="divide-y divide-neutral-border-soft overflow-hidden rounded-[14px] border border-neutral-border-strong bg-white" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
+                                {sessionHistory && sessionHistory.length > 0 ? (
+                                    sessionHistory.slice(0, 2).map((session) => (
+                                        <SessionHistoryItem
+                                            key={session.id}
+                                            session={session}
+                                            sessionHistory={sessionHistory}
+                                            isPro={isProUser}
+                                            isSelected={selectedSessionIds.has(session.id)}
+                                            onToggleSelect={toggleSessionSelection}
+                                            profileName={profile?.email || 'User'}
+                                        />
+                                    ))
+                                ) : (
+                                    <div className="py-12 text-center font-semibold text-neutral-secondary">
+                                        <p>No sessions recorded yet.</p>
                                     </div>
-                                    {selectedSessions.length === 2 && (
-                                        <Button
-                                            onClick={() => setShowComparison(true)}
-                                            className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
-                                        >
-                                            Compare Selected (2)
-                                        </Button>
-                                    )}
-                                </div>
-                                <div className="space-y-3" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
-                                    {sessionHistory && sessionHistory.length > 0 ? (
-                                        sessionHistory.slice(0, 2).map((session) => (
-                                            <SessionHistoryItem
-                                                key={session.id}
-                                                session={session}
-                                                sessionHistory={sessionHistory}
-                                                isPro={isProUser}
-                                                isSelected={selectedSessionIds.has(session.id)}
-                                                onToggleSelect={toggleSessionSelection}
-                                                profileName={profile?.email || 'User'}
-                                            />
-                                        ))
-                                    ) : (
-                                        <div className="rounded-xl border border-dashed border-[hsl(var(--border-strong))] bg-muted py-12 text-center font-semibold text-foreground/75">
-                                            <p>No sessions recorded yet.</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </Card>
+                                )}
+                            </div>
                         </div>
                     </div>
 

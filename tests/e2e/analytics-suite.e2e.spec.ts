@@ -64,6 +64,30 @@ test.describe('Analytics Suite & Data Matrix', () => {
     await page.screenshot({ path: testInfo.outputPath('trends-fillers-open.png') });
   });
 
+  // SCENARIO 1c (#1258 D9, Rev 2 §5.9): Recent sessions rows — date/time titles, units in labels, ink Open, yellow PDF,
+  // and no horizontal scroll at 375px.
+  test('Analytics Matrix: Recent sessions rows at desktop and phone width', async ({ userPage: page }, testInfo) => {
+    await navigateToRoute(page, '/analytics');
+    await waitForFeature(page, 'analytics');
+
+    const row = page.getByTestId(/session-history-item-/).first();
+    await expect(row).toBeVisible();
+    await expect(row.getByText('Pace (wpm)')).toBeVisible();
+    await expect(row.getByText('Clear delivery (%)')).toBeVisible();
+    await expect(row.getByTestId(/open-session-detail-/)).toHaveClass(/\bbg-ink\b/);
+    await expect(row.getByTestId(/download-pdf-btn-/)).toHaveClass(/\bbg-signature\b/);
+    const text = (await row.innerText()).replace(/\s+/g, ' ');
+    expect(text).not.toMatch(/WPM|duration|\d{4}-\d{2}-\d{2}T|Practice Session/);
+    await row.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('recent-sessions-1280.png') });
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await row.scrollIntoViewIfNeeded();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, 'no horizontal page scroll at 375px').toBeLessThanOrEqual(0);
+    await page.screenshot({ path: testInfo.outputPath('recent-sessions-375.png') });
+  });
+
   // SCENARIO 2: Detail Flow (Click-through Analysis)
   test('Analytics Matrix: Session Detail View and Error Handling', async ({ userPage: page }) => {
     await navigateToRoute(page, '/analytics');
