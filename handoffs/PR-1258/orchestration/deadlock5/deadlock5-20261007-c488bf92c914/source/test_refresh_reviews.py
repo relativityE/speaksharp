@@ -1,0 +1,51 @@
+import unittest
+from guarded_pm import Executor, Hold
+
+class ReviewRefreshTests(unittest.TestCase):
+    def setup_executor(self, existing=False, drift=False, initially_draft=False, fail_ready=False):
+        self.head='a'*40; self.base='b'*40; self.writes=[]
+        pr={'number':1559,'node_id':'PR_node','state':'open','draft':initially_draft,'head':{'sha':self.head,'ref':'fix/1258-coaching-failure-reason','repo':{'full_name':'relativityE/speaksharp'}},'base':{'sha':self.base}}
+        def request(args):
+            if 'graphql' in args:
+                self.writes.append(args)
+                if 'convertPullRequestToDraft' in str(args):
+                    pr['draft']=True
+                    if drift: pr['head']['sha']='c'*40
+                elif 'markPullRequestReadyForReview' in str(args) and not fail_ready:
+                    pr['draft']=False
+                return {}
+            path=args[1]
+            if 'issues/comments/' in path:return {'issue_url':'https://api.github.com/repos/relativityE/speaksharp/issues/1258','user':{'login':'relativityE'},'body':self.head+' '+self.base+' Draft→Ready'}
+            if path.endswith('branches/main'):return {'commit':{'sha':self.base}}
+            if 'ci.yml/runs' in path:return {'workflow_runs':[]}
+            if '/reviews?' in path:return [{'commit_id':self.head,'user':{'login':'chatgpt-codex-connector[bot]'}}] if existing else []
+            if path.endswith('pulls/1559'):return pr
+            raise AssertionError(path)
+        self.action={'kind':'refresh_reviews','source_comment_id':123,'pr_number':1559,'head':self.head,'base':self.base}
+        return Executor(request,lambda *_:None)
+
+    def test_new_head_cycles_with_fresh_read(self):
+        ex=self.setup_executor();result=ex.execute(self.action)
+        self.assertIn('LIFECYCLE COMPLETE',result);self.assertIn('REVIEWS PENDING',result)
+        self.assertEqual(len(self.writes),2)
+
+    def test_partial_draft_request_resumes_without_second_draft_cycle(self):
+        ex=self.setup_executor(initially_draft=True);result=ex.execute(self.action)
+        self.assertIn('LIFECYCLE COMPLETE',result)
+        self.assertEqual(len(self.writes),1)
+        self.assertIn('markPullRequestReadyForReview',self.writes[0][3])
+
+    def test_existing_codex_review_is_observed(self):
+        ex=self.setup_executor(existing=True);result=ex.execute(self.action)
+        self.assertIn('OBSERVE ONLY',result);self.assertIn('not inferred',result)
+        self.assertEqual(self.writes,[])
+
+    def test_drift_between_transitions_never_marks_ready(self):
+        ex=self.setup_executor(drift=True)
+        with self.assertRaises(Hold):ex.execute(self.action)
+        self.assertEqual(len(self.writes),1)
+
+    def test_failed_ready_write_is_not_reported_as_complete(self):
+        ex=self.setup_executor(fail_ready=True)
+        with self.assertRaises(Hold):ex.execute(self.action)
+        self.assertEqual(len(self.writes),2)

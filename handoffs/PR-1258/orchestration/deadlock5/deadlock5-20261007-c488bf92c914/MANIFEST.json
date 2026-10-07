@@ -1,0 +1,30 @@
+{
+  "candidate_id": "deadlock5-20261007-c488bf92c914",
+  "status": "DRAFT / NOT ACCEPTED",
+  "source_zip_sha256": "c543cdf93bacbc45e0bacd0ef1743f42fecb5f3533537e3562e202a89edaec4b",
+  "captured_patch_sha256": "0447adcccc5bbf4346b06ce51568ddd88ff67cdc59fd9ba073716606c1339e83",
+  "full_patch_sha256": "c488bf92c914f31ee8d726e9423e1772f0e802717a323b74222337b870ad26e3",
+  "changed_files": {
+    "README.md": "bd4521bba253d1b06c089e66ad875f830f98e0efd1c8060bc5ef513eb9384e60",
+    "TEST_RECEIPT.md": "ad20876a5a64beb748c09838a8c4518aa9b762373133b27311eedde3e263d064",
+    "guarded_pm.py": "b26d9a14faea1c4322a3d9947c5d817a6214e59f2f3c78e44b857600e4cd439d",
+    "pm-instructions.md": "e58304d01272a8b24f137f7fab2b3c3eb53544550b1a43115dc4a0cb2cbc8cd3",
+    "pm-route.schema.json": "406fe8ddfefe8b085ad579283cb6a82f5570cdfe8efbba3a1c64756ce671335a",
+    "server.py": "c6c48985afda3abeaebb7586cea30b76dad33eddad94d01b9c4370f0993c4d5f",
+    "static/index.html": "4af868a495b59cf23a47df68c4aab9d2beb047cfcc0cffbe820d898a6e4d4b3d",
+    "test_comms.py": "5801a3764d9345fa8e16205f5cf4488196a8c7c5599ae759d7377f778e032df5",
+    "test_deadlock.py": "1e011f807289e9c11118f8cc9a307e782f4ef81dc71f51eed9e469e473eeab8f",
+    "test_event_delivery.py": "ac236a81a4db68c06a4fd33c481850513f2e94bceec4e6e873af4588e86949a1",
+    "test_refresh_reviews.py": "cc86e01947727cbe4b049dc1ca24015dae2324680dfcb410ac57da18b79291e0",
+    "test_regressions.py": "dc9619b5e1b5453d2674e09181c1074a804997020f33db1aa0b159478d5b8d0b",
+    "test_server.py": "deb45364b074d1422ca36055943927298de2a9f26c42d4386cccf8a97ccf02f9",
+    "test_ui.js": "faf8c83d4d21cdbe77404e9ec64973ce433fb59b0c0a1761f6534a42437b05c2"
+  },
+  "verification": {
+    "automated_tests": "HOLD: shared host lease unavailable; no tests run for this candidate",
+    "static": "Python AST (7 modules), JSON route schema, Node syntax, Bash syntax passed",
+    "live_app": "not installed or restarted",
+    "live_board": "not mutated"
+  },
+  "authority": "Draft packet publication only; no merge, installation, deployment, or Production action"
+}

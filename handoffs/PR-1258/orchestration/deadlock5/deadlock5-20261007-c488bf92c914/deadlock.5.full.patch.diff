@@ -1,0 +1,1035 @@
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,17 @@
++## deadlock.5 — durable request tracking and dispatch recovery
++
++- Dev deliveries show the task key, assigned branch/worktree, and whether execution stopped before invocation, reached the worker, or returned a result. A returned result is still not a task-specific ACK.
++- Worktree preflight failures distinguish a missing target from a non-Git path or wrong branch and include the expected tuple.
++- Each GitHub watcher request gets its own durable queue row. A stable event key deduplicates poll retries without collapsing distinct requests into one mutable message.
++- Queue priority ages every 60 seconds, so fresh PO/PM work starts promptly while older requests cannot be starved indefinitely by a stream of newer events.
++- A held unrelated Dev task no longer suppresses a different active task's wake. An executing Dev turn or a conflicting active write lease still serializes dispatch.
++- Any failed assigned Dev delivery queues one idempotent PM disposition request. Pre-invocation failures need a corrected route; post-invocation failures require inspection for partial effects. Neither path blindly retries Dev.
++- The retry endpoint enforces the same guard as the UI: failed bound Dev deliveries with a queued PM recovery cannot be replayed; invoked failures require inspection and a fresh task handoff. Recovery notices still reach PM at the automatic handoff-depth limit without spawning another writer.
++- Review polling stores each exact review, inline comment, and requested-reviewer addition/withdrawal. Read failures hold the watcher cursor so review asks are retried rather than silently skipped.
++- PM instructions now require a verified-checkout bootstrap before dispatching to a not-yet-created task worktree.
++
++The live deadlock.4 worker rejected the #1570 assignment before Claude invocation because the new target worktree was not yet present. Its generic error did not identify the missing path, and no PM recovery delivery followed. This patch makes that failure diagnosable and recoverable while keeping the single-writer guard. It also preserves every watcher ask separately until its delivery receives a specific disposition and emits review signals with their source IDs, URLs and text.
++
+ ## deadlock.4 — quieter GitHub coordination
+ 
+ - Routine reconciliation updates the board without posting another GitHub comment. Pins, task directives, evidence, blockers and PO decisions still publish.
+@@ -106,7 +120,7 @@
+ 
+ CLI PM processes complete push-pin packets through automatically published reconciliation replies; Browser PM chat need not wake. Complete packets unanswered for two minutes get one extra reconciliation wake when PM is idle, no delivery is queued, and publication is not uncertain. Pause/login/errors and CI concurrency remain visible holds.
+ 
+-New refresh_reviews performs guarded Draft→Ready after a new-head push. Existing Codex reviews, active related CI or changed bytes prevent duplicate transitions. Merge/deploy/Production authority remains separate.
++`refresh_reviews` is typed in the route schema and PM instructions and handled by the bounded executor. It checks the #1258 source, exact open PR head/base, main, related CI and current-head Codex reviews; it serializes same-PR requests, resumes an already-Draft partial transition with only Ready, and verifies the final open/Ready readback. Its result explicitly leaves reviews pending. Unsupported action names become a named recoverable blocker. Merge/deploy/Production authority remains separate.
+ 
+ A visible health panel shows poll/wake, publication, pending packet and actual publisher error. Publication failure marks CLI PM blocked rather than silent idle. Uncertain writes are recovered by marker, never blindly repeated. This update cannot repair credentials automatically.
+ 
+--- a/TEST_RECEIPT.md
++++ b/TEST_RECEIPT.md
+@@ -1,9 +1,17 @@
+-# deadlock.4 verification — 2026-10-07
++# DEADLOCK-5 candidate verification — 2026-10-07
+ 
+-Python regression suite: **193 passed**. Node UI smoke: **passed**.
++## Bootstrap and patch identity
+ 
+-New regressions cover incremental/staged comment cursors, bursts above the context-cache size, cursor preservation on failed reads, exclusion of old-instance automatic PM replies, shared dashboard caching with fresh action reads, rate-limit cooldown without replaying writes, quiet local reconciliation, forced publication for actionable handoffs, and scoped Designer feature branches.
++- Pristine source: `rwt-pr-handoff-v4.6.16-deadlock.4.zip`.
++- Required source SHA-256 verified: `c543cdf93bacbc45e0bacd0ef1743f42fecb5f3533537e3562e202a89edaec4b`.
++- Immutable captured patch applied: `deadlock.5.patch.diff`, SHA-256 `0447adcccc5bbf4346b06ce51568ddd88ff67cdc59fd9ba073716606c1339e83`.
++- New isolated source path: `fresh-source/rwt-pr-handoff-v4.6.16/` within the DEADLOCK-5 task worktree.
+ 
+-Designer Rev 2 originals and PM notes are included with SHA-256 manifest. The ZIP contains no credentials, local worker sessions, board database, or uploads.
++## Current candidate status
+ 
+-Not verified here: signed-in Mac installation, real worker wake-up, live GitHub rate reduction, or external Browser PM/App Dev notification. These need installed acceptance checks. This release adds no merge, deployment, migration or Production-run authority.
++- Source changes and regression cases cover durable independent asks, aged scheduling, held-task isolation, retry-endpoint bypass, preflight/invoked failure recovery, handoff-depth recovery, exact review/comment/requested-reviewer signals, and `refresh_reviews` from typed route through guarded executor.
++- `refresh_reviews` cases include exact-head existing-review observe-only behavior, no mutation on head drift, already-Draft partial-transition resume, post-transition readback, pending-review signaling, and route/executor journal deduplication. Unsupported action names produce an explicit recoverable blocker.
++- Tests for the current candidate: **HOLD — not run**. The shared host test lease is unavailable. The prior isolated snapshot passed 200 tests and 56 focused tests before these additional changes; those results do not qualify this candidate.
++- Static validation completed: Python AST parsing for seven changed runtime/regression modules, JSON parse for the route schema, `node --check` for `test_ui.js`, and `bash -n` for the launcher all passed. No application test suite was run. No live app installation or restart was performed.
++
++The packet is DRAFT / NOT ACCEPTED. No merge, deployment, Production action, or live board mutation is authorized.
+--- a/guarded_pm.py
++++ b/guarded_pm.py
+@@ -1,5 +1,6 @@
+ """Closed PM executor. No shell/code/merge/deploy/Production operation is exposed."""
+ import re
++import threading
+ 
+ REPO = 'relativityE/speaksharp'
+ KINDS = {'refresh_reviews', 'mark_ready', 'rerun_failed_jobs', 'dispatch_full_ci', 'open_draft_pr'}
+@@ -8,6 +9,13 @@
+ 
+ class Hold(RuntimeError):
+     pass
++
++_REFRESH_LOCKS = {}
++_REFRESH_LOCKS_GUARD = threading.Lock()
++
++def _refresh_lock(pr_number):
++    with _REFRESH_LOCKS_GUARD:
++        return _REFRESH_LOCKS.setdefault(int(pr_number), threading.Lock())
+ 
+ def need(value, message):
+     if not value:
+@@ -58,6 +66,14 @@
+         return pr,related,branch
+ 
+     def execute(self, action):
++        if action.get('kind') == 'refresh_reviews':
++            # Serialize distinct authorized requests for the same PR in this
++            # executor process; the durable action journal covers exact retries.
++            with _refresh_lock(action.get('pr_number') or 0):
++                return self._execute(action)
++        return self._execute(action)
++
++    def _execute(self, action):
+         pr,runs,branch=self.guard(action)
+         kind=action['kind'];head=action['head'];base=action['base']
+         if kind=='refresh_reviews':
+@@ -66,15 +82,22 @@
+             reviews=self.read(f"pulls/{pr['number']}/reviews?per_page=100")
+             need(len(reviews)<100, 'Review pagination incomplete')
+             if any(r.get('commit_id')==head and 'codex' in r.get('user',{}).get('login','').lower() for r in reviews):
+-                return 'Exact-head Codex review already exists; inspect before another lifecycle'
++                return f'OBSERVE ONLY: exact-head review already exists for #{pr["number"]} at {head}; lifecycle unchanged and review completion not inferred'
+             fresh=self.read(f"pulls/{pr['number']}")
+-            need(fresh['head']['sha']==head and fresh['base']['sha']==base, 'Lifecycle precondition changed')
++            need(fresh.get('state')=='open' and not fresh.get('merged') and
++                 fresh['head']['sha']==head and fresh['base']['sha']==base, 'Lifecycle precondition changed')
+             if not fresh.get('draft'):
+                 self.request(['api','graphql','-f','query=mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){pullRequest{isDraft}}}','-f',f"id={fresh['node_id']}"])
+             fresh=self.read(f"pulls/{pr['number']}")
+-            need(fresh['head']['sha']==head and fresh['base']['sha']==base and fresh.get('draft'), 'Lifecycle changed between transitions')
++            need(fresh.get('state')=='open' and not fresh.get('merged') and
++                 fresh['head']['sha']==head and fresh['base']['sha']==base and fresh.get('draft'),
++                 'Lifecycle changed between transitions')
+             self.request(['api','graphql','-f','query=mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}','-f',f"id={fresh['node_id']}"])
+-            return f"Refreshed Draft→Ready for #{pr['number']} at {head}; await new-head reviews"
++            final=self.read(f"pulls/{pr['number']}")
++            need(final.get('state')=='open' and not final.get('merged') and
++                 final['head']['sha']==head and final['base']['sha']==base and
++                 not final.get('draft'), 'Post-refresh readback did not confirm the exact open Ready candidate')
++            return f"LIFECYCLE COMPLETE: #{pr['number']} is open/Ready at {head}/{base}; REVIEWS PENDING: await fresh exact-head reviews and inspect findings"
+         if kind=='mark_ready':
+             if not pr.get('draft'):
+                 return 'Already Ready; no duplicate transition'
+--- a/pm-instructions.md
++++ b/pm-instructions.md
+@@ -17,6 +17,7 @@
+ 3. If CLI Dev is complete or externally waiting, preserve its previous packet and assign the highest-priority independent authorized release blocker. Return an executable task/player patch and next=dev. Waiting for a PR to merge does not prevent source tracing, test writing or isolated local preparation on another assigned task.
+ 4. Routine branch/worktree preparation is PM coordination work, not a new product decision. Use an explicitly supplied target tuple. If none is supplied, propose a deterministic task-specific branch and absolute sibling worktree, have Dev validate collisions and create it locally, then bind the verified result. A proposed path is not an observed existing path. Never dispatch to a nonexistent worktree or invent a successful validation.
+ 5. When the target does not exist and your Codex transport cannot create it, use a short bootstrap task on CLI Dev's verified available checkout, with explicit authority limited to creating the isolated worktree. Preserve the old checkout's branch and bytes; do not use an App Dev checkout. Complete the bootstrap and transfer the single active task lease atomically when Dev returns the new verified tuple. If no safe bootstrap checkout exists, identify the exact missing host capability or ownership conflict and request that specific remedy from Browser PM; do not send PO a generic idle report.
++   Never enqueue a Dev delivery directly to a proposed target path that has not been observed as a Git worktree on the assigned branch. First bind the bootstrap delivery to a verified available checkout; after Dev returns the created branch/path/head/tree, update the same task lease and then enqueue the implementation delivery. A preflight failure is not a worker start or Dev ACK. Read its delivery record and the resulting PM recovery before taking another action; do not retry the same Dev delivery or create a second writer.
+ 6. Every reply states either the next executable action and owner or the precise unsatisfied guard, owner and event that releases it. “No independent task” is not a valid disposition when an authorized independent task has just been supplied. No repeated status-only reconciliation in place of follow-through.
+ 
+ Do not say an actor started because a reply was published. A local Dev delivery must actually start or return its checkpoint; external actors require their own observed checkpoint. PO relaying is not a delivery mechanism. Keep one writer per task/branch and preserve the shared local test-host lease; git/source/text work may proceed while another actor runs tests. No merge, deploy, Production run or model activation authority is added by these instructions.
+@@ -46,6 +47,8 @@
+ 
+ GitHub events wake PM, not raw Dev, by default. The watcher reads all pages of #1258 and retains separate same-workflow run IDs. CLI PM ↔ CLI Dev is local adapter communication. App Dev ↔ Browser PM communicates through #1258; the board does not control their external apps or observe their processes.
+ 
++Each distinct watcher request has its own durable delivery and remains open until its exact request receives a specific disposition: completed with cited evidence, assigned to a named owner with next action, or held with the unmet condition and release event. A generic ACK or a newer event does not close an older request. Check the delivery queue before reporting completion. Queue priority ages so newer traffic cannot starve an older request indefinitely; unrelated held Dev work must not block independent active work. A failed Dev delivery creates one PM recovery; inspect the exact error and possible partial effects before any retry.
++
+ Never mark an external actor WORKING from a seeded task or an old comment. Include the source checkpoint URL and timestamp in source/notes. Stale activity is unknown; a preserved WRITE lease is still protected. A message is queued, then delivering, then responded; a queued item is not an acknowledgment. Failed deliveries stay in history and need an explicit retry after cause/transport/task checks. Restart quarantines in-flight deliveries instead of replaying possibly completed mutations.
+ 
+ ## Output
+@@ -70,7 +73,7 @@
+ 
+ Every externally actionable reconciled response is posted automatically to #1258 under a durable delivery marker. Do not post the same reply yourself. A published reply means available to Dev, not acknowledged; ask Dev to ACK its comment ID with the action/result. Board-emitted replies are excluded from self-wakes by marker/instance, while incoming Dev and Browser PM comments always wake you independently of the PR-review toggle. Do not ask PO to copy messages. The local worker is the unattended PM; it does not invoke this separate Browser PM chat session.
+ 
+-Return pm_actions=[] when no action is needed. The only executor actions are mark_ready, open_draft_pr, rerun_failed_jobs and dispatch_full_ci. Each requires source_comment_id from #1258 containing the FULL pinned head AND base; exact head/base must match live state. Supply pr_number for existing PRs, run_id + current run_attempt for failed-job recovery, and branch/title/body for Draft creation. Other nullable action fields must be null. Execute at most two proposed actions; never propose merge, deployment, migration, secrets, model activation or Production tests. Existing exact scope still governs; the typed proposal grants no authority by itself.
++Return pm_actions=[] when no action is needed. The only executor actions are mark_ready, refresh_reviews, open_draft_pr, rerun_failed_jobs and dispatch_full_ci. Each requires source_comment_id from #1258 containing the FULL pinned head AND base; exact head/base must match live state. Supply pr_number for existing PRs, run_id + current run_attempt for failed-job recovery, and branch/title/body for Draft creation. Other nullable action fields must be null. Execute at most two proposed actions; never propose merge, deployment, migration, secrets, model activation or Production tests. Existing exact scope still governs; the typed proposal grants no authority by itself.
+ 
+ For Ready/open-Draft/push-pin operation already owned by Browser PM or App Dev, observe rather than duplicate it. A live changed state/attempt must be checkpointed, not forced. For CI: wait for all related CI and reviews terminal, use the repo collector; a Draft-only report cannot justify failed-job recovery. dispatch_full_ci supplies the complete lane only when no full dispatch already exists for this head. Report a real full-run failure rather than repeatedly dispatching. For a push pin, the reconciliation message must name the accepted exact packet, head/tree/base, expected remote and lease; it must explicitly exclude merge/deploy/Production authority.
+ 
+@@ -78,7 +81,7 @@
+ ## Unattended PM ownership
+ You are authorized to handle complete RWT push-pin packets under existing scope without waiting for this Browser PM chat. Do not claim 'GitHub ACK unavailable in read-only transport': direct model writes are prohibited, but the host publishes your reconciled message automatically. Name an actual host outbox/guard error only if provided in context. A generic monitoring response is insufficient for a complete REQUEST push-pin packet: read all current checkpoints/live guards, return a source-linked exact head/tree/base/lease pin or a precise HOLD. Never duplicate another actor's completed pin. No merge/deploy/RWT authority is granted. The watchdog wakes reconciliation once per overdue complete packet; it never retries an uncertain side effect.
+ 
+-Use refresh_reviews for an existing Ready PR after a guarded new-head push when the source explicitly requests Draft→Ready and current-head Codex reviews do not exist. The executor waits for related CI to be terminal, preserves exact head/base between transitions, and journals the operation. Existing reviews or changed bytes are HOLD/observe, not fresh review evidence. Merge/deploy/RWT are not authorized.
++Use refresh_reviews for an existing Ready PR after a guarded new-head push when the source explicitly requests Draft→Ready and current-head Codex reviews do not exist. The executor waits for related CI to be terminal, preserves exact head/base between transitions, and journals the operation. A current-head Codex review is an observe-only result; do not claim a refresh or review completion. After the lifecycle readback succeeds, reviews are still pending until separately observed on that exact head. If a prior authorized request left the PR Draft, a new source comment may safely resume Draft→Ready without another Draft transition. Merge/deploy/RWT are not authorized.
+ 
+ ## Quiet reconciliation (deadlock.4)
+ 
+--- a/pm-route.schema.json
++++ b/pm-route.schema.json
+@@ -234,6 +234,7 @@
+         "properties": {
+           "kind": {
+             "type": "string",
++            "description": "refresh_reviews may only perform an authorized Ready→Draft→Ready lifecycle on an exact open PR candidate; review completion is a separate observation.",
+             "enum": [
+               "mark_ready",
+               "rerun_failed_jobs",
+@@ -301,6 +302,28 @@
+           "branch",
+           "title",
+           "body"
++        ],
++        "allOf": [
++          {
++            "if": {
++              "properties": {
++                "kind": {
++                  "const": "refresh_reviews"
++                }
++              },
++              "required": [
++                "kind"
++              ]
++            },
++            "then": {
++              "properties": {
++                "pr_number": {
++                  "type": "integer",
++                  "minimum": 1
++                }
++              }
++            }
++          }
+         ]
+       }
+     },
+--- a/server.py
++++ b/server.py
+@@ -53,7 +53,7 @@
+ CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1258"))
+ WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
+ BOARD_VERSION = "4.6.16"
+-BOARD_BUILD = "deadlock.4"
++BOARD_BUILD = "deadlock.5"
+ GH_BACKOFF_UNTIL = 0.0
+ PR_DISPLAY_CACHE = {}
+ PR_DISPLAY_LOCK = threading.RLock()
+@@ -160,6 +160,8 @@
+         _add_column(c, "queue", "target_branch TEXT NOT NULL DEFAULT ''")
+         _add_column(c, "queue", "target_worktree TEXT NOT NULL DEFAULT ''")
+         _add_column(c, "queue", "target_head TEXT NOT NULL DEFAULT ''")
++        _add_column(c, "queue", "event_key TEXT NOT NULL DEFAULT ''")
++        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS queue_event_key_unique ON queue(event_key) WHERE event_key<>''")
+ 
+         if not c.execute("SELECT 1 FROM agents WHERE agent_id='dev'").fetchone():
+             c.execute(
+@@ -331,15 +333,19 @@
+ 
+ 
+ def enqueue(aid, recipient, content, *, source_actor="PO", parent_queue_id=None,
+-            handoff_depth=0, auto_handoff=True, fanout_group=None, work_item_key=""):
++            handoff_depth=0, auto_handoff=True, fanout_group=None, work_item_key="", event_key=""):
+     target = dev_assignment(work_item_key) if recipient == 'dev' else None
+     with DB_LOCK, con() as c:
++        if event_key:
++            existing = c.execute("SELECT id FROM queue WHERE event_key=?", (event_key,)).fetchone()
++            if existing:
++                return int(existing['id'])
+         cur = c.execute(
+             "INSERT INTO queue(activity_id,recipient,content,status,created_at,source_actor,parent_queue_id,"
+-            "handoff_depth,auto_handoff,fanout_group,attempts) VALUES(?,?,?,?,?,?,?,?,?,?,0)",
++            "handoff_depth,auto_handoff,fanout_group,attempts,event_key) VALUES(?,?,?,?,?,?,?,?,?,?,0,?)",
+             (
+                 aid, recipient, content, "queued", now(), source_actor, parent_queue_id,
+-                int(handoff_depth), 1 if auto_handoff else 0, fanout_group,
++                int(handoff_depth), 1 if auto_handoff else 0, fanout_group, event_key,
+             ),
+         )
+         qid = cur.lastrowid
+@@ -372,21 +378,44 @@
+ def list_queue(limit=100):
+     with DB_LOCK, con() as c:
+         rows = [dict(r) for r in c.execute(
+-            "SELECT * FROM queue ORDER BY id DESC LIMIT ?", (limit,)
++            "SELECT q.*,o.status AS _outbox_status,o.comment_id AS _outbox_comment_id, "
++            "rc.id AS _recovery_id,rc.status AS _recovery_status FROM queue q "
++            "LEFT JOIN pm_outbox o ON o.queue_id=q.id "
++            "LEFT JOIN (SELECT parent_queue_id,MIN(id) AS id FROM queue "
++            "WHERE recipient='pm' AND source_actor='SYSTEM' GROUP BY parent_queue_id) r ON r.parent_queue_id=q.id "
++            "LEFT JOIN queue rc ON rc.id=r.id WHERE q.event_key<>'' OR q.id >= "
++            "(SELECT COALESCE(MIN(id),0) FROM (SELECT id FROM queue ORDER BY id DESC LIMIT ?)) "
++            "ORDER BY q.id DESC", (limit,)
+         ).fetchall()]
+     rows.reverse()
+     for row in rows:
+         row['age_seconds'] = age_seconds(row.get('finished_at') or row.get('started_at') or row.get('created_at'))
+         row['historical'] = row['status'] in ('responded', 'failed', 'failed_uncertain')
+         row['delivery_label'] = ('REPLY RETURNED — task completion unverified' if row['status'] == 'responded' else row['status'])
+-        with con() as receipt_db:
+-            outbox = receipt_db.execute('SELECT status,comment_id FROM pm_outbox WHERE queue_id=?', (row['id'],)).fetchone()
+-        if outbox and outbox['comment_id']:
++        if row.get('recipient') == 'dev' and row.get('work_item_key'):
++            if row['status'] == 'queued':
++                row['delivery_stage'] = 'ASSIGNED → QUEUED · Dev not invoked'
++            elif row['status'] == 'delivering':
++                row['delivery_stage'] = 'ASSIGNED → QUEUED → DEV INVOKED · awaiting result'
++            elif row['status'] == 'responded':
++                row['delivery_stage'] = 'DEV RESULT RETURNED · task-specific ACK/action unverified'
++            elif row['status'].startswith('failed') and not row.get('started_at') and not int(row.get('attempts') or 0):
++                row['delivery_stage'] = 'BLOCKED BEFORE DEV INVOCATION'
++            elif row['status'].startswith('failed'):
++                row['delivery_stage'] = 'DEV INVOCATION FAILED · inspect result/error'
++            else:
++                row['delivery_stage'] = str(row['status']).upper()
++        else:
++            row['delivery_stage'] = str(row['status']).upper()
++        if row.get('_outbox_comment_id'):
+             row['delivery_label'] = 'PUBLISHED — recipient action unverified'
+-            row['github_comment_id'] = outbox['comment_id']
+-        elif outbox and outbox['status'] == 'local_only':
++            row['github_comment_id'] = row['_outbox_comment_id']
++        elif row.get('_outbox_status') == 'local_only':
+             row['delivery_label'] = 'RECONCILED LOCALLY — no GitHub post'
+-        row['recovery_action'] = ('Explicit retry after checking transport and task ownership' if row['status'].startswith('failed') else '')
++        if row.get('_recovery_id'):
++            row['recovery_action'] = f"PM recovery queued #{row['_recovery_id']} ({row['_recovery_status']}); no Dev retry"
++        else:
++            row['recovery_action'] = ('PM must inspect exact failure before retry' if row['status'].startswith('failed') else '')
+     return rows
+ 
+ 
+@@ -568,8 +597,12 @@
+     if not path:
+         return {'ok': False, 'error': 'Assigned task has no local worktree; PM must supply its worktree path'}
+     v = validate_worktree(path)
+-    if not v.get('is_git') or v.get('branch') != item['branch']:
+-        return {'ok': False, 'error': 'Assigned worktree does not match task branch', 'validation': v}
++    if not v.get('exists'):
++        return {'ok': False, 'error': f"Assigned task worktree is missing: expected branch '{item['branch']}' at '{path}'; bootstrap must finish before Dev dispatch", 'validation': v}
++    if not v.get('is_git'):
++        return {'ok': False, 'error': f"Assigned task path is not a Git worktree: expected branch '{item['branch']}' at '{path}'", 'validation': v}
++    if v.get('branch') != item['branch']:
++        return {'ok': False, 'error': f"Assigned worktree branch mismatch: expected '{item['branch']}' at '{path}', found '{v.get('branch')}' at HEAD {v.get('head')}", 'validation': v}
+     if q.get('target_head') and v.get('head') != q['target_head']:
+         return {'ok': False, 'error': 'Worktree head changed after dispatch; explicit new handoff required'}
+     return {'ok': True, 'path': path, 'item_key': item['item_key'], 'validation': v}
+@@ -588,28 +621,29 @@
+ def next_queue(recipient=None):
+     """Return the highest-priority queued delivery for one agent (or globally).
+ 
+-    PO instructions always outrank machine events. PM/Dev handoffs outrank raw
+-    GitHub watcher events. FIFO is preserved inside a priority class.
++    PO instructions start first, followed by handoffs and machine events. One
++    priority step ages every 60 seconds, so an older event eventually passes
++    newer traffic while FIFO is preserved for equal effective priority.
+     """
+     where = "q.status='queued' AND a.paused=0 AND q.available_after<=?"
+     args = [time.time()]
+     if recipient:
+         where += " AND q.recipient=?"
+         args.append(recipient)
+-    priority = (
+-        "CASE "
+-        "WHEN q.source_actor='PO' THEN 0 "
+-        "WHEN q.source_actor IN ('PM','DEV') THEN 1 "
+-        "WHEN q.source_actor='GITHUB' THEN 3 "
+-        "ELSE 2 END"
+-    )
+     with DB_LOCK, con() as c:
+-        r = c.execute(
++        rows = c.execute(
+             "SELECT q.* FROM queue q JOIN agents a ON a.agent_id=q.recipient "
+-            f"WHERE {where} ORDER BY {priority}, q.id LIMIT 1",
++            f"WHERE {where} ORDER BY q.id",
+             args,
+-        ).fetchone()
+-        return dict(r) if r else None
++        ).fetchall()
++    if not rows:
++        return None
++    base_priority = {"PO": 0, "PM": 1, "DEV": 1, "GITHUB": 3}
++    def rank(row):
++        age = age_seconds(row['created_at']) or 0
++        effective = max(0, base_priority.get(row['source_actor'], 2) - age // 60)
++        return (effective, row['id'])
++    return dict(min(rows, key=rank))
+ 
+ 
+ def update_queue(qid, **fields):
+@@ -931,11 +965,21 @@
+     if pr is None:
+         # Do not lose #1258 monitoring merely because the selected PR is stale/closed/unreadable.
+         return base, err or control_err or 'PR lookup failed'
+-    reviews, _ = gh_json(['api',f'repos/{repo}/pulls/{current}/reviews?per_page=100'])
+-    comments, _ = gh_json(['api',f'repos/{repo}/pulls/{current}/comments?per_page=100'])
++    reviews, review_err = gh_json(['api','--paginate','--slurp',f'repos/{repo}/pulls/{current}/reviews?per_page=100'])
++    comments, comment_err = gh_json(['api','--paginate','--slurp',f'repos/{repo}/pulls/{current}/comments?per_page=100'])
++    requested, request_err = gh_json(['api',f'repos/{repo}/pulls/{current}/requested_reviewers'])
++    if review_err or comment_err or request_err:
++        return None, 'Review signal read failed: ' + '; '.join(x for x in (review_err,comment_err,request_err) if x)
++    def flatten(pages):
++        return [item for page in (pages or []) for item in (page if isinstance(page,list) else [page]) if isinstance(item,dict)]
++    reviews = flatten(reviews)
++    comments = flatten(comments)
++    requested = requested if isinstance(requested,dict) else {}
++    review_requests = sorted(
++        ['user:'+str(x.get('login')) for x in (requested.get('users') or []) if x.get('login')]
++        + ['team:'+str(x.get('slug')) for x in (requested.get('teams') or []) if x.get('slug')]
++    )
+     runs, _ = gh_json(['run','list','--repo',repo,'--branch',pr.get('headRefName',''),'--limit','30','--json','databaseId,workflowName,status,conclusion,headSha,updatedAt,event'])
+-    reviews = reviews if isinstance(reviews,list) else []
+-    comments = comments if isinstance(comments,list) else []
+     runs = [r for r in (runs if isinstance(runs,list) else []) if r.get('headSha') == pr.get('headRefOid')]
+     latest_runs={}
+     for r in runs:
+@@ -952,6 +996,14 @@
+         'reviewDecision':pr.get('reviewDecision'),
+         'latest_review_id':max([int(r.get('id') or 0) for r in reviews] or [0]),
+         'latest_review_comment_id':max([int(r.get('id') or 0) for r in comments] or [0]),
++        'review_requests':review_requests,
++        'latest_reviews':[{'id':int(r.get('id') or 0),'state':r.get('state'),'login':(r.get('user') or {}).get('login'),
++                           'body':str(r.get('body') or '')[:1600],'url':r.get('html_url'),'submitted_at':r.get('submitted_at')}
++                          for r in reviews if r.get('id')],
++        'latest_review_comments':[{'id':int(r.get('id') or 0),'login':(r.get('user') or {}).get('login'),
++                                   'path':r.get('path'),'body':str(r.get('body') or '')[:1600],
++                                   'url':r.get('html_url'),'created_at':r.get('created_at')}
++                                  for r in comments if r.get('id')],
+         'runs':latest_runs,'deploy':sorted(deploy,key=lambda x:x['name']),
+     })
+     return base, err or control_err
+@@ -965,12 +1017,28 @@
+     if cfg.get('pm_github_head') and prev.get('head') != cur.get('head'):
+         events.append(f"PR head changed: {(prev.get('head') or '')[:9]} → {(cur.get('head') or '')[:9]}")
+     if cfg.get('pm_github_review'):
+-        if cur.get('latest_review_id',0) > prev.get('latest_review_id',0):
++        old_review_id=int(prev.get('latest_review_id') or 0)
++        new_reviews=[r for r in cur.get('latest_reviews',[]) if int(r.get('id') or 0)>old_review_id]
++        if new_reviews:
++            for review in new_reviews:
++                events.append(f"PR review #{review.get('id')} by @{review.get('login') or 'unknown'}: {review.get('state') or 'submitted'}; {review.get('url') or 'no URL'}\n{review.get('body') or '(no review summary)'}")
++        elif cur.get('latest_review_id',0) > old_review_id:
+             events.append('A new pull-request review completed')
+-        if cur.get('latest_review_comment_id',0) > prev.get('latest_review_comment_id',0):
++        old_comment_id=int(prev.get('latest_review_comment_id') or 0)
++        new_comments=[r for r in cur.get('latest_review_comments',[]) if int(r.get('id') or 0)>old_comment_id]
++        if new_comments:
++            for comment in new_comments:
++                events.append(f"Inline review comment #{comment.get('id')} by @{comment.get('login') or 'unknown'} on {comment.get('path') or '(path unknown)'}: {comment.get('url') or 'no URL'}\n{comment.get('body') or '(empty comment)'}")
++        elif cur.get('latest_review_comment_id',0) > old_comment_id:
+             events.append('A new inline review finding/comment appeared')
+         if prev.get('reviewDecision') != cur.get('reviewDecision'):
+             events.append(f"Review decision changed: {prev.get('reviewDecision')} → {cur.get('reviewDecision')}")
++        old_requests=set(prev.get('review_requests') or [])
++        new_requests=set(cur.get('review_requests') or [])
++        for reviewer in sorted(new_requests-old_requests):
++            events.append(f"Review requested from {reviewer}")
++        for reviewer in sorted(old_requests-new_requests):
++            events.append(f"Review request withdrawn for {reviewer}")
+     if cfg.get('pm_github_control', True) and cur.get('latest_control_comment_id',0) > prev.get('latest_control_comment_id',0):
+         updates = [c for c in cur.get('control_updates', []) if c['id'] > prev.get('latest_control_comment_id', 0)]
+         if not updates:
+@@ -988,28 +1056,10 @@
+     return events
+ 
+ def _coalesced_github_enqueue(aid, recipient, msg):
+-    """Keep at most one queued raw GitHub wake per recipient.
+-
+-    A delivering wake is never mutated. If another watcher transition arrives
+-    while an older GitHub wake is still queued, replace the queued payload with
+-    the latest authoritative state instead of growing stale backlog.
+-    """
+-    with DB_LOCK, con() as c:
+-        row = c.execute(
+-            "SELECT id,activity_id,content FROM queue WHERE status='queued' AND recipient=? "
+-            "AND source_actor='GITHUB' ORDER BY id DESC LIMIT 1",
+-            (recipient,),
+-        ).fetchone()
+-        if row:
+-            c.execute(
+-                "UPDATE queue SET activity_id=?,content=?,error=NULL WHERE id=?",
+-                (aid, row["content"] if msg in row["content"] else row["content"] + "\n\nPENDING EVENT:\n" + msg, row["id"]),
+-            )
+-            # The new activity now owns the existing delivery id; leave the old
+-            # activity as history but mark it superseded for human readability.
+-            c.execute("UPDATE activity SET status='superseded' WHERE id=?", (row['activity_id'],))
+-            return int(row['id'])
+-    return enqueue(aid, recipient, msg, source_actor='GITHUB', handoff_depth=0, auto_handoff=True)
++    """Keep each watcher request as its own durable delivery; dedupe poll retries."""
++    key = hashlib.sha256((recipient + "\0" + msg).encode("utf-8")).hexdigest()
++    return enqueue(aid, recipient, msg, source_actor='GITHUB', handoff_depth=0,
++                   auto_handoff=True, event_key=key)
+ 
+ 
+ def emit_github_event(events, snap, cfg):
+@@ -1025,9 +1075,13 @@
+     aid=add_activity('GITHUB', msg, 'pm', 'posted')
+     qids=[]
+     if any(cfg.get(k) for k in ('pm_github_control','pm_github_review','pm_github_ci','pm_github_head','pm_github_deploy')):
+-        qids.append(_coalesced_github_enqueue(aid,'pm',msg))
++        for event in events:
++            event_msg = f"GitHub state transition for {scope}:\n- {event}\nInspect this exact request and record its specific disposition. Do not mark it complete from a generic acknowledgment."
++            qids.append(_coalesced_github_enqueue(aid,'pm',event_msg))
+     if cfg.get('dev_github'):
+-        qids.append(_coalesced_github_enqueue(aid,'dev',msg))
++        for event in events:
++            event_msg = f"GitHub state transition for {scope}:\n- {event}\nInspect this exact request and return a task-specific checkpoint."
++            qids.append(_coalesced_github_enqueue(aid,'dev',event_msg))
+     return qids
+ 
+ def pending_pin_watchdog():
+@@ -1644,6 +1698,7 @@
+         else:
+             set_agent("dev", status="error", session_id=sid)
+             add_activity("Dev", f"Transport error: {error}", "none", "error")
++        recover_failed_dev_delivery(q['id'], error)
+         return
+ 
+     update_queue(q["id"], status="responded", finished_at=now(), session_id=sid)
+@@ -1680,23 +1735,36 @@
+         item = items.get(key)
+         if item and item.get('owner') == 'cli_dev' and str(item.get('state') or '').lower() in WRITE_STATES:
+             signature = json.dumps([item.get(k) for k in ('item_key','branch','worktree','next_action')], sort_keys=True)
+-            if get_setting('last_executable_assignment', '') == signature or _has_pending_delivery('dev'):
++            if get_setting('last_executable_assignment', '') == signature or _has_pending_delivery('dev', item['item_key']):
+                 return None
+             if not resolve_dev_target({'work_item_key': item['item_key']}).get('ok'):
+                 return None
+             return item
+     return None
+ 
+-def _has_pending_delivery(recipient):
++def _has_pending_delivery(recipient, work_item_key=None):
+     with DB_LOCK, con() as c:
+-        return c.execute(
+-            "SELECT 1 FROM queue WHERE recipient=? AND status IN ('queued','delivering') LIMIT 1",
++        rows = [dict(r) for r in c.execute(
++            "SELECT id,status,work_item_key,source_actor FROM queue "
++            "WHERE recipient=? AND status IN ('queued','delivering')",
+             (recipient,),
+-        ).fetchone() is not None
++        ).fetchall()]
++    if work_item_key is None:
++        return bool(rows)
++    items = {x['item_key']: x for x in list_work_items()}
++    owner = {'dev': 'cli_dev', 'pm': 'cli_pm'}.get(recipient, recipient)
++    for row in rows:
++        if row['status'] == 'delivering' or row.get('work_item_key') == work_item_key:
++            return True
++        other = items.get(row.get('work_item_key'))
++        if other and other.get('owner') == owner and str(other.get('state') or '').lower() in WRITE_STATES:
++            return True
++        # An unrelated queued event or a held task does not suppress this task's wake.
++    return False
+ 
+ def _wake_cli_dev_for_item(item, reason='PM board assignment'):
+     """Create one executable Dev delivery for an active persisted CLI-Dev lease."""
+-    if not item or _has_pending_delivery('dev'):
++    if not item or _has_pending_delivery('dev', item.get('item_key')):
+         return None
+     msg = (
+         f"{reason}. Execute RWT work item {item.get('item_key')}: {item.get('title')}. "
+@@ -1737,7 +1805,7 @@
+                 signature = f"{item.get('item_key')}|{item.get('updated_at')}"
+                 last = get_setting('anti_idle_cli_dev_signature','')
+                 if (not agent.get('paused') and agent.get('status') not in ('running','auth_required')
+-                        and not _has_pending_delivery('dev') and signature != last):
++                        and not _has_pending_delivery('dev', item['item_key']) and signature != last):
+                     _wake_cli_dev_for_item(item, 'Anti-idle repair: CLI Dev has active assigned work but no executable delivery')
+             STOP.wait(2.0)
+         except Exception as e:
+@@ -1768,11 +1836,23 @@
+ 
+ def execute_pm_actions(q, actions):
+     if not isinstance(actions, list) or len(actions)>2:
+-        return ['HOLD: invalid bounded action array']
++        return ['BLOCKED_ACTIONS: malformed or over-limit typed action list; PM must return at most two supported actions with complete exact-head scope']
+     results=[]
+     for action in actions:
++        if not isinstance(action, dict):
++            results.append('BLOCKED_ACTION: action is not an object; PM must provide a supported typed action or an explicit disposition')
++            continue
++        kind=action.get('kind')
++        supported={'mark_ready','refresh_reviews','open_draft_pr','rerun_failed_jobs','dispatch_full_ci'}
++        if kind not in supported:
++            label=str(kind)[:80] if kind is not None else '<missing kind>'
++            result=f"BLOCKED_ACTION: unsupported actionable operation '{label}'; PM must map it to a supported typed action or provide a named manual disposition"
++            results.append(result)
++            add_activity('EXECUTOR',result,'none','blocked',trigger_queue_id=q['id'])
++            continue
+         if not bool_setting('pm_bounded_actions', True):
+-            results.append('HOLD: bounded executor disabled'); continue
++            result=f'HOLD_ACTION: {kind} was not executed because the bounded executor is disabled'
++            results.append(result); add_activity('EXECUTOR',result,'none','held',trigger_queue_id=q['id']); continue
+         key=hashlib.sha256(json.dumps(action,sort_keys=True).encode()).hexdigest()
+         with DB_LOCK, con() as c:
+             row=c.execute('SELECT * FROM pm_action_journal WHERE action_key=?',(key,)).fetchone()
+@@ -1979,7 +2059,7 @@
+     if not parent_q.get("auto_handoff"):
+         return None
+     depth = int(parent_q.get("handoff_depth") or 0) + 1
+-    terminal_notice = depth > MAX_HANDOFF_DEPTH and actor.upper() == "DEV" and recipient == "pm"
++    terminal_notice = depth > MAX_HANDOFF_DEPTH and actor.upper() in ("DEV", "SYSTEM") and recipient == "pm"
+     if depth > MAX_HANDOFF_DEPTH and not terminal_notice:
+         add_activity(
+             "SYSTEM",
+@@ -1996,7 +2076,8 @@
+         if prior:
+             return prior["id"]
+         if terminal_notice:
+-            content = "Writer handoff limit reached. Reconcile this Dev result; automatic writer continuation is suspended.\n\n" + content
++            content = ("Automatic handoff depth limit reached. Reconcile this delivery and record its disposition; "
++                       "no further writer turn will be started automatically.\n\n" + content)
+         return enqueue(
+             activity_id,
+             recipient,
+@@ -2008,6 +2089,45 @@
+             fanout_group=parent_q.get("fanout_group"),
+             work_item_key=(work_item_key or (dev_assignment() or {}).get("item_key", "")) if recipient == "dev" else "",
+         )
++
++
++def recover_failed_dev_delivery(queue_id, error):
++    """Wake PM once for a failed assigned Dev delivery, without retrying the writer.
++
++    Before-invocation failures need a corrected task route. After-invocation failures
++    may have partial side effects, so PM must inspect them before issuing new work.
++    """
++    with DB_LOCK, con() as c:
++        saved = c.execute("SELECT * FROM queue WHERE id=?", (queue_id,)).fetchone()
++        q = dict(saved) if saved else None
++    if (not q or q.get('recipient') != 'dev' or not q.get('work_item_key')
++            or not str(q.get('status') or '').startswith('failed')):
++        return None
++    invoked = bool(q.get('started_at'))
++    if invoked:
++        content = (
++            f"CLI Dev delivery #{q['id']} for {q['work_item_key']} failed after Dev invocation started "
++            f"(attempts={q.get('attempts') or 0}; session={q.get('session_id') or '(unknown)'}). "
++            f"Exact failure: {error}. Inspect the worktree for partial effects and record a specific disposition "
++            "before issuing another writer turn. Do not automatically replay or create a second writer."
++        )
++    else:
++        content = (
++            f"CLI Dev delivery #{q['id']} for {q['work_item_key']} was blocked before Dev invocation. "
++            f"Expected branch/worktree: {q.get('target_branch') or '(not recorded)'} / "
++            f"{q.get('target_worktree') or '(not recorded)'}. Exact preflight error: {error}. "
++            "Inspect this failed delivery and the persisted task/player lease. If the target worktree does not exist, "
++            "assign a bounded bootstrap on a verified available checkout, then atomically transfer the same task lease "
++            "to the tuple Dev actually creates. Do not retry this delivery or queue a second writer until the tuple is verified. "
++            "Return the task-specific route, worker invocation result, and Dev ACK/checkpoint."
++        )
++    aid = add_activity('SYSTEM', content, 'pm', 'error', trigger_queue_id=q['id'])
++    return maybe_handoff(aid, 'SYSTEM', 'pm', content, q)
++
++
++def recover_failed_dev_preflight(queue_id, error):
++    """Backward-compatible name for the pre-invocation recovery path."""
++    return recover_failed_dev_delivery(queue_id, error)
+ 
+ 
+ def worker(recipient):
+@@ -2039,6 +2159,8 @@
+                 update_queue(q["id"], status="failed", error=str(e), finished_at=now())
+                 set_agent(recipient, status="error")
+             add_activity("SYSTEM", f"{recipient.upper()} worker error: {e}", "none", "error")
++            if recipient == 'dev' and q:
++                recover_failed_dev_delivery(q['id'], str(e))
+             time.sleep(.5)
+ 
+ 
+@@ -2479,9 +2601,26 @@
+                 row = c.execute("SELECT * FROM queue WHERE id=?", (qid,)).fetchone()
+                 if not row:
+                     return self.sendj(404, {"error": "delivery not found"})
++                row = dict(row)
+                 if row["status"] not in ("failed", "failed_uncertain"):
+                     return self.sendj(409, {"error": "only failed deliveries can be retried"})
+-                c.execute("UPDATE queue SET status='queued', error=NULL, started_at=NULL, finished_at=NULL WHERE id=?", (qid,))
++                if row.get('recipient') == 'dev' and row.get('work_item_key'):
++                    if row.get('started_at'):
++                        return self.sendj(409, {"error": "Dev invocation already started; inspect possible partial effects and issue a new task handoff after PM disposition"})
++                    recovery = c.execute(
++                        "SELECT id FROM queue WHERE parent_queue_id=? AND recipient='pm' AND source_actor='SYSTEM' ORDER BY id LIMIT 1",
++                        (qid,),
++                    ).fetchone()
++                    if recovery:
++                        return self.sendj(409, {"error": f"PM disposition is queued in recovery #{recovery['id']}; retry this failed delivery only through a new verified task handoff"})
++            if row.get('recipient') == 'dev' and row.get('work_item_key'):
++                target = resolve_dev_target(row)
++                if not target.get('ok'):
++                    return self.sendj(409, {"error": "Dev retry is blocked until the assigned task tuple is valid: " + target['error']})
++            with DB_LOCK, con() as c:
++                cur = c.execute("UPDATE queue SET status='queued', error=NULL, started_at=NULL, finished_at=NULL WHERE id=? AND status IN ('failed','failed_uncertain')", (qid,))
++                if cur.rowcount != 1:
++                    return self.sendj(409, {"error": "delivery changed during retry validation; reconcile its current state"})
+             return self.sendj(200, {"ok": True})
+ 
+         return self.sendj(404, {"error": "not found"})
+--- a/static/index.html
++++ b/static/index.html
+@@ -10,7 +10,7 @@
+ }
+ *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#f7f8fa;color:var(--text);font:14px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+ a{color:#1d4ed8;text-decoration:none}a:hover{text-decoration:underline}button,input,textarea{font:inherit}
+-main{max-width:1280px;margin:0 auto;padding:14px;display:grid;gap:10px}.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px}.sectionTitle{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#475467;margin-bottom:8px}.muted{color:var(--muted)}.tiny{font-size:11px}.strong{font-weight:800}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.spread{justify-content:space-between}.clip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
++main{max-width:1280px;margin:0 auto;padding:14px;display:grid;gap:10px}.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px}.sectionTitle{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#475467;margin-bottom:8px}.muted{color:var(--muted)}.tiny{font-size:11px}.strong{font-weight:800}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.spread{justify-content:space-between}.clip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.delivery .error{color:#b42318;overflow-wrap:anywhere}.delivery .request{margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+ #top{display:flex;justify-content:space-between;gap:16px;align-items:center}.goal{font-size:19px;font-weight:900}.version{color:#667085;font-size:12px}
+ #decisionGrid{display:grid;grid-template-columns:1.4fr .7fr;gap:10px}.big{font-size:18px;font-weight:850;line-height:1.2}.decision{padding:12px;border-radius:8px;background:#fafafa;border-left:6px solid #98a2b3}.decision.bad{background:var(--bad-bg);border-left-color:var(--bad)}.decision.warn{background:var(--warn-bg);border-left-color:var(--warn)}.decision.good{background:var(--good-bg);border-left-color:var(--good)}
+ .statusBadge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:800;letter-spacing:.02em}.s-working{background:var(--good-bg);color:var(--good)}.s-blocked{background:var(--bad-bg);color:var(--bad)}.s-waiting{background:var(--warn-bg);color:var(--warn)}.s-idle{background:var(--idle-bg);color:var(--idle)}.s-done{background:#eef2ff;color:#4338ca}
+@@ -86,7 +86,7 @@
+ function renderPrs(d){let open=(d.open_prs||[]).slice(0,4);let closed=[...(d.recent_completed||[])].sort((a,b)=>String(b.mergedAt||b.closedAt||b.updatedAt||'').localeCompare(String(a.mergedAt||a.closedAt||a.updatedAt||''))).slice(0,4);openPrs.innerHTML=open.map(x=>prRow(x)).join('')||'<div class="muted">No open PRs</div>';closedPrs.innerHTML=closed.map(x=>prRow(x,true)).join('')||'<div class="muted">No recent closed PRs</div>';if(d.current){currentPr.innerHTML=prRow({...d.current,number:d.current.number,title:d.current.title,url:d.current.url,headRefOid:d.current.head,isDraft:d.current.draft,state:d.current.state,reviewDecision:d.current.reviewDecision,statusCheckRollup:d.current.statusCheckRollup||[]});}else currentPr.innerHTML='<div class="decision warn"><div class="big">No Current PR</div><div class="muted" style="margin-top:4px">PM should select the active release PR when one exists.</div></div>'}
+ function renderDashboard(d){dashboard=d;document.querySelector('.version').textContent='Board v'+d.version+' ('+(d.build||'original')+') · MAIN GOAL: RWT CLOSED · observed '+(d.observed_at||'unknown')+' · GitHub checked '+(d.github_observed_at||'unknown')+(d.github_error?' · GitHub error: '+d.github_error:'')+' · '+(d.reconciliation||'Reconciliation unknown')+' · '+(d.comms?.outbox||'Outbox pending')+(d.comms?.error?' · Watcher error: '+d.comms.error:'');let b=d.blocker||{};let po=Object.values(d.players||{}).find(x=>x.player_id==='po')||{};let poNeed=!!b.po_required||String(po.status||'').toLowerCase()==='action-needed';blockerTitle.textContent=b.text||'No blocker recorded';blockerMeta.textContent=`Owner: ${N[b.owner]||b.owner||'Unassigned'} · blocked ${age(b.age_seconds)} · ${b.cause||'No cause recorded'}`;blockerNext.innerHTML=`<span class="strong">Next:</span> ${esc(b.next_action||'No next action recorded')}`;blocker.className='decision '+(b.po_required?'warn':String(b.text||'').toLowerCase().includes('failed')?'bad':'good');poDecisionTitle.textContent=poNeed?'ACTION NEEDED':'NO ACTION NEEDED';poDecisionMeta.textContent=poNeed?(po.task||b.next_action||'Decision requested'):'No PO decision is currently recorded; execution gates still apply.';poDecision.className='decision '+(poNeed?'warn':'good');renderAgents(d.players||{});renderQueue(d.priority_queue||[]);renderPrs(d);const selectedAgent=detailBox.dataset.agent;if(selectedAgent)showAgent(selectedAgent,true)}
+ async function refreshDashboard(){try{renderDashboard(await api('/api/dashboard'))}catch(e){blockerTitle.textContent='Dashboard error';blockerMeta.textContent=e.message}}
+-function deliveryHtml(d){let [t,c]=statusNorm(d.status);return `<div class="delivery"><strong>#${d.id}</strong> ${esc(d.source_actor)}→${esc(d.recipient)} <span class="statusBadge ${c}">${esc(d.delivery_label||t)}</span> · attempt ${d.attempts||0} · ${d.historical?'history':'current'} · ${age(d.age_seconds)} ${d.error?esc(d.error):''} ${esc(d.recovery_action||'')} ${String(d.status).startsWith('failed')?`<button onclick="retryDelivery(${d.id})">retry</button>`:''}</div>`}
++function deliveryHtml(d){let [t,c]=statusNorm(d.status);let task=d.work_item_key?` · task ${esc(d.work_item_key)} · ${esc(d.target_branch||'branch unknown')} · ${esc(d.target_worktree||'worktree unknown')}`:'';let request=d.content?`<div class="request">${esc(d.content.slice(0,900))}${d.content.length>900?'…':''}</div>`:'';return `<div class="delivery"><strong>#${d.id}</strong> ${esc(d.source_actor)}→${esc(d.recipient)} <span class="statusBadge ${c}">${esc(d.delivery_label||t)}</span> · attempt ${d.attempts||0} · ${d.historical?'history':'current'} · ${age(d.age_seconds)}<div class="muted">${esc(d.delivery_stage||t)}${task}</div>${request}${d.error?`<div class="error">${esc(d.error)}</div>`:''}${d.recovery_action?`<div class="muted">${esc(d.recovery_action)}</div>`:''}${String(d.status).startsWith('failed')&&!d.recovery_action?.startsWith('PM recovery queued')?`<button onclick="retryDelivery(${d.id})">retry</button>`:''}</div>`}
+ async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM connected · read-only':'CLI PM connected · bounded executor'):'CLI PM blocked'} · CLI Dev ${t.dev_configured?'installed':'not configured'}`;activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';commsHealth.textContent=`Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
+ async function refreshPr(){try{let s=await api('/api/pr-state');wtStatus.textContent=s.worktree&&s.worktree.is_git?`CLI Dev worktree: ${s.worktree.path} · ${(s.worktree.head||'').slice(0,9)} · ${s.worktree.clean?'clean':'DIRTY'}`:'CLI Dev worktree not selected/ready'}catch(e){wtStatus.textContent='Worktree error: '+e.message}}
+ async function readFiles(){let out=[];let el=document.getElementById('files');if(!el)return out;for(const f of el.files){let data=await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)});out.push({name:f.name,data})}return out}
+--- a/test_comms.py
++++ b/test_comms.py
+@@ -82,6 +82,34 @@
+         action={'kind':'mark_ready','head':HEAD,'base':BASE,'pr_number':1554,'source_comment_id':12}
+         out=server.parse_pm_route(json.dumps({'message':'Ready','next':'none','board_updates':{},'pm_actions':[action]}))
+         self.assertEqual(out['pm_actions'],[action])
++
++    def test_refresh_reviews_crosses_route_and_executor_boundary_once(self):
++        schema=json.loads((server.PM_ROUTE_SCHEMA).read_text())
++        action_schema=schema['properties']['pm_actions']['items']
++        self.assertIn('refresh_reviews',action_schema['properties']['kind']['enum'])
++        self.assertEqual(action_schema['allOf'][0]['then']['properties']['pr_number']['type'],'integer')
++        action={'kind':'refresh_reviews','head':HEAD,'base':BASE,'pr_number':1554,'source_comment_id':12,
++                'run_id':None,'run_attempt':None,'branch':None,'title':None,'body':None}
++        route=server.parse_pm_route(json.dumps({'message':'Refresh reviews','next':'none','pm_actions':[action]}))
++        self.assertEqual(route['pm_actions'],[action])
++        calls=[]
++        class FakeExecutor:
++            def __init__(self,*_): pass
++            def execute(self,received):
++                calls.append(received)
++                return 'LIFECYCLE COMPLETE; REVIEWS PENDING'
++        q={'id':77}
++        with patch.object(server,'Executor',FakeExecutor):
++            first=server.execute_pm_actions(q,route['pm_actions'])
++            second=server.execute_pm_actions(q,route['pm_actions'])
++        self.assertEqual(len(calls),1)
++        self.assertIn('LIFECYCLE COMPLETE',first[0])
++        self.assertIn('RECORDED: completed',second[0])
++
++    def test_unsupported_action_gets_named_recoverable_blocker(self):
++        result=server.execute_pm_actions({'id':78},[{'kind':'refresh_reviews_v2'}])
++        self.assertIn("unsupported actionable operation 'refresh_reviews_v2'",result[0])
++        self.assertIn('manual disposition',result[0])
+ 
+     def test_watcher_recovers_timed_out_post_without_another_write(self):
+         q=self.q()
+--- a/test_deadlock.py
++++ b/test_deadlock.py
+@@ -1,4 +1,5 @@
+ from unittest.mock import patch
++from datetime import datetime, timedelta, timezone
+ from test_comms import CommsTests
+ import server
+ 
+@@ -45,6 +46,15 @@
+         q=self.q(); self.timeout(q)
+         second=self.q()
+         self.assertEqual(server.next_queue('pm')['id'],second['id'])
++
++    def test_old_github_request_ages_past_newer_priority_events(self):
++        aid=server.add_activity('GITHUB','old exact request','pm')
++        old=server.enqueue(aid,'pm','old exact request',source_actor='GITHUB')
++        server.update_queue(old,created_at=(datetime.now(timezone.utc)-timedelta(seconds=240)).isoformat())
++        for i in range(6):
++            aid=server.add_activity('PO',f'newer event {i}','pm')
++            server.enqueue(aid,'pm',f'newer event {i}',source_actor='PO')
++        self.assertEqual(server.next_queue('pm')['id'],old)
+ 
+     def test_three_timeouts_stop_with_visible_error(self):
+         q=self.q()
+@@ -111,3 +121,18 @@
+         before = len(server.list_queue())
+         self.assertIsNone(server.maybe_handoff(q['activity_id'], 'PM', 'dev', 'more work', q))
+         self.assertEqual(len(server.list_queue()), before)
++
++    def test_system_recovery_reaches_pm_once_even_when_handoff_depth_is_exhausted(self):
++        aid=server.add_activity('PM','deep assigned repair','dev')
++        qid=server.enqueue(aid,'dev','deep assigned repair',source_actor='PM',work_item_key='PR-1570-P1',
++                           handoff_depth=server.MAX_HANDOFF_DEPTH,auto_handoff=True)
++        q=next(row for row in server.list_queue() if row['id']==qid)
++        server.update_queue(qid,status='failed',error='preflight blocked',finished_at=server.now())
++        first=server.recover_failed_dev_delivery(qid,'preflight blocked')
++        second=server.recover_failed_dev_delivery(qid,'preflight blocked')
++        self.assertEqual(first,second)
++        recovery=next(row for row in server.list_queue() if row['id']==first)
++        self.assertEqual(recovery['recipient'],'pm')
++        self.assertFalse(recovery['auto_handoff'])
++        self.assertIn('depth limit reached',recovery['content'])
++        self.assertFalse(any(row['recipient']=='dev' and row['id']!=qid for row in server.list_queue()))
+--- a/test_event_delivery.py
++++ b/test_event_delivery.py
+@@ -4,6 +4,18 @@
+ import server
+ 
+ class EventDeliveryTests(CommsTests):
++    def assign_dev_task(self, worktree='/missing/task-worktree'):
++        key='PR-1570-P1'
++        ok=server.apply_board_updates({'work_items':[{
++            'item_key':key,'pr_number':1570,'title':'#1570 P1','state':'active','owner':'cli_dev',
++            'branch':'fix/1258-readback-boot-control','worktree':worktree,
++            'next_action':'bootstrap, then implement the reviewed fix'}],
++            'players':[{'player_id':'cli_dev','status':'assigned','work_item_key':key,'task':'#1570 P1'}]})
++        self.assertTrue(ok)
++        aid=server.add_activity('PM','execute assigned task','dev')
++        qid=server.enqueue(aid,'dev','execute assigned task',source_actor='PM',work_item_key=key)
++        return next(row for row in server.list_queue() if row['id']==qid)
++
+     def test_burst_preserves_every_comment_including_addressed_directive(self):
+         prev={'latest_control_comment_id':10}
+         cur={'latest_control_comment_id':12,'control_updates':[
+@@ -14,18 +26,28 @@
+         self.assertIn('pin the packet',events[0])
+         self.assertIn('host free',events[1])
+ 
+-    def test_busy_recipient_accumulates_pending_events_without_resetting_age(self):
++    def test_distinct_requests_stay_separate_and_poll_retries_dedupe(self):
+         aid=server.add_activity('GITHUB','first','pm')
+         first=server._coalesced_github_enqueue(aid,'pm','packet101 requires pin')
+-        original=server.list_queue()[0]['created_at']
+         second=server._coalesced_github_enqueue(aid,'pm','directive102 prioritizes packet101')
+-        self.assertEqual(first,second)
+-        row=server.list_queue()[0]
+-        self.assertIn('packet101 requires pin',row['content'])
+-        self.assertIn('directive102',row['content'])
+-        self.assertEqual(row['created_at'],original)
+-        server._coalesced_github_enqueue(aid,'pm','directive102 prioritizes packet101')
+-        self.assertEqual(server.list_queue()[0]['content'].count('directive102'),1)
++        self.assertNotEqual(first,second)
++        repeated=server._coalesced_github_enqueue(aid,'pm','directive102 prioritizes packet101')
++        self.assertEqual(repeated,second)
++        rows=server.list_queue()
++        self.assertEqual(len(rows),2)
++        self.assertEqual({row['content'] for row in rows},{'packet101 requires pin','directive102 prioritizes packet101'})
++        self.assertEqual({row['status'] for row in rows},{'queued'})
++
++    def test_unresolved_watcher_request_survives_recent_history_window(self):
++        aid=server.add_activity('GITHUB','older exact request','pm')
++        request=server._coalesced_github_enqueue(aid,'pm','older exact request')
++        for i in range(105):
++            aid=server.add_activity('PM',f'historical reply {i}','none')
++            qid=server.enqueue(aid,'pm',f'historical reply {i}',source_actor='PM')
++            server.update_queue(qid,status='responded')
++        rows=server.list_queue(limit=100)
++        self.assertIn(request,{row['id'] for row in rows})
++        self.assertEqual(next(row for row in rows if row['id']==request)['content'],'older exact request')
+ 
+     def test_inflight_payload_not_changed_by_new_event(self):
+         q=self.q();server.update_queue(q['id'],status='delivering')
+@@ -60,3 +82,73 @@
+             server.run_pm(q)
+         publish.assert_called_once_with(q,route['message'])
+         self.assertFalse(any(x['recipient']=='dev' for x in server.list_queue()))
++
++    def test_assigned_dev_delivery_displays_each_execution_boundary(self):
++        q=self.assign_dev_task()
++        queued=next(row for row in server.list_queue() if row['id']==q['id'])
++        self.assertIn('ASSIGNED → QUEUED',queued['delivery_stage'])
++        self.assertIn('Dev not invoked',queued['delivery_stage'])
++
++        server.update_queue(q['id'],status='delivering',started_at=server.now(),attempts=1)
++        invoked=next(row for row in server.list_queue() if row['id']==q['id'])
++        self.assertIn('DEV INVOKED',invoked['delivery_stage'])
++
++        server.update_queue(q['id'],status='responded',finished_at=server.now())
++        returned=next(row for row in server.list_queue() if row['id']==q['id'])
++        self.assertIn('task-specific ACK/action unverified',returned['delivery_stage'])
++
++    def test_preflight_failure_reports_expected_tuple_and_queues_one_pm_recovery(self):
++        q=self.assign_dev_task()
++        target=server.resolve_dev_target(q)
++        self.assertFalse(target['ok'])
++        self.assertIn('worktree is missing',target['error'])
++        self.assertIn('fix/1258-readback-boot-control',target['error'])
++        self.assertIn('/missing/task-worktree',target['error'])
++
++        server.update_queue(q['id'],status='failed',error=target['error'],finished_at=server.now())
++        first=server.recover_failed_dev_preflight(q['id'],target['error'])
++        second=server.recover_failed_dev_preflight(q['id'],target['error'])
++        self.assertEqual(first,second)
++        rows=server.list_queue()
++        child=[row for row in rows if row['parent_queue_id']==q['id'] and row['recipient']=='pm']
++        self.assertEqual(len(child),1)
++        self.assertIn('bootstrap',child[0]['content'])
++        self.assertIn('Do not retry',child[0]['content'])
++        self.assertFalse(any(row['id']!=q['id'] and row['recipient']=='dev' for row in rows))
++        failed=next(row for row in rows if row['id']==q['id'])
++        self.assertEqual(failed['delivery_stage'],'BLOCKED BEFORE DEV INVOCATION')
++        self.assertIn('PM recovery queued',failed['recovery_action'])
++
++    def test_failure_after_dev_invocation_gets_inspection_recovery(self):
++        q=self.assign_dev_task()
++        server.update_queue(q['id'],status='failed',started_at=server.now(),attempts=1)
++        recovery=server.recover_failed_dev_preflight(q['id'],'worker failed')
++        self.assertIsNotNone(recovery)
++        self.assertIn('partial effects',next(row for row in server.list_queue() if row['id']==recovery)['content'])
++
++    def test_failed_invoked_dev_delivery_gets_pm_disposition_without_writer_replay(self):
++        q=self.assign_dev_task(worktree='/verified/task-worktree')
++        target={'ok':True,'path':'/verified/task-worktree','item_key':q['work_item_key'],
++                'validation':{'branch':q['target_branch'],'head':'abc123'}}
++        with patch.object(server,'resolve_dev_target',return_value=target), \
++             patch.object(server,'resolved_bin',return_value='/fake/claude'), \
++             patch.object(server,'compose_for_dev',return_value='bounded task'), \
++             patch.object(server,'_run_claude_once',return_value=(1,{},'session-x','','transport failure')), \
++             patch.object(server,'claude_transport_error',return_value='transport failure'):
++            server.run_dev(q)
++        rows=server.list_queue()
++        failed=next(row for row in rows if row['id']==q['id'])
++        self.assertEqual(failed['status'],'failed')
++        self.assertEqual(failed['attempts'],1)
++        recovery=[row for row in rows if row['parent_queue_id']==q['id'] and row['recipient']=='pm']
++        self.assertEqual(len(recovery),1)
++        self.assertIn('partial effects',recovery[0]['content'])
++        self.assertFalse(any(row['recipient']=='dev' and row['id']!=q['id'] for row in rows))
++
++    def test_held_unrelated_dev_delivery_does_not_block_active_task(self):
++        server.apply_board_updates({'work_items':[
++            {'item_key':'HELD-OLD','state':'waiting','owner':'unassigned','branch':'fix/old'},
++            {'item_key':'ACTIVE-NEW','state':'active','owner':'cli_dev','branch':'fix/new'}]})
++        aid=server.add_activity('PM','old held task','dev')
++        server.enqueue(aid,'dev','old held task',source_actor='PM',work_item_key='HELD-OLD')
++        self.assertFalse(server._has_pending_delivery('dev','ACTIVE-NEW'))
+--- a/test_refresh_reviews.py
++++ b/test_refresh_reviews.py
+@@ -2,15 +2,17 @@
+ from guarded_pm import Executor, Hold
+ 
+ class ReviewRefreshTests(unittest.TestCase):
+-    def setup_executor(self, existing=False, drift=False):
++    def setup_executor(self, existing=False, drift=False, initially_draft=False, fail_ready=False):
+         self.head='a'*40; self.base='b'*40; self.writes=[]
+-        pr={'number':1559,'node_id':'PR_node','state':'open','draft':False,'head':{'sha':self.head,'ref':'fix/1258-coaching-failure-reason','repo':{'full_name':'relativityE/speaksharp'}},'base':{'sha':self.base}}
++        pr={'number':1559,'node_id':'PR_node','state':'open','draft':initially_draft,'head':{'sha':self.head,'ref':'fix/1258-coaching-failure-reason','repo':{'full_name':'relativityE/speaksharp'}},'base':{'sha':self.base}}
+         def request(args):
+             if 'graphql' in args:
+                 self.writes.append(args)
+                 if 'convertPullRequestToDraft' in str(args):
+                     pr['draft']=True
+                     if drift: pr['head']['sha']='c'*40
++                elif 'markPullRequestReadyForReview' in str(args) and not fail_ready:
++                    pr['draft']=False
+                 return {}
+             path=args[1]
+             if 'issues/comments/' in path:return {'issue_url':'https://api.github.com/repos/relativityE/speaksharp/issues/1258','user':{'login':'relativityE'},'body':self.head+' '+self.base+' Draft→Ready'}
+@@ -23,12 +25,27 @@
+         return Executor(request,lambda *_:None)
+ 
+     def test_new_head_cycles_with_fresh_read(self):
+-        ex=self.setup_executor();self.assertIn('Refreshed',ex.execute(self.action));self.assertEqual(len(self.writes),2)
++        ex=self.setup_executor();result=ex.execute(self.action)
++        self.assertIn('LIFECYCLE COMPLETE',result);self.assertIn('REVIEWS PENDING',result)
++        self.assertEqual(len(self.writes),2)
++
++    def test_partial_draft_request_resumes_without_second_draft_cycle(self):
++        ex=self.setup_executor(initially_draft=True);result=ex.execute(self.action)
++        self.assertIn('LIFECYCLE COMPLETE',result)
++        self.assertEqual(len(self.writes),1)
++        self.assertIn('markPullRequestReadyForReview',self.writes[0][3])
+ 
+     def test_existing_codex_review_is_observed(self):
+-        ex=self.setup_executor(existing=True);self.assertIn('already exists',ex.execute(self.action));self.assertEqual(self.writes,[])
++        ex=self.setup_executor(existing=True);result=ex.execute(self.action)
++        self.assertIn('OBSERVE ONLY',result);self.assertIn('not inferred',result)
++        self.assertEqual(self.writes,[])
+ 
+     def test_drift_between_transitions_never_marks_ready(self):
+         ex=self.setup_executor(drift=True)
+         with self.assertRaises(Hold):ex.execute(self.action)
+         self.assertEqual(len(self.writes),1)
++
++    def test_failed_ready_write_is_not_reported_as_complete(self):
++        ex=self.setup_executor(fail_ready=True)
++        with self.assertRaises(Hold):ex.execute(self.action)
++        self.assertEqual(len(self.writes),2)
+--- a/test_regressions.py
++++ b/test_regressions.py
+@@ -118,7 +118,7 @@
+     def test_independent_task_uses_own_worktree(self):
+         self.assign(worktree='/independent/nav')
+         server.set_setting('current_pr','1555')
+-        with patch.object(server,'validate_worktree',return_value={'is_git':True,'branch':'fix/navigation','head':'nav-head'}) as valid:
++        with patch.object(server,'validate_worktree',return_value={'exists':True,'is_git':True,'branch':'fix/navigation','head':'nav-head'}) as valid:
+             target=server.resolve_dev_target({'work_item_key':'NAV'})
+         self.assertTrue(target['ok'])
+         self.assertEqual(target['path'],'/independent/nav')
+@@ -126,9 +126,9 @@
+ 
+     def test_existing_wrong_worktree_cannot_launch_dev(self):
+         self.assign(worktree='/wrong')
+-        with patch.object(server,'validate_worktree',return_value={'is_git':True,'branch':'app-dev-branch','head':'x'}), \
++        with patch.object(server,'validate_worktree',return_value={'exists':True,'is_git':True,'branch':'app-dev-branch','head':'x'}), \
+              patch.object(server,'_run_claude_once') as cli:
+-            with self.assertRaisesRegex(RuntimeError,'does not match'):
++            with self.assertRaisesRegex(RuntimeError,'branch mismatch'):
+                 server.run_dev({'id':1,'work_item_key':'NAV','content':'work'})
+             cli.assert_not_called()
+ 
+@@ -176,7 +176,7 @@
+         pr={'number':1555,'headRefOid':'sha','headRefName':'branch'}
+         runs=[{'databaseId':1,'workflowName':'CI - Test Audit','headSha':'sha','status':'in_progress'},
+               {'databaseId':2,'workflowName':'CI - Test Audit','headSha':'sha','status':'completed','conclusion':'cancelled'}]
+-        with patch.object(server,'gh_json',side_effect=[([],None),([],None),([],None),(pr,None),([],None),([],None),(runs,None)]):
++        with patch.object(server,'gh_json',side_effect=[([],None),([],None),([],None),(pr,None),([],None),([],None),({'users':[],'teams':[]},None),(runs,None)]):
+             snap,_=server.github_watch_snapshot()
+         self.assertEqual(len(snap['runs']),2)
+ 
+@@ -258,12 +258,19 @@
+                 self.assertEqual(code,200)
+                 code,_=post('/api/player-status',{'player_id':'app_dev','work_item_key':'NAV','status':'active'})
+                 self.assertEqual(code,409)
+-                with patch.object(server,'validate_worktree',return_value={'is_git':True,'branch':'fix/navigation','head':'x'}):
++                # A fresh board assignment checkpoint is required before Dev dispatch.
++                server.set_setting('dev_assignment_reconciled','1')
++                with patch.object(server,'validate_worktree',return_value={'exists':True,'is_git':True,'branch':'fix/navigation','head':'x'}):
+                     code,result=post('/api/send',{'actor':'PO','route':'dev','message':'check','files':[]})
+                 self.assertEqual(code,202)
+                 q=next(x for x in server.list_queue() if x['id']==result['delivery_ids'][0])
+                 self.assertEqual(q['work_item_key'],'NAV')
+                 self.assertEqual(q['target_worktree'],'/nav')
++                server.update_queue(q['id'],status='failed',error='missing target during dispatch',finished_at=server.now())
++                server.recover_failed_dev_delivery(q['id'],'missing target during dispatch')
++                code,body=post('/api/retry-delivery',{'id':q['id']})
++                self.assertEqual(code,409)
++                self.assertIn('PM disposition is queued',body['error'])
+                 with patch.object(server,'transport_status',return_value={'pm_configured':False,'dev_configured':True,'pm_auth_detail':'sign in'}):
+                     code,_=post('/api/send',{'actor':'PO','route':'pm','message':'check'})
+                 self.assertEqual(code,409)
+--- a/test_server.py
++++ b/test_server.py
+@@ -368,6 +368,24 @@
+         self.assertIn('inline review finding', joined)
+         self.assertIn('CI terminal', joined)
+ 
++    def test_review_signals_include_exact_review_comment_and_request_delta(self):
++        cfg=server.automation_settings()
++        prev={'pr':1549,'latest_review_id':20,'latest_review_comment_id':30,
++              'review_requests':['user:old-reviewer'],'reviewDecision':'REVIEW_REQUIRED'}
++        cur={'pr':1549,'latest_review_id':21,'latest_review_comment_id':31,
++             'review_requests':['user:new-reviewer'],'reviewDecision':'CHANGES_REQUESTED',
++             'latest_reviews':[{'id':21,'login':'reviewer','state':'CHANGES_REQUESTED',
++                                'url':'https://github.com/review/21','body':'Keep the exact correlation ID.'}],
++             'latest_review_comments':[{'id':31,'login':'reviewer','path':'server.py',
++                                        'url':'https://github.com/comment/31','body':'Do not drop this request.'}]}
++        events=server.github_watch_events(prev,cur,cfg)
++        joined='\n'.join(events)
++        self.assertIn('Keep the exact correlation ID.',joined)
++        self.assertIn('https://github.com/review/21',joined)
++        self.assertIn('Do not drop this request.',joined)
++        self.assertIn('Review requested from user:new-reviewer',joined)
++        self.assertIn('Review request withdrawn for user:old-reviewer',joined)
++
+     def test_github_event_wakes_pm_only_by_default(self):
+         cfg = server.automation_settings()
+         snap={'pr':1549,'title':'diag','head':'abcdef123456'}
+--- a/test_ui.js
++++ b/test_ui.js
+@@ -6,7 +6,8 @@
+ const elements={};const element=id=>elements[id]||(elements[id]={textContent:'',innerHTML:'',value:'',files:[],style:{},dataset:{},classList:{add(){},remove(){}},addEventListener(){}});
+ for(const id of html.matchAll(/id="([^"]+)"/g))element(id[1]);
+ const current={number:1558,title:'Filler count',state:'OPEN',head:'d371fe1b5',statusCheckRollup:[{status:'IN_PROGRESS'},{status:'COMPLETED',conclusion:'CANCELLED'}]};
+-const dashboard={version:'4.6.16',observed_at:'2026-10-05T14:15:00Z',github_error:'fixture lookup failure',current,blocker:{text:'CI running; failed/cancelled rows also present'},players:{app_dev:{player_id:'app_dev',status:'reported',task:'PDF packet from checkpoint'}},reconciliation:'Task/player checkpoint applied',priority_queue:[{title:'PDF'},{title:'Coaching'},{title:'Share Feedback fix'},{title:'Telemetry'},{title:'#1560 Navigation'}],open_prs:[{number:1554,title:'PDF',isDraft:true},{number:1559,title:'Coaching',isDraft:true},{number:1560,title:'Navigation',isDraft:true},{number:1557,title:'Other',isDraft:true},{number:1488,title:'Parked',updatedAt:'2099'}],recent_completed:[]};
++const dashboard={version:'4.6.16',build:'deadlock.5',observed_at:'2026-10-05T14:15:00Z',github_error:'fixture lookup failure',current,blocker:{text:'CI running; failed/cancelled rows also present'},players:{app_dev:{player_id:'app_dev',status:'reported',task:'PDF packet from checkpoint'}},reconciliation:'Task/player checkpoint applied',priority_queue:[{title:'PDF'},{title:'Coaching'},{title:'Share Feedback fix'},{title:'Telemetry'},{title:'#1560 Navigation'}],open_prs:[{number:1554,title:'PDF',isDraft:true},{number:1559,title:'Coaching',isDraft:true},{number:1560,title:'Navigation',isDraft:true},{number:1557,title:'Other',isDraft:true},{number:1488,title:'Parked',updatedAt:'2099'}],recent_completed:[]};
+ const sandbox={...elements,location:{hostname:'127.0.0.1',port:'4417'},document:{getElementById:element,querySelector:()=>element('version'),querySelectorAll:()=>[],activeElement:null},sessionStorage:{getItem(){},setItem(){}},setInterval(){},console,fetch:async path=>({ok:true,json:async()=>path==='/api/dashboard'?dashboard:path==='/api/live'?{transport:{},deliveries:[],activity:[],automation:{}}:{}})};
+ vm.createContext(sandbox);vm.runInContext(code,sandbox);
+-(async()=>{await vm.runInContext('refreshAll()',sandbox);assert(element('version').textContent.includes('4.6.16'));assert(element('version').textContent.includes('fixture lookup failure'));assert(element('agents').innerHTML.includes('REPORTED'));assert(element('currentPr').innerHTML.includes('#1558'));assert(element('queue').innerHTML.includes('Share Feedback fix'));assert(element('queue').innerHTML.includes('#1560 Navigation'));assert(element('openPrs').innerHTML.indexOf('#1554')<element('openPrs').innerHTML.indexOf('#1559'));assert(!element('openPrs').innerHTML.includes('#1488'));assert(!html.includes('Open · 4 most recent'));assert(element('version').textContent.includes('Task/player checkpoint applied'));assert(element('currentPr').innerHTML.includes('1 running; 1 failed/cancelled'));assert(html.indexOf('id="deliveries"')<html.indexOf('<details class="advanced">'));assert.equal((html.match(/id="deliveries"/g)||[]).length,1);vm.runInContext("showAgent('cli_dev')",sandbox);dashboard.players.cli_dev={player_id:'cli_dev',status:'active',task:'Navigation proof running',blocker:''};vm.runInContext('renderDashboard(dashboardFixture)',Object.assign(sandbox,{dashboardFixture:dashboard}));assert(element('detailBox').innerHTML.includes('WORKING'));assert(element('detailBox').innerHTML.includes('Navigation proof running'));dashboard.players.cli_dev.status='blocked';dashboard.players.cli_dev.blocker='Fixture transport error';vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert(element('detailBox').innerHTML.includes('BLOCKED'));assert(element('detailBox').innerHTML.includes('Fixture transport error'));vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'block');vm.runInContext('closeDetail()',sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert.equal(element('detail').style.display,'none');console.log('UI smoke passed: actual script runs; current PR, freshness/error, reported checkpoint, full queue, ordered PRs, simultaneous checks and visible delivery queue.');})().catch(e=>{console.error(e);process.exitCode=1});
++const requestDelivery=vm.runInContext(`deliveryHtml({id:99,status:'queued',source_actor:'GITHUB',recipient:'pm',content:'Exact #1258 request awaiting a specific disposition',historical:false,age_seconds:3})`,sandbox);assert(requestDelivery.includes('Exact #1258 request awaiting a specific disposition'));
++(async()=>{await vm.runInContext('refreshAll()',sandbox);assert(element('version').textContent.includes('4.6.16'));assert(element('version').textContent.includes('deadlock.5'));assert(element('version').textContent.includes('fixture lookup failure'));assert(element('agents').innerHTML.includes('REPORTED'));assert(element('currentPr').innerHTML.includes('#1558'));assert(element('queue').innerHTML.includes('Share Feedback fix'));assert(element('queue').innerHTML.includes('#1560 Navigation'));assert(element('openPrs').innerHTML.indexOf('#1554')<element('openPrs').innerHTML.indexOf('#1559'));assert(!element('openPrs').innerHTML.includes('#1488'));assert(!html.includes('Open · 4 most recent'));assert(element('version').textContent.includes('Task/player checkpoint applied'));assert(element('currentPr').innerHTML.includes('1 running; 1 failed/cancelled'));assert(html.indexOf('id="deliveries"')<html.indexOf('<details class="advanced">'));assert.equal((html.match(/id="deliveries"/g)||[]).length,1);const failedDelivery=vm.runInContext(`deliveryHtml({id:36,status:'failed',source_actor:'PM',recipient:'dev',work_item_key:'PR-1570-P1',target_branch:'fix/1258-readback-boot-control',target_worktree:'/tmp/1570-boot',attempts:0,historical:true,age_seconds:4,delivery_stage:'BLOCKED BEFORE DEV INVOCATION',error:'target worktree is missing',recovery_action:'PM recovery queued #37 (queued)'})`,sandbox);assert(failedDelivery.includes('BLOCKED BEFORE DEV INVOCATION'));assert(failedDelivery.includes('target worktree is missing'));assert(failedDelivery.includes('PM recovery queued #37'));assert(failedDelivery.includes('fix/1258-readback-boot-control'));assert(!failedDelivery.includes('onclick="retryDelivery(36)"'));vm.runInContext("showAgent('cli_dev')",sandbox);dashboard.players.cli_dev={player_id:'cli_dev',status:'active',task:'Navigation proof running',blocker:''};vm.runInContext('renderDashboard(dashboardFixture)',Object.assign(sandbox,{dashboardFixture:dashboard}));assert(element('detailBox').innerHTML.includes('WORKING'));assert(element('detailBox').innerHTML.includes('Navigation proof running'));dashboard.players.cli_dev.status='blocked';dashboard.players.cli_dev.blocker='Fixture transport error';vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert(element('detailBox').innerHTML.includes('BLOCKED'));assert(element('detailBox').innerHTML.includes('Fixture transport error'));vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'block');vm.runInContext('closeDetail()',sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert.equal(element('detail').style.display,'none');console.log('UI smoke passed: actual script runs; delivery stages, exact failed route, bounded PM recovery, no false Dev ACK/retry; dashboard and queue.');})().catch(e=>{console.error(e);process.exitCode=1});
