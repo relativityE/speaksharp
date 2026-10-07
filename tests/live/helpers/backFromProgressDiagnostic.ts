@@ -38,3 +38,38 @@ export function classifySessionView(view: SessionView, savedId: string): 'comple
     if (!view.verdict && !view.thisRun && view.control !== null && START_CONTROLS.has(view.control)) return 'blank_start';
     return 'other';
 }
+
+/** One table cell: no pipes, line breaks or HTML; bounded. An empty phrase reads as an explicit absence. */
+export function summaryCell(value: string | null | undefined): string {
+    if (typeof value !== 'string' || value.trim() === '') return '_(none)_';
+    const flat = value.replace(/[\r\n]+/g, ' ').replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;').trim();
+    return flat.length > 400 ? `${flat.slice(0, 400)}…` : flat;
+}
+
+export type CoachingCapture = {
+    fixtureKind: string;
+    responses: Array<{ at: number; status: number; latencyMs: number | null }>;
+    shownWell: string; shownNext: string; savedWell: string; savedNext: string;
+};
+
+const same = (a: string, b: string) => a !== '' && a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
+export const shownMatchesSaved = (c: CoachingCapture): boolean => same(c.shownWell, c.savedWell) && same(c.shownNext, c.savedNext);
+
+/**
+ * PO 2026-10-07 ("capture ai suggestions gemini response") + the PO's "public run summary" choice: the AI suggestions a
+ * SYNTHETIC take produced, as Markdown for $GITHUB_STEP_SUMMARY. A human-voice (or unknown) fixture renders nothing — its
+ * coaching paraphrases a real person's speech. The text never goes to the job-log diagnostic record.
+ */
+export function coachingSummaryMarkdown(c: CoachingCapture): string {
+    if (c.fixtureKind !== 'synthetic') return '';
+    const responses = c.responses.length === 0 ? '_(no coaching response)_'
+        : c.responses.map((r) => `HTTP ${r.status}${r.latencyMs === null ? '' : ` in ${Math.round(r.latencyMs)} ms`}`).join('; ');
+    return [
+        '## AI suggestions from this run (synthetic-voice take)', '',
+        `Coaching responses: ${responses}`, '',
+        '| | What went well | What to try next |', '|---|---|---|',
+        `| Shown on the page | ${summaryCell(c.shownWell)} | ${summaryCell(c.shownNext)} |`,
+        `| Saved on the session | ${summaryCell(c.savedWell)} | ${summaryCell(c.savedNext)} |`, '',
+        `Shown matches saved: **${shownMatchesSaved(c) ? 'yes' : 'no'}**`, '',
+    ].join('\n');
+}

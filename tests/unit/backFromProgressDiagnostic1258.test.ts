@@ -1,7 +1,7 @@
 // @vitest-environment node
 /** #1258 PR 4 diagnostic — preconditions refuse before any Production write; the page classification is exact. */
 import { describe, it, expect } from 'vitest';
-import { SESSION_CONTROL_IDS, backDiagnosticPreconditionFailures, classifySessionView, type SessionView } from '../live/helpers/backFromProgressDiagnostic';
+import { SESSION_CONTROL_IDS, backDiagnosticPreconditionFailures, classifySessionView, coachingSummaryMarkdown, shownMatchesSaved, summaryCell, type SessionView } from '../live/helpers/backFromProgressDiagnostic';
 
 const ok = { BASE_URL: 'https://speaksharp-public.vercel.app', SUPABASE_URL: 'x', SUPABASE_SERVICE_ROLE_KEY: 'y', RWT_WRITES_ACK: 'RWT-DISPOSABLE-ACCOUNT-WRITES' };
 const view = (over: Partial<SessionView>): SessionView => ({
@@ -35,5 +35,25 @@ describe('back-from-progress diagnostic', () => {
     it('reads only rendered controls from the shared map, never the retired combined id', () => {
         expect(SESSION_CONTROL_IDS).toEqual(expect.arrayContaining(['mic-start', 'mic-download', 'mic-retry', 'recorder-bar']));
         expect(SESSION_CONTROL_IDS).not.toContain('session-start-stop-button');
+    });
+
+    describe('AI suggestions capture (run summary only, synthetic takes only)', () => {
+        const pair = { shownWell: 'Clear plan in three steps.', shownNext: 'Pause before each step.', savedWell: 'Clear plan in three steps.', savedNext: 'Pause before each step.' };
+        it('renders the response, the shown and saved pairs, and whether they match', () => {
+            const md = coachingSummaryMarkdown({ fixtureKind: 'synthetic', responses: [{ at: 1, status: 200, latencyMs: 4321.4 }], ...pair });
+            expect(md).toContain('Coaching responses: HTTP 200 in 4321 ms');
+            expect(md).toContain('| Shown on the page | Clear plan in three steps. | Pause before each step. |');
+            expect(md).toContain('Shown matches saved: **yes**');
+        });
+        it('CASUALTY: a human-voice or unknown fixture renders nothing', () => {
+            expect(coachingSummaryMarkdown({ fixtureKind: 'human', responses: [], ...pair })).toBe('');
+            expect(coachingSummaryMarkdown({ fixtureKind: '', responses: [], ...pair })).toBe('');
+        });
+        it('cells cannot break the table or inject HTML; empty reads as an explicit absence; a missing saved pair does not match', () => {
+            expect(summaryCell('a | b\nc <script>')).toBe('a \\| b c &lt;script&gt;');
+            expect(summaryCell('')).toBe('_(none)_');
+            expect(shownMatchesSaved({ fixtureKind: 'synthetic', responses: [], ...pair, savedNext: '' })).toBe(false);
+            expect(coachingSummaryMarkdown({ fixtureKind: 'synthetic', responses: [], ...pair })).toContain('_(no coaching response)_');
+        });
     });
 });

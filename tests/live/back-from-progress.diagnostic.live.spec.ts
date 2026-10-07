@@ -13,17 +13,23 @@
  *   5. header Progress at once, and stay there until at least 75 s after the save (past the reported ~61 s boundary);
  *   6. browser Back, then observe the session page for 30 s.
  * Throughout: a timestamped, content-free timeline of the document's runtime/persisted signals and path, the coaching
- * requests (count + status only), and console classes (counts only). No transcript, coaching text, email or credential is
- * ever written; trace, video and screenshots are off.
+ * responses (status + latency), and console classes (counts only) — in the job log. No transcript, email or credential
+ * is ever written; trace, video and screenshots are off.
+ *
+ * AI SUGGESTIONS (PO 2026-10-07): the coaching call runs as in the product (Production's Gemini key, within the
+ * provider's no-charge allowance per the PO), and the phrases shown and saved are captured into the run SUMMARY only — synthetic
+ * take, the PO's "public run summary" choice — never into the job-log record.
  *
  * This is NOT an RWT suite (no `rwt-` prefix, no receipt, no PostHog readback) and NOT release evidence. The deployed
  * frontend release is RECORDED as observed, not bound to the dispatched commit.
  *
- * DISPATCH (PO authorization per run — one disposable account's Production writes and one coaching generation):
+ * DISPATCH (PO authorization per run — one disposable account's Production writes and the take's coaching call within
+ *          the provider's no-charge allowance):
  *   rc-gates.yml  ref=<this branch>  gate=gate-3-dast  base_url=https://speaksharp-public.vercel.app
  *                 diagnostic_dast_spec=tests/live/back-from-progress.diagnostic.live.spec.ts
  *                 rwt_writes_ack=RWT-DISPOSABLE-ACCOUNT-WRITES
  */
+import { appendFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import type { Page, Response } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
@@ -37,7 +43,7 @@ import {
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { DiagnosticRecord } from './helpers/rwtDiagnosticWindow';
-import { SESSION_CONTROL_IDS, backDiagnosticPreconditionFailures, classifySessionView, type SessionView } from './helpers/backFromProgressDiagnostic';
+import { SESSION_CONTROL_IDS, backDiagnosticPreconditionFailures, classifySessionView, coachingSummaryMarkdown, shownMatchesSaved, type CoachingCapture, type SessionView } from './helpers/backFromProgressDiagnostic';
 import {
     APPROVED_ORIGIN,
     RWT_ACCOUNT_PREFIX,
@@ -138,13 +144,16 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
         const readTimeline = () => page.evaluate(() => (window as unknown as { __ssBackDiag__?: Array<{ t: number; k: string; v: string | null }> }).__ssBackDiag__ ?? [])
             .catch(() => [] as Array<{ t: number; k: string; v: string | null }>);
 
-        // Coaching requests: count and status only (≤1 generation is authorized; Back must not generate another).
-        const coaching: Array<{ at: number; status: number }> = [];
+        // Coaching responses: time, status and latency (one take = at most its two lifecycle attempts, #1473; Back must not
+        // request coaching again). The phrases themselves are read from the page and the saved row below.
+        const coaching: Array<{ at: number; status: number; latencyMs: number | null }> = [];
         page.on('response', (response: Response) => {
             if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
-                coaching.push({ at: rel(), status: response.status() });
+                const end = response.request().timing().responseEnd;
+                coaching.push({ at: rel(), status: response.status(), latencyMs: end >= 0 ? end : null });
             }
         });
+        const capture: CoachingCapture = { fixtureKind: fixture.entry.kind, responses: coaching, shownWell: '', shownNext: '', savedWell: '', savedNext: '' };
         // Console: classes and counts only — never the text.
         const consoleClasses: Record<string, number> = { error: 0, warning: 0, teardown_like: 0 };
         const teardownAt: number[] = [];
@@ -160,6 +169,7 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
         // #1519: on a fresh account the model is cold, and the product's download control starts the take once the model
         // is ready. That take IS the take (run 37700194032 HOLDed here by mistake); only a warm account needs a Start press.
         let takeAlreadyRunning = false;
+        let backPressedAt = -1;
         try {
             await test.step('fresh disposable account', async () => {
                 await page.goto('/auth/signup');
@@ -207,6 +217,17 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
                 if (!savedId) throw new Error('FAIL: no persisted session id after save');
             });
 
+            await test.step('the AI suggestions shown after Stop', async () => {
+                // Bounded: a slow or failed review is recorded, never waited on forever; the Back timing is unaffected
+                // because the away window below is measured from the save, not from here.
+                const shown = await page.getByTestId('review-try-next').first().waitFor({ state: 'visible', timeout: 90_000 }).then(() => true, () => false);
+                if (shown) {
+                    capture.shownWell = (await page.getByTestId('review-what-went-well').first().innerText({ timeout: 15_000 }).catch(() => '')).trim();
+                    capture.shownNext = (await page.getByTestId('review-try-next').first().innerText({ timeout: 15_000 }).catch(() => '')).trim();
+                }
+                diag.update({ coaching_shown: shown, coaching_shown_after_save_ms: rel() - savedAt });
+            });
+
             await test.step('Progress, away past the ~61 s boundary', async () => {
                 const before = await readSessionView(page);
                 diag.update({ view_before_leaving: before, view_before_leaving_class: classifySessionView(before, savedId) });
@@ -220,6 +241,7 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
             });
 
             await test.step('browser Back, then observe the session page', async () => {
+                backPressedAt = rel();
                 await page.goBack({ waitUntil: 'commit', timeout: 45_000 });
                 const samples: Array<SessionView & { after_back_ms: number; class: string }> = [];
                 const backAt = rel();
@@ -232,17 +254,30 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
                 diag.update({ after_back_samples: samples, BACK_FROM_PROGRESS_RESULT: final.class });
             });
         } finally {
+            if (savedId && admin) {
+                const { data: row } = await admin.from('sessions').select('ai_suggestions').eq('id', savedId).maybeSingle();
+                const saved = (row?.ai_suggestions ?? null) as { what_worked?: unknown; what_to_try_next?: unknown } | null;
+                capture.savedWell = typeof saved?.what_worked === 'string' ? saved.what_worked.trim() : '';
+                capture.savedNext = typeof saved?.what_to_try_next === 'string' ? saved.what_to_try_next.trim() : '';
+            }
+            // The phrases go to the run summary only (synthetic take); the job log gets flags.
+            const summary = coachingSummaryMarkdown(capture);
+            if (summary && process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
             const timeline = (await readTimeline()).map((e) => ({ ...e, t: e.t - t0 }));
             diag.update({
                 timeline,
-                coaching_requests: coaching,
-                coaching_generations: coaching.length,
+                coaching_responses: coaching,
+                coaching_attempts_after_back: backPressedAt < 0 ? null : coaching.filter((r) => r.at >= backPressedAt).length,
+                coaching_saved: capture.savedWell !== '' && capture.savedNext !== '',
+                coaching_shown_matches_saved: shownMatchesSaved(capture),
+                coaching_in_run_summary: Boolean(summary && process.env.GITHUB_STEP_SUMMARY),
                 console_classes: consoleClasses,
                 teardown_like_console_ms: teardownAt.slice(0, 20),
             });
         }
-        // The diagnostic passes when the observation was collected; the RESULT line names what was seen. One coaching
-        // generation is the authorized ceiling: a second one (e.g. on Back) is itself a finding.
-        expect(coaching.length, 'at most one coaching generation (Back must not regenerate)').toBeLessThanOrEqual(1);
+        // The diagnostic passes when the observation was collected; the RESULT line names what was seen. One take makes at most
+        // its two lifecycle attempts (#1473), and Back must not request coaching again.
+        expect(coaching.length, 'at most the two lifecycle attempts for the one take (#1473)').toBeLessThanOrEqual(2);
+        expect(coaching.filter((r) => r.at >= backPressedAt).length, 'Back must not request coaching again').toBe(0);
     });
 });
