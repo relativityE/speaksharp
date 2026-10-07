@@ -14,9 +14,7 @@ vi.mock('../../lib/pdfGenerator', () => ({
 // #1306: the STTAccuracyVsBenchmark / by-engine comparison component is REMOVED — no mock, no surface.
 vi.mock('../analytics/WeeklyActivityChart', () => ({ WeeklyActivityChart: () => <div data-testid="weekly-activity-chart" /> }));
 vi.mock('../analytics/GoalsSection', () => ({ GoalsSection: () => <div data-testid="goals-section" /> }));
-vi.mock('../analytics/TopFillerWords', () => ({ TopFillerWords: () => <div data-testid="top-filler-words" /> }));
-vi.mock('../analytics/FillerWordTable', () => ({ FillerWordTable: () => <div data-testid="filler-word-table" /> }));
-vi.mock('../analytics/TrendChart', () => ({ TrendChart: () => <div data-testid="trend-chart" /> }));
+vi.mock('../analytics/TrendChart', () => ({ TrendChart: ({ metric }: { metric: string }) => <div data-testid="trend-chart" data-metric={metric} /> }));
 const pdfDownloaded = vi.fn();
 // #1258 (RWT run 36955422629): a list PDF reads THIS session's detail row first. Default: no detail row (null).
 const sessionDetailRead = vi.fn((_id: string): Promise<unknown> => Promise.resolve(null));
@@ -88,7 +86,6 @@ describe('AnalyticsDashboard', () => {
         profile: mockProfile,
         sessionHistory: [],
         overallStats: mockStats,
-        fillerWordTrends: {},
         loading: false,
         error: null,
         onUpgrade: vi.fn(),
@@ -123,15 +120,32 @@ describe('AnalyticsDashboard', () => {
         expect(screen.queryByText('Clarity')).not.toBeInTheDocument();
     });
 
-    it('stacks every analysis tool instead of hiding them behind a carousel (#G4 §3)', () => {
+    it('#1258 D7: Trends lists every selected tool as a collapsed row; a chart mounts only when its row opens', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
-        // The carousel is retired: no swipe arrows, no indicator dots.
+        // The carousel stays retired: no swipe arrows, no indicator dots.
         expect(screen.queryByRole('button', { name: 'Previous slide' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Next slide' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Go to slide/i })).not.toBeInTheDocument();
-        // The default focus renders three trend charts (pace, pause, clarity). All are in the DOM at
-        // once now — under the old carousel only the active slide mounted, so exactly one would appear.
-        expect(screen.getAllByTestId('trend-chart').length).toBeGreaterThan(1);
+        expect(screen.getByRole('heading', { name: 'Trends' })).toBeInTheDocument();
+        expect(screen.queryByText(/Sound Confident Tools|Each chart answers part of the same coaching question/)).toBeNull();
+        // Default focus (Sound Confident): pace, pause, fillers, clarity — all collapsed, no chart mounted.
+        for (const id of ['pace_trend', 'pause_trend', 'filler_words', 'clarity_trend']) {
+            expect(screen.getByTestId(`trend-row-${id}`)).toHaveAttribute('aria-expanded', 'false');
+        }
+        expect(screen.queryAllByTestId('trend-chart')).toHaveLength(0);
+        fireEvent.click(screen.getByTestId('trend-row-clarity_trend'));
+        expect(screen.getByTestId('trend-chart')).toHaveAttribute('data-metric', 'clarity');
+    });
+
+    it('#1258 D8 CASUALTY (flat 0/min pause line): sessions without pause evidence are left out, never averaged as 0', () => {
+        const at = (n: number, pause_metrics?: Record<string, number>) => ({
+            ...mockSessionHistory[0], id: `p${n}`, created_at: `2026-10-0${n}T10:00:00Z`, wpm: 120, pause_metrics,
+        });
+        const valid = { silencePercentage: 10, transitionPauses: 3, extendedPauses: 0, longestPause: 1.1 };
+        // Newest first: three sessions with no pause evidence, one with it.
+        renderComponent({ sessionHistory: [at(4), at(3), at(2, {}), at(1, valid)] });
+        expect(screen.getByTestId('trend-row-pause_trend').textContent).toContain('After 2 more sessions');
+        expect(screen.getByTestId('trend-row-pause_trend').textContent).not.toMatch(/Avg 0\.0/);
+        expect(screen.getByTestId('trend-row-pace_trend').textContent).toContain('Avg 120 wpm');
     });
 
     it('should render error display when error occurs', () => {
