@@ -691,6 +691,25 @@ export async function readCpuRuntime(page: Page): Promise<Record<string, number 
 
 export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
 
+/**
+ * PO 2026-10-07 — "print the suggestions in the github run results". The coaching phrases a SYNTHETIC take produced are
+ * written to their own file, which rc-gates prints into the run summary. They never enter the content-free receipt or
+ * its uploaded artifact. A human-voice fixture (or an unknown kind) writes nothing: its coaching paraphrases a real
+ * person's speech.
+ */
+export type CoachingText = { shownWell: string; shownNext: string; savedWell: string; savedNext: string };
+export function writeCoachingTextForRunSummary(receipt: RwtReceipt, text: CoachingText): boolean {
+    const kind = receipt.meta.fixtureKind;
+    if (kind !== 'synthetic') return false;
+    const dir = path.resolve('test-results', 'rwt');
+    mkdirSync(dir, { recursive: true });
+    const match = (a: string, b: string) => a !== '' && a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
+    writeFileSync(path.join(dir, `${receipt.suite}.coaching-text.json`), `${JSON.stringify({
+        suite: receipt.suite, fixtureKind: kind, fixture: receipt.meta.fixture ?? null,
+        ...text, shownMatchesSaved: match(text.shownWell, text.savedWell) && match(text.shownNext, text.savedNext),
+    }, null, 2)}\n`);
+    return true;
+}
 
 /**
  * One product's receipt. A FAIL is recorded AND raised as a soft expectation, so the suite keeps collecting the
@@ -1450,6 +1469,7 @@ export async function focusCoachingRows(
     const saved = (row?.ai_suggestions ?? null) as { version?: unknown; what_worked?: unknown; what_to_try_next?: unknown } | null;
     const savedWell = typeof saved?.what_worked === 'string' ? saved.what_worked.trim() : '';
     const savedNext = typeof saved?.what_to_try_next === 'string' ? saved.what_to_try_next.trim() : '';
+    writeCoachingTextForRunSummary(receipt, { shownWell: well, shownNext: next, savedWell, savedNext });
     // #1538 (PROPOSAL): the saved pair's provenance and the request's declared capability. Closed-set values only.
     const provenance = focusCoachingProvenanceVerdict({
         savedVersion: typeof saved?.version === 'string' ? saved.version : null, acceptedVersions: request.acceptedVersions,

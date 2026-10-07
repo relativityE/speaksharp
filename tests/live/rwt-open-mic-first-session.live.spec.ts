@@ -90,6 +90,7 @@ import {
     sentDetail,
     readbackSettlement,
     exactCountVerdict,
+    writeCoachingTextForRunSummary,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 
@@ -459,6 +460,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 savedWell = typeof savedAi?.what_worked === 'string' ? savedAi.what_worked.trim() : '';
                 savedNext = typeof savedAi?.what_to_try_next === 'string' ? savedAi.what_to_try_next.trim() : '';
                 receipt.forbid(savedWell, savedNext);
+                writeCoachingTextForRunSummary(receipt, { shownWell, shownNext, savedWell, savedNext });
                 const wellMatches = savedWell !== '' && samePhrase(shownWell, savedWell);
                 const nextMatches = savedNext !== '' && samePhrase(shownNext, savedNext);
                 receipt.row('coaching visible = saved', wellMatches && nextMatches ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
