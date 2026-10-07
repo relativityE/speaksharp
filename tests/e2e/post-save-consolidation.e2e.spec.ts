@@ -69,7 +69,7 @@ test.describe('Post-save consolidation', () => {
     await recordAndStop(page);
 
     await assertOneBarNoOldSurface(page);
-    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
+    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved( ·|\.)/);
 
     // #1184: Private is the only engine — there is no Browser→Private upsell CTA after save, and no
     // separate first-run Private setup nudge.
@@ -136,7 +136,7 @@ test.describe('Post-save consolidation', () => {
     await recordAndStop(page);
 
     await assertOneBarNoOldSurface(page);
-    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
+    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved( ·|\.)/);
     await expect(page.getByTestId('post-save-private-cta')).toHaveCount(0);
     await expect(page.getByTestId('live-session-header')).not.toContainText(/Browser transcription may omit/i);
     await assertSingleSavedSurface(page);

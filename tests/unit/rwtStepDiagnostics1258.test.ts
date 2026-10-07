@@ -77,6 +77,8 @@ describe('#1258 Practice again: which click branch the saved review was in', () 
         ['linked', 'Linking repeat…', 'linked', 'linking'],
         ['pending', 'Checking your next practice…', 'pending', 'checking'],
         ['direct', 'Practice this again', 'direct', 'practice_again'],
+        // #1258 punch list: the label is now "Practice again?"; the deployed older label stays recognised.
+        ['direct', 'Practice again?', 'direct', 'practice_again'],
         ['someday-new', 'Something new', 'other', 'other'],
     ] as const)('link state %s / label "%s" → %s / %s', async (raw, text, linkState, label) => {
         const page = stubPage('https://x/analytics/abc', { 'saved-review-practice': { attrs: { 'data-link-state': raw }, text, enabled: true } });

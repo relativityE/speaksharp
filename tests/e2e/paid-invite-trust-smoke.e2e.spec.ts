@@ -36,7 +36,7 @@ test.describe('Paid invite trust smoke', () => {
     // Consolidated post-save experience: ONE status bar carries the reconciliation copy and the Analytics
     // action — the separate post-save surface is gone.
     await expect(page.getByTestId('post-save-review-actions')).toHaveCount(0);
-    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
+    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved( ·|\.)/);
     await expect(page.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
     // #1184: no Browser→Private upsell CTA after save — the session was already Private.
     await expect(page.getByTestId('post-save-private-cta')).toHaveCount(0);

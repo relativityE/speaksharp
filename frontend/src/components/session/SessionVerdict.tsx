@@ -7,7 +7,7 @@ import React from 'react';
  *   1. ONE direct session-specific insight (21px/800) — never a paragraph.
  *   2. Supporting transcript excerpts with timestamps, when the review supplies them.
  *   3. ONE prominent `Try this next run` prescription.
- *   4. The primary `Practice this again` action, in the brand accent.
+ *   4. The primary `Practice again?` action, in the brand accent.
  *   5. The secondary `See all sessions` action.
  *
  * It renders on the dark-ink coaching surface (see `CoachingCard`, after state), so every colour here is an
@@ -110,7 +110,7 @@ export const SessionVerdict: React.FC<SessionVerdictProps> = ({
                     data-testid="verdict-practice-again"
                     className={`rounded-lg bg-signature px-4 py-2 text-[14px] font-bold text-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`}
                 >
-                    Practice this again
+                    Practice again?
                 </button>
                 <button
                     type="button"
