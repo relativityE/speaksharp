@@ -499,7 +499,7 @@ export function sentDetail(detail: string, allSeen: boolean, tap: BlindTimes, si
     if (allSeen || blind === 0) return detail;
     const unseen = `${detail} — not seen, but ${blind} PostHog beacon(s) sent after this step carried a body the browser does not expose`;
     if (receivedBy.includes('coaching_readback')) {
-        return `${unseen}; settled at finalization only if the received coaching readback qualifies every saved take (HOLD while the producer gap stands)`;
+        return `${unseen}; settled at finalization only if the received coaching readback qualifies every saved take`;
     }
     return receivedBy.length > 0
         ? `${unseen}; settled at finalization only if every bound journey declaring ${receivedBy.join(', ')} qualifies in the PostHog readback`

@@ -82,7 +82,7 @@ type Evidence = {
     /** Received-vendor cardinality and a named failure when a singleton receipt is absent. */
     received_counts?: Record<string, number>;
     duplicate_families?: string[];
-    coaching_readback?: { verdict: 'QUALIFIED' | 'HOLD' | 'FAIL'; expected_requests: number; received_requests: number; reasons: string[] };
+    coaching_readback?: { verdict: 'QUALIFIED' | 'HOLD' | 'FAIL'; expected_requests: number; received_requests: number; max_invocations: number; reasons: string[] };
     delivery_failures?: ReturnType<typeof evaluateAttemptScopedDelivery>['deliveryFailures'];
     identity_bound?: boolean;
     window_hours: number;
@@ -347,6 +347,10 @@ async function main(): Promise<void> {
                 producer_ts: cells[35] ?? null,
                 // #1258 successor: a product-bearing row in this journey must agree with the declared product.
                 product: cells[36] ?? null,
+                // #1258 coaching ownership (contract 6037393538): one logical lifecycle, its server calls, generated vs stored.
+                review_request_seq: cells[37] ?? null,
+                invocations: cells[38] ?? null,
+                review_source: cells[39] ?? null,
             },
         };
     });
@@ -415,10 +419,11 @@ async function main(): Promise<void> {
     /**
      * #1258 successor — received coaching outcomes and per-take request cardinality. The query has already
      * restricted release, traffic, identity and bounded time; this binds each coaching event to the selected
-     * journey/boot and the envelope attempt of each declared saved take. It is reported as its OWN verdict
-     * (the `RWT_COACHING_READBACK_VERDICT=` line), never folded into the journey verdict: until the producer
-     * gap closes it cannot qualify (PM delivery #308), and its HOLD must not hold the stage evidence it does
-     * not affect. Only the coaching and generation-count receipt rows settle from it.
+     * journey/boot and to each declared saved take through the producers' subject/product/request-seq
+     * ownership fields (contract 6037393538). It is reported as its OWN verdict (the
+     * `RWT_COACHING_READBACK_VERDICT=` line), never folded into the journey verdict: a release whose producers
+     * predate those fields HOLDs here, and that HOLD must not hold the stage evidence it does not affect.
+     * Only the coaching and generation-count receipt rows settle from it.
      */
     let coachingReadback: Evidence['coaching_readback'];
     const coachingReasons: string[] = [];
@@ -426,7 +431,7 @@ async function main(): Promise<void> {
         const product = process.env.QUALIFICATION_PRODUCT;
         if (product !== 'open_mic' && product !== 'focus_points') {
             coachingReasons.push('HOLD: QUALIFICATION_PRODUCT must name open_mic or focus_points for recording readback');
-            coachingReadback = { verdict: 'HOLD', expected_requests: expectedAttempts.length, received_requests: 0, reasons: [...coachingReasons] };
+            coachingReadback = { verdict: 'HOLD', expected_requests: expectedAttempts.length, received_requests: 0, max_invocations: 0, reasons: [...coachingReasons] };
         } else {
             const evaluated = evaluateReceivedPracticeLoop(readback, {
                 journeyId,
@@ -439,6 +444,7 @@ async function main(): Promise<void> {
                 verdict: evaluated.verdict,
                 expected_requests: evaluated.expectedRequests,
                 received_requests: evaluated.receivedRequests,
+                max_invocations: evaluated.maxInvocations,
                 reasons: evaluated.reasons,
             };
         }

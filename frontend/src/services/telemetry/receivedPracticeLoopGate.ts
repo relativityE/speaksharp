@@ -2,24 +2,26 @@
  * #1258 — received-side Practice Loop proof for one RWT recording journey.
  *
  * The PostHog query already binds rows to the controlled identity, release, traffic class and bounded
- * time window. This evaluator adds the take-level binding the query cannot infer, using ONLY fields the
- * governed producers emit today:
+ * time window. This evaluator adds the take-level binding the query cannot infer, from the ownership
+ * fields the producers emit under contract 6037393538 (App Dev candidate `fix/1258-coaching-event-ownership`
+ * 6d840e1e2):
  *
- *   - `journey_id` / `boot_id` — the envelope's, attached to every event at the capture boundary;
- *   - `attempt_id` — the envelope's open recording attempt. A normal Stop -> READY leaves it open until the
- *     next accepted Start; a hard reset, unmount or idle reclamation clears it, and a row without it is HOLD;
- *   - product — the practice_loop_review_* events carry none. A received row in the same journey/boot that
- *     names a different product contradicts the declared binding (HOLD); absence is part of the gap below.
+ *   - `subject_boot_id` / `subject_journey_id` / `subject_attempt_id` — the saved take's frozen identity.
+ *     A take this tab did not record has none; such a row cannot be bound and, unless it is a stored
+ *     render, could hide a request for a declared take (HOLD);
+ *   - `product` — must equal the declared product; absent is HOLD, a different product is FAIL;
+ *   - `review_request_seq` — one logical review lifecycle, shared by its requested and terminal events and
+ *     by the render of the pair it generated. A per-tab counter that wraps after REVIEW_REQUEST_SEQ_MAX, so
+ *     it is only ever read together with the take subject: two takes may legitimately share a value across
+ *     a wrap, while one take showing a value twice is a duplicate delivery or a second lifecycle — FAIL
+ *     either way, so the wrap never makes a verdict ambiguous;
+ *   - `invocations` — server calls inside that one lifecycle (the bounded retry). A retry is NOT a second
+ *     generation request; it is reported, and completed/persisted disagreeing on it is a conflict;
+ *   - `review_source` — `generated` renders carry the lifecycle seq and count toward it; `stored` renders
+ *     (revisit, reload) carry none and never count as a generation.
  *
- * PRODUCER GAP (#1258 comment 6037347459; PM delivery #308). The events carry no saved-session id, no
- * product and no request id, and `requested` is emitted once per review lifecycle, outside its internal
- * retry loop, so it does not identify the server request(s). Ownership and one-request pairing therefore
- * cannot be PROVEN from received rows, and this gate never returns QUALIFIED: a complete lifecycle is HOLD
- * with `PRODUCER_GAP_REASON`. What the received rows CAN prove is a conflict, and that is FAIL: more than
- * one `requested` for one take (each is a separate review lifecycle), a failed outcome, failed alongside
- * success, or a duplicated outcome. Missing or unattributable evidence is HOLD. Ownership is never
- * inferred beyond the envelope's own fields. `saved_review_revisited` is intentionally outside this event
- * set: opening cached feedback is not a new generation request.
+ * Missing, malformed or unbindable evidence is HOLD. An observed failure, a conflict, a duplicate outcome
+ * or more than one lifecycle for one take is FAIL. Ownership is never inferred from anything else.
  */
 export const PRACTICE_LOOP_RECEIPT_FAMILIES = Object.freeze([
     'practice_loop_review_requested',
@@ -28,13 +30,13 @@ export const PRACTICE_LOOP_RECEIPT_FAMILIES = Object.freeze([
     'practice_loop_review_rendered',
 ] as const);
 
-/** Lifted only when the producers emit the ownership fields App Dev publishes; until then no coaching readback qualifies. */
-export const PRODUCER_GAP_REASON = 'HOLD: producer gap — practice_loop_review_* carry no saved-session, product or request id, so take ownership and one-request pairing cannot be proven from received rows (#1258 comment 6037347459)';
+/** Mirrors the producer's `REVIEW_REQUEST_SEQ_MAX` and the allowlist range for `review_request_seq`. */
+export const REVIEW_REQUEST_SEQ_MAX = 1000;
+const INVOCATIONS_MAX = 10;
 
-const ALL_PRACTICE_LOOP_FAMILIES = new Set<string>([
-    ...PRACTICE_LOOP_RECEIPT_FAMILIES,
-    'practice_loop_review_failed',
-]);
+const FAILED = 'practice_loop_review_failed';
+const RENDERED = 'practice_loop_review_rendered';
+const ALL_PRACTICE_LOOP_FAMILIES = new Set<string>([...PRACTICE_LOOP_RECEIPT_FAMILIES, FAILED]);
 
 export type PracticeLoopProduct = 'open_mic' | 'focus_points';
 
@@ -54,14 +56,20 @@ export interface ReceivedPracticeLoopBinding {
 }
 
 export interface ReceivedPracticeLoopResult {
-    /** QUALIFIED is reserved for when the producer gap closes; this evaluator cannot return it today. */
     verdict: 'QUALIFIED' | 'HOLD' | 'FAIL';
     expectedRequests: number;
+    /** Distinct received review lifecycles across the declared takes (exactly one per take qualifies). */
     receivedRequests: number;
+    /** Highest server-call count a declared take's lifecycle reported (>1 = an internal retry, still one request). */
+    maxInvocations: number;
     reasons: string[];
 }
 
 const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
+const boundedInt = (value: unknown, max: number): number | null => {
+    const n = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN;
+    return Number.isInteger(n) && n >= 1 && n <= max ? n : null;
+};
 
 /** Evaluate all declared saved takes in one journey against only received PostHog rows. */
 export function evaluateReceivedPracticeLoop(
@@ -78,60 +86,112 @@ export function evaluateReceivedPracticeLoop(
     }
 
     const inJourney = (row: ReceivedPracticeLoopRow) => row.journeyId === binding.journeyId && row.bootId === binding.bootId;
-    const contradicting = rows.filter((row) => inJourney(row) && nonEmpty(row.properties?.product)
-        && row.properties?.product !== 'unknown' && row.properties?.product !== binding.product);
+    const contradicting = rows.filter((row) => !ALL_PRACTICE_LOOP_FAMILIES.has(row?.event) && inJourney(row)
+        && nonEmpty(row.properties?.product) && row.properties?.product !== 'unknown' && row.properties?.product !== binding.product);
     if (contradicting.length > 0) {
         hold(`received ${[...new Set(contradicting.map((row) => row.event))].join(', ')} in this journey names a product other than the declared ${binding.product}`);
     }
 
-    const relevant = rows.filter((row) => ALL_PRACTICE_LOOP_FAMILIES.has(row?.event));
-    if (relevant.some((row) => ids.includes(String(row.properties?.attempt_id ?? '')) && !inJourney(row))) {
-        hold('a received coaching event for a declared saved attempt belongs to a different or unknown journey/boot');
-    }
-
     const byAttempt = new Map<string, ReceivedPracticeLoopRow[]>();
-    for (const row of relevant.filter(inJourney)) {
-        const attemptId = row.properties?.attempt_id;
+    for (const row of rows.filter((r) => ALL_PRACTICE_LOOP_FAMILIES.has(r?.event))) {
+        const props = row.properties ?? {};
+        const attemptId = props.subject_attempt_id;
         if (!nonEmpty(attemptId)) {
-            // Unattributable: it could be a second request for a declared take.
-            hold(`received ${row.event} in this journey carries no attempt_id, so it cannot be bound to a saved take`);
+            // A stored render (revisit/reload) is never a generation and needs no take.
+            if (row.event === RENDERED && props.review_source === 'stored') continue;
+            if (inJourney(row)) hold(`received ${row.event} in this journey names no saved take, so it could hide a request for a declared take`);
             continue;
         }
-        // Another take in the same journey (an unsaved short take never generates a review) is not this take's evidence.
         if (!ids.includes(attemptId)) continue;
+        if (!inJourney(row)) {
+            hold(`received ${row.event} for declared take ${attemptId} arrived under a different or unknown journey/boot`);
+            continue;
+        }
+        if (props.subject_journey_id !== binding.journeyId || props.subject_boot_id !== binding.bootId) {
+            hold(`received ${row.event} names take ${attemptId} with a subject journey/boot other than the declared recording`);
+            continue;
+        }
+        if (!nonEmpty(props.product)) {
+            hold(`received ${row.event} for take ${attemptId} carries no product`);
+            continue;
+        }
+        if (props.product !== binding.product) {
+            fail(`received ${row.event} for take ${attemptId} names product ${String(props.product)}, not the declared ${binding.product}`);
+            continue;
+        }
         const group = byAttempt.get(attemptId) ?? [];
         group.push(row);
         byAttempt.set(attemptId, group);
     }
 
     let receivedRequests = 0;
+    let maxInvocations = 0;
     for (const attemptId of ids) {
+        const lifecycle: { row: ReceivedPracticeLoopRow; seq: number }[] = [];
+        for (const row of byAttempt.get(attemptId) ?? []) {
+            const props = row.properties ?? {};
+            if (row.event === RENDERED) {
+                if (props.review_source === 'stored') {
+                    if (props.review_request_seq !== undefined && props.review_request_seq !== null) {
+                        hold(`take ${attemptId} has a stored render that carries a request seq`);
+                    }
+                    continue;
+                }
+                if (props.review_source !== 'generated') {
+                    hold(`take ${attemptId} has a render with no generated/stored source`);
+                    continue;
+                }
+            }
+            const seq = boundedInt(props.review_request_seq, REVIEW_REQUEST_SEQ_MAX);
+            if (seq === null) {
+                hold(`received ${row.event} for take ${attemptId} carries no valid review_request_seq`);
+                continue;
+            }
+            lifecycle.push({ row, seq });
+        }
+
+        const seqs = [...new Set(lifecycle.map((entry) => entry.seq))];
+        receivedRequests += seqs.length;
+        if (seqs.length > 1) {
+            fail(`take ${attemptId} has ${seqs.length} distinct review lifecycles; exactly one generation request is allowed`);
+            continue;
+        }
         const counts = new Map<string, number>();
-        for (const row of byAttempt.get(attemptId) ?? []) counts.set(row.event, (counts.get(row.event) ?? 0) + 1);
+        for (const { row } of lifecycle) counts.set(row.event, (counts.get(row.event) ?? 0) + 1);
+
         const requested = counts.get('practice_loop_review_requested') ?? 0;
-        receivedRequests += requested;
-        if (requested > 1) fail(`attempt ${attemptId} has ${requested} received coaching requests; exactly one is allowed`);
-
+        if (requested > 1) fail(`take ${attemptId} received its review request ${requested} times (a duplicate delivery or a second lifecycle reusing the seq)`);
         const duplicates = PRACTICE_LOOP_RECEIPT_FAMILIES.slice(1).filter((family) => (counts.get(family) ?? 0) > 1);
-        if (duplicates.length > 0) fail(`attempt ${attemptId} has duplicate received coaching outcomes: ${duplicates.join(', ')}`);
+        if (duplicates.length > 0) fail(`take ${attemptId} has duplicate received coaching outcomes: ${duplicates.join(', ')}`);
 
-        const failedCount = counts.get('practice_loop_review_failed') ?? 0;
+        const failedCount = counts.get(FAILED) ?? 0;
         const successCount = PRACTICE_LOOP_RECEIPT_FAMILIES.slice(1).reduce((sum, family) => sum + (counts.get(family) ?? 0), 0);
         if (failedCount > 0) {
             fail(successCount > 0
-                ? `attempt ${attemptId} has conflicting failed and successful coaching outcomes`
-                : `attempt ${attemptId} received a failed coaching outcome`);
+                ? `take ${attemptId} has conflicting failed and successful coaching outcomes`
+                : `take ${attemptId} received a failed coaching outcome`);
             continue;
         }
+
+        const terminalInvocations = lifecycle
+            .filter(({ row }) => row.event === 'practice_loop_review_completed' || row.event === 'practice_loop_review_persisted')
+            .map(({ row }) => boundedInt(row.properties?.invocations, INVOCATIONS_MAX));
+        if (terminalInvocations.some((n) => n === null)) {
+            hold(`take ${attemptId} has a completed/persisted event with no valid invocations count`);
+        } else if (new Set(terminalInvocations).size > 1) {
+            fail(`take ${attemptId} reports conflicting invocation counts for one lifecycle`);
+        }
+        for (const n of terminalInvocations) if (n !== null) maxInvocations = Math.max(maxInvocations, n);
+
         const missing = PRACTICE_LOOP_RECEIPT_FAMILIES.filter((family) => (counts.get(family) ?? 0) === 0);
-        if (missing.length > 0) hold(`attempt ${attemptId} is missing received coaching events: ${missing.join(', ')}`);
+        if (missing.length > 0) hold(`take ${attemptId} is missing received coaching events: ${missing.join(', ')}`);
     }
 
-    reasons.push(PRODUCER_GAP_REASON);
     return {
-        verdict: reasons.some((reason) => reason.startsWith('FAIL:')) ? 'FAIL' : 'HOLD',
+        verdict: reasons.some((reason) => reason.startsWith('FAIL:')) ? 'FAIL' : reasons.length > 0 ? 'HOLD' : 'QUALIFIED',
         expectedRequests: ids.length,
         receivedRequests,
+        maxInvocations,
         reasons,
     };
 }

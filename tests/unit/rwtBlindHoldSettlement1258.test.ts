@@ -7,7 +7,8 @@
  * resolve those HOLDs and every such run finalized INCOMPLETE while the row text claimed "the received readback decides".
  * Now a row that names its receiving qualification stages becomes PASS when every bound journey declaring them qualified;
  * coaching outcome and request-cardinality rows name `coaching_readback` and settle only from the separate received coaching
- * verdict (PM delivery #308) — which HOLDs while the producer gap stands, and FAILs the rows on a received conflict.
+ * verdict (PM delivery #308) — HOLD on missing/ambiguous ownership (e.g. a release predating the producer fields), FAIL on
+ * a received conflict.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -107,7 +108,7 @@ describe('a QUALIFIED readback settles a blind sent HOLD (Codex r4201644107)', (
         blindHold('revisit is not a generation', ['coaching_readback']),
     ];
 
-    it('PM #308: a QUALIFIED journey with a coaching HOLD (the standing producer gap) leaves only the coaching rows HOLD', () => {
+    it('PM #308: a QUALIFIED journey with a coaching HOLD (e.g. producers predating the ownership fields) leaves only the coaching rows HOLD', () => {
         const receipt = receiptWith([...COVERED, ...COACHING], true);
         const out = finalizeReceipt(receipt, worksheetFor(receipt), readback('QUALIFIED', 'QUALIFIED', 'HOLD'));
         expect(out.errors).toEqual([]);

@@ -378,7 +378,7 @@ jobs:
               else v=HOLD; echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; fi
               # #1258 successor (PM delivery #308): the received coaching verdict is reported beside, never inside, the journey
               # verdict. It settles only the coaching / generation-count rows. A received coaching conflict FAILs the step; a
-              # coaching HOLD (including the standing producer gap) is a warning that leaves those rows HOLD at finalization.
+              # coaching HOLD (missing or ambiguous take ownership) is a warning that leaves those rows HOLD at finalization.
               coaching=-
               if [ -n "$product" ]; then
                 coaching=$(grep -E '^RWT_COACHING_READBACK_VERDICT=(QUALIFIED|HOLD|FAIL)$' "$log" | tail -n 1 | cut -d= -f2)
