@@ -13,7 +13,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
   });
 
   // SCENARIO 1: Dashboard with Data (Metrics Matrix)
-  test('Analytics Matrix: Dashboard and Stat-Card Verification', async ({ userPage: page }) => {
+  test('Analytics Matrix: Dashboard and Stat-Card Verification', async ({ userPage: page }, testInfo) => {
     await navigateToRoute(page, '/analytics');
     
     // 🛡️ Architectural Readiness
@@ -40,6 +40,12 @@ test.describe('Analytics Suite & Data Matrix', () => {
     await expect(page.getByTestId('stat-card-clarity_score')).toBeVisible();
     // Pause Rhythm is now first-class in the default (Sound Confident) focus.
     await expect(page.getByTestId('stat-card-pause_rhythm')).toBeVisible();
+    // #1258 D5 (Rev 2 §5.5–5.6, PO window): no status chips; the filler card is a per-session count over the newest sessions.
+    await expect(page.getByText(/FIX THIS|ON TRACK|NEED 2 MORE|Do this next/)).toHaveCount(0);
+    await expect(page.getByTestId('stat-card-filler_words_per_min')).toContainText(/Average fillers per session · last \d+ sessions?/i);
+    await page.screenshot({ path: testInfo.outputPath('progress-top-1280.png'), fullPage: false });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.screenshot({ path: testInfo.outputPath('progress-top-375.png'), fullPage: false });
   });
 
   // SCENARIO 1b (#1258 D6/D7, Rev 2 §5.7–5.8): Trends rows start collapsed; Filler words opens to COUNTS, never rates.

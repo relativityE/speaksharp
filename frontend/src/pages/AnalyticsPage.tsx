@@ -54,6 +54,9 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
         }
     }, [showUpgrade]);
 
+    // #1258 D5: on the overview the dashboard's ink header leads; an empty wrapper would only add a top gap.
+    if (!isSessionView && !showUpgrade) return null;
+
     return (
         <div className="mb-8">
             {/* #1258 D5 (Rev 2 §5.1): on the overview the dashboard's ink ProgressHeader owns the h1; the session view
