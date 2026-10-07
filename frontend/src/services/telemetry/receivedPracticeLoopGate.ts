@@ -9,7 +9,10 @@
  *   - `subject_boot_id` / `subject_journey_id` / `subject_attempt_id` — the saved take's frozen identity.
  *     A take this tab did not record has none; such a row cannot be bound and, unless it is a stored
  *     render, could hide a request for a declared take (HOLD);
- *   - `product` — must equal the declared product; absent is HOLD, a different product is FAIL;
+ *   - `product` — read ONLY from the take-bound coaching rows: absent is HOLD, a product other than the
+ *     declared one is FAIL. Other product-bearing events in the journey are not evidence about this take: a
+ *     journey spans Session -> Analytics -> Session (useJourneyBoundary), where a revisit can legitimately
+ *     name another saved session's product;
  *   - `review_request_seq` — one logical review lifecycle, shared by its requested and terminal events and
  *     by the render of the pair it generated. A per-tab counter that wraps after REVIEW_REQUEST_SEQ_MAX, so
  *     it is only ever read together with the take subject: two takes may legitimately share a value across
@@ -20,8 +23,10 @@
  *   - `review_source` — `generated` renders carry the lifecycle seq and count toward it; `stored` renders
  *     (revisit, reload) carry none and never count as a generation.
  *
- * Missing, malformed or unbindable evidence is HOLD. An observed failure, a conflict, a duplicate outcome
- * or more than one lifecycle for one take is FAIL. Ownership is never inferred from anything else.
+ * Missing, malformed or unbindable evidence is HOLD. A single observed complete lifecycle is also HOLD:
+ * this readback has no declared PostHog ingestion-settlement policy, so delayed duplicate rows cannot be
+ * ruled out from one query snapshot (or merely by repeating an unchanged query). An observed failure,
+ * a conflict, a duplicate outcome or more than one lifecycle for one take is FAIL. Ownership is never inferred.
  */
 export const PRACTICE_LOOP_RECEIPT_FAMILIES = Object.freeze([
     'practice_loop_review_requested',
@@ -86,12 +91,6 @@ export function evaluateReceivedPracticeLoop(
     }
 
     const inJourney = (row: ReceivedPracticeLoopRow) => row.journeyId === binding.journeyId && row.bootId === binding.bootId;
-    const contradicting = rows.filter((row) => !ALL_PRACTICE_LOOP_FAMILIES.has(row?.event) && inJourney(row)
-        && nonEmpty(row.properties?.product) && row.properties?.product !== 'unknown' && row.properties?.product !== binding.product);
-    if (contradicting.length > 0) {
-        hold(`received ${[...new Set(contradicting.map((row) => row.event))].join(', ')} in this journey names a product other than the declared ${binding.product}`);
-    }
-
     const byAttempt = new Map<string, ReceivedPracticeLoopRow[]>();
     for (const row of rows.filter((r) => ALL_PRACTICE_LOOP_FAMILIES.has(r?.event))) {
         const props = row.properties ?? {};
@@ -127,6 +126,7 @@ export function evaluateReceivedPracticeLoop(
     let receivedRequests = 0;
     let maxInvocations = 0;
     for (const attemptId of ids) {
+        const attemptReasonStart = reasons.length;
         const lifecycle: { row: ReceivedPracticeLoopRow; seq: number }[] = [];
         for (const row of byAttempt.get(attemptId) ?? []) {
             const props = row.properties ?? {};
@@ -185,6 +185,10 @@ export function evaluateReceivedPracticeLoop(
 
         const missing = PRACTICE_LOOP_RECEIPT_FAMILIES.filter((family) => (counts.get(family) ?? 0) === 0);
         if (missing.length > 0) hold(`take ${attemptId} is missing received coaching events: ${missing.join(', ')}`);
+        else if (seqs.length === 1 && requested === 1 && duplicates.length === 0 && failedCount === 0
+            && !reasons.slice(attemptReasonStart).some((reason) => reason.startsWith('FAIL:'))) {
+            hold(`take ${attemptId} has one complete received lifecycle, but delayed duplicate ingestion cannot be ruled out without a declared settlement policy`);
+        }
     }
 
     return {

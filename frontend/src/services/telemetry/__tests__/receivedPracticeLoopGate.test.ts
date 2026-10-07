@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-    evaluateReceivedPracticeLoop, PRACTICE_LOOP_RECEIPT_FAMILIES, REVIEW_REQUEST_SEQ_MAX, type ReceivedPracticeLoopRow,
+    evaluateReceivedPracticeLoop, PRACTICE_LOOP_RECEIPT_FAMILIES, REVIEW_REQUEST_SEQ_MAX,
+    type ReceivedPracticeLoopBinding, type ReceivedPracticeLoopRow,
 } from '../receivedPracticeLoopGate';
 import { buildReadbackQuery } from '../bootScopedReceipts';
 
@@ -27,7 +28,7 @@ const renderedStored = (props: Record<string, unknown> = { product: 'open_mic' }
 const failed = (attemptId = 'attempt-a', seq = 1) => row('practice_loop_review_failed', { reason: 'network', ...owned(attemptId, seq), invocations: 2 });
 const complete = (attemptId = 'attempt-a', seq = 1, invocations = 1): ReceivedPracticeLoopRow[] =>
     [requested(attemptId, seq), completed(attemptId, seq, invocations), persisted(attemptId, seq, invocations), renderedGenerated(attemptId, seq)];
-const evaluate = (rows: ReceivedPracticeLoopRow[], b = binding) => evaluateReceivedPracticeLoop(rows, b);
+const evaluate = (rows: ReceivedPracticeLoopRow[], b: ReceivedPracticeLoopBinding = binding) => evaluateReceivedPracticeLoop(rows, b);
 
 describe('received Practice Loop readback', () => {
     it('the production query selects only governed ownership fields and pins identity, release, traffic and time window', () => {
@@ -46,18 +47,20 @@ describe('received Practice Loop readback', () => {
         expect(query).not.toMatch(/session_id/);
     });
 
-    it('one complete lifecycle for the saved take qualifies', () => {
-        expect(evaluate(complete())).toEqual({ verdict: 'QUALIFIED', expectedRequests: 1, receivedRequests: 1, maxInvocations: 1, reasons: [] });
+    it('HOLDs exact-count qualification from one complete read because delayed duplicate ingestion is unruled-out', () => {
+        const result = evaluate(complete());
+        expect(result).toMatchObject({ verdict: 'HOLD', expectedRequests: 1, receivedRequests: 1, maxInvocations: 1 });
+        expect(result.reasons.join(' ')).toMatch(/delayed duplicate ingestion cannot be ruled out without a declared settlement policy/);
     });
 
     it('RETRY: an internal retry inside one lifecycle (invocations 2) is still one generation request', () => {
-        expect(evaluate(complete('attempt-a', 1, 2))).toMatchObject({ verdict: 'QUALIFIED', receivedRequests: 1, maxInvocations: 2 });
+        expect(evaluate(complete('attempt-a', 1, 2))).toMatchObject({ verdict: 'HOLD', receivedRequests: 1, maxInvocations: 2 });
     });
 
     it('reload/cached revisit is not a generation: stored renders and saved_review_revisited never count', () => {
         const rows = [...complete(), renderedStored(), renderedStored(owned('attempt-a', null)),
             row('saved_review_revisited', { product: 'open_mic', review_state: 'review' })];
-        expect(evaluate(rows)).toMatchObject({ verdict: 'QUALIFIED', receivedRequests: 1 });
+        expect(evaluate(rows)).toMatchObject({ verdict: 'HOLD', receivedRequests: 1 });
     });
 
     it('PRE-PRODUCER RELEASE: rows without ownership fields HOLD, never qualify', () => {
@@ -103,9 +106,12 @@ describe('received Practice Loop readback', () => {
         expect(result.reasons.join(' ')).toMatch(/names no saved take/);
     });
 
-    it('HOLDs when a non-coaching product-bearing row in the journey contradicts the declared product', () => {
-        expect(evaluate([...complete(), row('saved_review_practice_action', { product: 'focus_points' })]).verdict).toBe('HOLD');
-        expect(evaluate([...complete(), row('saved_review_practice_action', { product: 'unknown' })]).verdict).toBe('QUALIFIED');
+    it('a non-coaching event naming another product (a same-journey revisit of another saved session) is not evidence about this take', () => {
+        for (const event of ['saved_review_revisited', 'saved_review_practice_action', 'saved_review_practice_selected']) {
+            const result = evaluate([...complete(), row(event, { product: 'focus_points' })]);
+            expect(result.verdict).toBe('HOLD');
+            expect(result.reasons.join(' ')).not.toMatch(/names product focus_points/);
+        }
     });
 
     it('HOLDs an incomplete receipt binding (no boot, no attempts, duplicate attempt ids)', () => {
@@ -114,8 +120,19 @@ describe('received Practice Loop readback', () => {
         expect(evaluate(complete(), { ...binding, attemptIds: ['attempt-a', 'attempt-a'] }).verdict).toBe('HOLD');
     });
 
-    it('FAILs a received product that contradicts the declared product on the bound take', () => {
+    it('FAILs a received product that contradicts the declared product on the bound take — on any one of its events', () => {
         expect(evaluate(complete().map((r) => ({ ...r, properties: { ...r.properties, product: 'focus_points' } }))).verdict).toBe('FAIL');
+        PRACTICE_LOOP_RECEIPT_FAMILIES.forEach((family, i) => {
+            const rows = complete().map((r, j) => (j === i ? { ...r, properties: { ...r.properties, product: 'focus_points' } } : r));
+            const result = evaluate(rows);
+            expect(result.verdict).toBe('FAIL');
+            expect(result.reasons.join(' ')).toContain(`received ${family} for take attempt-a names product focus_points, not the declared open_mic`);
+        });
+        expect(evaluate(complete().map((r) => ({ ...r, properties: { ...r.properties, product: 'open_mic' } })), { ...binding, product: 'focus_points' }).verdict).toBe('FAIL');
+    });
+
+    it('a contradicting product FAILs even when the rest of the evidence is missing (conflict outranks HOLD)', () => {
+        expect(evaluate([row('practice_loop_review_requested', { review_ready: true, ...owned('attempt-a'), product: 'focus_points' })]).verdict).toBe('FAIL');
     });
 
     it('FAILs an extra generation request for one take: a second lifecycle, even if only partly received', () => {
@@ -147,8 +164,8 @@ describe('received Practice Loop readback', () => {
         it('two takes sharing a seq after a wrap stay independent: each pairs by take + seq', () => {
             const both = { ...binding, attemptIds: ['attempt-a', 'attempt-b'] };
             expect(evaluate([...complete('attempt-a', REVIEW_REQUEST_SEQ_MAX), ...complete('attempt-b', REVIEW_REQUEST_SEQ_MAX)], both))
-                .toMatchObject({ verdict: 'QUALIFIED', expectedRequests: 2, receivedRequests: 2 });
-            expect(evaluate([...complete('attempt-a', 1), ...complete('attempt-b', 1)], both).verdict).toBe('QUALIFIED');
+                .toMatchObject({ verdict: 'HOLD', expectedRequests: 2, receivedRequests: 2 });
+            expect(evaluate([...complete('attempt-a', 1), ...complete('attempt-b', 1)], both).verdict).toBe('HOLD');
         });
 
         it('one take showing the same seq twice is a duplicate or a wrapped second lifecycle — FAIL either way, never ambiguous', () => {
@@ -157,8 +174,8 @@ describe('received Practice Loop readback', () => {
         });
 
         it('a boundary seq (1 and MAX) is valid; a take whose lifecycle spans the wrap (MAX then 1) is two lifecycles — FAIL', () => {
-            expect(evaluate(complete('attempt-a', 1)).verdict).toBe('QUALIFIED');
-            expect(evaluate(complete('attempt-a', REVIEW_REQUEST_SEQ_MAX)).verdict).toBe('QUALIFIED');
+            expect(evaluate(complete('attempt-a', 1)).verdict).toBe('HOLD');
+            expect(evaluate(complete('attempt-a', REVIEW_REQUEST_SEQ_MAX)).verdict).toBe('HOLD');
             expect(evaluate([...complete('attempt-a', REVIEW_REQUEST_SEQ_MAX), requested('attempt-a', 1)]).verdict).toBe('FAIL');
         });
     });
@@ -170,7 +187,7 @@ describe('received Practice Loop readback', () => {
     });
 
     it('an undeclared take in the same journey neither counts against the declared take nor fills its gap', () => {
-        expect(evaluate([...complete(), ...complete('attempt-other', 2)])).toMatchObject({ verdict: 'QUALIFIED', receivedRequests: 1 });
+        expect(evaluate([...complete(), ...complete('attempt-other', 2)])).toMatchObject({ verdict: 'HOLD', receivedRequests: 1 });
         expect(evaluate(complete('attempt-other')).reasons.join(' ')).toMatch(/take attempt-a is missing/);
     });
 });
