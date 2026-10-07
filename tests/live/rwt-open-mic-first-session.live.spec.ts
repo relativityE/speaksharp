@@ -408,7 +408,7 @@ test.describe('RWT — Open Mic first session @live', () => {
 
                 const card = page.getByTestId('ai-suggestions-card');
                 const terminal = await expect.poll(async () => card.getAttribute('data-review-state', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null), { timeout: 180_000 })
-                    .toMatch(/^(ready|error|empty|blocked)$/).then(() => true).catch(() => false);
+                    .toMatch(/^(ready|error|blocked)$/).then(() => true).catch(() => false);
                 const state = await card.getAttribute('data-review-state', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null);
                 const coachingMs = Date.now() - stoppedAt;
                 // The text is held in memory for the Node-side comparisons below and never written to the receipt.

@@ -75,7 +75,7 @@ test.describe('User-facing session and analytics regressions', () => {
     await expect(reviewCard).toBeVisible();
     // #1258 (F4): `pending` (still saving / not yet requested) is in motion too — wait for a SETTLED state, not "not loading".
     await expect(reviewCard, 'the review settles rather than spinning')
-        .toHaveAttribute('data-review-state', /^(ready|error|empty|blocked)$/, { timeout: 20_000 });
+        .toHaveAttribute('data-review-state', /^(ready|error|blocked)$/, { timeout: 20_000 });
 
     // AND IT BLOCKS NOTHING. A review that cannot be generated must not cost the user the session they
     // just saved or the control that starts the next take.

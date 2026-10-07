@@ -78,7 +78,7 @@ describe('#1258 coaching failure reason in the receipt', () => {
         // Focus: the caller no longer settles early; focusCoachingRows settles after its 180 s terminal poll.
         expect(focus).not.toContain('settleCoachingReason(');
         const fn = journey.slice(journey.indexOf('export async function focusCoachingRows('));
-        const poll = fn.indexOf("toMatch(/^(ready|error|empty|blocked)$/)");
+        const poll = fn.indexOf("toMatch(/^(ready|error|blocked)$/)");
         const settle = fn.indexOf('if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;');
         expect(poll).toBeGreaterThan(-1);
         expect(settle).toBeGreaterThan(poll);

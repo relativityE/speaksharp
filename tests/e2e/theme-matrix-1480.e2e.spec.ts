@@ -190,7 +190,7 @@ test.describe('#1480 theme matrix — authenticated product surfaces', () => {
     const reviewCard = page.getByTestId('ai-suggestions-card');
     await expect(reviewCard).toBeVisible({ timeout: 15_000 });
     // #1258 (F4): `pending` is still in motion — wait for a settled state, not merely "not loading".
-    await expect(reviewCard).toHaveAttribute('data-review-state', /^(ready|error|empty|blocked)$/, { timeout: 20_000 });
+    await expect(reviewCard).toHaveAttribute('data-review-state', /^(ready|error|blocked)$/, { timeout: 20_000 });
     await evidence(page, 'open-mic-after-review-unavailable');
   });
 
