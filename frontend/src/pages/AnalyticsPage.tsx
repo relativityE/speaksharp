@@ -101,7 +101,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const queryClient = useQueryClient();
-    const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
+    const { sessionHistory, overallStats, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const { data: usageLimit } = useUsageLimit();
     const [upgradeLoading, setUpgradeLoading] = useState(false);
@@ -232,7 +232,6 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                     isProUser={isProUser}
                     sessionHistory={sessionHistory || []}
                     overallStats={overallStats}
-                    fillerWordTrends={fillerWordTrends}
                     loading={isLoading}
                     error={error || null}
                     onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}

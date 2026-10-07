@@ -39,6 +39,31 @@ test.describe('Analytics Suite & Data Matrix', () => {
     await expect(page.getByTestId('stat-card-pause_rhythm')).toBeVisible();
   });
 
+  // SCENARIO 1b (#1258 D6/D7, Rev 2 §5.7–5.8): Trends rows start collapsed; Filler words opens to COUNTS, never rates.
+  test('Analytics Matrix: Trends rows start collapsed and Filler words shows counts', async ({ userPage: page }, testInfo) => {
+    await navigateToRoute(page, '/analytics');
+    await waitForFeature(page, 'analytics');
+
+    const trends = page.getByTestId('trends-card');
+    await expect(trends.getByRole('heading', { name: 'Trends' })).toBeVisible();
+    const rows = trends.getByRole('button', { expanded: false });
+    expect(await rows.count()).toBeGreaterThanOrEqual(4);
+    await expect(trends.locator('.recharts-wrapper')).toHaveCount(0);
+
+    await trends.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('trends-collapsed.png') });
+
+    await page.getByTestId('trend-row-filler_words').click();
+    await expect(page.getByTestId('trend-row-filler_words')).toHaveAttribute('aria-expanded', 'true');
+    const body = page.locator('#trend-filler_words');
+    await expect(body).toBeVisible();
+    const text = (await body.innerText()).replace(/\s+/g, ' ');
+    // Counts, not per-minute rates; human labels, never a snake_case key or an ISO timestamp.
+    // (the old pooled rates read like "0.38"; a count is a whole number).
+    expect(text).not.toMatch(/\/min|\d\.\d|_|\d{4}-\d{2}-\d{2}T/);
+    await page.screenshot({ path: testInfo.outputPath('trends-fillers-open.png') });
+  });
+
   // SCENARIO 2: Detail Flow (Click-through Analysis)
   test('Analytics Matrix: Session Detail View and Error Handling', async ({ userPage: page }) => {
     await navigateToRoute(page, '/analytics');

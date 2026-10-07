@@ -3,7 +3,6 @@ import { getSessionById, resolveTranscriptView } from '@/lib/storage';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
 import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 import { NavLink } from 'react-router-dom';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Eye, ChevronDown, AudioLines } from 'lucide-react';
 import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,20 +13,19 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
-import { formatDate, formatDateTime } from '../lib/dateUtils';
-import { FillerWordTable } from './analytics/FillerWordTable';
-import { TopFillerWords } from './analytics/TopFillerWords';
-import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
+import { formatDateTime } from '../lib/dateUtils';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
-import { TrendChart } from './analytics/TrendChart';
+import { TrendsCard } from './analytics/TrendsCard';
+import type { TrendDataPoint } from './analytics/trendMetrics';
 import { SavedFocusPointsCoverage } from './analytics/SavedFocusPointsCoverage';
 import { SavedPracticeLoopReview } from './analytics/SavedPracticeLoopReview';
 import { trackSessionPdfDownloaded, type PdfSurface } from '@/services/reviewSurfaceTelemetry';
-import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
 import { getSessionPauseCount } from '@/lib/analyticsUtils';
+import { hasValidPauseEvidence } from '@/utils/metricValidity';
+import { shortDate } from '@/lib/displayFormat';
 import {
     decodePace,
     decodePauseRhythm,
@@ -39,7 +37,7 @@ import {
 
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
-import type { FillerWordTrends, OverallStats } from '@/types/analytics';
+import type { OverallStats } from '@/types/analytics';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TEST_IDS } from '@/constants/testIds';
 import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
@@ -84,7 +82,6 @@ interface AnalyticsDashboardProps {
     isProUser?: boolean;
     sessionHistory: PracticeSession[];
     overallStats: OverallStats;
-    fillerWordTrends: FillerWordTrends;
     loading: boolean;
     error: Error | null;
     onUpgrade: () => void;
@@ -125,30 +122,6 @@ interface SessionHistoryItemProps {
     onToggleSelect: (sessionId: string) => void;
     profileName: string;
 }
-
-interface FillerWordsTrendChartProps {
-    data: OverallStats['chartData'];
-}
-
-const FillerWordsTrendChart: React.FC<FillerWordsTrendChartProps> = ({ data }) => {
-    const chartContainer = useChartContainerReady();
-
-    return (
-        <div ref={chartContainer.ref} className="h-[210px] w-full">
-            {chartContainer.isReady ? (
-                <LineChart width={chartContainer.size.width} height={chartContainer.size.height} data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                        <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                        <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                        <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                        <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                </LineChart>
-            ) : (
-                <div className="h-full w-full rounded-xl bg-muted/60" aria-hidden="true" />
-            )}
-        </div>
-    );
-};
 
 // --- Stat Card Configuration ---
 // Exhaustive list of all available stat cards for user customization
@@ -579,7 +552,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     isProUser: effectiveIsProUser,
     sessionHistory,
     overallStats,
-    fillerWordTrends,
     loading,
     error,
     onUpgrade,
@@ -726,23 +698,34 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         }) as [{ id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }, { id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }];
     }, [selectedSessions, sessionHistory]);
 
-    const trendData = useMemo(() => {
-        if (!sessionHistory || sessionHistory.length < 2) return [];
-        return sessionHistory.slice(0, 10).reverse().map(s => {
+    const trendData = useMemo((): TrendDataPoint[] => {
+        if (!sessionHistory || sessionHistory.length === 0) return [];
+        let previousDay = '';
+        return sessionHistory.slice(0, 10).reverse().map((s, i) => {
             const metrics = getSessionAnalysisMetrics(s);
             // #1047: gate EVERY transcript-derived trend point on transcript-state provenance, not numeric
             // presence — a not_captured/expired session's sentinel 0/{} must never chart as a real point.
-            // null = omitted point (Recharts renders a gap). Pauses are timing-derived (not transcript) and
-            // are charted as before.
+            // null = omitted point (Recharts renders a gap).
             const wpmShowable = typeof s.wpm === 'number';
             const fillerShowable = metrics.fillerCount !== null;
             const clarityShowable = metrics.isClarityScorable && typeof s.clarity_score === 'number';
+            // #1258 D8: one date label per calendar day (the first session of that day).
+            const day = shortDate(s.created_at);
+            const dayLabel = day !== previousDay ? day : '';
+            previousDay = day;
             return {
-                date: formatDate(s.created_at),
+                i,
+                dayLabel,
+                createdAt: s.created_at,
+                product: s.product ?? null,
                 wpm: wpmShowable ? metrics.wpm : null,
                 clarity: clarityShowable ? metrics.clarityScore : null,
                 fillers: fillerShowable ? metrics.fillerCount : null,
-                pauses: Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1)),
+                // #1258 D8: a session without valid pause evidence is LEFT OUT (null), never plotted as 0 — the
+                // cause of the flat 0/min line. Same validator the Pause rhythm aggregate uses.
+                pauses: hasValidPauseEvidence(s.pause_metrics)
+                    ? Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1))
+                    : null,
             };
         });
     }, [sessionHistory]);
@@ -1117,96 +1100,44 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                     <GoalsSection />
 
-                    {/* Analysis Section Header */}
-                    <div className="flex items-center justify-between pt-2">
-                        <div className="space-y-1">
-                            <h2 className="text-xl font-semibold text-foreground">{focusLabel} Tools</h2>
-                            <p className="text-sm font-medium text-muted-foreground">
-                                {isCustomFocus ? 'Each selected chart keeps its own standalone interpretation.' : 'Each chart answers part of the same coaching question.'}
-                            </p>
-                        </div>
-                        {isCustomFocus && (
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-signature-text">
-                                        <Settings className="h-4 w-4" />
-                                        Choose Analysis Tools
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-64">
-                                    <DropdownMenuLabel>Display Analysis ({customAnalysisSlides.length}/4)</DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    {ANALYSIS_SLIDE_OPTIONS.map(option => {
-                                        const checked = customAnalysisSlides.includes(option.id);
-                                        return (
-                                            <DropdownMenuCheckboxItem
-                                                key={option.id}
-                                                checked={checked}
-                                                onCheckedChange={() => toggleCustomAnalysisSlide(option.id)}
-                                                disabled={
-                                                    (!checked && customAnalysisSlides.length >= 4) ||
-                                                    (checked && customAnalysisSlides.length <= 1)
-                                                }
-                                            >
-                                                {option.label}
-                                            </DropdownMenuCheckboxItem>
-                                        );
-                                    })}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        )}
-                    </div>
-
-                    {/* #G4 §3: Analysis tools — stacked (carousel retired). Every selected tool renders in full,
-                        in order, so nothing hides behind a swipe and each chart is scannable at once. */}
+                    {/* #1258 D7: Trends — one card, every row collapsed on mount; the selected focus picks the rows. The custom
+                        focus keeps its analysis-tool picker beside the heading. */}
                     <div className="space-y-6">
-                        {displayedAnalysisSlides.map((option) => (
-                            <div key={option.id}>
-                                {option.id === 'pace_trend' && (
-                                    <TrendChart
-                                        title="Speaking Pace Trend"
-                                        description="Track your words per minute over time"
-                                        data={trendData}
-                                        metric="wpm"
-                                    />
-                                )}
-                                {option.id === 'clarity_trend' && (
-                                    <TrendChart
-                                        title="Clarity Trend"
-                                        description="Monitor your speech clarity percentage"
-                                        data={trendData}
-                                        metric="clarity"
-                                    />
-                                )}
-                                {option.id === 'pause_trend' && (
-                                    <TrendChart
-                                        title="Pause Rhythm Trend"
-                                        description="Pauses per minute across your sessions"
-                                        data={trendData}
-                                        metric="pauses"
-                                    />
-                                )}
-                                {option.id === 'weekly_activity' && (
-                                    <WeeklyActivityChart />
-                                )}
-                                {option.id === 'filler_words' && (
-                                    <Card>
-                                        <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
-                                        <CardContent className="space-y-6">
-                                            {overallStats.chartData.length > 1 ? (
-                                                <FillerWordsTrendChart data={overallStats.chartData} />
-                                            ) : (
-                                                <div className="flex h-[150px] items-center justify-center rounded-lg border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-sm font-semibold text-foreground/75"><p>Complete at least two sessions to see your filler word trend.</p></div>
-                                            )}
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                <TopFillerWords />
-                                                <FillerWordTable trendData={fillerWordTrends} />
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                )}
-                            </div>
-                        ))}
+                        <TrendsCard
+                            slideIds={displayedAnalysisSlides.map(option => option.id)}
+                            trendData={trendData}
+                            sessions={sessionHistory ?? []}
+                            headerAction={isCustomFocus ? (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-signature-text">
+                                            <Settings className="h-4 w-4" />
+                                            Choose Analysis Tools
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-64">
+                                        <DropdownMenuLabel>Display Analysis ({customAnalysisSlides.length}/4)</DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        {ANALYSIS_SLIDE_OPTIONS.map(option => {
+                                            const checked = customAnalysisSlides.includes(option.id);
+                                            return (
+                                                <DropdownMenuCheckboxItem
+                                                    key={option.id}
+                                                    checked={checked}
+                                                    onCheckedChange={() => toggleCustomAnalysisSlide(option.id)}
+                                                    disabled={
+                                                        (!checked && customAnalysisSlides.length >= 4) ||
+                                                        (checked && customAnalysisSlides.length <= 1)
+                                                    }
+                                                >
+                                                    {option.label}
+                                                </DropdownMenuCheckboxItem>
+                                            );
+                                        })}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            ) : undefined}
+                        />
 
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
