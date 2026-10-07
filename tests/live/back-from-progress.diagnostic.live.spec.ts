@@ -157,6 +157,9 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
 
         let savedId = '';
         let savedAt = 0;
+        // #1519: on a fresh account the model is cold, and the product's download control starts the take once the model
+        // is ready. That take IS the take (run 37700194032 HOLDed here by mistake); only a warm account needs a Start press.
+        let takeAlreadyRunning = false;
         try {
             await test.step('fresh disposable account', async () => {
                 await page.goto('/auth/signup');
@@ -181,15 +184,17 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
                 await page.goto('/session');
                 await selectBenchmarkMode(page, 'private');
                 const setup = await preparePrivateModelIfPrompted(page, 900_000);
-                if (setup.recordingAlreadyStarted) throw new Error('HOLD: the model preparation started a take; this diagnostic needs one clean Start');
-                await waitForPrivateEngineReady(page, 600_000);
+                takeAlreadyRunning = setup.recordingAlreadyStarted;
+                if (!takeAlreadyRunning) await waitForPrivateEngineReady(page, 600_000);
+                diag.update({ take_started_by_setup: takeAlreadyRunning });
                 // The engine/model actually loaded (content-free identity + CPU thread configuration).
                 diag.update({ stt_identity: await readSttIdentity(page), cpu_runtime: await readCpuRuntime(page) });
                 diag.mark('engine_ready');
             });
 
             await test.step('one take of at least 90 s, then Stop and save', async () => {
-                await startBenchmarkRecording(page, SUITE);
+                // Delegated start (#1519): presses Start only when setup did not already start the take.
+                if (!takeAlreadyRunning) await startBenchmarkRecording(page, SUITE);
                 const startedAt = rel();
                 await page.waitForTimeout(TAKE_MS);
                 const stopAt = rel();
