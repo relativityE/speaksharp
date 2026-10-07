@@ -670,6 +670,10 @@ export const EVENT_SCHEMAS = Object.freeze({
     practice_loop_review_failed: {
         reason: enumOf(PRACTICE_LOOP_REVIEW_FAILURE_REASONS),
         ...REVIEW_OWNERSHIP_FIELDS,
+        // #1258 (6044288308): the server's closed failure reason and the HTTP status — never the body's prose.
+        server_reason: enumOf(['provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'missing_text', 'invalid_shape',
+            'over_character_ceiling', 'missing_model_version']),
+        http_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
     },
     practice_loop_review_discarded: {
         discard_reason: enumOf(['unmount', 'session_changed', 'superseded']),

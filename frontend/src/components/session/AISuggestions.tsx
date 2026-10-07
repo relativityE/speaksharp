@@ -14,6 +14,9 @@ import {
   trackPracticeLoopReviewRequested,
   type PracticeLoopReviewFailureReason,
   type PracticeLoopReviewContext,
+  type PracticeLoopReviewFailureBoundary,
+  type CoachingServerReason,
+  COACHING_SERVER_REASONS,
 } from '@/services/practiceLoopTelemetry';
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
@@ -144,6 +147,23 @@ const SERVICE_CONFIGURATION_CODE = 'service_configuration';
  * response finds a consumed body. Only the exact allowlisted value is returned: a missing, malformed or unknown body
  * yields null, and the caller falls back to the status classification it has always used.
  */
+/** #1258 (6044288308): the failing boundary as the server named it — a closed reason from the body, and the status. */
+const readFailureBoundary = async (err: unknown): Promise<PracticeLoopReviewFailureBoundary> => {
+  const httpStatus = errorStatus(err);
+  const ctx = (err as { context?: unknown } | null)?.context as { clone?: unknown } | undefined;
+  let serverReason: CoachingServerReason | null = null;
+  if (ctx && typeof ctx.clone === 'function') {
+    try {
+      const body: unknown = await (ctx.clone as () => { json: () => Promise<unknown> })().json();
+      const raw = (body as { reason?: unknown } | null)?.reason;
+      serverReason = (COACHING_SERVER_REASONS as readonly unknown[]).includes(raw) ? raw as CoachingServerReason : null;
+    } catch {
+      serverReason = null;
+    }
+  }
+  return { serverReason, httpStatus };
+};
+
 const readClosedCode = async (err: unknown): Promise<typeof SERVICE_CONFIGURATION_CODE | null> => {
   const ctx = (err as { context?: unknown } | null)?.context as { clone?: unknown } | undefined;
   if (!ctx || typeof ctx.clone !== 'function') return null;
@@ -518,6 +538,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null, retrying: false });
       let failure: SafeSuggestionError;
+      let failureBoundary: PracticeLoopReviewFailureBoundary = {};
       try {
         const supabase = getSupabaseClient();
         if (!supabase) throw new Error("Supabase client not available");
@@ -568,6 +589,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         if (!isCurrentRequest()) { reportDiscard(); return; }
         logger.error({ err }, "Error fetching AI suggestions:");
         failure = getSafeAiSuggestionError(err, await readClosedCode(err));
+        failureBoundary = await readFailureBoundary(err);
       }
 
       if (!isCurrentRequest()) { reportDiscard(); return; }
@@ -579,7 +601,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         continue;
       }
 
-      trackPracticeLoopReviewFailed(failure.reason, { ...lifecycle, invocations });
+      trackPracticeLoopReviewFailed(failure.reason, { ...lifecycle, invocations }, failureBoundary);
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: false });
       activeReviewRequestsRef.current.delete(requestGeneration);
       return;

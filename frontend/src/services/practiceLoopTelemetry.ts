@@ -69,8 +69,29 @@ export const trackPracticeLoopReviewPersisted = (ctx?: PracticeLoopReviewContext
 export const trackPracticeLoopReviewRendered = (ctx?: PracticeLoopReviewContext): void =>
   emit('practice_loop_review_rendered', { ...completeShape, ...ownership(ctx) });
 
-export const trackPracticeLoopReviewFailed = (reason: PracticeLoopReviewFailureReason, ctx?: PracticeLoopReviewContext): void =>
-  emit('practice_loop_review_failed', { reason, ...ownership(ctx) });
+/**
+ * #1258 (boundary table 6044288308): the server's own closed failure reason and the HTTP status, so a failed review
+ * names WHICH boundary failed (provider 5xx vs timeout vs invalid output vs save) without anyone reading Edge logs.
+ * Mirrors `CoachingFailureReason` in get-ai-suggestions; anything else in the body is ignored, never forwarded.
+ */
+export const COACHING_SERVER_REASONS = [
+  'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'missing_text', 'invalid_shape',
+  'over_character_ceiling', 'missing_model_version',
+] as const;
+export type CoachingServerReason = typeof COACHING_SERVER_REASONS[number];
+export type PracticeLoopReviewFailureBoundary = { serverReason?: CoachingServerReason | null; httpStatus?: number | null };
+
+export const trackPracticeLoopReviewFailed = (
+  reason: PracticeLoopReviewFailureReason,
+  ctx?: PracticeLoopReviewContext,
+  boundary?: PracticeLoopReviewFailureBoundary,
+): void =>
+  emit('practice_loop_review_failed', {
+    reason,
+    ...ownership(ctx),
+    ...(boundary?.serverReason ? { server_reason: boundary.serverReason } : {}),
+    ...(typeof boundary?.httpStatus === 'number' ? { http_status: boundary.httpStatus } : {}),
+  });
 
 /** A stale response was deliberately ignored; this is lifecycle telemetry, never a provider failure. */
 export const trackPracticeLoopReviewDiscarded = (reason: PracticeLoopReviewDiscardReason, ctx?: PracticeLoopReviewContext): void =>

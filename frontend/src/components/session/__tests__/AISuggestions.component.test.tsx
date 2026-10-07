@@ -154,7 +154,7 @@ describe('AISuggestions Integration', () => {
             // 3 waited-out 425s + the attempt that ends the lifecycle; never an unbounded loop.
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(4);
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
-            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }));
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }), expect.any(Object));
         });
 
         it.each([
@@ -262,7 +262,7 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByTestId('ai-suggestions-headline').textContent).not.toMatch(/still coming/i);
             expect(card()).toHaveAttribute('data-review-state', 'error');
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
-            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('service_configuration', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }));
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('service_configuration', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }), expect.any(Object));
         });
 
         it.each([
@@ -280,7 +280,7 @@ describe('AISuggestions Integration', () => {
             expect(mockSupabaseClient.functions.invoke, 'one charged request, not two').toHaveBeenCalledTimes(1);
             expect(screen.queryByText(/service setup problem/i)).toBeNull();
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
-            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }));
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }), expect.any(Object));
         });
 
         it('CONTROL: the closed code is ignored on any status other than 503', async () => {
@@ -288,7 +288,7 @@ describe('AISuggestions Integration', () => {
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-401-code" retryBackoffMs={10} />);
 
             expect(await screen.findByText(/cannot request a new review/i)).toBeInTheDocument();
-            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('access_denied', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }));
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('access_denied', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }), expect.any(Object));
         });
 
         it('CASUALTY: a recoverable failure shows the failure, waits, retries ONCE, then settles as one terminal failure', async () => {
@@ -310,7 +310,7 @@ describe('AISuggestions Integration', () => {
             expect(card(), 'nothing is scheduled once it has settled').toHaveAttribute('data-retry-scheduled', 'false');
             expect(card()).toHaveAttribute('data-lifecycle', 'terminal');
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
-            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('network', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }));
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('network', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }), expect.any(Object));
         });
 
         it('CASUALTY: a recoverable failure that succeeds on its retry renders the review and reports no failure', async () => {
@@ -359,7 +359,7 @@ describe('AISuggestions Integration', () => {
             expect(mockSupabaseClient.functions.invoke, 'one user action, one charged request').toHaveBeenCalledTimes(1);
             expect(card(), 'nothing is scheduled').toHaveAttribute('data-retry-scheduled', 'false');
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
-            expect(trackPracticeLoopReviewFailed, 'reported as the outage it was').toHaveBeenCalledWith('unavailable', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }));
+            expect(trackPracticeLoopReviewFailed, 'reported as the outage it was').toHaveBeenCalledWith('unavailable', expect.objectContaining({ requestSeq: expect.any(Number), invocations: expect.any(Number) }), expect.any(Object));
             expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalledWith('rate_limited');
             expect(screen.queryByText(/temporarily limited/i), 'never a limit the user did not reach').toBeNull();
             expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
