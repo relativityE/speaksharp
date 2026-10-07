@@ -654,7 +654,7 @@ export async function setupE2EManifest(
           // function does before a Focus take's point results are saved), then the persisted pair; every request body
           // is recorded so a journey can assert what the client asked for.
           const coachingWin = window as unknown as {
-            __E2E_COACHING_1258__?: { pending?: number; suggestions?: unknown };
+            __E2E_COACHING_1258__?: { pending?: number; suggestions?: unknown; delayMs?: number };
             __E2E_COACHING_REQUESTS_1258__?: unknown[];
           };
           if (name === 'get-ai-suggestions' && coachingWin.__E2E_COACHING_1258__) {
@@ -670,6 +670,8 @@ export async function setupE2EManifest(
               cfg.pending = (cfg.pending ?? 0) - 1;
               return { data: null, error: { name: 'FunctionsHttpError', message: 'focus_results_pending', context: { status: 425 } } };
             }
+            // #1258 (RWT runs 37547966019 / 37550720328): Production answered at +8 s and +25 s; `delayMs` reproduces a slow answer.
+            if ((cfg.delayMs ?? 0) > 0) await new Promise((resolve) => setTimeout(resolve, cfg.delayMs));
             return { data: { suggestions: cfg.suggestions }, error: null };
           }
           if (name === 'check-usage-limit') {
