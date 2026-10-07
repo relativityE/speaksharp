@@ -54,6 +54,13 @@ async function makeDb(): Promise<PGlite> {
     return db;
 }
 
+/**
+ * #1258 forward fix: `get_progress_obligations` lists only takes created within the last 14 days, so fixture times are
+ * RELATIVE to now. The original literals ('2026-09-23T09:00Z'…) aged out of that window at 2026-10-07T10:00Z and turned
+ * three cases RED on every branch (Test Audit 37576311188 attempt 2, unit-shard-3).
+ */
+const minutesAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
+
 const as = (db: PGlite, user: string) => db.query(`SELECT set_config('request.jwt.claim.sub', $1, false)`, [user]);
 
 /** A completed Private Open Mic take. `attribution`: 'attested' (terminal authority), 'unattributed' (terminal marker), or 'pending'. */
@@ -139,8 +146,8 @@ describe('#1476 — Progress is owed per completed session, owned by the server'
 
     it('CASUALTY: two sequential takes with the FIRST evaluation delayed — settling the second never hides the first', async () => {
         const db = await makeDb();
-        const first = await completedTake(db, USER, 'attested', '2026-09-23T10:00:00Z');
-        const second = await completedTake(db, USER, 'attested', '2026-09-23T10:05:00Z');
+        const first = await completedTake(db, USER, 'attested', minutesAgo(30));
+        const second = await completedTake(db, USER, 'attested', minutesAgo(25));
         await as(db, USER);
         expect(await evaluate(db, second)).not.toBeNull();
         expect(await obligations(db), 'the first take is still owed').toEqual([{ session_id: first, state: 'owed' }]);
@@ -158,23 +165,31 @@ describe('#1476 — Progress is owed per completed session, owned by the server'
 
     it('CONTROL: bounded — newest first, never more than asked', async () => {
         const db = await makeDb();
-        await completedTake(db, USER, 'attested', '2026-09-23T09:00:00Z');
-        const newest = await completedTake(db, USER, 'attested', '2026-09-23T09:10:00Z');
+        await completedTake(db, USER, 'attested', minutesAgo(90));
+        const newest = await completedTake(db, USER, 'attested', minutesAgo(80));
         await as(db, USER);
         expect(await obligations(db, 1)).toEqual([{ session_id: newest, state: 'owed' }]);
     });
 
     it('CASUALTY (Codex P1 on 4ceaccf44): the keyset cursor reaches debt behind a stuck newest page, each take once', async () => {
         const db = await makeDb();
-        const oldest = await completedTake(db, USER, 'attested', '2026-09-23T09:00:00Z');
-        const mid = await completedTake(db, USER, 'pending', '2026-09-23T09:10:00Z');
-        const newest = await completedTake(db, USER, 'pending', '2026-09-23T09:20:00Z');
+        const oldest = await completedTake(db, USER, 'attested', minutesAgo(90));
+        const mid = await completedTake(db, USER, 'pending', minutesAgo(80));
+        const newest = await completedTake(db, USER, 'pending', minutesAgo(70));
         await as(db, USER);
         const first = await obligationRows(db, 2);
         expect(first.map((o) => o.session_id)).toEqual([newest, mid]);
         const last = first[first.length - 1];
         const next = await obligationRows(db, 2, { at: last.created_at, id: last.session_id });
         expect(next.map((o) => [o.session_id, o.state])).toEqual([[oldest, 'owed']]);
+    });
+
+    it('CONTROL: the 14-day window — a take older than the window is not listed; a fresh one is (why fixtures are relative)', async () => {
+        const db = await makeDb();
+        await completedTake(db, USER, 'attested', minutesAgo(15 * 24 * 60));
+        const fresh = await completedTake(db, USER, 'attested', minutesAgo(5));
+        await as(db, USER);
+        expect(await obligations(db)).toEqual([{ session_id: fresh, state: 'owed' }]);
     });
 
     it('CONTROL: no identity, no obligations (fails closed, never another account\'s list)', async () => {
