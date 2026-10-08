@@ -18,6 +18,9 @@
   - HOLD/BLOCKED/UNCONFIRMED action results hold a dependent Dev handoff (`dev_depends_on_actions`), including the board's none→dev correction for an active assignment. Independent Dev work still proceeds.
   - `GET /api/handoff-verify` reads a published packet back at an exact commit and checks every manifest hash.
 - Candidate 4 (PM disposition, delivery 91): resuming an `unconfirmed` refresh now requires winning the atomic `unconfirmed→running` claim. A request that loses the claim, including to another connection or process between its read and its claim, returns RECORDED and executes nothing.
+- Candidate 5, Package 2a (local, unpublished):
+  - Every PM transport (Codex, command, API) passes the whole route to one parser, which checks it against `pm-route.schema.json`. An omitted field takes its documented default; a present field of the wrong type, an unknown field or a bad enum value is rejected, never coerced. A rejected route changes nothing and queues one PM recovery naming the exact schema error.
+  - The control API accepts a mutation only as same-origin `application/json` carrying the per-launch `X-RWT-Control-Token`. Every request must name the loopback Host and port. The dashboard page receives the token when it loads. A non-browser adapter sets `RWT_CONTROL_TOKEN` (24–128 URL-safe characters) for both the board and itself.
 
 The live deadlock.4 worker rejected the #1570 assignment before Claude invocation because the new target worktree was not yet present. Its generic error did not identify the missing path, and no PM recovery delivery followed. This patch makes that failure diagnosable and recoverable while keeping the single-writer guard.
 

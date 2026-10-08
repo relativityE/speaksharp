@@ -88,7 +88,7 @@ class HandoffTests(unittest.TestCase):
                 data=json.dumps({'actor': 'PO', 'route': 'pm', 'message': 'Read these specs',
                                  'handoff_pr': 1258, 'handoff_topic': 'designer',
                                  'files': [attachment('SESSION_PAGE_SPEC.md')]}).encode(),
-                headers={'Content-Type': 'application/json'})
+                headers={'Content-Type': 'application/json', server.CONTROL_TOKEN_HEADER: server.CONTROL_TOKEN})
             with patch.object(server, 'transport_status', return_value={'pm_configured': True}):
                 with urllib.request.urlopen(req) as response:
                     result = json.load(response)
@@ -110,7 +110,7 @@ class HandoffTests(unittest.TestCase):
         try:
             req = urllib.request.Request(f'http://127.0.0.1:{http.server_port}/api/send',
                 data=json.dumps({'route': 'none', 'message': 'Read specs', 'files': [attachment('source.md')]}).encode(),
-                headers={'Content-Type': 'application/json'})
+                headers={'Content-Type': 'application/json', server.CONTROL_TOKEN_HEADER: server.CONTROL_TOKEN})
             with patch.object(server, 'post_control_issue_comment', return_value=(True, None)) as post:
                 with urllib.request.urlopen(req) as response:
                     self.assertEqual(response.status, 202)

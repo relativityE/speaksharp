@@ -5,6 +5,8 @@ import zipfile
 import json
 import re
 import hashlib
+import hmac
+import secrets
 from guarded_pm import Executor, Hold, KINDS as PM_ACTION_KINDS, canonical_key
 import os
 import shlex
@@ -2264,6 +2266,68 @@ def _ensure_pm_conversation(existing):
     return cid
 
 
+# c5 (F10): one route contract for every PM transport. A field the transport omitted takes its
+# documented default; anything present must satisfy pm-route.schema.json exactly (no coercion).
+ROUTE_DEFAULTS = {"publish": True, "pm_actions": [], "ask_dispositions": [], "review_handoffs": [],
+                  "dev_depends_on_actions": True}
+_ROUTE_SCHEMA_CACHE = {}
+
+
+def _route_schema():
+    key = (str(PM_ROUTE_SCHEMA), PM_ROUTE_SCHEMA.stat().st_mtime_ns if PM_ROUTE_SCHEMA.exists() else 0)
+    if key not in _ROUTE_SCHEMA_CACHE:
+        _ROUTE_SCHEMA_CACHE.clear()
+        _ROUTE_SCHEMA_CACHE[key] = json.loads(PM_ROUTE_SCHEMA.read_text())
+    return _ROUTE_SCHEMA_CACHE[key]
+
+
+_JSON_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "null": type(None)}
+
+
+def _schema_errors(value, schema, path="route"):
+    """The JSON Schema subset pm-route.schema.json uses: type, enum, properties,
+    additionalProperties=false, items, minItems/maxItems, minLength, pattern.
+
+    `required` is not enforced here: the schema lists every property as required for Codex strict
+    output, where null means "no change". At the host an omitted property means the same as null.
+    """
+    types = schema.get("type")
+    if types is not None:
+        allowed = types if isinstance(types, list) else [types]
+        def ok(t):
+            if t == "integer":
+                return isinstance(value, int) and not isinstance(value, bool)
+            if t == "number":
+                return isinstance(value, (int, float)) and not isinstance(value, bool)
+            return isinstance(value, _JSON_TYPES[t])
+        if not any(ok(t) for t in allowed):
+            return [f"{path} must be {'/'.join(allowed)}, got {type(value).__name__}"]
+    errors = []
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append(f"{path} must be one of {schema['enum']}, got {value!r}")
+    if isinstance(value, str):
+        if len(value) < schema.get("minLength", 0):
+            errors.append(f"{path} is shorter than {schema['minLength']}")
+        if "pattern" in schema and not re.search(schema["pattern"], value):
+            errors.append(f"{path} does not match {schema['pattern']}")
+    if isinstance(value, list):
+        if len(value) > schema.get("maxItems", len(value)):
+            errors.append(f"{path} has more than {schema['maxItems']} items")
+        if len(value) < schema.get("minItems", 0):
+            errors.append(f"{path} has fewer than {schema['minItems']} items")
+        if isinstance(schema.get("items"), dict):
+            for i, item in enumerate(value):
+                errors += _schema_errors(item, schema["items"], f"{path}[{i}]")
+    if isinstance(value, dict):
+        props = schema.get("properties", {})
+        for k, v in value.items():
+            if k in props:
+                errors += _schema_errors(v, props[k], f"{path}.{k}")
+            elif schema.get("additionalProperties") is False:
+                errors.append(f"{path}.{k} is not an allowed field")
+    return errors
+
+
 def parse_pm_route(raw):
     text = (raw or "").strip()
     if not text:
@@ -2279,18 +2343,21 @@ def parse_pm_route(raw):
                 break
     try:
         obj = json.loads(candidate)
-        msg = str(obj.get("message", "")).strip()
-        nxt = str(obj.get("next", "")).strip().lower()
-        if nxt not in ("dev", "po", "none"):
-            raise ValueError("next must be dev, po, or none")
-        if not msg:
-            raise ValueError("message is empty")
-        if 'publish' in obj and not isinstance(obj['publish'], bool):
-            raise ValueError('publish must be boolean')
-        return {"message": msg, "next": nxt, "publish": obj.get('publish', True), "board_updates": obj.get("board_updates"),
-                "pm_actions": obj.get("pm_actions") or [], "ask_dispositions": obj.get("ask_dispositions") or [],
-                "review_handoffs": obj.get("review_handoffs") or [],
-                "dev_depends_on_actions": obj.get("dev_depends_on_actions") is not False, "parse_error": None}
+        if not isinstance(obj, dict):
+            raise ValueError("route must be a JSON object")
+        route = dict(obj)
+        for k, v in ROUTE_DEFAULTS.items():
+            route.setdefault(k, json.loads(json.dumps(v)))
+        if route.get("board_updates") is None:
+            route.pop("board_updates", None)  # absent/null = no board change
+        missing = [k for k in ("message", "next") if k not in route]
+        errors = [f"route.{k} is required" for k in missing] + _schema_errors(route, _route_schema())
+        if errors:
+            raise ValueError("; ".join(errors[:8]))
+        return {"message": route["message"].strip(), "next": route["next"], "publish": route["publish"],
+                "board_updates": route.get("board_updates"), "pm_actions": route["pm_actions"],
+                "ask_dispositions": route["ask_dispositions"], "review_handoffs": route["review_handoffs"],
+                "dev_depends_on_actions": route["dev_depends_on_actions"], "parse_error": None}
     except Exception as e:
         # Fail safe: never auto-send malformed PM output to Dev.
         return {"message": text, "next": "po", "board_updates": None, "parse_error": str(e)}
@@ -2447,8 +2514,11 @@ def _run_pm_command(content, session_id):
         obj = json.loads(out)
     except Exception as e:
         raise RuntimeError(f"PM command must return JSON: {e}") from e
-    raw = json.dumps({"message": obj.get("message", ""), "next": obj.get("next", "po"), "publish": obj.get('publish', True), "board_updates": obj.get("board_updates"), "pm_actions": obj.get("pm_actions") or []})
-    sid = obj.get("session_id") or session_id or str(uuid.uuid4())
+    if not isinstance(obj, dict):
+        raise RuntimeError("PM command must return a JSON object")
+    # c5 (F10): pass the whole route through; only the transport's own session_id is removed.
+    sid = obj.pop("session_id", None) or session_id or str(uuid.uuid4())
+    raw = json.dumps(obj)
     return parse_pm_route(raw), sid
 
 
@@ -3000,6 +3070,9 @@ def run_pm(q):
     updates = routed.get("board_updates")
     if (not isinstance(updates, dict) or not updates.get('work_items') or not updates.get('players')):
         detail = 'PM replied without task AND player reconciliation; no executable handoff'
+        if routed.get('parse_error'):
+            # c5 (F10): name the exact schema failure so the bounded recovery can correct it.
+            detail = 'PM route failed the route schema (' + str(routed['parse_error'])[:600] + '); no executable handoff'
         set_setting('pm_reconciliation_status', detail)
         update_queue(q['id'], status='responded_unreconciled', error=detail, finished_at=now(), session_id=sid)
         set_agent('pm', status='idle', session_id=sid)
@@ -3017,7 +3090,7 @@ def run_pm(q):
                 uncertain = c.execute("SELECT 1 FROM pm_outbox WHERE queue_id=? AND status IN ('publishing','unconfirmed')", (q['id'],)).fetchone()
             if not uncertain:
                 msg = ('RECONCILIATION RECOVERY: prior event #' + str(q['id']) +
-                       ' returned no complete task/player checkpoint. Read current GitHub facts and return both board_updates.work_items and board_updates.players. '
+                       ' returned no complete task/player checkpoint (' + detail + '). Read current GitHub facts and return both board_updates.work_items and board_updates.players. '
                        'Do not replay prior actions or publication. Original event:\n' + q['content'])
                 aid = add_activity('SYSTEM', msg, 'pm', 'posted')
                 enqueue(aid, 'pm', msg, source_actor='SYSTEM', parent_queue_id=q['id'], auto_handoff=True)
@@ -3694,7 +3767,42 @@ def transport_status():
 
 
 
+# c5 (F15): the control API is for this board's own page and explicitly configured local adapters.
+# A per-launch token (or RWT_CONTROL_TOKEN for a non-browser adapter) authorizes every mutation.
+CONTROL_TOKEN = os.environ.get("RWT_CONTROL_TOKEN", "").strip() or secrets.token_urlsafe(32)
+if not re.fullmatch(r"[A-Za-z0-9_-]{24,128}", CONTROL_TOKEN):
+    raise SystemExit("RWT_CONTROL_TOKEN must be 24-128 URL-safe characters")
+CONTROL_TOKEN_HEADER = "X-RWT-Control-Token"
+TOKEN_PLACEHOLDER = b"__RWT_CONTROL_TOKEN__"
+
+
 class H(BaseHTTPRequestHandler):
+    def _loopback_origins(self):
+        port = self.server.server_address[1]
+        return {f"127.0.0.1:{port}", f"localhost:{port}"}
+
+    def control_refusal(self, mutating):
+        """Return (code, error) when a request may not reach the control API, else None.
+
+        Host is checked on every request, so a DNS-rebound name cannot read the page or its token.
+        A mutation must also be same-origin JSON carrying the control token.
+        """
+        hosts = self._loopback_origins()
+        if str(self.headers.get("Host") or "").lower() not in hosts:
+            return 403, "request Host is not this loopback board"
+        if not mutating:
+            return None
+        origin = self.headers.get("Origin")
+        if origin is not None and origin.lower() not in {"http://" + h for h in hosts}:
+            return 403, "cross-origin control request refused"
+        if str(self.headers.get("Sec-Fetch-Site") or "").lower() == "cross-site":
+            return 403, "cross-site control request refused"
+        if str(self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return 415, "control requests must be application/json"
+        if not hmac.compare_digest(str(self.headers.get(CONTROL_TOKEN_HEADER) or ""), CONTROL_TOKEN):
+            return 403, "missing or invalid control token"
+        return None
+
     def sendj(self, code, obj):
         data = json.dumps(obj).encode()
         self.send_response(code)
@@ -3709,9 +3817,12 @@ class H(BaseHTTPRequestHandler):
         return self.rfile.read(n) if n else b"{}"
 
     def do_GET(self):
+        refused = self.control_refusal(mutating=False)
+        if refused:
+            return self.sendj(refused[0], {"error": refused[1]})
         u = urlparse(self.path)
         if u.path == "/":
-            data = (STATIC / "index.html").read_bytes()
+            data = (STATIC / "index.html").read_bytes().replace(TOKEN_PLACEHOLDER, CONTROL_TOKEN.encode())
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
@@ -3768,6 +3879,9 @@ class H(BaseHTTPRequestHandler):
         return self.sendj(404, {"error": "not found"})
 
     def do_POST(self):
+        refused = self.control_refusal(mutating=True)
+        if refused:
+            return self.sendj(refused[0], {"error": refused[1]})
         try:
             b = json.loads(self.body())
         except Exception:

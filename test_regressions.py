@@ -242,7 +242,7 @@ class RegressionTests(unittest.TestCase):
         origin=f'http://127.0.0.1:{http.server_port}'
         def post(path,body):
             req=urllib.request.Request(origin+path,data=json.dumps(body).encode(),
-                                       headers={'Content-Type':'application/json'})
+                                       headers={'Content-Type':'application/json',server.CONTROL_TOKEN_HEADER:server.CONTROL_TOKEN})
             try:
                 with urllib.request.urlopen(req,timeout=3) as r:
                     return r.status,json.load(r)
