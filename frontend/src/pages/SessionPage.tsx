@@ -425,16 +425,20 @@ export const SessionPage: React.FC = () => {
         if (isListening && reviewParam !== null) setReviewParam(null);
     }, [isListening, reviewParam, setReviewParam]);
     const restoreId = !sawAfterStateRef.current && idleState && reviewParam !== null && SESSION_ID_RE.test(reviewParam) ? reviewParam : null;
-    const restored = useSession(restoreId ?? undefined);
+    const restored = useSession(restoreId ?? undefined, { revalidateOnMount: true });
+    // #1573 Codex P1 4222489737: only a read made for THIS visit counts. A cached row may still hold transcript text the
+    // server has since expired (newest-one retention), so it is never rendered, owner-checked or refused on.
+    const restoredFresh = restored.isFetchedAfterMount;
     // Not a session id, not found, not this user's (RLS on a fresh read; the owner check on a cached one) or a failed read:
     // plain `/session`, no error UI. Nothing from a row is shown unless its owner is the signed-in user.
     useEffect(() => {
         if (reviewParam === null || sawAfterStateRef.current || !idleState) return;
         const invalid = !SESSION_ID_RE.test(reviewParam);
-        const refused = restoreId !== null && (restored.isError || (restored.isSuccess && restoreRefused(restored.data, restoreId, authUserId)));
+        const refused = restoreId !== null && restoredFresh
+            && (restored.isError || (restored.isSuccess && restoreRefused(restored.data, restoreId, authUserId)));
         if (invalid || refused) setReviewParam(null);
-    }, [reviewParam, idleState, restoreId, restored.isError, restored.isSuccess, restored.data, authUserId, setReviewParam]);
-    const restoredSession = restorableSession(restored.data, restoreId, authUserId);
+    }, [reviewParam, idleState, restoreId, restoredFresh, restored.isError, restored.isSuccess, restored.data, authUserId, setReviewParam]);
+    const restoredSession = restorableSession(restoredFresh ? restored.data : undefined, restoreId, authUserId);
 
     if (!metrics) return <SessionPageSkeleton />;
 

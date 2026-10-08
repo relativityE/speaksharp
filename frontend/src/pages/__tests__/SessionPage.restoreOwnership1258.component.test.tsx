@@ -7,6 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -98,5 +99,27 @@ describe('#1258 PR 4 — the restored session is shown only to its owner', () =>
         render(<SessionPage />, { route: { pathname: '/session', search: '?review=not%20an%20id%3B' } });
         expect(await screen.findByTestId('mobile-action-bar')).toBeInTheDocument();
         expect(getSessionById).not.toHaveBeenCalled();
+    });
+});
+
+describe('#1573 Codex P1 4222489737 — a restored session is revalidated, never shown from a stale cache', () => {
+    it('CASUALTY: a cached detail row still holding transcript text is NOT rendered once the server has expired it', async () => {
+        // The detail row was read earlier (e.g. the Analytics detail) and is still "fresh" for the 5-minute staleTime.
+        const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        qc.setQueryData(['session', REVIEW_ID], { ...row('owner-1'), transcript: 'Account A private words', transcript_state: 'available' });
+        // Meanwhile a newer take aged this session's transcript out (newest-one retention): the server row is expired.
+        let resolveRead: (v: unknown) => void = () => {};
+        getSessionById.mockReturnValue(new Promise((r) => { resolveRead = r; }));
+        render(<SessionPage />, {
+            route: { pathname: '/session', search: `?review=${REVIEW_ID}` },
+            wrapper: ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>,
+        });
+        // Before the fresh read answers: a placeholder, never the cached text.
+        expect(await screen.findByTestId('saved-session-return-loading')).toBeInTheDocument();
+        expect(screen.queryByText('Account A private words')).toBeNull();
+        expect(getSessionById).toHaveBeenCalledWith(REVIEW_ID); // the restore asks the server, cache or not
+        resolveRead({ ...row('owner-1'), transcript: null, transcript_state: 'expired' });
+        expect(await screen.findByTestId('saved-session-return')).toHaveAttribute('data-session-id', REVIEW_ID);
+        expect(screen.queryByText('Account A private words')).toBeNull();
     });
 });
