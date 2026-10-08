@@ -79,13 +79,20 @@ class EventDeliveryTests(CommsTests):
         self.assertIn('ASSIGNED → QUEUED',queued['delivery_stage'])
         self.assertIn('Dev not invoked',queued['delivery_stage'])
 
-        server.update_queue(q['id'],status='delivering',started_at=server.now(),attempts=1)
+        # c5 (F12): launch and process start are separately recorded stages.
+        server.update_queue(q['id'],status='delivering',started_at=server.now(),launch_attempted_at=server.now(),attempts=1)
+        launched=next(row for row in server.list_queue() if row['id']==q['id'])
+        self.assertIn('LAUNCH ATTEMPTED',launched['delivery_stage'])
+        self.assertIn('process not yet confirmed',launched['delivery_stage'])
+
+        server.update_queue(q['id'],process_started_at=server.now(),process_pid=4242)
         invoked=next(row for row in server.list_queue() if row['id']==q['id'])
-        self.assertIn('DEV INVOKED',invoked['delivery_stage'])
+        self.assertIn('DEV PROCESS STARTED (pid 4242)',invoked['delivery_stage'])
 
         server.update_queue(q['id'],status='responded',finished_at=server.now())
         returned=next(row for row in server.list_queue() if row['id']==q['id'])
-        self.assertIn('task-specific ACK/action unverified',returned['delivery_stage'])
+        self.assertIn('DEV REPLY RETURNED',returned['delivery_stage'])
+        self.assertIn('PM review pending',returned['delivery_stage'])
 
     def test_preflight_failure_reports_expected_tuple_and_queues_one_pm_recovery(self):
         q=self.assign_dev_task()

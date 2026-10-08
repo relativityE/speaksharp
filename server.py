@@ -43,6 +43,8 @@ PM_COMMAND = os.environ.get("PM_COMMAND", "").strip()
 PM_INSTRUCTIONS_FILE = Path(os.environ.get("PM_INSTRUCTIONS_FILE", str(APP / "pm-instructions.md")))
 PM_ROUTE_SCHEMA = Path(os.environ.get("PM_ROUTE_SCHEMA", str(APP / "pm-route.schema.json")))
 PM_TIMEOUT = int(os.environ.get("PM_TIMEOUT_SECONDS", "180"))
+# c5 (F12): a Dev invocation is bounded; on expiry the process is terminated and PM recovery is owed.
+DEV_TIMEOUT = int(os.environ.get("DEV_TIMEOUT_SECONDS", "14400"))
 # Legacy optional fallback only. Auto mode never prefers API billing when local Codex is available.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
@@ -72,6 +74,8 @@ RELEASE_ORDER = (1555, 1558, 1554, 1559)
 DB_LOCK = threading.RLock()
 PROC_LOCK = threading.RLock()
 ACTIVE_DEV_PROC = None
+ACTIVE_DEV_QUEUE_ID = None
+DEV_STOP_REQUESTED = None  # queue id whose Dev process an operator stopped
 ACTIVE_PM_PROC = None
 PM_CANCEL_GENERATION = 0
 CODEX_AUTH_OK = None
@@ -194,6 +198,31 @@ def init_db():
         _add_column(c, "asks", "handoff_id INTEGER")
         for definition in ("recovery_count INTEGER NOT NULL DEFAULT 0", "last_recovery_at TEXT", "escalated INTEGER NOT NULL DEFAULT 0"):
             _add_column(c, "review_handoffs", definition)
+        # c5 (F01): one durable plan per PM turn. Its owed effects (ask dispositions, handoff delivery,
+        # Dev dispatch) are applied by ONE idempotent continuation, from the turn itself or from recovery.
+        c.execute("CREATE TABLE IF NOT EXISTS pm_turn_effects(queue_id INTEGER PRIMARY KEY, plan_json TEXT NOT NULL, "
+                  "phase TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        # c5 (F01/F02): an atomic unique delivery key reconciles an enqueue that landed before its phase update.
+        _add_column(c, "queue", "delivery_key TEXT NOT NULL DEFAULT ''")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS queue_delivery_key ON queue(delivery_key) WHERE delivery_key<>''")
+        # c5 (F12): invocation stages are separate facts, not one 'delivering' status.
+        for definition in ("launch_attempted_at TEXT", "process_started_at TEXT", "process_pid INTEGER",
+                           "invocation_recovery_due INTEGER NOT NULL DEFAULT 0"):
+            _add_column(c, "queue", definition)
+        # c5 (F02): a persisted prerequisite gate on the task, honored by every dispatch route.
+        for definition in ("dispatch_hold TEXT NOT NULL DEFAULT ''", "dispatch_hold_since TEXT",
+                           "dispatch_hold_release TEXT NOT NULL DEFAULT ''", "dispatch_hold_source INTEGER"):
+            _add_column(c, "work_items", definition)
+        # c5 (F03): typed ask envelope. 'held' is OPEN and keeps its owner, dependency and release event.
+        for definition in ("kind TEXT NOT NULL DEFAULT 'request'", "owner TEXT NOT NULL DEFAULT ''",
+                           "dependency TEXT NOT NULL DEFAULT ''", "release_event TEXT NOT NULL DEFAULT ''",
+                           "held_at TEXT", "signals TEXT NOT NULL DEFAULT '[]'"):
+            _add_column(c, "asks", definition)
+        # c5 (F04): receipt, result and PM closure are separate stages with separate timeouts.
+        for definition in ("result_ref TEXT NOT NULL DEFAULT ''", "result_at TEXT", "hold_reason TEXT NOT NULL DEFAULT ''",
+                           "action_recovery_count INTEGER NOT NULL DEFAULT 0", "last_action_recovery_at TEXT",
+                           "action_escalated INTEGER NOT NULL DEFAULT 0"):
+            _add_column(c, "review_handoffs", definition)
         # Only asks posted after the ledger exists are tracked; history is not replayed as new work.
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('asks_ingest_since',?)", (now(),))
         # A journaled action that was mid-flight when the process died has an unknown outcome.
@@ -252,6 +281,12 @@ def init_db():
 
         # Safe restart semantics: queued work was never delivered, so preserve it.
         # A delivering turn is ambiguous: repeating it could duplicate a side effect.
+        # c5 (F12): an invoked Dev turn whose process died with the board has an unknown result. It is
+        # never retried; one named PM recovery is owed (swept after init) to reconcile what it wrote.
+        c.execute(
+            "UPDATE queue SET invocation_recovery_due=1 WHERE status IN ('running','delivering') "
+            "AND recipient='dev' AND launch_attempted_at IS NOT NULL",
+        )
         c.execute(
             "UPDATE queue SET status='failed_uncertain', "
             "error='Process restarted while delivery was in progress; explicit retry required', finished_at=? "
@@ -369,15 +404,21 @@ def add_attachment(aid, filename, path, size):
 
 
 def enqueue(aid, recipient, content, *, source_actor="PO", parent_queue_id=None,
-            handoff_depth=0, auto_handoff=True, fanout_group=None, work_item_key="", kind=""):
+            handoff_depth=0, auto_handoff=True, fanout_group=None, work_item_key="", kind="", delivery_key=""):
+    """Queue one delivery. With a delivery_key the insert is atomic and idempotent (c5 F01): a replay
+    after a crash returns the delivery that already landed instead of creating a second one."""
     target = dev_assignment(work_item_key) if recipient == 'dev' else None
     with DB_LOCK, con() as c:
+        if delivery_key:
+            prior = c.execute("SELECT id FROM queue WHERE delivery_key=?", (delivery_key,)).fetchone()
+            if prior:
+                return prior['id']
         cur = c.execute(
             "INSERT INTO queue(activity_id,recipient,content,status,created_at,source_actor,parent_queue_id,"
-            "handoff_depth,auto_handoff,fanout_group,attempts,kind) VALUES(?,?,?,?,?,?,?,?,?,?,0,?)",
+            "handoff_depth,auto_handoff,fanout_group,attempts,kind,delivery_key) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?)",
             (
                 aid, recipient, content, "queued", now(), source_actor, parent_queue_id,
-                int(handoff_depth), 1 if auto_handoff else 0, fanout_group, kind,
+                int(handoff_depth), 1 if auto_handoff else 0, fanout_group, kind, delivery_key,
             ),
         )
         qid = cur.lastrowid
@@ -420,12 +461,16 @@ def list_queue(limit=100):
         if row.get('recipient') == 'dev' and row.get('work_item_key'):
             if row['status'] == 'queued':
                 row['delivery_stage'] = 'ASSIGNED → QUEUED · Dev not invoked'
+            elif row['status'] == 'delivering' and row.get('process_started_at'):
+                row['delivery_stage'] = f"ASSIGNED → QUEUED → DEV PROCESS STARTED (pid {row.get('process_pid')}) · awaiting reply"
             elif row['status'] == 'delivering':
-                row['delivery_stage'] = 'ASSIGNED → QUEUED → DEV INVOKED · awaiting result'
+                row['delivery_stage'] = 'ASSIGNED → QUEUED → LAUNCH ATTEMPTED · process not yet confirmed'
             elif row['status'] == 'responded':
-                row['delivery_stage'] = 'DEV RESULT RETURNED · task-specific ACK/action unverified'
+                row['delivery_stage'] = 'DEV REPLY RETURNED · receipt/result recorded per handoff; PM review pending'
             elif row['status'].startswith('failed') and not row.get('started_at') and not int(row.get('attempts') or 0):
                 row['delivery_stage'] = 'BLOCKED BEFORE DEV INVOCATION'
+            elif row['status'] == 'failed_uncertain' and row.get('process_started_at'):
+                row['delivery_stage'] = 'DEV PROCESS ENDED WITHOUT A RESULT · writes unknown; PM readback owed, no retry'
             elif row['status'].startswith('failed'):
                 row['delivery_stage'] = 'DEV INVOCATION FAILED · inspect result/error'
             else:
@@ -1131,34 +1176,133 @@ def _parse_ts(value):
         return None
 
 
-REQUEST_LINE = re.compile(r'REQUEST\s*:\s*(.+)', re.I)
+REQUEST_LINE = re.compile(r'REQUEST\s*:\s*(.*)', re.I)
+LIST_ITEM = re.compile(r'^\s*(?:\(\d+\)|\d+[.)]|[-*])\s+(.+)$')
 DISPOSITION_WORDS = re.compile(r'\b(PUSH PIN|PIN(?:NED)?|HOLD|ACCEPT(?:ED)?|REJECT(?:ED)?|DISPOSITION(?:S|ED)?|DECISION|DONE|COMPLETED?|NOT VALID|DEFER(?:RED)?|FIX NOW)\b', re.I)
+# c5 (F03): only these words CLOSE an ask externally; HOLD keeps it open as held.
+CLOSING_WORDS = re.compile(r'\b(NOT VALID|PUSH PIN|PIN(?:NED)?|ACCEPT(?:ED)?|REJECT(?:ED)?|DONE|COMPLETED?|DEFER(?:RED)?|SUPERSEDED)\b', re.I)
+HOLD_WORD = re.compile(r'\bHOLD\b', re.I)
+NEGATED = re.compile(r"\b(?:not|no|never|isn['’]t|aren['’]t|wasn['’]t|without|pending|awaiting|unless|until|before|yet to)\b(?:\W+\w+){0,2}\W*$", re.I)
+# External roles whose source-linked, line-scoped decision may disposition an ask. Board PM text never does.
+DISPOSITION_AUTHORITIES = ('po', 'browser pm')
+
+
+def _header_actor(body):
+    header = str(body or '').splitlines()[0] if str(body or '').strip() else ''
+    return header.split('→')[0].strip()[:80] if '→' in header else ''
+
+
+def _unquoted_lines(text):
+    """Lines that are the author's own words: quoted (>) lines and fenced code are someone else's."""
+    fence = False
+    for line in str(text or '').splitlines():
+        if line.strip().startswith('```'):
+            fence = not fence
+            continue
+        if fence or line.lstrip().startswith('>'):
+            continue
+        yield line
+
+
+def _in_backticks(line, pos):
+    return line[:pos].count('`') % 2 == 1
+
+
+def _live_word(pattern, line):
+    """First match of `pattern` that is neither inside backticks nor negated (e.g. 'NOT DONE')."""
+    for m in pattern.finditer(line):
+        if _in_backticks(line, m.start()):
+            continue
+        if m.group(0).upper() != 'NOT VALID' and NEGATED.search(line[:m.start()]):
+            continue
+        return m
+    return None
 
 
 def parse_asks(body):
-    """Split one post into independent actionable asks. 'REQUEST: none' is not an ask."""
+    """Split one post into independent actionable asks (c5 F03).
+
+    Every unquoted REQUEST line is an ask; inline (1)/(2) items and the numbered/bulleted items listed
+    directly under a REQUEST line are each their own ask. 'REQUEST: none' is not an ask. A PO post with no
+    REQUEST line is still an instruction: it is recorded for PM classification rather than dropped.
+    """
     text = str(body or '')
     if 'rwt-board-pm:' in text:
         return []  # board PM replies are outbox context, never new asks
-    lines = text.splitlines()
-    header = lines[0] if lines else ''
-    match = REQUEST_LINE.search(header) or next((m for m in map(REQUEST_LINE.search, lines[:8]) if m), None)
-    if not match:
-        return []
-    request = match.group(1).strip()
-    if re.match(r'(none|n/?a)\b', request, re.I):
-        return []
-    parts = [x.strip(' ,;') for x in re.split(r'\(\d+\)', request) if x.strip(' ,;')]
-    numbered = re.findall(r'\((\d+)\)', request)
-    if len(numbered) >= 2 and len(parts) >= len(numbered):
-        parts = parts[-len(numbered):]
-        items = list(zip((int(n) for n in numbered), parts))
-    else:
-        items = [(1, request)]
-    actor = header.split('→')[0].strip()[:80] if '→' in header else ''
+    raw_lines = text.splitlines()
+    header = raw_lines[0] if raw_lines else ''
+    lines = list(_unquoted_lines(text))
+    items = []
+    i = 0
+    while i < len(lines):
+        m = REQUEST_LINE.search(lines[i])
+        if not m or _in_backticks(lines[i], m.start()):
+            i += 1
+            continue
+        request = m.group(1).strip()
+        j = i + 1
+        listed = []
+        while j < len(lines):
+            lm = LIST_ITEM.match(lines[j])
+            if not lm:
+                break
+            listed.append(lm.group(1).strip())
+            j += 1
+        if request and not re.match(r'(none|n/?a)\b', request, re.I):
+            parts = [x.strip(' ,;') for x in re.split(r'\(\d+\)', request) if x.strip(' ,;')]
+            numbered = re.findall(r'\((\d+)\)', request)
+            if len(numbered) >= 2 and len(parts) >= len(numbered):
+                items.extend(('request', p) for p in parts[-len(numbered):])
+            else:
+                items.append(('request', request))
+        if not re.match(r'(none|n/?a)\b', request, re.I):
+            items.extend(('request', x) for x in listed)
+        i = j
+    actor = _header_actor(text)
+    if not items and actor.lower() == 'po':
+        after = header.split('→', 1)[1]
+        instruction = after.split('—', 1)[1] if '—' in after else after
+        rest = ' '.join(x.strip() for x in lines[1:] if x.strip())
+        instruction = (instruction.strip(' —-:') + (' ' + rest if rest else '')).strip()
+        if instruction:
+            items.append(('instruction', instruction))
     task = ' '.join(sorted(set(re.findall(r'#\d{3,5}', header))))
-    candidate = ' '.join(sorted(set(re.findall(r'\b[0-9a-f]{40}\b', header + ' ' + request))))
-    return [{'ask_index': i, 'request': r[:500], 'source_actor': actor, 'task_ref': task, 'candidate': candidate} for i, r in items]
+    out = []
+    for index, (kind, request) in enumerate(items, start=1):
+        candidate = ' '.join(sorted(set(re.findall(r'\b[0-9a-f]{40}\b', header + ' ' + request))))
+        out.append({'ask_index': index, 'request': request[:500], 'source_actor': actor, 'task_ref': task,
+                    'candidate': candidate, 'kind': kind})
+    return out
+
+
+def _external_decisions(body, src):
+    """Line-scoped decisions in an external post about source `src`: {ask_index|None: ('close'|'hold', line)}.
+
+    A numbered line decides only its own item; otherwise a line that names the source decides every item.
+    Negated ('NOT DONE'), quoted and backticked words decide nothing.
+    """
+    decisions = {}
+    for line in _unquoted_lines(body):
+        numbered = re.match(r'^\s*(\d+)[.)]\s', line)
+        if not numbered and str(src) not in line:
+            continue
+        index = int(numbered.group(1)) if numbered else None
+        if _live_word(CLOSING_WORDS, line):
+            decisions[index] = ('close', line.strip())
+        elif _live_word(HOLD_WORD, line):
+            decisions[index] = ('hold', line.strip())
+    return decisions
+
+
+def _add_signal(c, ask_id, signal):
+    row = c.execute("SELECT signals FROM asks WHERE id=?", (ask_id,)).fetchone()
+    try:
+        signals = json.loads(row['signals'] or '[]') if row else []
+    except (ValueError, TypeError):
+        signals = []
+    if signal not in signals:
+        signals = (signals + [signal])[-10:]
+        c.execute("UPDATE asks SET signals=? WHERE id=?", (json.dumps(signals, ensure_ascii=False), ask_id))
 
 
 def ingest_control_asks(comments):
@@ -1171,37 +1315,62 @@ def ingest_control_asks(comments):
                 continue
             for ask in parse_asks(cm.get('body')):
                 cur = c.execute(
-                    "INSERT OR IGNORE INTO asks(source_comment_id,ask_index,source_actor,task_ref,candidate,request,url,source_at,recorded_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?)",
+                    "INSERT OR IGNORE INTO asks(source_comment_id,ask_index,source_actor,task_ref,candidate,request,url,source_at,recorded_at,kind) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
                     (int(cm['id']), ask['ask_index'], ask['source_actor'], ask['task_ref'], ask['candidate'],
-                     ask['request'], cm.get('url') or '', at or None, now()))
+                     ask['request'], cm.get('url') or '', at or None, now(), ask['kind']))
                 added += cur.rowcount
-        # External source-linked dispositions (Browser PM/PO). Board PM text never closes an ask:
-        # PM closes asks only through typed ask_dispositions.
-        open_sources = {r['source_comment_id'] for r in c.execute("SELECT DISTINCT source_comment_id FROM asks WHERE state='pending'")}
-        for cm in comments or []:
+        # External source-linked dispositions. c5 (F03): only an authority role (PO / Browser PM) decides,
+        # line by line; a non-authority mention, negation or quotation is kept as a visible signal for PM and
+        # never retires the ask. HOLD keeps the ask OPEN as held. Board PM text never closes an ask: PM closes
+        # asks only through typed ask_dispositions.
+        open_sources = {r['source_comment_id'] for r in c.execute(
+            "SELECT DISTINCT source_comment_id FROM asks WHERE state IN ('pending','held')")}
+        for cm in sorted(comments or [], key=lambda x: int(x.get('id') or 0)):
             body = str(cm.get('body') or '')
             if 'rwt-board-pm:' in body:
                 continue
+            cid = int(cm.get('id') or 0)
+            actor = _header_actor(body)
             for src in open_sources:
-                if int(cm.get('id') or 0) <= src or str(src) not in body or not DISPOSITION_WORDS.search(body):
+                if cid <= src or str(src) not in body:
                     continue
-                numbered = {int(n) for n in re.findall(r'^\s*(\d+)[.)]\s', body, re.M)}
-                rows = c.execute("SELECT id,ask_index FROM asks WHERE source_comment_id=? AND state='pending'", (src,)).fetchall()
+                rows = c.execute("SELECT id,ask_index,state FROM asks WHERE source_comment_id=? AND state IN ('pending','held')",
+                                 (src,)).fetchall()
+                decisions = _external_decisions(body, src)
+                ref = str(cm.get('url') or cm.get('id'))
+                if actor.lower() not in DISPOSITION_AUTHORITIES:
+                    if DISPOSITION_WORDS.search(body):
+                        for r in rows:
+                            _add_signal(c, r['id'], f"{actor or 'unknown actor'} mentioned source {src} in {ref} (not an authority disposition)")
+                    continue
                 for r in rows:
-                    if numbered and r['ask_index'] not in numbered:
+                    decision = decisions.get(r['ask_index']) or (decisions.get(None) if not any(isinstance(k, int) for k in decisions) else None)
+                    if not decision:
+                        if DISPOSITION_WORDS.search(body):
+                            _add_signal(c, r['id'], f"{actor} referenced source {src} in {ref} without a decision for item {r['ask_index']}")
                         continue
-                    c.execute("UPDATE asks SET state='dispositioned',disposition='external',disposition_ref=?,dispositioned_at=? WHERE id=?",
-                              (str(cm.get('url') or cm.get('id')), now(), r['id']))
+                    if decision[0] == 'close':
+                        c.execute("UPDATE asks SET state='dispositioned',disposition='external',disposition_owner=?,disposition_ref=?,dispositioned_at=? WHERE id=?",
+                                  (actor, f"{ref} · {decision[1][:200]}", now(), r['id']))
+                    elif r['state'] == 'pending':
+                        c.execute("UPDATE asks SET state='held',disposition='hold',disposition_owner=?,owner=?,dependency=?,release_event=?,"
+                                  "held_at=?,disposition_ref=? WHERE id=?",
+                                  (actor, actor, decision[1][:300], decision[1][:300], now(), ref, r['id']))
     return added
 
 
 VALID_DISPOSITIONS = ('pin', 'hold', 'po_decision', 'completed', 'superseded', 'dispatched')
-OPEN_ASK_STATES = ('pending', 'dispatched')
+OPEN_ASK_STATES = ('pending', 'held', 'dispatched')
 
 
 def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
-    """Close asks only with a typed, evidenced, source-linked disposition."""
+    """Close asks only with a typed, evidenced, source-linked disposition validated against the ask (c5 F03/F04).
+
+    'hold' keeps the ask OPEN (held) with its owner and release event. A dispatched ask closes only as
+    'completed' after its handoff RESULT returned (receipt alone is not completion), or 'superseded'.
+    Replay-safe: a disposition this turn already applied (same published_ref) is not re-applied or rejected.
+    """
     applied, rejected = [], []
     for d in dispositions or []:
         if not isinstance(d, dict):
@@ -1226,23 +1395,51 @@ def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
             why = f'{kind} needs a source link, comment id or SHA as evidence'
         with DB_LOCK, con() as c:
             row = c.execute("SELECT * FROM asks WHERE id=?", (int(d.get('ask_id') or 0),)).fetchone()
+            if row and row['state'] != 'pending' and str(row['disposition_ref'] or '').startswith(published_ref + ' · ') \
+                    and row['state'] == {'dispatched': 'dispatched', 'hold': 'held'}.get(kind, 'dispositioned'):
+                continue  # replay of this same turn's already-applied disposition (F01 continuation)
+            if row and row['state'] == 'dispositioned' and f' · {kind} {published_ref} · ' in str(row['disposition_ref'] or ''):
+                continue  # replay of this turn's completion of a dispatched ask
             if not row:
                 why = why or 'unknown ask_id'
-            elif row['state'] != 'pending':
+            elif row['state'] not in OPEN_ASK_STATES:
                 why = why or f"ask {row['id']} already {row['state']}"
+            elif row['state'] == 'dispatched' and kind not in ('completed', 'superseded', 'hold'):
+                why = why or f"ask {row['id']} is dispatched; only completed (after the owner RESULT), superseded or hold apply"
+            elif row['state'] == 'held' and kind == 'hold' and not why:
+                pass  # re-hold with a newer dependency is allowed
+            shas = set(re.findall(r'\b[0-9a-f]{40}\b', evidence))
+            wanted = set((row['candidate'] or '').split()) if row else set()
+            if not why and row and wanted and kind in ('pin', 'completed') and shas and not (shas & wanted):
+                why = f"evidence names a different candidate than ask {row['id']} ({', '.join(sorted(wanted))[:90]})"
+            if not why and row and row['state'] == 'dispatched' and kind == 'completed':
+                h = c.execute("SELECT token,state FROM review_handoffs WHERE id=?", (row['handoff_id'],)).fetchone()
+                if not h or h['state'] != 'result_returned':
+                    why = (f"ask {row['id']} handoff has no owner RESULT yet (state {h['state'] if h else 'missing'}); "
+                           "a receipt is not completion")
+                elif h['token'].lower() not in evidence.lower():
+                    why = f"completion evidence must name handoff {h['token']}"
             if why:
                 rejected.append(f"ask {d.get('ask_id')}: {why}"); continue
             if kind == 'dispatched':
-                # Still OPEN: closes only when the owner echoes this handoff's receipt token.
+                # Still OPEN: receipt → result → PM-typed completion.
                 h = c.execute("SELECT token,owner FROM review_handoffs WHERE id=?", (hid,)).fetchone()
                 c.execute("UPDATE asks SET state='dispatched',disposition='dispatched',disposition_owner=?,disposition_ref=?,handoff_id=? WHERE id=?",
                           (h['owner'], f"{published_ref} · {h['token']} · {evidence[:300]}", hid, row['id']))
+            elif kind == 'hold':
+                c.execute("UPDATE asks SET state='held',disposition='hold',disposition_owner=?,owner=?,dependency=?,release_event=?,"
+                          "held_at=?,disposition_ref=? WHERE id=?",
+                          (owner, owner, dependency[:300], dependency[:300], now(), f"{published_ref} · {evidence[:300]}", row['id']))
+            elif row['state'] == 'dispatched':
+                # Keep the dispatch → receipt → result trail; the completion is appended, not substituted.
+                c.execute("UPDATE asks SET state='dispositioned',disposition=?,disposition_owner=?,disposition_ref=?,dispositioned_at=? WHERE id=?",
+                          (kind, owner, f"{row['disposition_ref']} · {kind} {published_ref} · {evidence[:300]}", now(), row['id']))
             else:
                 c.execute("UPDATE asks SET state='dispositioned',disposition=?,disposition_owner=?,disposition_ref=?,dispositioned_at=? WHERE id=?",
                           (kind, owner, f"{published_ref} · {evidence[:300]}", now(), row['id']))
             applied.append(row['id'])
     if rejected:
-        add_activity('SYSTEM', 'Rejected ask dispositions (ask stays pending): ' + '; '.join(rejected)[:1000], 'none', 'error',
+        add_activity('SYSTEM', 'Rejected ask dispositions (ask stays open): ' + '; '.join(rejected)[:1000], 'none', 'error',
                      trigger_queue_id=q.get('id'))
     return applied, rejected
 
@@ -1250,18 +1447,30 @@ def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
 def list_asks(state=None):
     sql, args = "SELECT * FROM asks", ()
     if state == 'open':
-        sql += " WHERE state IN ('pending','dispatched')"
+        sql += " WHERE state IN ('pending','held','dispatched')"
     elif state:
         sql += " WHERE state=?"; args = (state,)
     with DB_LOCK, con() as c:
         rows = [dict(r) for r in c.execute(sql + " ORDER BY source_comment_id, ask_index", args).fetchall()]
+        stages = {r['id']: r['state'] for r in c.execute("SELECT id,state FROM review_handoffs").fetchall()}
     for r in rows:
         r['age_seconds'] = age_seconds(r.get('source_at') or r.get('recorded_at'))
         if r['state'] == 'dispatched':
-            r['next_action'] = 'Dispatched to owner; closes only on the owner\'s task-specific RECEIPT'
+            stage = stages.get(r.get('handoff_id'), 'missing')
+            r['next_action'] = {
+                'recorded': 'Dispatch owed: handoff recorded, delivery not yet applied',
+                'held': 'Dispatch held by a prerequisite gate; delivered when it releases',
+                'delivered': 'Dispatched to owner; awaiting the owner\'s task-specific RECEIPT',
+                'received': 'Owner invoked; awaiting the owner\'s task-specific RECEIPT',
+                'acknowledged': 'Owner RECEIPT recorded (started); awaiting the owner RESULT',
+                'result_returned': 'Owner RESULT returned; awaiting PM review and typed completion',
+            }.get(stage, f'Handoff {stage}; PM must reconcile')
+        elif r['state'] == 'held':
+            r['next_action'] = f"HELD ({r.get('owner') or 'owner?'}) until: {r.get('release_event') or r.get('dependency') or 'release event not named'}"
         elif r['state'] == 'pending':
             r['next_action'] = ('ESCALATED board blocker: PM recovery did not disposition it' if r['escalated']
                                 else 'PM recovery woke once; awaiting typed disposition' if r['recovery_count']
+                                else 'Awaiting PM classification (instruction)' if r.get('kind') == 'instruction'
                                 else 'Awaiting PM typed disposition')
     return rows
 
@@ -1309,13 +1518,26 @@ def pending_ask_watchdog():
 
 REVIEW_DISPOSITIONS = ('fix_now', 'defer', 'not_valid', 'accepted', 'hold')
 RECEIPT = re.compile(r'RECEIPT\s+(RH-\d+-[0-9a-f]{8})', re.I)
+RESULT = re.compile(r'RESULT\s+(RH-\d+-[0-9a-f]{8})', re.I)
+OWNER_ROLE = {'cli_dev': 'cli dev', 'app_dev': 'app dev'}
+HANDOFF_ACTION_SECONDS = int(os.environ.get("RWT_HANDOFF_ACTION_SECONDS", "3600"))
+
+
+def _handoff_text(h):
+    return (f"REVIEW HANDOFF {h['token']} → {h['owner']}: #{h['pr_number']} reviewed at exact head {h['head']} ({h['reviewed_ref']}); "
+            f"disposition {str(h['disposition']).upper()}. Instruction: {h['instruction']}\n"
+            f"Receipt required: start a line of your reply with RECEIPT {h['token']} and the action you started; "
+            f"when the action is done, start a line with RESULT {h['token']} and the exact evidence. "
+            "A receipt is not completion; PM reviews the result.")
 
 
 def record_review_handoffs(q, handoffs):
     """Persist exact reviewed head + disposition + instruction; deliver with a receipt token.
 
-    Returns (cli_dev_rows, published_blocks). A review log entry is never delivery completion:
-    states go recorded → delivered → received (Dev invoked) → acknowledged (token echoed).
+    Returns (cli_dev_rows, published_blocks, index_map). A review log entry is never delivery completion:
+    states go recorded → delivered → received (Dev invoked) → acknowledged (RECEIPT) → result_returned (RESULT).
+    c5 (F01): a duplicate of a handoff that is still only 'recorded' (or 'held') is returned again, so the delivery
+    it is owed is finished instead of stranded; one already delivered is never delivered twice.
     """
     dev_rows, blocks, rejected, index_map = [], [], [], {}
     items = {x['item_key']: x for x in list_work_items()}
@@ -1344,23 +1566,21 @@ def record_review_handoffs(q, handoffs):
         with DB_LOCK, con() as c:
             cur = c.execute("INSERT OR IGNORE INTO review_handoffs(pr_number,head,reviewed_ref,disposition,owner,work_item_key,instruction,source_queue_id,created_at) "
                             "VALUES(?,?,?,?,?,?,?,?,?)", (int(h.get('pr_number') or 0), head, ref, disposition, owner, key, instruction, q.get('id'), now()))
-            if not cur.rowcount:
-                prior = c.execute("SELECT id FROM review_handoffs WHERE pr_number=? AND head=? AND reviewed_ref=? AND owner=?",
-                                  (int(h.get('pr_number') or 0), head, ref, owner)).fetchone()
-                if prior:
-                    index_map[index] = prior['id']
-                continue  # duplicate event/restart: already recorded and delivered once
-            hid = cur.lastrowid
-            index_map[index] = hid
-            token = f"RH-{hid}-{head[:8]}"
-            c.execute("UPDATE review_handoffs SET token=? WHERE id=?", (token, hid))
-        text = (f"REVIEW HANDOFF {token} → {owner}: #{h.get('pr_number')} reviewed at exact head {head} ({ref}); "
-                f"disposition {disposition.upper()}. Instruction: {instruction}\n"
-                f"Receipt required: begin your reply/ACK with `RECEIPT {token}` and the action you started.")
+            if cur.rowcount:
+                hid = cur.lastrowid
+                c.execute("UPDATE review_handoffs SET token=? WHERE id=?", (f"RH-{hid}-{head[:8]}", hid))
+            row = c.execute("SELECT * FROM review_handoffs WHERE pr_number=? AND head=? AND reviewed_ref=? AND owner=?",
+                            (int(h.get('pr_number') or 0), head, ref, owner)).fetchone()
+        if not row:
+            continue
+        index_map[index] = row['id']
+        if row['state'] not in ('recorded', 'held'):
+            continue  # already delivered once: a duplicate event/restart never delivers it again
+        text = _handoff_text(row)
         if owner == 'cli_dev':
-            dev_rows.append((hid, key, text))
+            dev_rows.append((row['id'], row['work_item_key'], text))
         else:
-            blocks.append((hid, text))
+            blocks.append((row['id'], text))
     if rejected:
         add_activity('SYSTEM', 'Rejected review handoffs: ' + '; '.join(rejected)[:1000], 'none', 'error', trigger_queue_id=q.get('id'))
     return dev_rows, blocks, index_map
@@ -1372,33 +1592,68 @@ def _mark_handoff(hid, **fields):
         c.execute("UPDATE review_handoffs SET " + ",".join(f"{k}=?" for k in ks) + " WHERE id=?", [fields[k] for k in ks] + [hid])
 
 
+def _owner_tokens(body, pattern):
+    """Tokens the author asserts in their own words: never from quoted lines or a negated mention."""
+    found = []
+    for line in _unquoted_lines(body):
+        for m in pattern.finditer(line):
+            if NEGATED.search(line[:m.start()]):
+                continue
+            found.append(m.group(1))
+    return found
+
+
+def _after_delivery(row, cm):
+    """A GitHub receipt must be posted after the delivery that carried its token."""
+    if row['delivery_comment_id']:
+        return int(cm.get('id') or 0) > int(row['delivery_comment_id'])
+    delivered, at = _parse_ts(row['delivered_at']), _parse_ts(cm.get('at'))
+    return bool(delivered and at and at >= delivered)
+
+
 def record_handoff_receipts(comments=None, dev_result=None, queue_id=None):
-    """A handoff is acknowledged only by its own token from the owner, never by a generic ACK."""
+    """Record owner RECEIPT (started) and RESULT (returned) for delivered handoffs (c5 F04).
+
+    Accounts are shared, so a login proves nothing: a receipt must come through the owner's channel —
+    CLI Dev only from the delivery that carried its token; App Dev only from a post whose own header is
+    'App Dev →', posted after the delivery. Quoted text, negated mentions, another actor's quotation and
+    any handoff not yet delivered are ignored. Neither stage closes the ask: PM reviews the RESULT and
+    closes it with a typed 'completed' disposition.
+    """
     sources = []
     if dev_result is not None:
-        sources.append(('dev', str(queue_id), dev_result))
+        sources.append(('dev', str(queue_id), dev_result, None))
     for cm in comments or []:
         body = str(cm.get('body') or '')
         if 'rwt-board-pm:' not in body:
-            sources.append(('github', str(cm.get('url') or cm.get('id')), body))
+            sources.append(('github', str(cm.get('url') or cm.get('id')), body, cm))
     acked = []
     with DB_LOCK, con() as c:
-        for origin, ref, body in sources:
-            for token in RECEIPT.findall(body):
-                row = c.execute("SELECT * FROM review_handoffs WHERE lower(token)=lower(?)", (token,)).fetchone()
-                if not row or row['state'] == 'acknowledged':
-                    continue
-                # CLI Dev receipts must come from the delivery that carried the token.
-                if row['owner'] == 'cli_dev' and (origin != 'dev' or str(row['delivery_queue_id']) != ref):
-                    continue
-                if row['owner'] == 'app_dev' and origin != 'github':
-                    continue
-                c.execute("UPDATE review_handoffs SET state='acknowledged',ack_ref=?,acknowledged_at=? WHERE id=?",
-                          (f"{origin}:{ref}", now(), row['id']))
-                c.execute("UPDATE asks SET state='dispositioned',disposition='completed',dispositioned_at=?,"
-                          "disposition_ref=disposition_ref || ' · receipt ' || ? WHERE handoff_id=? AND state='dispatched'",
-                          (now(), f"{origin}:{ref}", row['id']))
-                acked.append(row['id'])
+        for origin, ref, body, cm in sources:
+            for stage, pattern in (('acknowledged', RECEIPT), ('result_returned', RESULT)):
+                for token in _owner_tokens(body, pattern):
+                    row = c.execute("SELECT * FROM review_handoffs WHERE lower(token)=lower(?)", (token,)).fetchone()
+                    if not row:
+                        continue
+                    allowed_from = ('delivered', 'received') if stage == 'acknowledged' else ('acknowledged',)
+                    if row['state'] not in allowed_from:
+                        continue
+                    if row['owner'] == 'cli_dev' and (origin != 'dev' or str(row['delivery_queue_id']) != ref):
+                        continue
+                    if row['owner'] == 'app_dev' and (origin != 'github' or _header_actor(body).lower() != OWNER_ROLE['app_dev']
+                                                      or not _after_delivery(row, cm)):
+                        continue
+                    if stage == 'acknowledged':
+                        c.execute("UPDATE review_handoffs SET state='acknowledged',ack_ref=?,acknowledged_at=? WHERE id=?",
+                                  (f"{origin}:{ref}", now(), row['id']))
+                        c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · receipt ' || ? WHERE handoff_id=? AND state='dispatched'",
+                                  (f"{origin}:{ref}", row['id']))
+                        acked.append(row['id'])
+                    else:
+                        c.execute("UPDATE review_handoffs SET state='result_returned',result_ref=?,result_at=? WHERE id=?",
+                                  (f"{origin}:{ref}", now(), row['id']))
+                        c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · result ' || ? WHERE handoff_id=? AND state='dispatched'",
+                                  (f"{origin}:{ref}", row['id']))
     return acked
 
 
@@ -1406,43 +1661,76 @@ def list_review_handoffs():
     with DB_LOCK, con() as c:
         rows = [dict(r) for r in c.execute("SELECT * FROM review_handoffs ORDER BY id").fetchall()]
     for r in rows:
-        r['age_seconds'] = age_seconds(r.get('received_at') or r.get('delivered_at') or r.get('created_at'))
+        r['age_seconds'] = age_seconds(r.get('result_at') or r.get('acknowledged_at') or r.get('received_at')
+                                       or r.get('delivered_at') or r.get('created_at'))
     return rows
 
 
+def _pm_watchdog_wake(kind, msg):
+    with DB_LOCK, con() as c:
+        aid = c.execute("INSERT INTO activity(actor,message,route,status,created_at) VALUES(?,?,?,?,?)",
+                        ('SYSTEM', msg, 'pm', 'posted', now())).lastrowid
+        return c.execute("INSERT INTO queue(activity_id,recipient,content,status,created_at,source_actor,handoff_depth,auto_handoff,attempts,kind) "
+                         "VALUES(?,?,?,?,?,?,?,?,0,?)", (aid, 'pm', msg, 'queued', now(), 'SYSTEM', 0, 1, kind)).lastrowid
+
+
 def pending_handoff_watchdog():
-    """A delivered/received/blocked handoff with no receipt gets ONE PM recovery, then a board blocker."""
+    """Receipt and action have separate clocks (c5 F04); each gets ONE PM recovery, then a board blocker.
+
+    - receipt overdue: recorded-but-undelivered (owed delivery, F01), delivered/received/blocked without RECEIPT;
+    - action overdue: RECEIPT recorded but no RESULT within RWT_HANDOFF_ACTION_SECONDS.
+    A held handoff waits on its prerequisite gate and is not overdue.
+    """
     if not bool_setting('auto_pm_github_control', True):
         return None
-    open_h = [h for h in list_review_handoffs() if h['state'] in ('delivered', 'received', 'blocked')]
-    stale = [h for h in open_h if h['recovery_count'] and not h['escalated']
+    all_h = list_review_handoffs()
+    with DB_LOCK, con() as c:
+        owed_turns = {r['queue_id'] for r in c.execute("SELECT queue_id FROM pm_turn_effects WHERE phase<>'applied'")}
+    receipt_open = [h for h in all_h if h['state'] in ('delivered', 'received', 'blocked')
+                    or (h['state'] == 'recorded' and h['source_queue_id'] not in owed_turns)]
+    action_open = [h for h in all_h if h['state'] == 'acknowledged']
+    stale = [h for h in receipt_open if h['recovery_count'] and not h['escalated']
              and (age_seconds(h.get('last_recovery_at')) or 0) >= ASK_ESCALATE_SECONDS]
-    if stale:
+    stale_action = [h for h in action_open if h['action_recovery_count'] and not h['action_escalated']
+                    and (age_seconds(h.get('last_action_recovery_at')) or 0) >= ASK_ESCALATE_SECONDS]
+    if stale or stale_action:
         with DB_LOCK, con() as c:
             for h in stale:
                 c.execute("UPDATE review_handoffs SET escalated=1 WHERE id=?", (h['id'],))
-        set_setting('pm_handoff_blocker', f"{len(stale)} review handoff(s) without owner receipt after one PM recovery: " +
-                    ', '.join(f"{h['token']} ({h['owner']}, {h['state']})" for h in stale))
+            for h in stale_action:
+                c.execute("UPDATE review_handoffs SET action_escalated=1 WHERE id=?", (h['id'],))
+        parts = []
+        if stale:
+            parts.append(f"{len(stale)} review handoff(s) without owner receipt after one PM recovery: " +
+                         ', '.join(f"{h['token']} ({h['owner']}, {h['state']})" for h in stale))
+        if stale_action:
+            parts.append(f"{len(stale_action)} review handoff(s) received but without owner RESULT after one PM recovery: " +
+                         ', '.join(f"{h['token']} ({h['owner']})" for h in stale_action))
+        set_setting('pm_handoff_blocker', '; '.join(parts))
         add_activity('SYSTEM', 'BOARD BLOCKER: ' + get_setting('pm_handoff_blocker'), 'none', 'error')
-    overdue = [h for h in open_h if not h['recovery_count'] and (h['age_seconds'] or 0) >= ASK_OVERDUE_SECONDS]
-    if not overdue:
+    overdue = [h for h in receipt_open if not h['recovery_count'] and (h['age_seconds'] or 0) >= ASK_OVERDUE_SECONDS]
+    overdue_action = [h for h in action_open if not h['action_recovery_count'] and (h['age_seconds'] or 0) >= HANDOFF_ACTION_SECONDS]
+    if not (overdue or overdue_action):
         return None
     agent = get_agent('pm') or {}
     if agent.get('paused') or agent.get('status') in ('running', 'auth_required', 'error') or _has_pending_delivery('pm'):
         return None
-    lines = [f"- {h['token']} → {h['owner']} ({h['work_item_key'] or 'no task'}): state {h['state'].upper()} for {h['age_seconds']}s"
-             + (f"; {h['ack_ref']}" if h['ack_ref'] else '') for h in overdue]
-    msg = ('PM handoff watchdog: these review handoffs have no task-specific owner receipt. Inspect each delivery record. '
+    lines = [f"- {h['token']} → {h['owner']} ({h['work_item_key'] or 'no task'}): "
+             + ('RECORDED, delivery never applied' if h['state'] == 'recorded' else f"state {h['state'].upper()}")
+             + f" for {h['age_seconds']}s; no RECEIPT" + (f"; {h['ack_ref']}" if h['ack_ref'] else '') for h in overdue]
+    lines += [f"- {h['token']} → {h['owner']} ({h['work_item_key'] or 'no task'}): RECEIPT {h['ack_ref']} but no RESULT for {h['age_seconds']}s"
+              for h in overdue_action]
+    msg = ('PM handoff watchdog: these review handoffs lack a task-specific owner stage (receipt or result). Inspect each delivery record. '
            'Re-dispatch only through a verified tuple (a NEW handoff for changed facts); never replay a write. '
            'A HOLD needs owner+dependency. This wake retries reconciliation only.\n' + '\n'.join(lines))
+    qid = _pm_watchdog_wake('handoff_recovery', msg)
     with DB_LOCK, con() as c:
-        aid = c.execute("INSERT INTO activity(actor,message,route,status,created_at) VALUES(?,?,?,?,?)",
-                        ('SYSTEM', msg, 'pm', 'posted', now())).lastrowid
-        qid = c.execute("INSERT INTO queue(activity_id,recipient,content,status,created_at,source_actor,handoff_depth,auto_handoff,attempts,kind) "
-                        "VALUES(?,?,?,?,?,?,?,?,0,?)", (aid, 'pm', msg, 'queued', now(), 'SYSTEM', 0, 1, 'handoff_recovery')).lastrowid
         for h in overdue:
             c.execute("UPDATE review_handoffs SET recovery_count=recovery_count+1,last_recovery_at=? WHERE id=? AND recovery_count=0",
                       (now(), h['id']))
+        for h in overdue_action:
+            c.execute("UPDATE review_handoffs SET action_recovery_count=action_recovery_count+1,last_action_recovery_at=? "
+                      "WHERE id=? AND action_recovery_count=0", (now(), h['id']))
     return qid
 
 
@@ -1537,6 +1825,8 @@ def github_watcher():
                     saved_snapshot = {k: v for k, v in snap.items() if k != '_pending_comment_cursors'}
                     c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_watch_snapshot',?)", (json.dumps(saved_snapshot, sort_keys=True),))
             if not err:
+                # c5 (F01): finish owed PM-turn effects (after marker recovery above confirmed any uncertain post).
+                resume_owed_pm_turns()
                 pending_pin_watchdog()
                 if time.time() >= GH_BACKOFF_UNTIL:
                     poll_refreshed_reviews()
@@ -1790,18 +2080,30 @@ def compact_pr_context():
 def pm_ledger_context():
     """Open asks, review handoffs and the share location travel with EVERY PM turn,
     so a coalesced newer event cannot hide an older unresolved ask."""
-    asks = [{k: a[k] for k in ('id', 'state', 'source_comment_id', 'ask_index', 'source_actor', 'task_ref', 'candidate', 'request',
-                                'age_seconds', 'recovery_count', 'escalated', 'handoff_id')} for a in list_asks('open')]
-    handoffs = [{k: h[k] for k in ('id', 'token', 'pr_number', 'head', 'owner', 'work_item_key', 'disposition', 'state', 'age_seconds')}
-                for h in list_review_handoffs() if h['state'] != 'acknowledged']
+    open_asks = list_asks('open')
+    asks = [{k: a.get(k) for k in ('id', 'state', 'kind', 'source_comment_id', 'ask_index', 'source_actor', 'task_ref', 'candidate', 'request',
+                                    'age_seconds', 'recovery_count', 'escalated', 'handoff_id', 'owner', 'dependency', 'release_event',
+                                    'next_action', 'signals')} for a in open_asks]
+    linked = {a.get('handoff_id') for a in open_asks if a.get('handoff_id')}
+    # c5 (F04): receipt and result are stages, not completion; a RESULT stays visible until PM closes its ask.
+    handoffs = [{k: h[k] for k in ('id', 'token', 'pr_number', 'head', 'owner', 'work_item_key', 'disposition', 'state', 'age_seconds',
+                                   'ack_ref', 'result_ref', 'hold_reason')}
+                for h in list_review_handoffs() if h['state'] != 'result_returned' or h['id'] in linked]
+    gates = [{k: w[k] for k in ('item_key', 'dispatch_hold', 'dispatch_hold_since', 'dispatch_hold_release')}
+             for w in list_work_items() if w.get('dispatch_hold')]
     try:
         blockers = json.loads(get_setting('pm_action_blockers', '[]'))[-5:]
     except (ValueError, TypeError):
         blockers = []
-    return ("OPEN ASKS (each needs a typed ask_dispositions entry; a generic reply closes nothing):\n"
+    return ("OPEN ASKS (pending, held and dispatched; each needs a typed ask_dispositions entry; a generic reply closes nothing; "
+            "re-evaluate each HELD ask against its release_event every turn):\n"
             + json.dumps(asks, ensure_ascii=False)
-            + "\nOPEN REVIEW HANDOFFS (complete only when the owner echoes RECEIPT <token>):\n"
+            + "\nOPEN REVIEW HANDOFFS (stages: recorded → delivered → received → acknowledged = owner RECEIPT/started → "
+            "result_returned = owner RESULT; close the dispatched ask with a typed completed disposition naming the token only after "
+            "you review the RESULT):\n"
             + json.dumps(handoffs, ensure_ascii=False)
+            + "\nHELD DEV DISPATCH GATES (persisted; anti-idle honors them; released only by your explicit Dev directive for the task "
+            "after its prerequisite completes):\n" + json.dumps(gates, ensure_ascii=False)
             + "\nNAMED EXECUTOR BLOCKERS:\n" + json.dumps(blockers, ensure_ascii=False)
             + "\nSHARED ARTIFACTS for #" + str(CONTROL_ISSUE) + ": " + json.dumps(handoff_location(), ensure_ascii=False) + "\n\n")
 
@@ -1868,16 +2170,31 @@ def _claude_command(content, sid, existing):
 
 
 def _run_claude_once(content, cwd, sid, existing):
+    """Run one bounded Claude turn (c5 F12). Process start is recorded as its own stage; a turn that exceeds
+    DEV_TIMEOUT is terminated (then killed) and reported as an error whose writes are unknown."""
     global ACTIVE_DEV_PROC
     cmd = _claude_command(content, sid, existing)
     with PROC_LOCK:
-        ACTIVE_DEV_PROC = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=subscription_env("claude"))
-    out, err = ACTIVE_DEV_PROC.communicate()
-    rc = ACTIVE_DEV_PROC.returncode
+        ACTIVE_DEV_PROC = proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=subscription_env("claude"))
+    if ACTIVE_DEV_QUEUE_ID:
+        update_queue(ACTIVE_DEV_QUEUE_ID, process_started_at=now(), process_pid=proc.pid)
+    timeout_error = None
+    try:
+        out, err = proc.communicate(timeout=DEV_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            out, err = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+        timeout_error = (f"Dev invocation exceeded {DEV_TIMEOUT}s; process {proc.pid} terminated (exit {proc.returncode}); "
+                         "its writes are unknown")
+    rc = proc.returncode
     with PROC_LOCK:
         ACTIVE_DEV_PROC = None
     result, ret_sid, parse_err = parse_claude(out)
-    return rc, result, ret_sid or sid, parse_err, err.strip()
+    return rc, result, ret_sid or sid, timeout_error or parse_err, (err or '').strip()
 
 
 
@@ -2136,6 +2453,7 @@ def _run_pm_command(content, session_id):
 
 
 def run_dev(q):
+    global ACTIVE_DEV_QUEUE_ID, DEV_STOP_REQUESTED
     if not q.get('work_item_key'):
         raise RuntimeError('Unbound historical delivery: request a new task handoff')
     a = get_agent("dev")
@@ -2153,34 +2471,52 @@ def run_dev(q):
 
     existing = a.get("session_id")
     sid = existing or str(uuid.uuid4())
-    update_queue(q["id"], status="delivering", started_at=now(), session_id=sid, attempts=(q.get("attempts") or 0) + 1)
+    # c5 (F12): 'launch attempted' is recorded before the process exists; 'process started' only once it does.
+    update_queue(q["id"], status="delivering", started_at=now(), launch_attempted_at=now(), session_id=sid,
+                 attempts=(q.get("attempts") or 0) + 1)
     set_agent("dev", status="running", session_id=sid)
     with DB_LOCK, con() as c:
         c.execute("UPDATE review_handoffs SET state='received',received_at=? WHERE delivery_queue_id=? AND state='delivered'", (now(), q["id"]))
 
     dev_content = compose_for_dev(q)
-    rc, result, sid, parse_err, stderr = _run_claude_once(dev_content, cwd, sid, bool(existing))
-    # Claude Code may emit non-fatal warnings to stderr (for example MCP OAuth
-    # migration warnings) while still exiting 0 and returning a valid JSON
-    # response on stdout. stderr is diagnostic output, not an exit status.
-    error = claude_transport_error(rc, parse_err, stderr)
+    ACTIVE_DEV_QUEUE_ID = q['id']
+    try:
+        try:
+            rc, result, sid, parse_err, stderr = _run_claude_once(dev_content, cwd, sid, bool(existing))
+        except Exception as e:  # the process could not be launched; nothing ran
+            rc, result, parse_err, stderr = None, '', f'Dev launch failed before a process started: {type(e).__name__}: {e}', ''
+        # Claude Code may emit non-fatal warnings to stderr (for example MCP OAuth
+        # migration warnings) while still exiting 0 and returning a valid JSON
+        # response on stdout. stderr is diagnostic output, not an exit status.
+        error = claude_transport_error(rc, parse_err, stderr) if rc is not None or parse_err else ''
 
-    if error and existing and _is_stale_model_error(error):
-        add_activity("SYSTEM", f"Stale Claude session; retrying once with {CLAUDE_MODEL or 'the Claude CLI default model'}.", "none", "system")
-        set_agent("dev", session_id=None, status="running")
-        sid = str(uuid.uuid4())
-        update_queue(q["id"], session_id=sid)
-        rc, result, sid, parse_err, stderr = _run_claude_once(dev_content, cwd, sid, False)
-        error = claude_transport_error(rc, parse_err, stderr)
+        if error and existing and _is_stale_model_error(error):
+            add_activity("SYSTEM", f"Stale Claude session; retrying once with {CLAUDE_MODEL or 'the Claude CLI default model'}.", "none", "system")
+            set_agent("dev", session_id=None, status="running")
+            sid = str(uuid.uuid4())
+            update_queue(q["id"], session_id=sid)
+            rc, result, sid, parse_err, stderr = _run_claude_once(dev_content, cwd, sid, False)
+            error = claude_transport_error(rc, parse_err, stderr)
+    finally:
+        ACTIVE_DEV_QUEUE_ID = None
 
     if error:
-        update_queue(q["id"], status="failed", error=error, finished_at=now(), session_id=sid)
+        stopped = DEV_STOP_REQUESTED == q['id']
+        if stopped:
+            DEV_STOP_REQUESTED = None
+            error = f'Dev process stopped by operator (termination requested); {error}'
+        with DB_LOCK, con() as c:
+            started = c.execute("SELECT process_started_at FROM queue WHERE id=?", (q['id'],)).fetchone()['process_started_at']
+        # A process that ran may have written: its outcome is uncertain, never retried as-is.
+        update_queue(q["id"], status=("failed_uncertain" if started else "failed"), error=error, finished_at=now(),
+                     session_id=sid, invocation_recovery_due=1)
         if _is_auth_error(error):
             set_agent("dev", status="auth_required", session_id=None)
             add_activity("Dev", 'Authentication expired — re-authenticate Claude CLI, then use New Dev session and retry.', "none", "error")
         else:
             set_agent("dev", status="error", session_id=sid)
             add_activity("Dev", f"Transport error: {error}", "none", "error")
+        recover_dev_invocation(q['id'])
         return
 
     update_queue(q["id"], status="responded", finished_at=now(), session_id=sid)
@@ -2189,6 +2525,51 @@ def run_dev(q):
     aid = add_activity("Dev", result, "pm" if q.get("auto_handoff") else "none", "responded", trigger_queue_id=q["id"])
     if bool_setting("auto_dev_to_pm", True):
         maybe_handoff(aid, "Dev", "pm", result, q)
+
+
+def recover_dev_invocation(queue_id):
+    """ONE named PM recovery for a Dev invocation that ended without a result (c5 F12).
+
+    Covers launch failure, transport error, timeout, operator stop and a restart mid-turn. It is a
+    reconciliation request, never a Dev retry: PM reads back what the turn wrote (task worktree head/tree/
+    status, remote branch, published posts) and issues a NEW authorized continuation if work remains.
+    Idempotent by delivery key; the owed flag makes it crash-safe.
+    """
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT * FROM queue WHERE id=?", (queue_id,)).fetchone()
+        if not row or not row['invocation_recovery_due']:
+            return None
+        row = dict(row)
+    stage = ('process started (pid %s) at %s' % (row.get('process_pid'), row.get('process_started_at')) if row.get('process_started_at')
+             else 'launch attempted at %s; no process started' % row.get('launch_attempted_at') if row.get('launch_attempted_at')
+             else 'not launched')
+    content = (f"CLI Dev delivery #{queue_id} for {row.get('work_item_key') or 'unbound task'} ended without a Dev result. "
+               f"Stage reached: {stage}. Status: {row.get('status')}. Exact error: {row.get('error') or 'unknown'}. "
+               f"Tuple: {row.get('target_branch') or '?'} @ {row.get('target_worktree') or '?'} (head at dispatch {row.get('target_head') or '?'}). "
+               "Do NOT retry this delivery. Read back what it may have written (task worktree head/tree/status, remote branch, "
+               "published comments) and return the reconciled state; issue a NEW authorized continuation only if work remains.")
+    with DB_LOCK, con() as c:
+        prior = c.execute("SELECT id FROM queue WHERE delivery_key=?", (f'invocation-recovery:{queue_id}',)).fetchone()
+        if prior:
+            c.execute("UPDATE queue SET invocation_recovery_due=0 WHERE id=?", (queue_id,))
+            return prior['id']
+        aid = c.execute("INSERT INTO activity(actor,message,route,status,created_at,trigger_queue_id) VALUES(?,?,?,?,?,?)",
+                        ('SYSTEM', content, 'pm', 'error', now(), queue_id)).lastrowid
+        qid = c.execute(
+            "INSERT INTO queue(activity_id,recipient,content,status,created_at,source_actor,parent_queue_id,handoff_depth,"
+            "auto_handoff,attempts,kind,work_item_key,target_branch,target_worktree,delivery_key) VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)",
+            (aid, 'pm', content, 'queued', now(), 'SYSTEM', queue_id, 0, 1, 'dev_invocation_recovery',
+             row.get('work_item_key') or '', row.get('target_branch') or '', row.get('target_worktree') or '',
+             f'invocation-recovery:{queue_id}')).lastrowid
+        c.execute("UPDATE queue SET invocation_recovery_due=0 WHERE id=?", (queue_id,))
+        return qid
+
+
+def sweep_invocation_recoveries():
+    """Restart/crash gap: an invoked Dev turn with recovery owed but no recovery row yet."""
+    with DB_LOCK, con() as c:
+        owed = [r['id'] for r in c.execute("SELECT id FROM queue WHERE invocation_recovery_due=1 ORDER BY id").fetchall()]
+    return [recover_dev_invocation(qid) for qid in owed]
 
 
 def _actionable_cli_dev_assignment(updates):
@@ -2233,9 +2614,22 @@ def _has_pending_delivery(recipient):
         ).fetchone() is not None
 
 def _wake_cli_dev_for_item(item, reason='PM board assignment'):
-    """Create one executable Dev delivery for an active persisted CLI-Dev lease."""
-    if not item or _has_pending_delivery('dev'):
+    """Create one executable Dev delivery for an active persisted CLI-Dev lease.
+
+    c5 (F02): every wake re-reads the persisted dispatch gate under DB_LOCK and holds the lock through
+    the enqueue, so a caller's stale item snapshot cannot dispatch past a HOLD set in between.
+    """
+    if not item:
         return None
+    with DB_LOCK:
+        with con() as c:
+            fresh = c.execute("SELECT dispatch_hold FROM work_items WHERE item_key=?", (item.get('item_key'),)).fetchone()
+        if not fresh or fresh['dispatch_hold'] or _has_pending_delivery('dev'):
+            return None
+        return _enqueue_cli_dev_wake(item, reason)
+
+
+def _enqueue_cli_dev_wake(item, reason):
     msg = (
         f"{reason}. Execute RWT work item {item.get('item_key')}: {item.get('title')}. "
         f"Branch/worktree: {item.get('branch') or 'create/use the isolated worktree specified by PM'}. "
@@ -2256,12 +2650,22 @@ def anti_idle_reconciler():
     while not STOP.is_set():
         try:
             sweep_preflight_recoveries()
+            sweep_invocation_recoveries()
             players = list_player_status()
             p = players.get('cli_dev') or {}
             key = str(p.get('work_item_key') or '')
             items = {x['item_key']: x for x in list_work_items()}
             item = items.get(key) if key else None
             if item and item.get('owner') == 'cli_dev' and str(item.get('state') or '').lower() in WRITE_STATES:
+                if item.get('dispatch_hold'):
+                    # c5 (F02): the same persisted prerequisite gate the PM route arbiter honors.
+                    signature = f"held:{item['item_key']}|{item['updated_at']}|{item.get('dispatch_hold_since')}"
+                    if get_setting('anti_idle_cli_dev_signature', '') != signature:
+                        update_player_status('cli_dev', status='blocked', blocker='Dispatch held: ' + item['dispatch_hold'][:300],
+                                             source='reconciler')
+                        set_setting('anti_idle_cli_dev_signature', signature)
+                    STOP.wait(2.0)
+                    continue
                 # An independent task is valid even while another release PR is selected.
                 target = resolve_dev_target({'work_item_key': item['item_key']})
                 if not target.get('ok'):
@@ -2630,81 +3034,236 @@ def run_pm(q):
     results = execute_pm_actions(q, routed.get('pm_actions') or [])
     blocking = action_results_block(results)
     dependent_hold = bool(blocking) and routed.get('dev_depends_on_actions', True)
-    if dependent_hold:
-        # The requested Dev continuation depends on these actions; hold it. Board updates,
-        # publication and independent asks/handoffs still proceed.
-        if routed['next'] == 'dev':
-            add_activity('SYSTEM', 'Dependent Dev handoff held: required PM action did not complete — ' + blocking[0][:300],
-                         'none', 'blocker', trigger_queue_id=q['id'])
-        routed['next'] = 'none'
+    if dependent_hold and routed['next'] == 'dev':
+        add_activity('SYSTEM', 'Dependent Dev handoff held: required PM action did not complete — ' + blocking[0][:300],
+                     'none', 'blocker', trigger_queue_id=q['id'])
     if results:
         routed['message'] += '\n\nBOUNDED EXECUTOR RESULTS:\n' + '\n'.join(results)
-    dispositions = routed.get('ask_dispositions') or []
-    handoff_dev_rows, handoff_blocks, handoff_index = record_review_handoffs(q, routed.get('review_handoffs') or [])
-    if handoff_blocks:
-        routed['message'] += '\n\n' + '\n\n'.join(text for _, text in handoff_blocks)
     assigned_dev_item = _actionable_cli_dev_assignment(updates)
-    needs_publication = (routed.get('publish', True) or routed['next'] != 'none' or bool(results) or bool(assigned_dev_item)
-                         or bool(dispositions) or bool(handoff_blocks))
-    if not needs_publication:
-        with DB_LOCK, con() as c:
-            c.execute("INSERT OR REPLACE INTO pm_outbox VALUES(?,?,?,?)", (q['id'], 'local_only', None, routed['message']))
-        set_setting('pm_outbox_status', 'Routine reconciliation kept on board; no GitHub post')
-    elif not publish_pm_reply(q, routed['message']):
-        error = get_setting('pm_outbox_error') or get_setting('pm_outbox_status')
-        update_queue(q['id'], status='responded_unpublished', error=error, finished_at=now())
-        set_agent('pm', status='error', session_id=sid)
-        update_player_status('cli_pm', status='blocked', blocker=error, task='Publish PM reply to #1258', source='outbox')
-        add_activity('SYSTEM', 'PM publication blocked: ' + error, 'none', 'error')
-        return
-    with DB_LOCK, con() as c:
-        out = c.execute('SELECT status,comment_id FROM pm_outbox WHERE queue_id=?', (q['id'],)).fetchone()
-    published_ref = (f"comment {out['comment_id']}" if out and out['comment_id'] else f"board delivery {q['id']}")
-    # Asks close and App Dev handoffs count as delivered only after the reply actually published.
-    apply_ask_dispositions(q, dispositions, published_ref, handoff_index)
-    for hid, _ in handoff_blocks:
-        _mark_handoff(hid, state='delivered', delivered_at=now(), delivery_comment_id=(out['comment_id'] if out else None))
-    for hid, key, text in handoff_dev_rows:
-        gate = resolve_dev_target({'work_item_key': key})
-        if not gate.get('ok'):
-            item = next((x for x in list_work_items() if x['item_key'] == key), {})
-            _mark_handoff(hid, state='blocked', ack_ref='preflight: ' + gate['error'][:300])
-            queue_preflight_recovery(q['id'], key, item.get('branch'), item.get('worktree'), gate['error'],
-                                     invoked_route='review handoff from delivery')
-            continue
-        aid_h = add_activity('PM', text, 'dev', 'posted', trigger_queue_id=q['id'])
-        did = enqueue(aid_h, 'dev', text, source_actor='PM', parent_queue_id=q['id'], auto_handoff=True,
-                      work_item_key=key, kind='review_handoff')
-        _mark_handoff(hid, state='delivered', delivered_at=now(), delivery_queue_id=did)
-    nxt = routed["next"]
-    # A board assignment is not execution. Never end a PM turn with active CLI-Dev work
-    # and no Dev delivery merely because the model returned next=none.
+    nxt = 'none' if (dependent_hold and routed['next'] == 'dev') else routed['next']
+    # A board assignment is not execution. Never end a PM turn with active CLI-Dev work and no Dev
+    # delivery merely because the model returned next=none (unless a prerequisite gate holds it).
     if assigned_dev_item and nxt == 'none' and not dependent_hold and bool_setting("auto_pm_to_dev", True):
         nxt = 'dev'
         routed["message"] = (routed["message"] + "\n\nEXECUTION HANDOFF: CLI Dev has active assigned work "
             + assigned_dev_item.get('item_key','') + ". Start it now and return an acknowledgment/evidence packet.")
         add_activity('SYSTEM', f"Corrected PM route none→dev for active CLI Dev assignment {assigned_dev_item.get('item_key')}", 'none', 'system')
-    status = "needs_po" if nxt == "po" else "responded"
-    aid = add_activity("PM", routed["message"], nxt, status, trigger_queue_id=q["id"])
-    if routed.get("parse_error"):
-        add_activity("SYSTEM", f"PM routing JSON was invalid; failed safe to PO: {routed['parse_error']}", "none", "error")
-    if nxt == "dev" and bool_setting("auto_pm_to_dev", True):
-        # Gate the writer route BEFORE a Dev row exists. A tuple that cannot resolve now would
-        # only fail pre-invocation later (#34/#36); route the repair to PM recovery instead.
-        dispatch_key = (assigned_dev_item or dev_assignment() or {}).get("item_key") or ''
-        if dispatch_key:
-            gate = resolve_dev_target({'work_item_key': dispatch_key})
-            if not gate.get('ok'):
-                item = next((x for x in list_work_items() if x['item_key'] == dispatch_key), {})
-                add_activity('SYSTEM', f"Dev dispatch blocked before enqueue: {gate['error']}", 'none', 'error', trigger_queue_id=q['id'])
-                queue_preflight_recovery(q['id'], dispatch_key, item.get('branch'), item.get('worktree'), gate['error'],
-                                         invoked_route='PM handoff from delivery')
-                return
-        delivery_id = maybe_handoff(aid, "PM", "dev", routed["message"], q,
-                                    work_item_key=(assigned_dev_item or {}).get("item_key"))
-        if assigned_dev_item and delivery_id:
-            set_setting('last_executable_assignment', json.dumps([assigned_dev_item.get(k) for k in ('item_key','branch','worktree','next_action')], sort_keys=True))
-            set_setting('anti_idle_cli_dev_signature', f"{assigned_dev_item.get('item_key')}|{assigned_dev_item.get('updated_at')}")
+    # c5 (F01): the turn's owed effects are persisted BEFORE any of them run, then applied by one
+    # idempotent continuation. A crash at any phase resumes from this plan; nothing is decided twice.
+    plan = {
+        'message': routed['message'], 'next': nxt, 'route_next': routed['next'], 'publish': bool(routed.get('publish', True)),
+        'results': results, 'blocking': blocking[:1], 'dependent_hold': bool(dependent_hold),
+        'dispositions': routed.get('ask_dispositions') or [], 'review_handoffs': routed.get('review_handoffs') or [],
+        'assigned_item': (assigned_dev_item or {}).get('item_key') or '', 'parse_error': routed.get('parse_error') or '',
+        'session_id': sid,
+    }
+    _save_turn_plan(q['id'], plan, 'recording')
+    continue_pm_turn(q['id'])
+
+
+TURN_LOCK = threading.RLock()
+
+
+def _save_turn_plan(qid, plan, phase):
+    with DB_LOCK, con() as c:
+        c.execute("INSERT OR REPLACE INTO pm_turn_effects(queue_id,plan_json,phase,updated_at) VALUES(?,?,?,?)",
+                  (qid, json.dumps(plan, ensure_ascii=False), phase, now()))
+
+
+def _load_turn_plan(qid):
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT plan_json,phase FROM pm_turn_effects WHERE queue_id=?", (qid,)).fetchone()
+        q = c.execute("SELECT * FROM queue WHERE id=?", (qid,)).fetchone()
+    if not row or not q:
+        return None, None, None
+    return json.loads(row['plan_json']), row['phase'], dict(q)
+
+
+def continue_pm_turn(qid):
+    """Apply one PM turn's owed effects, resuming at its persisted phase (c5 F01).
+
+    recording → planned: record review handoffs (idempotent; a duplicate still 'recorded' is returned again);
+    planned → published: publish once (an uncertain POST is recovered only by marker readback, never replayed);
+    published → applied: ask dispositions, App Dev handoff delivery, then ONE Dev route arbitration whose
+    deliveries carry unique keys. Every step is safe to repeat after a crash.
+    """
+    with TURN_LOCK:
+        plan, phase, q = _load_turn_plan(qid)
+        if not plan or phase == 'applied':
+            return phase
+        if phase == 'recording':
+            dev_rows, blocks, index_map = record_review_handoffs(q, plan['review_handoffs'])
+            plan['handoff_blocks'] = [hid for hid, _ in blocks]
+            plan['handoff_dev'] = [[hid, key] for hid, key, _ in dev_rows]
+            plan['handoff_index'] = {str(k): v for k, v in index_map.items()}
+            if blocks:
+                plan['message'] += '\n\n' + '\n\n'.join(text for _, text in blocks)
+            plan['needs_publication'] = bool(plan['publish'] or plan['next'] != 'none' or plan['results'] or plan['assigned_item']
+                                             or plan['dispositions'] or blocks)
+            _save_turn_plan(qid, plan, 'planned')
+            phase = 'planned'
+        if phase == 'planned':
+            with DB_LOCK, con() as c:
+                out = c.execute('SELECT status FROM pm_outbox WHERE queue_id=?', (qid,)).fetchone()
+            if not plan['needs_publication']:
+                with DB_LOCK, con() as c:
+                    c.execute("INSERT OR IGNORE INTO pm_outbox VALUES(?,?,?,?)", (qid, 'local_only', None, plan['message']))
+                set_setting('pm_outbox_status', 'Routine reconciliation kept on board; no GitHub post')
+            elif not (out and out['status'] == 'published') and not publish_pm_reply(q, plan['message']):
+                error = get_setting('pm_outbox_error') or get_setting('pm_outbox_status')
+                update_queue(qid, status='responded_unpublished', error=error, finished_at=now())
+                set_agent('pm', status='error', session_id=plan.get('session_id'))
+                update_player_status('cli_pm', status='blocked', blocker=error, task='Publish PM reply to #1258', source='outbox')
+                add_activity('SYSTEM', 'PM publication blocked: ' + error, 'none', 'error')
+                return 'planned'  # owed effects wait for marker recovery; never a second POST
+            _save_turn_plan(qid, plan, 'published')
+            phase = 'published'
+        if phase == 'published':
+            _apply_turn_effects(q, plan)
+            _save_turn_plan(qid, plan, 'applied')
+            phase = 'applied'
+        return phase
+
+
+def _apply_turn_effects(q, plan):
+    qid = q['id']
+    with DB_LOCK, con() as c:
+        out = c.execute('SELECT status,comment_id FROM pm_outbox WHERE queue_id=?', (qid,)).fetchone()
+    published_ref = (f"comment {out['comment_id']}" if out and out['comment_id'] else f"board delivery {qid}")
+    # Asks close and App Dev handoffs count as delivered only after the reply actually published.
+    apply_ask_dispositions(q, plan['dispositions'], published_ref, {int(k): v for k, v in (plan.get('handoff_index') or {}).items()})
+    with DB_LOCK, con() as c:
+        for hid in plan.get('handoff_blocks') or []:
+            c.execute("UPDATE review_handoffs SET state='delivered',delivered_at=?,delivery_comment_id=? WHERE id=? AND state='recorded'",
+                      (now(), out['comment_id'] if out else None, hid))
+        if not plan.get('activity_id'):
+            status = "needs_po" if plan['next'] == "po" else "responded"
+            plan['activity_id'] = c.execute(
+                "INSERT INTO activity(actor,message,route,status,created_at,trigger_queue_id) VALUES(?,?,?,?,?,?)",
+                ('PM', plan['message'], plan['next'], status, now(), qid)).lastrowid
+            c.execute("UPDATE pm_turn_effects SET plan_json=? WHERE queue_id=?", (json.dumps(plan, ensure_ascii=False), qid))
+            if plan.get('parse_error'):
+                c.execute("INSERT INTO activity(actor,message,route,status,created_at) VALUES(?,?,?,?,?)",
+                          ('SYSTEM', f"PM routing JSON was invalid; failed safe to PO: {plan['parse_error']}", 'none', 'error', now()))
+    arbitrate_dev_dispatch(q, plan)
+
+
+def _set_dispatch_hold(key, reason, release, source_qid):
+    with DB_LOCK, con() as c:
+        c.execute("UPDATE work_items SET dispatch_hold=?,dispatch_hold_since=COALESCE(NULLIF(dispatch_hold_since,''),?),"
+                  "dispatch_hold_release=?,dispatch_hold_source=? WHERE item_key=?",
+                  (reason[:500], now(), release[:300], source_qid, key))
+
+
+def _clear_dispatch_hold(key):
+    with DB_LOCK, con() as c:
+        c.execute("UPDATE work_items SET dispatch_hold='',dispatch_hold_since=NULL,dispatch_hold_release='',dispatch_hold_source=NULL "
+                  "WHERE item_key=? AND dispatch_hold<>''", (key,))
+
+
+def arbitrate_dev_dispatch(q, plan):
+    """The ONE Dev route arbiter for a PM turn (c5 F02/F12).
+
+    Every Dev directive of the turn — explicit review handoffs, next=dev, the active-assignment correction —
+    is grouped by task and passes the same gates: dispatch automation (auto_pm_to_dev), the parent's
+    continuation control (auto_handoff, handoff depth), the persisted prerequisite gate on the task, and
+    the task tuple. A task gets at most ONE delivery per turn (unique key). A held directive is kept
+    (handoffs 'held', task gate persisted) and released by a later PM turn that dispatches the task with
+    its prerequisites satisfied; the anti-idle reconciler honors the same gate.
+    """
+    qid = q['id']
+    directives = {}
+    for hid, key in plan.get('handoff_dev') or []:
+        directives.setdefault(key, {'handoffs': [], 'route': False})['handoffs'].append(hid)
+    if plan['next'] == 'dev':
+        key = plan.get('assigned_item') or (dev_assignment() or {}).get('item_key') or ''
+        if key:
+            directives.setdefault(key, {'handoffs': [], 'route': False})['route'] = True
+        else:
+            add_activity('SYSTEM', 'PM routed to Dev but no single active CLI Dev task is assigned; nothing dispatched. '
+                         'PM must assign the task (board_updates) before a Dev route can execute.', 'none', 'error', trigger_queue_id=qid)
+    if plan.get('dependent_hold'):
+        # The actions this turn's Dev work depends on did not complete: hold every task it would have woken.
+        held_key = plan.get('assigned_item') or (dev_assignment() or {}).get('item_key') or ''
+        if held_key and (plan.get('route_next') == 'dev' or plan.get('assigned_item')):
+            directives.setdefault(held_key, {'handoffs': [], 'route': False})
+    depth = int(q.get('handoff_depth') or 0) + 1
+    created = []
+    for key, d in directives.items():
+        with DB_LOCK, con() as c:
+            item = c.execute("SELECT * FROM work_items WHERE item_key=?", (key,)).fetchone()
+            carried = [r['id'] for r in c.execute("SELECT id FROM review_handoffs WHERE work_item_key=? AND owner='cli_dev' AND state='held'",
+                                                  (key,)).fetchall()]
+        item = dict(item) if item else {}
+        handoffs = list(dict.fromkeys(d['handoffs'] + carried))
+        reason = release = None
+        if plan.get('dependent_hold'):
+            reason = 'Prerequisite PM action did not complete: ' + (plan.get('blocking') or ['(unknown)'])[0][:300]
+            release = 'a later PM turn that dispatches this task after its prerequisite actions complete'
+            _set_dispatch_hold(key, reason, release, qid)
+        elif item.get('dispatch_hold') and not (d['handoffs'] or (d['route'] and plan.get('route_next') == 'dev')):
+            # Only an EXPLICIT Dev directive for this task (next=dev or a new review handoff) in a turn whose
+            # prerequisites completed releases a persisted gate; the none→dev assignment correction does not.
+            reason, release = item['dispatch_hold'], item.get('dispatch_hold_release') or 'an explicit PM Dev directive'
+        elif not bool_setting('auto_pm_to_dev', True):
+            reason, release = 'PM→Dev automatic dispatch is turned off', 'auto_pm_to_dev re-enabled and a PM dispatch'
+        elif not q.get('auto_handoff'):
+            reason, release = f'parent delivery #{qid} does not allow automatic continuation', 'a new PM/PO directive'
+        elif depth > MAX_HANDOFF_DEPTH:
+            reason, release = f'automatic handoff depth {depth} exceeds {MAX_HANDOFF_DEPTH}', 'a new PM/PO directive'
+        if reason:
+            with DB_LOCK, con() as c:
+                for hid in handoffs:
+                    c.execute("UPDATE review_handoffs SET state='held',hold_reason=? WHERE id=? AND state IN ('recorded','held')",
+                              (reason[:300], hid))
+            add_activity('SYSTEM', f"Dev dispatch for {key} held: {reason}. Release: {release}.", 'none', 'blocker', trigger_queue_id=qid)
+            continue
+        _clear_dispatch_hold(key)  # this turn re-planned the task with its prerequisites satisfied
+        gate = resolve_dev_target({'work_item_key': key})
+        if not gate.get('ok'):
+            with DB_LOCK, con() as c:
+                for hid in handoffs:
+                    c.execute("UPDATE review_handoffs SET state='blocked',ack_ref=? WHERE id=? AND state IN ('recorded','held')",
+                              ('preflight: ' + gate['error'][:300], hid))
+            add_activity('SYSTEM', f"Dev dispatch blocked before enqueue: {gate['error']}", 'none', 'error', trigger_queue_id=qid)
+            queue_preflight_recovery(qid, key, item.get('branch'), item.get('worktree'), gate['error'],
+                                     invoked_route=('review handoff from delivery' if handoffs and not d['route'] else 'PM handoff from delivery'))
+            continue
+        with DB_LOCK, con() as c:
+            texts = [_handoff_text(dict(h)) for h in c.execute(
+                "SELECT * FROM review_handoffs WHERE id IN (%s) ORDER BY id" % ','.join('?' * len(handoffs)), handoffs).fetchall()] if handoffs else []
+        content = '\n\n'.join(([plan['message']] if d['route'] else []) + texts)
+        did = enqueue(plan.get('activity_id'), 'dev', content, source_actor='PM', parent_queue_id=qid, handoff_depth=depth,
+                      auto_handoff=True, work_item_key=key, kind=('review_handoff' if handoffs else ''),
+                      delivery_key=f'pm-turn:{qid}:dev:{key}')
+        with DB_LOCK, con() as c:
+            for hid in handoffs:
+                c.execute("UPDATE review_handoffs SET state='delivered',delivered_at=?,delivery_queue_id=?,hold_reason='' "
+                          "WHERE id=? AND state IN ('recorded','held')", (now(), did, hid))
+        created.append(did)
+        assigned = next((x for x in list_work_items() if x['item_key'] == key), None)
+        if d['route'] and assigned and key == plan.get('assigned_item'):
+            set_setting('last_executable_assignment', json.dumps([assigned.get(k) for k in ('item_key','branch','worktree','next_action')], sort_keys=True))
+            set_setting('anti_idle_cli_dev_signature', f"{assigned.get('item_key')}|{assigned.get('updated_at')}")
+    return created
+
+
+def resume_owed_pm_turns():
+    """Restart/crash/uncertain-publication gap: finish every PM turn whose owed effects were not applied.
+
+    A turn whose publication is uncertain ('publishing'/'unconfirmed' outbox) waits for marker recovery
+    (recover_pm_outbox); this sweep never repeats the POST. Returns the phases reached.
+    """
+    with DB_LOCK, con() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT t.queue_id, o.status AS outbox FROM pm_turn_effects t LEFT JOIN pm_outbox o ON o.queue_id=t.queue_id "
+            "WHERE t.phase<>'applied' ORDER BY t.queue_id").fetchall()]
+    out = {}
+    for r in rows:
+        if r['outbox'] in ('publishing', 'unconfirmed'):
+            continue
+        out[r['queue_id']] = continue_pm_turn(r['queue_id'])
+    return out
 
 
 def maybe_handoff(activity_id, actor, recipient, content, parent_q, work_item_key=None):
@@ -2872,11 +3431,12 @@ def worker(recipient):
 
 
 def kill_agent(agent_id):
-    global ACTIVE_DEV_PROC, ACTIVE_PM_PROC, PM_CANCEL_GENERATION
+    global ACTIVE_DEV_PROC, ACTIVE_PM_PROC, PM_CANCEL_GENERATION, DEV_STOP_REQUESTED
     if agent_id == "dev":
         with PROC_LOCK:
             p = ACTIVE_DEV_PROC
             if p and p.poll() is None:
+                DEV_STOP_REQUESTED = ACTIVE_DEV_QUEUE_ID
                 p.terminate()
                 try:
                     p.wait(timeout=3)
@@ -3337,9 +3897,18 @@ class H(BaseHTTPRequestHandler):
                     "UPDATE queue SET status='queued', error=NULL, started_at=NULL, finished_at=NULL WHERE id=? "
                     "AND status IN ('failed','failed_uncertain') "
                     "AND NOT EXISTS(SELECT 1 FROM queue r WHERE r.parent_queue_id=queue.id AND r.kind='preflight_recovery') "
-                    "AND NOT (recipient='dev' AND work_item_key<>'' AND started_at IS NULL AND attempts=0)",
+                    "AND NOT (recipient='dev' AND work_item_key<>'' AND started_at IS NULL AND attempts=0) "
+                    "AND NOT (recipient='dev' AND (launch_attempted_at IS NOT NULL OR attempts>0))",
                     (qid,),
                 )
+            if cur.rowcount != 1 and row["recipient"] == 'dev' and (row["launch_attempted_at"] or int(row["attempts"] or 0) > 0):
+                # c5 (F12): an invoked Dev turn may have written. Its uncertainty is reconciled by PM readback
+                # and a NEW authorized continuation, never by the generic retry button.
+                with DB_LOCK, con() as c:
+                    rec = c.execute("SELECT id FROM queue WHERE delivery_key=?", (f'invocation-recovery:{qid}',)).fetchone()
+                return self.sendj(409, {"error": "This Dev delivery was invoked; its writes are uncertain. Retry is disabled — "
+                                                 "PM reconciles by readback and issues a new authorized continuation.",
+                                        "recovery_queue_id": rec['id'] if rec else None})
             if cur.rowcount != 1:
                 # Retrying would re-dispatch Dev into the same unverified tuple and bypass PM recovery.
                 return self.sendj(409, {"error": "Dev delivery was blocked before invocation; PM recovery owns the repair. "
@@ -3358,6 +3927,7 @@ def main():
     srv = ThreadingHTTPServer((HOST, PORT), H)
     init_db()
     sweep_preflight_recoveries()
+    sweep_invocation_recoveries()
     reset_ephemeral_control_state_on_start()
     force_github_reconcile_on_start()
     mode = pm_transport_mode()

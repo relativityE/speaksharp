@@ -207,15 +207,29 @@ print("[mcp-sdk] SEP-2352: stored OAuth credential has no 'issuer' stamp", file=
         self.assertIn('hello', sent)
 
     def test_pm_response_routes_to_dev_without_po_copy_via_codex(self):
+        route = {'message':'Push the exact candidate.','next':'dev','parse_error':None,'board_updates':{'work_items':[{'item_key':'PR-1554','notes':'fresh checkpoint'}],'players':[{'player_id':'cli_pm','task':'Reviewed packet'}]}}
+        server.PM_MODE = 'codex'
+        # c5 (F02): the single route arbiter dispatches Dev only to an assigned task; unassigned is refused by name.
         aid = server.add_activity('Dev', 'candidate ready', 'pm')
         qid = server.enqueue(aid, 'pm', 'candidate ready', source_actor='DEV', handoff_depth=1)
-        q = next(r for r in server.list_queue() if r['id'] == qid)
-        server.PM_MODE = 'codex'
-        with patch.object(server, '_run_pm_codex', return_value=({'message':'Push the exact candidate.','next':'dev','parse_error':None,'board_updates':{'work_items':[{'item_key':'PR-1554','notes':'fresh checkpoint'}],'players':[{'player_id':'cli_pm','task':'Reviewed packet'}]}}, 'thread_test')):
-            server.run_pm(q)
+        with patch.object(server, '_run_pm_codex', return_value=(route, 'thread_test')):
+            server.run_pm(next(r for r in server.list_queue() if r['id'] == qid))
+        self.assertEqual([r for r in server.list_queue() if r['recipient']=='dev'], [])
+        self.assertTrue(any('no single active CLI Dev task is assigned' in a['message'] for a in server.list_activity()))
+        ok = {'exists': True, 'is_git': True, 'branch': 'fix/task-route', 'head': 'c' * 40}
+        with patch.object(server, 'validate_worktree', return_value=ok):
+            self.assertTrue(server.apply_board_updates({'work_items': [{
+                'item_key': 'TASK-ROUTE', 'pr_number': 1570, 'title': '#1570 route', 'state': 'active', 'owner': 'cli_dev',
+                'branch': 'fix/task-route', 'worktree': '/wt/task-route', 'next_action': 'push'}],
+                'players': [{'player_id': 'cli_dev', 'status': 'assigned', 'work_item_key': 'TASK-ROUTE', 'task': '#1570 route'}]}))
+            aid = server.add_activity('Dev', 'candidate ready', 'pm')
+            qid = server.enqueue(aid, 'pm', 'candidate ready', source_actor='DEV', handoff_depth=1)
+            with patch.object(server, '_run_pm_codex', return_value=(route, 'thread_test')):
+                server.run_pm(next(r for r in server.list_queue() if r['id'] == qid))
         rows = server.list_queue()
         routed = [r for r in rows if r['recipient']=='dev']
         self.assertEqual(len(routed), 1)
+        self.assertEqual(routed[0]['work_item_key'], 'TASK-ROUTE')
         self.assertEqual(routed[0]['content'], 'Push the exact candidate.')
         self.assertEqual(routed[0]['source_actor'], 'PM')
         self.assertTrue(any(a['actor']=='PM' and a['route']=='dev' for a in server.list_activity()))

@@ -193,9 +193,16 @@ class Deadlock5Tests(unittest.TestCase):
         code, body = post('/api/retry-delivery', {'id': q['id']})
         self.assertEqual((code, body['recovery_queue_id']), (409, rid))
         self.assertEqual(next(r for r in server.list_queue() if r['id'] == q['id'])['status'], 'failed')
-        # A failure AFTER invocation is still an operator-retryable delivery.
+        # c5 (F12): a failure AFTER invocation may have written; the generic retry cannot replay it.
         invoked = self.dev_row(status='failed', started_at=server.now(), attempts=1, error='transport')
-        self.assertEqual(post('/api/retry-delivery', {'id': invoked['id']})[0], 200)
+        code, body = post('/api/retry-delivery', {'id': invoked['id']})
+        self.assertEqual(code, 409)
+        self.assertIn('writes are uncertain', body['error'])
+        self.assertEqual(next(r for r in server.list_queue() if r['id'] == invoked['id'])['status'], 'failed')
+        # A non-Dev (PM) failure stays operator-retryable.
+        pm = server.enqueue(server.add_activity('SYSTEM', 'pm turn', 'pm'), 'pm', 'pm turn', source_actor='SYSTEM')
+        server.update_queue(pm, status='failed', error='transport')
+        self.assertEqual(post('/api/retry-delivery', {'id': pm})[0], 200)
 
     def test_pm_next_dev_to_unresolvable_tuple_queues_recovery_not_dev_row(self):
         self.assign()
@@ -352,6 +359,75 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertEqual(server.list_review_handoffs()[0]['state'], 'delivered')
         server.record_handoff_receipts([self.comment(301, f'App Dev → CLI PM — RECEIPT {token} — started fix')])
         self.assertEqual(server.list_review_handoffs()[0]['state'], 'acknowledged')
+
+    def test_receipt_cannot_be_closed_by_quoted_or_negated_token(self):
+        route = {'message': 'Review dispositioned', 'next': 'none', 'pm_actions': [], 'board_updates': board(),
+                 'review_handoffs': [{'pr_number': 1570, 'head': HEAD, 'reviewed_ref': 'review 4212726964',
+                                      'disposition': 'fix_now', 'owner': 'app_dev',
+                                      'instruction': 'Fix the P1 binding'}]}
+        with patch.object(server, 'publish_pm_reply', return_value=True):
+            self.run_pm_with(route)
+        token = server.list_review_handoffs()[0]['token']
+        server.record_handoff_receipts([self.comment(301, f'App Dev: NOT DONE; quoting RECEIPT {token} from the request')])
+        self.assertEqual(server.list_review_handoffs()[0]['state'], 'delivered')
+        self.assertEqual(server.list_asks('open'), [])
+
+    def test_receipt_before_delivery_cannot_acknowledge_recorded_handoff(self):
+        _, _, index = server.record_review_handoffs(self.q(), [{'pr_number': 1570, 'head': HEAD,
+            'reviewed_ref': 'review 4212726964', 'disposition': 'fix_now', 'owner': 'app_dev',
+            'instruction': 'Fix the P1 binding'}])
+        row = next(h for h in server.list_review_handoffs() if h['id'] == index[0])
+        server.record_handoff_receipts([self.comment(301, f'App Dev → CLI PM — RECEIPT {row["token"]} — started fix')])
+        self.assertEqual(server.list_review_handoffs()[0]['state'], 'recorded')
+
+    def test_required_action_hold_blocks_review_and_next_dev_routes(self):
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40}
+        with patch.object(server, 'validate_worktree', return_value=ok):
+            self.assign(worktree='/wt/ok')
+            route = {'message': 'Refresh is blocked; hold Dev work', 'next': 'dev', 'pm_actions': [],
+                     'board_updates': board(KEY), 'review_handoffs': [{'pr_number': 1570, 'head': HEAD,
+                         'reviewed_ref': 'review 4212726964', 'disposition': 'fix_now', 'owner': 'cli_dev',
+                         'work_item_key': KEY, 'instruction': 'Fix the P1 binding'}]}
+            with patch.object(server, 'execute_pm_actions', return_value=['HOLD: required review action is pending']), \
+                 patch.object(server, 'publish_pm_reply', return_value=True):
+                self.run_pm_with(route)
+        dev_rows = [r for r in server.list_queue() if r['recipient'] == 'dev']
+        self.assertEqual(dev_rows, [])
+        self.assertEqual(server.list_review_handoffs()[0]['state'], 'held')
+        held_item = next(x for x in server.list_work_items() if x['item_key'] == KEY)
+        self.assertTrue(held_item['dispatch_hold'])
+        self.assertIsNone(server._wake_cli_dev_for_item(held_item, 'anti-idle test'))
+        self.assertEqual([r for r in server.list_queue() if r['recipient'] == 'dev'], [])
+
+    def test_review_handoff_and_next_dev_share_one_delivery(self):
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40}
+        with patch.object(server, 'validate_worktree', return_value=ok):
+            self.assign(worktree='/wt/ok')
+            route = {'message': 'Review and continue assigned work', 'next': 'dev', 'pm_actions': [],
+                     'board_updates': board(KEY), 'review_handoffs': [{'pr_number': 1570, 'head': HEAD,
+                         'reviewed_ref': 'review 4212726964', 'disposition': 'fix_now', 'owner': 'cli_dev',
+                         'work_item_key': KEY, 'instruction': 'Fix the P1 binding'}]}
+            with patch.object(server, 'publish_pm_reply', return_value=True):
+                self.run_pm_with(route)
+        dev_rows = [r for r in server.list_queue() if r['recipient'] == 'dev']
+        self.assertEqual(len(dev_rows), 1)
+        self.assertIn('RECEIPT ', dev_rows[0]['content'])
+
+    def test_recorded_handoff_has_a_durable_resume_record(self):
+        route = {'message': 'Review dispositioned', 'next': 'none', 'pm_actions': [], 'board_updates': board(),
+                 'review_handoffs': [{'pr_number': 1570, 'head': HEAD, 'reviewed_ref': 'review 4212726964',
+                                      'disposition': 'fix_now', 'owner': 'app_dev',
+                                      'instruction': 'Fix the P1 binding'}]}
+        with patch.object(server, 'publish_pm_reply', side_effect=RuntimeError('simulated crash after record')):
+            with self.assertRaises(RuntimeError):
+                self.run_pm_with(route)
+        with server.con() as c:
+            tables = {r['name'] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertIn('pm_turn_effects', tables)
+        with server.con() as c:
+            row = c.execute('SELECT phase,plan_json FROM pm_turn_effects ORDER BY queue_id DESC LIMIT 1').fetchone()
+        self.assertIsNotNone(row)
+        self.assertIn('Fix the P1 binding', row['plan_json'])
 
     # ---------- 5. refresh_reviews end to end ----------
     def journal(self):
@@ -565,8 +641,8 @@ class Deadlock5Tests(unittest.TestCase):
         self.run_pm_with(route)
         self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask)['state'], 'pending')
 
-    def test_end_to_end_review_to_owner_receipt_without_po_relay(self):
-        """Ask → refresh → review completes → PM handoff (ask dispatched) → Dev invoked (received) → Dev receipt → ask closed."""
+    def test_end_to_end_review_to_owner_result_and_pm_completion_without_po_relay(self):
+        """Ask → refresh → review → PM handoff (ask dispatched) → Dev invoked (received) → RECEIPT → RESULT → PM-typed completion."""
         self.verified()
         server.ingest_control_asks([self.comment(400, 'Browser PM → CLI PM — #1570 — P1 OPEN — REQUEST: route the P1 fix to the owner')])
         ask = server.list_asks('pending')[0]['id']
@@ -597,9 +673,25 @@ class Deadlock5Tests(unittest.TestCase):
             server.run_dev(dev)
         self.assertEqual(seen['state'], 'received')
         self.assertEqual(server.list_review_handoffs()[0]['state'], 'acknowledged')
+        # A receipt is a stage, not completion: the ask stays open and PM cannot close it yet.
+        self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask)['state'], 'dispatched')
+        done = [{'ask_id': ask, 'disposition': 'completed', 'owner': 'cli_dev', 'dependency': None,
+                 'evidence': f"{h['token']} result reviewed in comment 6049600001"}]
+        applied, rejected = server.apply_ask_dispositions({'id': 900}, done, 'https://example.test/c/1')
+        self.assertEqual(applied, [])
+        self.assertIn('a receipt is not completion', rejected[0])
+        server.record_handoff_receipts(dev_result=f"RESULT {h['token']} — binding fixed at {'d' * 40}", queue_id=dev['id'])
+        self.assertEqual(server.list_review_handoffs()[0]['state'], 'result_returned')
+        self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask)['state'], 'dispatched')
+        applied, rejected = server.apply_ask_dispositions({'id': 901}, done, 'https://example.test/c/2')
+        self.assertEqual((applied, rejected), ([ask], []))
         closed = next(a for a in server.list_asks() if a['id'] == ask)
         self.assertEqual((closed['state'], closed['disposition']), ('dispositioned', 'completed'))
-        self.assertIn('receipt dev:' + str(dev['id']), closed['disposition_ref'])
+        for stage in ('receipt dev:', 'result dev:'):
+            self.assertIn(stage + str(dev['id']), closed['disposition_ref'])
+        self.assertIn('completed https://example.test/c/2', closed['disposition_ref'])
+        # Replaying the same completion turn (F01 continuation) is a no-op, not a rejection.
+        self.assertEqual(server.apply_ask_dispositions({'id': 901}, done, 'https://example.test/c/2'), ([], []))
         self.assertFalse([r for r in server.list_queue(500) if r['source_actor'] == 'PO'])
 
     def test_stalled_handoff_gets_one_recovery_then_blocker(self):
