@@ -424,6 +424,48 @@ class Deadlock5Tests(unittest.TestCase):
         server.init_db()
         self.assertEqual(self.item(KEY)['bootstrap_state'], 'required')
 
+    def test_same_path_head_drift_clears_stale_bootstrap_receipt_and_fails_closed(self):
+        self.assign(worktree='/wt/verified')
+        with server.con() as c:
+            c.execute("UPDATE work_items SET bootstrap_state='verified',bootstrap_verified_at=?,"
+                      "bootstrap_verified_head=?,bootstrap_verified_tree=? WHERE item_key=?",
+                      (server.now(), 'c' * 40, 'd' * 40, KEY))
+        snapshot = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'e' * 40,
+                    'tree': 'd' * 40, 'repo_common_dir': '/repo/.git',
+                    'origin': 'https://github.com/relativityE/speaksharp.git',
+                    'snapshot_stable': True, 'dirty_paths': []}
+
+        with patch.object(server, 'validate_worktree', return_value=snapshot):
+            result = server.resolve_dev_target({'work_item_key': KEY})
+
+        self.assertFalse(result['ok'])
+        self.assertIn('Bootstrap verification is stale', result['error'])
+        item = self.item(KEY)
+        self.assertEqual(item['bootstrap_state'], 'required')
+        self.assertIsNone(item['bootstrap_verified_at'])
+        self.assertEqual((item['bootstrap_verified_head'], item['bootstrap_verified_tree']), ('', ''))
+
+    def test_same_path_tree_drift_clears_stale_bootstrap_receipt_and_fails_closed(self):
+        self.assign(worktree='/wt/verified')
+        with server.con() as c:
+            c.execute("UPDATE work_items SET bootstrap_state='verified',bootstrap_verified_at=?,"
+                      "bootstrap_verified_head=?,bootstrap_verified_tree=? WHERE item_key=?",
+                      (server.now(), 'c' * 40, 'd' * 40, KEY))
+        snapshot = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+                    'tree': 'f' * 40, 'repo_common_dir': '/repo/.git',
+                    'origin': 'https://github.com/relativityE/speaksharp.git',
+                    'snapshot_stable': True, 'dirty_paths': []}
+
+        with patch.object(server, 'validate_worktree', return_value=snapshot):
+            result = server.resolve_dev_target({'work_item_key': KEY})
+
+        self.assertFalse(result['ok'])
+        self.assertIn('Bootstrap verification is stale', result['error'])
+        item = self.item(KEY)
+        self.assertEqual(item['bootstrap_state'], 'required')
+        self.assertIsNone(item['bootstrap_verified_at'])
+        self.assertEqual((item['bootstrap_verified_head'], item['bootstrap_verified_tree']), ('', ''))
+
     def test_historical_failures_are_not_swept_into_new_recoveries(self):
         self.assign()
         self.dev_row(status='failed', error='Assigned worktree does not match task branch')  # deadlock.4 #34/#36 shape

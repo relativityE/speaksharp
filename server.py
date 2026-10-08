@@ -1043,6 +1043,25 @@ def resolve_dev_target(q):
         return {'ok': False, 'error': f"Assigned task path is not a Git worktree: expected branch '{item['branch']}' at '{path}'", 'validation': v}
     if v.get('branch') != item['branch']:
         return {'ok': False, 'error': f"Assigned worktree branch mismatch: expected '{item['branch']}' at '{path}', found '{v.get('branch')}' at HEAD {v.get('head')}", 'validation': v}
+    if item.get('bootstrap_state') == 'verified':
+        verified_head = str(item.get('bootstrap_verified_head') or '')
+        verified_tree = str(item.get('bootstrap_verified_tree') or '')
+        observed_head = str(v.get('head') or '')
+        observed_tree = str(v.get('tree') or '')
+        if (not v.get('snapshot_stable', True) or not verified_head or not verified_tree
+                or observed_head != verified_head or observed_tree != verified_tree):
+            # A receipt is bound to the checkout identity observed at bootstrap. A
+            # same-path HEAD/tree change invalidates that proof and must stop this
+            # dispatch; only a later exact queued readback can establish it again.
+            with DB_LOCK, con() as c:
+                c.execute("UPDATE work_items SET bootstrap_state='required',bootstrap_verified_at=NULL,"
+                          "bootstrap_verified_head='',bootstrap_verified_tree='' WHERE item_key=? "
+                          "AND bootstrap_state='verified' AND bootstrap_verified_head=? AND bootstrap_verified_tree=?",
+                          (item['item_key'], verified_head, verified_tree))
+            return {'ok': False,
+                    'error': ('Bootstrap verification is stale: assigned checkout HEAD/tree changed or could not be '
+                              'read as a stable snapshot; stale receipt cleared, fresh exact checkout verification required'),
+                    'validation': v}
     # A queued delivery owns an immutable checkout/lease tuple. It may not silently
     # adopt a newer HEAD or a reassigned work item when a worker finally wakes.
     if q.get('id') is not None:
