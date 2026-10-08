@@ -1,0 +1,440 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "next": {
+      "type": "string",
+      "enum": [
+        "dev",
+        "po",
+        "none"
+      ]
+    },
+    "board_updates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "work_items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "item_key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "priority": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "active",
+                  "ready",
+                  "blocked",
+                  "waiting",
+                  "done",
+                  "closed",
+                  "merged",
+                  null
+                ]
+              },
+              "owner": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "po",
+                  "cli_pm",
+                  "cli_dev",
+                  "app_dev",
+                  "browser_pm",
+                  "external",
+                  "unassigned",
+                  null
+                ]
+              },
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blocker": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blocker_since": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "next_action": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "po_required": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "release_blocker": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pr_number": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "worktree": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "item_key",
+              "priority",
+              "title",
+              "state",
+              "owner",
+              "branch",
+              "blocker",
+              "blocker_since",
+              "next_action",
+              "po_required",
+              "release_blocker",
+              "notes",
+              "pr_number",
+              "worktree"
+            ]
+          },
+          "minItems": 1
+        },
+        "players": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "player_id": {
+                "type": "string",
+                "enum": [
+                  "po",
+                  "cli_pm",
+                  "cli_dev",
+                  "app_dev",
+                  "browser_pm"
+                ]
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "task": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "work_item_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blocker": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "holding": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "checkpoint_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "player_id",
+              "status",
+              "task",
+              "work_item_key",
+              "blocker",
+              "holding",
+              "source",
+              "checkpoint_at"
+            ]
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "work_items",
+        "players"
+      ]
+    },
+    "pm_actions": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mark_ready",
+              "rerun_failed_jobs",
+              "dispatch_full_ci",
+              "open_draft_pr",
+              "refresh_reviews"
+            ]
+          },
+          "pr_number": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "head": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "base": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "source_comment_id": {
+            "type": "integer"
+          },
+          "run_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "run_attempt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "pr_number",
+          "head",
+          "base",
+          "source_comment_id",
+          "run_id",
+          "run_attempt",
+          "branch",
+          "title",
+          "body"
+        ]
+      }
+    },
+    "publish": {
+      "type": "boolean",
+      "description": "False for routine board-only reconciliation with no new externally actionable instruction/result. Host forces publication for actions or Dev/PO handoff."
+    },
+    "ask_dispositions": {
+      "type": "array",
+      "maxItems": 20,
+      "description": "Typed closure for OPEN ASKS. A generic message never closes an ask. hold needs owner+dependency+evidence; pin needs the full 40-hex candidate; po_decision/completed/superseded need a link, comment id or SHA.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ask_id": {
+            "type": "integer"
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "pin",
+              "hold",
+              "po_decision",
+              "completed",
+              "superseded",
+              "dispatched"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dependency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "review_handoff_index": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "With disposition=dispatched: index into this response's review_handoffs. The ask stays open until that owner echoes the RECEIPT token."
+          }
+        },
+        "required": [
+          "ask_id",
+          "disposition",
+          "evidence",
+          "owner",
+          "dependency",
+          "review_handoff_index"
+        ]
+      }
+    },
+    "review_handoffs": {
+      "type": "array",
+      "maxItems": 10,
+      "description": "After reading completed review findings: record the exact reviewed head and disposition, and give the owning Dev an explicit task-specific instruction. The host delivers it with a RECEIPT token; it is complete only when the owner echoes that token.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "pr_number": {
+            "type": "integer"
+          },
+          "head": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "reviewed_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "fix_now",
+              "defer",
+              "not_valid",
+              "accepted",
+              "hold"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "cli_dev",
+              "app_dev"
+            ]
+          },
+          "work_item_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instruction": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "pr_number",
+          "head",
+          "reviewed_ref",
+          "disposition",
+          "owner",
+          "work_item_key",
+          "instruction"
+        ]
+      }
+    },
+    "dev_depends_on_actions": {
+      "type": "boolean",
+      "description": "true when next=dev needs this turn's pm_actions to succeed; a HOLD/BLOCKED/UNCONFIRMED action then holds the Dev handoff. false only for independent Dev work."
+    }
+  },
+  "required": [
+    "message",
+    "next",
+    "board_updates",
+    "pm_actions",
+    "publish",
+    "ask_dispositions",
+    "review_handoffs",
+    "dev_depends_on_actions"
+  ]
+}
