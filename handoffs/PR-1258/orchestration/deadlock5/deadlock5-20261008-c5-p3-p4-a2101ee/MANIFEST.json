@@ -1,0 +1,132 @@
+{
+  "packet": "deadlock5-20261008-c5-p3-p4-a2101ee",
+  "source_commit": "a2101ee310468c071459f99cfe82c8e94e791d69",
+  "source_tree": "59e91edd6981ef0a2aa5f5cc33e7026580ccc9b7",
+  "source_worktree": "rwt-pr-handoff-v4.6.16",
+  "files": [
+    {
+      "path": "README.md",
+      "size": 27215,
+      "sha256": "a6139091aa26a431b3357f846d091c40aa1224ad48c92c2528a343acdd8ffe74"
+    },
+    {
+      "path": "TEST_RECEIPT.md",
+      "size": 11388,
+      "sha256": "a2fef49afd7e41e0d313088d4da8caaa37186cde2ba23602f48a895122c3aa93"
+    },
+    {
+      "path": "guarded_pm.py",
+      "size": 17422,
+      "sha256": "94302a550bce6547f970aa0e436691a2f9fffffbaca66bcad6d18c7cb45f73df"
+    },
+    {
+      "path": "migrate_state.py",
+      "size": 7563,
+      "sha256": "dcb645106d8cf8abed108b628d76089d4eee8c3391436e7e98763cea06a4795a"
+    },
+    {
+      "path": "pm-instructions.md",
+      "size": 18876,
+      "sha256": "19a37847ca4c5f0f66dca16d148d7b6c522b57659e91e82e118605cc2a04328e"
+    },
+    {
+      "path": "pm-route.schema.json",
+      "size": 11139,
+      "sha256": "cc99ce8fc3900144ba06a4993d2d9c663991397cb3647993717e9df02e289edd"
+    },
+    {
+      "path": "server.py",
+      "size": 260493,
+      "sha256": "032cd4372f3d59b8f2e5400371b61dfe6aec3dd3b2d1fa20c7f5cfe1a39ae644"
+    },
+    {
+      "path": "start-rwt-handoff.sh",
+      "size": 1940,
+      "sha256": "32aee43a8dcbb0a211ef7931b082341d5dae98c672526641edc5525be24440a1"
+    },
+    {
+      "path": "static/index.html",
+      "size": 28695,
+      "sha256": "31ad3d64326f6398f5be29822bdc3ef5660060ead584d76fcadd53f2f8ca16f2"
+    },
+    {
+      "path": "test_comms.py",
+      "size": 12780,
+      "sha256": "ada6b4f0f66bfdb435a4874cdeb50b330cf331d2b8a82b317b46ba2951e98a28"
+    },
+    {
+      "path": "test_deadlock.py",
+      "size": 5946,
+      "sha256": "6045cf12f2d201ca8d7c5f2490bdbc717d34a586b4809959d628de2e6b9d2c4e"
+    },
+    {
+      "path": "test_deadlock5.py",
+      "size": 66779,
+      "sha256": "d45f498cd7de1fff57eceb3c3d3fbac481b9dd8bba4b7c6557a51015b269ee11"
+    },
+    {
+      "path": "test_event_delivery.py",
+      "size": 7492,
+      "sha256": "4bf2665971b175e529571e181432e62c92acefe35b80670303465593f5bdbe5f"
+    },
+    {
+      "path": "test_handoffs.py",
+      "size": 6335,
+      "sha256": "709896a42f270d25ed6bd773a9f8d3a1a38a26a6ee189f2fb2871325496c33bc"
+    },
+    {
+      "path": "test_package2a.py",
+      "size": 12700,
+      "sha256": "f4a12498e1f5d7d11df5325dd2fbd9b0086944a706fbca5b96b23a86e40c6038"
+    },
+    {
+      "path": "test_poll_budget.py",
+      "size": 10559,
+      "sha256": "d614213aeb7f951c82b088ce0b86317039dbf92fda0d65baadcb76a9a70e9778"
+    },
+    {
+      "path": "test_reconciliation.py",
+      "size": 4888,
+      "sha256": "982846b01b5c9ba21a60671bf368445018c5e9074be5204035c24c868fa420b5"
+    },
+    {
+      "path": "test_refresh_reviews.py",
+      "size": 2415,
+      "sha256": "4d52de5a4763690903d0eaa7b2d84e323c1c2a36dceacafa172a1bac8c7e6f09"
+    },
+    {
+      "path": "test_regressions.py",
+      "size": 22247,
+      "sha256": "98d009d5c1220031317ad815c973e13feea695507f6c1b8bfd0a1cca6f5bba05"
+    },
+    {
+      "path": "test_server.py",
+      "size": 32415,
+      "sha256": "e183869226804344bfd7edebe66ef0e10dbd11ea943a5d6dd1b681f90373a6ee"
+    },
+    {
+      "path": "test_watchdog.py",
+      "size": 2894,
+      "sha256": "7a7457984ec90a6edc17b7a698260841c6bb52afbf9b694214c6d35e7f437498"
+    },
+    {
+      "path": "test_ui.js",
+      "size": 6495,
+      "sha256": "c5c153830523e6df5f31237dbd5dfd0f7a9f17f63fc8b4ff81a4d8a7669f7e7b"
+    }
+  ],
+  "verification": {
+    "python_tests_passed": 271,
+    "socket_tests_excluded": 5,
+    "ui_smoke": "passed",
+    "shell_syntax": "passed",
+    "schema_json": "passed",
+    "git_diff_check": "passed"
+  },
+  "limits": [
+    "external Browser PM/App Dev notification transport and real actor receipt/action proof remain blocked",
+    "five host/loopback tests remain unexecuted pending shared host lease and bind permission",
+    "independent PM review and installed acceptance are pending",
+    "no claim that all R01-R42 or F01-F16 are fixed"
+  ]
+}
