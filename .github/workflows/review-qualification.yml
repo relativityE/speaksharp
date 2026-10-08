@@ -1,0 +1,73 @@
+name: "Review Qualification"
+
+# #1573 (Browser PM 6067238534, user priority) — THE REVIEW LANE.
+#
+# Review activity used to trigger `ci.yml` itself: it forced the full lane and shared `ci-<PR>` with
+# `cancel-in-progress: true`, so every finding cancelled and rebuilt the same candidate. Review activity now runs
+# HERE instead: no build, unit or E2E, its own concurrency group, read-only token. It re-qualifies the exact head
+# from (1) the newest completed engineering run of `ci.yml` for that head and live base
+# (scripts/ci-engineering-evidence.mjs) and (2) the LIVE review/thread state, Code and Security kept separate by the
+# existing collector (scripts/collect-review-qualification.mjs). Either holding fails this job.
+#
+# It does NOT report the required `report` context, and it does not replace the merge boundary: merges still go
+# through scripts/pre-merge-gate.mjs, which re-reads live threads and the receipt's age at the moment of merge.
+#
+# `workflow_run` refreshes qualification when engineering finishes after the reviews. GitHub runs `workflow_run`
+# workflows from the default branch, so that trigger takes effect once this file is on `main`.
+
+on:
+  pull_request_review:
+    branches: [main]
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    branches: [main]
+    types: [created, edited, deleted]
+  workflow_run:
+    workflows: ["CI - Test Audit"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: review-qual-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  review-lane-qualification:
+    name: review-lane-qualification
+    # A `workflow_run` without an associated PR (e.g. a push to main) has nothing to qualify here.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.pull_requests[0].number }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Engineering evidence for the exact live head (no tests re-run)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ENGINEERING_EVIDENCE_FILE: ${{ runner.temp }}/engineering-evidence.json
+        run: node scripts/ci-engineering-evidence.mjs
+
+      - name: Live review and thread state for the exact head
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          REVIEW_QUALIFICATION_FILE: ${{ runner.temp }}/review-qualification.json
+        run: node scripts/collect-review-qualification.mjs
+
+      - name: Upload qualified exact-head receipts
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-lane-qualification-${{ env.EXPECTED_HEAD_SHA }}
+          path: |
+            ${{ runner.temp }}/engineering-evidence.json
+            ${{ runner.temp }}/review-qualification.json
+          retention-days: 14
+          if-no-files-found: error

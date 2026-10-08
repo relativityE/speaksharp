@@ -593,10 +593,16 @@ describe('Q-08 automated review qualification', () => {
     expect(workflow).toContain('needs: [scope, full-evidence]');
     expect(workflow).toContain('full-evidence, review-qualification]');
     expect(workflow).toContain('[...REQUIRED_JOBS, "review-qualification"]');
-    expect(workflow).toMatch(/pull_request_review:[\s\S]{0,120}types:\s*\[submitted, edited, dismissed\]/);
-    expect(workflow).toMatch(/pull_request_review_comment:[\s\S]{0,120}types:\s*\[created, edited, deleted\]/);
-    expect(workflow).toContain("github.event_name == 'pull_request_review'");
-    expect(workflow).toContain("github.event_name == 'pull_request_review_comment'");
+    // #1573 (Browser PM 6067238534): review transitions re-qualify in the REVIEW LANE, not by re-running this workflow
+    // (which forced the full lane and cancelled code runs). They are moved, not dropped: the lane re-reads live review
+    // state with the same collector and reuses this workflow's exact-head engineering evidence.
+    expect(workflow).not.toMatch(/^\s*pull_request_review(_comment)?:/m);
+    expect(workflow).not.toContain("github.event_name == 'pull_request_review'");
+    const reviewLane = readFileSync('.github/workflows/review-qualification.yml', 'utf8');
+    expect(reviewLane).toMatch(/pull_request_review:[\s\S]{0,120}types:\s*\[submitted, edited, dismissed\]/);
+    expect(reviewLane).toMatch(/pull_request_review_comment:[\s\S]{0,120}types:\s*\[created, edited, deleted\]/);
+    expect(reviewLane).toContain('node scripts/collect-review-qualification.mjs');
+    expect(reviewLane).toContain('node scripts/ci-engineering-evidence.mjs');
     expect(workflow).toContain('postMergePush ? formatPostMergeVerification(decision) : formatQualification(decision)');
     const collector = readFileSync('scripts/collect-review-qualification.mjs', 'utf8');
     expect(collector).toContain('/rules/branches/${encodedBranch}?per_page=100');
