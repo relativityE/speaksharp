@@ -68,6 +68,29 @@ test.describe('#1258 PR 4 — Back returns to the completed session', () => {
         await page.waitForURL(/\/analytics(\?|$)/);
     });
 
+    // Durable RED for the Production defect (Browser PM 6050587122): no URL assertion first, so on a pre-fix build this
+    // reaches Back and fails on the idle recorder — exactly what run 37706942773 saw — instead of stopping earlier.
+    test('CASUALTY (run 37706942773): Progress → Back never shows the idle recorder', async ({ page }) => {
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+        await navigateToRoute(page, '/session');
+        await startRecording(page);
+        await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
+        await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toBeVisible({ timeout: 15_000 });
+        await page.waitForTimeout(5_200);
+        await stopRecording(page);
+        await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
+
+        await page.getByTestId('nav-analytics-link').first().click();
+        await page.waitForURL(/\/analytics(\?|$)/);
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15_000 });
+        await page.waitForTimeout(2_000); // past the session page's exit transition (see the test above)
+        await page.goBack();
+        await page.waitForURL(/\/session/);
+
+        await expect(page.getByTestId('this-run-card')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('mic-start')).toHaveCount(0);
+    });
+
     test('an unknown session id falls back to the plain session page with no error', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { userType: 'pro' });
         await navigateToRoute(page, '/session?review=00000000-0000-4000-8000-000000000000');
