@@ -10,6 +10,14 @@ import { resolve } from 'node:path';
 export const MIG = (f: string) => readFileSync(resolve(process.cwd(), 'backend', 'supabase', 'migrations', f), 'utf8');
 export const STAGE_A = MIG('20260816223606_metrics_only_additive_1306.sql');
 export const ATOMIC = MIG('20260819120000_complete_session_v2_atomic_retention_1314.sql');
+// #1573: the product marker Production has (20260926190000, applied by run 36341372384) — the reader selects
+// `product`, so the "real table" here must carry it. Only the migration's TABLE part (column, closed CHECK,
+// immutability guard) is applied, sliced from the real file rather than restated; its RPC redefinition needs
+// tables this bootstrap does not model and is exercised by session-product-marker-1258.integration.test.ts.
+const PRODUCT_MARKER_SQL = MIG('20260926190000_session_product_marker_1258.sql');
+const PRODUCT_RPC_START = PRODUCT_MARKER_SQL.indexOf('CREATE OR REPLACE FUNCTION public.create_session_and_update_usage(');
+if (PRODUCT_RPC_START < 0) throw new Error('product marker migration changed shape: its table part can no longer be sliced');
+export const PRODUCT_MARKER_TABLE = PRODUCT_MARKER_SQL.slice(0, PRODUCT_RPC_START);
 
 export const U = '11111111-1111-4111-8111-111111111111';
 export const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -111,6 +119,7 @@ export async function db0(): Promise<PGlite> {
   await db.exec(BOOTSTRAP);
   await db.exec(STAGE_A);
   await db.exec(ATOMIC);
+  await db.exec(PRODUCT_MARKER_TABLE);
   return db;
 }
 
