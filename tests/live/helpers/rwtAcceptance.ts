@@ -286,6 +286,30 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
 }
 
 /**
+ * #1258 (#1570, Codex P1 r4214120116) — THE CLOSED ROW-TO-STAGE MAP for blind-HOLD settlement. The finalizer, not the
+ * untrusted receipt, decides which readback stages may settle which sent row: a row is settled only from the stages
+ * listed here for its suite and step. A receipt row that carries `receivedByStages` / `blindSinceStep` but is not listed,
+ * or names stages other than exactly these, is a binding error — so a modified receipt cannot turn, say, `feedback
+ * retention` into PASS from the `session_after_open_mic` readback. Each entry mirrors the live spec's `*ReceivedBy`
+ * constant (source contract: tests/unit/rwtBlindHoldSettlement1258.test.ts).
+ */
+const FOCUS_SETTLEMENT: Readonly<Record<string, readonly string[]>> = {
+    'coverage_evaluation sent': ['session_after_focus_points'],
+    'inventory events sent': ['analytics_inventory'],
+};
+export const BLIND_HOLD_SETTLEMENT: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+    'open-mic-first-session': {
+        'telemetry sent': ['session_after_open_mic', 'share_feedback'],
+        'inventory events sent': ['analytics_inventory', 'session_pdf_export'],
+    },
+    'focus-points-session': FOCUS_SETTLEMENT,
+    'focus-points-partial': FOCUS_SETTLEMENT,
+};
+const settlementStagesFor = (suite: string, step: string): readonly string[] | undefined =>
+    Object.prototype.hasOwnProperty.call(BLIND_HOLD_SETTLEMENT, suite) && Object.prototype.hasOwnProperty.call(BLIND_HOLD_SETTLEMENT[suite], step)
+        ? BLIND_HOLD_SETTLEMENT[suite][step] : undefined;
+
+/**
  * PM RETURN 2026-09-26 — the receipt is untrusted input. Validate its structure, every row's verdict, the run identity
  * and the suite's required human observations BEFORE anything is applied; any error means no final PASS.
  */
@@ -340,6 +364,17 @@ export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization
     for (const step of automated.absent) {
         if (countOf(step) > 0) errors.push(`receipt carries "${step}", which the ${receipt.suite} suite never writes`);
     }
+    // Codex P1 r4214120116: settlement claims must match the finalizer's closed map exactly, or nothing is finalized.
+    for (const row of receipt.rows) {
+        if (isHumanObservation(row)) continue;
+        const ev = row.evidence ?? {};
+        if (ev.receivedByStages === undefined && ev.blindSinceStep === undefined) continue;
+        const allowed = settlementStagesFor(receipt.suite, row.step);
+        if (!allowed) { errors.push(`row "${row.step}" claims readback settlement, which the ${receipt.suite} suite never maps`); continue; }
+        if (ev.receivedByStages !== allowed.join(',') || typeof ev.blindSinceStep !== 'number' || !Number.isInteger(ev.blindSinceStep) || ev.blindSinceStep < 0) {
+            errors.push(`row "${row.step}" names settlement stages other than the mapped ${allowed.join(', ')}`);
+        }
+    }
     // The suite writes `journey telemetry received` only as HOLD; the readback merge is the ONLY path to PASS/FAIL. A
     // receipt that arrives with it already settled would finalize PASS with no readback at all.
     const received = receipt.rows.find((row) => row.step === 'journey telemetry received' && !isHumanObservation(row));
@@ -386,18 +421,19 @@ const RECEIVED_ROW = 'journey telemetry received';
  * #1258 (#1570, Codex r4201644107; CLI PM option 1a, 6029321428) — RECEIVED EVIDENCE SETTLES A BLIND "SENT" HOLD.
  *
  * A sent row HOLDs when its event may have left inside a Blob beacon the browser does not expose. It becomes PASS only
- * when the row names the qualification stages that receive its events (`receivedByStages`) and, for EVERY named stage,
+ * when `BLIND_HOLD_SETTLEMENT` maps the row's suite and step to the qualification stages that receive its events (the
+ * receipt's `receivedByStages` must equal that entry; it never chooses the stages) and, for EVERY mapped stage,
  * at least one bound journey declares it and every journey declaring it QUALIFIED: received implies sent. Anything less —
  * an unnamed stage, a stage no journey declared, a journey that HOLD or FAILed — leaves the row exactly as written. Rows
  * whose events no stage receives (coaching outcomes, the exact generation count) carry no stages and so stay HOLD. Only
  * a HOLD caused by a blind beacon (`blindSinceStep > 0`) is eligible; a FAIL or PASS is never rewritten.
  */
-function settleBlindHold(row: ReceiptRow, journeys: readonly { stages: readonly string[]; verdict: string }[]): ReceiptRow {
-    const stagesField = row.evidence?.receivedByStages;
+function settleBlindHold(suite: string, row: ReceiptRow, journeys: readonly { stages: readonly string[]; verdict: string }[]): ReceiptRow {
     const blind = row.evidence?.blindSinceStep;
-    if (row.verdict !== 'HOLD' || typeof stagesField !== 'string' || typeof blind !== 'number' || blind <= 0) return row;
-    const stages = stagesField.split(',').filter(Boolean);
-    if (stages.length === 0) return row;
+    if (row.verdict !== 'HOLD' || isHumanObservation(row) || typeof blind !== 'number' || blind <= 0) return row;
+    // The stages come from the closed map, never from the receipt (validateReceipt already rejected any disagreement).
+    const stages = settlementStagesFor(suite, row.step);
+    if (!stages || row.evidence?.receivedByStages !== stages.join(',')) return row;
     const settled = stages.every((stage) => {
         const declaring = journeys.filter((j) => j.stages.includes(stage));
         return declaring.length > 0 && declaring.every((j) => j.verdict === 'QUALIFIED');
@@ -430,7 +466,7 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD' && j.verdict !== 'FAIL')) return bad('carry an unknown journey verdict');
     const failed = journeys.filter((j) => j.verdict === 'FAIL').length;
     const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');
-    return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? settleBlindHold(r, journeys) : {
+    return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? settleBlindHold(receipt.suite, r, journeys) : {
         ...r,
         verdict: failed > 0 ? 'FAIL' : qualified ? 'PASS' : 'HOLD',
         detail: failed > 0 ? 'the PostHog readback RECEIVED an observed failure for a bound journey (merged at finalization)'
