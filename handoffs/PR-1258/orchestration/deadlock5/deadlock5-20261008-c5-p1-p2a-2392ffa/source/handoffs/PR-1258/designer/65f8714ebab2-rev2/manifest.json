@@ -1,0 +1,31 @@
+{
+  "handoff_id": "DESIGN-REV2-20261007-1524",
+  "source_commit": "65f8714ebab2ced99f5c3cc1266c3b0d72dacbec",
+  "files": [
+    {
+      "name": "PM_REV2_NOTES.md",
+      "sha256": "8810b7d776da2300a7358b43c1693fd0d9689c5d039a346c46712a1d21addc47",
+      "bytes": 4245
+    },
+    {
+      "name": "README_FOR_DEV.md",
+      "sha256": "dab6c5f0f03a9c9075a320051ab7a557c53d0088eadbe23c9e4fa8aac824ac42",
+      "bytes": 1798
+    },
+    {
+      "name": "RWT_PUNCHLIST_CHANGES_REV2.md",
+      "sha256": "49f49e629ad9c84a8ce53daca58622decd1ce55f85026988113d7cc56ad02f1e",
+      "bytes": 14146
+    },
+    {
+      "name": "RWT_PUNCHLIST_DESIGN.md",
+      "sha256": "ca715be6838ab15bab849b31409c54bc37eb5c59fcac44d3276c80f8bdea3fd4",
+      "bytes": 42789
+    },
+    {
+      "name": "RWT_PUNCHLIST_IMPLEMENTATION.md",
+      "sha256": "2870b064755ebbeb3acec07b6745806a16612eb851a1d2cf28b9c8fee79d7931",
+      "bytes": 64158
+    }
+  ]
+}

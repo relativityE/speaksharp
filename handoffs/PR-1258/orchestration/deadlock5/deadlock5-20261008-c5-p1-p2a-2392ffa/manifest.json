@@ -1,0 +1,215 @@
+{
+  "base_commit": "19899f4",
+  "base_tree": "09340337fcdd0d9a645b5fd14cafe22073cf1177",
+  "candidate_commit": "2392ffaf340194b2fccca37832ca1ae26a4a905e",
+  "candidate_tree": "8f797d0aa17128ef9e65fd35a306e0f4bb03e211",
+  "file_count_excluding_manifest": 41,
+  "files": {
+    "C4-REVIEW.md": {
+      "mode": "0o644",
+      "sha256": "4b45f9fee9648f141da783624e55e64d3060a4148d4b100dcb6dc0ad9b4da003",
+      "size_bytes": 27889
+    },
+    "C5-PROGRESS.md": {
+      "mode": "0o644",
+      "sha256": "fa6cf1bdffb375cf1f476e0c73009f88e567b97071e016109b67d8b2d9e9c5e2",
+      "size_bytes": 16604
+    },
+    "PATCH_FROM_C4.patch": {
+      "mode": "0o644",
+      "sha256": "2cbaf23b745700cde5e04a7e7dd9997a66260abeb75148739ca2398fa40b7dc8",
+      "size_bytes": 144558
+    },
+    "README.md": {
+      "mode": "0o644",
+      "sha256": "c16e71d4a89bcb8aabb3d2d5e53bf9d16cd06ec1acbb3b3e8feaa81655e592ea",
+      "size_bytes": 692
+    },
+    "candidate.json": {
+      "mode": "0o644",
+      "sha256": "00f172072d0e454b57bc88d5561eff484d32d543a6ebc0da51499372166bb73f",
+      "size_bytes": 1227
+    },
+    "source/README.md": {
+      "mode": "0o644",
+      "sha256": "5d48bad70b0ce240c9e3107e2d0b156db8b929a67d31f5b031b52df68a90f26d",
+      "size_bytes": 24926
+    },
+    "source/TEST_RECEIPT.md": {
+      "mode": "0o644",
+      "sha256": "5b8a2985a389f4ccb37f5687df4c7d7a3ac839edb87262ded14d103329500e22",
+      "size_bytes": 5207
+    },
+    "source/guarded_pm.py": {
+      "mode": "0o644",
+      "sha256": "434f42ef6ebc702add97d3fa7f54c69664fcb9786e54a9597ca3bd1cfc3c6213",
+      "size_bytes": 12164
+    },
+    "source/handoffs/PR-1258/designer/5e77cf0dbf6c/PM_OVERRIDES.md": {
+      "mode": "0o644",
+      "sha256": "4584d209fea749d5ea2fdf5cf0300057f6f2102ec8c16669970f353c5daad499",
+      "size_bytes": 3283
+    },
+    "source/handoffs/PR-1258/designer/5e77cf0dbf6c/README.md": {
+      "mode": "0o644",
+      "sha256": "8214770bc5b76fe8a30486c453271c3f7d6a24ff88cd684570b71ea9a8c3b6a4",
+      "size_bytes": 1143
+    },
+    "source/handoffs/PR-1258/designer/5e77cf0dbf6c/RWT_PUNCHLIST_DESIGN.md": {
+      "mode": "0o644",
+      "sha256": "6bc44defbf4018fdb0d9ee46d61bc3544ed15c155b4f16cc10c672e605df7488",
+      "size_bytes": 37072
+    },
+    "source/handoffs/PR-1258/designer/5e77cf0dbf6c/RWT_PUNCHLIST_IMPLEMENTATION.md": {
+      "mode": "0o644",
+      "sha256": "40ac1cb2f8d68a262909066d8d35101e20b394c367fc5d874b62574c564ade8a",
+      "size_bytes": 55777
+    },
+    "source/handoffs/PR-1258/designer/5e77cf0dbf6c/SESSION_PAGE_SPEC.md": {
+      "mode": "0o644",
+      "sha256": "3bca63987697f98a21d316528dc476012a44f88f0c45648797d15b21bc683087",
+      "size_bytes": 68523
+    },
+    "source/handoffs/PR-1258/designer/5e77cf0dbf6c/SESSION_REVIEW_RWT_SPEC.md": {
+      "mode": "0o644",
+      "sha256": "555fcab20928822fec946eb2b216e3abfd527f96d92163493bf74ec9e17bfddb",
+      "size_bytes": 20659
+    },
+    "source/handoffs/PR-1258/designer/5e77cf0dbf6c/manifest.json": {
+      "mode": "0o644",
+      "sha256": "420a79f2f5fae6bc65e9ccd75304b82f4d76f90161818a4b3ac7ac6af230b925",
+      "size_bytes": 1060
+    },
+    "source/handoffs/PR-1258/designer/65f8714ebab2-rev2/PM_REV2_NOTES.md": {
+      "mode": "0o644",
+      "sha256": "8810b7d776da2300a7358b43c1693fd0d9689c5d039a346c46712a1d21addc47",
+      "size_bytes": 4245
+    },
+    "source/handoffs/PR-1258/designer/65f8714ebab2-rev2/README_FOR_DEV.md": {
+      "mode": "0o644",
+      "sha256": "dab6c5f0f03a9c9075a320051ab7a557c53d0088eadbe23c9e4fa8aac824ac42",
+      "size_bytes": 1798
+    },
+    "source/handoffs/PR-1258/designer/65f8714ebab2-rev2/RWT_PUNCHLIST_CHANGES_REV2.md": {
+      "mode": "0o644",
+      "sha256": "49f49e629ad9c84a8ce53daca58622decd1ce55f85026988113d7cc56ad02f1e",
+      "size_bytes": 14146
+    },
+    "source/handoffs/PR-1258/designer/65f8714ebab2-rev2/RWT_PUNCHLIST_DESIGN.md": {
+      "mode": "0o644",
+      "sha256": "ca715be6838ab15bab849b31409c54bc37eb5c59fcac44d3276c80f8bdea3fd4",
+      "size_bytes": 42789
+    },
+    "source/handoffs/PR-1258/designer/65f8714ebab2-rev2/RWT_PUNCHLIST_IMPLEMENTATION.md": {
+      "mode": "0o644",
+      "sha256": "2870b064755ebbeb3acec07b6745806a16612eb851a1d2cf28b9c8fee79d7931",
+      "size_bytes": 64158
+    },
+    "source/handoffs/PR-1258/designer/65f8714ebab2-rev2/manifest.json": {
+      "mode": "0o644",
+      "sha256": "bc3007584acaf7fe0558b7bebbaf873648f6fd84130e199ed5d7f3e0be23e9c2",
+      "size_bytes": 922
+    },
+    "source/migrate_state.py": {
+      "mode": "0o644",
+      "sha256": "43acf94a6e319d9776fd1a1a624b4d622a40ef9d53bcc8638381e091a01b3579",
+      "size_bytes": 1358
+    },
+    "source/pm-instructions.md": {
+      "mode": "0o644",
+      "sha256": "a6bf3bea2d1adcdf9d98e964186e46f9c025551d58c249dee8ca2b813e7bbe7c",
+      "size_bytes": 18083
+    },
+    "source/pm-route.schema.json": {
+      "mode": "0o644",
+      "sha256": "dacfc96b57872e4c71de4d081e2ce02eda1254867bcab6e1ae33e5da171a95f8",
+      "size_bytes": 10814
+    },
+    "source/rwt-five-player-protocol.md": {
+      "mode": "0o644",
+      "sha256": "fbb9a69376e8bf6778331693fa2570b08b28533b1cbb79e315fb397accb9de38",
+      "size_bytes": 1648
+    },
+    "source/server.py": {
+      "mode": "0o755",
+      "sha256": "409ead266a85c86af4b71af1f16c44d84f68614970da8c0c12e98cd119d0491a",
+      "size_bytes": 225390
+    },
+    "source/start-rwt-handoff.sh": {
+      "mode": "0o755",
+      "sha256": "639ccc667fc1240f35ae88dcb247b94499168237c18dac136e019846f0b8af0a",
+      "size_bytes": 1913
+    },
+    "source/static/index.html": {
+      "mode": "0o644",
+      "sha256": "bd78b236c81ad64ecaa8744698efd29240fed00adb16abc6acbd95c8e29be221",
+      "size_bytes": 27786
+    },
+    "source/test_comms.py": {
+      "mode": "0o644",
+      "sha256": "59cc8d66f227f0b8d66a794192bcb5aeb199c767e48dbdb035ab80f6dbc79336",
+      "size_bytes": 12307
+    },
+    "source/test_deadlock.py": {
+      "mode": "0o644",
+      "sha256": "6045cf12f2d201ca8d7c5f2490bdbc717d34a586b4809959d628de2e6b9d2c4e",
+      "size_bytes": 5946
+    },
+    "source/test_deadlock5.py": {
+      "mode": "0o644",
+      "sha256": "ea8908b3697ac0c625cb0719377ece1c03259648a1ccb2cb2242a150db165616",
+      "size_bytes": 50030
+    },
+    "source/test_event_delivery.py": {
+      "mode": "0o644",
+      "sha256": "4bf2665971b175e529571e181432e62c92acefe35b80670303465593f5bdbe5f",
+      "size_bytes": 7492
+    },
+    "source/test_handoffs.py": {
+      "mode": "0o644",
+      "sha256": "709896a42f270d25ed6bd773a9f8d3a1a38a26a6ee189f2fb2871325496c33bc",
+      "size_bytes": 6335
+    },
+    "source/test_package2a.py": {
+      "mode": "0o644",
+      "sha256": "f4a12498e1f5d7d11df5325dd2fbd9b0086944a706fbca5b96b23a86e40c6038",
+      "size_bytes": 12700
+    },
+    "source/test_poll_budget.py": {
+      "mode": "0o644",
+      "sha256": "a70e5b5879f416cb0bb99af72b1c60c317323697b3cc2dca8722ad20b0a20023",
+      "size_bytes": 7092
+    },
+    "source/test_reconciliation.py": {
+      "mode": "0o644",
+      "sha256": "982846b01b5c9ba21a60671bf368445018c5e9074be5204035c24c868fa420b5",
+      "size_bytes": 4888
+    },
+    "source/test_refresh_reviews.py": {
+      "mode": "0o644",
+      "sha256": "39ef57b40f9f3bf81dbbce481d7a7de207b6e3d8a041673025132d5afa067d30",
+      "size_bytes": 2328
+    },
+    "source/test_regressions.py": {
+      "mode": "0o644",
+      "sha256": "3b803af570d753b6f3ba3945cd01576203b2d418508f1eb86144854c5461a04d",
+      "size_bytes": 17486
+    },
+    "source/test_server.py": {
+      "mode": "0o644",
+      "sha256": "e183869226804344bfd7edebe66ef0e10dbd11ea943a5d6dd1b681f90373a6ee",
+      "size_bytes": 32415
+    },
+    "source/test_ui.js": {
+      "mode": "0o644",
+      "sha256": "c5c153830523e6df5f31237dbd5dfd0f7a9f17f63fc8b4ff81a4d8a7669f7e7b",
+      "size_bytes": 6495
+    },
+    "source/test_watchdog.py": {
+      "mode": "0o644",
+      "sha256": "7a7457984ec90a6edc17b7a698260841c6bb52afbf9b694214c6d35e7f437498",
+      "size_bytes": 2894
+    }
+  },
+  "packet_id": "deadlock5-20261008-c5-p1-p2a-2392ffa"
+}

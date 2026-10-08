@@ -1,0 +1,32 @@
+{
+  "packet_id": "deadlock5-20261008-c5-p1-p2a-2392ffa",
+  "status": "DRAFT_PARTIAL_NOT_ACCEPTED",
+  "created_at_utc": "2026-10-08T01:55:44.660499+00:00",
+  "app_repository": "relativityE/speaksharp orchestration bundle snapshot",
+  "nested_app_candidate": {
+    "commit": "2392ffaf340194b2fccca37832ca1ae26a4a905e",
+    "tree": "8f797d0aa17128ef9e65fd35a306e0f4bb03e211",
+    "branch": "main (local nested source repository)"
+  },
+  "nested_app_base": {
+    "commit": "19899f4",
+    "tree": "09340337fcdd0d9a645b5fd14cafe22073cf1177",
+    "meaning": "verified C4 application source baseline"
+  },
+  "c4_review_packet_commit": "5ee5971101060a046ec1ef431b45ec0c8419f227",
+  "c4_review_path": "handoffs/PR-1258/orchestration/reviews/topdown-20261007-c4/REVIEW.md",
+  "scope": [
+    "Package 1: F01-F04/F12",
+    "Package 2a: F10/F15"
+  ],
+  "not_included_as_complete": [
+    "Package 2b: F07-F09",
+    "Package 3: F05/F06/F11/F13",
+    "Package 4: F14/F16",
+    "external notifications",
+    "installed acceptance"
+  ],
+  "loopback_status": "HOLD_UNEXECUTED",
+  "loopback_test_request_comment": "https://github.com/relativityE/speaksharp/issues/1258#issuecomment-6049906797",
+  "evidence": "TEST_RECEIPT.md and C5-PROGRESS.md"
+}
