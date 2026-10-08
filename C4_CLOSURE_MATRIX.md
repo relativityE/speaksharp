@@ -1,6 +1,6 @@
 # C4 findings closure map — local 4.6.17 successor
 
-This is the source-status map for the frozen candidate identified by the accompanying packet manifest, not an acceptance claim. The immutable `v4.6.17` packet at `ee9412d08270d141a4aea0c2063714842d26b317` is older. This candidate passes 319 discovered Python tests offline, including five loopback/HTTP tests and CI-lane, run-attempt, review-starvation, and edited-comment regressions. Offline tests do not establish live multi-agent delivery. The full review and probe definitions remain in the preserved C4 review packet.
+This is the source-status map for the frozen candidate identified by the accompanying packet manifest, not an acceptance claim. The immutable `v4.6.17` packet at `ee9412d08270d141a4aea0c2063714842d26b317` is older. This candidate passes 320 discovered Python tests offline, including five loopback/HTTP tests and CI-lane, run-attempt, source-authorized branch-scope, review-starvation, and edited-comment regressions. Offline tests do not establish live multi-agent delivery. The full review and probe definitions remain in the preserved C4 review packet.
 
 ## R01–R42 capability disposition
 
@@ -27,7 +27,7 @@ This is the source-status map for the frozen candidate identified by the accompa
 | R19 | HOLD: Security is correctly kept separate and never inferred from Code; a configured Security reviewer route/result is not demonstrated. | `poll_refreshed_reviews`, `review_status`; CI/review integration regression asserts Security remains pending. | Identify/configure the actual Security review actor and prove exact-head delivery/result. |
 | R20 | Present for supported refresh path: typed authorization, canonical identity, atomic claim, phase journal and readback. | `guarded_pm.Executor`, `execute_pm_actions`; refresh regressions. | Browser PM: independent exact-head review. |
 | R21 | Partial: transient refresh reads preserve phase; startup recovery requires locks; other uncertain operations need full path review/live restart proof. | `_resume_refresh`, `recover_interrupted_state_after_lock`; `test_transient_read_hold_preserves_refresh_for_retry`, restart regressions; C4 probes 11/14 no longer reproduce. | Browser PM: review all action kinds; installed restart remains HOLD. |
-| R22 | Present in source: exact head/base/main and related CI must be terminal before guarded recovery; no merge authority. | `Executor.guard`, `test_comms`, PM action tests. | Browser PM: exact-head remote qualification. |
+| R22 | Present in source: exact head/base/main and related CI must be terminal before guarded recovery; no merge authority. The combined Rev 2 branch is permitted as one exact source-authorized exception, while arbitrary feature branches remain rejected. | `Executor.guard`, exact `BRANCH` exception; `test_source_authorized_combined_design_branch_is_allowed_exactly`, branch-scope regression. | Browser PM: exact-head remote qualification. |
 | R23 | Partial: uncertain Draft creation has exact branch/PR readback; live interrupted-write proof is absent. | `Executor.resolve_uncertain`, `open_draft_pr`; guarded executor tests. | Browser PM: independent review and live readback test. |
 | R24 | Source repaired: affirmative source-authored action authorization is required; quoted/negated text cannot authorize. | `Executor._require_action_authorization`; C4 probe 15 no longer reproduces; authorization tests. | Browser PM: review fixtures and immutable source identity. |
 | R25 | Source repaired for comment edits: unchanged IDs with changed body/update time now create a wake, and recently edited old IDs survive the bounded cache. | `fetch_watch_comments`, `github_watch_events`; `test_recent_edit_to_old_comment_survives_bounded_id_cache`, `test_edit_to_existing_control_comment_generates_new_wake`, staged cursor tests. | Restart/replay and external recipient action remain live acceptance gates. |
@@ -46,7 +46,7 @@ This is the source-status map for the frozen candidate identified by the accompa
 | R38 | Source repaired for startup claims: history remains; restart recovery occurs only under singleton locks. | `recover_interrupted_state_after_lock`; lock, running-action and queue recovery tests. | Browser PM: installed restart acceptance. |
 | R39 | Partial: staged migration preserves DB/WAL/uploads and rebases known paths; all handoff/artifact migration cases need proof. | `migrate_state.py`; migration tests. | CLI PM: artifact-continuity matrix. |
 | R40 | Conditional authorization exists for replacement installation only after complete closure and independent qualification; this candidate has not met that condition and was not installed. | `README.md`, `TEST_RECEIPT.md`; no installation/restart performed. | Finish matrix, independent qualification, and preserved-state/rollback packet before using the existing authorization. |
-| R41 | Source and host tests pass: same-origin/token/Host boundary and five loopback/HTTP cases passed in the current 319-test suite. | `H.do_POST`, `CONTROL_TOKEN_HEADER`; `test_package2a`, `test_handoffs`, `test_regressions`, `test_deadlock5`. | Installed app acceptance remains separate. |
+| R41 | Source and host tests pass: same-origin/token/Host boundary and five loopback/HTTP cases passed in the current 320-test suite. | `H.do_POST`, `CONTROL_TOKEN_HEADER`; `test_package2a`, `test_handoffs`, `test_regressions`, `test_deadlock5`. | Installed app acceptance remains separate. |
 | R42 | Out of app-source closure: product journeys and human-visible results are not established by board tests. | Explicitly no journey claim in this packet. | App Dev + PO: deployed coaching, Open Mic, Focus and returning-user evidence. |
 
 ## F01–F16 finding disposition
@@ -67,7 +67,7 @@ This is the source-status map for the frozen candidate identified by the accompa
 | F12 | Invocation, task receipt, and result stages are distinct; uninvoked claims return safely and uncertain queue outcomes are not replayed. | Actual PM receipt/action and live timeout recovery remain open. |
 | F13 | Supported Codex local/remote app-server source transport is implemented with exact actor/session routing and authenticated callbacks. | Runtime endpoint/session configuration, real recipient receipt/action, restart and missed-wake proof remain open. |
 | F14 | Explicit PR selection is preserved and UI exposes several local blockers/stages. | Build identity, resolved blocker and installed freshness audit. |
-| F15 | Source enforces control token, origin/content/host checks; all five host-bound tests passed in the current 319-test suite. | Installed acceptance remains open. |
+| F15 | Source enforces control token, origin/content/host checks; all five host-bound tests passed in the current 320-test suite. | Installed acceptance remains open. |
 | F16 | Staged migration and source-preserving path handling exist. | Complete artifact/handoff matrix and actual rollback/build digest review. |
 
 ## Later coordination findings

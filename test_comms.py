@@ -199,6 +199,17 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(len(self.writes()),1)
         self.assertIn('draft=true',self.writes()[0])
 
+    def test_source_authorized_combined_design_branch_is_allowed_exactly(self):
+        branch='feat/1258-design-rev2-combined'
+        action=self.action('open_draft_pr',branch=branch,title='Combined Rev 2',body=HEAD+' '+BASE)
+        _,_,accepted=self.e.guard(action)
+        self.assertEqual(accepted,branch)
+        outside='feat/1258-design-rev3-combined'
+        action=self.action('open_draft_pr',branch=outside,title='Unapproved combined branch',body=HEAD+' '+BASE)
+        with self.assertRaisesRegex(Hold,'Branch outside RWT scope'):
+            self.e.guard(action)
+        self.assertEqual(self.writes(),[])
+
     def test_final_live_read_catches_drift_before_ready_write(self):
         original=self.request;reads=[0]
         def drift(args):

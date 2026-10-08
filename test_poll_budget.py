@@ -337,5 +337,7 @@ class DesignerBranchScopeTests(unittest.TestCase):
         from guarded_pm import BRANCH
         self.assertIsNotNone(BRANCH.fullmatch('feat/1258-design-pr1-copy-nav'))
         self.assertIsNotNone(BRANCH.fullmatch('feat/1258-design-pr5-progress'))
+        self.assertIsNotNone(BRANCH.fullmatch('feat/1258-design-rev2-combined'))
         self.assertIsNone(BRANCH.fullmatch('feat/1304-v4-primary-v2-fallback'))
         self.assertIsNone(BRANCH.fullmatch('feat/1258-design-pr6-unapproved'))
+        self.assertIsNone(BRANCH.fullmatch('feat/1258-design-rev3-combined'))

@@ -6,7 +6,9 @@ import re
 REPO = 'relativityE/speaksharp'
 KINDS = {'refresh_reviews', 'mark_ready', 'rerun_failed_jobs', 'dispatch_full_ci', 'open_draft_pr'}
 SHA = re.compile(r'^[0-9a-f]{40}$')
-BRANCH = re.compile(r'^(?:(?:fix|test|telemetry)/1258-[A-Za-z0-9._/-]+|feat/1258-design-pr[1-5]-[A-Za-z0-9._/-]+)$')
+# The combined Rev 2 candidate has an explicit source-authorized branch. Keep
+# it as a single exact exception; do not broaden the feature namespace.
+BRANCH = re.compile(r'^(?:(?:fix|test|telemetry)/1258-[A-Za-z0-9._/-]+|feat/1258-design-pr[1-5]-[A-Za-z0-9._/-]+|feat/1258-design-rev2-combined)$')
 
 class Hold(RuntimeError):
     pass
