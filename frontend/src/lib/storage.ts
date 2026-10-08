@@ -50,6 +50,9 @@ const SESSION_ANALYSIS_COLUMNS = [
   'status',
   'attribution_status',
   'transcript_state',
+  // #1573 Codex P2 4221754843: the durable product marker (migration 20260926190000, applied in Production) drives the
+  // Recent sessions pills, the Progress header, the trend tooltip and the detail title. NULL = legacy row, never guessed.
+  'product',
 ];
 const SESSION_ANALYSIS_SELECT = SESSION_ANALYSIS_COLUMNS.join(', ');
 
