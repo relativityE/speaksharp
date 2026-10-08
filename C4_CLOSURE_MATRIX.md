@@ -1,6 +1,6 @@
 # C4 findings closure map — local 4.6.17 successor
 
-This is a source-status map for the uncommitted successor worktree, not an acceptance claim. The immutable `v4.6.17` packet at `ee9412d08270d141a4aea0c2063714842d26b317` is older. The last frozen packet passed 314 discovered Python tests offline, including the five loopback/HTTP tests; this working candidate adds regressions for latest CI attempts and review-registry starvation. Offline tests do not establish live multi-agent delivery. The full review and probe definitions remain in the preserved C4 review packet.
+This is the source-status map for frozen candidate `dbfdd92061324511b7a755ec833c2d17f8a80e4d`, not an acceptance claim. The immutable `v4.6.17` packet at `ee9412d08270d141a4aea0c2063714842d26b317` is older. This candidate passes 316 discovered Python tests offline, including five loopback/HTTP tests and the latest-CI-attempt and review-registry-starvation regressions. Offline tests do not establish live multi-agent delivery. The full review and probe definitions remain in the preserved C4 review packet.
 
 ## R01–R42 capability disposition
 
