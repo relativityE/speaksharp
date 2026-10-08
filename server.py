@@ -1537,6 +1537,35 @@ def affected_review_targets():
     return sorted(numbers)
 
 
+def latest_runs_per_workflow(rows):
+    """Choose the newest run per workflow, then the newest attempt within that run.
+
+    GitHub attempt numbers are local to a run ID and must never be ranked across
+    separate workflow runs.
+    """
+    grouped = {}
+    for row in rows or []:
+        workflow = str(row.get('workflow_id') or row.get('workflowDatabaseId')
+                       or row.get('name') or '').strip().lower()
+        if not workflow:
+            continue
+        run_id = str(row.get('id') or row.get('databaseId') or '')
+        try:
+            attempt = int(row.get('attempt') or 0)
+        except (TypeError, ValueError):
+            attempt = 0
+        try:
+            numeric_id = int(run_id or 0)
+        except (TypeError, ValueError):
+            numeric_id = 0
+        rank = (str(row.get('createdAt') or ''), numeric_id)
+        current = grouped.get(workflow)
+        if current is None or rank > current[0] or (rank == current[0] and run_id == current[1]
+                                                    and attempt > current[2]):
+            grouped[workflow] = (rank, run_id, attempt, row)
+    return [value[3] for value in grouped.values()]
+
+
 def _affected_review_cache_age(entry, observed_at):
     try:
         cached_at = float(entry.get('observed_at'))
@@ -1709,11 +1738,60 @@ def github_watch_snapshot():
     latest_runs={}
     for r in runs:
         name=str(r.get('databaseId') or r.get('workflowName') or 'workflow')
-        if name not in latest_runs:
-            latest_runs[name]={'id':r.get('databaseId'),'workflow_id':r.get('workflowDatabaseId'),
-                               'attempt':r.get('attempt'),'name':r.get('workflowName'),
-                               'status':r.get('status'),'conclusion':r.get('conclusion'),
-                               'createdAt':r.get('createdAt'),'updatedAt':r.get('updatedAt')}
+        entry={'id':r.get('databaseId'),'workflow_id':r.get('workflowDatabaseId'),
+               'attempt':r.get('attempt'),'name':r.get('workflowName'),
+               'headSha':r.get('headSha'),
+               'status':r.get('status'),'conclusion':r.get('conclusion'),
+               'createdAt':r.get('createdAt'),'updatedAt':r.get('updatedAt')}
+        prior=latest_runs.get(name)
+        try:
+            attempt=int(entry.get('attempt') or 0)
+            prior_attempt=int((prior or {}).get('attempt') or 0)
+        except (TypeError, ValueError):
+            attempt,prior_attempt=0,0
+        if prior is None or attempt > prior_attempt:
+            latest_runs[name]=entry
+    # For a non-draft PR, `report` is the CI workflow's aggregate engineering
+    # lane. The overall workflow conclusion also includes review-qualification
+    # and merge-qualification, so those failures must not circularly block the
+    # authorized review refresh. Fetch details only for the newest completed
+    # exact-head CI run; the queue gate still checks its exact attempt/head.
+    if str(pr.get('state') or '').upper() == 'OPEN' and pr.get('isDraft') is False:
+        for run in latest_runs_per_workflow(latest_runs.values()):
+            if (str(run.get('name') or '').strip().lower() != 'ci - test audit'
+                    or str(run.get('headSha') or '') != str(pr.get('headRefOid') or '')
+                    or str(run.get('status') or '').lower() != 'completed'):
+                continue
+            try:
+                attempt = int(run.get('attempt') or 0)
+                run_id = int(run.get('id') or 0)
+            except (TypeError, ValueError):
+                run['jobs_error'] = 'CI summary omitted a numeric run ID or attempt'
+                continue
+            if run_id < 1 or attempt < 1:
+                run['jobs_error'] = 'CI summary omitted a numeric run ID or attempt'
+                continue
+            detail, detail_error = gh_json(['run','view',str(run_id),'--repo',repo,'--attempt',str(attempt),
+                                            '--json','databaseId,attempt,status,conclusion,headSha,jobs'])
+            if detail_error:
+                run['jobs_error'] = str(detail_error)
+            elif not isinstance(detail, dict):
+                run['jobs_error'] = 'CI run detail read returned no object'
+            else:
+                try:
+                    detail_attempt = int(detail.get('attempt') or 0)
+                except (TypeError, ValueError):
+                    detail_attempt = 0
+                if (str(detail.get('databaseId') or '') != str(run_id)
+                        or detail_attempt != attempt
+                        or str(detail.get('headSha') or '') != str(pr.get('headRefOid') or '')):
+                    run['jobs_error'] = 'CI run detail identity/attempt/head changed during read'
+                else:
+                    run['jobs'] = detail.get('jobs') if isinstance(detail.get('jobs'), list) else []
+                    run['jobs_attempt'] = detail_attempt
+                    run['jobs_head_sha'] = detail.get('headSha')
+                    run['status'] = detail.get('status') or run.get('status')
+                    run['conclusion'] = detail.get('conclusion') or run.get('conclusion')
     deploy=[]
     for x in pr.get('statusCheckRollup') or []:
         name=(x.get('name') or x.get('context') or x.get('workflowName') or '').strip()
@@ -2244,31 +2322,31 @@ def queue_ci_review_followup(snapshot):
         return None
     runs = [r for r in (snapshot.get('runs') or {}).values()
             if str(r.get('name') or '').strip().lower() == 'ci - test audit']
-    # GitHub retains prior attempts for a workflow/head. Qualification follows the
-    # latest attempt for each workflow, so an obsolete failure cannot strand a
-    # successful rerun (and an older success cannot hide a running retry).
-    latest_by_workflow = {}
-    for run in runs:
-        workflow = str(run.get('workflow_id') or run.get('workflowDatabaseId')
-                       or run.get('name') or '').strip().lower()
-        if not workflow:
-            continue
-        try:
-            attempt = int(run.get('attempt') or 0)
-        except (TypeError, ValueError):
-            attempt = 0
-        try:
-            run_id = int(run.get('id') or run.get('databaseId') or 0)
-        except (TypeError, ValueError):
-            run_id = 0
-        rank = (attempt, str(run.get('createdAt') or run.get('updatedAt') or ''), run_id)
-        prior = latest_by_workflow.get(workflow)
-        if prior is None or rank > prior[0]:
-            latest_by_workflow[workflow] = (rank, run)
-    runs = [row[1] for row in latest_by_workflow.values()]
-    if not runs or any(str(r.get('status') or '').lower() != 'completed'
-                       or str(r.get('conclusion') or '').lower() != 'success' for r in runs):
+    runs = latest_runs_per_workflow(runs)
+    if not runs:
         return None
+    report_runs = []
+    for run in runs:
+        if (str(run.get('status') or '').lower() != 'completed'
+                or str(run.get('headSha') or '') != head
+                or str(run.get('jobs_head_sha') or '') != head
+                or str(run.get('attempt') or '') != str(run.get('jobs_attempt') or '')
+                or run.get('jobs_error')):
+            return None
+        reports = [job for job in (run.get('jobs') or [])
+                   if str(job.get('name') or '').strip().lower() == 'report']
+        if (len(reports) != 1 or str(reports[0].get('status') or '').lower() != 'completed'
+                or str(reports[0].get('conclusion') or '').lower() != 'success'):
+            return None
+        full_lane = [job for job in (run.get('jobs') or [])
+                     if str(job.get('name') or '').strip().lower() == 'full-evidence']
+        if (len(full_lane) != 1 or str(full_lane[0].get('status') or '').lower() != 'completed'
+                or str(full_lane[0].get('conclusion') or '').lower() != 'success'):
+            return None
+        report_runs.append(run)
+    run_signature = '|'.join(sorted(
+        f"{r.get('workflow_id') or r.get('name')}:{r.get('id')}:{r.get('attempt')}:{r.get('jobs_head_sha')}"
+        for r in report_runs))
     with DB_LOCK, con() as c:
         journal = c.execute("SELECT status,review_state,head,action_json FROM pm_action_journal "
                             "WHERE kind='refresh_reviews' AND pr_number=? AND head=? ORDER BY updated_at DESC LIMIT 1",
@@ -2278,15 +2356,17 @@ def queue_ci_review_followup(snapshot):
                 action = json.loads(journal['action_json'] or '{}')
             except (ValueError, TypeError):
                 action = {}
-            if str(action.get('base') or '') == base:
+            if (str(action.get('base') or '') == base
+                    and str(journal['status'] or '') in ('completed', 'observed')):
                 return None
-        delivery_key = f'ci-review-followup:{pr_number}:{head}:{base}'
+        delivery_key = f'ci-review-followup:{pr_number}:{head}:{base}:{run_signature}'
         prior = c.execute('SELECT id FROM queue WHERE delivery_key=?', (delivery_key,)).fetchone()
         if prior:
             return int(prior['id'])
-    run_ids = ', '.join(str(r.get('id') or '?') for r in runs)
+    run_ids = ', '.join(f"{r.get('id') or '?'} attempt {r.get('attempt') or '?'}" for r in report_runs)
     message = (f"CI REVIEW FOLLOW-UP: #{pr_number} is Ready at exact head {head} on base {base}; "
-               f"all observed CI - Test Audit runs are complete and successful (run(s) {run_ids}). "
+               f"the newest CI - Test Audit run per workflow is complete and its engineering `report` job passed (run(s) {run_ids}). "
+               "The overall workflow conclusion can still fail because exact-head review/merge qualification is downstream. "
                "The local PM worker must read live PR/base/check state and find the source-authorized "
                "refresh_reviews action for this exact candidate. Execute it once through the guarded "
                "journal if authorized; otherwise persist the precise HOLD and route it to the responsible PM. "

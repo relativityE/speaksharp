@@ -923,12 +923,18 @@ class Deadlock5Tests(unittest.TestCase):
     def test_ci_completion_starts_one_authorized_review_and_routes_result_without_po_relay(self):
         snapshot = {'pr': 1570, 'state': 'OPEN', 'draft': False, 'head': HEAD, 'base': BASE,
                     'runs': {'321': {'id': 321, 'name': 'CI - Test Audit', 'status': 'completed',
-                                     'conclusion': 'success'}}}
+                                     'workflow_id': 77, 'attempt': 1, 'createdAt': '2026-10-08T10:00:00Z',
+                                     'headSha': HEAD, 'conclusion': 'failure', 'jobs_attempt': 1,
+                                     'jobs_head_sha': HEAD,
+                                     'jobs': [{'name': 'report', 'status': 'completed', 'conclusion': 'success'},
+                                              {'name': 'full-evidence', 'status': 'completed', 'conclusion': 'success'},
+                                              {'name': 'exact-head-review-qualification', 'status': 'completed', 'conclusion': 'failure'},
+                                              {'name': 'merge-qualification', 'status': 'completed', 'conclusion': 'failure'}]}}}
         pending = json.loads(json.dumps(snapshot))
         pending['runs']['321']['status'] = 'in_progress'
         self.assertIsNone(server.queue_ci_review_followup(pending))
         failed = json.loads(json.dumps(snapshot))
-        failed['runs']['321']['conclusion'] = 'failure'
+        failed['runs']['321']['jobs'][0]['conclusion'] = 'failure'
         self.assertIsNone(server.queue_ci_review_followup(failed))
         stop = threading.Event()
         def watcher_snapshot():
@@ -994,23 +1000,79 @@ class Deadlock5Tests(unittest.TestCase):
                          ('code_review_observed', 'pending'))
         self.assertFalse([q for q in server.list_queue(500) if q['recipient'] == 'po'])
 
-    def test_ci_review_followup_uses_latest_attempt_per_workflow(self):
+    def test_ci_review_followup_selects_newest_run_then_local_attempt(self):
         snapshot = {'pr': 1570, 'state': 'OPEN', 'draft': False, 'head': HEAD, 'base': BASE,
                     'runs': {
-                        '321': {'id': 321, 'workflow_id': 77, 'attempt': 1,
+                        '321': {'id': 321, 'workflow_id': 77, 'attempt': 2,
                                 'name': 'CI - Test Audit', 'status': 'completed',
-                                'conclusion': 'failure', 'createdAt': '2026-10-08T10:00:00Z'},
-                        '322': {'id': 322, 'workflow_id': 77, 'attempt': 2,
-                                'name': 'CI - Test Audit', 'status': 'completed',
-                                'conclusion': 'success', 'createdAt': '2026-10-08T10:05:00Z'}}}
-        self.assertIsNotNone(server.queue_ci_review_followup(snapshot))
-
-        # A newer retry in progress takes precedence over the previously successful attempt.
-        server.init_db()
-        snapshot['runs']['323'] = {'id': 323, 'workflow_id': 77, 'attempt': 3,
-                                   'name': 'CI - Test Audit', 'status': 'in_progress',
-                                   'conclusion': None, 'createdAt': '2026-10-08T10:10:00Z'}
+                                'headSha': HEAD, 'conclusion': 'success', 'createdAt': '2026-10-08T10:00:00Z',
+                                'jobs_attempt': 2, 'jobs_head_sha': HEAD,
+                                'jobs': [{'name': 'report', 'status': 'completed', 'conclusion': 'success'},
+                                         {'name': 'full-evidence', 'status': 'completed', 'conclusion': 'success'}]},
+                        '322': {'id': 322, 'workflow_id': 77, 'attempt': 1,
+                                'name': 'CI - Test Audit', 'status': 'in_progress',
+                                'headSha': HEAD, 'conclusion': None, 'createdAt': '2026-10-08T11:00:00Z'}}}
+        # A newer run ID at attempt 1 outranks an older run ID at attempt 2.
         self.assertIsNone(server.queue_ci_review_followup(snapshot))
+        latest = snapshot['runs']['322']
+        latest.update({'status': 'completed', 'conclusion': 'failure', 'jobs_attempt': 1,
+                       'jobs_head_sha': HEAD,
+                       'jobs': [{'name': 'report', 'status': 'completed', 'conclusion': 'failure'},
+                                {'name': 'full-evidence', 'status': 'completed', 'conclusion': 'failure'}]})
+        self.assertIsNone(server.queue_ci_review_followup(snapshot))  # newer engineering failure holds
+        latest['jobs'] = [{'name': 'report', 'status': 'completed', 'conclusion': 'success'},
+                          {'name': 'full-evidence', 'status': 'completed', 'conclusion': 'success'},
+                          {'name': 'exact-head-review-qualification', 'status': 'completed', 'conclusion': 'failure'},
+                          {'name': 'merge-qualification', 'status': 'completed', 'conclusion': 'failure'}]
+        first_followup = server.queue_ci_review_followup(snapshot)
+        self.assertIsNotNone(first_followup)  # review-only failures cannot block refresh
+        self.assertEqual(server.queue_ci_review_followup(snapshot), first_followup)  # same run/attempt dedupes
+        latest['attempt'] = latest['jobs_attempt'] = 2
+        retry_followup = server.queue_ci_review_followup(snapshot)
+        self.assertNotEqual(retry_followup, first_followup)  # a new attempt gets a new evidence-bound wake
+        server.init_db()
+        latest['jobs'][1]['conclusion'] = 'skipped'  # draft/partial lane is not full engineering evidence
+        self.assertIsNone(server.queue_ci_review_followup(snapshot))
+        same_run = server.latest_runs_per_workflow([
+            {'id': 400, 'workflow_id': 77, 'attempt': 1, 'createdAt': '2026-10-08T12:00:00Z'},
+            {'id': 400, 'workflow_id': 77, 'attempt': 2, 'createdAt': '2026-10-08T12:00:00Z'}])
+        self.assertEqual(same_run[0]['attempt'], 2)  # attempt ordering is only within one run ID
+
+    def test_ready_pr_snapshot_reads_full_lane_report_from_exact_run_attempt(self):
+        server.set_setting('current_pr', '1570')
+        pr = {'number': 1570, 'title': 'design', 'headRefName': 'fix/design', 'headRefOid': HEAD,
+              'baseRefOid': BASE, 'baseRefName': 'main', 'isDraft': False, 'state': 'OPEN',
+              'statusCheckRollup': []}
+        summary = {'databaseId': 322, 'workflowDatabaseId': 77, 'workflowName': 'CI - Test Audit',
+                   'attempt': 1, 'status': 'completed', 'conclusion': 'failure', 'headSha': HEAD,
+                   'createdAt': '2026-10-08T11:00:00Z', 'updatedAt': '2026-10-08T11:30:00Z'}
+        detail = {'databaseId': 322, 'attempt': 1, 'status': 'completed', 'conclusion': 'failure',
+                  'headSha': HEAD, 'jobs': [
+                      {'name': 'report', 'status': 'completed', 'conclusion': 'success'},
+                      {'name': 'full-evidence', 'status': 'completed', 'conclusion': 'success'},
+                      {'name': 'exact-head-review-qualification', 'status': 'completed', 'conclusion': 'failure'},
+                      {'name': 'merge-qualification', 'status': 'completed', 'conclusion': 'failure'}]}
+        calls = []
+        def gh(args):
+            calls.append(args)
+            if args[0] == 'pr':
+                return pr, None
+            if args[:2] == ['run', 'list']:
+                return [summary], None
+            if args[:2] == ['run', 'view']:
+                return detail, None
+            raise AssertionError(args)
+        with patch.object(server, 'fetch_watch_comments', return_value=([], None, None)), \
+             patch.object(server, 'gh_json', side_effect=gh), \
+             patch.object(server, 'bounded_github_list', return_value=([], None)), \
+             patch.object(server, 'affected_review_snapshot', return_value={}):
+            snapshot, error = server.github_watch_snapshot()
+        self.assertIsNone(error)
+        self.assertIn('--attempt', calls[-1])
+        self.assertEqual(calls[-1][calls[-1].index('--attempt') + 1], '1')
+        run = snapshot['runs']['322']
+        self.assertEqual((run['jobs_attempt'], run['jobs_head_sha']), (1, HEAD))
+        self.assertIsNotNone(server.queue_ci_review_followup(snapshot))
 
     def test_review_poll_marks_changed_candidate_stale_before_attributing_review(self):
         gh = FakeGitHub()
