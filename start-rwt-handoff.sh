@@ -16,7 +16,7 @@ URL="http://127.0.0.1:${RWT_PORT}/"
 # Import one verified prior state only when it is the sole sibling; set RWT_MIGRATE_FROM for an explicit choice.
 python3 migrate_state.py
 
-echo "RWT Board v4.6.16 (deadlock.5): $URL"
+echo "RWT Board v4.6.17 (deadlock.5 successor): $URL"
 echo "Use 127.0.0.1, not localhost."
 echo "Control issue: #${RWT_CONTROL_ISSUE}"
 

@@ -1,5 +1,28 @@
 # C5 Packages 3 + 4 — working checkpoint (2026-10-08)
 
+## v4.6.17 incremental task-delivery candidate — 2026-10-08
+
+**Checkout:** `fix/rwt-orch-successor-6060194201`, based on source commit `f1df24d3ed87f8eb9235e283b3449d2789ffd9db` (tree `79b722398e026fb56d6a16d2286ee4f160ed0563`). This incremental candidate is committed locally and not independently reviewed. Exact commit/tree/parent are recorded in the accompanying handoff; it is not published to a remote branch.
+
+**RED/GREEN:** six new focused tests pass: `test_readonly_checkpoint_routes_to_waiting_owned_task_with_frozen_target`, `test_readonly_delivery_rejects_wrong_owner_or_stale_target`, `test_same_task_action_dedupes_enqueue_claim_and_restart`, `test_distinct_authorized_followups_survive_while_recipient_is_busy`, `test_duplicate_write_assignment_action_dedupes_across_pm_turns`, and `test_readonly_receipt_start_result_are_distinct_and_use_plan_mode`. Initial RED was observed for the first waiting-task cases before implementation; GREEN was observed after the dispatch/claim implementation. `git diff --check` passed at this checkpoint.
+
+**Offline verification:** 280 tests passed across all 12 Python test modules, excluding exactly the five host/loopback tests listed below and `test_event_delivery.EventDeliveryTests.test_missing_board_patch_does_not_swallow_valid_reply`, which invokes the live GitHub CLI. Dashboard smoke passed with the v4.6.17 fixture. Python byte-compilation, route-schema JSON parsing, `bash -n start-rwt-handoff.sh`, and `git diff --check` passed.
+
+**SHA-256 manifest for the frozen source tree** (the Git tree hash covers every tracked file, including this receipt):
+
+| File | SHA-256 |
+|---|---|
+| `README.md` | `d8330bbb84998ce113d962cc2a02c3f5cf1c2650a9e429efe2b51be9364ef7c8` |
+| `pm-route.schema.json` | `836feb8067ee9323c66aaef20a6ec02e03288441a873ed40b58b6006ddd49d39` |
+| `server.py` | `9e812e9d0bcdb982f2474eff68c04c1e230074fb124115e1ef3380c2e974e801` |
+| `start-rwt-handoff.sh` | `b15752b1edc50943b64095b735552708510136108f0b2ff48dc4d6e2b84a6c56` |
+| `static/index.html` | `67745ecc6967fe6fc95f8b2aebd7d71db89a0e0b0e651a5a6cc082fa88701ae1` |
+| `test_deadlock5.py` | `a413c06e9deee81da2907e14cf07ee1742a901c7d0b0a1aa2c8e1b738432f2aa` |
+| `test_regressions.py` | `387a5086eee66be975caf7dc6fffce790249fecc7b09e9608daf90febd411918` |
+| `test_ui.js` | `b811d56b2305c9d069369224964759e81066a8ee13d8e091e9ed73faa9e32875` |
+
+**Still HOLD / unverified:** the five host/loopback tests remain unexecuted pending the candidate-bound shared host lease and any required bind permission: `test_deadlock5.Deadlock5Tests.test_retry_api_cannot_requeue_dev_after_preflight_block`; `test_handoffs.HandoffTests.test_pm_http_delivery_includes_readable_files_and_manifest`; `test_handoffs.HandoffTests.test_github_only_reports_local_paths_without_claiming_remote_attachments`; `test_regressions.RegressionTests.test_http_dispatch_worktree_and_conflict_endpoints`; and `test_package2a.LoopbackControlTests.test_loopback_refuses_foreign_simple_post_and_accepts_the_page_token`. The excluded GitHub-dependent test was not run. Browser PM independent review, installed acceptance, and live task-specific receipt/action are also pending. External notification transport remains unsupported. All R01–R42/F01–F16 closure and post-C4 findings remain open until each gets a source/evidence disposition; no install or restart is authorized here.
+
 This is a local, unreviewed source checkpoint layered on Package 2b source commit `734dc15e0bdaed1b929f4af4d8772d23fd47e035` (tree `b88799be487e18633d192c845314099870246e8d`). It is not installed, accepted, or a complete repair of C4. The next immutable packet must record the final source commit/tree and per-file hashes.
 
 **Offline verification on the current working tree:** 275 tests passed across the 12 listed Python test modules. Five socket/loopback tests were excluded under the existing shared host lease and bind-permission HOLD. Node dashboard smoke passed; `bash -n start-rwt-handoff.sh`, JSON parsing of `pm-route.schema.json`, and `git diff --check` passed. The Node smoke ran with CommonJS evaluation because the parent checkout declares ES modules. No network service, live board, live GitHub mutation, external-agent delivery, installation, migration, restart, merge, deployment, or Production operation was exercised.

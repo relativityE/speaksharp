@@ -1,5 +1,11 @@
 ## deadlock.5 — visible task delivery and preflight recovery
 
+### v4.6.17 — typed read-only task checkpoints (local candidate)
+
+This successor adds a typed, task-bound receipt/checkpoint/release route for CLI Dev when the assigned item is in `waiting` or `review`. The delivery freezes the task owner, assignment generation, branch, worktree, HEAD and tree; it runs in Claude Code Plan mode and cannot authorize edits, lease changes, publication or board mutation. Stable action IDs deduplicate replays across enqueue, claim and restart, while distinct authorized follow-ups remain possible. Queue claims are atomic and uninvoked claims return to the queue on restart.
+
+Six focused regressions pass for waiting-task delivery, wrong-owner/stale-target rejection, enqueue/claim/restart deduplication, distinct follow-ups, write-action deduplication and separate receipt/result reporting. This is an incremental, unreviewed source candidate; it does not close the C4 matrix or authorize installation. See `TEST_RECEIPT.md` for the exact checkout and remaining HOLDs. The external notification transport and live actor receipt/action proof remain blockers.
+
 ### C5 Packages 3 + 4 — local working checkpoint (2026-10-08)
 
 Current source adds bounded/recoverable GitHub reads, a durable exact-commit packet-read retry and PM task path with crash-safe notice recovery, exact-head review monitoring and separate Code/Security/PM qualification, truthful dashboard state and selection, verified staged state migration, and a per-repository host lock. The exact-head qualifier honors shared backoff and persists detected rate-limit responses. The latest local checkpoint passes 275 offline Python tests, Node UI smoke, shell syntax, schema parsing and `git diff --check`; five loopback tests remain on HOLD for the shared host lease/bind permission. Details and limits are in `TEST_RECEIPT.md`.

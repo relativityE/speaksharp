@@ -288,10 +288,10 @@ class RegressionTests(unittest.TestCase):
 
     def test_version_labels_match(self):
         root=Path(server.__file__).parent
-        self.assertEqual(server.BOARD_VERSION,'4.6.16')
+        self.assertEqual(server.BOARD_VERSION,'4.6.17')
         for file in ['static/index.html','start-rwt-handoff.sh','README.md']:
             text=(root/file).read_text()
-            self.assertIn('v4.6.16',text)
+            self.assertIn('v4.6.17',text)
         self.assertIn(server.BOARD_BUILD, (root/'start-rwt-handoff.sh').read_text())
         self.assertIn(server.BOARD_BUILD, (root/'README.md').read_text())
         html=(root/'static/index.html').read_text()

@@ -49,6 +49,7 @@
                 "enum": [
                   "active",
                   "ready",
+                  "review",
                   "blocked",
                   "waiting",
                   "done",
@@ -434,9 +435,34 @@
         ]
       }
     },
+    "task_deliveries": {
+      "type": "array",
+      "maxItems": 10,
+      "description": "Task-bound read-only receipt/checkpoint/release requests for CLI Dev while its owned task is waiting or under review. They report state only and never authorize edits, lease transfer, publication, or mutation.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._:-]{1,120}$"},
+          "task_id": {"type": "string", "minLength": 1},
+          "recipient": {"type": "string", "enum": ["cli_dev"]},
+          "action": {"type": "string", "enum": ["receipt", "checkpoint", "release"]},
+          "target_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "target_tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "instruction": {"type": "string", "minLength": 1}
+        },
+        "required": ["action_id", "task_id", "recipient", "action", "target_head", "target_tree", "instruction"]
+      }
+    },
     "dev_depends_on_actions": {
       "type": "boolean",
       "description": "true when next=dev needs this turn's pm_actions to succeed; a HOLD/BLOCKED/UNCONFIRMED action then holds the Dev handoff. false only for independent Dev work."
+    },
+    "dev_action_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._:-]{1,120}$",
+      "description": "Optional stable ID for a distinct authorized follow-up Dev action. Replaying the same assignment/action deduplicates; a genuinely new action uses a new ID."
     }
   },
   "required": [
@@ -447,6 +473,8 @@
     "publish",
     "ask_dispositions",
     "review_handoffs",
+    "task_deliveries",
+    "dev_action_id",
     "dev_depends_on_actions"
   ]
 }

@@ -68,7 +68,7 @@ MAX_HANDOFF_DEPTH = int(os.environ.get("MAX_HANDOFF_DEPTH", "12"))
 GITHUB_WATCH_INTERVAL = max(5, int(os.environ.get("GITHUB_WATCH_INTERVAL_SECONDS", "20")))
 CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1258"))
 WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
-BOARD_VERSION = "4.6.16"
+BOARD_VERSION = "4.6.17"
 BOARD_BUILD = "deadlock.5"
 GH_BACKOFF_UNTIL = 0.0
 PR_DISPLAY_CACHE = {}
@@ -238,6 +238,7 @@ def init_db():
         _add_column(c, "queue", "target_lease_generation TEXT NOT NULL DEFAULT ''")
         _add_column(c, "queue", "target_dirty_fingerprint TEXT NOT NULL DEFAULT ''")
         _add_column(c, "work_items", "lease_generation TEXT NOT NULL DEFAULT ''")
+        _add_column(c, "work_items", "assignment_generation TEXT NOT NULL DEFAULT ''")
         _add_column(c, "work_items", "owned_paths TEXT NOT NULL DEFAULT '[]'")
         # deadlock.5: typed system deliveries and a durable "recovery owed" flag so a
         # crash between failure and recovery enqueue cannot lose the PM recovery.
@@ -294,6 +295,12 @@ def init_db():
         # c5 (F01/F02): an atomic unique delivery key reconciles an enqueue that landed before its phase update.
         _add_column(c, "queue", "delivery_key TEXT NOT NULL DEFAULT ''")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS queue_delivery_key ON queue(delivery_key) WHERE delivery_key<>''")
+        for definition in ("target_assignment_generation TEXT NOT NULL DEFAULT ''", "task_action_id TEXT NOT NULL DEFAULT ''",
+                           "claim_token TEXT NOT NULL DEFAULT ''", "claimed_at TEXT", "task_receipt_at TEXT",
+                           "task_receipt_ref TEXT NOT NULL DEFAULT ''", "task_result_at TEXT",
+                           "task_result_ref TEXT NOT NULL DEFAULT ''"):
+            _add_column(c, "queue", definition)
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS queue_task_action_id ON queue(task_action_id) WHERE task_action_id<>''")
         # c5 (F12): invocation stages are separate facts, not one 'delivering' status.
         for definition in ("launch_attempted_at TEXT", "process_started_at TEXT", "process_pid INTEGER",
                            "invocation_recovery_due INTEGER NOT NULL DEFAULT 0"):
@@ -316,6 +323,13 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('asks_ingest_since',?)", (now(),))
         # A journaled action that was mid-flight when the process died has an unknown outcome.
         c.execute("UPDATE pm_action_journal SET status='unconfirmed', result='Process restarted mid-execution; resume/readback required' WHERE status='running'")
+        # Queue claims are not actor invocations. After the old singleton is gone, a claim
+        # without a launch attempt can be safely returned to the queue; invoked work remains
+        # uncertain under the existing recovery path.
+        c.execute("UPDATE queue SET status='queued',claim_token='',claimed_at=NULL WHERE status='claimed' AND launch_attempted_at IS NULL")
+        c.execute("UPDATE agents SET status='idle',updated_at=? WHERE status='claimed'", (now(),))
+        for row in c.execute("SELECT item_key FROM work_items WHERE assignment_generation='' ").fetchall():
+            c.execute("UPDATE work_items SET assignment_generation=? WHERE item_key=?", (uuid.uuid4().hex, row['item_key']))
 
         if not c.execute("SELECT 1 FROM agents WHERE agent_id='dev'").fetchone():
             c.execute(
@@ -498,10 +512,11 @@ def add_attachment(aid, filename, path, size):
 
 
 def enqueue(aid, recipient, content, *, source_actor="PO", parent_queue_id=None,
-            handoff_depth=0, auto_handoff=True, fanout_group=None, work_item_key="", kind="", delivery_key=""):
+            handoff_depth=0, auto_handoff=True, fanout_group=None, work_item_key="", kind="", delivery_key="",
+            task_action_id=""):
     """Queue one delivery. With a delivery_key the insert is atomic and idempotent (c5 F01): a replay
     after a crash returns the delivery that already landed instead of creating a second one."""
-    target = dev_assignment(work_item_key) if recipient == 'dev' else None
+    target = _delivery_assignment(work_item_key, kind) if recipient == 'dev' else None
     frozen = {}
     frozen_path = ''
     if target:
@@ -521,22 +536,24 @@ def enqueue(aid, recipient, content, *, source_actor="PO", parent_queue_id=None,
                 if _dirty_paths_owned(dirty, owned_paths):
                     frozen = validated
     with DB_LOCK, con() as c:
-        if delivery_key:
-            prior = c.execute("SELECT id FROM queue WHERE delivery_key=?", (delivery_key,)).fetchone()
-            if prior:
-                return prior['id']
         cur = c.execute(
-            "INSERT INTO queue(activity_id,recipient,content,status,created_at,source_actor,parent_queue_id,"
+            "INSERT OR IGNORE INTO queue(activity_id,recipient,content,status,created_at,source_actor,parent_queue_id,"
             "handoff_depth,auto_handoff,fanout_group,attempts,kind,delivery_key,target_head,target_tree,"
-            "target_repo_common_dir,target_origin,target_lease_generation,target_dirty_fingerprint) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)",
+            "target_repo_common_dir,target_origin,target_lease_generation,target_dirty_fingerprint,"
+            "target_assignment_generation,task_action_id) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?)",
             (
                 aid, recipient, content, "queued", now(), source_actor, parent_queue_id,
                 int(handoff_depth), 1 if auto_handoff else 0, fanout_group, kind, delivery_key,
                 frozen.get('head', ''), frozen.get('tree', ''), frozen.get('repo_common_dir', ''),
                 frozen.get('origin', ''), target.get('lease_generation', '') if target else '',
-                frozen.get('dirty_fingerprint', ''),
+                frozen.get('dirty_fingerprint', ''), target.get('assignment_generation', '') if target else '',
+                task_action_id,
             ),
         )
+        if delivery_key and cur.rowcount == 0:
+            prior = c.execute("SELECT id FROM queue WHERE delivery_key=?", (delivery_key,)).fetchone()
+            if prior:
+                return prior['id']
         qid = cur.lastrowid
         if target:
             c.execute("UPDATE queue SET work_item_key=?,target_branch=?,target_worktree=? WHERE id=?",
@@ -577,12 +594,19 @@ def list_queue(limit=100):
         if row.get('recipient') == 'dev' and row.get('work_item_key'):
             if row['status'] == 'queued':
                 row['delivery_stage'] = 'ASSIGNED → QUEUED · Dev not invoked'
+            elif row['status'] == 'claimed':
+                row['delivery_stage'] = 'ASSIGNED → QUEUED → CLAIMED · actor not invoked'
             elif row['status'] == 'delivering' and row.get('process_started_at'):
                 row['delivery_stage'] = f"ASSIGNED → QUEUED → DEV PROCESS STARTED (pid {row.get('process_pid')}) · awaiting reply"
             elif row['status'] == 'delivering':
                 row['delivery_stage'] = 'ASSIGNED → QUEUED → LAUNCH ATTEMPTED · process not yet confirmed'
             elif row['status'] == 'responded':
-                row['delivery_stage'] = 'DEV REPLY RETURNED · receipt/result recorded per handoff; PM review pending'
+                if row.get('kind') in READ_ONLY_DELIVERY_KINDS:
+                    receipt = 'TASK RECEIPT REPORTED' if row.get('task_receipt_at') else 'TASK RECEIPT MISSING'
+                    result = 'TASK RESULT REPORTED' if row.get('task_result_at') else 'TASK RESULT MISSING'
+                    row['delivery_stage'] = f"READ-ONLY · {receipt} → process start {'recorded' if row.get('process_started_at') else 'unconfirmed'} → {result}"
+                else:
+                    row['delivery_stage'] = 'DEV REPLY RETURNED · receipt/result recorded per handoff; PM review pending'
             elif row['status'].startswith('failed') and not row.get('started_at') and not int(row.get('attempts') or 0):
                 row['delivery_stage'] = 'BLOCKED BEFORE DEV INVOCATION'
             elif row['status'] == 'failed_uncertain' and row.get('process_started_at'):
@@ -623,6 +647,9 @@ def list_work_items(limit=None):
 
 DEV_OWNERS = {"cli_dev", "app_dev"}
 WRITE_STATES = {"active", "assigned", "in_progress", "writing"}
+READ_ONLY_TASK_STATES = {"waiting", "review"}
+READ_ONLY_TASK_ACTIONS = {"receipt", "checkpoint", "release"}
+READ_ONLY_DELIVERY_KINDS = {f"readonly_{action}" for action in READ_ONLY_TASK_ACTIONS}
 
 def _dev_lease_conflict(c, item_key, owner, branch, state):
     """Return a human-readable conflict if this update would create two active Dev writers.
@@ -716,6 +743,9 @@ def update_work_item(item_key, **fields):
         if any(k in clean and str(old[k] or '') != str(clean[k] or '') for k in identity_fields):
             if merged.get('owner') in DEV_OWNERS and merged.get('state') in WRITE_STATES:
                 clean['lease_generation'] = uuid.uuid4().hex
+        if any(k in clean and str(old[k] or '') != str(clean[k] or '')
+               for k in ('owner', 'branch', 'worktree', 'owned_paths')):
+            clean['assignment_generation'] = uuid.uuid4().hex
         clean["updated_at"] = now()
         ks = list(clean)
         vals = [clean[k] for k in ks] + [item_key]
@@ -771,6 +801,9 @@ def apply_board_updates(updates):
                     resulting_state = clean.get('state', old['state'])
                     if resulting_owner in DEV_OWNERS and resulting_state in WRITE_STATES:
                         clean['lease_generation'] = uuid.uuid4().hex
+                if any(k in clean and str(old[k] or '') != str(clean[k] or '')
+                       for k in ('owner', 'branch', 'worktree', 'owned_paths')):
+                    clean['assignment_generation'] = uuid.uuid4().hex
                 if 'blocker' in clean and 'blocker_since' not in clean:
                     clean['blocker_since'] = now()
                 clean['updated_at'] = now()
@@ -819,6 +852,18 @@ def dev_assignment(item_key=''):
     return candidates[0] if len(candidates) == 1 else None
 
 
+def _delivery_assignment(item_key, kind=''):
+    """Resolve the exact task owner for either a WRITE lease or a typed read-only checkpoint."""
+    if not item_key:
+        return None
+    if kind in READ_ONLY_DELIVERY_KINDS:
+        item = next((x for x in list_work_items() if x['item_key'] == item_key), None)
+        if not item or item.get('owner') != 'cli_dev':
+            return None
+        return item if str(item.get('state') or '').lower() in READ_ONLY_TASK_STATES else None
+    return dev_assignment(item_key)
+
+
 def find_branch_worktree(branch):
     try:
         proc = subprocess.run(['git','-C',BASE_REPO,'worktree','list','--porcelain'],
@@ -836,11 +881,13 @@ def find_branch_worktree(branch):
 
 def resolve_dev_target(q):
     """Only the assigned task can choose a Dev worktree. Dashboard selection is irrelevant."""
-    if get_setting('dev_assignment_reconciled', '0') != '1':
+    readonly = q.get('kind') in READ_ONLY_DELIVERY_KINDS
+    if not readonly and get_setting('dev_assignment_reconciled', '0') != '1':
         return {'ok': False, 'error': 'CLI Dev assignment needs a fresh PM checkpoint after startup'}
-    item = dev_assignment(q.get('work_item_key') or '')
+    item = _delivery_assignment(q.get('work_item_key') or '', q.get('kind') or '')
     if not item or not item.get('branch'):
-        return {'ok': False, 'error': 'CLI Dev needs one active task with an explicit branch/worktree; ask PM to assign it'}
+        state_hint = 'waiting/review' if readonly else 'active WRITE'
+        return {'ok': False, 'error': f'CLI Dev delivery needs an owned {state_hint} task with an explicit branch/worktree; ask PM to bind it'}
     if q.get('target_branch') and q['target_branch'] != item['branch']:
         return {'ok': False, 'error': 'Delivery branch changed after enqueue; request a new task handoff'}
     if q.get('target_worktree') and item.get('worktree') and q['target_worktree'] != item.get('worktree'):
@@ -864,7 +911,12 @@ def resolve_dev_target(q):
     if q.get('id') is not None:
         if not q.get('target_head') or not q.get('target_tree') or not q.get('target_repo_common_dir') or not q.get('target_origin'):
             return {'ok': False, 'error': 'Delivery has no verified checkout snapshot from enqueue; issue a fresh handoff after checkout verification'}
-        if q.get('target_lease_generation') != item.get('lease_generation'):
+        if readonly:
+            if not q.get('task_action_id'):
+                return {'ok': False, 'error': 'Read-only task delivery has no stable action identity'}
+            if q.get('target_assignment_generation') != item.get('assignment_generation'):
+                return {'ok': False, 'error': 'Task assignment changed after read-only delivery enqueue; issue a fresh authorized handoff'}
+        elif q.get('target_lease_generation') != item.get('lease_generation'):
             return {'ok': False, 'error': 'WRITE lease generation changed after enqueue; issue a fresh authorized handoff'}
         if v.get('head') != q.get('target_head') or v.get('tree') != q.get('target_tree'):
             return {'ok': False, 'error': 'Checkout HEAD/tree changed after enqueue; issue a fresh authorized handoff'}
@@ -904,12 +956,13 @@ def age_seconds(ts):
 
 
 def next_queue(recipient=None):
-    """Return the highest-priority queued delivery for one agent (or globally).
+    """Atomically claim the highest-priority queued delivery for one idle agent.
 
     PO instructions always outrank machine events. PM/Dev handoffs outrank raw
-    GitHub watcher events. FIFO is preserved inside a priority class.
+    GitHub watcher events. FIFO is preserved inside a priority class. The claim
+    closes the select-then-invoke race; startup returns only uninvoked claims.
     """
-    where = "q.status='queued' AND a.paused=0 AND q.available_after<=?"
+    where = "q.status='queued' AND a.paused=0 AND a.status IN ('idle','available') AND q.available_after<=?"
     args = [time.time()]
     if recipient:
         where += " AND q.recipient=?"
@@ -927,7 +980,22 @@ def next_queue(recipient=None):
             f"WHERE {where} ORDER BY {priority}, q.id LIMIT 1",
             args,
         ).fetchone()
-        return dict(r) if r else None
+        if not r:
+            return None
+        token = uuid.uuid4().hex
+        stamp = now()
+        claimed = c.execute("UPDATE queue SET status='claimed',claim_token=?,claimed_at=? WHERE id=? AND status='queued'",
+                            (token, stamp, r['id']))
+        if claimed.rowcount != 1:
+            return None
+        agent_claimed = c.execute("UPDATE agents SET status='claimed',updated_at=? WHERE agent_id=? AND status IN ('idle','available') AND paused=0",
+                                  (stamp, r['recipient']))
+        if agent_claimed.rowcount != 1:
+            c.execute("UPDATE queue SET status='queued',claim_token='',claimed_at=NULL WHERE id=? AND claim_token=?",
+                      (r['id'], token))
+            return None
+        row = c.execute("SELECT * FROM queue WHERE id=?", (r['id'],)).fetchone()
+        return dict(row)
 
 
 def update_queue(qid, **fields):
@@ -2645,6 +2713,16 @@ def compose_for_pm(q):
 
 
 def compose_for_dev(q):
+    if q.get('kind') in READ_ONLY_DELIVERY_KINDS:
+        return (
+            "READ-ONLY TASK DELIVERY\n"
+            "This is a receipt/checkpoint/release-status request, not a WRITE assignment. Claude Code is launched in Plan mode. This request does not authorize edits, mutations, publication, or lease actions.\n"
+            "Do not edit files, run commands, publish, mutate task/player state, transfer/release a lease, or infer permission from a prior task.\n"
+            f"DELIVERY #{q['id']} · TASK ACTION {q.get('task_action_id') or '?'} · recipient CLI Dev\n"
+            f"FROZEN TARGET: {q.get('target_branch') or '?'} @ {q.get('target_worktree') or '?'}, "
+            f"HEAD {q.get('target_head') or '?'}, tree {q.get('target_tree') or '?'}\n"
+            f"REQUEST:\n{q['content']}"
+        )
     return (
         "CLI DEV CONTRACT:\n"
         "- You hold a WRITE lease only for the branch/task named by the incoming directive. One branch has one writer at a time.\n"
@@ -2673,7 +2751,8 @@ def parse_claude(stdout):
 
 
 def _claude_command(content, sid, existing):
-    cmd = [CLAUDE_BIN, "-p", content, "--output-format", "json", "--permission-mode", PERMISSION_MODE]
+    mode = 'plan' if content.startswith('READ-ONLY TASK DELIVERY\n') else PERMISSION_MODE
+    cmd = [CLAUDE_BIN, "-p", content, "--output-format", "json", "--permission-mode", mode]
     if CLAUDE_MODEL:
         cmd += ["--model", CLAUDE_MODEL]
     cmd += ["--resume", sid] if existing else ["--session-id", sid]
@@ -2722,6 +2801,26 @@ def claude_transport_error(rc, parse_err, stderr):
     if rc != 0:
         return (stderr or f"Claude exited {rc}").strip()
     return ""
+
+
+def record_readonly_task_stages(queue_id, result):
+    """Record worker-reported receipt/result separately from the process-start fact."""
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT kind,task_action_id FROM queue WHERE id=?", (queue_id,)).fetchone()
+    if not row or row['kind'] not in READ_ONLY_DELIVERY_KINDS or not row['task_action_id']:
+        return False
+    action_id = re.escape(row['task_action_id'])
+    receipt = re.search(rf"(?m)^\s*TASK-RECEIPT\s+{action_id}(?:\s|$)", str(result or ''))
+    outcome = re.search(rf"(?m)^\s*TASK-RESULT\s+{action_id}(?:\s|$)", str(result or ''))
+    stamp = now()
+    with DB_LOCK, con() as c:
+        if receipt:
+            c.execute("UPDATE queue SET task_receipt_at=COALESCE(task_receipt_at,?),task_receipt_ref=? WHERE id=?",
+                      (stamp, f'worker-output:{queue_id}:{row["task_action_id"]}', queue_id))
+        if receipt and outcome and receipt.start() < outcome.start():
+            c.execute("UPDATE queue SET task_result_at=COALESCE(task_result_at,?),task_result_ref=? WHERE id=?",
+                      (stamp, f'worker-output:{queue_id}:{row["task_action_id"]}', queue_id))
+    return bool(receipt and outcome and receipt.start() < outcome.start())
 
 def _is_stale_model_error(message):
     low = (message or "").lower()
@@ -2778,7 +2877,7 @@ def _ensure_pm_conversation(existing):
 # c5 (F10): one route contract for every PM transport. A field the transport omitted takes its
 # documented default; anything present must satisfy pm-route.schema.json exactly (no coercion).
 ROUTE_DEFAULTS = {"publish": True, "pm_actions": [], "ask_dispositions": [], "review_handoffs": [],
-                  "dev_depends_on_actions": True}
+                  "task_deliveries": [], "dev_action_id": None, "dev_depends_on_actions": True}
 _ROUTE_SCHEMA_CACHE = {}
 
 
@@ -2873,6 +2972,8 @@ def parse_pm_route(raw):
         return {"message": route["message"], "next": route["next"], "publish": route["publish"],
                 "board_updates": route.get("board_updates"), "pm_actions": route["pm_actions"],
                 "ask_dispositions": route["ask_dispositions"], "review_handoffs": route["review_handoffs"],
+                "task_deliveries": route["task_deliveries"],
+                "dev_action_id": route["dev_action_id"],
                 "dev_depends_on_actions": route["dev_depends_on_actions"], "parse_error": None}
     except Exception as e:
         # Fail safe: never auto-send malformed PM output to Dev.
@@ -3047,16 +3148,18 @@ def run_dev(q):
     if not target.get('ok'):
         raise RuntimeError(target['error'])
     cwd = target['path']
+    readonly = q.get('kind') in READ_ONLY_DELIVERY_KINDS
     if not resolved_bin(CLAUDE_BIN):
         raise RuntimeError(f"Claude CLI not found: {CLAUDE_BIN}")
-    if cwd != a.get('cwd'):
+    if cwd != a.get('cwd') and not readonly:
         set_agent('dev', cwd=cwd, session_id=None, status='idle')
         a = get_agent('dev')
     update_queue(q['id'], work_item_key=target['item_key'], target_branch=target['validation']['branch'],
                  target_worktree=cwd)
 
-    existing = a.get("session_id")
-    sid = existing or str(uuid.uuid4())
+    preserved_session = a.get("session_id")
+    existing = None if readonly else preserved_session
+    sid = str(uuid.uuid4()) if readonly else (existing or str(uuid.uuid4()))
     # c5 (F12): 'launch attempted' is recorded before the process exists; 'process started' only once it does.
     update_queue(q["id"], status="delivering", started_at=now(), launch_attempted_at=now(), session_id=sid,
                  attempts=(q.get("attempts") or 0) + 1)
@@ -3097,16 +3200,17 @@ def run_dev(q):
         update_queue(q["id"], status=("failed_uncertain" if started else "failed"), error=error, finished_at=now(),
                      session_id=sid, invocation_recovery_due=1)
         if _is_auth_error(error):
-            set_agent("dev", status="auth_required", session_id=None)
+            set_agent("dev", status="auth_required", session_id=preserved_session if readonly else None)
             add_activity("Dev", 'Authentication expired — re-authenticate Claude CLI, then use New Dev session and retry.', "none", "error")
         else:
-            set_agent("dev", status="error", session_id=sid)
+            set_agent("dev", status="error", session_id=preserved_session if readonly else sid)
             add_activity("Dev", f"Transport error: {error}", "none", "error")
         recover_dev_invocation(q['id'])
         return
 
     update_queue(q["id"], status="responded", finished_at=now(), session_id=sid)
-    set_agent("dev", status="idle", session_id=sid)
+    set_agent("dev", status="idle", session_id=preserved_session if readonly else sid)
+    record_readonly_task_stages(q['id'], result)
     record_handoff_receipts(dev_result=result, queue_id=q["id"])
     aid = add_activity("Dev", result, "pm" if q.get("auto_handoff") else "none", "responded", trigger_queue_id=q["id"])
     if bool_setting("auto_dev_to_pm", True):
@@ -3751,6 +3855,8 @@ def run_pm(q):
         'message': routed['message'], 'next': nxt, 'route_next': routed['next'], 'publish': bool(routed.get('publish', True)),
         'results': results, 'blocking': blocking[:1], 'dependent_hold': bool(dependent_hold),
         'dispositions': routed.get('ask_dispositions') or [], 'review_handoffs': routed.get('review_handoffs') or [],
+        'task_deliveries': routed.get('task_deliveries') or [],
+        'dev_action_id': routed.get('dev_action_id'),
         'assigned_item': (assigned_dev_item or {}).get('item_key') or '', 'parse_error': routed.get('parse_error') or '',
         'session_id': sid,
     }
@@ -3796,7 +3902,7 @@ def continue_pm_turn(qid):
             if blocks:
                 plan['message'] += '\n\n' + '\n\n'.join(text for _, text in blocks)
             plan['needs_publication'] = bool(plan['publish'] or plan['next'] != 'none' or plan['results'] or plan['assigned_item']
-                                             or plan['dispositions'] or blocks)
+                                             or plan['dispositions'] or blocks or plan.get('task_deliveries'))
             _save_turn_plan(qid, plan, 'planned')
             phase = 'planned'
         if phase == 'planned':
@@ -3843,6 +3949,7 @@ def _apply_turn_effects(q, plan):
                 c.execute("INSERT INTO activity(actor,message,route,status,created_at) VALUES(?,?,?,?,?)",
                           ('SYSTEM', f"PM routing JSON was invalid; failed safe to PO: {plan['parse_error']}", 'none', 'error', now()))
     arbitrate_dev_dispatch(q, plan)
+    dispatch_readonly_task_deliveries(q, plan)
 
 
 def _set_dispatch_hold(key, reason, release, source_qid):
@@ -3856,6 +3963,79 @@ def _clear_dispatch_hold(key):
     with DB_LOCK, con() as c:
         c.execute("UPDATE work_items SET dispatch_hold='',dispatch_hold_since=NULL,dispatch_hold_release='',dispatch_hold_source=NULL "
                   "WHERE item_key=? AND dispatch_hold<>''", (key,))
+
+
+def _delivery_identity_key(key, item, handoffs, content, explicit_action_id=None):
+    """Stable task/action key across PM turns and restarts; a new authorized action gets a new ID/content."""
+    if handoffs:
+        identity = {'kind': 'review', 'task': key, 'handoffs': sorted(set(int(x) for x in handoffs))}
+    elif explicit_action_id:
+        identity = {'kind': 'write', 'task': key, 'action_id': str(explicit_action_id)}
+    else:
+        identity = {'kind': 'write', 'task': key, 'assignment_generation': item.get('assignment_generation'),
+                    'branch': item.get('branch'), 'worktree': item.get('worktree'),
+                    'next_action': item.get('next_action'), 'instruction': ' '.join(str(content).split())}
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return 'task-action:' + digest
+
+
+def dispatch_readonly_task_deliveries(q, plan):
+    """Deliver explicitly typed read-only task requests without granting or releasing a WRITE lease."""
+    for request in plan.get('task_deliveries') or []:
+        action_id = str(request.get('action_id') or '').strip()
+        key = str(request.get('task_id') or '').strip()
+        action = str(request.get('action') or '').strip()
+        recipient = str(request.get('recipient') or '').strip()
+        kind = f'readonly_{action}'
+        if recipient != 'cli_dev' or action not in READ_ONLY_TASK_ACTIONS or not action_id:
+            add_activity('SYSTEM', f'Rejected read-only task delivery: invalid recipient/action/action_id ({recipient!r}/{action!r})',
+                         'none', 'error', trigger_queue_id=q.get('id'))
+            continue
+        item = _delivery_assignment(key, kind)
+        if not item or not item.get('branch') or not item.get('worktree'):
+            add_activity('SYSTEM', f'Rejected read-only {action} delivery {action_id}: task {key!r} is not owned by CLI Dev in waiting/review state with a bound branch and worktree.',
+                         'none', 'error', trigger_queue_id=q.get('id'))
+            continue
+        if not bool_setting('auto_pm_to_dev', True) or not q.get('auto_handoff'):
+            add_activity('SYSTEM', f'Read-only task delivery {action_id} held by the PM→Dev dispatch guard; no action was queued.',
+                         'none', 'blocker', trigger_queue_id=q.get('id'))
+            continue
+        path = item['worktree']
+        snapshot = validate_worktree(path)
+        if (not snapshot.get('exists') or not snapshot.get('is_git') or snapshot.get('branch') != item['branch']
+                or not snapshot.get('snapshot_stable', True)
+                or snapshot.get('head') != request.get('target_head')
+                or snapshot.get('tree') != request.get('target_tree')
+                or _origin_repo_identity(snapshot.get('origin')) != 'relativitye/speaksharp'):
+            add_activity('SYSTEM', f'Rejected read-only {action} delivery {action_id}: frozen checkout tuple failed ownership/target validation.',
+                         'none', 'error', trigger_queue_id=q.get('id'))
+            continue
+        delivery_key = 'task-action:' + hashlib.sha256(action_id.encode()).hexdigest()
+        with DB_LOCK, con() as c:
+            prior = c.execute('SELECT * FROM queue WHERE task_action_id=?', (action_id,)).fetchone()
+        if prior:
+            if (prior['recipient'] != 'dev' or prior['work_item_key'] != key or prior['kind'] != kind
+                    or prior['target_head'] != snapshot['head'] or prior['target_tree'] != snapshot['tree']
+                    or prior['target_assignment_generation'] != item.get('assignment_generation')):
+                add_activity('SYSTEM', f'Rejected reused read-only action ID {action_id}: its recipient, task, action, or tuple changed.',
+                             'none', 'error', trigger_queue_id=q.get('id'))
+                continue
+            continue  # same durable action already exists; never mutate or relaunch it
+        aid = plan.get('activity_id')
+        instruction = (f'READ-ONLY {action.upper()} REQUEST {action_id}\n'
+                       f'Recipient: CLI Dev. Task: {key}. State: {item.get("state")}.\n'
+                       f'Frozen target: {item["branch"]} @ {path}, HEAD {snapshot["head"]}, tree {snapshot["tree"]}.\n'
+                       f'Instruction: {request["instruction"].strip()}\n'
+                       f'Report exactly two stages in your response: `TASK-RECEIPT {action_id}` when acknowledging this request, and '
+                       f'`TASK-RESULT {action_id}` with the read-only checkpoint/result. Do not edit, run mutating commands, publish, '
+                       'change task/player state, transfer or release a lease, or treat this request as permission to do so.')
+        did = enqueue(aid, 'dev', instruction, source_actor='PM', parent_queue_id=q.get('id'),
+                      handoff_depth=int(q.get('handoff_depth') or 0) + 1, auto_handoff=False,
+                      work_item_key=key, kind=kind, delivery_key=delivery_key, task_action_id=action_id)
+        row = next((r for r in list_queue(500) if r['id'] == did), None)
+        if not row or row.get('target_head') != snapshot['head'] or row.get('target_tree') != snapshot['tree']:
+            add_activity('SYSTEM', f'Read-only task delivery {action_id} failed frozen-tuple readback; no actor was invoked.',
+                         'none', 'error', trigger_queue_id=q.get('id'))
 
 
 def arbitrate_dev_dispatch(q, plan):
@@ -3930,9 +4110,10 @@ def arbitrate_dev_dispatch(q, plan):
             texts = [_handoff_text(dict(h)) for h in c.execute(
                 "SELECT * FROM review_handoffs WHERE id IN (%s) ORDER BY id" % ','.join('?' * len(handoffs)), handoffs).fetchall()] if handoffs else []
         content = '\n\n'.join(([plan['message']] if d['route'] else []) + texts)
+        delivery_key = _delivery_identity_key(key, item, handoffs, content, plan.get('dev_action_id'))
         did = enqueue(plan.get('activity_id'), 'dev', content, source_actor='PM', parent_queue_id=qid, handoff_depth=depth,
                       auto_handoff=True, work_item_key=key, kind=('review_handoff' if handoffs else ''),
-                      delivery_key=f'pm-turn:{qid}:dev:{key}')
+                      delivery_key=delivery_key)
         with DB_LOCK, con() as c:
             for hid in handoffs:
                 c.execute("UPDATE review_handoffs SET state='delivered',delivered_at=?,delivery_queue_id=?,hold_reason='' "

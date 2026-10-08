@@ -1048,6 +1048,155 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertIn('time budget', result['error'])
         fetch.assert_not_called()
 
+    # ---------- successor batch: waiting-task read-only delivery and durable action identity ----------
+    def test_readonly_checkpoint_routes_to_waiting_owned_task_with_frozen_target(self):
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+              'tree': 'd' * 40, 'repo_common_dir': '/repo/.git', 'origin': 'https://github.com/relativityE/speaksharp.git',
+              'snapshot_stable': True, 'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
+        with patch.object(server, 'validate_worktree', return_value=ok), \
+             patch.object(server, '_git_common_dir', return_value='/repo/.git'):
+            self.assign(worktree='/wt/ok')
+            server.update_work_item(KEY, state='waiting', next_action='waiting for the upstream pin')
+            route = {'message': 'Read-only checkpoint requested', 'next': 'none', 'pm_actions': [],
+                     'board_updates': board(KEY), 'task_deliveries': [{
+                         'action_id': '6060194201:checkpoint', 'task_id': KEY, 'recipient': 'cli_dev',
+                         'action': 'checkpoint', 'target_head': 'c' * 40, 'target_tree': 'd' * 40,
+                         'instruction': 'Report current branch state; do not edit or release the lease.'}]}
+            with patch.object(server, 'publish_pm_reply', return_value=True):
+                self.run_pm_with(route)
+            rows = [r for r in server.list_queue(500) if r['recipient'] == 'dev']
+            self.assertEqual(len(rows), 1)
+            row = rows[0]
+            self.assertEqual(row['kind'], 'readonly_checkpoint')
+            self.assertEqual(row['work_item_key'], KEY)
+            self.assertEqual((row['target_head'], row['target_tree']), ('c' * 40, 'd' * 40))
+            self.assertTrue(server.resolve_dev_target(row)['ok'])
+
+    def test_readonly_delivery_rejects_wrong_owner_or_stale_target(self):
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+              'tree': 'd' * 40, 'repo_common_dir': '/repo/.git', 'origin': 'https://github.com/relativityE/speaksharp.git',
+              'snapshot_stable': True, 'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
+        with patch.object(server, 'validate_worktree', return_value=ok), \
+             patch.object(server, '_git_common_dir', return_value='/repo/.git'):
+            self.assign(worktree='/wt/ok')
+            server.update_work_item(KEY, state='waiting')
+            mismatch = {'action_id': '6060194201:wrong-owner', 'task_id': KEY, 'recipient': 'app_dev',
+                        'action': 'checkpoint', 'target_head': 'c' * 40, 'target_tree': 'd' * 40,
+                        'instruction': 'Return checkpoint'}
+            route = {'message': 'Wrong recipient', 'next': 'none', 'pm_actions': [],
+                     'board_updates': board(KEY), 'task_deliveries': [mismatch]}
+            with patch.object(server, 'publish_pm_reply', return_value=True):
+                self.run_pm_with(route)
+            self.assertFalse([r for r in server.list_queue(500) if r['recipient'] == 'dev'])
+
+            valid = dict(mismatch, action_id='6060194201:stale', recipient='cli_dev', target_head='f' * 40)
+            route = dict(route, message='Stale target', task_deliveries=[valid])
+            with patch.object(server, 'publish_pm_reply', return_value=True):
+                self.run_pm_with(route)
+            self.assertFalse([r for r in server.list_queue(500) if r['recipient'] == 'dev'])
+
+    def test_same_task_action_dedupes_enqueue_claim_and_restart(self):
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+              'tree': 'd' * 40, 'repo_common_dir': '/repo/.git', 'origin': 'https://github.com/relativityE/speaksharp.git',
+              'snapshot_stable': True, 'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
+        with patch.object(server, 'validate_worktree', return_value=ok), \
+             patch.object(server, '_git_common_dir', return_value='/repo/.git'):
+            self.assign(worktree='/wt/ok')
+            server.update_work_item(KEY, state='waiting')
+            route = {'message': 'Checkpoint', 'next': 'none', 'pm_actions': [], 'board_updates': board(KEY),
+                     'task_deliveries': [{'action_id': 'source-17:checkpoint', 'task_id': KEY, 'recipient': 'cli_dev',
+                         'action': 'checkpoint', 'target_head': 'c' * 40, 'target_tree': 'd' * 40,
+                         'instruction': 'Report status only'}]}
+            with patch.object(server, 'publish_pm_reply', return_value=True):
+                self.run_pm_with(route)
+                self.run_pm_with(route)  # replayed turn/action must resolve to the same durable row
+            rows = [r for r in server.list_queue(500) if r['recipient'] == 'dev']
+            self.assertEqual(len(rows), 1)
+            first = server.next_queue('dev')
+            self.assertEqual(first['id'], rows[0]['id'])
+            self.assertIsNone(server.next_queue('dev'))  # concurrent/replayed claim cannot invoke a second actor
+            server.init_db()  # restart recovery requeues only the uninvoked claim, preserving its identity
+            self.assertEqual(server.next_queue('dev')['id'], first['id'])
+            self.assertEqual(len([r for r in server.list_queue(500) if r['recipient'] == 'dev']), 1)
+
+    def test_distinct_authorized_followups_survive_while_recipient_is_busy(self):
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+              'tree': 'd' * 40, 'repo_common_dir': '/repo/.git', 'origin': 'https://github.com/relativityE/speaksharp.git',
+              'snapshot_stable': True, 'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
+        with patch.object(server, 'validate_worktree', return_value=ok), \
+             patch.object(server, '_git_common_dir', return_value='/repo/.git'):
+            self.assign(worktree='/wt/ok')
+            server.update_work_item(KEY, state='review')
+            with patch.object(server, 'publish_pm_reply', return_value=True):
+                for action_id, action in (('source-18:receipt', 'receipt'), ('source-19:release', 'release')):
+                    route = {'message': f'{action} request', 'next': 'none', 'pm_actions': [], 'board_updates': board(KEY),
+                             'task_deliveries': [{'action_id': action_id, 'task_id': KEY, 'recipient': 'cli_dev',
+                                 'action': action, 'target_head': 'c' * 40, 'target_tree': 'd' * 40,
+                                 'instruction': f'Report {action} status only'}]}
+                    self.run_pm_with(route)
+            rows = [r for r in server.list_queue(500) if r['recipient'] == 'dev']
+            self.assertEqual(len(rows), 2)
+            first = server.next_queue('dev')
+            self.assertEqual(first['id'], rows[0]['id'])
+            self.assertIsNone(server.next_queue('dev'))
+            # A busy recipient leaves the second distinct action queued and unchanged.
+            pending = next(r for r in server.list_queue(500) if r['id'] == rows[1]['id'])
+            self.assertEqual(pending['status'], 'queued')
+            self.assertIn('Report release status only', pending['content'])
+            server.set_agent('dev', status='idle')
+            server.update_queue(first['id'], status='responded', finished_at=server.now())
+            next_action = server.next_queue('dev')
+            self.assertEqual(next_action['id'], pending['id'])
+
+    def test_duplicate_write_assignment_action_dedupes_across_pm_turns(self):
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+              'tree': 'd' * 40, 'repo_common_dir': '/repo/.git', 'origin': 'https://github.com/relativityE/speaksharp.git',
+              'snapshot_stable': True, 'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
+        with patch.object(server, 'validate_worktree', return_value=ok), \
+             patch.object(server, '_git_common_dir', return_value='/repo/.git'), \
+             patch.object(server, 'publish_pm_reply', return_value=True):
+            self.assign(worktree='/wt/ok')
+            route = {'message': 'Continue the same assigned P1 action', 'next': 'dev', 'pm_actions': [],
+                     'board_updates': board(KEY)}
+            self.run_pm_with(route)
+            self.run_pm_with(route)
+            rows = [r for r in server.list_queue(500) if r['recipient'] == 'dev']
+            self.assertEqual(len(rows), 1)
+            self.assertTrue(rows[0]['delivery_key'].startswith('task-action:'))
+
+    def test_readonly_receipt_start_result_are_distinct_and_use_plan_mode(self):
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+              'tree': 'd' * 40, 'repo_common_dir': '/repo/.git', 'origin': 'https://github.com/relativityE/speaksharp.git',
+              'snapshot_stable': True, 'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
+        with patch.object(server, 'validate_worktree', return_value=ok), \
+             patch.object(server, '_git_common_dir', return_value='/repo/.git'):
+            self.assign(worktree='/wt/ok')
+            server.update_work_item(KEY, state='waiting')
+            route = {'message': 'Checkpoint', 'next': 'none', 'pm_actions': [], 'board_updates': board(KEY),
+                     'task_deliveries': [{'action_id': 'source-20:checkpoint', 'task_id': KEY, 'recipient': 'cli_dev',
+                         'action': 'checkpoint', 'target_head': 'c' * 40, 'target_tree': 'd' * 40,
+                         'instruction': 'Read state and report'}]}
+            with patch.object(server, 'publish_pm_reply', return_value=True):
+                self.run_pm_with(route)
+            q = next(r for r in server.list_queue(500) if r['recipient'] == 'dev')
+            content = server.compose_for_dev(q)
+            cmd = server._claude_command(content, 'new-readonly-session', False)
+            self.assertEqual(cmd[cmd.index('--permission-mode') + 1], 'plan')
+            self.assertIn('Do not edit files', content)
+            self.assertIn('TASK-RECEIPT source-20:checkpoint', q['content'])
+            server.update_queue(q['id'], status='responded', process_started_at=server.now(), finished_at=server.now())
+            self.assertFalse(server.record_readonly_task_stages(q['id'], 'TASK-RESULT source-20:checkpoint incomplete'))
+            missing = next(r for r in server.list_queue(500) if r['id'] == q['id'])
+            self.assertIsNone(missing['task_receipt_at'])
+            result = ('TASK-RECEIPT source-20:checkpoint accepted\n'
+                      'TASK-RESULT source-20:checkpoint branch unchanged; waiting for pin')
+            self.assertTrue(server.record_readonly_task_stages(q['id'], result))
+            complete = next(r for r in server.list_queue(500) if r['id'] == q['id'])
+            self.assertTrue(complete['task_receipt_at'])
+            self.assertTrue(complete['process_started_at'])
+            self.assertTrue(complete['task_result_at'])
+            self.assertIn('TASK RECEIPT REPORTED', complete['delivery_stage'])
+
 
     # ---------- c4: PM disposition (delivery 91) ----------
     def unconfirmed_draft_row(self):
