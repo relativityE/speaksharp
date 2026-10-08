@@ -63,6 +63,10 @@ PACKET_VERIFY_MAX_PER_POLL = 3
 MAX_COMMENT_PAGES = 5
 MAX_REVIEW_PAGES = 5
 MAX_AFFECTED_REVIEW_TARGETS = 25
+MAX_AFFECTED_REVIEW_REFRESH_PER_POLL = 2
+AFFECTED_REVIEW_CACHE_TTL_SECONDS = 300
+GH_REQUEST_WINDOW_SECONDS = 60
+GH_REQUEST_BUDGET_PER_WINDOW = max(1, int(os.environ.get("RWT_GH_REQUEST_BUDGET_PER_MINUTE", "60")))
 COMMENT_BOOTSTRAP_LOOKBACK_DAYS = 30
 MAX_HANDOFF_DEPTH = int(os.environ.get("MAX_HANDOFF_DEPTH", "12"))
 GITHUB_WATCH_INTERVAL = max(5, int(os.environ.get("GITHUB_WATCH_INTERVAL_SECONDS", "20")))
@@ -291,7 +295,6 @@ def init_db():
                   "status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at REAL NOT NULL DEFAULT 0,"
                   "claim_until REAL NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '', result_json TEXT NOT NULL DEFAULT '{}',"
                   "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
-        c.execute("UPDATE packet_verifications SET status='pending',claim_until=0,next_attempt_at=0,updated_at=? WHERE status='running'", (now(),))
         # c5 (F01/F02): an atomic unique delivery key reconciles an enqueue that landed before its phase update.
         _add_column(c, "queue", "delivery_key TEXT NOT NULL DEFAULT ''")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS queue_delivery_key ON queue(delivery_key) WHERE delivery_key<>''")
@@ -321,13 +324,6 @@ def init_db():
             _add_column(c, "review_handoffs", definition)
         # Only asks posted after the ledger exists are tracked; history is not replayed as new work.
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('asks_ingest_since',?)", (now(),))
-        # A journaled action that was mid-flight when the process died has an unknown outcome.
-        c.execute("UPDATE pm_action_journal SET status='unconfirmed', result='Process restarted mid-execution; resume/readback required' WHERE status='running'")
-        # Queue claims are not actor invocations. After the old singleton is gone, a claim
-        # without a launch attempt can be safely returned to the queue; invoked work remains
-        # uncertain under the existing recovery path.
-        c.execute("UPDATE queue SET status='queued',claim_token='',claimed_at=NULL WHERE status='claimed' AND launch_attempted_at IS NULL")
-        c.execute("UPDATE agents SET status='idle',updated_at=? WHERE status='claimed'", (now(),))
         for row in c.execute("SELECT item_key FROM work_items WHERE assignment_generation='' ").fetchall():
             c.execute("UPDATE work_items SET assignment_generation=? WHERE item_key=?", (uuid.uuid4().hex, row['item_key']))
 
@@ -387,10 +383,23 @@ def init_db():
                              "AND state IN ('active','in_progress','doing') AND lease_generation=''").fetchall():
             c.execute("UPDATE work_items SET lease_generation=? WHERE item_key=?", (uuid.uuid4().hex, row['item_key']))
 
-        # Safe restart semantics: queued work was never delivered, so preserve it.
+
+
+def recover_interrupted_state_after_lock():
+    """Reconcile in-flight claims only after this process owns both singleton locks."""
+    if STATE_LOCK_FD is None or REPOSITORY_LOCK_FD is None:
+        raise RuntimeError('Startup recovery requires the exclusive state and repository locks')
+    with DB_LOCK, con() as c:
+        stamp = now()
+        c.execute("UPDATE packet_verifications SET status='pending',claim_until=0,next_attempt_at=0,updated_at=? WHERE status='running'", (stamp,))
+        c.execute("UPDATE pm_action_journal SET status='unconfirmed', result='Process restarted mid-execution; resume/readback required',updated_at=? WHERE status='running'", (stamp,))
+        # Queue claims are not actor invocations. After the old singleton is gone, a claim
+        # without a launch attempt can be safely returned to the queue; invoked work remains
+        # uncertain under the existing recovery path.
+        c.execute("UPDATE queue SET status='queued',claim_token='',claimed_at=NULL WHERE status='claimed' AND launch_attempted_at IS NULL")
+        c.execute("UPDATE agents SET status='idle',updated_at=? WHERE status='claimed'", (stamp,))
         # A delivering turn is ambiguous: repeating it could duplicate a side effect.
-        # c5 (F12): an invoked Dev turn whose process died with the board has an unknown result. It is
-        # never retried; one named PM recovery is owed (swept after init) to reconcile what it wrote.
+        # Preserve the unknown outcome and queue PM recovery rather than retrying Dev.
         c.execute(
             "UPDATE queue SET invocation_recovery_due=1 WHERE status IN ('running','delivering') "
             "AND recipient='dev' AND launch_attempted_at IS NOT NULL",
@@ -399,7 +408,7 @@ def init_db():
             "UPDATE queue SET status='failed_uncertain', "
             "error='Process restarted while delivery was in progress; explicit retry required', finished_at=? "
             "WHERE status IN ('running','delivering')",
-            (now(),),
+            (stamp,),
         )
 
 
@@ -650,6 +659,27 @@ WRITE_STATES = {"active", "assigned", "in_progress", "writing"}
 READ_ONLY_TASK_STATES = {"waiting", "review"}
 READ_ONLY_TASK_ACTIONS = {"receipt", "checkpoint", "release"}
 READ_ONLY_DELIVERY_KINDS = {f"readonly_{action}" for action in READ_ONLY_TASK_ACTIONS}
+
+
+class UnsupportedRecipientTransport(RuntimeError):
+    """The assigned actor has no supported route from this board instance."""
+
+
+def block_delivery_for_transport(q, detail):
+    """Keep an undelivered request durable without waking the wrong worker or retrying it."""
+    if not q or q.get('kind') not in READ_ONLY_DELIVERY_KINDS:
+        return False
+    message = str(detail or 'No supported transport to the assigned actor')[:1000]
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT status,process_started_at,task_receipt_at FROM queue WHERE id=?", (q['id'],)).fetchone()
+        if not row or row['status'] not in ('claimed', 'queued') or row['process_started_at'] or row['task_receipt_at']:
+            return False
+        c.execute("UPDATE queue SET status='blocked_transport',error=?,finished_at=?,claim_token='',claimed_at=NULL WHERE id=?",
+                  (message, now(), q['id']))
+        c.execute("UPDATE agents SET status='idle',updated_at=? WHERE agent_id='dev' AND status IN ('claimed','idle')", (now(),))
+    add_activity('SYSTEM', f"Read-only task delivery #{q['id']} remains open: {message}", 'none', 'blocker',
+                 trigger_queue_id=q['id'])
+    return True
 
 def _dev_lease_conflict(c, item_key, owner, branch, state):
     """Return a human-readable conflict if this update would create two active Dev writers.
@@ -998,6 +1028,24 @@ def next_queue(recipient=None):
         return dict(row)
 
 
+def release_uninvoked_claim(q):
+    """Return a claimed-but-not-launched delivery to FIFO when its worker cannot start it."""
+    if not q or q.get('status') != 'claimed' or not q.get('claim_token'):
+        return False
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT status,claim_token,launch_attempted_at,recipient FROM queue WHERE id=?", (q['id'],)).fetchone()
+        if (not row or row['status'] != 'claimed' or row['claim_token'] != q['claim_token']
+                or row['launch_attempted_at'] is not None):
+            return False
+        changed = c.execute("UPDATE queue SET status='queued',claim_token='',claimed_at=NULL WHERE id=? AND status='claimed' AND claim_token=?",
+                            (q['id'], q['claim_token']))
+        if changed.rowcount == 1:
+            c.execute("UPDATE agents SET status='idle',updated_at=? WHERE agent_id=? AND status='claimed'",
+                      (now(), row['recipient']))
+            return True
+        return False
+
+
 def update_queue(qid, **fields):
     ks = list(fields)
     vals = [fields[k] for k in ks] + [qid]
@@ -1010,6 +1058,9 @@ def gh_json(args):
     backoff_until = github_backoff_until()
     if time.time() < backoff_until:
         return None, 'GitHub rate-limit backoff until ' + datetime.fromtimestamp(backoff_until, timezone.utc).isoformat()
+    budget_ok, budget_state = reserve_github_request_budget()
+    if not budget_ok:
+        return None, f"Shared GitHub request budget exhausted ({budget_state['used']}/{budget_state['limit']}); resumes at {budget_state['reset_at']}"
     try:
         p = subprocess.run(["gh"] + args, capture_output=True, text=True, timeout=20)
         if p.returncode != 0:
@@ -1049,6 +1100,66 @@ def github_backoff_until():
     return max(float(GH_BACKOFF_UNTIL or 0), persisted)
 
 
+def github_request_budget_state():
+    """Return the SQLite-shared request window used by watcher, PM, packet and UI readers."""
+    now_epoch = time.time()
+    window = int(now_epoch // GH_REQUEST_WINDOW_SECONDS)
+    try:
+        raw = json.loads(get_setting('github_request_budget', '{}') or '{}')
+    except (ValueError, TypeError):
+        raw = {'corrupt': True}
+    used = _request_budget_used(raw, window)
+    reset_epoch = (window + 1) * GH_REQUEST_WINDOW_SECONDS
+    return {'window': window, 'used': used, 'limit': GH_REQUEST_BUDGET_PER_WINDOW,
+            'reset_at': datetime.fromtimestamp(reset_epoch, timezone.utc).isoformat(),
+            'remaining': max(0, GH_REQUEST_BUDGET_PER_WINDOW - used)}
+
+
+def _request_budget_used(raw, window):
+    if raw is None or raw == {}:
+        return 0
+    if not isinstance(raw, dict):
+        return GH_REQUEST_BUDGET_PER_WINDOW
+    try:
+        saved_window = int(raw['window'])
+        used = int(raw['used'])
+    except (KeyError, ValueError, TypeError):
+        return GH_REQUEST_BUDGET_PER_WINDOW
+    if used < 0:
+        return GH_REQUEST_BUDGET_PER_WINDOW
+    return min(used, GH_REQUEST_BUDGET_PER_WINDOW) if saved_window == window else 0
+
+
+def reserve_github_request_budget(cost=1):
+    """Atomically reserve from one cross-thread/cross-process SQLite request window."""
+    cost = max(1, int(cost))
+    now_epoch = time.time()
+    window = int(now_epoch // GH_REQUEST_WINDOW_SECONDS)
+    reset_epoch = (window + 1) * GH_REQUEST_WINDOW_SECONDS
+    with DB_LOCK, con() as c:
+        c.execute('BEGIN IMMEDIATE')
+        row = c.execute("SELECT value FROM settings WHERE key='github_request_budget'").fetchone()
+        try:
+            previous = json.loads(row['value']) if row else {}
+        except (ValueError, TypeError):
+            previous = {'corrupt': True}
+        used = _request_budget_used(previous, window)
+        if used + cost > GH_REQUEST_BUDGET_PER_WINDOW:
+            state = {'window': window, 'used': used, 'limit': GH_REQUEST_BUDGET_PER_WINDOW,
+                     'reset_at': datetime.fromtimestamp(reset_epoch, timezone.utc).isoformat(),
+                     'remaining': max(0, GH_REQUEST_BUDGET_PER_WINDOW - used)}
+            c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_request_budget',?)",
+                      (json.dumps(state, sort_keys=True),))
+            return False, state
+        used += cost
+        state = {'window': window, 'used': used, 'limit': GH_REQUEST_BUDGET_PER_WINDOW,
+                 'reset_at': datetime.fromtimestamp(reset_epoch, timezone.utc).isoformat(),
+                 'remaining': max(0, GH_REQUEST_BUDGET_PER_WINDOW - used)}
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_request_budget',?)",
+                  (json.dumps(state, sort_keys=True),))
+        return True, state
+
+
 class GithubReadError(RuntimeError):
     def __init__(self, kind, message):
         super().__init__(message)
@@ -1059,11 +1170,15 @@ def _record_github_rate_limit():
     global GH_BACKOFF_UNTIL
     GH_BACKOFF_UNTIL = time.time() + 900
     try:
-        rate = subprocess.run(['gh', 'api', 'rate_limit'], capture_output=True, text=True, timeout=10)
-        resources = json.loads(rate.stdout).get('resources', {}) if rate.returncode == 0 else {}
-        resets = [float(x['reset']) + 5 for x in resources.values() if x.get('remaining') == 0 and x.get('reset')]
-        if resets:
-            GH_BACKOFF_UNTIL = max(time.time() + 60, max(resets))
+        # This reset lookup consumes the same shared budget; if there is no
+        # capacity, retain the conservative fallback backoff without probing.
+        budget_ok, _ = reserve_github_request_budget()
+        if budget_ok:
+            rate = subprocess.run(['gh', 'api', 'rate_limit'], capture_output=True, text=True, timeout=10)
+            resources = json.loads(rate.stdout).get('resources', {}) if rate.returncode == 0 else {}
+            resets = [float(x['reset']) + 5 for x in resources.values() if x.get('remaining') == 0 and x.get('reset')]
+            if resets:
+                GH_BACKOFF_UNTIL = max(time.time() + 60, max(resets))
     except Exception:
         pass
     set_setting('github_backoff_until', str(GH_BACKOFF_UNTIL))
@@ -1350,27 +1465,58 @@ def affected_review_targets():
     return sorted(numbers)[:MAX_AFFECTED_REVIEW_TARGETS]
 
 
+def _affected_review_cache_age(entry, observed_at):
+    try:
+        cached_at = float(entry.get('observed_at'))
+        return max(0.0, observed_at - cached_at)
+    except (AttributeError, TypeError, ValueError):
+        return float('inf')
+
+
 def affected_review_snapshot(repo, current_number=''):
-    """Read exact candidate/review state for every active affected PR, not only Current PR."""
+    """Read a bounded, fair slice of affected PRs and serve the shared durable cache between reads."""
     targets = affected_review_targets()
     if current_number and str(current_number).isdigit():
         targets = [n for n in targets if n != int(current_number)]
-    out = {}
-    for number in targets:
+    try:
+        cache = json.loads(get_setting('affected_review_cache', '{}') or '{}')
+    except (ValueError, TypeError):
+        cache = {}
+    cache = cache if isinstance(cache, dict) else {}
+    stamp = time.time()
+    stale = [n for n in targets if not isinstance(cache.get(str(n)), dict)
+             or _affected_review_cache_age(cache[str(n)], stamp) >= AFFECTED_REVIEW_CACHE_TTL_SECONDS]
+    try:
+        cursor = int(get_setting('affected_review_cursor', '0') or 0)
+    except (ValueError, TypeError):
+        cursor = 0
+    ordered = [n for n in stale if n > cursor] + [n for n in stale if n <= cursor]
+    refresh = ordered[:MAX_AFFECTED_REVIEW_REFRESH_PER_POLL]
+    refreshed = {}
+    attempt_errors = {}
+    last_processed = cursor
+    for number in refresh:
+        last_processed = number
         key = str(number)
         try:
             pr, err = gh_json(['pr', 'view', key, '--repo', repo,
                                '--json', 'number,state,headRefOid,baseRefOid,headRefName,baseRefName'])
             if err or not isinstance(pr, dict):
-                out[key] = {'error': str(err or 'PR read returned no object')[:400]}
+                if err and ('budget exhausted' in str(err).lower() or 'backoff' in str(err).lower()):
+                    attempt_errors[key] = str(err)[:400]
+                    break
+                attempt_errors[key] = str(err or 'PR read returned no object')[:400]
                 continue
             head = str(pr.get('headRefOid') or '')
             base = str(pr.get('baseRefOid') or '')
             reviews, review_error = bounded_github_list(_pm_request, f'repos/{repo}/pulls/{number}/reviews')
             comments, comment_error = bounded_github_list(_pm_request, f'repos/{repo}/pulls/{number}/comments')
             if review_error or comment_error:
-                out[key] = {'head': head, 'base': base, 'state': pr.get('state'),
-                            'error': str(review_error or comment_error)[:400]}
+                detail = str(review_error or comment_error)[:400]
+                if 'budget exhausted' in detail.lower() or 'backoff' in detail.lower():
+                    attempt_errors[key] = detail
+                    break
+                attempt_errors[key] = detail
                 continue
             exact_reviews = [x for x in reviews if x.get('commit_id') == head]
             code_ids = sorted(int(x['id']) for x in exact_reviews if x.get('id') and
@@ -1379,13 +1525,47 @@ def affected_review_snapshot(repo, current_number=''):
             comment_fingerprint = hashlib.sha256(json.dumps([
                 (x.get('id'), x.get('updated_at'), x.get('body'), x.get('path'), x.get('position'))
                 for x in exact_comments], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-            out[key] = {'head': head, 'base': base, 'state': pr.get('state'),
-                        'code_review_ids': code_ids, 'security_review_state': 'NOT INFERRED',
-                        'pm_acceptance_state': 'NOT RECORDED',
-                        'inline_comment_count': len(exact_comments), 'inline_comment_fingerprint': comment_fingerprint,
-                        'head_ref': pr.get('headRefName'), 'base_ref': pr.get('baseRefName'), 'error': ''}
+            refreshed[key] = {'head': head, 'base': base, 'state': pr.get('state'),
+                              'code_review_ids': code_ids, 'security_review_state': 'NOT INFERRED',
+                              'pm_acceptance_state': 'NOT RECORDED',
+                              'inline_comment_count': len(exact_comments), 'inline_comment_fingerprint': comment_fingerprint,
+                              'head_ref': pr.get('headRefName'), 'base_ref': pr.get('baseRefName'), 'error': ''}
         except Exception as exc:
-            out[key] = {'error': f'{type(exc).__name__}: {exc}'[:400]}
+            attempt_errors[key] = f'{type(exc).__name__}: {exc}'[:400]
+    if refreshed or attempt_errors:
+        # Merge under a write transaction so independent watcher processes using this
+        # same state DB cannot overwrite each other's review snapshots.
+        with DB_LOCK, con() as c:
+            c.execute('BEGIN IMMEDIATE')
+            row = c.execute("SELECT value FROM settings WHERE key='affected_review_cache'").fetchone()
+            try:
+                latest = json.loads(row['value']) if row else {}
+            except (ValueError, TypeError):
+                latest = {}
+            latest = latest if isinstance(latest, dict) else {}
+            active_keys = {str(n) for n in targets}
+            latest = {k: v for k, v in latest.items() if k in active_keys}
+            for key, value in refreshed.items():
+                latest[key] = {'observed_at': stamp, 'snapshot': value}
+            c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('affected_review_cache',?)",
+                      (json.dumps(latest, sort_keys=True),))
+            c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('affected_review_cursor',?)",
+                      (str(last_processed),))
+        cache.update({k: {'observed_at': stamp, 'snapshot': v} for k, v in refreshed.items()})
+    out = {}
+    for number in targets:
+        key = str(number)
+        cached = cache.get(key) or {}
+        snapshot = cached.get('snapshot') if isinstance(cached, dict) else None
+        if isinstance(snapshot, dict):
+            age = _affected_review_cache_age(cached, stamp)
+            out[key] = dict(snapshot, cache_age_seconds=(int(age) if age != float('inf') else None),
+                            refresh_pending=number in stale and key not in refreshed,
+                            refresh_error=attempt_errors.get(key, ''))
+        elif key in attempt_errors:
+            out[key] = {'error': attempt_errors[key], 'refresh_pending': True}
+        else:
+            out[key] = {'error': 'not yet observed within the shared per-poll review budget', 'refresh_pending': True}
     return out
 
 def github_watch_snapshot():
@@ -1748,8 +1928,31 @@ def ingest_control_asks(comments):
     return added
 
 
-VALID_DISPOSITIONS = ('pin', 'hold', 'po_decision', 'completed', 'superseded', 'dispatched')
+VALID_DISPOSITIONS = ('pin', 'hold', 'po_decision', 'completed', 'superseded', 'dispatched', 'reopen')
 OPEN_ASK_STATES = ('pending', 'held', 'dispatched')
+
+
+def _ask_evidence_error(row, kind, evidence, handoff_token=''):
+    """Require closure evidence to identify this ask's source/task/candidate, not merely any link."""
+    shas = set(re.findall(r'\b[0-9a-f]{40}\b', evidence))
+    wanted = set(str(row.get('candidate') or '').split())
+    task_refs = set(re.findall(r'#\d{3,5}', str(row.get('task_ref') or '')))
+    cited_refs = set(re.findall(r'(?<!\w)#\d{3,5}\b', evidence))
+    source_id = str(row.get('source_comment_id') or '')
+    source_url = str(row.get('url') or '').strip()
+    source_cited = bool(source_id and re.search(rf'(?<!\d){re.escape(source_id)}(?!\d)', evidence)) or bool(source_url and source_url in evidence)
+    task_cited = bool(task_refs and task_refs.issubset(cited_refs))
+    candidate_cited = bool(wanted and wanted.issubset(shas))
+    handoff_cited = bool(handoff_token and handoff_token.lower() in evidence.lower())
+    if cited_refs and task_refs and not task_refs.issubset(cited_refs):
+        return f"evidence for ask {row['id']} names task {', '.join(sorted(cited_refs))}, expected {', '.join(sorted(task_refs))}"
+    if kind == 'pin' and (not wanted or not candidate_cited):
+        return f"pin evidence must name ask {row['id']}'s exact candidate {', '.join(sorted(wanted)) or '(missing)'}"
+    if kind == 'completed' and wanted and not (candidate_cited or handoff_cited):
+        return f"completion evidence must name ask {row['id']}'s exact candidate {', '.join(sorted(wanted))}"
+    if kind in ('po_decision', 'completed', 'superseded') and not (source_cited or task_cited or candidate_cited or handoff_cited):
+        return f"{kind} evidence must identify ask {row['id']} by source comment, task, or exact candidate"
+    return ''
 
 
 def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
@@ -1767,6 +1970,7 @@ def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
         evidence = str(d.get('evidence') or '').strip()
         owner = str(d.get('owner') or '').strip()
         dependency = str(d.get('dependency') or '').strip()
+        release_event = str(d.get('release_event') or '').strip()
         why = None
         hid = (handoff_index or {}).get(d.get('review_handoff_index')) if isinstance(d.get('review_handoff_index'), int) else None
         if kind not in VALID_DISPOSITIONS:
@@ -1777,8 +1981,11 @@ def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
             why = 'review_handoff_index is only valid with disposition=dispatched'
         elif kind == 'pin' and not re.search(r'\b[0-9a-f]{40}\b', evidence):
             why = 'pin needs the full 40-hex candidate in evidence'
-        elif kind == 'hold' and not (owner and dependency and evidence):
-            why = 'HOLD needs exact reason, dependency and owner'
+        elif kind == 'hold' and not (owner and dependency and release_event and evidence):
+            why = 'HOLD needs exact reason, dependency, named release event and owner'
+        elif kind == 'reopen' and (not re.search(r'https://|\b\d{6,}\b|\b[0-9a-f]{40}\b', evidence)
+                                   or not release_event or release_event.lower() not in evidence.lower()):
+            why = 'reopen needs source-linked evidence that names the exact release event'
         elif kind in ('po_decision', 'completed', 'superseded') and not re.search(r'https://|\b\d{6,}\b|\b[0-9a-f]{40}\b', evidence):
             why = f'{kind} needs a source link, comment id or SHA as evidence'
         with DB_LOCK, con() as c:
@@ -1786,6 +1993,9 @@ def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
             if row and row['state'] != 'pending' and str(row['disposition_ref'] or '').startswith(published_ref + ' · ') \
                     and row['state'] == {'dispatched': 'dispatched', 'hold': 'held'}.get(kind, 'dispositioned'):
                 continue  # replay of this same turn's already-applied disposition (F01 continuation)
+            if row and kind == 'reopen' and row['state'] == 'pending' and row['disposition'] == 'reopened' \
+                    and published_ref in str(row['disposition_ref'] or ''):
+                continue  # replay after a crash does not reject the already-applied release
             if row and row['state'] == 'dispositioned' and f' · {kind} {published_ref} · ' in str(row['disposition_ref'] or ''):
                 continue  # replay of this turn's completion of a dispatched ask
             if not row:
@@ -1794,12 +2004,18 @@ def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
                 why = why or f"ask {row['id']} already {row['state']}"
             elif row['state'] == 'dispatched' and kind not in ('completed', 'superseded', 'hold'):
                 why = why or f"ask {row['id']} is dispatched; only completed (after the owner RESULT), superseded or hold apply"
+            elif kind == 'reopen' and row['state'] != 'held':
+                why = why or f"ask {row['id']} is {row['state']}; only a held ask can be reopened"
+            elif kind == 'reopen' and (not release_event or release_event != str(row['release_event'] or '').strip()):
+                why = why or f"release_event must exactly match ask {row['id']}'s named event"
             elif row['state'] == 'held' and kind == 'hold' and not why:
                 pass  # re-hold with a newer dependency is allowed
-            shas = set(re.findall(r'\b[0-9a-f]{40}\b', evidence))
-            wanted = set((row['candidate'] or '').split()) if row else set()
-            if not why and row and wanted and kind in ('pin', 'completed') and shas and not (shas & wanted):
-                why = f"evidence names a different candidate than ask {row['id']} ({', '.join(sorted(wanted))[:90]})"
+            handoff_token = ''
+            if row and row['state'] == 'dispatched' and kind == 'completed':
+                handoff = c.execute("SELECT token FROM review_handoffs WHERE id=?", (row['handoff_id'],)).fetchone()
+                handoff_token = handoff['token'] if handoff else ''
+            if not why and row and kind in ('pin', 'po_decision', 'completed', 'superseded'):
+                why = _ask_evidence_error(dict(row), kind, evidence, handoff_token)
             if not why and row and row['state'] == 'dispatched' and kind == 'completed':
                 h = c.execute("SELECT token,state FROM review_handoffs WHERE id=?", (row['handoff_id'],)).fetchone()
                 if not h or h['state'] != 'result_returned':
@@ -1817,7 +2033,14 @@ def apply_ask_dispositions(q, dispositions, published_ref, handoff_index=None):
             elif kind == 'hold':
                 c.execute("UPDATE asks SET state='held',disposition='hold',disposition_owner=?,owner=?,dependency=?,release_event=?,"
                           "held_at=?,disposition_ref=? WHERE id=?",
-                          (owner, owner, dependency[:300], dependency[:300], now(), f"{published_ref} · {evidence[:300]}", row['id']))
+                          (owner, owner, dependency[:300], release_event[:300], now(), f"{published_ref} · {evidence[:300]}", row['id']))
+            elif kind == 'reopen':
+                c.execute("UPDATE asks SET state='pending',disposition='reopened',disposition_owner=?,disposition_ref=?,"
+                          "recovery_count=0,last_recovery_at=NULL,escalated=0 WHERE id=?",
+                          (owner or row['owner'] or 'cli_pm',
+                           f"{row['disposition_ref']} · release event {release_event[:200]} · {published_ref} · {evidence[:300]}",
+                           row['id']))
+                _add_signal(c, row['id'], f"Named release event observed: {release_event[:200]} ({evidence[:200]})")
             elif row['state'] == 'dispatched':
                 # Keep the dispatch → receipt → result trail; the completion is appended, not substituted.
                 c.execute("UPDATE asks SET state='dispositioned',disposition=?,disposition_owner=?,disposition_ref=?,dispositioned_at=? WHERE id=?",
@@ -1842,6 +2065,10 @@ def list_asks(state=None):
         rows = [dict(r) for r in c.execute(sql + " ORDER BY source_comment_id, ask_index", args).fetchall()]
         stages = {r['id']: r['state'] for r in c.execute("SELECT id,state FROM review_handoffs").fetchall()}
     for r in rows:
+        try:
+            r['signals'] = json.loads(r.get('signals') or '[]')
+        except (ValueError, TypeError):
+            r['signals'] = []
         r['age_seconds'] = age_seconds(r.get('source_at') or r.get('recorded_at'))
         if r['state'] == 'dispatched':
             stage = stages.get(r.get('handoff_id'), 'missing')
@@ -2256,6 +2483,10 @@ def _gh_raw(path, ref):
     backoff_until = github_backoff_until()
     if time.time() < backoff_until:
         raise GithubReadError('rate_limited', 'GitHub rate-limit backoff until ' + datetime.fromtimestamp(backoff_until, timezone.utc).isoformat())
+    budget_ok, budget_state = reserve_github_request_budget()
+    if not budget_ok:
+        raise GithubReadError('budget_exhausted',
+                              f"Shared GitHub request budget exhausted ({budget_state['used']}/{budget_state['limit']}); resumes at {budget_state['reset_at']}")
     try:
         p = subprocess.run(['gh', 'api', '-H', 'Accept: application/vnd.github.raw',
                             f'repos/{HANDOFF_REMOTE_REPO}/contents/{quote(path)}?ref={ref}'], capture_output=True, timeout=15)
@@ -2965,6 +3196,10 @@ def parse_pm_route(raw):
             for item in updates['work_items']:
                 if isinstance(item, dict):
                     item.setdefault('owned_paths', None)
+        if isinstance(route.get('ask_dispositions'), list):
+            for disposition in route['ask_dispositions']:
+                if isinstance(disposition, dict):
+                    disposition.setdefault('release_event', None)
         missing = [k for k in ("message", "next") if k not in route]
         errors = [f"route.{k} is required" for k in missing] + _schema_errors(route, _route_schema())
         if errors:
@@ -3144,11 +3379,20 @@ def run_dev(q):
     if not q.get('work_item_key'):
         raise RuntimeError('Unbound historical delivery: request a new task handoff')
     a = get_agent("dev")
+    readonly = q.get('kind') in READ_ONLY_DELIVERY_KINDS
+    if readonly:
+        # The bundled Dev adapter is Claude Code. A typed checkpoint addressed to
+        # the active Codex writer cannot be delivered by starting a fresh Claude
+        # session; preserve it as an explicit transport blocker instead.
+        raise UnsupportedRecipientTransport(
+            'No supported transport to the existing Codex writer session; '
+            'starting a fresh Claude session would notify the wrong recipient. '
+            'The task request remains open and requires a task-bound Codex inbox/notification adapter.'
+        )
     target = resolve_dev_target(q)
     if not target.get('ok'):
         raise RuntimeError(target['error'])
     cwd = target['path']
-    readonly = q.get('kind') in READ_ONLY_DELIVERY_KINDS
     if not resolved_bin(CLAUDE_BIN):
         raise RuntimeError(f"Claude CLI not found: {CLAUDE_BIN}")
     if cwd != a.get('cwd') and not readonly:
@@ -3380,7 +3624,17 @@ def anti_idle_reconciler():
 def _pm_request(args):
     obj, err = gh_json(args)
     if err:
-        raise (RuntimeError if '-X' in args and args[args.index('-X')+1]=='POST' or 'graphql' in args and any('mutation(' in x for x in args) else Hold)('GitHub operation failed: ' + err[:300])
+        mutation = ('-X' in args and args[args.index('-X')+1] in ('POST', 'PATCH', 'PUT', 'DELETE')
+                    or 'graphql' in args and any('mutation(' in x for x in args))
+        message = 'GitHub operation failed: ' + err[:300]
+        if mutation:
+            raise RuntimeError(message)
+        if re.search(r'rate limit|secondary rate|HTTP 429|backoff|request budget|timed? ?out|timeout|connection|network|transport|HTTP 50[0-9]', err, re.I):
+            kind = ('rate_limited' if re.search(r'rate limit|secondary rate|HTTP 429|backoff', err, re.I) else
+                    'budget_exhausted' if 'request budget' in err.lower() else
+                    'timeout' if re.search(r'timed? ?out|timeout', err, re.I) else 'transport')
+            raise GithubReadError(kind, message)
+        raise Hold(message)
     return obj
 
 
@@ -3397,6 +3651,9 @@ def _pm_qualify(pr_number, head):
     env.update(GITHUB_TOKEN=p.stdout.strip(), GITHUB_REPOSITORY='relativityE/speaksharp',
                PR_NUMBER=str(pr_number), EXPECTED_HEAD_SHA=head, GITHUB_EVENT_NAME='workflow_dispatch')
     env.pop('REVIEW_QUALIFICATION_FILE', None)
+    budget_ok, budget_state = reserve_github_request_budget(cost=10)
+    if not budget_ok:
+        raise Hold(f"Exact-head qualifier held by shared GitHub request budget ({budget_state['used']}/{budget_state['limit']}); resumes at {budget_state['reset_at']}")
     check = subprocess.run(['node', 'scripts/collect-review-qualification.mjs'], cwd=BASE_REPO,
                            env=env, capture_output=True, text=True, timeout=90)
     if check.returncode or 'REVIEW-QUALIFIED:' not in check.stdout:
@@ -3456,7 +3713,9 @@ def _resume_refresh(key, action, phase):
         result = _executor_for(key).resume_refresh(action, phase)
         state = 'completed'
     except Exception as e:
-        state = 'held' if isinstance(e, Hold) else 'unconfirmed'
+        transient_read = (isinstance(e, GithubReadError) and e.kind in ('rate_limited', 'budget_exhausted', 'timeout', 'transport')
+                          or isinstance(e, Hold) and re.search(r'transient|backoff|rate limit|request budget|timed? ?out|timeout|connection|transport', str(e), re.I))
+        state = 'unconfirmed' if transient_read or not isinstance(e, Hold) else 'held'
         result = ('HOLD: ' if state == 'held' else 'UNCONFIRMED: ') + str(e)[:500]
     _finish_journal(key, 'refresh_reviews', state, result)
     return state, result
@@ -4295,6 +4554,7 @@ def worker(recipient):
                 continue
             agent = get_agent(recipient)
             if not agent or agent.get("paused"):
+                release_uninvoked_claim(q)
                 time.sleep(.35)
                 continue
             if recipient == "dev":
@@ -4304,7 +4564,10 @@ def worker(recipient):
             else:
                 update_queue(q["id"], status="failed", error=f"unknown recipient {recipient}", finished_at=now())
         except Exception as e:
-            fail_delivery(recipient, q, e)
+            if isinstance(e, UnsupportedRecipientTransport):
+                block_delivery_for_transport(q, e)
+            else:
+                fail_delivery(recipient, q, e)
             time.sleep(.5)
 
 
@@ -4651,6 +4914,7 @@ def transport_status():
         "github_watch_last_poll": get_setting("github_watch_last_poll", ""),
         "github_watch_last_wake": get_setting("github_watch_last_wake", ""),
         "github_watch_error": get_setting("github_watch_last_error", ""),
+        "github_request_budget": github_request_budget_state(),
         "pm_outbox_status": get_setting("pm_outbox_status", "Awaiting PM reply"),
         "pm_outbox_error": get_setting("pm_outbox_error", ""),
         "pm_pending_packet": get_setting("pm_pending_packet", ""),
@@ -4968,6 +5232,7 @@ def main():
         REPOSITORY_LOCK_FD = None
         raise
     init_db()
+    recover_interrupted_state_after_lock()
     sweep_preflight_recoveries()
     sweep_invocation_recoveries()
     reset_ephemeral_control_state_on_start()

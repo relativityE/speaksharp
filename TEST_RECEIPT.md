@@ -1,8 +1,20 @@
-# C5 Packages 3 + 4 — working checkpoint (2026-10-08)
+# Current working-source receipt — 4.6.17 successor (2026-10-08)
 
-## v4.6.17 incremental task-delivery candidate — 2026-10-08
+This section supersedes the historical receipts below. The published `v4.6.17` packet at commit `ee9412d08270d141a4aea0c2063714842d26b317` is an earlier, incomplete snapshot and is not accepted or installed. The successor worktree is `fix/rwt-orch-successor-6060194201`, on branch `fix/rwt-orch-successor-6060194201`, based on `cc12ad4ed813c413ab87856aeb5bdca45917fa6d`. The new immutable `v4.6.17-c2` packet records the exact nested source commit/tree, parent, and file hashes. No PR, installation, restart, merge or deployment is authorized.
 
-**Checkout:** `fix/rwt-orch-successor-6060194201`, based on source commit `f1df24d3ed87f8eb9235e283b3449d2789ffd9db` (tree `79b722398e026fb56d6a16d2286ee4f160ed0563`). This incremental candidate is committed locally and not independently reviewed. Exact commit/tree/parent are recorded in the accompanying handoff; it is not published to a remote branch.
+**Implemented in the current working diff:** held asks now require a distinct named release event and reopen only with source-linked evidence that names that exact event; GitHub requests reserve from one atomic SQLite budget shared across processes using the same state DB; affected-review polling refreshes a fair maximum of two targets per poll and serves shared cached snapshots between reads; uninvoked claims recover after a worker pause; and typed read-only checkpoints fail closed as `blocked_transport` when the only bundled Dev adapter would launch Claude instead of reaching the active Codex writer. Startup recovery now requires both singleton locks: a second `init_db()` cannot reinterpret running actions or deliveries as a process restart, and a transient review-read/backoff preserves its journaled phase for a safe retry. The wrong-recipient request records no process start or receipt and remains an explicit transport blocker.
+
+**Offline verification:** 294 tests passed across the discovered Python suite after excluding the five loopback/HTTP tests listed below. The five host-bound tests remain HOLD because this environment denies local port binding. Separate-process budget-sharing, common API/packet-reader budget, corrupted-budget fail-closed, transient refresh recovery, locked-startup recovery, and missed-pin request-retention regressions passed. Node dashboard smoke, `bash -n start-rwt-handoff.sh`, route-schema JSON parsing, and `git diff --check` passed. No live external delivery or installed acceptance was exercised.
+
+**Open:** `C4_CLOSURE_MATRIX.md` gives a source disposition for every R01–R42/F01–F16 row, but many are partial or open and still need independent review, regressions, or live evidence. Typed approval, external task inbox/notification, and actual actor receipts/actions remain incomplete; shared-budget live operation and installed proof remain unverified. The wrong-recipient path now fails closed in source, but the app still cannot deliver to the intended Codex session. No install or restart is authorized.
+
+The exact nested source commit/tree and per-file hash manifest are recorded in the new immutable handoff packet. The C5/package receipts below describe earlier snapshots only; their counts and claims do not describe this successor.
+
+# Historical C5 Packages 3 + 4 — working checkpoint (2026-10-08)
+
+## Earlier v4.6.17 snapshot — historical and superseded for status
+
+**Checkout:** `fix/rwt-orch-successor-6060194201`, based on source commit `f1df24d3ed87f8eb9235e283b3449d2789ffd9db` (tree `79b722398e026fb56d6a16d2286ee4f160ed0563`). The `cc12ad4` source snapshot was published in the immutable handoff at docs-branch commit `ee9412d08270d141a4aea0c2063714842d26b317`; it was not independently reviewed or accepted.
 
 **RED/GREEN:** six new focused tests pass: `test_readonly_checkpoint_routes_to_waiting_owned_task_with_frozen_target`, `test_readonly_delivery_rejects_wrong_owner_or_stale_target`, `test_same_task_action_dedupes_enqueue_claim_and_restart`, `test_distinct_authorized_followups_survive_while_recipient_is_busy`, `test_duplicate_write_assignment_action_dedupes_across_pm_turns`, and `test_readonly_receipt_start_result_are_distinct_and_use_plan_mode`. Initial RED was observed for the first waiting-task cases before implementation; GREEN was observed after the dispatch/claim implementation. `git diff --check` passed at this checkpoint.
 

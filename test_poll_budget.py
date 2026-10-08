@@ -1,7 +1,11 @@
 import json
+import os
 import subprocess
+import sys
+import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 import server
 import test_regressions as reg
@@ -84,6 +88,67 @@ class PollBudgetTests(unittest.TestCase):
         self.assertIsNone(cursor)
         self.assertEqual(gh.call_count, server.MAX_COMMENT_PAGES)
 
+    def test_separate_watchers_share_one_atomic_request_budget(self):
+        barrier = threading.Barrier(8)
+        outcomes = []
+        lock = threading.Lock()
+        def reserve_from_watcher(_index):
+            barrier.wait()
+            result = server.reserve_github_request_budget()
+            with lock:
+                outcomes.append(result)
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 4):
+            threads = [threading.Thread(target=reserve_from_watcher, args=(i,)) for i in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual(sum(1 for ok, _ in outcomes if ok), 4)
+            self.assertEqual(server.github_request_budget_state()['used'], 4)
+            ok, blocked = server.reserve_github_request_budget()
+            self.assertFalse(ok)
+            self.assertEqual((blocked['used'], blocked['limit']), (4, 4))
+
+    def test_separate_processes_share_the_persisted_request_budget(self):
+        script = ("import json,sys; from pathlib import Path; import server; "
+                  "server.DB=Path(sys.argv[1]); print(json.dumps(server.reserve_github_request_budget()))")
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 3), \
+             patch.dict(os.environ, {'RWT_GH_REQUEST_BUDGET_PER_MINUTE': '3'}):
+            children = [subprocess.Popen([sys.executable, '-c', script, str(server.DB)], cwd=Path(__file__).parent,
+                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        for _ in range(7)]
+            results = []
+            for child in children:
+                stdout, stderr = child.communicate(timeout=20)
+                self.assertEqual(child.returncode, 0, stderr)
+                results.append(json.loads(stdout.strip()))
+            self.assertEqual(sum(1 for ok, _state in results if ok), 3)
+            self.assertEqual(server.github_request_budget_state()['used'], 3)
+
+    def test_api_and_packet_readers_consume_the_same_budget(self):
+        success = subprocess.CompletedProcess(['gh'], 0, stdout='{}', stderr='')
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 1), \
+             patch.object(server, 'GH_BACKOFF_UNTIL', 0), \
+             patch.object(server.subprocess, 'run', return_value=success) as run:
+            value, error = server.gh_json(['api', 'repos/example'])
+            self.assertEqual((value, error), ({}, None))
+            with self.assertRaisesRegex(server.GithubReadError, 'Shared GitHub request budget exhausted'):
+                server._gh_raw('handoffs/PR-1258/packet/manifest.json', 'f' * 40)
+            denied, detail = server.gh_json(['pr', 'list'])
+            self.assertIsNone(denied)
+            self.assertIn('Shared GitHub request budget exhausted', detail)
+            self.assertEqual(run.call_count, 1)
+
+    def test_corrupt_persisted_budget_fails_closed(self):
+        server.set_setting('github_request_budget', 'not-json')
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 2), patch.object(server.subprocess, 'run') as run:
+            result, detail = server.gh_json(['api', 'repos/example'])
+            self.assertIsNone(result)
+            self.assertIn('2/2', detail)
+            self.assertEqual(server.github_request_budget_state()['used'], 2)
+            run.assert_not_called()
+
     def test_packet_raw_reader_obeys_persisted_rate_backoff(self):
         server.set_setting('github_backoff_until', str(time.time() + 60))
         with patch.object(server.subprocess, 'run') as run:
@@ -91,6 +156,15 @@ class PollBudgetTests(unittest.TestCase):
                 server._gh_raw('handoffs/PR-1258/packet/manifest.json', 'f' * 40)
         self.assertEqual(raised.exception.kind, 'rate_limited')
         run.assert_not_called()
+
+    def test_pm_executor_preserves_retryable_read_backoff_as_unconfirmed(self):
+        with patch.object(server, 'gh_json', return_value=(None, 'GitHub rate-limit backoff until reset')):
+            with self.assertRaises(server.GithubReadError) as raised:
+                server._pm_request(['api', 'repos/relativityE/speaksharp/pulls/1570'])
+        self.assertEqual(raised.exception.kind, 'rate_limited')
+        with patch.object(server, 'gh_json', return_value=(None, 'HTTP 404 Not Found')):
+            with self.assertRaisesRegex(server.Hold, 'HTTP 404'):
+                server._pm_request(['api', 'repos/relativityE/speaksharp/pulls/9999'])
 
     def test_exact_head_qualifier_obeys_shared_backoff_without_starting_child(self):
         until = time.time() + 90
@@ -132,6 +206,47 @@ class PollBudgetTests(unittest.TestCase):
         self.assertEqual(target['code_review_ids'], [81])
         self.assertEqual(target['security_review_state'], 'NOT INFERRED')
         self.assertEqual(target['inline_comment_count'], 1)
+
+    def test_affected_review_refresh_is_fair_bounded_and_cached_across_polls(self):
+        server.apply_board_updates({'work_items': [
+            {'item_key': f'PR-{n}', 'pr_number': n, 'state': 'review', 'owner': 'app_dev', 'branch': f'fix/{n}' }
+            for n in (1600, 1601, 1602)
+        ]})
+        calls = []
+        def gh(args):
+            calls.append(args)
+            path = args[-1]
+            if args[0] == 'pr':
+                n = int(args[2])
+                return {'number': n, 'state': 'OPEN', 'headRefOid': f'{n:040x}', 'baseRefOid': 'b' * 40,
+                        'headRefName': f'fix/{n}', 'baseRefName': 'main'}, None
+            if '/reviews?' in path or '/comments?' in path:
+                return [], None
+            raise AssertionError(args)
+        with patch.object(server, 'repo_slug', return_value='relativityE/speaksharp'), patch.object(server, 'gh_json', side_effect=gh):
+            first = server.affected_review_snapshot('relativityE/speaksharp')
+            self.assertEqual(sum(1 for row in first.values() if row.get('head')), 2)
+            self.assertEqual(sum(1 for row in first.values() if row.get('refresh_pending')), 1)
+            self.assertEqual(len(calls), 6)
+            second = server.affected_review_snapshot('relativityE/speaksharp')
+            self.assertEqual(sum(1 for row in second.values() if row.get('head')), 3)
+            self.assertEqual(len(calls), 9)
+            server.affected_review_snapshot('relativityE/speaksharp')
+            self.assertEqual(len(calls), 9)  # fresh shared cache does not reread on every watcher tick
+
+    def test_corrupt_review_cache_is_rebuilt_from_fresh_reads(self):
+        server.apply_board_updates({'work_items': [{'item_key': 'PR-1603', 'pr_number': 1603, 'state': 'review',
+                                                     'owner': 'app_dev', 'branch': 'fix/1603'}]})
+        server.set_setting('affected_review_cache', '{')
+        def gh(args):
+            if args[0] == 'pr':
+                return {'number': 1603, 'state': 'OPEN', 'headRefOid': 'c' * 40, 'baseRefOid': 'b' * 40,
+                        'headRefName': 'fix/1603', 'baseRefName': 'main'}, None
+            return [], None
+        with patch.object(server, 'gh_json', side_effect=gh):
+            result = server.affected_review_snapshot('relativityE/speaksharp')
+        self.assertEqual(result['1603']['head'], 'c' * 40)
+        self.assertEqual(result['1603']['cache_age_seconds'], 0)
 
     def test_affected_review_events_surface_nonselected_candidate_changes(self):
         previous = {'pr': None, 'affected_reviews': {'1600': {'head': 'a' * 40, 'base': 'b' * 40,

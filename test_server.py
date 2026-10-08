@@ -27,6 +27,10 @@ class BoardTests(unittest.TestCase):
             for k in ('R0-1549','R1-PROD-DIAG','R2-CAUSAL-FIX','R3-Q2','R4-V4','R5-FINAL-RWT')
         ]})
 
+    def recover_after_restart(self):
+        with patch.object(server, 'STATE_LOCK_FD', 100), patch.object(server, 'REPOSITORY_LOCK_FD', 101):
+            server.recover_interrupted_state_after_lock()
+
     def tearDown(self):
         self.pub_patch.stop()
         server.PM_MODE = self.old_pm_mode
@@ -62,6 +66,9 @@ class BoardTests(unittest.TestCase):
         q2 = server.enqueue(aid, 'pm', 'running')
         server.update_queue(q2, status='delivering')
         server.init_db()
+        rows = {r['id']: r for r in server.list_queue()}
+        self.assertEqual(rows[q2]['status'], 'delivering')  # a second init is not proof the old process exited
+        self.recover_after_restart()
         rows = {r['id']: r for r in server.list_queue()}
         self.assertEqual(rows[q1]['status'], 'queued')
         self.assertEqual(rows[q2]['status'], 'failed_uncertain')

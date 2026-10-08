@@ -50,7 +50,7 @@ class RouteContractTests(unittest.TestCase):
     def test_command_adapter_keeps_structured_fields(self):
         # Inverse of review probe 12: c4 dropped all three fields.
         disp = {'ask_id': 7, 'disposition': 'hold', 'owner': 'cli_dev', 'dependency': 'refresh', 'evidence': 'HOLD',
-                'review_handoff_index': None}
+                'release_event': 'refresh complete', 'review_handoff_index': None}
         routed, sid = self.command_route(dict(route(review_handoffs=[handoff()], ask_dispositions=[disp],
                                                     dev_depends_on_actions=False), session_id='pm-1'))
         self.assertIsNone(routed['parse_error'])

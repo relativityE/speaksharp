@@ -340,7 +340,8 @@
               "po_decision",
               "completed",
               "superseded",
-              "dispatched"
+              "dispatched",
+              "reopen"
             ]
           },
           "evidence": {
@@ -359,6 +360,13 @@
               "null"
             ]
           },
+          "release_event": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "With disposition=reopen, must exactly match the held ask's named release event."
+          },
           "review_handoff_index": {
             "type": [
               "integer",
@@ -373,6 +381,7 @@
           "evidence",
           "owner",
           "dependency",
+          "release_event",
           "review_handoff_index"
         ]
       }

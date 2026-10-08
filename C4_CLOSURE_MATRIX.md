@@ -1,0 +1,77 @@
+# C4 findings closure map — local 4.6.17 successor
+
+This is a source-status map for the uncommitted successor worktree, not an acceptance claim. The immutable `v4.6.17` packet at `ee9412d08270d141a4aea0c2063714842d26b317` is older. Tests below are offline unless explicitly marked HOLD. The full review and probe definitions remain in the preserved C4 review packet.
+
+## R01–R42 capability disposition
+
+| ID | Disposition in this candidate | Source and regression evidence | Remaining owner / release event |
+|---|---|---|---|
+| R01 | Partial: CLI workers are local; external actors have no supported wake transport. | `main`, `run_pm`, `run_dev`; fail-closed `blocked_transport` regression in `test_deadlock5`. | CLI PM: add an approved real adapter; remains open until actor receipt/action proof. |
+| R02 | Partial: one task writer is enforced inside a shared board; no cross-host lease proof. | `_dev_lease_conflict`, `apply_board_updates`, assignment/lease tests in `test_deadlock5`. | CLI PM: shared-host/external ownership acceptance. |
+| R03 | Partial: local journal serializes per-PR/branch mutation; no distributed external PM lease. | `pm_action_journal`, `_pm_action_scope`, `execute_pm_actions`; duplicate/concurrent action regressions. | CLI PM: prove one owner across configured PM actors. |
+| R04 | Source repaired: state/repository locks precede startup recovery; `init_db()` alone leaves running work intact. | `main`, `acquire_state_dir_lock`, `acquire_repository_lock`, `recover_interrupted_state_after_lock`; `test_interrupted_state_recovery_refuses_to_run_without_both_locks`, `test_crash_mid_execution_running_row_becomes_resumable`, `test_server.test_restart_preserves_queued_but_quarantines_inflight`. | Browser PM: independent review; five host tests and installed restart remain HOLD. |
+| R05 | Partial: explicit current-PR selection is preserved; complete independent-task prioritization is unproven. | `_auto_select_current_pr`, `affected_review_targets`; C4 probe 16 no longer reproduces. | CLI PM: review all affected-task ordering and independent work. |
+| R06 | Partial: task tuple preflight and one recovery exist; no distinct persisted bootstrap-completion phase. | `resolve_dev_target`, `queue_preflight_recovery`; preflight/recovery cases in `test_deadlock5`. | CLI PM: add bootstrap phase and verify a real missing-checkout recovery. |
+| R07 | Source repaired: queue freezes repo/path/branch/head/tree/lease/owned-dirty fingerprint and revalidates before invocation. | `enqueue`, `resolve_dev_target`, `validate_worktree`; tuple drift/foreign repo tests; C4 probe 13 no longer reproduces. | Browser PM: independent source review; live checkout transfer remains open. |
+| R08 | Present in source: board/player changes are transactional and conflicts rejected. | `apply_board_updates`; atomic assignment/lease tests in `test_deadlock5`. | Browser PM: review. |
+| R09 | Partial: stages are distinct in local queue; external receipt and owner action are not proven. | `list_queue`, `run_dev`, `task_receipt_at`, `task_result_at`; UI smoke. | CLI PM: actual task-aware recipient receipts/actions. |
+| R10 | Partial: bounded Codex PM retries/auth hold exist; adapter parity and live auth recovery are unverified. | `run_pm`, `PMTransportTimeout`; `test_deadlock` and transport tests. | CLI PM: real transport qualification. |
+| R11 | Partial: pre-invocation failures recover; invoked timeout/result delivery still lacks full live proof. | `run_dev`, `fail_delivery`, invocation recovery; `test_deadlock5` preflight and result cases. | CLI PM: bounded process/error recovery and live PM receipt. |
+| R12 | Partial: result notices and continuation gates exist; no external owner action proof. | `maybe_handoff`, `run_pm`, `action_results_block`; dependency/HOLD regressions. | CLI PM: end-to-end delivery/receipt/action proof. |
+| R13 | Source repaired: shared route parser validates Codex, command and API route shapes and retains structured fields. | `parse_pm_route`, `_run_pm_command`; route/schema tests; C4 probe 12 no longer reproduces. | Browser PM: independent review across all adapters. |
+| R14 | Partial: explicit and numbered requests are persisted separately; plain ambiguous instructions still require PM classification. | `parse_asks`, `ingest_control_asks`; ask parser and preservation tests; C4 probe 6 no longer reproduces. | CLI PM: cover all request forms in the matrix. |
+| R15 | Source repaired: HOLD retains owner/dependency/release event; reopen needs exact source-linked release evidence. | `apply_ask_dispositions`, `list_asks`; `test_held_ask_reopens_only_on_exact_evidenced_release_event`. | Browser PM: review; real release-event follow-through remains open. |
+| R16 | Partial: delivery token/actor checks and separate received/result states exist; actual external task action is unavailable. | `record_review_handoffs`, `record_handoff_receipts`; C4 probe 1/4 no longer reproduces. | CLI PM: recipient channel and task-aware receipt/action demonstration. |
+| R17 | Partial: Code, Security, CI, PM acceptance and PO authority are represented separately; complete candidate-bound closure records remain incomplete. | `_pm_qualify`, `poll_refreshed_reviews`, `review_status`; review qualification tests. | Browser PM: review coverage/closure evidence. |
+| R18 | Partial: affected PR review polling is bounded/fair; pre-PR and all-task coverage is not demonstrated live. | `affected_review_targets`, `affected_review_snapshot`; fairness/cache tests in `test_poll_budget`. | Browser PM: candidate registry and live watcher proof. |
+| R19 | Partial: Security is never inferred from Code; independent Security owner routing/completion remains unavailable. | `poll_refreshed_reviews`, `review_status`; affected-review tests assert `NOT INFERRED`. | Browser PM: supported Security route and exact-head result. |
+| R20 | Present for supported refresh path: typed authorization, canonical identity, atomic claim, phase journal and readback. | `guarded_pm.Executor`, `execute_pm_actions`; refresh regressions. | Browser PM: independent exact-head review. |
+| R21 | Partial: transient refresh reads preserve phase; startup recovery requires locks; other uncertain operations need full path review/live restart proof. | `_resume_refresh`, `recover_interrupted_state_after_lock`; `test_transient_read_hold_preserves_refresh_for_retry`, restart regressions; C4 probes 11/14 no longer reproduce. | Browser PM: review all action kinds; installed restart remains HOLD. |
+| R22 | Present in source: exact head/base/main and related CI must be terminal before guarded recovery; no merge authority. | `Executor.guard`, `test_comms`, PM action tests. | Browser PM: exact-head remote qualification. |
+| R23 | Partial: uncertain Draft creation has exact branch/PR readback; live interrupted-write proof is absent. | `Executor.resolve_uncertain`, `open_draft_pr`; guarded executor tests. | Browser PM: independent review and live readback test. |
+| R24 | Source repaired: affirmative source-authored action authorization is required; quoted/negated text cannot authorize. | `Executor._require_action_authorization`; C4 probe 15 no longer reproduces; authorization tests. | Browser PM: review fixtures and immutable source identity. |
+| R25 | Partial: queued payload and event cursor are durable; edited-comment and all restart combinations need further review. | `emit_github_event`, staged cursor functions; `test_event_delivery`, cursor tests. | CLI PM: edited-event/restart fixtures. |
+| R26 | Partial: incremental bounded comments use lookback and cursor; outbox fallback and all pagination boundaries need review. | `fetch_watch_comments`, `bounded_github_list`; C4 probe 9 no longer reproduces. | CLI PM: verify every comment-read route. |
+| R27 | Present in source: incomplete reads preserve cursor and unread events. | `fetch_watch_comments`, `commit_watch_comment_cursors`; burst/failure tests in `test_poll_budget`. | Browser PM: independent review. |
+| R28 | Partial: automatic self-wake is suppressed; semantic directive dedup and every repeated disposition path remain to audit. | `run_pm`, `publish_pm_reply`, delivery keys; C4 probes 7/8 no longer reproduce. | CLI PM: duplicate/replay matrix. |
+| R29 | Partial: outbox marker readback avoids blind POST replay; completing all owed effects after every crash point needs more proof. | `recover_pm_outbox`, `pm_turn_effects`, continuation recovery; outbox tests. | CLI PM: crash-injection closure. |
+| R30 | Source repaired locally: SQLite budget/backoff is shared by board, packet and qualifier readers; live aggregate use is unknown. | `reserve_github_request_budget`, `_gh_raw`, `_pm_qualify`; separate-process/common-budget/backoff tests; C4 probe 10 now fails closed with `rate_limited`. | Browser PM: demonstrate installed budget across independent watchers. |
+| R31 | Present: immutable local packet paths, hashes and bounded extraction exist. | `save_files`, packet manifest/extraction tests. | CLI PM: review packet path continuity. |
+| R32 | Partial: remote destination is visible; no automatic publisher or external-readable artifact guarantee. | `handoff_location`, `/api/handoff-location`, UI smoke. | CLI PM: connector-readable artifact path. |
+| R33 | Present for normal verifier: exact immutable commit/path/hash checks are implemented. | `verify_remote_packet`; packet verification tests. | Browser PM: remote exact-commit readback on published candidate. |
+| R34 | Partial: packet verification retries and routes local CLI PM; external fallback reviewer/receipt remains missing. | `packet_verifications`, `sweep_packet_verifications`; packet recovery tests. | CLI PM: external reviewer adapter. |
+| R35 | Open: no supported external App Dev/Browser PM wake transport is available in this runtime. | `UnsupportedRecipientTransport`, `block_delivery_for_transport`; fail-closed regression proves no wrong worker invocation. | Browser PM: supply an approved supported adapter and real actor proof. |
+| R36 | Partial: dashboard shows local delivery stages, blockers, asks and shared budget; truthful external freshness/recovery is unverified. | `dashboard_snapshot`, `list_queue`, `static/index.html`; UI smoke. | Browser PM: installed live-state review. |
+| R37 | Partial: stop/pause and generic retry guards preserve invoked uncertainty; all route combinations need review. | `release_uninvoked_claim`, retry endpoint, invocation recovery; pause/retry tests. | CLI PM: full stop/hold route matrix. |
+| R38 | Source repaired for startup claims: history remains; restart recovery occurs only under singleton locks. | `recover_interrupted_state_after_lock`; lock, running-action and queue recovery tests. | Browser PM: installed restart acceptance. |
+| R39 | Partial: staged migration preserves DB/WAL/uploads and rebases known paths; all handoff/artifact migration cases need proof. | `migrate_state.py`; migration tests. | CLI PM: artifact-continuity matrix. |
+| R40 | HOLD: no install/rollback packet accepted and no installed acceptance is authorized or claimed. | `README.md`, `TEST_RECEIPT.md`; no live installation performed. | Browser PM: review source packet; PO/runtime authority for a later bounded install. |
+| R41 | Source repaired; execution HOLD: same-origin/token/Host boundary is implemented but five socket-bound tests were not executable here. | `H.do_POST`, `CONTROL_TOKEN_HEADER`; `test_package2a.ControlBoundaryTests`, `test_ui.js`; five loopback tests excluded. | CLI PM: exact-host test lease/bind capability. |
+| R42 | Out of app-source closure: product journeys and human-visible results are not established by board tests. | Explicitly no journey claim in this packet. | App Dev + PO: deployed coaching, Open Mic, Focus and returning-user evidence. |
+
+## F01–F16 finding disposition
+
+| Finding | Disposition and regression evidence | Remaining gate |
+|---|---|---|
+| F01 | Durable turn effects, unique delivery keys and recovery exist; C4 probe 1 no longer strands a recorded handoff. | Crash injection across all publication/enqueue checkpoints. |
+| F02 | Persisted dispatch hold gates routes; dedupe prevents review plus `next=dev`; C4 probes 2/7/8 no longer bypass. | Full multi-route and host recovery matrix. |
+| F03 | Requests persist independently; HOLD retains dependency/release event; C4 probes 3/5/6 no longer retire/drop asks. | Plain-instruction classification and external actor follow-through remain open. |
+| F04 | Receipt, result, review and completion are separate; C4 probe 4 no longer accepts another actor's quoted token. | Real actor channel and action acknowledgment. |
+| F05 | Shared bounded packet reads and retry state exist; C4 probe 10 now receives a rate-limit error. | External reviewer fallback/receipt remains open. |
+| F06 | Affected-review snapshot is fair and cached; Code/Security remain separate. | Full affected-PR/security/PM-candidate coverage and live exact-head review. |
+| F07 | Affirmative action authorization, operation scope and state/repository locks exist; C4 probes 14/15 no longer reproduce. | Independent cross-PM/installed lock proof. |
+| F08 | Checkout tuple is frozen and revalidated; C4 probe 13 no longer accepts changed/foreign checkout. | Real bootstrap completion and owned-dirty continuation proof. |
+| F09 | Transient refresh reads stay `unconfirmed` and resume the journaled phase; no second Draft write; startup recovery is lock-gated. | All action-kind restart/readback cases and installed restart. |
+| F10 | Shared typed schema/parser retains command/API route fields; C4 probe 12 no longer drops handoffs. | Independent transport-parity review. |
+| F11 | Bounded incremental reads, shared SQLite budget/backoff, fair refresh and packet budget regressions exist; C4 probes 9/10 no longer reproduce. | Installed cross-watcher aggregate budget and outbox fallback audit. |
+| F12 | Invocation and result stages are distinct; uninvoked claims return safely; wrong-recipient transport fails closed. | Bounded process wait/termination and actual PM receipt remain open. |
+| F13 | Missing external transport remains explicit; no supported external adapter or real all-agent proof exists. | BLOCKED on approved transport capability and actor-by-actor live evidence. |
+| F14 | Explicit PR selection is preserved and UI exposes several local blockers/stages. | Build identity, resolved blocker and installed freshness audit. |
+| F15 | Source enforces control token, origin/content/host checks. | Five host-bound loopback tests remain unexecuted. |
+| F16 | Staged migration and source-preserving path handling exist. | Complete artifact/handoff matrix and actual rollback/build digest review. |
+
+## Later coordination findings
+
+- Missed-pin fixtures `6050978719` and `6051072760` now have an offline parse/idempotence regression (`test_missed_pin_followup_fixtures_remain_tracked_after_reconciliation`) for the post-pin request; the GitHub records remain source evidence, not proof of notification or actor action.
+- The hard notification requirement in `6049476822` is not met: no supported external task inbox/wake adapter exists for App Dev or Browser PM, and the actual agents have not provided task-aware receipt/action evidence through this candidate.
+- Five host-bound tests, independent Browser PM review, installed acceptance, and product journey proof remain separate HOLDs. This source packet must not be described as complete or install-ready.

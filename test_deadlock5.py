@@ -16,7 +16,7 @@ import unittest
 
 import server
 import test_regressions as reg
-from guarded_pm import canonical_key, KINDS
+from guarded_pm import Hold, canonical_key, KINDS
 
 HEAD = 'a' * 40
 BASE = 'b' * 40
@@ -129,6 +129,11 @@ class Deadlock5Tests(unittest.TestCase):
         second = server.acquire_state_dir_lock(path)
         server.release_state_dir_lock(second)
 
+    def test_interrupted_state_recovery_refuses_to_run_without_both_locks(self):
+        with patch.object(server, 'STATE_LOCK_FD', None), patch.object(server, 'REPOSITORY_LOCK_FD', None):
+            with self.assertRaisesRegex(RuntimeError, 'requires the exclusive state and repository locks'):
+                server.recover_interrupted_state_after_lock()
+
     def test_repository_lock_blocks_another_board_with_a_different_state_dir(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -201,7 +206,7 @@ class Deadlock5Tests(unittest.TestCase):
     def test_crash_between_failure_and_recovery_is_swept_once_after_restart(self):
         self.assign()
         q = self.dev_row(status='failed', error='worktree missing', preflight_recovery_due=1)
-        server.init_db()  # restart path
+        self.recover_after_restart()
         swept = server.sweep_preflight_recoveries()
         self.assertEqual(len(swept), 1)
         self.assertEqual(server.sweep_preflight_recoveries(), [])
@@ -285,8 +290,8 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertEqual(self.recoveries(), [])
 
     # ---------- 3. independent asks ----------
-    MULTI = ('App Dev → CLI PM / Browser PM — #1258 App Dev lane — BLOCKER SUMMARY (3 open asks) — REQUEST: '
-             '(1) push-pin disposition for the coaching-text summary, (2) a route for PR 4\'s real-engine evidence, '
+    MULTI = (f'App Dev → CLI PM / Browser PM — #1258 App Dev lane — BLOCKER SUMMARY (3 open asks) — REQUEST: '
+             f'(1) push-pin disposition for coaching-text summary candidate {HEAD}, (2) a route for PR 4\'s real-engine evidence, '
              '(3) a Designer copy check\n\nbody')
 
     def comment(self, cid, body, at='2099-01-01T00:00:00Z'):
@@ -332,6 +337,16 @@ class Deadlock5Tests(unittest.TestCase):
         closed = next(a for a in server.list_asks() if a['id'] == ids[0])
         self.assertEqual(closed['disposition'], 'pin')
 
+    def test_pin_cannot_bind_a_candidate_that_the_ask_never_named(self):
+        server.ingest_control_asks([self.comment(104, 'App Dev → CLI PM — #1570 — REQUEST: issue a push pin')])
+        ask = server.list_asks('pending')[0]
+        applied, rejected = server.apply_ask_dispositions(
+            {'id': 1}, [{'ask_id': ask['id'], 'disposition': 'pin', 'evidence': 'candidate ' + HEAD}],
+            'comment 6060000004')
+        self.assertEqual(applied, [])
+        self.assertIn('exact candidate (missing)', rejected[0])
+        self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask['id'])['state'], 'pending')
+
     def test_unpublished_reply_does_not_close_asks(self):
         server.ingest_control_asks([self.comment(101, self.MULTI)])
         ids = [a['id'] for a in server.list_asks('pending')]
@@ -346,6 +361,56 @@ class Deadlock5Tests(unittest.TestCase):
         server.ingest_control_asks([self.comment(150, 'Browser PM → App Dev — dispositions for consolidated blockers 101\n\n'
                                                        '1. Coaching-summary publication: CONDITIONAL PUSH PIN\n3. Copy check: DONE')])
         self.assertEqual([a['ask_index'] for a in server.list_asks('pending')], [2])
+
+    def test_held_ask_reopens_only_on_exact_evidenced_release_event(self):
+        server.ingest_control_asks([self.comment(101, self.MULTI)])
+        ask_id = server.list_asks('pending')[0]['id']
+        hold = {'ask_id': ask_id, 'disposition': 'hold', 'evidence': 'waiting for required scan',
+                'owner': 'cli_pm', 'dependency': 'Gate 4 scan passes on main',
+                'release_event': 'Gate 4 scan passes on main',
+                'review_handoff_index': None}
+        applied, rejected = server.apply_ask_dispositions({'id': 1}, [hold], 'comment 6060000001')
+        self.assertEqual((applied, rejected), ([ask_id], []))
+        held = next(a for a in server.list_asks() if a['id'] == ask_id)
+        self.assertEqual((held['state'], held['owner'], held['release_event']),
+                         ('held', 'cli_pm', 'Gate 4 scan passes on main'))
+
+        wrong = {'ask_id': ask_id, 'disposition': 'reopen', 'evidence': 'Gate 4 scan passes https://github.com/c/6060000002',
+                 'owner': 'cli_pm', 'dependency': None, 'release_event': 'Gate 4 scan passes',
+                 'review_handoff_index': None}
+        applied, rejected = server.apply_ask_dispositions({'id': 2}, [wrong], 'comment 6060000002')
+        self.assertEqual(applied, [])
+        self.assertIn('release_event must exactly match', rejected[0])
+        self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask_id)['state'], 'held')
+
+        valid = dict(wrong, release_event='Gate 4 scan passes on main',
+                     evidence='Gate 4 scan passes on main https://github.com/c/6060000003')
+        applied, rejected = server.apply_ask_dispositions({'id': 3}, [valid], 'comment 6060000003')
+        self.assertEqual((applied, rejected), ([ask_id], []))
+        reopened = next(a for a in server.list_asks() if a['id'] == ask_id)
+        self.assertEqual(reopened['state'], 'pending')
+        self.assertEqual(reopened['release_event'], 'Gate 4 scan passes on main')
+        self.assertIn('Named release event observed', ' '.join(reopened['signals']))
+        self.assertEqual(server.apply_ask_dispositions({'id': 3}, [valid], 'comment 6060000003'), ([], []))
+
+    def test_missed_pin_followup_fixtures_remain_tracked_after_reconciliation(self):
+        # Exact coordination pair: PM push pin 6050978719 and App Dev's result/request 6051072760.
+        server.set_setting('asks_ingest_since', '2026-10-08T00:00:00+00:00')
+        pin = self.comment(6050978719,
+            'CLI PM → APP DEV / BROWSER PM — automatic board response\n'
+            'App Dev may fast-forward `feat/1258-design-rev2-combined` at '
+            '07b4570db680f8ad1737ab83449681df2103c683. This pin permits publication only.')
+        result = self.comment(6051072760,
+            'App Dev → CLI PM / Browser PM — #1258 combined Rev 2 — PUSH DONE — '
+            'REQUEST: keep the combined PR queued behind #1570\n'
+            'Readback head 07b4570db680f8ad1737ab83449681df2103c683; publication only.',
+            at='2026-10-08T02:41:18Z')
+        self.assertEqual(server.ingest_control_asks([pin, result]), 1)
+        ask = server.list_asks('pending')
+        self.assertEqual(len(ask), 1)
+        self.assertEqual((ask[0]['source_comment_id'], ask[0]['task_ref']), (6051072760, '#1258 #1570'))
+        self.assertEqual(ask[0]['request'], 'keep the combined PR queued behind #1570')
+        self.assertEqual(server.ingest_control_asks([pin, result]), 0)
 
     def test_watchdog_one_bounded_recovery_then_board_blocker(self):
         server.ingest_control_asks([self.comment(101, self.MULTI, at='2099-01-01T00:00:00Z')])
@@ -476,6 +541,10 @@ class Deadlock5Tests(unittest.TestCase):
         with server.con() as c:
             return [dict(r) for r in c.execute('SELECT * FROM pm_action_journal')]
 
+    def recover_after_restart(self):
+        with patch.object(server, 'STATE_LOCK_FD', 100), patch.object(server, 'REPOSITORY_LOCK_FD', 101):
+            server.recover_interrupted_state_after_lock()
+
     def test_pm_plan_reaches_executor_and_records_execution_not_review_completion(self):
         gh = FakeGitHub()
         raw = json.dumps({'message': 'Refreshing #1570 reviews', 'next': 'none', 'publish': True, 'board_updates': board(),
@@ -594,7 +663,7 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertTrue(first[0].startswith('UNCONFIRMED'))
         self.assertTrue(gh.pr['draft'])  # stranded in Draft until resumed
         self.assertEqual(self.journal()[0]['phase'], 'ready_requested')
-        server.init_db()  # restart
+        self.recover_after_restart()
         with patch.object(server, '_pm_request', side_effect=gh.request):
             resumed = server.resume_interrupted_actions()
             self.assertEqual(server.resume_interrupted_actions(), [])
@@ -618,12 +687,28 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertTrue(second[0].startswith('RESUMED:'), second)
         self.assertEqual(gh.writes, ['ready'])
 
+    def test_transient_read_hold_preserves_refresh_for_retry(self):
+        gh = FakeGitHub(fail_on='ready')
+        with patch.object(server, '_pm_request', side_effect=gh.request):
+            first = server.execute_pm_actions({'id': 1}, [refresh_action()])
+        self.assertTrue(first[0].startswith('UNCONFIRMED:'))
+        with patch.object(server, '_pm_request', side_effect=Hold('GitHub read transient/backoff')):
+            resumed = server.resume_interrupted_actions()
+        self.assertEqual(resumed[0][1], 'unconfirmed')
+        self.assertEqual(self.journal()[0]['phase'], 'ready_requested')
+        with patch.object(server, '_pm_request', side_effect=gh.request):
+            again = server.execute_pm_actions({'id': 2}, [refresh_action()])
+        self.assertTrue(again[0].startswith('RESUMED:'))
+        self.assertEqual(gh.writes, ['draft', 'ready'])
+
     def test_crash_mid_execution_running_row_becomes_resumable(self):
         gh = FakeGitHub(draft=True)  # Draft write landed, then the process died
         with server.con() as c:
             c.execute("INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,phase,pr_number,head,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
                       (canonical_key(refresh_action()), 'running', 'x', 'refresh_reviews', json.dumps(refresh_action()), 'draft_requested', 1570, HEAD, server.now()))
-        server.init_db()
+        server.init_db()  # ordinary reinitialization leaves a live action claim untouched
+        self.assertEqual(self.journal()[0]['status'], 'running')
+        self.recover_after_restart()
         self.assertEqual(self.journal()[0]['status'], 'unconfirmed')
         with patch.object(server, '_pm_request', side_effect=gh.request):
             again = server.execute_pm_actions({'id': 3}, [refresh_action()])  # PM re-emits after restart
@@ -826,7 +911,7 @@ class Deadlock5Tests(unittest.TestCase):
         with server.con() as c:
             c.execute("INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,phase,pr_number,head,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
                       (canonical_key(refresh_action()), 'running', 'x', 'refresh_reviews', json.dumps(refresh_action()), 'ready_requested', 1570, HEAD, server.now()))
-        server.init_db()
+        self.recover_after_restart()
         with patch.object(server, '_pm_request', side_effect=gh.request):
             out = server.execute_pm_actions({'id': 5}, [refresh_action(source_comment_id=777)])
             self.assertTrue(server.execute_pm_actions({'id': 6}, [refresh_action()])[0].startswith('RECORDED: completed'))
@@ -1115,9 +1200,33 @@ class Deadlock5Tests(unittest.TestCase):
             first = server.next_queue('dev')
             self.assertEqual(first['id'], rows[0]['id'])
             self.assertIsNone(server.next_queue('dev'))  # concurrent/replayed claim cannot invoke a second actor
-            server.init_db()  # restart recovery requeues only the uninvoked claim, preserving its identity
+            self.recover_after_restart()  # restart recovery requeues only the uninvoked claim, preserving its identity
             self.assertEqual(server.next_queue('dev')['id'], first['id'])
             self.assertEqual(len([r for r in server.list_queue(500) if r['recipient'] == 'dev']), 1)
+
+    def test_pause_after_claim_requeues_uninvoked_delivery_without_duplication(self):
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+              'tree': 'd' * 40, 'repo_common_dir': '/repo/.git', 'origin': 'https://github.com/relativityE/speaksharp.git',
+              'snapshot_stable': True, 'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
+        with patch.object(server, 'validate_worktree', return_value=ok), \
+             patch.object(server, '_git_common_dir', return_value='/repo/.git'):
+            self.assign(worktree='/wt/ok')
+            server.update_work_item(KEY, state='waiting')
+            aid = server.add_activity('PM', 'Read-only checkpoint', 'dev')
+            qid = server.enqueue(aid, 'dev', 'checkpoint', source_actor='PM', work_item_key=KEY,
+                                 kind='readonly_checkpoint', task_action_id='pause-race:checkpoint')
+            claimed = server.next_queue('dev')
+            self.assertEqual(claimed['id'], qid)
+            server.set_agent('dev', paused=True)
+            self.assertTrue(server.release_uninvoked_claim(claimed))
+            queued = next(q for q in server.list_queue() if q['id'] == qid)
+            self.assertEqual((queued['status'], queued['attempts']), ('queued', 0))
+            self.assertFalse(server.release_uninvoked_claim(claimed))
+            self.assertIsNone(server.next_queue('dev'))
+            server.set_agent('dev', paused=False)
+            resumed = server.next_queue('dev')
+            self.assertEqual(resumed['id'], qid)
+            self.assertEqual(len([q for q in server.list_queue() if q.get('task_action_id') == 'pause-race:checkpoint']), 1)
 
     def test_distinct_authorized_followups_survive_while_recipient_is_busy(self):
         ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
@@ -1164,7 +1273,7 @@ class Deadlock5Tests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertTrue(rows[0]['delivery_key'].startswith('task-action:'))
 
-    def test_readonly_receipt_start_result_are_distinct_and_use_plan_mode(self):
+    def test_readonly_checkpoint_does_not_wake_wrong_claude_recipient(self):
         ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
               'tree': 'd' * 40, 'repo_common_dir': '/repo/.git', 'origin': 'https://github.com/relativityE/speaksharp.git',
               'snapshot_stable': True, 'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
@@ -1179,23 +1288,22 @@ class Deadlock5Tests(unittest.TestCase):
             with patch.object(server, 'publish_pm_reply', return_value=True):
                 self.run_pm_with(route)
             q = next(r for r in server.list_queue(500) if r['recipient'] == 'dev')
-            content = server.compose_for_dev(q)
-            cmd = server._claude_command(content, 'new-readonly-session', False)
-            self.assertEqual(cmd[cmd.index('--permission-mode') + 1], 'plan')
-            self.assertIn('Do not edit files', content)
-            self.assertIn('TASK-RECEIPT source-20:checkpoint', q['content'])
-            server.update_queue(q['id'], status='responded', process_started_at=server.now(), finished_at=server.now())
-            self.assertFalse(server.record_readonly_task_stages(q['id'], 'TASK-RESULT source-20:checkpoint incomplete'))
-            missing = next(r for r in server.list_queue(500) if r['id'] == q['id'])
-            self.assertIsNone(missing['task_receipt_at'])
-            result = ('TASK-RECEIPT source-20:checkpoint accepted\n'
-                      'TASK-RESULT source-20:checkpoint branch unchanged; waiting for pin')
-            self.assertTrue(server.record_readonly_task_stages(q['id'], result))
-            complete = next(r for r in server.list_queue(500) if r['id'] == q['id'])
-            self.assertTrue(complete['task_receipt_at'])
-            self.assertTrue(complete['process_started_at'])
-            self.assertTrue(complete['task_result_at'])
-            self.assertIn('TASK RECEIPT REPORTED', complete['delivery_stage'])
+            claimed = server.next_queue('dev')
+            with patch.object(server, 'resolve_dev_target', return_value={'ok': True, 'path': '/wt/ok'}), \
+                 patch.object(server, '_run_claude_once') as invoke:
+                with self.assertRaises(server.UnsupportedRecipientTransport):
+                    server.run_dev(claimed)
+                self.assertTrue(server.block_delivery_for_transport(
+                    claimed, 'No supported transport to the existing Codex writer session'))
+            invoke.assert_not_called()
+            blocked = next(r for r in server.list_queue(500) if r['id'] == q['id'])
+            self.assertEqual(blocked['status'], 'blocked_transport')
+            self.assertIn('existing Codex writer session', blocked['error'])
+            self.assertIsNone(blocked['task_receipt_at'])
+            self.assertIsNone(blocked['process_started_at'])
+            self.assertIsNone(blocked['task_result_at'])
+            self.assertEqual(server.get_agent('dev')['status'], 'idle')
+            self.assertIn('TRANSPORT', blocked['delivery_stage'])
 
 
     # ---------- c4: PM disposition (delivery 91) ----------
