@@ -821,7 +821,7 @@ def update_work_item(item_key, **fields):
         if transfer:
             raise ValueError("WRITE lease transfer rejected: " + transfer)
         if "blocker" in clean and "blocker_since" not in clean and old["blocker"] != str(clean["blocker"]):
-            clean["blocker_since"] = now()
+            clean["blocker_since"] = now() if str(clean['blocker'] or '') else None
         identity_fields = ('owner', 'state', 'branch', 'worktree', 'owned_paths')
         if any(k in clean and str(old[k] or '') != str(clean[k] or '') for k in identity_fields):
             if merged.get('owner') in DEV_OWNERS and merged.get('state') in WRITE_STATES:
@@ -887,8 +887,16 @@ def apply_board_updates(updates):
                 if any(k in clean and str(old[k] or '') != str(clean[k] or '')
                        for k in ('owner', 'branch', 'worktree', 'owned_paths')):
                     clean['assignment_generation'] = uuid.uuid4().hex
-                if 'blocker' in clean and 'blocker_since' not in clean:
-                    clean['blocker_since'] = now()
+                if 'blocker' in clean:
+                    prior_blocker = str(old['blocker'] or '')
+                    next_blocker = str(clean['blocker'] or '')
+                    if next_blocker == prior_blocker:
+                        # Repeated PM checkpoints do not make an old blocker look new.
+                        clean['blocker_since'] = old['blocker_since']
+                    else:
+                        # The board owns blocker age; only a changed non-empty
+                        # blocker starts a new clock, and clearing it clears the clock.
+                        clean['blocker_since'] = now() if next_blocker else None
                 clean['updated_at'] = now()
                 c.execute('UPDATE work_items SET ' + ','.join(f'{k}=?' for k in clean) + ' WHERE item_key=?', list(clean.values()) + [key])
                 touched.append(key)
@@ -5327,6 +5335,31 @@ def dashboard_snapshot():
     except (ValueError, TypeError):
         watch_snapshot = {}
 
+    # Escalations are projections of unresolved rows, not sticky error strings.
+    # A later receipt/disposition/result must clear the dashboard blocker.
+    open_asks = list_asks('open')
+    current_asks = [a for a in open_asks if a.get('state') == 'pending' and a.get('escalated')]
+    ask_blocker = ''
+    if current_asks:
+        ask_blocker = (f"{len(current_asks)} ask(s) still undispositioned after one PM recovery: " +
+                       ', '.join(f"#{a['id']} (source {a['source_comment_id']})" for a in current_asks))
+    all_handoffs = list_review_handoffs()
+    stale_receipts = [h for h in all_handoffs if h.get('state') in ('recorded','delivered','received','blocked')
+                      and h.get('escalated')]
+    stale_actions = [h for h in all_handoffs if h.get('state') == 'acknowledged' and h.get('action_escalated')]
+    handoff_parts = []
+    if stale_receipts:
+        handoff_parts.append(f"{len(stale_receipts)} review handoff(s) without owner receipt after one PM recovery: " +
+                             ', '.join(f"{h['token']} ({h['owner']}, {h['state']})" for h in stale_receipts))
+    if stale_actions:
+        handoff_parts.append(f"{len(stale_actions)} review handoff(s) received but without owner RESULT after one PM recovery: " +
+                             ', '.join(f"{h['token']} ({h['owner']})" for h in stale_actions))
+    handoff_blocker = '; '.join(handoff_parts)
+    if get_setting('pm_ask_blocker', '') != ask_blocker:
+        set_setting('pm_ask_blocker', ask_blocker)
+    if get_setting('pm_handoff_blocker', '') != handoff_blocker:
+        set_setting('pm_handoff_blocker', handoff_blocker)
+
     return {
         "version": BOARD_VERSION,
         "build": BOARD_BUILD,
@@ -5345,9 +5378,9 @@ def dashboard_snapshot():
         "reconciliation": get_setting("pm_reconciliation_status", "Awaiting first structured PM checkpoint"),
         "comms": {"poll":get_setting("github_watch_last_poll", ""),"wake":get_setting("github_watch_last_wake", ""),"error":get_setting("github_watch_last_error", ""),"outbox":get_setting("pm_outbox_status", "Awaiting PM reply")},
         "recent_completed": pr.get("recent_completed") or [],
-        "asks": list_asks('open'),
-        "handoff_blocker": get_setting("pm_handoff_blocker", ""),
-        "ask_blocker": get_setting("pm_ask_blocker", ""),
+        "asks": open_asks,
+        "handoff_blocker": handoff_blocker,
+        "ask_blocker": ask_blocker,
         "review_handoffs": [h for h in list_review_handoffs() if h['state'] != 'acknowledged'],
         "action_blockers": json.loads(get_setting("pm_action_blockers", "[]") or "[]"),
         "packet_verifications": list_packet_verifications(10),

@@ -579,6 +579,47 @@ print(json.dumps({'type':'turn.completed'}))
         self.assertEqual(released['status'],'available')
         self.assertEqual(released['blocker'],'')
 
+    def test_identical_blocker_checkpoint_does_not_reset_blocked_age(self):
+        self.assertTrue(server.apply_board_updates({'work_items':[{'item_key':'R2-CAUSAL-FIX','blocker':'rate limit'}]}))
+        before=next(x for x in server.list_work_items() if x['item_key']=='R2-CAUSAL-FIX')['blocker_since']
+        with patch.object(server,'now',return_value='2099-01-01T00:00:00+00:00'):
+            self.assertTrue(server.apply_board_updates({'work_items':[{'item_key':'R2-CAUSAL-FIX','blocker':'rate limit'}]}))
+        after=next(x for x in server.list_work_items() if x['item_key']=='R2-CAUSAL-FIX')['blocker_since']
+        self.assertEqual(after,before)
+        with patch.object(server,'now',return_value='2099-01-01T00:00:01+00:00'):
+            self.assertTrue(server.apply_board_updates({'work_items':[{'item_key':'R2-CAUSAL-FIX','blocker':'new dependency'}]}))
+        changed=next(x for x in server.list_work_items() if x['item_key']=='R2-CAUSAL-FIX')['blocker_since']
+        self.assertEqual(changed,'2099-01-01T00:00:01+00:00')
+        server.update_work_item('R2-CAUSAL-FIX',blocker='')
+        cleared=next(x for x in server.list_work_items() if x['item_key']=='R2-CAUSAL-FIX')
+        self.assertIsNone(cleared['blocker_since'])
+
+    def test_dashboard_clears_escalation_blockers_when_rows_are_resolved(self):
+        server.ingest_control_asks([{'id':501,'body':'App Dev → CLI PM — REQUEST: verify packet',
+                                     'url':'https://example/issues/1258#issuecomment-501','at':server.now()}])
+        ask=server.list_asks('pending')[0]
+        with server.con() as c:
+            c.execute('UPDATE asks SET escalated=1 WHERE id=?',(ask['id'],))
+            c.execute('INSERT INTO review_handoffs(pr_number,head,reviewed_ref,disposition,owner,instruction,token,state,created_at,escalated) '
+                      'VALUES(1570,?,?,?,?,?,?,?, ?,1)',('a'*40,'review 88','hold','app_dev','verify result','RH-88-aaaaaaaa','delivered',server.now()))
+        server.set_setting('pm_ask_blocker','stale ask blocker')
+        server.set_setting('pm_handoff_blocker','stale handoff blocker')
+        fake_pr={'repo':'relativityE/speaksharp','error':None,'active':[],'recent_completed':[],
+                 'current':{'number':1549,'title':'diag','url':'https://example/1549','headRefOid':'a'*40,
+                            'baseRefOid':'b'*40,'isDraft':False,'state':'OPEN','createdAt':'2026-10-01T16:00:00Z',
+                            'statusCheckRollup':[],'reviewDecision':None}}
+        with patch.object(server,'display_pr_snapshot',return_value=fake_pr):
+            active=server.dashboard_snapshot()
+        self.assertIn('501',active['ask_blocker'])
+        self.assertIn('RH-88-aaaaaaaa',active['handoff_blocker'])
+        with server.con() as c:
+            c.execute("UPDATE asks SET state='dispositioned' WHERE id=?",(ask['id'],))
+            c.execute("UPDATE review_handoffs SET state='result_returned' WHERE token='RH-88-aaaaaaaa'")
+        with patch.object(server,'display_pr_snapshot',return_value=fake_pr):
+            resolved=server.dashboard_snapshot()
+        self.assertEqual(resolved['ask_blocker'],'')
+        self.assertEqual(resolved['handoff_blocker'],'')
+
     def test_pm_route_schema_is_strict_structured_output_valid(self):
         schema = json.loads((Path(__file__).with_name('pm-route.schema.json')).read_text())
         def check(node, path='root'):
