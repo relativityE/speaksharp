@@ -930,6 +930,22 @@ class Deadlock5Tests(unittest.TestCase):
         failed = json.loads(json.dumps(snapshot))
         failed['runs']['321']['conclusion'] = 'failure'
         self.assertIsNone(server.queue_ci_review_followup(failed))
+        stop = threading.Event()
+        def watcher_snapshot():
+            stop.set()
+            return snapshot, None
+        with patch.object(server, 'STOP', stop), \
+             patch.object(server, 'github_watch_snapshot', side_effect=watcher_snapshot), \
+             patch.object(server, 'automation_settings', return_value={'watch_interval_seconds': 0}), \
+             patch.object(server, 'resume_interrupted_actions'), \
+             patch.object(server, 'resume_owed_pm_turns'), \
+             patch.object(server, 'pending_pin_watchdog'), \
+             patch.object(server, 'recover_packet_verification_notices'), \
+             patch.object(server, 'recover_pending_packet_verifications'), \
+             patch.object(server, 'poll_refreshed_reviews'), \
+             patch.object(server, 'pending_ask_watchdog'), \
+             patch.object(server, 'pending_handoff_watchdog'):
+            server.github_watcher()
         followup = server.queue_ci_review_followup(snapshot)
         self.assertIsNotNone(followup)
         server.init_db()  # simulated board restart after CI completed but before PM consumed its wake
