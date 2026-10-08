@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
+import { currentLogin, sameLogin } from '@/services/loginSessionLog';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendsCard } from './analytics/TrendsCard';
@@ -68,12 +69,22 @@ import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
  * detail read fails, the PDF is built from the list row as before (metrics, no transcript page). The detail surface
  * already holds the detail row.
  */
-const downloadSessionPdf = (surface: PdfSurface, ...args: Parameters<typeof generateSessionPdf>): void => {
-    const [session, ...rest] = args;
+const downloadSessionPdf = (
+    surface: PdfSurface, session: PracticeSession, username: string, isPro: boolean, sessionsForDay: PracticeSession[],
+): void => {
+    // #1573 Codex P1 (review 5460913397): bound to the login that started it. A sign-out or account switch while the
+    // detail/progress reads are in flight discards the work — no previous-account PDF (transcript or metrics fallback)
+    // and no success event. Nothing is aborted at the wire (#1422); the late answer is simply not used.
+    const startedBy = currentLogin();
+    const stillCurrent = () => sameLogin(startedBy, currentLogin());
     const source = surface === 'session_detail'
         ? Promise.resolve(session)
         : getSessionById(session.id).then((detail) => detail ?? session, () => session);
-    void source.then((pdfSession) => generateSessionPdf(pdfSession, ...rest)).then(
+    void source.then((pdfSession) => {
+        const foreignRow = startedBy !== null && typeof pdfSession.user_id === 'string' && pdfSession.user_id !== startedBy.ownerId;
+        if (!stillCurrent() || foreignRow) return false;
+        return generateSessionPdf(pdfSession, username, isPro, sessionsForDay, stillCurrent);
+    }).then(
         (saved) => { if (saved) trackSessionPdfDownloaded(surface); },
         () => undefined,
     );

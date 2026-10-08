@@ -119,6 +119,12 @@ export function currentLogin(): { ownerId: string; loginStartedAt: number } | nu
 
 export type LoginIdentity = { ownerId: string; loginStartedAt: number };
 
+/** The same login (owner AND sign-in), or both absent. #1573: async work bound to a login is discarded when this is false. */
+export function sameLogin(a: LoginIdentity | null, b: LoginIdentity | null): boolean {
+    if (a === null || b === null) return a === b;
+    return a.ownerId === b.ownerId && a.loginStartedAt === b.loginStartedAt;
+}
+
 /**
  * The controller's confirmed-save hook (#1541 Codex P1 r4127289522). `recordingLogin` is the login captured when the
  * recording began (or when a same-owner Retry Save was rehydrated), NOT the login current when the save completes: a save

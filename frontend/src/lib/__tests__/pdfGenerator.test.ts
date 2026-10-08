@@ -523,3 +523,24 @@ describe('generateSessionPdf — metric-presence: unmeasured metrics render N/A,
     });
   });
 });
+
+describe('#1573 Codex P1 (review 5460913397) — the save is bound to the initiating login', () => {
+  const boundSession = { id: '123', user_id: 'owner-a', created_at: '2026-10-08T12:00:00Z', duration: 60, total_words: 10, wpm: 100, clarity_score: 80, transcript: 'x' } as unknown as Session;
+  it('CASUALTY: a login change during the progress read means nothing is saved and false is returned', async () => {
+    let current = true;
+    let settleProgress!: () => void;
+    loadSessionProgress.mockReturnValueOnce(new Promise((resolve) => { settleProgress = () => resolve({ status: 'insufficient', sessionId: '123' }); }));
+    vi.mocked(saveAs).mockClear();
+    const pending = generateSessionPdf(boundSession, 'Ann', false, [], () => current);
+    current = false;          // the account changes while the PDF is being built
+    settleProgress();
+    await expect(pending).resolves.toBe(false);
+    expect(saveAs).not.toHaveBeenCalled();
+  });
+
+  it('CONTROL: an unchanged login saves as before', async () => {
+    vi.mocked(saveAs).mockClear();
+    await expect(generateSessionPdf(boundSession, 'Ann', false, [], () => true)).resolves.toBe(true);
+    expect(saveAs).toHaveBeenCalledTimes(1);
+  });
+});

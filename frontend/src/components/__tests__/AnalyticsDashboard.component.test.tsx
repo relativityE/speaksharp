@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '../../../tests/support/test-utils';
+import { setCurrentLogin } from '@/services/loginSessionLog';
 import { AnalyticsDashboard } from '../AnalyticsDashboard';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import type { UserProfile } from '@/types/user';
 import { TEST_IDS } from '@/constants/testIds';
@@ -753,6 +754,54 @@ describe('AnalyticsDashboard', () => {
                 expect(built).not.toHaveProperty('transcript');
             });
         }
+
+        // #1573 Codex P1 (review 5460913397): a list PDF is bound to the login that started it. Its detail read can finish
+        // after a sign-out or account switch; then nothing is generated (no old-account transcript or metrics PDF) and
+        // nothing is reported — whether the read resolved or failed into the list-row fallback.
+        describe('#1573: a list PDF never completes for a login other than the one that started it', () => {
+            afterEach(() => setCurrentLogin(null, null));
+            const startDeferred = async (outcome: 'resolve' | 'reject', after: () => void) => {
+                const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                pdfDownloaded.mockReset();
+                const row = detailSession({})[0];
+                // The starting login owns the row, exactly as in the app (the list is RLS-scoped to the signed-in user).
+                setCurrentLogin(String(row.user_id ?? 'owner-a'), 1_790_000_000_000);
+                let settle!: () => void;
+                const detail = { ...row, transcript_state: 'available', transcript: 'account A words' };
+                sessionDetailRead.mockReset().mockReturnValue(new Promise((resolve, reject) => {
+                    settle = () => (outcome === 'resolve' ? resolve(detail) : reject(new Error('read failed')));
+                }));
+                renderFor('history_list');
+                press.history_list();
+                await vi.waitFor(() => expect(sessionDetailRead).toHaveBeenCalledTimes(1));
+                after();     // the identity changes while the read is in flight
+                settle();
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                return generateSessionPdf;
+            };
+            for (const outcome of ['resolve', 'reject'] as const) {
+                it(`CASUALTY: an account switch during the detail read (${outcome}) generates and reports nothing`, async () => {
+                    const generate = await startDeferred(outcome, () => setCurrentLogin('owner-b', 1_790_000_000_500));
+                    expect(generate).not.toHaveBeenCalled();
+                    expect(pdfDownloaded).not.toHaveBeenCalled();
+                });
+                it(`CASUALTY: a sign-out during the detail read (${outcome}) generates and reports nothing`, async () => {
+                    const generate = await startDeferred(outcome, () => setCurrentLogin(null, null));
+                    expect(generate).not.toHaveBeenCalled();
+                    expect(pdfDownloaded).not.toHaveBeenCalled();
+                });
+            }
+            it('CONTROL: the same login still downloads, with a guard bound to that login', async () => {
+                const generate = await startDeferred('resolve', () => undefined);
+                expect(generate).toHaveBeenCalledTimes(1);
+                const guard = vi.mocked(generate).mock.calls[0][4] as (() => boolean) | undefined;
+                expect(guard?.()).toBe(true);
+                setCurrentLogin('owner-b', 1_790_000_000_500);
+                expect(guard?.()).toBe(false);
+            });
+        });
 
         it('#1258: a PDF from the session detail uses the detail row it already holds — no second read', async () => {
             const { generateSessionPdf } = await import('../../lib/pdfGenerator');

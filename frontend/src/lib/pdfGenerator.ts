@@ -133,7 +133,9 @@ export const generateSessionPdf = async (
   session: Session,
   username: string = 'User',
   _isPro: boolean = false,
-  sessionsForDay: Session[] = []
+  sessionsForDay: Session[] = [],
+  /** #1573: checked after every async read, immediately before the file is handed to the browser. False → nothing saved. */
+  stillCurrent?: () => boolean,
 ): Promise<boolean> => {
   try {
     toast.info("Generating PDF...", { id: 'pdf-gen' });
@@ -308,6 +310,13 @@ export const generateSessionPdf = async (
     const filename = getSessionPdfFilename(session, username, sessionsForDay);
 
     toast.info(`Saving as: ${filename}`, { id: 'pdf-gen-name' });
+
+    // #1573 Codex P1 (review 5460913397): the login that asked for this PDF must still be the current one. After a
+    // sign-out or account switch the previous account's document is never saved, and the caller reports nothing.
+    if (stillCurrent && !stillCurrent()) {
+      toast.dismiss?.('pdf-gen');
+      return false;
+    }
 
     // Use FileSaver.js (industry standard) for reliable cross-browser download
     const blob = doc.output('blob');
