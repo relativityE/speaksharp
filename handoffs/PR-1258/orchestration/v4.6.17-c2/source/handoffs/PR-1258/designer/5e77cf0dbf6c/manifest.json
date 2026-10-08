@@ -1,0 +1,37 @@
+{
+  "pr_or_task": 1258,
+  "topic": "designer",
+  "source_commit": "5e77cf0dbf6c3942ee1a4bacf2e0aaf8e6d9b358",
+  "files": [
+    {
+      "name": "README.md",
+      "size": 1143,
+      "sha256": "8214770bc5b76fe8a30486c453271c3f7d6a24ff88cd684570b71ea9a8c3b6a4"
+    },
+    {
+      "name": "PM_OVERRIDES.md",
+      "size": 3283,
+      "sha256": "4584d209fea749d5ea2fdf5cf0300057f6f2102ec8c16669970f353c5daad499"
+    },
+    {
+      "name": "RWT_PUNCHLIST_DESIGN.md",
+      "size": 37072,
+      "sha256": "6bc44defbf4018fdb0d9ee46d61bc3544ed15c155b4f16cc10c672e605df7488"
+    },
+    {
+      "name": "RWT_PUNCHLIST_IMPLEMENTATION.md",
+      "size": 55777,
+      "sha256": "40ac1cb2f8d68a262909066d8d35101e20b394c367fc5d874b62574c564ade8a"
+    },
+    {
+      "name": "SESSION_REVIEW_RWT_SPEC.md",
+      "size": 20659,
+      "sha256": "555fcab20928822fec946eb2b216e3abfd527f96d92163493bf74ec9e17bfddb"
+    },
+    {
+      "name": "SESSION_PAGE_SPEC.md",
+      "size": 68523,
+      "sha256": "3bca63987697f98a21d316528dc476012a44f88f0c45648797d15b21bc683087"
+    }
+  ]
+}
