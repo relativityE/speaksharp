@@ -234,6 +234,27 @@ class PollBudgetTests(unittest.TestCase):
             server.affected_review_snapshot('relativityE/speaksharp')
             self.assertEqual(len(calls), 9)  # fresh shared cache does not reread on every watcher tick
 
+    def test_review_registry_cursor_does_not_starve_candidates_after_first_25(self):
+        server.apply_board_updates({'work_items': [
+            {'item_key': f'PR-{n}', 'pr_number': n, 'state': 'review', 'owner': 'app_dev', 'branch': f'fix/{n}'}
+            for n in range(1600, 1626)
+        ]})
+        server.set_setting('affected_review_cursor', '1624')
+        calls = []
+        def gh(args):
+            calls.append(args)
+            if args[0] == 'pr':
+                n = int(args[2])
+                return {'number': n, 'state': 'OPEN', 'headRefOid': f'{n:040x}', 'baseRefOid': 'b' * 40,
+                        'headRefName': f'fix/{n}', 'baseRefName': 'main'}, None
+            return [], None
+        with patch.object(server, 'repo_slug', return_value='relativityE/speaksharp'), patch.object(server, 'gh_json', side_effect=gh):
+            snapshot = server.affected_review_snapshot('relativityE/speaksharp')
+        self.assertEqual(len(snapshot), 26)
+        self.assertEqual(snapshot['1625']['head'], f'{1625:040x}')
+        self.assertEqual(sum(1 for row in snapshot.values() if row.get('head')), 2)
+        self.assertEqual([int(call[2]) for call in calls if call[0] == 'pr'], [1625, 1600])
+
     def test_corrupt_review_cache_is_rebuilt_from_fresh_reads(self):
         server.apply_board_updates({'work_items': [{'item_key': 'PR-1603', 'pr_number': 1603, 'state': 'review',
                                                      'owner': 'app_dev', 'branch': 'fix/1603'}]})

@@ -962,6 +962,24 @@ class Deadlock5Tests(unittest.TestCase):
                          ('code_review_observed', 'pending'))
         self.assertFalse([q for q in server.list_queue(500) if q['recipient'] == 'po'])
 
+    def test_ci_review_followup_uses_latest_attempt_per_workflow(self):
+        snapshot = {'pr': 1570, 'state': 'OPEN', 'draft': False, 'head': HEAD, 'base': BASE,
+                    'runs': {
+                        '321': {'id': 321, 'workflow_id': 77, 'attempt': 1,
+                                'name': 'CI - Test Audit', 'status': 'completed',
+                                'conclusion': 'failure', 'createdAt': '2026-10-08T10:00:00Z'},
+                        '322': {'id': 322, 'workflow_id': 77, 'attempt': 2,
+                                'name': 'CI - Test Audit', 'status': 'completed',
+                                'conclusion': 'success', 'createdAt': '2026-10-08T10:05:00Z'}}}
+        self.assertIsNotNone(server.queue_ci_review_followup(snapshot))
+
+        # A newer retry in progress takes precedence over the previously successful attempt.
+        server.init_db()
+        snapshot['runs']['323'] = {'id': 323, 'workflow_id': 77, 'attempt': 3,
+                                   'name': 'CI - Test Audit', 'status': 'in_progress',
+                                   'conclusion': None, 'createdAt': '2026-10-08T10:10:00Z'}
+        self.assertIsNone(server.queue_ci_review_followup(snapshot))
+
     def test_review_poll_marks_changed_candidate_stale_before_attributing_review(self):
         gh = FakeGitHub()
         with patch.object(server, '_pm_request', side_effect=gh.request):

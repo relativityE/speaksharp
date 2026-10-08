@@ -1515,7 +1515,7 @@ def _terminal(value):
 
 
 def affected_review_targets():
-    """Return bounded explicitly active PR candidates, including non-selected work and review handoffs."""
+    """Return explicitly active PR candidates; the caller applies the rotating read budget."""
     numbers = set()
     with DB_LOCK, con() as c:
         for row in c.execute("SELECT pr_number FROM work_items WHERE pr_number IS NOT NULL "
@@ -1527,7 +1527,10 @@ def affected_review_targets():
         for row in c.execute("SELECT DISTINCT pr_number FROM review_handoffs WHERE state NOT IN "
                               "('result_returned','completed','superseded')").fetchall():
             numbers.add(int(row['pr_number']))
-    return sorted(numbers)[:MAX_AFFECTED_REVIEW_TARGETS]
+    # Do not cap this registry before applying the rotating refresh budget. A fixed
+    # lowest-N slice permanently starves later active candidates no matter how fair
+    # the per-poll cursor is.
+    return sorted(numbers)
 
 
 def _affected_review_cache_age(entry, observed_at):
@@ -1693,7 +1696,7 @@ def github_watch_snapshot():
         detail = f'PR #{current} review monitor incomplete: {reviews_err or comments_err}'
         base['review_monitor_error'] = detail
         return base, detail
-    runs, _ = gh_json(['run','list','--repo',repo,'--branch',pr.get('headRefName',''),'--limit','30','--json','databaseId,workflowName,status,conclusion,headSha,updatedAt,event'])
+    runs, _ = gh_json(['run','list','--repo',repo,'--branch',pr.get('headRefName',''),'--limit','30','--json','databaseId,workflowDatabaseId,workflowName,attempt,status,conclusion,headSha,createdAt,updatedAt,event'])
     reviews = reviews if isinstance(reviews,list) else []
     comments = comments if isinstance(comments,list) else []
     runs = [r for r in (runs if isinstance(runs,list) else []) if r.get('headSha') == pr.get('headRefOid')]
@@ -1701,7 +1704,10 @@ def github_watch_snapshot():
     for r in runs:
         name=str(r.get('databaseId') or r.get('workflowName') or 'workflow')
         if name not in latest_runs:
-            latest_runs[name]={'id':r.get('databaseId'),'name':r.get('workflowName'),'status':r.get('status'),'conclusion':r.get('conclusion'),'updatedAt':r.get('updatedAt')}
+            latest_runs[name]={'id':r.get('databaseId'),'workflow_id':r.get('workflowDatabaseId'),
+                               'attempt':r.get('attempt'),'name':r.get('workflowName'),
+                               'status':r.get('status'),'conclusion':r.get('conclusion'),
+                               'createdAt':r.get('createdAt'),'updatedAt':r.get('updatedAt')}
     deploy=[]
     for x in pr.get('statusCheckRollup') or []:
         name=(x.get('name') or x.get('context') or x.get('workflowName') or '').strip()
@@ -2218,6 +2224,28 @@ def queue_ci_review_followup(snapshot):
         return None
     runs = [r for r in (snapshot.get('runs') or {}).values()
             if str(r.get('name') or '').strip().lower() == 'ci - test audit']
+    # GitHub retains prior attempts for a workflow/head. Qualification follows the
+    # latest attempt for each workflow, so an obsolete failure cannot strand a
+    # successful rerun (and an older success cannot hide a running retry).
+    latest_by_workflow = {}
+    for run in runs:
+        workflow = str(run.get('workflow_id') or run.get('workflowDatabaseId')
+                       or run.get('name') or '').strip().lower()
+        if not workflow:
+            continue
+        try:
+            attempt = int(run.get('attempt') or 0)
+        except (TypeError, ValueError):
+            attempt = 0
+        try:
+            run_id = int(run.get('id') or run.get('databaseId') or 0)
+        except (TypeError, ValueError):
+            run_id = 0
+        rank = (attempt, str(run.get('createdAt') or run.get('updatedAt') or ''), run_id)
+        prior = latest_by_workflow.get(workflow)
+        if prior is None or rank > prior[0]:
+            latest_by_workflow[workflow] = (rank, run)
+    runs = [row[1] for row in latest_by_workflow.values()]
     if not runs or any(str(r.get('status') or '').lower() != 'completed'
                        or str(r.get('conclusion') or '').lower() != 'success' for r in runs):
         return None
