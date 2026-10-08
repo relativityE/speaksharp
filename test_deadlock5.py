@@ -934,7 +934,10 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertIsNotNone(followup)
         server.init_db()  # simulated board restart after CI completed but before PM consumed its wake
         self.assertEqual(server.queue_ci_review_followup(snapshot), followup)  # restart replay is idempotent
-        queued = next(q for q in server.list_queue(500) if q['id'] == followup)
+        queued = server.next_queue('pm')  # the normal local PM worker claims the durable watcher wake
+        self.assertIsNotNone(queued)
+        self.assertEqual(queued['id'], followup)
+        self.assertEqual(queued['status'], 'claimed')
         self.assertEqual((queued['recipient'], queued['kind']), ('pm', 'ci_review_followup'))
         self.assertIn(f'head {HEAD} on base {BASE}', queued['content'])
         gh = FakeGitHub()
