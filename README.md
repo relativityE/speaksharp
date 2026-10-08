@@ -1,5 +1,11 @@
 ## deadlock.5 — visible task delivery and preflight recovery
 
+### Local control API boundary (Package 2a)
+
+- The board accepts requests only through its loopback Host. Every mutating request must use `application/json`, include `X-RWT-Control-Token`, and have a matching loopback `Origin` when the client supplies one. Cross-site fetch metadata is refused.
+- Each server launch creates a random control token and injects it into the served dashboard page. An explicitly configured local adapter may use `RWT_CONTROL_TOKEN`; configure the same secret in that adapter's environment. Keep this token private and out of source control and task packets.
+- Read-only endpoints remain available to the same loopback Host. A GitHub post or an unconfigured external adapter does not receive API control authority.
+
 - Dev deliveries show the task key, assigned branch/worktree, and whether execution stopped before invocation, reached the worker, or returned a result. A returned result is still not a task-specific ACK.
 - Worktree preflight failures distinguish a missing target from a non-Git path or wrong branch and include the expected tuple.
 - A failed assigned Dev delivery that never invoked Claude queues one idempotent PM recovery with the exact failure and tuple. It does not retry Dev or create a second writer; PM must repair/bootstrap the task route first.

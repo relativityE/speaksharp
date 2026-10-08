@@ -72,6 +72,7 @@ class RouteContractTests(unittest.TestCase):
                             ({'pm_actions': [{'kind': 'mark_ready', 'head': 'abc', 'base': BASE}]}, 'pm_actions[0].head'),
                             ({'review_handoffs': [dict(handoff(), pr_number='1570')]}, 'review_handoffs[0].pr_number'),
                             ({'next': 'DEV'}, 'route.next'),
+                            ({'message': '   '}, 'route.message'),
                             ({'surprise': True}, 'route.surprise')):
             with self.subTest(bad=bad):
                 parsed = server.parse_pm_route(json.dumps(route(**bad)))
@@ -138,7 +139,9 @@ class ControlBoundaryTests(unittest.TestCase):
 
     def test_foreign_or_unauthenticated_mutations_are_refused_without_state_change(self):
         server.update_work_item('PR-1559', state='waiting')
-        before = (server.list_queue(500), server.list_activity(), server.list_agents())
+        before = (server.list_queue(500), server.list_activity(), server.list_agents(),
+                  server.list_work_items(500), server.list_player_status(), server.automation_settings(),
+                  server.get_setting('current_pr'))
         cases = {
             'foreign origin': self.good(Origin='https://evil.example'),
             'text/plain simple request': self.good(**{'Content-Type': 'text/plain'}),
@@ -149,13 +152,20 @@ class ControlBoundaryTests(unittest.TestCase):
         }
         for label, headers in cases.items():
             for path, payload in (('/api/send', {'actor': 'PO', 'route': 'pm', 'message': 'inject'}),
-                                  ('/api/reset-dev', {}), ('/api/retry-delivery', {'id': 1}),
-                                  ('/api/kill', {'agent': 'dev'}), ('/api/automation', {'auto_pm_to_dev': True})):
+                                  ('/api/set-current-pr', {'pr_number': 1559}),
+                                  ('/api/automation', {'auto_pm_to_dev': True}),
+                                  ('/api/work-item', {'item_key': 'PR-1559', 'state': 'active'}),
+                                  ('/api/player-status', {'player_id': 'cli_dev', 'status': 'active'}),
+                                  ('/api/pause', {'agent': 'dev', 'paused': True}),
+                                  ('/api/kill', {'agent': 'dev'}), ('/api/reset-dev', {}),
+                                  ('/api/reset-pm', {}), ('/api/retry-delivery', {'id': 1})):
                 with self.subTest(case=label, path=path):
                     code, body = self.post(path, payload, headers)
                     self.assertIn(code, (403, 415))
                     self.assertIn('error', json.loads(body))
-        self.assertEqual((server.list_queue(500), server.list_activity(), server.list_agents()), before)
+        self.assertEqual((server.list_queue(500), server.list_activity(), server.list_agents(),
+                          server.list_work_items(500), server.list_player_status(), server.automation_settings(),
+                          server.get_setting('current_pr')), before)
 
     def test_same_origin_token_request_is_accepted(self):
         with patch.object(server, 'transport_status', return_value={'pm_configured': True}):

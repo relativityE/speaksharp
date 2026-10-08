@@ -2348,13 +2348,15 @@ def parse_pm_route(raw):
         route = dict(obj)
         for k, v in ROUTE_DEFAULTS.items():
             route.setdefault(k, json.loads(json.dumps(v)))
+        if isinstance(route.get("message"), str):
+            route["message"] = route["message"].strip()
         if route.get("board_updates") is None:
             route.pop("board_updates", None)  # absent/null = no board change
         missing = [k for k in ("message", "next") if k not in route]
         errors = [f"route.{k} is required" for k in missing] + _schema_errors(route, _route_schema())
         if errors:
             raise ValueError("; ".join(errors[:8]))
-        return {"message": route["message"].strip(), "next": route["next"], "publish": route["publish"],
+        return {"message": route["message"], "next": route["next"], "publish": route["publish"],
                 "board_updates": route.get("board_updates"), "pm_actions": route["pm_actions"],
                 "ask_dispositions": route["ask_dispositions"], "review_handoffs": route["review_handoffs"],
                 "dev_depends_on_actions": route["dev_depends_on_actions"], "parse_error": None}
