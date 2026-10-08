@@ -24,6 +24,13 @@ export const ENGINEERING_HOLD = Object.freeze({
     BASE_MISMATCH: 'engineering_base_mismatch',
 });
 
+/**
+ * The engineering run's OWN review gates. While reviews are pending they fail closed, so the run concludes `failure`
+ * with every engineering job green — that is exactly the state this lane exists to re-qualify (live, run 37835913578).
+ * Requiring run-level success made the lane circular. Only these two may have failed; anything else holds.
+ */
+export const REVIEW_GATE_JOBS = Object.freeze(['exact-head-review-qualification', 'merge-qualification']);
+
 /** Runs of `ci.yml` started by a code event. Review-event runs (pre-#1573) are not engineering evidence. */
 export const ENGINEERING_EVENTS = Object.freeze(['pull_request', 'push', 'merge_group', 'workflow_dispatch']);
 export const REQUIRED_ENGINEERING_JOBS = Object.freeze(['scope', 'full-evidence', 'report']);
@@ -43,9 +50,13 @@ export function evaluateEngineeringEvidence({ pr, liveHeadSha, liveBaseSha, expe
     const newest = candidates[0];
     if (!newest) return hold(ENGINEERING_HOLD.NO_RUN);
     if (newest.status !== 'completed') return hold(ENGINEERING_HOLD.NOT_COMPLETED, newest.id);
-    if (newest.conclusion !== 'success') return hold(ENGINEERING_HOLD.RUN_NOT_SUCCESSFUL, newest.id);
+    if (newest.conclusion !== 'success' && newest.conclusion !== 'failure') return hold(ENGINEERING_HOLD.RUN_NOT_SUCCESSFUL, newest.id);
     const jobs = jobsByRun?.[newest.id] ?? {};
     if (REQUIRED_ENGINEERING_JOBS.some((name) => jobs[name] !== 'success')) return hold(ENGINEERING_HOLD.JOB_NOT_SUCCESSFUL, newest.id);
+    // Every other job must have succeeded or been skipped; only the run's own review gates may have failed.
+    const otherFailure = Object.entries(jobs).some(([name, conclusion]) => !REVIEW_GATE_JOBS.includes(name)
+        && conclusion !== 'success' && conclusion !== 'skipped');
+    if (otherFailure) return hold(ENGINEERING_HOLD.JOB_NOT_SUCCESSFUL, newest.id);
     const prLink = (newest.pull_requests ?? []).find((p) => p && p.number === pr);
     const baseOk = prLink?.base?.sha ? prLink.base.sha === liveBaseSha : headContainsBase === true;
     if (!baseOk) return hold(ENGINEERING_HOLD.BASE_MISMATCH, newest.id);

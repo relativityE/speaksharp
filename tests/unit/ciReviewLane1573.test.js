@@ -92,6 +92,19 @@ describe('ci-engineering-evidence: only exact-head, complete, successful enginee
         expect(evaluate([older, newerRunning], { 100: jobs() }).reasons).toContain(ENGINEERING_HOLD.NOT_COMPLETED);
         expect(evaluate([older, newerFailed], { 100: jobs(), 300: jobs({ report: 'failure' }) })).toMatchObject({ qualified: false, runId: 300 });
     });
+    it('LIVE CASUALTY (run 37835913578): a run whose ONLY failures are its own review gates still qualifies', () => {
+        // The engineering run concludes `failure` while reviews are pending, purely because its exact-head review and merge
+        // qualification jobs fail closed. Requiring run-level success made the review lane circular: it could never qualify.
+        const pendingReview = run({ conclusion: 'failure' });
+        const j = jobs({ 'exact-head-review-qualification': 'failure', 'merge-qualification': 'failure', build: 'success', 'e2e-shard-2': 'success' });
+        expect(evaluate([pendingReview], { 100: j })).toMatchObject({ qualified: true, runId: 100 });
+    });
+    it('a run with any OTHER failed or cancelled job holds', () => {
+        const failed = run({ conclusion: 'failure' });
+        expect(evaluate([failed], { 100: jobs({ 'e2e-shard-2': 'failure', 'merge-qualification': 'failure' }) }).reasons)
+            .toContain(ENGINEERING_HOLD.JOB_NOT_SUCCESSFUL);
+        expect(evaluate([failed], { 100: jobs({ 'unit-shard-3': 'cancelled' }) }).reasons).toContain(ENGINEERING_HOLD.JOB_NOT_SUCCESSFUL);
+    });
     it('a cancelled run holds', () => {
         expect(evaluate([run({ conclusion: 'cancelled' })], { 100: jobs() }).reasons).toContain(ENGINEERING_HOLD.RUN_NOT_SUCCESSFUL);
     });
