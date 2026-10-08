@@ -1,0 +1,134 @@
+{
+  "packet": "deadlock5-20261008-c5-p3-p4-p5-p6-259d629",
+  "source_commit": "259d62953557f4f1d4d8b9f73b668f14a95af0b7",
+  "source_tree": "47ef20343015a9df684432084daef94b3ef3e72c",
+  "source_worktree": "rwt-pr-handoff-v4.6.16",
+  "files": [
+    {
+      "path": "README.md",
+      "size": 27365,
+      "sha256": "34384b691e7fb46972f2fe72275fe9c663be2dfa6210983905f72b126e0b05c5"
+    },
+    {
+      "path": "TEST_RECEIPT.md",
+      "size": 11835,
+      "sha256": "2b847e075f778aeb9a9ca3d372b3f4bbc555186b7971170d00a3cbd8b86ad9b3"
+    },
+    {
+      "path": "guarded_pm.py",
+      "size": 17422,
+      "sha256": "94302a550bce6547f970aa0e436691a2f9fffffbaca66bcad6d18c7cb45f73df"
+    },
+    {
+      "path": "migrate_state.py",
+      "size": 7563,
+      "sha256": "dcb645106d8cf8abed108b628d76089d4eee8c3391436e7e98763cea06a4795a"
+    },
+    {
+      "path": "pm-instructions.md",
+      "size": 18876,
+      "sha256": "19a37847ca4c5f0f66dca16d148d7b6c522b57659e91e82e118605cc2a04328e"
+    },
+    {
+      "path": "pm-route.schema.json",
+      "size": 11139,
+      "sha256": "cc99ce8fc3900144ba06a4993d2d9c663991397cb3647993717e9df02e289edd"
+    },
+    {
+      "path": "server.py",
+      "size": 268441,
+      "sha256": "45f6d0ea4a6c89b16e1dfba4526fce21f11a3b080ac14d6fe6951cab567ab8c3"
+    },
+    {
+      "path": "start-rwt-handoff.sh",
+      "size": 1940,
+      "sha256": "32aee43a8dcbb0a211ef7931b082341d5dae98c672526641edc5525be24440a1"
+    },
+    {
+      "path": "static/index.html",
+      "size": 29171,
+      "sha256": "9d143b69ba9ba485dfa6851447340f5b517cee7f7d83603b64cb5e69b7073318"
+    },
+    {
+      "path": "test_comms.py",
+      "size": 12780,
+      "sha256": "ada6b4f0f66bfdb435a4874cdeb50b330cf331d2b8a82b317b46ba2951e98a28"
+    },
+    {
+      "path": "test_deadlock.py",
+      "size": 5946,
+      "sha256": "6045cf12f2d201ca8d7c5f2490bdbc717d34a586b4809959d628de2e6b9d2c4e"
+    },
+    {
+      "path": "test_deadlock5.py",
+      "size": 69412,
+      "sha256": "969ae1bf883106ce70475281f4308d6190b98f3a072b694b919d2e8cf387a501"
+    },
+    {
+      "path": "test_event_delivery.py",
+      "size": 7492,
+      "sha256": "4bf2665971b175e529571e181432e62c92acefe35b80670303465593f5bdbe5f"
+    },
+    {
+      "path": "test_handoffs.py",
+      "size": 6335,
+      "sha256": "709896a42f270d25ed6bd773a9f8d3a1a38a26a6ee189f2fb2871325496c33bc"
+    },
+    {
+      "path": "test_package2a.py",
+      "size": 12700,
+      "sha256": "f4a12498e1f5d7d11df5325dd2fbd9b0086944a706fbca5b96b23a86e40c6038"
+    },
+    {
+      "path": "test_poll_budget.py",
+      "size": 11648,
+      "sha256": "4354632dbe2a0484bc140203e59c291122ea2b7585fd289004ed50bf92de89a2"
+    },
+    {
+      "path": "test_reconciliation.py",
+      "size": 4888,
+      "sha256": "982846b01b5c9ba21a60671bf368445018c5e9074be5204035c24c868fa420b5"
+    },
+    {
+      "path": "test_refresh_reviews.py",
+      "size": 2415,
+      "sha256": "4d52de5a4763690903d0eaa7b2d84e323c1c2a36dceacafa172a1bac8c7e6f09"
+    },
+    {
+      "path": "test_regressions.py",
+      "size": 22247,
+      "sha256": "98d009d5c1220031317ad815c973e13feea695507f6c1b8bfd0a1cca6f5bba05"
+    },
+    {
+      "path": "test_server.py",
+      "size": 32415,
+      "sha256": "e183869226804344bfd7edebe66ef0e10dbd11ea943a5d6dd1b681f90373a6ee"
+    },
+    {
+      "path": "test_ui.js",
+      "size": 6772,
+      "sha256": "be6f4d848b7b99a64ef3b784efd193bbbf8779730dbdd7f5ae8426a0cbba5610"
+    },
+    {
+      "path": "test_watchdog.py",
+      "size": 2894,
+      "sha256": "7a7457984ec90a6edc17b7a698260841c6bb52afbf9b694214c6d35e7f437498"
+    }
+  ],
+  "verification": {
+    "python_tests_passed": 275,
+    "socket_tests_excluded": 5,
+    "ui_smoke": "passed",
+    "shell_syntax": "passed",
+    "schema_json": "passed",
+    "git_diff_check": "passed"
+  },
+  "limits": [
+    "external Browser PM/App Dev notification transport and real actor receipt/action proof remain blocked",
+    "five host/loopback tests remain unexecuted pending shared host lease and bind permission",
+    "independent PM review and installed acceptance are pending",
+    "F05 lacks an authorized fallback reviewer outside local CLI PM",
+    "F11 qualifier child cannot share the board cursor/budget; remaining budget coverage is partial",
+    "no claim that all R01-R42 or F01-F16 are fixed"
+  ]
+}
