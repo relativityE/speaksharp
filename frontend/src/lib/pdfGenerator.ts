@@ -307,16 +307,18 @@ export const generateSessionPdf = async (
       doc.setTextColor(0, 0, 0);
     }
 
+    // #1573 Codex P1 (review 5460913397; 4223029906): the login that asked for this PDF must still be the current one —
+    // checked after every async read and BEFORE any filename-bearing UI (the filename names the previous account). After
+    // a sign-out or account switch nothing is shown or saved, and the caller reports nothing.
+    if (stillCurrent && !stillCurrent()) {
+      toast.dismiss?.('pdf-gen');
+      toast.dismiss?.('pdf-gen-name');
+      return false;
+    }
+
     const filename = getSessionPdfFilename(session, username, sessionsForDay);
 
     toast.info(`Saving as: ${filename}`, { id: 'pdf-gen-name' });
-
-    // #1573 Codex P1 (review 5460913397): the login that asked for this PDF must still be the current one. After a
-    // sign-out or account switch the previous account's document is never saved, and the caller reports nothing.
-    if (stillCurrent && !stillCurrent()) {
-      toast.dismiss?.('pdf-gen');
-      return false;
-    }
 
     // Use FileSaver.js (industry standard) for reliable cross-browser download
     const blob = doc.output('blob');

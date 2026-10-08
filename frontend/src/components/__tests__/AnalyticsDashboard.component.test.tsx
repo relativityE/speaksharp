@@ -669,6 +669,10 @@ describe('AnalyticsDashboard', () => {
     // #1306 metrics-only: there is NO transcript pane and NO transcript_state to honor. The session detail
     // renders persisted measurements and exactly one durable next action; nothing recomputes from text.
     describe('#1306 session-detail is metrics-only (no transcript surface)', () => {
+        // #1573: a PDF is bound to the signed-in owner (AuthProvider applies it before any authenticated surface renders).
+        beforeEach(() => setCurrentLogin('test-user', 1_790_000_000_000));
+        afterEach(() => setCurrentLogin(null, null));
+
         const completedSignal = { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' };
         const detailSession = (over: Record<string, unknown>) => ([{
             id: 'sx', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
@@ -793,6 +797,56 @@ describe('AnalyticsDashboard', () => {
                     expect(pdfDownloaded).not.toHaveBeenCalled();
                 });
             }
+            // Codex P1 4223017340 (Browser PM 6067207123): an owner whose session has no valid `last_sign_in_at` still binds
+            // — a sign-out OR an account switch during the deferred detail read (resolved or rejected) yields no PDF, no event.
+            for (const outcome of ['resolve', 'reject'] as const) {
+                for (const [change, apply] of [
+                    ['sign-out', () => setCurrentLogin(null, null)],
+                    ['account switch', () => setCurrentLogin('other-user', null)],
+                ] as const) {
+                    it(`CASUALTY: no sign-in time, ${change} during the detail read (${outcome}) → no PDF, no event`, async () => {
+                        const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                        vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                        pdfDownloaded.mockReset();
+                        const row = detailSession({})[0];
+                        setCurrentLogin(String(row.user_id), null);          // last_sign_in_at absent: owner known, no LoginIdentity
+                        let settle!: () => void;
+                        sessionDetailRead.mockReset().mockReturnValue(new Promise((resolve, reject) => {
+                            settle = () => (outcome === 'resolve' ? resolve({ ...row, transcript: 'account A words' }) : reject(new Error('read failed')));
+                        }));
+                        renderFor('history_list');
+                        press.history_list();
+                        await vi.waitFor(() => expect(sessionDetailRead).toHaveBeenCalledTimes(1));
+                        apply();
+                        settle();
+                        await new Promise((resolve) => setTimeout(resolve, 0));
+                        await new Promise((resolve) => setTimeout(resolve, 0));
+                        expect(generateSessionPdf).not.toHaveBeenCalled();
+                        expect(pdfDownloaded).not.toHaveBeenCalled();
+                    });
+                }
+            }
+            it('CONTROL: an owner without a sign-in time and no identity change still downloads', async () => {
+                const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                const row = detailSession({})[0];
+                setCurrentLogin(String(row.user_id), null);
+                sessionDetailRead.mockReset().mockResolvedValue({ ...row, transcript: 'the saved words' });
+                renderFor('history_list');
+                press.history_list();
+                await vi.waitFor(() => expect(generateSessionPdf).toHaveBeenCalledTimes(1));
+            });
+            it('CASUALTY: with no signed-in owner at the start, nothing is read or generated (fail closed)', async () => {
+                const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                sessionDetailRead.mockReset().mockResolvedValue(null);
+                renderFor('history_list');
+                setCurrentLogin(null, null);
+                press.history_list();
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                expect(sessionDetailRead).not.toHaveBeenCalled();
+                expect(generateSessionPdf).not.toHaveBeenCalled();
+            });
             it('CONTROL: the same login still downloads, with a guard bound to that login', async () => {
                 const generate = await startDeferred('resolve', () => undefined);
                 expect(generate).toHaveBeenCalledTimes(1);

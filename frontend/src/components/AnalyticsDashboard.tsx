@@ -13,7 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
-import { currentLogin, sameLogin } from '@/services/loginSessionLog';
+import { authEpoch, currentOwnerId } from '@/services/loginSessionLog';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendsCard } from './analytics/TrendsCard';
@@ -72,16 +72,19 @@ import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 const downloadSessionPdf = (
     surface: PdfSurface, session: PracticeSession, username: string, isPro: boolean, sessionsForDay: PracticeSession[],
 ): void => {
-    // #1573 Codex P1 (review 5460913397): bound to the login that started it. A sign-out or account switch while the
-    // detail/progress reads are in flight discards the work — no previous-account PDF (transcript or metrics fallback)
-    // and no success event. Nothing is aborted at the wire (#1422); the late answer is simply not used.
-    const startedBy = currentLogin();
-    const stillCurrent = () => sameLogin(startedBy, currentLogin());
+    // #1573 Codex P1 (review 5460913397; 4223017340): bound to the signed-in owner AND the auth epoch that started it. A
+    // sign-out or account switch while the detail/progress reads are in flight moves the epoch and discards the work — no
+    // previous-account PDF (transcript or metrics fallback), no success event — even when the sign-in time is unknown.
+    // No owner at the start fails closed. Nothing is aborted at the wire (#1422); the late answer is simply not used.
+    const startedOwner = currentOwnerId();
+    const startedEpoch = authEpoch();
+    const stillCurrent = () => startedOwner !== null && authEpoch() === startedEpoch && currentOwnerId() === startedOwner;
+    if (!stillCurrent()) return;
     const source = surface === 'session_detail'
         ? Promise.resolve(session)
         : getSessionById(session.id).then((detail) => detail ?? session, () => session);
     void source.then((pdfSession) => {
-        const foreignRow = startedBy !== null && typeof pdfSession.user_id === 'string' && pdfSession.user_id !== startedBy.ownerId;
+        const foreignRow = typeof pdfSession.user_id === 'string' && pdfSession.user_id !== startedOwner;
         if (!stillCurrent() || foreignRow) return false;
         return generateSessionPdf(pdfSession, username, isPro, sessionsForDay, stillCurrent);
     }).then(

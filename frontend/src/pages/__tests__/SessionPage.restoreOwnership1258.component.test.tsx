@@ -123,3 +123,26 @@ describe('#1573 Codex P1 4222489737 — a restored session is revalidated, never
         expect(screen.queryByText('Account A private words')).toBeNull();
     });
 });
+
+describe('#1573 Codex P1 4223029898 / P2 4223017352 — only a SUCCESSFUL fresh read is restored', () => {
+    it('CASUALTY: a failed forced refetch never renders the cached transcript, even for one frame, and falls back', async () => {
+        const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        qc.setQueryData(['session', REVIEW_ID], { ...row('owner-1'), transcript: 'Account A private words', transcript_state: 'available' });
+        getSessionById.mockRejectedValue(new Error('Unable to load this session.'));
+        // Record every insertion: a stale row committed for a single render would be removed before a later query runs.
+        const inserted: string[] = [];
+        const observer = new MutationObserver((records) => {
+            for (const r of records) r.addedNodes.forEach((n) => { if (n.textContent) inserted.push(n.textContent); });
+        });
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        render(<SessionPage />, {
+            route: { pathname: '/session', search: `?review=${REVIEW_ID}` },
+            wrapper: ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>,
+        });
+        expect(await screen.findByTestId('mobile-action-bar')).toBeInTheDocument();   // fell back to the plain page
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        observer.disconnect();
+        expect(screen.queryByTestId('saved-session-return')).toBeNull();
+        expect(inserted.some((t) => t.includes('Account A private words'))).toBe(false);
+    });
+});

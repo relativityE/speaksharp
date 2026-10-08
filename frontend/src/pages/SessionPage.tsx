@@ -428,7 +428,10 @@ export const SessionPage: React.FC = () => {
     const restored = useSession(restoreId ?? undefined, { revalidateOnMount: true });
     // #1573 Codex P1 4222489737: only a read made for THIS visit counts. A cached row may still hold transcript text the
     // server has since expired (newest-one retention), so it is never rendered, owner-checked or refused on.
+    // #1573 Codex P1 4223029898 / P2 4223017352: a FAILED refetch also sets isFetchedAfterMount while React Query keeps
+    // the cached data, so a row is supplied only from a SUCCESSFUL fresh read; a failed one is refused (falls back).
     const restoredFresh = restored.isFetchedAfterMount;
+    const restoredFreshSuccess = restoredFresh && restored.isSuccess && !restored.isError;
     // Not a session id, not found, not this user's (RLS on a fresh read; the owner check on a cached one) or a failed read:
     // plain `/session`, no error UI. Nothing from a row is shown unless its owner is the signed-in user.
     useEffect(() => {
@@ -438,7 +441,7 @@ export const SessionPage: React.FC = () => {
             && (restored.isError || (restored.isSuccess && restoreRefused(restored.data, restoreId, authUserId)));
         if (invalid || refused) setReviewParam(null);
     }, [reviewParam, idleState, restoreId, restoredFresh, restored.isError, restored.isSuccess, restored.data, authUserId, setReviewParam]);
-    const restoredSession = restorableSession(restoredFresh ? restored.data : undefined, restoreId, authUserId);
+    const restoredSession = restorableSession(restoredFreshSuccess ? restored.data : undefined, restoreId, authUserId);
 
     if (!metrics) return <SessionPageSkeleton />;
 

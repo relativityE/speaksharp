@@ -109,8 +109,29 @@ export function loginStartedAtOf(session: { user?: { last_sign_in_at?: string | 
     return Number.isFinite(at) ? at : null;
 }
 
+let currentOwner: string | null = null;
+let appliedKey = '';
+let epoch = 0;
+
 export function setCurrentLogin(ownerId: string | null, loginStartedAt: number | null): void {
     current = ownerId && loginStartedAt !== null ? { ownerId, loginStartedAt } : null;
+    currentOwner = ownerId || null;
+    const key = `${currentOwner ?? ''}|${loginStartedAt ?? ''}`;
+    if (key !== appliedKey) { appliedKey = key; epoch += 1; }
+}
+
+/**
+ * #1573 (Codex P1 4223017340): advances on EVERY applied identity change — sign-in, sign-out, account switch — even when
+ * the sign-in time is unknown (no LoginIdentity). Async work bound to an epoch is discarded once it moves. A token refresh
+ * re-applies the same owner and sign-in time, so it does not move.
+ */
+export function authEpoch(): number {
+    return epoch;
+}
+
+/** The signed-in owner as last applied by AuthProvider (null when signed out), with or without a sign-in time. */
+export function currentOwnerId(): string | null {
+    return currentOwner;
 }
 
 export function currentLogin(): { ownerId: string; loginStartedAt: number } | null {
@@ -118,12 +139,6 @@ export function currentLogin(): { ownerId: string; loginStartedAt: number } | nu
 }
 
 export type LoginIdentity = { ownerId: string; loginStartedAt: number };
-
-/** The same login (owner AND sign-in), or both absent. #1573: async work bound to a login is discarded when this is false. */
-export function sameLogin(a: LoginIdentity | null, b: LoginIdentity | null): boolean {
-    if (a === null || b === null) return a === b;
-    return a.ownerId === b.ownerId && a.loginStartedAt === b.loginStartedAt;
-}
 
 /**
  * The controller's confirmed-save hook (#1541 Codex P1 r4127289522). `recordingLogin` is the login captured when the

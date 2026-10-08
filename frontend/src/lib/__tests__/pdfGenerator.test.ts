@@ -19,6 +19,7 @@ vi.mock('sonner', () => ({
     info: vi.fn(),
     success: vi.fn(),
     error: vi.fn(),
+    dismiss: vi.fn(),
   },
 }));
 
@@ -542,5 +543,34 @@ describe('#1573 Codex P1 (review 5460913397) — the save is bound to the initia
     vi.mocked(saveAs).mockClear();
     await expect(generateSessionPdf(boundSession, 'Ann', false, [], () => true)).resolves.toBe(true);
     expect(saveAs).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('#1573 Codex P1 4223029906 — no prior-account filename once the login changed', () => {
+  const boundSession2 = { id: '124', user_id: 'owner-a', created_at: '2026-10-08T12:00:00Z', duration: 60, total_words: 10, wpm: 100, clarity_score: 80 } as unknown as Session;
+  it('CASUALTY: an identity change during the DEFERRED Progress read → no filename toast, no saved file, false', async () => {
+    const { toast } = await import('sonner');
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.dismiss).mockClear();
+    vi.mocked(saveAs).mockClear();
+    let current = true;
+    let settleProgress!: () => void;
+    loadSessionProgress.mockReturnValueOnce(new Promise((resolve) => { settleProgress = () => resolve({ status: 'insufficient', sessionId: '124' }); }));
+    const pending = generateSessionPdf(boundSession2, 'previous@account.example', false, [], () => current);
+    current = false;          // sign-out / account switch while Progress is still loading
+    settleProgress();
+    await expect(pending).resolves.toBe(false);
+    expect(vi.mocked(toast.info).mock.calls.some(([msg]) => /Saving as/.test(String(msg)))).toBe(false);
+    expect(saveAs).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.dismiss).mock.calls.map(([id]) => id).sort()).toEqual(['pdf-gen', 'pdf-gen-name']);
+  });
+
+  it('CASUALTY: the "Saving as" toast (which names the previous account) is never shown, and both toasts are dismissed', async () => {
+    const { toast } = await import('sonner');
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.dismiss).mockClear();
+    await expect(generateSessionPdf(boundSession2, 'previous@account.example', false, [], () => false)).resolves.toBe(false);
+    expect(vi.mocked(toast.info).mock.calls.some(([msg]) => /Saving as/.test(String(msg)))).toBe(false);
+    expect(vi.mocked(toast.dismiss).mock.calls.map(([id]) => id).sort()).toEqual(['pdf-gen', 'pdf-gen-name']);
   });
 });
