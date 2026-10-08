@@ -58,6 +58,8 @@ MAX_PACKET_FILE_BYTES = 10 * 1024 * 1024
 MAX_PACKET_BYTES = 50 * 1024 * 1024
 MAX_PACKET_MANIFEST_BYTES = 1024 * 1024
 PACKET_VERIFY_TIMEOUT_SECONDS = 120
+PACKET_VERIFY_RETRY_LIMIT = 5
+PACKET_VERIFY_MAX_PER_POLL = 3
 MAX_COMMENT_PAGES = 5
 MAX_REVIEW_PAGES = 5
 MAX_AFFECTED_REVIEW_TARGETS = 25
@@ -282,6 +284,13 @@ def init_db():
         # Dev dispatch) are applied by ONE idempotent continuation, from the turn itself or from recovery.
         c.execute("CREATE TABLE IF NOT EXISTS pm_turn_effects(queue_id INTEGER PRIMARY KEY, plan_json TEXT NOT NULL, "
                   "phase TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        # c5 (F05): exact packet reads survive a transient outage and route a terminal result to PM.
+        c.execute("CREATE TABLE IF NOT EXISTS packet_verifications("
+                  "request_key TEXT PRIMARY KEY, pr_or_task TEXT NOT NULL, packet_path TEXT NOT NULL, ref TEXT NOT NULL,"
+                  "status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at REAL NOT NULL DEFAULT 0,"
+                  "claim_until REAL NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '', result_json TEXT NOT NULL DEFAULT '{}',"
+                  "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        c.execute("UPDATE packet_verifications SET status='pending',claim_until=0,next_attempt_at=0,updated_at=? WHERE status='running'", (now(),))
         # c5 (F01/F02): an atomic unique delivery key reconciles an enqueue that landed before its phase update.
         _add_column(c, "queue", "delivery_key TEXT NOT NULL DEFAULT ''")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS queue_delivery_key ON queue(delivery_key) WHERE delivery_key<>''")
@@ -2139,6 +2148,7 @@ def github_watcher():
                 # c5 (F01): finish owed PM-turn effects (after marker recovery above confirmed any uncertain post).
                 resume_owed_pm_turns()
                 pending_pin_watchdog()
+                recover_pending_packet_verifications()
                 if time.time() >= github_backoff_until():
                     poll_refreshed_reviews()
                 pending_ask_watchdog()
@@ -2196,7 +2206,7 @@ def _gh_raw(path, ref):
     return raw
 
 
-def verify_remote_packet(pr_or_task, packet_path, ref, fetch=None):
+def _verify_remote_packet(pr_or_task, packet_path, ref, fetch=None):
     """Read a published packet back at an EXACT commit and verify every manifest hash.
 
     A branch name is mutable and is refused: immutability means a 40-hex commit.
@@ -2269,6 +2279,118 @@ def verify_remote_packet(pr_or_task, packet_path, ref, fetch=None):
             mismatched.append(name)
     return {'ok': bool(verified) and not mismatched and not missing, 'ref': ref, 'path': packet_path,
             'manifest': manifest_name, 'verified': verified, 'mismatched': mismatched, 'missing': missing}
+
+
+def _packet_verification_key(pr_or_task, packet_path, ref):
+    raw = '\n'.join((str(pr_or_task), str(packet_path), str(ref).lower()))
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def list_packet_verifications(limit=30):
+    with DB_LOCK, con() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM packet_verifications ORDER BY updated_at DESC LIMIT ?", (max(1, min(int(limit), 100)),)
+        ).fetchall()]
+    for row in rows:
+        try:
+            row['result'] = json.loads(row.pop('result_json') or '{}')
+        except (ValueError, TypeError):
+            row['result'] = {}
+        row['age_seconds'] = age_seconds(row.get('created_at'))
+        row['next_attempt_in_seconds'] = max(0, int(row.get('next_attempt_at') or 0) - int(time.time()))
+        row.pop('claim_until', None)
+    return rows
+
+
+def _packet_verification_notice(request_key, status, pr_or_task, packet_path, ref, detail):
+    delivery_key = f'packet-read:{request_key}:{status}'
+    with DB_LOCK, con() as c:
+        if c.execute('SELECT 1 FROM queue WHERE delivery_key=?', (delivery_key,)).fetchone():
+            return None
+    message = (f'PACKET READ {status.upper()} for #{pr_or_task} at exact commit {ref}: {packet_path}. '
+               f'{detail[:700]} Read the durable packet_verifications record and route any source findings to its owner.')
+    aid = add_activity('SYSTEM', message, 'pm', 'blocker' if status == 'blocked' else 'responded')
+    return enqueue(aid, 'pm', message, source_actor='SYSTEM', auto_handoff=True,
+                   kind='packet_read', delivery_key=delivery_key)
+
+
+def _record_packet_verification(pr_or_task, packet_path, ref, result=None, error=None):
+    key = _packet_verification_key(pr_or_task, packet_path, ref)
+    timestamp = now()
+    transient = isinstance(error, GithubReadError) and error.kind in ('rate_limited', 'timeout', 'transport')
+    detail = str(error)[:700] if error else str((result or {}).get('error') or '')[:700]
+    with DB_LOCK, con() as c:
+        previous = c.execute('SELECT status,attempts FROM packet_verifications WHERE request_key=?', (key,)).fetchone()
+        attempts = (int(previous['attempts']) if previous else 0) + 1
+        if result and result.get('ok'):
+            status, next_attempt = 'verified', 0
+            detail = ''
+        elif transient and attempts < PACKET_VERIFY_RETRY_LIMIT:
+            status = 'pending'
+            next_attempt = time.time() + min(60 * (2 ** (attempts - 1)), 900)
+        else:
+            status, next_attempt = 'blocked', 0
+        result_json = json.dumps(result or {}, ensure_ascii=False, sort_keys=True)
+        c.execute("INSERT INTO packet_verifications(request_key,pr_or_task,packet_path,ref,status,attempts,next_attempt_at,"
+                  "claim_until,last_error,result_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,0,?,?,?,?) "
+                  "ON CONFLICT(request_key) DO UPDATE SET status=excluded.status,attempts=excluded.attempts,"
+                  "next_attempt_at=excluded.next_attempt_at,claim_until=0,last_error=excluded.last_error,"
+                  "result_json=excluded.result_json,updated_at=excluded.updated_at",
+                  (key, str(pr_or_task), str(packet_path), str(ref).lower(), status, attempts, next_attempt,
+                   detail, result_json, timestamp, timestamp))
+        was_pending = bool(previous and previous['status'] in ('pending', 'running'))
+    if status == 'blocked' or (status == 'verified' and was_pending):
+        _packet_verification_notice(key, status, pr_or_task, packet_path, ref, detail or 'All manifest hashes verified.')
+    return {'request_key': key, 'status': status, 'attempts': attempts, 'next_attempt_at': next_attempt,
+            'error': detail}
+
+
+def verify_remote_packet(pr_or_task, packet_path, ref, fetch=None):
+    """Verify an immutable packet and persist enough state to recover transient read failures."""
+    try:
+        result = _verify_remote_packet(pr_or_task, packet_path, ref, fetch)
+    except (ValueError, TypeError):
+        raise
+    except GithubReadError as exc:
+        _record_packet_verification(pr_or_task, packet_path, ref, error=exc)
+        raise
+    _record_packet_verification(pr_or_task, packet_path, ref, result=result)
+    return result
+
+
+def recover_pending_packet_verifications(verifier=None):
+    """Retry exact-commit packet reads after persisted backoff; route one terminal result to local PM."""
+    if time.time() < github_backoff_until():
+        return 0
+    verifier = verifier or verify_remote_packet
+    claimed = []
+    now_ts = time.time()
+    with DB_LOCK, con() as c:
+        rows = c.execute("SELECT * FROM packet_verifications WHERE status='pending' AND next_attempt_at<=? "
+                         "AND claim_until<=? ORDER BY created_at LIMIT ?",
+                         (now_ts, now_ts, PACKET_VERIFY_MAX_PER_POLL)).fetchall()
+        for row in rows:
+            changed = c.execute("UPDATE packet_verifications SET status='running',claim_until=?,updated_at=? "
+                                "WHERE request_key=? AND status='pending' AND claim_until<=?",
+                                (now_ts + PACKET_VERIFY_TIMEOUT_SECONDS + 30, now(), row['request_key'], now_ts)).rowcount
+            if changed:
+                claimed.append(dict(row))
+    finished = 0
+    for row in claimed:
+        try:
+            verifier(row['pr_or_task'], row['packet_path'], row['ref'])
+        except GithubReadError:
+            pass  # The wrapper persists the categorized retry/terminal state.
+        except Exception as exc:
+            _record_packet_verification(row['pr_or_task'], row['packet_path'], row['ref'],
+                                        error=GithubReadError('transport', f'{type(exc).__name__}: {exc}'))
+        finally:
+            with DB_LOCK, con() as c:
+                # A crash/reentrant verifier must not leave a claimed row looking active forever.
+                c.execute("UPDATE packet_verifications SET status='pending',claim_until=0,next_attempt_at=MIN(next_attempt_at,?),updated_at=? "
+                          "WHERE request_key=? AND status='running'", (time.time() + 60, now(), row['request_key']))
+            finished += 1
+    return finished
 
 
 def _try_fetch(fetch, path, ref):
@@ -2466,6 +2588,8 @@ def pm_ledger_context():
             + "\nHELD DEV DISPATCH GATES (persisted; anti-idle honors them; released only by your explicit Dev directive for the task "
             "after its prerequisite completes):\n" + json.dumps(gates, ensure_ascii=False)
             + "\nNAMED EXECUTOR BLOCKERS:\n" + json.dumps(blockers, ensure_ascii=False)
+            + "\nDURABLE PACKET READ REQUESTS (exact commit; pending retries remain visible; terminal results route once to CLI PM):\n"
+            + json.dumps(list_packet_verifications(10), ensure_ascii=False)
             + "\nSHARED ARTIFACTS for #" + str(CONTROL_ISSUE) + ": " + json.dumps(handoff_location(), ensure_ascii=False) + "\n\n")
 
 
@@ -4286,6 +4410,7 @@ def dashboard_snapshot():
         "ask_blocker": get_setting("pm_ask_blocker", ""),
         "review_handoffs": [h for h in list_review_handoffs() if h['state'] != 'acknowledged'],
         "action_blockers": json.loads(get_setting("pm_action_blockers", "[]") or "[]"),
+        "packet_verifications": list_packet_verifications(10),
         "share": handoff_location(current_number or CONTROL_ISSUE),
         "ready_unowned": unowned_ready,
     }
@@ -4400,6 +4525,7 @@ class H(BaseHTTPRequestHandler):
                 "activity": list_activity(),
                 "deliveries": list_queue(),
                 "transport": transport_status(),
+                "packet_verifications": list_packet_verifications(10),
                 "automation": automation_settings(),
             })
         if u.path == "/api/dashboard":

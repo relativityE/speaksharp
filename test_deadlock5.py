@@ -984,6 +984,45 @@ class Deadlock5Tests(unittest.TestCase):
         with self.assertRaisesRegex(server.GithubReadError, 'retry after reset'):
             server.verify_remote_packet(1258, base, 'f' * 40, unavailable)
 
+    def test_transient_packet_read_is_durable_and_retried_once_after_backoff(self):
+        base = 'handoffs/PR-1258/orchestration/deadlock5/retry-packet'
+        def unavailable(path, ref):
+            raise server.GithubReadError('timeout', 'temporary read timeout')
+        with self.assertRaisesRegex(server.GithubReadError, 'temporary read timeout'):
+            server.verify_remote_packet(1258, base, 'f' * 40, unavailable)
+        row = server.list_packet_verifications()[0]
+        self.assertEqual((row['status'], row['attempts'], row['ref']), ('pending', 1, 'f' * 40))
+        self.assertIn('temporary read timeout', row['last_error'])
+        self.assertGreater(row['next_attempt_at'], 0)
+        with server.con() as c:
+            c.execute('UPDATE packet_verifications SET next_attempt_at=0 WHERE request_key=?', (row['request_key'],))
+        def success(pr, path, ref):
+            return server._record_packet_verification(pr, path, ref, result={'ok': True, 'verified': ['source.patch']})
+        with patch.object(server, 'github_backoff_until', return_value=0):
+            self.assertEqual(server.recover_pending_packet_verifications(verifier=success), 1)
+        row = server.list_packet_verifications()[0]
+        self.assertEqual((row['status'], row['attempts'], row['result']['verified']), ('verified', 2, ['source.patch']))
+        notices = [q for q in server.list_queue(500) if q.get('kind') == 'packet_read']
+        self.assertEqual(len(notices), 1)
+        with patch.object(server, 'github_backoff_until', return_value=0):
+            self.assertEqual(server.recover_pending_packet_verifications(verifier=success), 0)
+
+    def test_terminal_packet_read_failure_routes_one_deduplicated_pm_task(self):
+        base = 'handoffs/PR-1258/orchestration/deadlock5/bad-packet'
+        def invalid_manifest(path, ref):
+            if path.endswith('/manifest.json'):
+                return json.dumps({'changed_files': {'x': 'y'}}).encode()
+            raise AssertionError('a manifest without hashes must not fetch files')
+        first = server.verify_remote_packet(1258, base, 'f' * 40, invalid_manifest)
+        second = server.verify_remote_packet(1258, base, 'f' * 40, invalid_manifest)
+        self.assertIn('no per-file SHA-256', first['error'])
+        self.assertFalse(second['ok'])
+        row = server.list_packet_verifications()[0]
+        self.assertEqual((row['status'], row['attempts']), ('blocked', 2))
+        notices = [q for q in server.list_queue(500) if q.get('kind') == 'packet_read']
+        self.assertEqual(len(notices), 1)
+        self.assertIn('bad-packet', notices[0]['content'])
+
     def test_remote_packet_rejects_oversized_manifest_inventory(self):
         base = 'handoffs/PR-1258/orchestration/deadlock5/pkt'
         manifest = {'packet_files_sha256': {f'{n}.txt': 'a' * 64 for n in range(server.MAX_PACKET_FILES + 1)}}

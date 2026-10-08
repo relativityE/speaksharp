@@ -2,11 +2,11 @@
 
 This is a local, unreviewed source checkpoint layered on Package 2b source commit `734dc15e0bdaed1b929f4af4d8772d23fd47e035` (tree `b88799be487e18633d192c845314099870246e8d`). It is not installed, accepted, or a complete repair of C4. The next immutable packet must record the final source commit/tree and per-file hashes.
 
-**Offline verification on the current working tree:** 271 tests passed across the 12 listed Python test modules. Five socket/loopback tests were excluded under the existing shared host lease and bind-permission HOLD. Node dashboard smoke passed; `bash -n start-rwt-handoff.sh`, JSON parsing of `pm-route.schema.json`, and `git diff --check` passed. The Node smoke ran with CommonJS evaluation because the parent checkout declares ES modules. No network service, live board, live GitHub mutation, external-agent delivery, installation, migration, restart, merge, deployment, or Production operation was exercised.
+**Offline verification on the current working tree:** 273 tests passed across the 12 listed Python test modules. Five socket/loopback tests were excluded under the existing shared host lease and bind-permission HOLD. Node dashboard smoke passed; `bash -n start-rwt-handoff.sh`, JSON parsing of `pm-route.schema.json`, and `git diff --check` passed. The Node smoke ran with CommonJS evaluation because the parent checkout declares ES modules. No network service, live board, live GitHub mutation, external-agent delivery, installation, migration, restart, merge, deployment, or Production operation was exercised.
 
 **Implemented in this local checkpoint:**
 
-- Package 3 / F05, F11: bounded packet/file/manifest sizes and verification time; transient GitHub read failures remain errors rather than being treated as missing data; durable rate-limit backoff is shared by GitHub read adapters; comment reads use bounded incremental pages and preserve the cursor on incomplete reads.
+- Package 3 / F05, F11: bounded packet/file/manifest sizes and verification time; transient GitHub read failures remain errors rather than being treated as missing data; durable rate-limit backoff is shared by GitHub read adapters; comment reads use bounded incremental pages and preserve the cursor on incomplete reads. Exact-commit packet reads are journaled; transient failures retry after backoff and terminal outcomes route one deduplicated task to local CLI PM.
 - Package 3 / F06: exact PR/head/base review qualification is checked before attribution; stale reviews remain stale; active non-selected PRs are monitored; Code review, Security review, and PM acceptance are represented separately and Security/PM acceptance are never inferred.
 - Package 4 / F14: dashboard exposes dispatch holds, blockers, affected review state, and distinct qualification status; explicit Current PR selection is retained and is not silently replaced by train order.
 - Package 4 / F16: migration stages and verifies the database (including WAL), uploads and handoffs; attachment paths are rebased; target promotion is database-last and source files remain available. Ambiguous sibling state requires explicit `RWT_MIGRATE_FROM`.
@@ -14,6 +14,7 @@ This is a local, unreviewed source checkpoint layered on Package 2b source commi
 
 **Still open / HOLD:**
 
+- F05 remains partial: the local exact-commit retry/task path does not provide a separately authorized fallback reviewer outside CLI PM or prove that a Browser PM/App Dev recipient can read the packet.
 - F13 and the PM’s hard notification gate: there is no supported external wake adapter for Browser PM/App Dev in this app. GitHub publication is not delivery. No real per-actor task-specific receipt/action proof exists. This is a blocker, not a completed capability.
 - F15 loopback/host tests: five tests remain unexecuted pending the exact candidate-bound host lease and any tool-required bind permission.
 - Independent PM source review, installed-board acceptance, and the complete C4 finding-by-finding closure map remain pending. This checkpoint does not claim all R01–R42 or F01–F16 fixed.
