@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen, fireEvent } from '../../../tests/support/test-utils';
 import { AnalyticsPage } from '../AnalyticsPage';
 import * as AnalyticsHook from '../../hooks/useAnalytics';
@@ -229,6 +231,38 @@ describe('AnalyticsPage', () => {
 
             renderAnalyticsPage('/analytics/session-1');
             expect(screen.queryByTestId('analytics-page-upgrade-button')).not.toBeInTheDocument();
+        });
+    });
+
+    // #1573 Codex P2 4222571897: the Progress page is the app's only document.title writer. A session's product and date
+    // must not outlive the page (later routes, sign-in after sign-out), and an unavailable row must not keep a stale title.
+    describe('#1573: the tab title never outlives Progress or a missing session', () => {
+        const APP_TITLE = /<title>([^<]+)<\/title>/.exec(readFileSync(resolve(process.cwd(), 'frontend', 'index.html'), 'utf8'))![1];
+        const withSession = () => mockUseAnalytics.mockReturnValue({
+            sessionHistory: [{ id: 'session-1', product: 'focus_points', created_at: '2026-10-07T18:12:00Z', duration: 10 }],
+            loading: false, error: null, refreshAnalytics: vi.fn(),
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
+
+        it('CASUALTY: leaving a session detail restores the app title (no product or date left in the tab)', () => {
+            withSession();
+            const { unmount } = renderAnalyticsPage('/analytics/session-1');
+            expect(document.title).toMatch(/^Focus Points · .+ · Progress · SpeakSharp$/);
+            unmount();
+            expect(document.title).toBe(APP_TITLE);
+        });
+
+        it('CASUALTY: a detail URL whose row is unavailable shows a neutral title, never the previous session\'s', () => {
+            withSession();
+            document.title = 'Focus Points · 7 Oct · Progress · SpeakSharp'; // left by an earlier detail view
+            renderAnalyticsPage('/analytics/missing-session');
+            expect(document.title).toBe('Progress · SpeakSharp');
+        });
+
+        it('the overview title is also reset when Progress is left', () => {
+            const { unmount } = renderAnalyticsPage('/analytics');
+            expect(document.title).toBe('Your progress · SpeakSharp');
+            unmount();
+            expect(document.title).toBe(APP_TITLE);
         });
     });
 });

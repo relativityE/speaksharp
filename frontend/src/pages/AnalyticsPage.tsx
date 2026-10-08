@@ -103,6 +103,9 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
     );
 };
 
+/** The app's default tab title — the one `frontend/index.html` ships (AnalyticsPage tests hold the two equal). */
+const APP_DOCUMENT_TITLE = 'SpeakSharp - Private Practice. Public Impact!';
+
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const queryClient = useQueryClient();
@@ -115,14 +118,19 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
     // #1258 punch list §1.5: "Your progress · SpeakSharp", or "{Product} · {date} · Progress · SpeakSharp" for one saved
     // session. Product comes from the persisted `session.product`, never the title; an unknown (legacy) product is omitted.
+    // #1573 Codex P2 4222571897: this page is the app's only document.title writer, so it never leaves a session's product
+    // and date behind — a neutral title while the requested row is unavailable, and the app title once Progress is left.
     const titledSession = sessionId ? sessionHistory?.find((s) => s.id === sessionId) : undefined;
     useEffect(() => {
         if (typeof document === 'undefined') return;
         if (!sessionId) { document.title = 'Your progress · SpeakSharp'; return; }
-        if (!titledSession) return;
+        if (!titledSession) { document.title = 'Progress · SpeakSharp'; return; }
         const product = titledSession.product ? PRODUCT_LABEL[titledSession.product] : null;
         document.title = [product, shortDate(titledSession.created_at), 'Progress', 'SpeakSharp'].filter(Boolean).join(' · ');
     }, [sessionId, titledSession]);
+    useEffect(() => () => {
+        if (typeof document !== 'undefined') document.title = APP_DOCUMENT_TITLE;
+    }, []);
 
     // Signal to E2E tests when session data has finished loading OR failing
     useEffect(() => {
