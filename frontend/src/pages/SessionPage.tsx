@@ -13,6 +13,7 @@ import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
 import { SavedSessionReturn } from '@/components/session/SavedSessionReturn';
+import { restorableSession, restoreRefused } from '@/components/session/restorableSession';
 import { ObjectiveSetupDialog } from '@/components/practice/ObjectiveSetupDialog';
 import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
@@ -425,14 +426,15 @@ export const SessionPage: React.FC = () => {
     }, [isListening, reviewParam, setReviewParam]);
     const restoreId = !sawAfterStateRef.current && idleState && reviewParam !== null && SESSION_ID_RE.test(reviewParam) ? reviewParam : null;
     const restored = useSession(restoreId ?? undefined);
-    // Not a session id, not found, not this user's (RLS returns no row) or a failed read: plain `/session`, no error UI.
+    // Not a session id, not found, not this user's (RLS on a fresh read; the owner check on a cached one) or a failed read:
+    // plain `/session`, no error UI. Nothing from a row is shown unless its owner is the signed-in user.
     useEffect(() => {
         if (reviewParam === null || sawAfterStateRef.current || !idleState) return;
         const invalid = !SESSION_ID_RE.test(reviewParam);
-        const missing = restoreId !== null && (restored.isError || (restored.isSuccess && !restored.data));
-        if (invalid || missing) setReviewParam(null);
-    }, [reviewParam, idleState, restoreId, restored.isError, restored.isSuccess, restored.data, setReviewParam]);
-    const restoredSession = restoreId && restored.data && restored.data.id === restoreId ? restored.data : null;
+        const refused = restoreId !== null && (restored.isError || (restored.isSuccess && restoreRefused(restored.data, restoreId, authUserId)));
+        if (invalid || refused) setReviewParam(null);
+    }, [reviewParam, idleState, restoreId, restored.isError, restored.isSuccess, restored.data, authUserId, setReviewParam]);
+    const restoredSession = restorableSession(restored.data, restoreId, authUserId);
 
     if (!metrics) return <SessionPageSkeleton />;
 

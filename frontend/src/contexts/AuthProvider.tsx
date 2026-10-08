@@ -293,6 +293,10 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             clearFeedbackDraft();
             // Share feedback's session list belongs to one login: retired with the draft (FEEDBACK_SESSION_SELECTOR_SPEC §5.1).
             clearLoginSessions();
+            // #1258 PR 4 (Browser PM 6050746477): the single-session cache (`['session', id]`, five-minute staleTime) is
+            // not keyed by user, so the next account must not inherit the previous account's rows. Explicit sign-out
+            // clears the whole cache; an identity change through an auth event clears these rows here.
+            queryClient.removeQueries({ queryKey: ['session'] });
           }
           setCurrentLogin(nextUserId, loginStartedAtOf(nextSession));
           sessionStateRef.current = nextSession;
@@ -410,6 +414,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       if (priorUserId !== null && priorUserId !== (s?.user?.id ?? null)) {
         clearFeedbackDraft();
         clearLoginSessions();
+        queryClient.removeQueries({ queryKey: ['session'] }); // same rule as the auth-event path (#1258 PR 4)
       }
       setCurrentLogin(s?.user?.id ?? null, loginStartedAtOf(s));
       sessionStateRef.current = s;
@@ -417,7 +422,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       setIdentityAnswered(true);
     },
     signedOutByUser,
-  }), [sessionState, loading, signOut, signedOutByUser]);
+  }), [sessionState, loading, signOut, signedOutByUser, queryClient]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
