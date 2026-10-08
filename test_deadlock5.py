@@ -173,6 +173,23 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertEqual(row['status'], 'responded')
         self.assertTrue(row['task_receipt_at'] and row['task_result_at'])
 
+    def test_cli_dev_route_rejects_auxiliary_claude_session_before_delivery_snapshot(self):
+        self.assign(worktree='/wt/ok')
+        server.set_agent('dev', provider='claude', session_id=CODEX_TEST_SESSION)
+        route_json = json.dumps({'version': 1, 'routes': {'cli_dev': {
+            'provider': 'codex_app_server', 'session_id': CODEX_TEST_SESSION}}})
+        with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': route_json}, clear=False):
+            q = self.dev_row()
+            self.assertEqual(q['target_actor_id'], 'cli_dev')
+            self.assertEqual(q['target_transport'], 'codex_app_server')
+            self.assertEqual(q['target_session_id'], '')
+            with self.assertRaisesRegex(server.agent_transport.RouteError, 'registered to the local claude worker'):
+                server.configured_actor_route('cli_dev')
+            with patch.object(server.agent_transport, 'queue_message') as queue:
+                with self.assertRaisesRegex(server.UnsupportedRecipientTransport, 'local claude worker'):
+                    server._deliver_existing_codex_task(q, {'owner': 'cli_dev'})
+                queue.assert_not_called()
+
     def test_app_server_queue_timeout_becomes_uncertain_and_is_never_replayed(self):
         q, snapshot = self.enqueue_codex_readonly_task()
         with patch.object(server, 'resolve_dev_target', return_value={'ok': True, 'path': '/wt/ok', 'item_key': KEY,

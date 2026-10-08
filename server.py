@@ -523,6 +523,25 @@ def get_agent(agent_id="dev"):
         return dict(r) if r else None
 
 
+def configured_actor_route(actor_id):
+    """Resolve a configured route, rejecting a Dev route that aliases the local Claude worker.
+
+    The app-server route is an explicit actor mapping, but a stale mapping can still name
+    the auxiliary Claude session used by the local process. That session is not the
+    Codex writer holding the task lease, so fail closed before snapshotting or dispatch.
+    """
+    route = agent_transport.configured_route(actor_id)
+    local_key = {'cli_dev': 'dev'}.get(actor_id)
+    local = get_agent(local_key) if local_key else None
+    if (local and route.session_id and local.get('session_id') == route.session_id
+            and str(local.get('provider') or '').lower() != 'codex_app_server'):
+        provider = str(local.get('provider') or 'unknown')
+        raise agent_transport.RouteError(
+            f"{actor_id} route points to session registered to the local {provider} worker; "
+            "configure the actual Codex writer session")
+    return route
+
+
 def list_agents():
     with DB_LOCK, con() as c:
         return {r["agent_id"]: dict(r) for r in c.execute("SELECT * FROM agents").fetchall()}
@@ -603,7 +622,7 @@ def enqueue(aid, recipient, content, *, source_actor="PO", parent_queue_id=None,
             if recipient == 'dev' and work_item_key:
                 actor_id = str(target.get('owner') or '')
                 try:
-                    route = agent_transport.configured_route(actor_id)
+                    route = configured_actor_route(actor_id)
                     transport, session_id, remote_url = 'codex_app_server', route.session_id, route.remote_url
                 except agent_transport.RouteError:
                     # Keep the task durable; dispatch will expose the exact missing route.
@@ -2497,7 +2516,7 @@ def _dispatch_review_handoff_notification(hid, comment_id=None):
     action_id = 'review-handoff:' + str(handoff['token'])
     task_id = handoff.get('work_item_key') or f"PR-{handoff['pr_number']}"
     try:
-        route = agent_transport.configured_route(actor_id)
+        route = configured_actor_route(actor_id)
         callback_url = _task_callback_url(route.remote_url)
         route_error = ''
     except agent_transport.RouteError as exc:
@@ -3430,7 +3449,7 @@ def _deliver_existing_codex_task(q, target):
     item = _delivery_assignment(q.get('work_item_key') or '', q.get('kind') or '')
     actor_id = str(target.get('owner') or (item or {}).get('owner') or '')
     try:
-        route = agent_transport.configured_route(actor_id)
+        route = configured_actor_route(actor_id)
         callback_url = _task_callback_url(route.remote_url)
     except agent_transport.RouteError as exc:
         raise UnsupportedRecipientTransport(str(exc)) from exc
@@ -5432,7 +5451,7 @@ def transport_status():
     actors = {}
     for actor_id in ('cli_dev', 'app_dev', 'browser_pm', 'cli_pm'):
         try:
-            route = agent_transport.configured_route(actor_id)
+            route = configured_actor_route(actor_id)
             actors[actor_id] = {'configured': True, 'transport': 'codex_app_server',
                                 'session_id': route.session_id, 'remote': bool(route.remote_url),
                                 'live_delivery_proven': False}
