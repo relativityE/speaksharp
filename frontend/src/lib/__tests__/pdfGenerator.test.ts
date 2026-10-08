@@ -90,7 +90,7 @@ describe('generateSessionPdf', () => {
     await generateSessionPdf(mockSession, 'TestUser');
     const savedPdf = await getSavedPdf();
 
-    // Verify first call: Vocal Analytics — every value is a persisted measurement, not a transcript recount.
+    // Verify first call: Session Metrics — every value is a persisted measurement, not a transcript recount.
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       startY: 70,
       body: expect.arrayContaining([
@@ -122,6 +122,9 @@ describe('generateSessionPdf', () => {
 
     // Verify actual generated PDF text commands, not only DOM/export signals.
     expect(savedPdf.text).toContain('(SpeakSharp Session Report) Tj');
+    // #1548: the measurement section is titled Session Metrics (evidence), never Analytics or Progress.
+    expect(savedPdf.text).toContain('(Session Metrics) Tj');
+    expect(savedPdf.text).not.toContain('(Vocal Analytics) Tj');
     expect(savedPdf.text).toContain('(Date: September 23rd, 2025) Tj');
     expect(savedPdf.text).toContain('(Duration: 5 minutes) Tj');
     // No transcript ever crosses into the export.

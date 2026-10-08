@@ -43,7 +43,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
 
     // Different heading and description based on whether viewing a specific session
     const isSessionView = !!sessionId;
-    const heading = isSessionView ? 'Session Analysis' : 'Your Analytics';
+    const heading = isSessionView ? 'Session Analysis' : 'Your Progress';
     const description = isSessionView
         ? 'A detailed breakdown of your recent practice session.'
         : 'Track your speaking progress and improvements';
@@ -182,12 +182,12 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         logger.error({ err: error || profileError }, '[AnalyticsPage] Failed to load analytics');
         return (
             <div className="text-center py-24">
-                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
+                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Progress</h2>
                 <p className="mb-6 font-medium text-foreground/70">
                     We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.
                 </p>
                 <Button onClick={handleRetryAnalytics}>
-                    Retry Analytics
+                    Retry Progress
                 </Button>
             </div>
         );

@@ -74,7 +74,7 @@ describe('#1475 G12 Rev 2 — hero', () => {
         const hero = region(/^hero$/i);
         expect(norm(screen.getByRole('heading', { level: 1 }))).toBe('Private Practice. Public Impact!');
         expect(norm(hero)).not.toContain('Complete product free for 30 days');
-        expect(norm(hero)).toContain('Speak. See what to fix. Say it again. Your audio never leaves the browser.');
+        expect(norm(hero)).toContain('Speak. Know what to improve. Repeat with purpose. Your audio stays on your device.');
         const cta = within(hero).getByRole('link', { name: 'Start your session' });
         expect(cta.getAttribute('href')).toBe('/auth/signup');
     });

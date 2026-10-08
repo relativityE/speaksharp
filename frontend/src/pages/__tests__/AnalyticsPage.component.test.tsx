@@ -95,7 +95,7 @@ describe('AnalyticsPage', () => {
 
             renderAnalyticsPage();
             expect(screen.getByText('We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.')).toBeInTheDocument();
-            expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
+            expect(screen.getByText('Error Loading Progress')).toBeInTheDocument();
         });
 
         it('should render error message when profile fails', () => {
@@ -117,7 +117,7 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage();
-            fireEvent.click(screen.getByText('Retry Analytics'));
+            fireEvent.click(screen.getByText('Retry Progress'));
             expect(mockReload).not.toHaveBeenCalled();
         });
     });
@@ -125,7 +125,7 @@ describe('AnalyticsPage', () => {
     describe('Dashboard View (No Session ID)', () => {
         it('should render dashboard heading', () => {
             renderAnalyticsPage('/analytics');
-            expect(screen.getByTestId('dashboard-heading')).toHaveTextContent('Your Analytics');
+            expect(screen.getByTestId('dashboard-heading')).toHaveTextContent('Your Progress');
             expect(screen.getByText('Track your speaking progress and improvements')).toBeInTheDocument();
         });
 
