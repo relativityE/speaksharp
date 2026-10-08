@@ -73,3 +73,89 @@ export function coachingSummaryMarkdown(c: CoachingCapture): string {
         `Shown matches saved: **${shownMatchesSaved(c) ? 'yes' : 'no'}**`, '',
     ].join('\n');
 }
+
+// ── Diagnostic-record encoding ──────────────────────────────────────────────────────────────────────────────────────
+// `DiagnosticRecord` keeps only lower-case snake keys with number / boolean / null / closed-character string values, and
+// silently DROPS everything else (run 37705211104 lost its whole Back result that way). Everything this diagnostic
+// records goes through these encoders, and a unit test proves their output survives `sanitizeDiagnostic` unchanged.
+export type DiagScalar = string | number | boolean | null;
+
+/** A value the sanitizer keeps: characters outside its closed set become '_' (never "(redacted)"), at most 300 chars. */
+export const safeValue = (value: string): string => value.replace(/[^A-Za-z0-9_.:%=;,()$ +-]/g, '_').slice(0, 300);
+
+/** camelCase / kebab / anything → a lower-case snake key the sanitizer accepts. */
+export function snakeKey(raw: string): string {
+    const key = raw.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^[^a-z]+/, '');
+    return (key || 'key').slice(0, 64);
+}
+
+/** One level of a record as `prefix_key` scalars; nested values are counted, not dropped silently. */
+export function flatScalars(prefix: string, record: Record<string, unknown> | null | undefined): Record<string, DiagScalar> {
+    if (!record) return { [snakeKey(`${prefix}_present`)]: false };
+    const out: Record<string, DiagScalar> = { [snakeKey(`${prefix}_present`)]: true };
+    let nested = 0;
+    for (const [k, v] of Object.entries(record)) {
+        const key = snakeKey(`${prefix}_${snakeKey(k)}`);
+        if (v === null || typeof v === 'boolean') out[key] = v;
+        else if (typeof v === 'number') out[key] = Number.isFinite(v) ? v : null;
+        else if (typeof v === 'string') out[key] = safeValue(v);
+        else nested += 1;
+    }
+    out[snakeKey(`${prefix}_nested_fields`)] = nested;
+    return out;
+}
+
+/** A session view as `prefix_*` scalars, its classification included. The persisted id is reported only as a match. */
+export function sessionViewFields(prefix: string, view: SessionView, savedId: string): Record<string, DiagScalar> {
+    const p = snakeKey(prefix);
+    return {
+        [`${p}_class`]: classifySessionView(view, savedId),
+        [`${p}_path`]: safeValue(view.path),
+        [`${p}_verdict`]: view.verdict,
+        [`${p}_this_run`]: view.thisRun,
+        [`${p}_transcript`]: view.transcript,
+        [`${p}_control`]: safeValue(view.control ?? 'none'),
+        [`${p}_runtime`]: safeValue(view.runtimeState ?? 'none'),
+        [`${p}_persisted`]: safeValue(view.persisted ?? 'none'),
+        [`${p}_id_match`]: savedId !== '' && view.persistedId === savedId,
+    };
+}
+
+const TIMELINE_KEY: Readonly<Record<string, string>> = {
+    'data-runtime-state': 'rt', 'data-session-persisted': 'ps', 'data-session-save-status': 'ss', 'data-session-persisted-id': 'id',
+    'data-engine-ready': 'er', 'data-stt-ready': 'sr', path: 'path', document_load: 'load',
+};
+
+/** The timeline as `t:k=v` items in ≤300-char `timeline_N` chunks. The persisted id is reported as saved / other / null. */
+export function timelineFields(events: ReadonlyArray<{ t: number; k: string; v: string | null }>, savedId: string): Record<string, DiagScalar> {
+    const items = events.map((e) => {
+        const value = e.v === null ? 'null'
+            : e.k === 'data-session-persisted-id' ? (savedId !== '' && e.v === savedId ? 'saved' : 'other') : e.v;
+        return safeValue(`${Math.round(e.t)}:${TIMELINE_KEY[e.k] ?? 'x'}=${value}`).slice(0, 120);
+    });
+    const out: Record<string, DiagScalar> = { timeline_events: items.length };
+    let chunk = '';
+    let n = 0;
+    for (const item of items) {
+        if (chunk && chunk.length + 1 + item.length > 300) { out[`timeline_${++n}`] = chunk; chunk = ''; }
+        chunk = chunk ? `${chunk};${item}` : item;
+        if (n >= 40) break;
+    }
+    if (chunk && n < 40) out[`timeline_${++n}`] = chunk;
+    out.timeline_chunks = n;
+    return out;
+}
+
+/**
+ * PO 2026-10-07 ("captured any way"): the AI suggestions of a SYNTHETIC take as one job-log line, so they are readable
+ * without a signed-in session. A human or unknown fixture prints nothing.
+ */
+export function aiSuggestionsLogLine(c: CoachingCapture): string {
+    if (c.fixtureKind !== 'synthetic') return '';
+    return `AI_SUGGESTIONS_SYNTHETIC ${JSON.stringify({
+        responses: c.responses.map((r) => ({ at_ms: r.at, status: r.status, latency_ms: r.latencyMs === null ? null : Math.round(r.latencyMs) })),
+        shown: { what_went_well: c.shownWell, what_to_try_next: c.shownNext },
+        saved: { what_went_well: c.savedWell, what_to_try_next: c.savedNext },
+        shown_matches_saved: shownMatchesSaved(c),
+    })}`;
+}

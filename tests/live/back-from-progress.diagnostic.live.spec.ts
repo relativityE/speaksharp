@@ -43,7 +43,10 @@ import {
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { DiagnosticRecord } from './helpers/rwtDiagnosticWindow';
-import { SESSION_CONTROL_IDS, backDiagnosticPreconditionFailures, classifySessionView, coachingSummaryMarkdown, shownMatchesSaved, type CoachingCapture, type SessionView } from './helpers/backFromProgressDiagnostic';
+import {
+    SESSION_CONTROL_IDS, aiSuggestionsLogLine, backDiagnosticPreconditionFailures, coachingSummaryMarkdown, flatScalars, safeValue,
+    sessionViewFields, shownMatchesSaved, timelineFields, type CoachingCapture, type SessionView,
+} from './helpers/backFromProgressDiagnostic';
 import {
     APPROVED_ORIGIN,
     RWT_ACCOUNT_PREFIX,
@@ -198,7 +201,7 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
                 if (!takeAlreadyRunning) await waitForPrivateEngineReady(page, 600_000);
                 diag.update({ take_started_by_setup: takeAlreadyRunning });
                 // The engine/model actually loaded (content-free identity + CPU thread configuration).
-                diag.update({ stt_identity: await readSttIdentity(page), cpu_runtime: await readCpuRuntime(page) });
+                diag.update({ ...flatScalars('stt', await readSttIdentity(page)), ...flatScalars('cpu', await readCpuRuntime(page)) });
                 diag.mark('engine_ready');
             });
 
@@ -230,7 +233,7 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
 
             await test.step('Progress, away past the ~61 s boundary', async () => {
                 const before = await readSessionView(page);
-                diag.update({ view_before_leaving: before, view_before_leaving_class: classifySessionView(before, savedId) });
+                diag.update(sessionViewFields('before', before, savedId));
                 const desktop = page.getByTestId('nav-analytics-link');
                 await desktop.first().click();
                 await page.waitForURL(/\/analytics(\?|$)/, { timeout: 45_000 });
@@ -243,15 +246,17 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
             await test.step('browser Back, then observe the session page', async () => {
                 backPressedAt = rel();
                 await page.goBack({ waitUntil: 'commit', timeout: 45_000 });
-                const samples: Array<SessionView & { after_back_ms: number; class: string }> = [];
                 const backAt = rel();
+                let last: SessionView | null = null;
+                let index = 0;
                 for (let elapsed = 0; elapsed <= OBSERVE_AFTER_BACK_MS; elapsed += SAMPLE_MS) {
                     if (elapsed > 0) await page.waitForTimeout(SAMPLE_MS);
-                    const view = await readSessionView(page);
-                    samples.push({ ...view, after_back_ms: rel() - backAt, class: classifySessionView(view, savedId) });
+                    last = await readSessionView(page);
+                    diag.update({ ...sessionViewFields(`back_s${index}`, last, savedId), [`back_s${index}_ms`]: rel() - backAt });
+                    index += 1;
                 }
-                const final = samples[samples.length - 1];
-                diag.update({ after_back_samples: samples, BACK_FROM_PROGRESS_RESULT: final.class });
+                // The headline: what the session page shows once the observation window has passed.
+                if (last) diag.update({ back_result: sessionViewFields('back_final', last, savedId).back_final_class, back_samples: index });
             });
         } finally {
             if (savedId && admin) {
@@ -260,19 +265,26 @@ test.describe('DIAGNOSTIC — Back from Progress after a real-engine take @live'
                 capture.savedWell = typeof saved?.what_worked === 'string' ? saved.what_worked.trim() : '';
                 capture.savedNext = typeof saved?.what_to_try_next === 'string' ? saved.what_to_try_next.trim() : '';
             }
-            // The phrases go to the run summary only (synthetic take); the job log gets flags.
+            // The phrases (synthetic take only): the run summary for signed-in viewers, and one job-log line that is readable
+            // without a session (PO: "captured any way"). The diagnostic record itself carries flags and numbers only.
             const summary = coachingSummaryMarkdown(capture);
             if (summary && process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+            const logLine = aiSuggestionsLogLine(capture);
+            if (logLine) console.log(logLine);
             const timeline = (await readTimeline()).map((e) => ({ ...e, t: e.t - t0 }));
             diag.update({
-                timeline,
-                coaching_responses: coaching,
+                ...timelineFields(timeline, savedId),
+                coaching_responses: safeValue(coaching.map((r) => `${r.at}:${r.status}:${r.latencyMs === null ? 'na' : Math.round(r.latencyMs)}`).join(';') || 'none'),
+                coaching_attempts: coaching.length,
                 coaching_attempts_after_back: backPressedAt < 0 ? null : coaching.filter((r) => r.at >= backPressedAt).length,
                 coaching_saved: capture.savedWell !== '' && capture.savedNext !== '',
                 coaching_shown_matches_saved: shownMatchesSaved(capture),
                 coaching_in_run_summary: Boolean(summary && process.env.GITHUB_STEP_SUMMARY),
-                console_classes: consoleClasses,
-                teardown_like_console_ms: teardownAt.slice(0, 20),
+                coaching_in_job_log: Boolean(logLine),
+                console_error: consoleClasses.error,
+                console_warning: consoleClasses.warning,
+                console_teardown_like: consoleClasses.teardown_like,
+                teardown_like_console_ms: safeValue(teardownAt.slice(0, 20).join(';') || 'none'),
             });
         }
         // The diagnostic passes when the observation was collected; the RESULT line names what was seen. One take makes at most
