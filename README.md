@@ -2,7 +2,7 @@
 
 ### C5 Packages 3 + 4 — local working checkpoint (2026-10-08)
 
-Current source adds bounded/recoverable GitHub reads, a durable exact-commit packet-read retry and PM task path, exact-head review monitoring and separate Code/Security/PM qualification, truthful dashboard state and selection, verified staged state migration, and a per-repository host lock. The latest local checkpoint passes 273 offline Python tests, Node UI smoke, shell syntax, schema parsing and `git diff --check`; five loopback tests remain on HOLD for the shared host lease/bind permission. Details and limits are in `TEST_RECEIPT.md`.
+Current source adds bounded/recoverable GitHub reads, a durable exact-commit packet-read retry and PM task path, exact-head review monitoring and separate Code/Security/PM qualification, truthful dashboard state and selection, verified staged state migration, and a per-repository host lock. The exact-head qualifier honors shared backoff and persists detected rate-limit responses. The latest local checkpoint passes 275 offline Python tests, Node UI smoke, shell syntax, schema parsing and `git diff --check`; five loopback tests remain on HOLD for the shared host lease/bind permission. Details and limits are in `TEST_RECEIPT.md`.
 
 This is not an accepted or installed repair. External Browser PM/App Dev notifications and real actor receipt/action evidence are still unsupported and remain a hard blocker. Independent C4 review, installed acceptance, and the finding-by-finding R01–R42/F01–F16 closure map remain pending. Do not infer delivery from a GitHub post. No install, restart, live migration, merge, deployment or Production operation is authorized by this checkpoint.
 

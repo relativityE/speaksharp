@@ -3256,6 +3256,10 @@ def _pm_request(args):
 
 def _pm_qualify(pr_number, head):
     # Existing gh session only; token is kept in child environment, never output/logged.
+    backoff_until = github_backoff_until()
+    if time.time() < backoff_until:
+        raise Hold('Exact-head qualifier deferred by shared GitHub backoff until ' +
+                   datetime.fromtimestamp(backoff_until, timezone.utc).isoformat())
     p = subprocess.run(['gh', 'auth', 'token'], capture_output=True, text=True, timeout=20)
     if p.returncode or not p.stdout.strip():
         raise Hold('Existing GitHub login cannot supply qualification access')
@@ -3266,6 +3270,9 @@ def _pm_qualify(pr_number, head):
     check = subprocess.run(['node', 'scripts/collect-review-qualification.mjs'], cwd=BASE_REPO,
                            env=env, capture_output=True, text=True, timeout=90)
     if check.returncode or 'REVIEW-QUALIFIED:' not in check.stdout:
+        combined = (check.stdout or '') + '\n' + (check.stderr or '')
+        if re.search(r'rate limit|secondary rate|abuse detection|HTTP 429', combined, re.I):
+            _record_github_rate_limit()
         raise Hold('Exact-head repo qualifier did not pass; no recovery started')
 
 

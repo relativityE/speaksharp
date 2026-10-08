@@ -92,6 +92,23 @@ class PollBudgetTests(unittest.TestCase):
         self.assertEqual(raised.exception.kind, 'rate_limited')
         run.assert_not_called()
 
+    def test_exact_head_qualifier_obeys_shared_backoff_without_starting_child(self):
+        until = time.time() + 90
+        with patch.object(server, 'github_backoff_until', return_value=until), patch.object(server.subprocess, 'run') as run:
+            with self.assertRaisesRegex(server.Hold, 'shared GitHub backoff'):
+                server._pm_qualify(1570, 'a' * 40)
+        run.assert_not_called()
+
+    def test_exact_head_qualifier_records_rate_limit_for_shared_backoff(self):
+        responses = [subprocess.CompletedProcess(['gh'], 0, stdout='credential', stderr=''),
+                     subprocess.CompletedProcess(['node'], 1, stdout='', stderr='API rate limit exceeded')]
+        with patch.object(server, 'github_backoff_until', return_value=0), \
+             patch.object(server.subprocess, 'run', side_effect=responses), \
+             patch.object(server, '_record_github_rate_limit') as record:
+            with self.assertRaisesRegex(server.Hold, 'qualifier did not pass'):
+                server._pm_qualify(1570, 'a' * 40)
+        record.assert_called_once_with()
+
     def test_affected_review_registry_observes_nonselected_pr_and_keeps_security_separate(self):
         server.apply_board_updates({'work_items': [{'item_key': 'PR-1600', 'pr_number': 1600, 'state': 'active',
                                                      'owner': 'app_dev', 'branch': 'fix/1600'}]})
