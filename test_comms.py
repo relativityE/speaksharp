@@ -120,7 +120,14 @@ class ExecutorTests(unittest.TestCase):
         raise AssertionError(path)
 
     def action(self,kind='mark_ready',**kw):
-        return {'kind':kind,'pr_number':1554,'head':HEAD,'base':BASE,'source_comment_id':12,**kw}
+        action={'kind':kind,'pr_number':1554,'head':HEAD,'base':BASE,'source_comment_id':12,**kw}
+        fields=[f'kind={kind}']
+        if kind!='open_draft_pr':fields.append('pr=1554')
+        if action.get('branch'):fields.append(f"branch={action['branch']}")
+        fields.extend((f'head={HEAD}',f'base={BASE}'))
+        if kind=='rerun_failed_jobs':fields.extend((f"run_id={action['run_id']}",f"run_attempt={action['run_attempt']}"))
+        self.source['body']=HEAD+' '+BASE+'\nACTION AUTHORIZATION: '+' '.join(fields)
+        return action
 
     def writes(self):return [c for c in self.calls if '-X' in c or 'graphql' in c]
 
@@ -147,8 +154,9 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(self.writes(),[])
 
     def test_source_cannot_nominate_different_candidate(self):
+        action=self.action()
         self.source['body']='another candidate'
-        with self.assertRaises(Hold):self.e.execute(self.action())
+        with self.assertRaises(Hold):self.e.execute(action)
         self.assertEqual(self.writes(),[])
 
     def test_active_same_branch_other_head_blocks_dispatch(self):

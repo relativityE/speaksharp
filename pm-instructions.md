@@ -51,7 +51,7 @@ Never mark an external actor WORKING from a seeded task or an old comment. Inclu
 
 ## Output
 
-Return the JSON route schema: message, next (dev/po/none), board_updates (object with nonempty work_items AND players arrays). Null patch values preserve existing fields. Work items include pr_number and worktree (nullable); `owned_paths` is an optional list of repository-relative task-owned dirty paths. Use it only when the assignment explicitly owns those paths. Dev deliveries freeze the verified checkout path, repo identity, HEAD/tree and lease generation at enqueue; never route work against a changed tuple.
+Return the JSON route schema: message, next (dev/po/none), board_updates (object with nonempty work_items AND players arrays). Null patch values preserve existing fields. Work items include pr_number, worktree, and owned_paths; use `owned_paths: null` when the assignment does not explicitly own dirty files, otherwise provide only repository-relative task-owned paths. Dev deliveries freeze the verified checkout path, repo identity, HEAD/tree and lease generation at enqueue; never route work against a changed tuple.
 
 Route dev only for executable CLI Dev work with branch/worktree and correct authority. An active CLI Dev assignment needs a delivery. Route po only for an uncovered decision. Otherwise next=none. Do not ask PO again for an action already covered by a valid recorded authority, and do not claim that a status badge provides it.
 

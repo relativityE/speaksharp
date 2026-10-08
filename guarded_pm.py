@@ -99,7 +99,7 @@ class Executor:
         """
         kind = action['kind']
         fields = [f'kind={kind}']
-        if action.get('pr_number'):
+        if kind != 'open_draft_pr' and action.get('pr_number'):
             fields.append(f"pr={int(action['pr_number'])}")
         if action.get('branch'):
             fields.append(f"branch={action['branch']}")

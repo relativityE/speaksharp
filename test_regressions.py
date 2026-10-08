@@ -63,6 +63,25 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(server._auto_select_current_pr(prs)['number'], 1555)
         self.assertEqual(server._auto_select_current_pr(list(reversed(prs)))['number'], 1555)
 
+    def test_explicit_current_pr_selection_beats_train_order(self):
+        server.set_setting('current_pr_explicit', '1')
+        server.set_setting('current_pr', '1559')
+        open_prs = [{'number': 1555, 'title': 'first train item'}, {'number': 1559, 'title': 'explicit item'}]
+        calls = []
+        def gh(args):
+            calls.append(args)
+            if args[:2] == ['pr', 'list'] and '--state' in args and args[args.index('--state')+1] == 'open':
+                return open_prs, None
+            if args[:2] == ['pr', 'list']:
+                return [], None
+            if args[:2] == ['pr', 'view']:
+                return {'number': 1559, 'state': 'OPEN', 'title': 'explicit item'}, None
+            raise AssertionError(args)
+        with patch.object(server, 'gh_json', side_effect=gh):
+            snapshot = server.pr_snapshot()
+        self.assertEqual(snapshot['current']['number'], 1559)
+        self.assertEqual(server.get_setting('current_pr'), '1559')
+
     def test_queue_advances_after_merge(self):
         self.assertEqual(server._auto_select_current_pr([{'number':1559},{'number':1554},{'number':1558}])['number'],1558)
         self.assertEqual(server._auto_select_current_pr([{'number':1559},{'number':1554}])['number'],1554)
@@ -227,14 +246,67 @@ class RegressionTests(unittest.TestCase):
         src.close()
         self.assertIsNone(migrate_state(target))
 
+    def test_migration_preserves_handoffs_uploads_and_rebases_attachment_paths(self):
+        base = Path(self.tmp.name)
+        old_app = base/'rwt-pr-handoff-v4.6.8'
+        old = old_app/'.agent-work'/'state.db'
+        old.parent.mkdir(parents=True)
+        old_app.joinpath('uploads').mkdir()
+        old_app.joinpath('handoffs/PR-1258/pkt').mkdir(parents=True)
+        (old_app/'uploads'/'packet.zip').write_bytes(b'upload')
+        (old_app/'handoffs/PR-1258/pkt'/'source.txt').write_text('review packet')
+        with sqlite3.connect(old) as c:
+            c.execute('CREATE TABLE attachments(id INTEGER PRIMARY KEY, filename TEXT, path TEXT, size_bytes INTEGER, created_at TEXT)')
+            c.execute('INSERT INTO attachments VALUES(1,?,?,?,?)',
+                      ('packet.zip', str(old_app/'uploads'/'packet.zip'), 6, '2026-10-07'))
+            c.execute('INSERT INTO attachments VALUES(2,?,?,?,?)',
+                      ('source.txt', str(old_app/'handoffs/PR-1258/pkt'/'source.txt'), 13, '2026-10-07'))
+        target = base/'rwt-pr-handoff-v4.6.16'
+        self.assertEqual(migrate_state(target), old)
+        self.assertEqual((target/'uploads'/'packet.zip').read_bytes(), b'upload')
+        self.assertEqual((target/'handoffs/PR-1258/pkt/source.txt').read_text(), 'review packet')
+        with sqlite3.connect(target/'.agent-work'/'state.db') as c:
+            paths = [x[0] for x in c.execute('SELECT path FROM attachments ORDER BY id')]
+        self.assertEqual(paths, [str(target/'uploads'/'packet.zip'), str(target/'handoffs/PR-1258/pkt/source.txt')])
+        self.assertTrue((target/'.agent-work'/'migration-manifest.json').exists())
+        self.assertEqual((old_app/'uploads'/'packet.zip').read_bytes(), b'upload')
+
+    def test_migration_requires_explicit_source_when_multiple_siblings_exist(self):
+        base = Path(self.tmp.name)
+        candidates = []
+        for version in ('v4.6.8', 'v4.6.12'):
+            db = base/f'rwt-pr-handoff-{version}'/'.agent-work'/'state.db'
+            db.parent.mkdir(parents=True)
+            with sqlite3.connect(db) as c:
+                c.execute('CREATE TABLE sentinel(value TEXT)')
+                c.execute('INSERT INTO sentinel VALUES(?)', (version,))
+            candidates.append(db)
+        target = base/'rwt-pr-handoff-v4.6.16'
+        with self.assertRaisesRegex(RuntimeError, 'Multiple prior board states'):
+            migrate_state(target)
+        self.assertEqual(migrate_state(target, source=candidates[0]), candidates[0])
+
     def test_version_labels_match(self):
         root=Path(server.__file__).parent
         self.assertEqual(server.BOARD_VERSION,'4.6.16')
         for file in ['static/index.html','start-rwt-handoff.sh','README.md']:
             text=(root/file).read_text()
             self.assertIn('v4.6.16',text)
+        self.assertIn(server.BOARD_BUILD, (root/'start-rwt-handoff.sh').read_text())
+        self.assertIn(server.BOARD_BUILD, (root/'README.md').read_text())
         html=(root/'static/index.html').read_text()
         self.assertNotIn('Board v4.6.8',html)
+
+    def test_dashboard_keeps_assigned_dispatch_hold_visible_as_blocked(self):
+        server.apply_board_updates({'work_items': [{'item_key': 'HELD', 'state': 'active', 'owner': 'cli_dev',
+                                                     'branch': 'fix/held'}],
+                                    'players': [{'player_id': 'cli_dev', 'status': 'blocked', 'work_item_key': 'HELD'}]})
+        with server.con() as c:
+            c.execute("UPDATE work_items SET dispatch_hold='waiting for prerequisite',dispatch_hold_release='Gate 4 passes' WHERE item_key='HELD'")
+        with patch.object(server, 'display_pr_snapshot', return_value={'current': None, 'active': [], 'recent_completed': []}):
+            snapshot = server.dashboard_snapshot()
+        self.assertEqual(snapshot['players']['cli_dev']['status'], 'blocked')
+        self.assertEqual(snapshot['players']['cli_dev']['blocker'], 'waiting for prerequisite')
 
     def test_http_dispatch_worktree_and_conflict_endpoints(self):
         http = ThreadingHTTPServer(('127.0.0.1',0),server.H)

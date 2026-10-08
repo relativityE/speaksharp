@@ -1,5 +1,11 @@
 ## deadlock.5 — visible task delivery and preflight recovery
 
+### C5 Packages 3 + 4 — local working checkpoint (2026-10-08)
+
+Current source adds bounded/recoverable GitHub reads, exact-head review monitoring and separate Code/Security/PM qualification, truthful dashboard state and selection, verified staged state migration, and a per-repository host lock. The latest local checkpoint passes 271 offline Python tests, Node UI smoke, shell syntax, schema parsing and `git diff --check`; five loopback tests remain on HOLD for the shared host lease/bind permission. Details and limits are in `TEST_RECEIPT.md`.
+
+This is not an accepted or installed repair. External Browser PM/App Dev notifications and real actor receipt/action evidence are still unsupported and remain a hard blocker. Independent C4 review, installed acceptance, and the finding-by-finding R01–R42/F01–F16 closure map remain pending. Do not infer delivery from a GitHub post. No install, restart, live migration, merge, deployment or Production operation is authorized by this checkpoint.
+
 ### Local control API boundary (Package 2a)
 
 - The board accepts requests only through its loopback Host. Every mutating request must use `application/json`, include `X-RWT-Control-Token`, and have a matching loopback `Origin` when the client supplies one. Cross-site fetch metadata is refused.
@@ -176,7 +182,7 @@ Replace the SpeakSharp path with your actual git checkout. Open http://127.0.0.1
 
 For live operation, GitHub CLI (`gh`) must already be installed and signed in with access to relativityE/speaksharp. CLI PM uses an installed, signed-in Codex CLI; CLI Dev uses installed, signed-in Claude Code. Check `gh auth status`, `codex login status`, and your Claude login before sending work. The board's transport indicator distinguishes unknown authentication from verified readiness. No credentials or private checkout are included in this ZIP.
 
-With no prior state, it creates waiting, unassigned release tasks and unknown external-agent activity. With prior state, it copies the newest modified sibling `rwt-pr-handoff-v*/.agent-work/state.db` using SQLite backup, including committed WAL changes, and copies uploads. An existing v4.6.16 database is never overwritten. Original folders remain intact. This supports the earlier sibling versions, including v4.6.10–v4.6.12, directly.
+With no prior state, it creates waiting, unassigned release tasks and unknown external-agent activity. Migration stages and verifies the SQLite backup, uploads, handoff packets, and attachment path updates before importing them; originals remain intact. If exactly one prior sibling state exists it is selected. If several exist, set `RWT_MIGRATE_FROM` to the intended state DB path; the launcher will stop with an explicit ambiguity error otherwise. An existing v4.6.16 database is never overwritten. This supports earlier sibling versions, including v4.6.10–v4.6.12.
 
 History and branch ownership survive restart. Activity must be reconciled from fresh checkpoints; preserved leases are not automatically stolen. In-flight deliveries become uncertain failures rather than replaying potential mutations. Historical Dev deliveries without a bound task cannot execute. After startup, PM must checkpoint the CLI Dev assignment before dispatch can resume.
 

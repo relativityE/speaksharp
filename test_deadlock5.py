@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import unittest
 
@@ -128,6 +128,18 @@ class Deadlock5Tests(unittest.TestCase):
             server.release_state_dir_lock(first)
         second = server.acquire_state_dir_lock(path)
         server.release_state_dir_lock(second)
+
+    def test_repository_lock_blocks_another_board_with_a_different_state_dir(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            first = server.acquire_repository_lock('relativityE/speaksharp', tmp)
+            try:
+                with self.assertRaisesRegex(RuntimeError, 'Another board process owns repository'):
+                    server.acquire_repository_lock('relativityE/speaksharp', tmp)
+            finally:
+                server.release_state_dir_lock(first)
+            second = server.acquire_repository_lock('relativityE/speaksharp', tmp)
+            server.release_state_dir_lock(second)
 
     def http(self):
         http = ThreadingHTTPServer(('127.0.0.1', 0), server.H)
@@ -643,7 +655,8 @@ class Deadlock5Tests(unittest.TestCase):
         with patch.object(server, '_pm_request', side_effect=gh.request):
             result = server.execute_pm_actions({'id': 1}, [refresh_action()])
         self.assertTrue(result[0].startswith('OBSERVED'))
-        self.assertEqual((self.journal()[0]['status'], self.journal()[0]['review_state']), ('observed', ''))
+        self.assertEqual((self.journal()[0]['status'], self.journal()[0]['review_state']), ('observed', 'code_review_observed'))
+        self.assertEqual((self.journal()[0]['security_review_state'], self.journal()[0]['pm_acceptance_state']), ('pending', 'pending'))
         self.assertEqual(gh.writes, [])
 
     def test_completed_review_routes_one_pm_instruction_wake(self):
@@ -659,6 +672,19 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertEqual(wake['kind'], 'review_completed')
         self.assertIn('NOT inferred', wake['content'])
         self.assertEqual(self.journal()[0]['review_state'], 'code_review_observed')
+
+    def test_review_poll_marks_changed_candidate_stale_before_attributing_review(self):
+        gh = FakeGitHub()
+        with patch.object(server, '_pm_request', side_effect=gh.request):
+            server.execute_pm_actions({'id': 1}, [refresh_action()])
+            gh.pr['head']['sha'] = 'c' * 40
+            gh.reviews = [{'id': 999, 'commit_id': HEAD, 'user': {'login': 'chatgpt-codex-connector[bot]'}}]
+            self.assertEqual(server.poll_refreshed_reviews(), [])
+        row = self.journal()[0]
+        self.assertEqual(row['review_state'], 'stale_candidate')
+        self.assertIn('candidate is stale', row['review_error'])
+        self.assertTrue(any(x['kind'] == 'review_stale' and 'Do not reuse old-head reviews' in x['content']
+                            for x in server.list_queue()))
 
     def test_unsupported_action_is_named_recoverable_blocker(self):
         route = {'message': 'merge it', 'next': 'dev', 'pm_actions': [dict(refresh_action(), kind='merge_pr')], 'board_updates': board()}
@@ -939,6 +965,42 @@ class Deadlock5Tests(unittest.TestCase):
             server.verify_remote_packet(1258, 'handoffs/PR-1258/../../etc', 'f' * 40, fetch)
         with patch.object(server, 'compact_pr_context', return_value='x'):
             self.assertIn('/api/handoff-verify', server.compose_for_pm({'id': 1, 'content': 'm'}))
+
+    def test_remote_packet_fetches_manifest_once_and_preserves_transient_error(self):
+        base = 'handoffs/PR-1258/orchestration/deadlock5/pkt'
+        payload = json.dumps({'packet_files_sha256': {}}).encode()
+        calls = []
+        def fetch(path, ref):
+            calls.append(path)
+            if path.endswith('/manifest.json'):
+                return payload
+            raise FileNotFoundError(path)
+        result = server.verify_remote_packet(1258, base, 'f' * 40, fetch)
+        self.assertIn('no per-file SHA-256', result['error'])
+        self.assertEqual(calls, [f'{base}/manifest.json'])
+
+        def unavailable(path, ref):
+            raise server.GithubReadError('rate_limited', 'retry after reset')
+        with self.assertRaisesRegex(server.GithubReadError, 'retry after reset'):
+            server.verify_remote_packet(1258, base, 'f' * 40, unavailable)
+
+    def test_remote_packet_rejects_oversized_manifest_inventory(self):
+        base = 'handoffs/PR-1258/orchestration/deadlock5/pkt'
+        manifest = {'packet_files_sha256': {f'{n}.txt': 'a' * 64 for n in range(server.MAX_PACKET_FILES + 1)}}
+        def fetch(path, ref):
+            if path.endswith('/manifest.json'):
+                return json.dumps(manifest).encode()
+            raise AssertionError('must reject manifest before reading files')
+        result = server.verify_remote_packet(1258, base, 'f' * 40, fetch)
+        self.assertIn('100-file limit', result['error'])
+
+    def test_remote_packet_enforces_total_read_time_budget(self):
+        base = 'handoffs/PR-1258/orchestration/deadlock5/pkt'
+        fetch = Mock(side_effect=AssertionError('must not read after deadline'))
+        with patch.object(server.time, 'monotonic', side_effect=[0, server.PACKET_VERIFY_TIMEOUT_SECONDS + 1]):
+            result = server.verify_remote_packet(1258, base, 'f' * 40, fetch)
+        self.assertIn('time budget', result['error'])
+        fetch.assert_not_called()
 
 
     # ---------- c4: PM disposition (delivery 91) ----------

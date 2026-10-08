@@ -53,6 +53,15 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_TIMEOUT = int(os.environ.get("OPENAI_TIMEOUT_SECONDS", str(PM_TIMEOUT)))
 MAX_UPLOAD = 10 * 1024 * 1024
+MAX_PACKET_FILES = 100
+MAX_PACKET_FILE_BYTES = 10 * 1024 * 1024
+MAX_PACKET_BYTES = 50 * 1024 * 1024
+MAX_PACKET_MANIFEST_BYTES = 1024 * 1024
+PACKET_VERIFY_TIMEOUT_SECONDS = 120
+MAX_COMMENT_PAGES = 5
+MAX_REVIEW_PAGES = 5
+MAX_AFFECTED_REVIEW_TARGETS = 25
+COMMENT_BOOTSTRAP_LOOKBACK_DAYS = 30
 MAX_HANDOFF_DEPTH = int(os.environ.get("MAX_HANDOFF_DEPTH", "12"))
 GITHUB_WATCH_INTERVAL = max(5, int(os.environ.get("GITHUB_WATCH_INTERVAL_SECONDS", "20")))
 CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1258"))
@@ -85,6 +94,7 @@ CODEX_AUTH_OK = None
 CODEX_AUTH_DETAIL = "not checked"
 STOP = threading.Event()
 STATE_LOCK_FD = None
+REPOSITORY_LOCK_FD = None
 
 
 def acquire_state_dir_lock(state_dir=None):
@@ -110,6 +120,28 @@ def release_state_dir_lock(fd):
             fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
+
+
+def acquire_repository_lock(repo_identity=None, lock_root=None):
+    """Permit one installed board/worker set per GitHub repository on this host user."""
+    identity = str(repo_identity or repo_slug(BASE_REPO) or '').strip().lower()
+    if not identity:
+        raise RuntimeError('Cannot establish repository identity for the board worker lock')
+    root = Path(lock_root) if lock_root is not None else Path.home() / '.rwt-board' / 'locks'
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if root.is_symlink():
+        raise RuntimeError(f'Repository lock directory must not be a symlink: {root}')
+    lock_path = root / (hashlib.sha256(identity.encode()).hexdigest() + '.lock')
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        os.close(fd)
+        if exc.errno in (11, 35):
+            raise RuntimeError(f'Another board process owns repository {identity}') from exc
+        raise
+    return fd
 
 
 def now():
@@ -212,7 +244,10 @@ def init_db():
         for definition in ("kind TEXT NOT NULL DEFAULT ''", "action_json TEXT NOT NULL DEFAULT ''",
                            "phase TEXT NOT NULL DEFAULT ''", "review_state TEXT NOT NULL DEFAULT ''",
                            "pr_number INTEGER", "head TEXT NOT NULL DEFAULT ''", "updated_at TEXT",
-                           "provenance TEXT NOT NULL DEFAULT '[]'", "lease_scope TEXT NOT NULL DEFAULT ''"):
+                           "provenance TEXT NOT NULL DEFAULT '[]'", "lease_scope TEXT NOT NULL DEFAULT ''",
+                           "review_error TEXT NOT NULL DEFAULT ''",
+                           "security_review_state TEXT NOT NULL DEFAULT ''",
+                           "pm_acceptance_state TEXT NOT NULL DEFAULT ''"):
             _add_column(c, "pm_action_journal", definition)
         for row in c.execute("SELECT action_key,action_json FROM pm_action_journal WHERE lease_scope='' ").fetchall():
             try:
@@ -284,6 +319,7 @@ def init_db():
                 ("pm", "codex", None, BASE_REPO, "idle", 0, now()),
             )
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('current_pr','')")
+        c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('current_pr_explicit','0')")
         for key, value in {
             'auto_pm_github_review':'1', 'auto_pm_github_ci':'1', 'auto_pm_github_head':'1',
             'auto_pm_github_deploy':'1', 'auto_dev_github':'0', 'auto_dev_to_pm':'1',
@@ -894,28 +930,77 @@ def update_queue(qid, **fields):
 
 def gh_json(args):
     global GH_BACKOFF_UNTIL
-    if time.time() < GH_BACKOFF_UNTIL:
-        return None, 'GitHub rate-limit backoff until ' + datetime.fromtimestamp(GH_BACKOFF_UNTIL, timezone.utc).isoformat()
+    backoff_until = github_backoff_until()
+    if time.time() < backoff_until:
+        return None, 'GitHub rate-limit backoff until ' + datetime.fromtimestamp(backoff_until, timezone.utc).isoformat()
     try:
         p = subprocess.run(["gh"] + args, capture_output=True, text=True, timeout=20)
         if p.returncode != 0:
             error = p.stderr.strip() or p.stdout.strip()
             if re.search(r'rate limit|secondary rate|abuse detection|HTTP 429', error, re.I):
-                # Read rate resources once, then stop all board GH requests during cooldown.
-                # Never replay the failed operation: it may have been a write.
-                GH_BACKOFF_UNTIL = time.time() + 900
-                try:
-                    rate = subprocess.run(['gh', 'api', 'rate_limit'], capture_output=True, text=True, timeout=10)
-                    resources = json.loads(rate.stdout).get('resources', {}) if rate.returncode == 0 else {}
-                    resets = [float(x['reset']) + 5 for x in resources.values() if x.get('remaining') == 0 and x.get('reset')]
-                    if resets:
-                        GH_BACKOFF_UNTIL = max(time.time() + 60, max(resets))
-                except Exception:
-                    pass
+                _record_github_rate_limit()
             return None, error
         return json.loads(p.stdout or "null"), None
     except Exception as e:
         return None, str(e)
+
+
+def bounded_github_list(request, path, max_pages=MAX_REVIEW_PAGES):
+    """Read a complete bounded API list; a full last page is an explicit incomplete read."""
+    rows = []
+    for page_no in range(1, max_pages + 1):
+        separator = '&' if '?' in path else '?'
+        obj = request(['api', f'{path}{separator}per_page=100&page={page_no}'])
+        # Accept the prior gh --paginate --slurp shape during transition, but normalize
+        # before applying completeness checks.
+        if isinstance(obj, list) and len(obj) == 1 and isinstance(obj[0], list):
+            obj = obj[0]
+        if not isinstance(obj, list):
+            return None, f'GitHub list returned {type(obj).__name__}, expected an array'
+        rows.extend(x for x in obj if isinstance(x, dict))
+        if len(obj) < 100:
+            return rows, None
+    return None, f'GitHub list exceeded the bounded {max_pages}-page read; completeness not established'
+
+
+def github_backoff_until():
+    """The read/write budget survives board restart and applies to every GitHub adapter."""
+    try:
+        persisted = float(get_setting('github_backoff_until', '0') or 0)
+    except (ValueError, TypeError):
+        persisted = 0.0
+    return max(float(GH_BACKOFF_UNTIL or 0), persisted)
+
+
+class GithubReadError(RuntimeError):
+    def __init__(self, kind, message):
+        super().__init__(message)
+        self.kind = kind
+
+
+def _record_github_rate_limit():
+    global GH_BACKOFF_UNTIL
+    GH_BACKOFF_UNTIL = time.time() + 900
+    try:
+        rate = subprocess.run(['gh', 'api', 'rate_limit'], capture_output=True, text=True, timeout=10)
+        resources = json.loads(rate.stdout).get('resources', {}) if rate.returncode == 0 else {}
+        resets = [float(x['reset']) + 5 for x in resources.values() if x.get('remaining') == 0 and x.get('reset')]
+        if resets:
+            GH_BACKOFF_UNTIL = max(time.time() + 60, max(resets))
+    except Exception:
+        pass
+    set_setting('github_backoff_until', str(GH_BACKOFF_UNTIL))
+
+
+def _github_read_failure(stderr, returncode):
+    message = (stderr or b'').decode(errors='replace')[:500]
+    if re.search(r'rate limit|secondary rate|abuse detection|HTTP 429', message, re.I):
+        return GithubReadError('rate_limited', message or f'GitHub CLI exited {returncode}')
+    if re.search(r'HTTP 404|Not Found|\b404\b', message, re.I):
+        return FileNotFoundError(message or 'GitHub object not found')
+    if re.search(r'HTTP 401|HTTP 403|Bad credentials|requires authentication', message, re.I):
+        return GithubReadError('authorization', message or f'GitHub CLI exited {returncode}')
+    return GithubReadError('transport', message or f'GitHub CLI exited {returncode}')
 
 
 def post_control_issue_comment(message):
@@ -1034,10 +1119,7 @@ def _auto_select_current_pr(open_prs):
     except (ValueError, TypeError):
         order = list(RELEASE_ORDER)
     by_number = {int(p['number']): p for p in open_prs or [] if p.get('number')}
-    chosen = next((by_number[int(n)] for n in order if int(n) in by_number), None)
-    if chosen:
-        set_setting('current_pr', chosen['number'])
-    return chosen
+    return next((by_number[int(n)] for n in order if int(n) in by_number), None)
 
 
 def reconcile_release_items(open_prs, completed):
@@ -1077,8 +1159,9 @@ def pr_snapshot():
     reconcile_release_items(prs, completed)
     # v4.6.16: explicit train order first. Never guess the current PR from "most recently updated".
     # The PO/PM must select it explicitly; this avoids worktree misrouting.
-    current = _auto_select_current_pr(prs)
-    current_num = str(current['number']) if current else get_setting("current_pr", "").strip()
+    explicit = bool_setting('current_pr_explicit', False)
+    current = None if explicit else _auto_select_current_pr(prs)
+    current_num = get_setting("current_pr", "").strip() if explicit else str(current['number']) if current else ''
     current = None
     if current_num:
         try:
@@ -1091,11 +1174,18 @@ def pr_snapshot():
             if details and str(details.get("state") or "").upper() == "OPEN":
                 current = details
             else:
-                set_setting("current_pr", "")
+                if explicit:
+                    snapshot_err = snapshot_err or f"Explicitly selected PR #{n} is not currently readable and open"
+                else:
+                    set_setting("current_pr", "")
         except Exception:
-            set_setting("current_pr", "")
-    if current is None:
+            if explicit:
+                snapshot_err = snapshot_err or f"Explicitly selected PR #{current_num} could not be read"
+            else:
+                set_setting("current_pr", "")
+    if current is None and not explicit:
         current = _auto_select_current_pr(prs)
+        set_setting('current_pr', str(current['number']) if current else '')
     return {"repo": repo, "error": snapshot_err, "current": current, "active": prs, "priority": priority_prs(prs, current, 4), "recent_completed": completed}
 
 
@@ -1116,25 +1206,37 @@ def display_pr_snapshot():
 
 
 def fetch_watch_comments(repo, issue):
-    """Stage an incremental cursor. It is committed only after durable event enqueue."""
+    """Fetch bounded overlapping pages; commit the staged cursor only after durable enqueue."""
     key = f'github_comments:{repo}:{issue}'
     try:
         state = json.loads(get_setting(key, '{}'))
     except (ValueError, TypeError):
         state = {}
-    url = f'repos/{repo}/issues/{issue}/comments?per_page=100'
-    if state.get('since'):
-        url += '&since=' + quote(state['since'], safe='')
-    pages, err = gh_json(['api', '--paginate', '--slurp', url])
-    if err:
-        return None, err, None
-    fresh = [x for page in (pages or []) for x in (page if isinstance(page, list) else [page]) if isinstance(x, dict) and x.get('id')]
+    since = state.get('since')
+    if not since:
+        since = (datetime.now(timezone.utc) - timedelta(days=COMMENT_BOOTSTRAP_LOOKBACK_DAYS)).isoformat()
+    fresh = []
+    exhausted = True
+    for page_no in range(1, MAX_COMMENT_PAGES + 1):
+        url = f'repos/{repo}/issues/{issue}/comments?per_page=100&page={page_no}&since=' + quote(since, safe='')
+        page, err = gh_json(['api', url])
+        if err:
+            return None, f'GitHub comments page {page_no} failed: {err}', None
+        if isinstance(page, list) and page and all(isinstance(part, list) for part in page):
+            page = [entry for part in page for entry in part]
+        rows = page if isinstance(page, list) else [page] if isinstance(page, dict) else []
+        fresh.extend(x for x in rows if isinstance(x, dict) and x.get('id'))
+        if len(rows) < 100:
+            exhausted = False
+            break
+    if exhausted:
+        # A full final page means there may be unseen events. Do not advance a cursor past them.
+        return None, f'GitHub comments exceeded the bounded {MAX_COMMENT_PAGES}-page read; cursor retained for recovery', None
     merged = {int(x['id']): x for x in state.get('comments', [])}
     merged.update({int(x['id']): x for x in fresh})
     rows = sorted(merged.values(), key=lambda x: int(x['id']))
     dates = [x.get('updated_at') or x.get('created_at') for x in fresh]
     dates = [x for x in dates if x]
-    since = state.get('since')
     if dates:
         try:
             # Overlap handles tied timestamps; IDs deduplicate the repeat rows.
@@ -1153,6 +1255,61 @@ def commit_watch_comment_cursors(snapshot):
 
 def _terminal(value):
     return str(value or '').upper() in ('COMPLETED','SUCCESS','FAILURE','FAILED','CANCELLED','SKIPPED','NEUTRAL','TIMED_OUT','ACTION_REQUIRED','STALE')
+
+
+def affected_review_targets():
+    """Return bounded explicitly active PR candidates, including non-selected work and review handoffs."""
+    numbers = set()
+    with DB_LOCK, con() as c:
+        for row in c.execute("SELECT pr_number FROM work_items WHERE pr_number IS NOT NULL "
+                              "AND lower(state) IN ('active','in_progress','doing','review','in_review','ready')").fetchall():
+            numbers.add(int(row['pr_number']))
+        for row in c.execute("SELECT DISTINCT pr_number FROM pm_action_journal WHERE pr_number IS NOT NULL "
+                              "AND (status IN ('running','unconfirmed') OR review_state='pending')").fetchall():
+            numbers.add(int(row['pr_number']))
+        for row in c.execute("SELECT DISTINCT pr_number FROM review_handoffs WHERE state NOT IN "
+                              "('result_returned','completed','superseded')").fetchall():
+            numbers.add(int(row['pr_number']))
+    return sorted(numbers)[:MAX_AFFECTED_REVIEW_TARGETS]
+
+
+def affected_review_snapshot(repo, current_number=''):
+    """Read exact candidate/review state for every active affected PR, not only Current PR."""
+    targets = affected_review_targets()
+    if current_number and str(current_number).isdigit():
+        targets = [n for n in targets if n != int(current_number)]
+    out = {}
+    for number in targets:
+        key = str(number)
+        try:
+            pr, err = gh_json(['pr', 'view', key, '--repo', repo,
+                               '--json', 'number,state,headRefOid,baseRefOid,headRefName,baseRefName'])
+            if err or not isinstance(pr, dict):
+                out[key] = {'error': str(err or 'PR read returned no object')[:400]}
+                continue
+            head = str(pr.get('headRefOid') or '')
+            base = str(pr.get('baseRefOid') or '')
+            reviews, review_error = bounded_github_list(_pm_request, f'repos/{repo}/pulls/{number}/reviews')
+            comments, comment_error = bounded_github_list(_pm_request, f'repos/{repo}/pulls/{number}/comments')
+            if review_error or comment_error:
+                out[key] = {'head': head, 'base': base, 'state': pr.get('state'),
+                            'error': str(review_error or comment_error)[:400]}
+                continue
+            exact_reviews = [x for x in reviews if x.get('commit_id') == head]
+            code_ids = sorted(int(x['id']) for x in exact_reviews if x.get('id') and
+                              'codex' in str((x.get('user') or {}).get('login') or '').lower())
+            exact_comments = [x for x in comments if (x.get('commit_id') or x.get('original_commit_id')) == head]
+            comment_fingerprint = hashlib.sha256(json.dumps([
+                (x.get('id'), x.get('updated_at'), x.get('body'), x.get('path'), x.get('position'))
+                for x in exact_comments], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            out[key] = {'head': head, 'base': base, 'state': pr.get('state'),
+                        'code_review_ids': code_ids, 'security_review_state': 'NOT INFERRED',
+                        'pm_acceptance_state': 'NOT RECORDED',
+                        'inline_comment_count': len(exact_comments), 'inline_comment_fingerprint': comment_fingerprint,
+                        'head_ref': pr.get('headRefName'), 'base_ref': pr.get('baseRefName'), 'error': ''}
+        except Exception as exc:
+            out[key] = {'error': f'{type(exc).__name__}: {exc}'[:400]}
+    return out
 
 def github_watch_snapshot():
     """Snapshot the shared RWT control issue even when no Current PR exists.
@@ -1198,14 +1355,22 @@ def github_watch_snapshot():
         'runs': {}, 'deploy': [],
         '_pending_comment_cursors': pending_cursors,
     }
+    base['affected_reviews'] = affected_review_snapshot(repo, current)
     if not current:
         return base, control_err
     pr, err = gh_json(['pr','view',current,'--repo',repo,'--json','number,title,headRefName,headRefOid,isDraft,state,reviewDecision,updatedAt,url,statusCheckRollup'])
     if pr is None:
         # Do not lose #1258 monitoring merely because the selected PR is stale/closed/unreadable.
         return base, err or control_err or 'PR lookup failed'
-    reviews, _ = gh_json(['api',f'repos/{repo}/pulls/{current}/reviews?per_page=100'])
-    comments, _ = gh_json(['api',f'repos/{repo}/pulls/{current}/comments?per_page=100'])
+    try:
+        reviews, reviews_err = bounded_github_list(_pm_request, f'repos/{repo}/pulls/{current}/reviews')
+        comments, comments_err = bounded_github_list(_pm_request, f'repos/{repo}/pulls/{current}/comments')
+    except Exception as exc:
+        reviews, comments, reviews_err, comments_err = None, None, str(exc), None
+    if reviews_err or comments_err:
+        detail = f'PR #{current} review monitor incomplete: {reviews_err or comments_err}'
+        base['review_monitor_error'] = detail
+        return base, detail
     runs, _ = gh_json(['run','list','--repo',repo,'--branch',pr.get('headRefName',''),'--limit','30','--json','databaseId,workflowName,status,conclusion,headSha,updatedAt,event'])
     reviews = reviews if isinstance(reviews,list) else []
     comments = comments if isinstance(comments,list) else []
@@ -1235,6 +1400,17 @@ def github_watch_events(prev, cur, cfg):
     if prev.get('pr') != cur.get('pr') and prev.get('pr') is not None and cur.get('pr') is not None:
         return []
     events=[]
+    prior_targets = prev.get('affected_reviews') or {}
+    current_targets = cur.get('affected_reviews') or {}
+    for number, target in current_targets.items():
+        old = prior_targets.get(number) or {}
+        if target.get('error') and target.get('error') != old.get('error'):
+            events.append(f"Affected PR #{number} review monitor failed: {target['error']}; Code/Security/PM status remains unqualified")
+        elif not old or target.get('head') != old.get('head') or target.get('base') != old.get('base'):
+            events.append(f"Affected PR #{number} candidate changed/registered: head {target.get('head') or 'unknown'}, base {target.get('base') or 'unknown'}; inspect exact-head Code and Security review separately")
+        elif (target.get('code_review_ids') != old.get('code_review_ids')
+              or target.get('inline_comment_fingerprint') != old.get('inline_comment_fingerprint')):
+            events.append(f"Affected PR #{number} exact-head review evidence changed at {target.get('head')}; Code review IDs {target.get('code_review_ids') or []}; Security status is NOT inferred; read and disposition every finding")
     if cfg.get('pm_github_head') and prev.get('head') != cur.get('head'):
         events.append(f"PR head changed: {(prev.get('head') or '')[:9]} → {(cur.get('head') or '')[:9]}")
     if cfg.get('pm_github_review'):
@@ -1922,7 +2098,7 @@ def github_watcher():
     resumed = False
     while not STOP.is_set():
         try:
-            if not resumed and time.time() >= GH_BACKOFF_UNTIL:
+            if not resumed and time.time() >= github_backoff_until():
                 resume_interrupted_actions()
                 resumed = True
             cfg=automation_settings()
@@ -1963,7 +2139,7 @@ def github_watcher():
                 # c5 (F01): finish owed PM-turn effects (after marker recovery above confirmed any uncertain post).
                 resume_owed_pm_turns()
                 pending_pin_watchdog()
-                if time.time() >= GH_BACKOFF_UNTIL:
+                if time.time() >= github_backoff_until():
                     poll_refreshed_reviews()
                 pending_ask_watchdog()
                 pending_handoff_watchdog()
@@ -1998,11 +2174,26 @@ def handoff_location(pr_or_task=None):
 
 
 def _gh_raw(path, ref):
-    p = subprocess.run(['gh', 'api', '-H', 'Accept: application/vnd.github.raw',
-                        f'repos/{HANDOFF_REMOTE_REPO}/contents/{quote(path)}?ref={ref}'], capture_output=True, timeout=30)
+    backoff_until = github_backoff_until()
+    if time.time() < backoff_until:
+        raise GithubReadError('rate_limited', 'GitHub rate-limit backoff until ' + datetime.fromtimestamp(backoff_until, timezone.utc).isoformat())
+    try:
+        p = subprocess.run(['gh', 'api', '-H', 'Accept: application/vnd.github.raw',
+                            f'repos/{HANDOFF_REMOTE_REPO}/contents/{quote(path)}?ref={ref}'], capture_output=True, timeout=15)
+    except subprocess.TimeoutExpired as exc:
+        raise GithubReadError('timeout', f'GitHub packet read timed out: {path}') from exc
+    except OSError as exc:
+        raise GithubReadError('transport', f'GitHub CLI packet read failed: {exc}') from exc
     if p.returncode:
-        raise FileNotFoundError((p.stderr or b'').decode(errors='replace')[:200])
-    return p.stdout
+        failure = _github_read_failure(p.stderr or p.stdout, p.returncode)
+        if isinstance(failure, GithubReadError) and failure.kind == 'rate_limited':
+            _record_github_rate_limit()
+        raise failure
+    raw = p.stdout or b''
+    limit = MAX_PACKET_MANIFEST_BYTES if Path(path).name.lower() == 'manifest.json' else MAX_PACKET_FILE_BYTES
+    if len(raw) > limit:
+        raise GithubReadError('size_limit', f'GitHub packet file exceeds {limit} bytes: {path}')
+    return raw
 
 
 def verify_remote_packet(pr_or_task, packet_path, ref, fetch=None):
@@ -2019,10 +2210,25 @@ def verify_remote_packet(pr_or_task, packet_path, ref, fetch=None):
     if not packet_path.startswith(loc['remote_path']) or '..' in packet_path.split('/') or '\\' in packet_path:
         raise ValueError(f"packet path must be inside {loc['remote_path']}")
     fetch = fetch or _gh_raw
-    manifest_name = next((n for n in ('manifest.json', 'MANIFEST.json') if _try_fetch(fetch, f'{packet_path}/{n}', ref) is not None), None)
+    deadline = time.monotonic() + PACKET_VERIFY_TIMEOUT_SECONDS
+    manifest_name, manifest_bytes = '', None
+    for candidate in ('manifest.json', 'MANIFEST.json'):
+        if time.monotonic() >= deadline:
+            return {'ok': False, 'ref': ref, 'path': packet_path, 'error': 'packet verification exceeded its time budget'}
+        try:
+            manifest_bytes = fetch(f'{packet_path}/{candidate}', ref)
+            manifest_name = candidate
+            break
+        except FileNotFoundError:
+            continue
     if not manifest_name:
         return {'ok': False, 'ref': ref, 'path': packet_path, 'error': 'no manifest.json at this commit'}
-    manifest = json.loads(fetch(f'{packet_path}/{manifest_name}', ref).decode('utf-8'))
+    if len(manifest_bytes) > MAX_PACKET_MANIFEST_BYTES:
+        return {'ok': False, 'ref': ref, 'path': packet_path, 'manifest': manifest_name, 'error': 'manifest exceeds size limit'}
+    try:
+        manifest = json.loads(manifest_bytes.decode('utf-8'))
+    except (UnicodeError, ValueError) as exc:
+        return {'ok': False, 'ref': ref, 'path': packet_path, 'manifest': manifest_name, 'error': f'invalid manifest: {exc}'}
     expected = dict(manifest.get('packet_files_sha256') or {})
     for f in manifest.get('files') or []:
         if isinstance(f, dict) and f.get('name') and f.get('sha256'):
@@ -2030,11 +2236,31 @@ def verify_remote_packet(pr_or_task, packet_path, ref, fetch=None):
     if not expected:
         return {'ok': False, 'ref': ref, 'path': packet_path, 'manifest': manifest_name, 'verified': [], 'mismatched': [], 'missing': [],
                 'error': 'manifest lists no per-file SHA-256 in a supported format (files[].sha256 or packet_files_sha256)'}
+    if len(expected) > MAX_PACKET_FILES:
+        return {'ok': False, 'ref': ref, 'path': packet_path, 'manifest': manifest_name, 'verified': [], 'mismatched': [], 'missing': [],
+                'error': f'manifest exceeds the {MAX_PACKET_FILES}-file limit'}
     verified, mismatched, missing = [], [], []
+    total_bytes = 0
     for name, sha in sorted(expected.items()):
-        if '..' in Path(name).parts or name.startswith('/'):
+        if time.monotonic() >= deadline:
+            return {'ok': False, 'ref': ref, 'path': packet_path, 'manifest': manifest_name,
+                    'verified': verified, 'mismatched': mismatched, 'missing': missing,
+                    'error': 'packet verification exceeded its time budget'}
+        rel = Path(name)
+        if not name or rel.is_absolute() or '..' in rel.parts or '\\' in name or not re.fullmatch(r'[0-9a-fA-F]{64}', str(sha)):
             mismatched.append(name); continue
-        raw = _try_fetch(fetch, f'{packet_path}/{name}', ref)
+        try:
+            raw = fetch(f'{packet_path}/{name}', ref)
+        except FileNotFoundError:
+            raw = None
+        if raw is not None:
+            if len(raw) > MAX_PACKET_FILE_BYTES:
+                mismatched.append(name); continue
+            total_bytes += len(raw)
+            if total_bytes > MAX_PACKET_BYTES:
+                return {'ok': False, 'ref': ref, 'path': packet_path, 'manifest': manifest_name,
+                        'verified': verified, 'mismatched': mismatched, 'missing': missing,
+                        'error': f'packet exceeds the {MAX_PACKET_BYTES}-byte total read limit'}
         if raw is None:
             missing.append(name)
         elif hashlib.sha256(raw).hexdigest() == sha:
@@ -2048,7 +2274,7 @@ def verify_remote_packet(pr_or_task, packet_path, ref, fetch=None):
 def _try_fetch(fetch, path, ref):
     try:
         return fetch(path, ref)
-    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+    except FileNotFoundError:
         return None
 
 
@@ -2485,6 +2711,11 @@ def parse_pm_route(raw):
             route["message"] = route["message"].strip()
         if route.get("board_updates") is None:
             route.pop("board_updates", None)  # absent/null = no board change
+        updates = route.get('board_updates')
+        if isinstance(updates, dict) and isinstance(updates.get('work_items'), list):
+            for item in updates['work_items']:
+                if isinstance(item, dict):
+                    item.setdefault('owned_paths', None)
         missing = [k for k in ("message", "next") if k not in route]
         errors = [f"route.{k} is required" for k in missing] + _schema_errors(route, _route_schema())
         if errors:
@@ -2947,10 +3178,16 @@ def _pm_action_scope(action):
 
 
 def _finish_journal(key, kind, state, result):
-    review_state = 'pending' if kind == 'refresh_reviews' and state == 'completed' else ''
+    review_state = ('pending' if state == 'completed' else 'code_review_observed' if state == 'observed' else '') if kind == 'refresh_reviews' else ''
+    security_state = 'pending' if kind == 'refresh_reviews' and state in ('completed', 'observed') else ''
+    acceptance_state = 'pending' if kind == 'refresh_reviews' and state in ('completed', 'observed') else ''
     with DB_LOCK, con() as c:
-        c.execute('UPDATE pm_action_journal SET status=?,result=?,updated_at=?,review_state=CASE WHEN ?<>\'\' THEN ? ELSE review_state END '
-                  'WHERE action_key=?', (state, result, now(), review_state, review_state, key))
+        c.execute('UPDATE pm_action_journal SET status=?,result=?,updated_at=?, '
+                  'review_state=CASE WHEN ?<>\'\' THEN ? ELSE review_state END, '
+                  'security_review_state=CASE WHEN ?<>\'\' THEN ? ELSE security_review_state END, '
+                  'pm_acceptance_state=CASE WHEN ?<>\'\' THEN ? ELSE pm_acceptance_state END '
+                  'WHERE action_key=?', (state, result, now(), review_state, review_state,
+                                         security_state, security_state, acceptance_state, acceptance_state, key))
 
 
 def _resume_refresh(key, action, phase):
@@ -3118,9 +3355,37 @@ def poll_refreshed_reviews(request=None):
     woke = []
     for r in rows:
         try:
-            reviews = request(['api', f"repos/relativityE/speaksharp/pulls/{int(r['pr_number'])}/reviews?per_page=100"])
-        except Exception:
+            live_pr = request(['api', f"repos/relativityE/speaksharp/pulls/{int(r['pr_number'])}"])
+            action = json.loads(r.get('action_json') or '{}')
+            live_head = str((live_pr.get('head') or {}).get('sha') or '')
+            live_base = str((live_pr.get('base') or {}).get('sha') or '')
+            if (str(live_pr.get('state') or '').lower() != 'open' or live_head != r['head']
+                    or live_base != str(action.get('base') or '')):
+                detail = (f"Review candidate is stale: #{r['pr_number']} now state={live_pr.get('state')} "
+                          f"head={live_head or 'unknown'} base={live_base or 'unknown'}; journaled candidate "
+                          f"head={r['head']} base={action.get('base') or 'unknown'}")
+                with DB_LOCK, con() as c:
+                    changed = c.execute("UPDATE pm_action_journal SET review_state='stale_candidate',security_review_state='stale_candidate',"
+                                        "pm_acceptance_state='stale_candidate',review_error=?,updated_at=? "
+                                        "WHERE action_key=? AND review_state='pending'", (detail, now(), r['action_key'])).rowcount
+                if changed:
+                    aid = add_activity('SYSTEM', detail + '. No review is attributed to the changed candidate; PM must reconcile the new exact head.', 'pm', 'error')
+                    enqueue(aid, 'pm', detail + '. Do not reuse old-head reviews.', source_actor='SYSTEM', auto_handoff=True,
+                            delivery_key=f"review-stale:{r['pr_number']}:{r['head']}", kind='review_stale')
+                continue
+            reviews, read_error = bounded_github_list(request, f"repos/relativityE/speaksharp/pulls/{int(r['pr_number'])}/reviews")
+            if read_error:
+                raise RuntimeError(read_error)
+        except Exception as exc:
+            error = f'{type(exc).__name__}: {exc}'[:500]
+            with DB_LOCK, con() as c:
+                previous = c.execute('SELECT review_error FROM pm_action_journal WHERE action_key=?', (r['action_key'],)).fetchone()
+                c.execute('UPDATE pm_action_journal SET review_error=?,updated_at=? WHERE action_key=?', (error, now(), r['action_key']))
+            if not previous or previous['review_error'] != error:
+                add_activity('SYSTEM', f"Review read for #{r['pr_number']} at {r['head']} is incomplete: {error}; no review status inferred.", 'pm', 'error')
             continue
+        with DB_LOCK, con() as c:
+            c.execute("UPDATE pm_action_journal SET review_error='',updated_at=? WHERE action_key=?", (now(), r['action_key']))
         hits = [x for x in (reviews or []) if x.get('commit_id') == r['head'] and 'codex' in str((x.get('user') or {}).get('login', '')).lower()]
         if not hits:
             continue
@@ -3140,6 +3405,26 @@ def poll_refreshed_reviews(request=None):
                             "VALUES(?,?,?,?,?,?,?,?,0,?)", (aid, 'pm', msg, 'queued', now(), 'SYSTEM', 0, 1, 'review_completed')).lastrowid
         woke.append(qid)
     return woke
+
+
+def list_review_qualifications():
+    """Expose separate exact-candidate Code, Security, and PM-acceptance states."""
+    with DB_LOCK, con() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM pm_action_journal WHERE kind='refresh_reviews' "
+            "AND status IN ('completed','observed','unconfirmed','held') ORDER BY updated_at DESC LIMIT 100").fetchall()]
+    out = []
+    for row in rows:
+        try:
+            action = json.loads(row.get('action_json') or '{}')
+        except (ValueError, TypeError):
+            action = {}
+        out.append({'pr_number': row.get('pr_number'), 'head': row.get('head'), 'base': action.get('base'),
+                    'code_state': row.get('review_state') or 'not_observed',
+                    'security_state': row.get('security_review_state') or 'not_recorded',
+                    'pm_acceptance_state': row.get('pm_acceptance_state') or 'not_recorded',
+                    'error': row.get('review_error') or '', 'updated_at': row.get('updated_at')})
+    return out
 
 
 def recover_pm_outbox(comments):
@@ -3174,12 +3459,12 @@ def publish_pm_reply(q, message):
             return True
     if row:
         # Recover a possibly completed POST by its unique marker, never by repeating it.
-        pages,err=gh_json(['api','--paginate','--slurp','repos/relativityE/speaksharp/issues/1258/comments?per_page=100'])
-        comments=[x for page in (pages or []) for x in (page if isinstance(page,list) else [page])]
+        comments, read_error, _staged_cursor = fetch_watch_comments('relativityE/speaksharp', CONTROL_ISSUE)
+        comments = comments or []
         found=next((x for x in comments if marker in str(x.get('body') or '')),None)
-        if err or not found:
+        if read_error or not found:
             set_setting('pm_outbox_status','Unconfirmed PM post; inspect outbox before retry (no blind replay)')
-            set_setting('pm_outbox_error', str(err or 'No matching publication marker yet')[:500])
+            set_setting('pm_outbox_error', str(read_error or 'No matching publication marker in bounded comment window')[:500])
             return False
         obj=found
     else:
@@ -3936,6 +4221,12 @@ def dashboard_snapshot():
     # Attach the concrete owned work item so the UI can answer: working on what,
     # blocked why, and what happens next without exposing routing internals.
     by_key = {str(x.get("item_key") or ""): x for x in items}
+    for pid in ("cli_dev", "app_dev"):
+        player = players.get(pid) or {}
+        owned = by_key.get(str(player.get("work_item_key") or ""))
+        if owned and (owned.get('dispatch_hold') or str(owned.get('state') or '').lower() in ('blocked', 'held')):
+            player['status'] = 'blocked'
+            player['blocker'] = owned.get('dispatch_hold') or owned.get('blocker') or 'Assigned work item is blocked'
     for pid, base in players.items():
         wi = by_key.get(str(base.get("work_item_key") or ""))
         if wi:
@@ -3967,6 +4258,11 @@ def dashboard_snapshot():
         "checks": _pr_gate_summary(p), "statusCheckRollup": p.get("statusCheckRollup") or [], "reviewDecision": p.get("reviewDecision"), "mergeStateStatus":p.get("mergeStateStatus"),
     } if p else None
 
+    try:
+        watch_snapshot = json.loads(get_setting('github_watch_snapshot', '{}') or '{}')
+    except (ValueError, TypeError):
+        watch_snapshot = {}
+
     return {
         "version": BOARD_VERSION,
         "build": BOARD_BUILD,
@@ -3974,6 +4270,8 @@ def dashboard_snapshot():
         "observed_at": now(),
         "github_observed_at": pr.get('observed_at'),
         "github_error": pr.get("error"),
+        "affected_reviews": watch_snapshot.get('affected_reviews') or {},
+        "review_qualifications": list_review_qualifications(),
         "current": current_info,
         "blocker": blocker,
         "players": players,
@@ -4026,6 +4324,8 @@ def transport_status():
         "dev_configured": bool(resolved_bin(CLAUDE_BIN)),
         "claude_subscription_mode": True,
         "claude_permission_mode": PERMISSION_MODE,
+        "external_notification_configured": False,
+        "external_notification_status": "BLOCKED: no supported App Dev/Browser PM wake adapter is configured; GitHub publication is availability, not delivery",
         "max_handoff_depth": MAX_HANDOFF_DEPTH,
     }
 
@@ -4135,6 +4435,8 @@ class H(BaseHTTPRequestHandler):
             qs = parse_qs(u.query)
             try:
                 return self.sendj(200, verify_remote_packet(qs.get("pr", [""])[0] or None, qs.get("path", [""])[0], qs.get("ref", [""])[0]))
+            except GithubReadError as e:
+                return self.sendj(503, {'ok': False, 'category': e.kind, 'error': str(e)[:500]})
             except ValueError as e:
                 return self.sendj(400, {"error": str(e)})
         if u.path == "/api/validate-worktree":
@@ -4211,7 +4513,11 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/set-current-pr":
             if 'pr' not in b:
                 return self.sendj(400, {'error': 'pr required; use an explicit empty value to clear selection'})
-            set_setting("current_pr", str(b.get("pr", "")).strip())
+            selected = str(b.get("pr", "")).strip()
+            if selected and not re.fullmatch(r'[1-9][0-9]{0,8}', selected):
+                return self.sendj(400, {'error': 'pr must be a positive pull request number or an explicit empty value'})
+            set_setting("current_pr", selected)
+            set_setting("current_pr_explicit", '1')
             set_setting("github_watch_pr", "")
             set_setting("github_watch_snapshot", "")
             snap = pr_snapshot()
@@ -4303,13 +4609,23 @@ class H(BaseHTTPRequestHandler):
 def main():
     # Lock the state directory before any startup migration can reclassify another
     # process's running journal row. Binding also happens before any worker starts.
-    global STATE_LOCK_FD
-    STATE_LOCK_FD = acquire_state_dir_lock()
+    global STATE_LOCK_FD, REPOSITORY_LOCK_FD
+    # Repository lock spans distinct app folders/ports; state lock prevents a second
+    # owner from reclassifying claims in this exact SQLite directory.
+    REPOSITORY_LOCK_FD = acquire_repository_lock()
+    try:
+        STATE_LOCK_FD = acquire_state_dir_lock()
+    except Exception:
+        release_state_dir_lock(REPOSITORY_LOCK_FD)
+        REPOSITORY_LOCK_FD = None
+        raise
     try:
         srv = ThreadingHTTPServer((HOST, PORT), H)
     except Exception:
         release_state_dir_lock(STATE_LOCK_FD)
         STATE_LOCK_FD = None
+        release_state_dir_lock(REPOSITORY_LOCK_FD)
+        REPOSITORY_LOCK_FD = None
         raise
     init_db()
     sweep_preflight_recoveries()
@@ -4346,6 +4662,8 @@ def main():
         srv.server_close()
         release_state_dir_lock(STATE_LOCK_FD)
         STATE_LOCK_FD = None
+        release_state_dir_lock(REPOSITORY_LOCK_FD)
+        REPOSITORY_LOCK_FD = None
 
 
 if __name__ == "__main__":
