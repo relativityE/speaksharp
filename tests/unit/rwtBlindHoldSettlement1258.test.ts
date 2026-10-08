@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { BLIND_HOLD_SETTLEMENT, finalizeReceipt, humanWorksheet, parseHumanWorksheet, requiredAutomatedRows, type ReceiptRow } from '../live/helpers/rwtAcceptance';
 import { readbackSettlement, sentDetail } from '../live/helpers/rwtJourney';
+import { feedbackOutcomeVerdict, practiceArrivalVerdict } from '../live/helpers/rwtOracles';
 import { QUALIFICATION_STAGES } from '../../frontend/src/services/telemetry/completenessGate';
 
 const SUITE = 'open-mic-first-session';
@@ -56,7 +57,7 @@ const readback = (rec: string, pdf: string) => ({
     journeys: [{ journeyId: REC, stages: REC_STAGES, verdict: rec }, { journeyId: PDF, stages: PDF_STAGES, verdict: pdf }],
 });
 const worksheetFor = (receipt: ReturnType<typeof receiptWith>) => {
-    const md = humanWorksheet(SUITE, SHA, [REC, PDF], receipt.rows);
+    const md = humanWorksheet(SUITE, SHA, receipt.readback.journeys.map((j) => j.journeyId), receipt.rows);
     return parseHumanWorksheet(md.split('\n').map((l) => (l.startsWith('| `open_mic_') ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-10-07 |') : l)).join('\n'));
 };
 const finalRow = (out: ReturnType<typeof finalizeReceipt>, step: string) => out.rows.find((r) => r.step === step)!;
@@ -164,26 +165,150 @@ describe('the finalizer owns a CLOSED row-to-stage map; the receipt never choose
     });
 });
 
+/**
+ * #1570 Codex P1 4219466523 — the two required CORRELATION rows. Each is written from the events the browser exposes; a
+ * Blob beacon that hides `feedback_submit` or a Practice-again press/arrival leaves the row HOLD ("no attempt was sent"),
+ * although the `share_feedback` / `practice_again` readback stages run the SAME correlation rules
+ * (`correlateFeedbackAttempts` / `correlatePracticePresses`) on what PostHog RECEIVED. Rows are built exactly as the live
+ * specs build them: the oracle verdict over the visible events, plus `readbackSettlement` of the mapped stages.
+ */
+describe('the required correlation rows settle from their own readback stages (Codex P1 4219466523)', () => {
+    const PRACTICE = 'journey-practice';
+    const FEEDBACK_ROW = 'feedback outcome (sent)';
+    const PRACTICE_ROW = 'Practice again press → arrival (sent)';
+    // Blind beacons after Stop hid every outcome event: the browser saw none of them.
+    const blindRow = (step: string, verdict: ReturnType<typeof feedbackOutcomeVerdict>, receivedBy: readonly string[]): ReceiptRow => ({
+        step, verdict: verdict.verdict, detail: verdict.detail, evidence: { ...verdict.evidence, ...readbackSettlement(receivedBy, tapAt(200), 100) },
+    });
+    const feedbackRow = () => blindRow(FEEDBACK_ROW, feedbackOutcomeVerdict([]), ['share_feedback']);
+    const practiceRow = () => blindRow(PRACTICE_ROW, practiceArrivalVerdict([]), ['practice_again']);
+    const withPractice = (rows: ReceiptRow[]) => {
+        const receipt = receiptWith([...COVERED, ...rows]);
+        receipt.readback.journeys.push({ journeyId: PRACTICE, stages: ['practice_again'] });
+        return receipt;
+    };
+    const rbWith = (rec: string, pdf: string, practice: string) => {
+        const rb = readback(rec, pdf);
+        rb.journeys.push({ journeyId: PRACTICE, stages: ['practice_again'], verdict: practice });
+        return rb;
+    };
+
+    it('the browser rows really are HOLD when the beacon hid their events (the reproduced precondition)', () => {
+        expect(feedbackRow()).toMatchObject({ verdict: 'HOLD', evidence: { attempts: 0, receivedByStages: 'share_feedback', blindSinceStep: 1 } });
+        expect(practiceRow()).toMatchObject({ verdict: 'HOLD', evidence: { presses: 0, receivedByStages: 'practice_again', blindSinceStep: 1 } });
+    });
+
+    it('REPRODUCTION: written as before this fix (no settlement evidence), both rows stay HOLD under a fully QUALIFIED readback', () => {
+        const bare = (verdict: ReturnType<typeof feedbackOutcomeVerdict>, step: string): ReceiptRow => ({ step, verdict: verdict.verdict, detail: verdict.detail, evidence: verdict.evidence });
+        const receipt = withPractice([bare(feedbackOutcomeVerdict([]), FEEDBACK_ROW), bare(practiceArrivalVerdict([]), PRACTICE_ROW)]);
+        const out = finalizeReceipt(receipt, worksheetFor(receipt), rbWith('QUALIFIED', 'QUALIFIED', 'QUALIFIED'));
+        expect(out.errors).toEqual([]);
+        expect(finalRow(out, FEEDBACK_ROW).verdict).toBe('HOLD');
+        expect(finalRow(out, PRACTICE_ROW).verdict).toBe('HOLD');
+        expect(out.finalAcceptance).toBe('INCOMPLETE'); // the permanent HOLD the live specs now avoid by carrying the evidence
+    });
+
+    it('CASUALTY: a correctly bound QUALIFIED readback settles both rows and the run finalizes PASS', () => {
+        const receipt = withPractice([feedbackRow(), practiceRow()]);
+        const out = finalizeReceipt(receipt, worksheetFor(receipt), rbWith('QUALIFIED', 'QUALIFIED', 'QUALIFIED'));
+        expect(out.errors).toEqual([]);
+        expect(finalRow(out, FEEDBACK_ROW)).toMatchObject({ verdict: 'PASS', evidence: { settledByReadback: true } });
+        expect(finalRow(out, PRACTICE_ROW)).toMatchObject({ verdict: 'PASS', evidence: { settledByReadback: true } });
+        expect(out.finalAcceptance).toBe('PASS');
+    });
+
+    it('a stage that did not qualify leaves its row HOLD (and the run INCOMPLETE)', () => {
+        const receipt = withPractice([feedbackRow(), practiceRow()]);
+        const out = finalizeReceipt(receipt, worksheetFor(receipt), rbWith('QUALIFIED', 'QUALIFIED', 'HOLD'));
+        expect(finalRow(out, FEEDBACK_ROW).verdict).toBe('PASS');
+        expect(finalRow(out, PRACTICE_ROW).verdict).toBe('HOLD');
+        expect(out.finalAcceptance).toBe('INCOMPLETE');
+    });
+
+    it('a stage no bound journey declared cannot settle its row', () => {
+        const receipt = receiptWith([...COVERED, feedbackRow(), practiceRow()]); // no practice_again journey bound
+        const out = finalizeReceipt(receipt, worksheetFor(receipt), readback('QUALIFIED', 'QUALIFIED'));
+        expect(out.errors).toEqual([]);
+        expect(finalRow(out, PRACTICE_ROW).verdict).toBe('HOLD');
+    });
+
+    it('an observed failure is never settled: a storage_failed outcome stays FAIL, and a received FAIL fails the run', () => {
+        const failed = feedbackOutcomeVerdict([
+            { event: 'feedback_submit', bootId: 'b', fields: { outcome: 'attempted', submit_seq: 1 } },
+            { event: 'feedback_submit', bootId: 'b', fields: { outcome: 'storage_failed', submit_seq: 1, error_category: 'network' } },
+        ]);
+        expect(failed.verdict).toBe('FAIL');
+        const receipt = withPractice([blindRow(FEEDBACK_ROW, failed, ['share_feedback']), practiceRow()]);
+        const out = finalizeReceipt(receipt, worksheetFor(receipt), rbWith('QUALIFIED', 'QUALIFIED', 'QUALIFIED'));
+        expect(finalRow(out, FEEDBACK_ROW).verdict).toBe('FAIL');
+        const received = finalizeReceipt(receipt, worksheetFor(receipt), rbWith('QUALIFIED', 'QUALIFIED', 'FAIL'));
+        expect(finalRow(received, PRACTICE_ROW).verdict).toBe('HOLD');
+        expect(received.finalAcceptance).toBe('FAIL');
+    });
+
+    it('a readback for another run or release settles nothing', () => {
+        const receipt = withPractice([feedbackRow(), practiceRow()]);
+        const rb = { ...rbWith('QUALIFIED', 'QUALIFIED', 'QUALIFIED'), release: 'd'.repeat(40) };
+        const out = finalizeReceipt(receipt, worksheetFor(receipt), rb);
+        expect(finalRow(out, FEEDBACK_ROW).verdict).toBe('HOLD');
+        expect(finalRow(out, PRACTICE_ROW).verdict).toBe('HOLD');
+        expect(out.finalAcceptance).not.toBe('PASS');
+    });
+
+    it('wrong stage, or an unrelated row borrowing these stages, is a binding error', () => {
+        const swapped: ReceiptRow = { ...feedbackRow(), evidence: { ...feedbackRow().evidence, receivedByStages: 'practice_again' } };
+        const borrowed: ReceiptRow = { step: 'feedback retention', verdict: 'HOLD', detail: 'x', evidence: { receivedByStages: 'share_feedback', blindSinceStep: 2 } };
+        for (const rows of [[swapped, practiceRow()], [feedbackRow(), practiceRow(), borrowed]]) {
+            const receipt = withPractice(rows);
+            const out = finalizeReceipt(receipt, worksheetFor(receipt), rbWith('QUALIFIED', 'QUALIFIED', 'QUALIFIED'));
+            expect(out.status).toBe('binding_error');
+            expect(out.finalAcceptance).toBe('INCOMPLETE');
+        }
+    });
+
+    it('per product: both Focus suites map the Practice row; only the full Focus suite maps the feedback row', () => {
+        expect(BLIND_HOLD_SETTLEMENT['open-mic-first-session'][FEEDBACK_ROW]).toEqual(['share_feedback']);
+        expect(BLIND_HOLD_SETTLEMENT['open-mic-first-session'][PRACTICE_ROW]).toEqual(['practice_again']);
+        expect(BLIND_HOLD_SETTLEMENT['focus-points-session'][FEEDBACK_ROW]).toEqual(['share_feedback']);
+        expect(BLIND_HOLD_SETTLEMENT['focus-points-session'][PRACTICE_ROW]).toEqual(['practice_again']);
+        expect(BLIND_HOLD_SETTLEMENT['focus-points-partial'][PRACTICE_ROW]).toEqual(['practice_again']);
+        expect(Object.prototype.hasOwnProperty.call(BLIND_HOLD_SETTLEMENT['focus-points-partial'], FEEDBACK_ROW)).toBe(false);
+    });
+});
+
 describe('SOURCE CONTRACT: each settling row names stages that really receive its events', () => {
     const familiesOf = (stages: readonly string[]) => new Set(stages.flatMap((s) => QUALIFICATION_STAGES.find((q) => q.stage === s)!.requiredFamilies as readonly string[]));
     const OPEN_MIC = ['open-mic-first-session'];
     const FOCUS = ['focus-points-session', 'focus-points-partial'];
-    const CLAIMS: { file: string; constant: string; suites: string[]; step: string; stages: string[]; events: string[] }[] = [
+    const OPEN_MIC_SPEC = '../live/rwt-open-mic-first-session.live.spec.ts';
+    const FOCUS_JOURNEY = '../live/helpers/rwtFocusPointsJourney.ts';
+    // `invariant`: a CORRELATION row settles only from a stage that runs the same correlation rule as the row's oracle.
+    const CLAIMS: { file: string; constant: string; suites: string[]; step: string; stages: string[]; events: string[]; invariant?: string }[] = [
         { file: '../live/rwt-open-mic-first-session.live.spec.ts', constant: 'telemetryReceivedBy', suites: OPEN_MIC, step: 'telemetry sent', stages: ['session_after_open_mic', 'share_feedback'], events: ['session_saved', 'feedback_submit'] },
         { file: '../live/rwt-open-mic-first-session.live.spec.ts', constant: 'inventoryReceivedBy', suites: OPEN_MIC, step: 'inventory events sent', stages: ['analytics_inventory', 'session_pdf_export'], events: ['products_menu_opened', 'saved_review_revisited', 'session_pdf_downloaded'] },
         { file: '../live/helpers/rwtFocusPointsJourney.ts', constant: 'coverageReceivedBy', suites: FOCUS, step: 'coverage_evaluation sent', stages: ['session_after_focus_points'], events: ['coverage_evaluation'] },
         { file: '../live/helpers/rwtFocusPointsJourney.ts', constant: 'focusInventoryReceivedBy', suites: FOCUS, step: 'inventory events sent', stages: ['analytics_inventory'], events: ['products_menu_opened', 'saved_review_revisited'] },
+        // Codex P1 4219466523: the two required correlation rows. Partial Focus shares no feedback, so it maps only the Practice row.
+        { file: OPEN_MIC_SPEC, constant: 'practiceArrivalReceivedBy', suites: OPEN_MIC, step: 'Practice again press → arrival (sent)', stages: ['practice_again'], events: ['saved_review_practice_action'], invariant: 'press_reached_its_intended_route' },
+        { file: OPEN_MIC_SPEC, constant: 'feedbackOutcomeReceivedBy', suites: OPEN_MIC, step: 'feedback outcome (sent)', stages: ['share_feedback'], events: ['feedback_submit'], invariant: 'submit_resolves_to_its_received_outcome' },
+        { file: FOCUS_JOURNEY, constant: 'practiceArrivalReceivedBy', suites: FOCUS, step: 'Practice again press → arrival (sent)', stages: ['practice_again'], events: ['saved_review_practice_action'], invariant: 'press_reached_its_intended_route' },
+        { file: FOCUS_JOURNEY, constant: 'feedbackOutcomeReceivedBy', suites: ['focus-points-session'], step: 'feedback outcome (sent)', stages: ['share_feedback'], events: ['feedback_submit'], invariant: 'submit_resolves_to_its_received_outcome' },
     ];
     it('every closed-map entry is a live claim, and every live claim is in the map for each suite that writes it', () => {
         const mapped = Object.entries(BLIND_HOLD_SETTLEMENT).flatMap(([suite, rows]) => Object.entries(rows).map(([step, stages]) => `${suite}|${step}|${stages.join(',')}`)).sort();
         const claimed = CLAIMS.flatMap((c) => c.suites.map((suite) => `${suite}|${c.step}|${c.stages.join(',')}`)).sort();
         expect(mapped).toEqual(claimed);
     });
-    it.each(CLAIMS)('$constant: the declared stages require every event the row counts', ({ file, constant, stages, events }) => {
+    it.each(CLAIMS)('$constant: the declared stages require every event the row counts', ({ file, constant, stages, events, invariant }) => {
         const source = readFileSync(path.resolve(__dirname, file), 'utf8');
         expect(source).toContain(`const ${constant} = [${stages.map((s) => `'${s}'`).join(', ')}] as const;`);
+        // The row really carries the settlement evidence for these stages (not just a declared constant).
+        expect(source).toContain(`...readbackSettlement(${constant}, tap,`);
         const received = familiesOf(stages);
         expect(events.filter((e) => !received.has(e))).toEqual([]);
+        // A correlation row settles only from a stage that runs the same correlation rule as the row's oracle.
+        const stageInvariants = QUALIFICATION_STAGES.find((q) => q.stage === stages[0])!.invariants.map((i) => i.name);
+        expect(stageInvariants).toEqual(expect.arrayContaining(invariant ? [invariant] : []));
     });
     it('no live receipt text still claims "the received readback decides" for a HOLD', () => {
         for (const file of ['../live/rwt-open-mic-first-session.live.spec.ts', '../live/helpers/rwtFocusPointsJourney.ts']) {

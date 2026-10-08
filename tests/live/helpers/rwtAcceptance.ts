@@ -293,16 +293,24 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
  * retention` into PASS from the `session_after_open_mic` readback. Each entry mirrors the live spec's `*ReceivedBy`
  * constant (source contract: tests/unit/rwtBlindHoldSettlement1258.test.ts).
  */
+// Codex P1 4219466523: the two required CORRELATION rows settle from the stage that runs the SAME correlation rule on
+// what PostHog received (`practice_again` → press_reached_its_intended_route, `share_feedback` →
+// submit_resolves_to_its_received_outcome). The partial Focus run shares no feedback, so it maps only the Practice row.
+const PRACTICE_SETTLEMENT = { 'Practice again press → arrival (sent)': ['practice_again'] } as const;
+const FEEDBACK_SETTLEMENT = { 'feedback outcome (sent)': ['share_feedback'] } as const;
 const FOCUS_SETTLEMENT: Readonly<Record<string, readonly string[]>> = {
     'coverage_evaluation sent': ['session_after_focus_points'],
     'inventory events sent': ['analytics_inventory'],
+    ...PRACTICE_SETTLEMENT,
 };
 export const BLIND_HOLD_SETTLEMENT: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
     'open-mic-first-session': {
         'telemetry sent': ['session_after_open_mic', 'share_feedback'],
         'inventory events sent': ['analytics_inventory', 'session_pdf_export'],
+        ...PRACTICE_SETTLEMENT,
+        ...FEEDBACK_SETTLEMENT,
     },
-    'focus-points-session': FOCUS_SETTLEMENT,
+    'focus-points-session': { ...FOCUS_SETTLEMENT, ...FEEDBACK_SETTLEMENT },
     'focus-points-partial': FOCUS_SETTLEMENT,
 };
 const settlementStagesFor = (suite: string, step: string): readonly string[] | undefined =>

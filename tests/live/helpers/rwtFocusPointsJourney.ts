@@ -490,11 +490,17 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // #1258 (#1563, Codex r4197420116): Focus presses Practice again too, so it proves the same correlation Open Mic does —
         // each press reached its intended route (same boot + action_seq) — and, in the full run that shares feedback, each
         // attempt resolved (same boot + submit_seq). Sent here; received is the `practice_again` / `share_feedback` readback.
+        // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
+        // correlation on RECEIVED events then settles the row at finalization.
         const practiceArrival = practiceArrivalVerdict(tap.events);
-        receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail, practiceArrival.evidence);
+        const practiceArrivalReceivedBy = ['practice_again'] as const;
+        receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
+            { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, rowsStoppedAt) });
         if (fixtureKey === 'focus_points_tts') {
             const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
-            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail, feedbackOutcome.evidence);
+            const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
+            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
+                { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, rowsStoppedAt) });
         }
         // Point text and topic are the person's content: they must never reach the receipt.
         const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));

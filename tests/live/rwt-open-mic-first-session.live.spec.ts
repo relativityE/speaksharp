@@ -667,10 +667,16 @@ test.describe('RWT — Open Mic first session @live', () => {
             // #1258 (#1563 closure): the outcome telemetry must CORRELATE, not merely be sent — each Practice-again press
             // reached its intended route (same action_seq), and each Share Feedback attempt resolved (same submit_seq).
             // Sent here; received is the deployed PostHog readback. Closed enums and integers only.
+            // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
+            // correlation on RECEIVED events then settles the row at finalization.
             const practiceArrival = practiceArrivalVerdict(tap.events);
-            receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail, practiceArrival.evidence);
+            const practiceArrivalReceivedBy = ['practice_again'] as const;
+            receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
+                { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, stoppedAt) });
             const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
-            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail, feedbackOutcome.evidence);
+            const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
+            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
+                { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, stoppedAt) });
             // Coaching telemetry the page SENT. RECEIVED is proven by the PostHog readback of the declared
             // session_after_open_mic stage: its post-Stop chain requires a received stage_latency "review_rendered", which
             // the app emits only once a validated two-phrase review is on screen.
