@@ -64,6 +64,7 @@ class Executor:
         # Freeze the candidate from a source record; a model cannot nominate another SHA.
         need(head in comment.get('body',''), 'Source does not name the full candidate head')
         need(base in comment.get('body',''), 'Source does not name the full base')
+        self._require_action_authorization(action, comment.get('body', ''))
         need(self.read('branches/main')['commit']['sha']==base, 'Main drifted')
         kind=action['kind'];pr=None
         if kind!='open_draft_pr':
@@ -87,6 +88,44 @@ class Executor:
             need(pr and not pr.get('draft'), 'Ready PR required for full recovery')
             self.qualify(pr['number'],head)
         return pr,related,branch
+
+    @staticmethod
+    def _require_action_authorization(action, body):
+        """Require an affirmative, source-authored authorization for this exact operation.
+
+        Mentioning candidate SHAs or discussing a possible action is not authorization.
+        The canonical line is deliberately machine-readable so quoted prose, negation,
+        and unrelated approvals cannot widen the bounded executor's authority.
+        """
+        kind = action['kind']
+        fields = [f'kind={kind}']
+        if action.get('pr_number'):
+            fields.append(f"pr={int(action['pr_number'])}")
+        if action.get('branch'):
+            fields.append(f"branch={action['branch']}")
+        fields.extend((f"head={action['head'].lower()}", f"base={action['base'].lower()}"))
+        if kind == 'rerun_failed_jobs':
+            fields.extend((f"run_id={int(action.get('run_id') or 0)}",
+                           f"run_attempt={int(action.get('run_attempt') or 0)}"))
+        expected = 'ACTION AUTHORIZATION: ' + ' '.join(fields)
+        lines = []
+        in_fence = False
+        for raw_line in str(body).splitlines():
+            line = raw_line.strip()
+            if line.startswith('```') or line.startswith('~~~'):
+                in_fence = not in_fence
+                continue
+            if in_fence or line.startswith('>'):
+                continue
+            lines.append(line)
+        if expected not in lines:
+            raise Hold(f'Source lacks exact affirmative authorization: {expected}')
+        action_ref = re.compile(rf"\b{re.escape(kind)}\b", re.I)
+        for line in lines:
+            blocks = re.search(r'\b(HOLD|BLOCKED|DO\s+NOT|NOT\s+AUTHORIZED|CANCEL(?:LED)?)\b', line, re.I)
+            scope_ref = action_ref.search(line) or re.search(r'\b(PM\s+)?(actions?|executor|mutation)\b', line, re.I)
+            if blocks and scope_ref:
+                raise Hold(f'Source contradicts {kind} authorization with a hold/revocation')
 
     def _ready_with_readback(self, number, head, base, node_id, verb):
         self.phase('ready_requested')
@@ -118,6 +157,49 @@ class Executor:
         # draft_requested/draft_confirmed but Ready now: the Draft conversion never landed,
         # or another actor already restored Ready. No cycle is proven; do not start one.
         raise Hold('Interrupted refresh left PR Ready with no proven Draft→Ready cycle; PM may re-request')
+
+    def resolve_uncertain(self, action):
+        """Resolve a possibly-landed write by typed readback; never replay the write."""
+        kind = action.get('kind')
+        head, base = action.get('head'), action.get('base')
+        if kind == 'mark_ready':
+            number = int(action.get('pr_number') or 0)
+            pr = self.read(f'pulls/{number}')
+            need(pr.get('state') == 'open' and not pr.get('merged'), 'PR closed/merged during uncertain Ready action')
+            need(pr['head']['sha'] == head and pr['base']['sha'] == base, 'Candidate drifted during uncertain Ready action')
+            if not pr.get('draft'):
+                return f"RESOLVED: readback confirms #{number} Ready at {head}; no write replayed"
+            raise RuntimeError('Ready write is not visible in readback; action remains unconfirmed and will not be replayed')
+        if kind == 'open_draft_pr':
+            branch = action.get('branch', '')
+            ref = self.read(f'git/ref/heads/{branch}')
+            need(ref.get('object', {}).get('sha') == head, 'Remote branch moved during uncertain Draft creation')
+            rows = self.read(f'pulls?state=open&head=relativityE:{branch}&per_page=100')
+            if len(rows) >= 100:
+                raise RuntimeError('Draft readback pagination incomplete; action remains unconfirmed')
+            for pr in rows:
+                if (pr.get('head', {}).get('sha') == head and pr.get('base', {}).get('sha') == base
+                        and pr.get('state') == 'open'):
+                    return f"RESOLVED: readback found Draft/PR #{pr['number']} at {head}; no write replayed"
+            raise RuntimeError('No matching Draft is visible; action remains unconfirmed and will not be replayed')
+        if kind in ('dispatch_full_ci', 'rerun_failed_jobs'):
+            if kind == 'rerun_failed_jobs':
+                run_id = int(action.get('run_id') or 0)
+                run = self.read(f'actions/runs/{run_id}')
+                need(run.get('head_sha') == head, 'CI run head changed during uncertain recovery')
+                if int(run.get('run_attempt') or 0) > int(action.get('run_attempt') or 0):
+                    return f"RESOLVED: run {run_id} advanced to attempt {run['run_attempt']}; no rerun replayed"
+                raise RuntimeError('Rerun attempt is not visible; action remains unconfirmed and will not be replayed')
+            branch = action.get('branch', '')
+            rows = self.read(f'actions/workflows/ci.yml/runs?branch={branch}&per_page=100')['workflow_runs']
+            if len(rows) >= 100:
+                raise RuntimeError('CI readback pagination incomplete; action remains unconfirmed')
+            match = [r for r in rows if r.get('head_sha') == head and r.get('event') == 'workflow_dispatch'
+                     and r.get('head_branch') == branch]
+            if match:
+                return f"RESOLVED: workflow dispatch readback found run {match[0].get('id')} at {head}; no dispatch replayed"
+            raise RuntimeError('No matching workflow dispatch is visible; action remains unconfirmed and will not be replayed')
+        raise Hold(f'No typed uncertain-write resolver exists for {kind!r}')
 
     def execute(self, action):
         pr,runs,branch=self.guard(action)

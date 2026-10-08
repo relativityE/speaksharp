@@ -126,6 +126,17 @@
                   "string",
                   "null"
                 ]
+              },
+              "owned_paths": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
               }
             },
             "required": [

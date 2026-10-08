@@ -283,6 +283,7 @@ class RegressionTests(unittest.TestCase):
         wt=root/'worktree';wt.mkdir()
         subprocess.run(['git','init','-q','-b','fix/navigation',str(wt)],check=True)
         subprocess.run(['git','-C',str(wt),'-c','user.name=Test','-c','user.email=test@example.invalid','commit','--allow-empty','-qm','initial'],check=True)
+        subprocess.run(['git','-C',str(wt),'remote','add','origin','https://github.com/relativityE/speaksharp.git'],check=True)
         self.assign(worktree=str(wt))
         pm=root/'fake_pm.py'
         pm.write_text("import json,sys\np=json.load(sys.stdin)\nprint(json.dumps({'message':'Run bounded navigation check','next':'none' if 'DONE' in p['content'] else 'dev','session_id':'pm-session','board_updates':{'work_items':[{'item_key':'NAV','state':'done' if 'DONE' in p['content'] else 'active','notes':'adapter checkpoint'}],'players':[{'player_id':'cli_dev','work_item_key':'NAV','status':'done' if 'DONE' in p['content'] else 'active'}]}}))\n")
@@ -294,6 +295,7 @@ class RegressionTests(unittest.TestCase):
         q=next(x for x in server.list_queue() if x['id']==qid)
         server.PM_MODE='command'
         with patch.object(server,'PM_COMMAND',f'python3 {pm}'),patch.object(server,'CLAUDE_BIN',str(dev)), \
+             patch.object(server,'BASE_REPO',str(wt)), \
              patch.object(server,'compact_pr_context',return_value='Current release: #1555; independent task NAV'):
             server.run_pm(q)
             devq=server.next_queue('dev')

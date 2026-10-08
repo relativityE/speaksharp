@@ -28,6 +28,14 @@
   - Every PM transport (Codex, command, API) passes the whole route to one parser, which checks it against `pm-route.schema.json`. An omitted field takes its documented default; a present field of the wrong type, an unknown field or a bad enum value is rejected, never coerced. A rejected route changes nothing and queues one PM recovery naming the exact schema error.
   - The control API accepts a mutation only as same-origin `application/json` carrying the per-launch `X-RWT-Control-Token`. Every request must name the loopback Host and port. The dashboard page receives the token when it loads. A non-browser adapter sets `RWT_CONTROL_TOKEN` (24–128 URL-safe characters) for both the board and itself.
 
+### Candidate 5 Package 2b — local source, not frozen or published
+
+- PM executor writes now require a repository-owner authorization line naming the exact operation, PR or branch, head and base; CI reruns also bind run ID and attempt. Quoted/code-fenced lines and contradictory HOLD/DO NOT statements do not authorize an action.
+- The board takes an exclusive state-directory lock before migration or recovery. A durable PM action scope serializes mutations on the same PR/branch, including unresolved writes.
+- Dev queue rows freeze checkout path, origin/common-dir identity, branch, HEAD/tree, task lease generation and the fingerprint of explicitly task-owned dirty paths. Dispatch refuses stale, foreign, unowned or changed checkouts.
+- Uncertain Ready, Draft, full-CI and failed-job actions use typed remote readback. They are never replayed just because a response timed out; interrupted review refreshes preserve their journaled phase across transient reads.
+- This package is still local work in progress. Focused offline verification and remaining HOLDs are recorded in `TEST_RECEIPT.md`; no install or external notification proof is claimed.
+
 The live deadlock.4 worker rejected the #1570 assignment before Claude invocation because the new target worktree was not yet present. Its generic error did not identify the missing path, and no PM recovery delivery followed. This patch makes that failure diagnosable and recoverable while keeping the single-writer guard.
 
 ## deadlock.4 — quieter GitHub coordination

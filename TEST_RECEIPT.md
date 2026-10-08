@@ -38,3 +38,24 @@ RED: mutants that remove the active-assignment hold or put the source id back in
 A live read-only demonstration of `verify_remote_packet` on published commit `6f765c602c934d8b22a69d9acf95c60807770230` verified all five files of the candidate 2 packet. It reported 0 mismatched and 0 missing.
 
 Not verified here: installed-board restart, a live worker wake-up, a live GitHub refresh, and external Browser PM/App Dev receipts in practice. These need separately authorized installed acceptance. This release adds no merge, deployment, migration or Production-run authority.
+
+## Package 2b — local development checkpoint (2026-10-08)
+
+This is the Package 2b source checkpoint, based on Package 2a snapshot `2392ffaf340194b2fccca37832ca1ae26a4a905e` / tree `8f797d0aa17128ef9e65fd35a306e0f4bb03e211`. It remains independently unreviewed, uninstalled, and unaccepted; the outer packet manifest records the frozen source commit and tree.
+
+**Implemented in this local checkpoint:** exact affirmative source authorization for each bounded PM action; per-PR/branch mutation serialization that retains the lease while an outcome is unconfirmed; exclusive state-directory startup lock before DB migration/recovery; enqueue-time task tuple snapshot (checkout path, origin/common-dir, branch, HEAD/tree, lease generation and owned-dirty fingerprint); dispatch-time tuple revalidation; typed readback for uncertain Ready, Draft, full-CI and failed-job actions; transient refresh reads preserve the journal phase and resume without a second Draft transition.
+
+**Verification:** 121 selected tests passed across `test_deadlock5`, `test_package2a`, `test_regressions`, `test_event_delivery`, `test_comms` (loaded by `test_event_delivery`) and `test_refresh_reviews`. Three socket-bound tests were explicitly excluded: `test_deadlock5.Deadlock5Tests.test_retry_api_cannot_requeue_dev_after_preflight_block`, `test_package2a.LoopbackControlTests.test_loopback_refuses_foreign_simple_post_and_accepts_the_page_token`, and `test_regressions.RegressionTests.test_http_dispatch_worktree_and_conflict_endpoints`. An additional 25-test focused subset passed after the final snapshot-stability edit. This is a focused offline regression result, not the full 242-test suite or live acceptance. `git diff --check`, Python byte-compilation and JSON schema parsing passed before that final edit; all changed modules were imported/executed by the tests afterward.
+
+| File | SHA-256 at this checkpoint |
+|---|---|
+| `server.py` | `efd1ba7a3e5b36b4f20af736d22a2134a3bf2554f71125a5908335131cc59f7f` |
+| `guarded_pm.py` | `d8fbf6d3a73318365dda64a33873d44635a198847c9568e9bcb228e9feda31ef` |
+| `pm-instructions.md` | `94eef421df66ea66d5209a6a0de158f1abcd96f9adc0d4da2218c5fb4664e363` |
+| `pm-route.schema.json` | `5e28dc323f65c25618d83de86e6355c3689c13bfcac58e318a76bc2142bafab1` |
+| `test_deadlock5.py` | `92fdafe27122473609b4ab0d91bbfb4ed90b57dd6ae0d126c096ba6158ee1d65` |
+| `test_refresh_reviews.py` | `4d52de5a4763690903d0eaa7b2d84e323c1c2a36dceacafa172a1bac8c7e6f09` |
+| `test_regressions.py` | `1ded5bd1e00bbddeeb094ca74ed097e0b1e2f042fa5812c8c319bbb9ffbf15c5` |
+| `README.md` | `631e96de499ccfb49e9c6a6d1526a8d98d1657ee9e9a751512789540ca3524f1` |
+
+**Still open:** loopback tests and their exact candidate-bound host lease/tool permission; independent source review; Package 3 (F05/F06/F11/F13), Package 4 (F14/F16), supported external notifications and real per-actor receipt/action evidence; installed-board acceptance; product closure R42. No merge, deployment, migration, installation or Production action was performed.

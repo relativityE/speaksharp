@@ -15,7 +15,7 @@ class ReviewRefreshTests(unittest.TestCase):
                     pr['draft']=False  # GitHub's real effect; deadlock.5 reads it back
                 return {}
             path=args[1]
-            if 'issues/comments/' in path:return {'issue_url':'https://api.github.com/repos/relativityE/speaksharp/issues/1258','user':{'login':'relativityE'},'body':self.head+' '+self.base+' Draft→Ready'}
+            if 'issues/comments/' in path:return {'issue_url':'https://api.github.com/repos/relativityE/speaksharp/issues/1258','user':{'login':'relativityE'},'body':self.head+' '+self.base+' Draft→Ready\nACTION AUTHORIZATION: kind=refresh_reviews pr=1559 head='+self.head+' base='+self.base}
             if path.endswith('branches/main'):return {'commit':{'sha':self.base}}
             if 'ci.yml/runs' in path:return {'workflow_runs':[]}
             if '/reviews?' in path:return [{'commit_id':self.head,'user':{'login':'chatgpt-codex-connector[bot]'}}] if existing else []

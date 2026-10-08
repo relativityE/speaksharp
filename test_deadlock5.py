@@ -4,6 +4,7 @@ Isolated: temp state DB per test, loopback-only HTTP on an ephemeral port, and a
 adapter. No live board, GitHub write, PR lifecycle change or installed-app state is touched.
 """
 import json
+import hashlib
 import threading
 import urllib.error
 import urllib.request
@@ -31,13 +32,21 @@ def board(work_item_key='PR-1559'):
 class FakeGitHub:
     """Stateful GitHub double for the executor. Writes mutate PR state like GitHub does."""
 
-    def __init__(self, draft=False, reviews=None, fail_on=None):
+    def __init__(self, draft=False, reviews=None, fail_on=None, source_body=None, read_failure=None):
         self.pr = {'number': 1570, 'node_id': 'PR_node', 'state': 'open', 'draft': draft,
                    'head': {'sha': HEAD, 'ref': 'fix/1258-action-binding', 'repo': {'full_name': 'relativityE/speaksharp'}},
                    'base': {'sha': BASE}}
         self.reviews = reviews or []
+        self.existing_drafts = []
+        self.workflow_runs = []
+        self.run = {'id': 321, 'head_sha': HEAD, 'run_attempt': 2}
         self.writes = []
         self.fail_on = fail_on  # mutation name that raises an uncertain transport error once
+        self.source_body = source_body or (
+            f'{HEAD} {BASE} guarded Draft→Ready refresh\n'
+            f'ACTION AUTHORIZATION: kind=refresh_reviews pr=1570 head={HEAD} base={BASE}'
+        )
+        self.read_failure = read_failure
         self.lock = threading.Lock()
 
     def request(self, args):
@@ -52,13 +61,22 @@ class FakeGitHub:
                 return {}
             path = args[-1] if args[0] == 'api' else args[1]
             path = path.split('repos/relativityE/speaksharp/')[-1]
+            if self.read_failure and self.read_failure in path:
+                self.read_failure = None
+                raise RuntimeError('simulated transient read failure')
             if path.startswith('issues/comments/'):
                 return {'issue_url': 'https://api.github.com/repos/relativityE/speaksharp/issues/1258',
-                        'user': {'login': 'relativityE'}, 'body': f'{HEAD} {BASE} guarded Draft→Ready refresh'}
+                        'user': {'login': 'relativityE'}, 'body': self.source_body}
             if path == 'branches/main':
                 return {'commit': {'sha': BASE}}
+            if path.startswith('git/ref/heads/'):
+                return {'object': {'sha': HEAD}}
+            if path.startswith('pulls?state=open&head='):
+                return self.existing_drafts
+            if path.startswith('actions/runs/'):
+                return self.run
             if 'ci.yml/runs' in path:
-                return {'workflow_runs': []}
+                return {'workflow_runs': self.workflow_runs}
             if '/reviews?' in path:
                 return list(self.reviews)
             if path == 'pulls/1570':
@@ -84,10 +102,10 @@ class Deadlock5Tests(unittest.TestCase):
         qid = server.enqueue(aid, 'pm', 'App Dev packet', source_actor='GITHUB')
         return next(x for x in server.list_queue() if x['id'] == qid)
 
-    def assign(self, worktree='/missing/task-worktree', branch=BRANCH):
+    def assign(self, worktree='/missing/task-worktree', branch=BRANCH, owned_paths=None):
         self.assertTrue(server.apply_board_updates({'work_items': [{
             'item_key': KEY, 'pr_number': 1570, 'title': '#1570 P1', 'state': 'active', 'owner': 'cli_dev',
-            'branch': branch, 'worktree': worktree, 'next_action': 'implement'}],
+            'branch': branch, 'worktree': worktree, 'next_action': 'implement', 'owned_paths': owned_paths or []}],
             'players': [{'player_id': 'cli_dev', 'status': 'assigned', 'work_item_key': KEY, 'task': '#1570 P1'}]}))
 
     def dev_row(self, **fields):
@@ -99,6 +117,17 @@ class Deadlock5Tests(unittest.TestCase):
 
     def recoveries(self):
         return [r for r in server.list_queue(500) if r.get('kind') == 'preflight_recovery']
+
+    def test_state_directory_has_one_process_owner(self):
+        path = Path(self.tmp.name) / 'state-owner'
+        first = server.acquire_state_dir_lock(path)
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'Another board process owns state directory'):
+                server.acquire_state_dir_lock(path)
+        finally:
+            server.release_state_dir_lock(first)
+        second = server.acquire_state_dir_lock(path)
+        server.release_state_dir_lock(second)
 
     def http(self):
         http = ThreadingHTTPServer(('127.0.0.1', 0), server.H)
@@ -448,6 +477,83 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertIn('PENDING', j['result'])
         self.assertNotIn('complete', j['review_state'])
 
+    def test_action_requires_exact_affirmative_source_authorization(self):
+        for body in (
+            f'{HEAD} {BASE} Draft→Ready refresh is discussed',
+            f'{HEAD} {BASE}\n> ACTION AUTHORIZATION: kind=refresh_reviews pr=1570 head={HEAD} base={BASE}',
+            f'{HEAD} {BASE}\n```text\nACTION AUTHORIZATION: kind=refresh_reviews pr=1570 head={HEAD} base={BASE}\n```',
+            f'{HEAD} {BASE}\nACTION AUTHORIZATION: kind=refresh_reviews pr=1570 head={HEAD} base={BASE}\nHOLD: refresh_reviews',
+            f'{HEAD} {BASE}\nACTION AUTHORIZATION: kind=refresh_reviews pr=1570 head={HEAD} base={BASE}\nDO NOT execute PM actions',
+        ):
+            gh = FakeGitHub(source_body=body)
+            with patch.object(server, '_pm_request', side_effect=gh.request):
+                result = server.execute_pm_actions({'id': 12}, [refresh_action()])
+            self.assertTrue(result[0].startswith('HOLD:'), result)
+            self.assertEqual(gh.writes, [])
+            with server.con() as c:
+                c.execute('DELETE FROM pm_action_journal')
+
+    def test_uncertain_draft_creation_resolves_by_readback_without_replay(self):
+        action = {'kind': 'open_draft_pr', 'branch': 'test/1258-packet', 'head': HEAD, 'base': BASE,
+                  'source_comment_id': 99, 'title': 'Draft packet', 'body': f'{HEAD} {BASE}'}
+        gh = FakeGitHub()
+        gh.existing_drafts = [{'number': 999, 'state': 'open', 'head': {'sha': HEAD}, 'base': {'sha': BASE}}]
+        key = canonical_key(action)
+        with server.con() as c:
+            c.execute('INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,updated_at) VALUES(?,?,?,?,?,?)',
+                      (key, 'unconfirmed', 'timed out', action['kind'], json.dumps(action), server.now()))
+        with patch.object(server, '_pm_request', side_effect=gh.request):
+            result = server.execute_pm_actions({'id': 20}, [action])
+        self.assertTrue(result[0].startswith('RESOLVED: readback found Draft/PR #999'), result)
+        self.assertEqual(gh.writes, [])
+        self.assertEqual(self.journal()[0]['status'], 'completed')
+
+    def test_uncertain_ready_and_ci_writes_resolve_by_typed_readback(self):
+        actions = [
+            {'kind': 'mark_ready', 'pr_number': 1570, 'head': HEAD, 'base': BASE, 'source_comment_id': 99},
+            {'kind': 'dispatch_full_ci', 'pr_number': 1570, 'branch': 'fix/1258-action-binding',
+             'head': HEAD, 'base': BASE, 'source_comment_id': 99},
+            {'kind': 'rerun_failed_jobs', 'pr_number': 1570, 'run_id': 321, 'run_attempt': 1,
+             'branch': 'fix/1258-action-binding', 'head': HEAD, 'base': BASE, 'source_comment_id': 99},
+        ]
+        gh = FakeGitHub()
+        gh.workflow_runs = [{'id': 654, 'head_sha': HEAD, 'event': 'workflow_dispatch',
+                             'head_branch': 'fix/1258-action-binding', 'status': 'in_progress'}]
+        for index, action in enumerate(actions, start=1):
+            key = canonical_key(action)
+            with server.con() as c:
+                c.execute('INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,updated_at) VALUES(?,?,?,?,?,?)',
+                          (key, 'unconfirmed', 'write timed out', action['kind'], json.dumps(action), server.now()))
+            with patch.object(server, '_pm_request', side_effect=gh.request):
+                result = server.execute_pm_actions({'id': 30 + index}, [action])
+            self.assertTrue(result[0].startswith('RESOLVED:'), result)
+        self.assertEqual(gh.writes, [])
+        self.assertEqual({row['status'] for row in self.journal()}, {'completed'})
+
+    def test_candidate_mutation_lease_blocks_a_different_pm_action(self):
+        active = {'kind': 'mark_ready', 'pr_number': 1570, 'head': HEAD, 'base': BASE, 'source_comment_id': 99}
+        pending = refresh_action()
+        with server.con() as c:
+            c.execute('INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,pr_number,head,updated_at,lease_scope) '
+                      'VALUES(?,?,?,?,?,?,?,?,?)',
+                      (canonical_key(active), 'running', 'in progress', active['kind'], json.dumps(active), 1570, HEAD,
+                       server.now(), 'pr:1570'))
+        with patch.object(server, '_pm_request') as request:
+            result = server.execute_pm_actions({'id': 41}, [pending])
+        self.assertTrue(result[0].startswith('HOLD: pr:1570 mutation lease'), result)
+        request.assert_not_called()
+        self.assertEqual(len(self.journal()), 1)
+
+    def test_startup_migration_reconstructs_mutation_scope_for_old_journal_rows(self):
+        action = refresh_action()
+        with server.con() as c:
+            c.execute('INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,pr_number,head,updated_at) '
+                      'VALUES(?,?,?,?,?,?,?,?)',
+                      (canonical_key(action), 'unconfirmed', 'old pending write', action['kind'], json.dumps(action),
+                       1570, HEAD, server.now()))
+        server.init_db()
+        self.assertEqual(self.journal()[0]['lease_scope'], 'pr:1570')
+
     def test_duplicate_and_noncanonical_requests_refresh_once(self):
         gh = FakeGitHub()
         with patch.object(server, '_pm_request', side_effect=gh.request):
@@ -484,6 +590,21 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertEqual(gh.writes, ['draft', 'ready'])  # exactly one Draft conversion overall
         self.assertFalse(gh.pr['draft'])
         self.assertIn('RESUMED', self.journal()[0]['result'])
+
+    def test_transient_refresh_read_keeps_phase_and_retries_without_second_draft(self):
+        gh = FakeGitHub(draft=True, read_failure='pulls/1570')
+        action = refresh_action()
+        key = canonical_key(action)
+        with server.con() as c:
+            c.execute('INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,phase,pr_number,head,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',
+                      (key, 'unconfirmed', 'read timed out', 'refresh_reviews', json.dumps(action), 'draft_confirmed', 1570, HEAD, server.now()))
+        with patch.object(server, '_pm_request', side_effect=gh.request):
+            first = server.execute_pm_actions({'id': 88}, [action])
+            self.assertTrue(first[0].startswith('UNCONFIRMED:'), first)
+            self.assertEqual(self.journal()[0]['phase'], 'draft_confirmed')
+            second = server.execute_pm_actions({'id': 89}, [action])
+        self.assertTrue(second[0].startswith('RESUMED:'), second)
+        self.assertEqual(gh.writes, ['ready'])
 
     def test_crash_mid_execution_running_row_becomes_resumable(self):
         gh = FakeGitHub(draft=True)  # Draft write landed, then the process died
@@ -579,11 +700,90 @@ class Deadlock5Tests(unittest.TestCase):
 
     # ---------- c3: Browser PM review 6048387240 ----------
     def verified(self):
-        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40}
+        ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+              'tree': 'd' * 40, 'repo_common_dir': server._git_common_dir(server.BASE_REPO),
+              'origin': 'https://github.com/relativityE/speaksharp.git',
+              'dirty_paths': [], 'dirty_fingerprint': hashlib.sha256(b'').hexdigest()}
         p = patch.object(server, 'validate_worktree', return_value=ok)
         p.start()
         self.addCleanup(p.stop)
         self.assign(worktree='/wt/ok')
+
+    def test_queued_delivery_rejects_head_drift_before_worker_invocation(self):
+        self.verified()
+        aid = server.add_activity('PM', 'run focused checks', 'dev')
+        qid = server.enqueue(aid, 'dev', 'run focused checks', source_actor='PM', work_item_key=KEY)
+        queued = next(row for row in server.list_queue() if row['id'] == qid)
+        self.assertEqual((queued['target_head'], queued['target_tree']), ('c' * 40, 'd' * 40))
+        changed = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'e' * 40,
+                   'tree': 'f' * 40, 'repo_common_dir': server._git_common_dir(server.BASE_REPO),
+                   'origin': 'https://github.com/relativityE/speaksharp.git',
+                   'dirty_paths': [], 'dirty_fingerprint': hashlib.sha256(b'').hexdigest()}
+        with patch.object(server, 'validate_worktree', return_value=changed), patch.object(server, '_run_claude_once') as invoke:
+            result = server.resolve_dev_target(queued)
+            self.assertFalse(result['ok'])
+            self.assertIn('HEAD/tree changed after enqueue', result['error'])
+            invoke.assert_not_called()
+
+    def test_task_owned_dirty_paths_are_frozen_and_unowned_edits_block(self):
+        self.assign(worktree='/wt/ok', owned_paths=['notes/owned.md'])
+        frozen = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40, 'tree': 'd' * 40,
+                  'repo_common_dir': server._git_common_dir(server.BASE_REPO),
+                  'origin': 'https://github.com/relativityE/speaksharp.git',
+                  'dirty_paths': ['notes/owned.md'], 'dirty_fingerprint': 'owned-snapshot'}
+        with patch.object(server, 'validate_worktree', return_value=frozen):
+            aid = server.add_activity('PM', 'continue owned edit', 'dev')
+            qid = server.enqueue(aid, 'dev', 'continue owned edit', source_actor='PM', work_item_key=KEY)
+        queued = next(row for row in server.list_queue() if row['id'] == qid)
+        with patch.object(server, 'validate_worktree', return_value=frozen):
+            self.assertTrue(server.resolve_dev_target(queued)['ok'])
+        changed = dict(frozen, dirty_fingerprint='changed-owned-content')
+        with patch.object(server, 'validate_worktree', return_value=changed):
+            blocked = server.resolve_dev_target(queued)
+        self.assertFalse(blocked['ok'])
+        self.assertIn('Task-owned checkout edits changed', blocked['error'])
+        unowned = dict(frozen, dirty_paths=['src/unowned.py'])
+        with patch.object(server, 'validate_worktree', return_value=unowned):
+            aid = server.add_activity('PM', 'unowned dirty checkout', 'dev')
+            q2 = server.enqueue(aid, 'dev', 'unowned dirty checkout', source_actor='PM', work_item_key=KEY)
+        row = next(r for r in server.list_queue() if r['id'] == q2)
+        self.assertEqual(row['target_head'], '')
+
+    def test_task_lease_generation_changes_when_owned_paths_change(self):
+        self.assign(worktree='/wt/ok', owned_paths=['notes/owned.md'])
+        frozen = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40, 'tree': 'd' * 40,
+                  'repo_common_dir': server._git_common_dir(server.BASE_REPO),
+                  'origin': 'https://github.com/relativityE/speaksharp.git',
+                  'dirty_paths': [], 'dirty_fingerprint': hashlib.sha256(b'').hexdigest()}
+        with patch.object(server, 'validate_worktree', return_value=frozen):
+            aid = server.add_activity('PM', 'work', 'dev')
+            qid = server.enqueue(aid, 'dev', 'work', source_actor='PM', work_item_key=KEY)
+        queued = next(row for row in server.list_queue() if row['id'] == qid)
+        server.update_work_item(KEY, owned_paths=['different/path'])
+        with patch.object(server, 'validate_worktree', return_value=frozen):
+            blocked = server.resolve_dev_target(queued)
+        self.assertFalse(blocked['ok'])
+        self.assertIn('lease generation changed', blocked['error'])
+
+    def test_owned_path_manifest_rejects_absolute_and_parent_paths(self):
+        self.assign(worktree='/wt/ok')
+        for paths in (['../outside'], ['/absolute/path'], ['.']):
+            with self.assertRaisesRegex(ValueError, 'safe repository-relative paths'):
+                server.update_work_item(KEY, owned_paths=paths)
+
+    def test_queued_delivery_rejects_foreign_repository_identity(self):
+        self.verified()
+        aid = server.add_activity('PM', 'foreign repo same branch', 'dev')
+        qid = server.enqueue(aid, 'dev', 'foreign repo same branch', source_actor='PM', work_item_key=KEY)
+        queued = next(row for row in server.list_queue() if row['id'] == qid)
+        foreign = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40, 'tree': 'd' * 40,
+                   'repo_common_dir': server._git_common_dir(server.BASE_REPO),
+                   'origin': 'https://github.com/attacker/speaksharp.git',
+                   'dirty_paths': [], 'dirty_fingerprint': hashlib.sha256(b'').hexdigest()}
+        with patch.object(server, 'validate_worktree', return_value=foreign):
+            result = server.resolve_dev_target(queued)
+        self.assertFalse(result['ok'])
+        self.assertIn('repository identity changed after enqueue', result['error'])
 
     def test_distinct_source_requests_share_one_operation_and_keep_provenance(self):
         gh = FakeGitHub()

@@ -14,6 +14,7 @@ import shutil
 import sqlite3
 import subprocess
 import pty
+import fcntl
 import threading
 import time
 import uuid
@@ -83,6 +84,32 @@ PM_CANCEL_GENERATION = 0
 CODEX_AUTH_OK = None
 CODEX_AUTH_DETAIL = "not checked"
 STOP = threading.Event()
+STATE_LOCK_FD = None
+
+
+def acquire_state_dir_lock(state_dir=None):
+    """Own the state directory before migration/recovery can reinterpret live claims."""
+    directory = Path(state_dir) if state_dir is not None else DB.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    lock_path = directory / '.board.lock'
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        os.close(fd)
+        if exc.errno in (11, 35):
+            raise RuntimeError(f'Another board process owns state directory {directory}') from exc
+        raise
+    os.fchmod(fd, 0o600)
+    return fd
+
+
+def release_state_dir_lock(fd):
+    if fd is not None:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def now():
@@ -171,6 +198,13 @@ def init_db():
         _add_column(c, "queue", "target_branch TEXT NOT NULL DEFAULT ''")
         _add_column(c, "queue", "target_worktree TEXT NOT NULL DEFAULT ''")
         _add_column(c, "queue", "target_head TEXT NOT NULL DEFAULT ''")
+        _add_column(c, "queue", "target_tree TEXT NOT NULL DEFAULT ''")
+        _add_column(c, "queue", "target_repo_common_dir TEXT NOT NULL DEFAULT ''")
+        _add_column(c, "queue", "target_origin TEXT NOT NULL DEFAULT ''")
+        _add_column(c, "queue", "target_lease_generation TEXT NOT NULL DEFAULT ''")
+        _add_column(c, "queue", "target_dirty_fingerprint TEXT NOT NULL DEFAULT ''")
+        _add_column(c, "work_items", "lease_generation TEXT NOT NULL DEFAULT ''")
+        _add_column(c, "work_items", "owned_paths TEXT NOT NULL DEFAULT '[]'")
         # deadlock.5: typed system deliveries and a durable "recovery owed" flag so a
         # crash between failure and recovery enqueue cannot lose the PM recovery.
         _add_column(c, "queue", "kind TEXT NOT NULL DEFAULT ''")
@@ -178,8 +212,17 @@ def init_db():
         for definition in ("kind TEXT NOT NULL DEFAULT ''", "action_json TEXT NOT NULL DEFAULT ''",
                            "phase TEXT NOT NULL DEFAULT ''", "review_state TEXT NOT NULL DEFAULT ''",
                            "pr_number INTEGER", "head TEXT NOT NULL DEFAULT ''", "updated_at TEXT",
-                           "provenance TEXT NOT NULL DEFAULT '[]'"):
+                           "provenance TEXT NOT NULL DEFAULT '[]'", "lease_scope TEXT NOT NULL DEFAULT ''"):
             _add_column(c, "pm_action_journal", definition)
+        for row in c.execute("SELECT action_key,action_json FROM pm_action_journal WHERE lease_scope='' ").fetchall():
+            try:
+                action = json.loads(row['action_json'] or '{}')
+                scope = (f"pr:{int(action['pr_number'])}" if action.get('pr_number') else
+                         f"branch:{str(action['branch']).strip()}" if action.get('branch') else '')
+            except (ValueError, TypeError, KeyError):
+                scope = ''
+            if scope:
+                c.execute("UPDATE pm_action_journal SET lease_scope=? WHERE action_key=?", (scope, row['action_key']))
         c.executescript('''
         CREATE TABLE IF NOT EXISTS asks(
           id INTEGER PRIMARY KEY AUTOINCREMENT, source_comment_id INTEGER NOT NULL, ask_index INTEGER NOT NULL,
@@ -280,6 +323,10 @@ def init_db():
             row = c.execute("SELECT * FROM work_items WHERE item_key=?", (key,)).fetchone()
             if row and row['branch'] in ('isolated v4 worktrees', 'test/rwt-diagnostic-watchdog', 'test/rwt-browser-identity', ''):
                 c.execute("UPDATE work_items SET release_blocker=0, priority=99, blocker='Historical template: verify checkpoint before assigning', updated_at=? WHERE item_key=?", (now(), key))
+
+        for row in c.execute("SELECT item_key FROM work_items WHERE owner IN ('cli_dev','app_dev') "
+                             "AND state IN ('active','in_progress','doing') AND lease_generation=''").fetchall():
+            c.execute("UPDATE work_items SET lease_generation=? WHERE item_key=?", (uuid.uuid4().hex, row['item_key']))
 
         # Safe restart semantics: queued work was never delivered, so preserve it.
         # A delivering turn is ambiguous: repeating it could duplicate a side effect.
@@ -410,6 +457,24 @@ def enqueue(aid, recipient, content, *, source_actor="PO", parent_queue_id=None,
     """Queue one delivery. With a delivery_key the insert is atomic and idempotent (c5 F01): a replay
     after a crash returns the delivery that already landed instead of creating a second one."""
     target = dev_assignment(work_item_key) if recipient == 'dev' else None
+    frozen = {}
+    frozen_path = ''
+    if target:
+        path = target.get('worktree') or find_branch_worktree(target.get('branch', '')) or get_agent('dev').get('cwd')
+        frozen_path = path or ''
+        if path:
+            validated = validate_worktree(path)
+            if (validated.get('exists') and validated.get('is_git') and validated.get('branch') == target.get('branch')
+                    and validated.get('snapshot_stable', True)):
+                try:
+                    owned_paths = json.loads(target.get('owned_paths') or '[]')
+                except (ValueError, TypeError):
+                    owned_paths = []
+                if not isinstance(owned_paths, list) or any(not isinstance(p, str) for p in owned_paths):
+                    owned_paths = []
+                dirty = set(validated.get('dirty_paths') or [])
+                if _dirty_paths_owned(dirty, owned_paths):
+                    frozen = validated
     with DB_LOCK, con() as c:
         if delivery_key:
             prior = c.execute("SELECT id FROM queue WHERE delivery_key=?", (delivery_key,)).fetchone()
@@ -417,16 +482,20 @@ def enqueue(aid, recipient, content, *, source_actor="PO", parent_queue_id=None,
                 return prior['id']
         cur = c.execute(
             "INSERT INTO queue(activity_id,recipient,content,status,created_at,source_actor,parent_queue_id,"
-            "handoff_depth,auto_handoff,fanout_group,attempts,kind,delivery_key) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?)",
+            "handoff_depth,auto_handoff,fanout_group,attempts,kind,delivery_key,target_head,target_tree,"
+            "target_repo_common_dir,target_origin,target_lease_generation,target_dirty_fingerprint) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)",
             (
                 aid, recipient, content, "queued", now(), source_actor, parent_queue_id,
                 int(handoff_depth), 1 if auto_handoff else 0, fanout_group, kind, delivery_key,
+                frozen.get('head', ''), frozen.get('tree', ''), frozen.get('repo_common_dir', ''),
+                frozen.get('origin', ''), target.get('lease_generation', '') if target else '',
+                frozen.get('dirty_fingerprint', ''),
             ),
         )
         qid = cur.lastrowid
         if target:
             c.execute("UPDATE queue SET work_item_key=?,target_branch=?,target_worktree=? WHERE id=?",
-                      (target['item_key'], target['branch'], target.get('worktree') or '', qid))
+                      (target['item_key'], target['branch'], frozen_path, qid))
         return qid
 
 
@@ -560,11 +629,30 @@ def _lease_transfer_error(old, merged):
     return None
 
 
+def _owned_paths_json(value):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise ValueError('owned_paths must be a JSON array of repository-relative paths') from exc
+    if not isinstance(value, list) or any(not isinstance(p, str) or not p or p == '.' or Path(p).is_absolute()
+                                           or '..' in Path(p).parts or '\0' in p for p in value):
+        raise ValueError('owned_paths must contain only safe repository-relative paths')
+    return json.dumps(sorted(set(value)), ensure_ascii=False)
+
+
+def _dirty_paths_owned(dirty, owned):
+    return all(any(path == root or path.startswith(root.rstrip('/') + '/') for root in owned)
+               for path in dirty)
+
+
 def update_work_item(item_key, **fields):
-    allowed = {"priority","title","state","owner","branch","blocker","blocker_since","next_action","po_required","release_blocker","notes","pr_number","worktree"}
+    allowed = {"priority","title","state","owner","branch","blocker","blocker_since","next_action","po_required","release_blocker","notes","pr_number","worktree","owned_paths"}
     clean = {k:v for k,v in fields.items() if k in allowed}
     if not clean:
         return None
+    if 'owned_paths' in clean:
+        clean['owned_paths'] = _owned_paths_json(clean['owned_paths'])
     with DB_LOCK, con() as c:
         old = c.execute("SELECT * FROM work_items WHERE item_key=?", (item_key,)).fetchone()
         if not old:
@@ -579,6 +667,10 @@ def update_work_item(item_key, **fields):
             raise ValueError("WRITE lease transfer rejected: " + transfer)
         if "blocker" in clean and "blocker_since" not in clean and old["blocker"] != str(clean["blocker"]):
             clean["blocker_since"] = now()
+        identity_fields = ('owner', 'state', 'branch', 'worktree', 'owned_paths')
+        if any(k in clean and str(old[k] or '') != str(clean[k] or '') for k in identity_fields):
+            if merged.get('owner') in DEV_OWNERS and merged.get('state') in WRITE_STATES:
+                clean['lease_generation'] = uuid.uuid4().hex
         clean["updated_at"] = now()
         ks = list(clean)
         vals = [clean[k] for k in ks] + [item_key]
@@ -614,8 +706,10 @@ def apply_board_updates(updates):
                 if not isinstance(item, dict) or not item.get('item_key'):
                     raise ValueError('work item requires item_key')
                 key = str(item['item_key'])
-                allowed = {'priority','title','state','owner','branch','worktree','pr_number','blocker','blocker_since','next_action','po_required','release_blocker','notes'}
+                allowed = {'priority','title','state','owner','branch','worktree','pr_number','blocker','blocker_since','next_action','po_required','release_blocker','notes','owned_paths'}
                 clean = {k:v for k,v in item.items() if k in allowed and v is not None}
+                if 'owned_paths' in clean:
+                    clean['owned_paths'] = _owned_paths_json(clean['owned_paths'])
                 old = c.execute('SELECT * FROM work_items WHERE item_key=?', (key,)).fetchone()
                 if old is not None:
                     transfer = _lease_transfer_error(old, dict(dict(old), **clean))
@@ -624,6 +718,14 @@ def apply_board_updates(updates):
                 if old is None:
                     c.execute("INSERT INTO work_items(item_key,priority,title,state,owner,updated_at) VALUES(?,?,?,?,?,?)",
                               (key, 99, key, 'waiting', 'unassigned', now()))
+                if old is None:
+                    old = c.execute('SELECT * FROM work_items WHERE item_key=?', (key,)).fetchone()
+                identity_fields = ('owner', 'state', 'branch', 'worktree', 'owned_paths')
+                if any(k in clean and str(old[k] or '') != str(clean[k] or '') for k in identity_fields):
+                    resulting_owner = clean.get('owner', old['owner'])
+                    resulting_state = clean.get('state', old['state'])
+                    if resulting_owner in DEV_OWNERS and resulting_state in WRITE_STATES:
+                        clean['lease_generation'] = uuid.uuid4().hex
                 if 'blocker' in clean and 'blocker_since' not in clean:
                     clean['blocker_since'] = now()
                 clean['updated_at'] = now()
@@ -696,13 +798,15 @@ def resolve_dev_target(q):
         return {'ok': False, 'error': 'CLI Dev needs one active task with an explicit branch/worktree; ask PM to assign it'}
     if q.get('target_branch') and q['target_branch'] != item['branch']:
         return {'ok': False, 'error': 'Delivery branch changed after enqueue; request a new task handoff'}
-    if q.get('target_worktree') and q['target_worktree'] != item.get('worktree'):
+    if q.get('target_worktree') and item.get('worktree') and q['target_worktree'] != item.get('worktree'):
         return {'ok': False, 'error': 'Delivery worktree changed after enqueue; request a new task handoff'}
     path = item.get('worktree')
     if not path:
         path = find_branch_worktree(item['branch']) or get_agent('dev').get('cwd')
     if not path:
         return {'ok': False, 'error': 'Assigned task has no local worktree; PM must supply its worktree path'}
+    if q.get('target_worktree') and q.get('id') is not None and q['target_worktree'] != path:
+        return {'ok': False, 'error': 'Resolved checkout path changed after enqueue; issue a fresh authorized handoff'}
     v = validate_worktree(path)
     if not v.get('exists'):
         return {'ok': False, 'error': f"Assigned task worktree is missing: expected branch '{item['branch']}' at '{path}'; bootstrap must finish before Dev dispatch", 'validation': v}
@@ -710,6 +814,35 @@ def resolve_dev_target(q):
         return {'ok': False, 'error': f"Assigned task path is not a Git worktree: expected branch '{item['branch']}' at '{path}'", 'validation': v}
     if v.get('branch') != item['branch']:
         return {'ok': False, 'error': f"Assigned worktree branch mismatch: expected '{item['branch']}' at '{path}', found '{v.get('branch')}' at HEAD {v.get('head')}", 'validation': v}
+    # A queued delivery owns an immutable checkout/lease tuple. It may not silently
+    # adopt a newer HEAD or a reassigned work item when a worker finally wakes.
+    if q.get('id') is not None:
+        if not q.get('target_head') or not q.get('target_tree') or not q.get('target_repo_common_dir') or not q.get('target_origin'):
+            return {'ok': False, 'error': 'Delivery has no verified checkout snapshot from enqueue; issue a fresh handoff after checkout verification'}
+        if q.get('target_lease_generation') != item.get('lease_generation'):
+            return {'ok': False, 'error': 'WRITE lease generation changed after enqueue; issue a fresh authorized handoff'}
+        if v.get('head') != q.get('target_head') or v.get('tree') != q.get('target_tree'):
+            return {'ok': False, 'error': 'Checkout HEAD/tree changed after enqueue; issue a fresh authorized handoff'}
+        if not v.get('snapshot_stable', True):
+            return {'ok': False, 'error': 'Checkout changed while its tuple was being verified; issue a fresh handoff'}
+        if v.get('repo_common_dir') != q.get('target_repo_common_dir') or v.get('origin') != q.get('target_origin'):
+            return {'ok': False, 'error': 'Checkout repository identity changed after enqueue; issue a fresh authorized handoff'}
+        if _origin_repo_identity(v.get('origin')) != 'relativitye/speaksharp':
+            return {'ok': False, 'error': 'Checkout origin is not the authorized SpeakSharp repository'}
+        expected_common = _git_common_dir(BASE_REPO)
+        if expected_common and v.get('repo_common_dir') != expected_common:
+            return {'ok': False, 'error': 'Checkout Git common directory is not the authorized SpeakSharp repository'}
+        try:
+            owned_paths = json.loads(item.get('owned_paths') or '[]')
+        except (ValueError, TypeError):
+            return {'ok': False, 'error': 'Task owned-path manifest is invalid; rebind through PM before dispatch'}
+        if not isinstance(owned_paths, list) or any(not isinstance(p, str) for p in owned_paths):
+            return {'ok': False, 'error': 'Task owned-path manifest is invalid; rebind through PM before dispatch'}
+        dirty = set(v.get('dirty_paths') or [])
+        if not _dirty_paths_owned(dirty, owned_paths):
+            return {'ok': False, 'error': 'Checkout has dirty paths outside the task-owned path list'}
+        if v.get('dirty_fingerprint', '') != q.get('target_dirty_fingerprint', ''):
+            return {'ok': False, 'error': 'Task-owned checkout edits changed after enqueue; issue a fresh authorized handoff'}
     if q.get('target_head') and v.get('head') != q['target_head']:
         return {'ok': False, 'error': 'Worktree head changed after dispatch; explicit new handoff required'}
     return {'ok': True, 'path': path, 'item_key': item['item_key'], 'validation': v}
@@ -2539,7 +2672,7 @@ def run_dev(q):
         set_agent('dev', cwd=cwd, session_id=None, status='idle')
         a = get_agent('dev')
     update_queue(q['id'], work_item_key=target['item_key'], target_branch=target['validation']['branch'],
-                 target_worktree=cwd, target_head=target['validation']['head'])
+                 target_worktree=cwd)
 
     existing = a.get("session_id")
     sid = existing or str(uuid.uuid4())
@@ -2805,6 +2938,14 @@ def _executor_for(key):
     return Executor(_pm_request, _pm_qualify, phase=_journal_phase(key))
 
 
+def _pm_action_scope(action):
+    if action.get('pr_number'):
+        return f"pr:{int(action['pr_number'])}"
+    if action.get('branch'):
+        return f"branch:{str(action['branch']).strip()}"
+    return ''
+
+
 def _finish_journal(key, kind, state, result):
     review_state = 'pending' if kind == 'refresh_reviews' and state == 'completed' else ''
     with DB_LOCK, con() as c:
@@ -2820,6 +2961,17 @@ def _resume_refresh(key, action, phase):
         state = 'held' if isinstance(e, Hold) else 'unconfirmed'
         result = ('HOLD: ' if state == 'held' else 'UNCONFIRMED: ') + str(e)[:500]
     _finish_journal(key, 'refresh_reviews', state, result)
+    return state, result
+
+
+def _resolve_uncertain_action(key, action):
+    try:
+        result = _executor_for(key).resolve_uncertain(action)
+        state = 'completed'
+    except Exception as e:
+        state = 'unconfirmed'
+        result = 'UNCONFIRMED: ' + str(e)[:500]
+    _finish_journal(key, action.get('kind', ''), state, result)
     return state, result
 
 
@@ -2861,19 +3013,34 @@ def execute_pm_actions(q, actions):
         if not bool_setting('pm_bounded_actions', True):
             results.append('HOLD: bounded executor disabled'); continue
         key=canonical_key(action)
+        scope=_pm_action_scope(action)
         resume_phase = None
+        resolve_uncertain = False
         with DB_LOCK, con() as c:
             row=c.execute('SELECT * FROM pm_action_journal WHERE action_key=?',(key,)).fetchone()
             if row:
                 _record_provenance(c, key, action, q)
-            if row and kind == 'refresh_reviews' and row['status'] == 'unconfirmed' and row['phase']:
+            if scope:
+                owner = c.execute("SELECT action_key,kind FROM pm_action_journal WHERE lease_scope=? "
+                                  "AND status IN ('running','unconfirmed') AND action_key<>? LIMIT 1", (scope, key)).fetchone()
+                if owner:
+                    results.append(f"HOLD: {scope} mutation lease is held by unresolved {owner['kind']} action; read it back first")
+                    continue
+            if row and row['status'] == 'unconfirmed':
                 # Resume only with a won atomic claim. Another connection/process may have claimed
-                # the row between our read and this UPDATE; the loser must not execute.
+                # the row between our read and this UPDATE; the loser must do no read/write.
                 claimed = c.execute("UPDATE pm_action_journal SET status='running',updated_at=? WHERE action_key=? AND status='unconfirmed'",
                                     (now(), key)).rowcount
                 if claimed != 1:
                     results.append('RECORDED: running · another request already claimed this resume'); continue
-                resume_phase = row['phase']
+                if kind == 'refresh_reviews' and row['phase']:
+                    resume_phase = row['phase']
+                elif kind == 'refresh_reviews':
+                    # The executor records a phase before its first mutation. No phase
+                    # means only preflight reads ran, so retry the guarded preflight.
+                    pass
+                else:
+                    resolve_uncertain = True
             elif row and row['status']!='held':
                 results.append('RECORDED: '+row['status']+' · '+row['result']); continue
             else:
@@ -2881,15 +3048,17 @@ def execute_pm_actions(q, actions):
                     c.execute("DELETE FROM pm_action_journal WHERE action_key=? AND status='held'",(key,))
                 try:
                     # Claim by INSERT: a concurrent/duplicate request (any process) loses the claim.
-                    c.execute('INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,phase,pr_number,head,updated_at) '
-                              'VALUES(?,?,?,?,?,?,?,?,?)',
+                    c.execute('INSERT INTO pm_action_journal(action_key,status,result,kind,action_json,phase,pr_number,head,updated_at,lease_scope) '
+                              'VALUES(?,?,?,?,?,?,?,?,?,?)',
                               (key,'running','Execution started; outcome unconfirmed',kind,json.dumps(action,sort_keys=True),'',
-                               int(action.get('pr_number') or 0) or None,str(action.get('head') or ''),now()))
+                               int(action.get('pr_number') or 0) or None,str(action.get('head') or ''),now(),scope))
                 except sqlite3.IntegrityError:
                     results.append('RECORDED: running · concurrent request already claimed this action'); continue
                 _record_provenance(c, key, action, q)
         if resume_phase:
             state, result = _resume_refresh(key, action, resume_phase)
+        elif resolve_uncertain:
+            state, result = _resolve_uncertain_action(key, action)
         else:
             try:
                 result=_executor_for(key).execute(action)
@@ -2906,10 +3075,10 @@ def execute_pm_actions(q, actions):
 
 
 def resume_interrupted_actions():
-    """After restart: finish journaled refresh steps so a PR is never stranded in Draft."""
+    """After restart: read back every uncertain mutation; refreshes also resume their journaled lifecycle phase."""
     with DB_LOCK, con() as c:
         rows = [dict(r) for r in c.execute(
-            "SELECT * FROM pm_action_journal WHERE kind='refresh_reviews' AND status='unconfirmed' AND phase<>''").fetchall()]
+            "SELECT * FROM pm_action_journal WHERE status='unconfirmed'").fetchall()]
     out = []
     for r in rows:
         try:
@@ -2920,7 +3089,18 @@ def resume_interrupted_actions():
             claimed = c.execute("UPDATE pm_action_journal SET status='running',updated_at=? WHERE action_key=? AND status='unconfirmed'",
                                 (now(), r['action_key'])).rowcount
         if claimed:
-            state, result = _resume_refresh(r['action_key'], action, r['phase'])
+            if r.get('kind') == 'refresh_reviews' and r.get('phase'):
+                state, result = _resume_refresh(r['action_key'], action, r['phase'])
+            elif r.get('kind') == 'refresh_reviews':
+                try:
+                    result = _executor_for(r['action_key']).execute(action)
+                    state = 'observed' if str(result).startswith('OBSERVED:') else 'completed'
+                except Exception as e:
+                    state = 'held' if isinstance(e, Hold) else 'unconfirmed'
+                    result = ('HOLD: ' if state == 'held' else 'UNCONFIRMED: ') + str(e)[:500]
+                _finish_journal(r['action_key'], 'refresh_reviews', state, result)
+            else:
+                state, result = _resolve_uncertain_action(r['action_key'], action)
             add_activity('EXECUTOR', result, 'none', state)
             out.append((r['action_key'], state))
     return out
@@ -3539,6 +3719,46 @@ def kill_agent(agent_id):
     return False
 
 
+def _worktree_dirty_snapshot(path):
+    status = subprocess.run(["git", "-C", path, "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+                            capture_output=True, timeout=5)
+    if status.returncode:
+        raise RuntimeError(status.stderr.decode(errors='replace')[:300] or 'git status failed')
+    entries = [entry for entry in status.stdout.split(b'\0') if entry]
+    dirty_paths = []
+    idx = 0
+    while idx < len(entries):
+        entry = entries[idx]
+        if len(entry) >= 4:
+            dirty_paths.append(os.fsdecode(entry[3:]))
+            if (b'R' in entry[:2] or b'C' in entry[:2]) and idx + 1 < len(entries):
+                idx += 1
+                dirty_paths.append(os.fsdecode(entries[idx]))
+        idx += 1
+    diff = subprocess.run(["git", "-C", path, "diff", "--binary", "HEAD"], capture_output=True, timeout=5)
+    untracked = subprocess.run(["git", "-C", path, "ls-files", "--others", "--exclude-standard", "-z"],
+                               capture_output=True, timeout=5)
+    if diff.returncode or untracked.returncode:
+        raise RuntimeError('could not fingerprint dirty checkout')
+    fingerprint = hashlib.sha256(diff.stdout + b'\0UNTRACKED\0')
+    for rel in untracked.stdout.split(b'\0'):
+        if not rel:
+            continue
+        fingerprint.update(rel + b'\0')
+        file_path = Path(path) / os.fsdecode(rel)
+        if file_path.is_symlink():
+            fingerprint.update(b'LINK\0' + os.fsencode(os.readlink(file_path)))
+        elif file_path.is_file():
+            fingerprint.update(str(file_path.stat().st_mode & 0o7777).encode() + b'\0')
+            with file_path.open('rb') as source:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    fingerprint.update(chunk)
+    return dirty_paths, fingerprint.hexdigest()
+
+
 def validate_worktree(path):
     p = Path(path)
     out = {"path": path, "exists": p.exists(), "is_git": False}
@@ -3551,13 +3771,55 @@ def validate_worktree(path):
             out["root"] = git.stdout.strip()
             out["branch"] = subprocess.run(["git", "-C", path, "branch", "--show-current"], capture_output=True, text=True, timeout=5).stdout.strip() or "(detached)"
             out["head"] = subprocess.run(["git", "-C", path, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip()
-            out["clean"] = subprocess.run(["git", "-C", path, "status", "--porcelain"], capture_output=True, text=True, timeout=5).stdout.strip() == ""
+            out["tree"] = subprocess.run(["git", "-C", path, "rev-parse", "HEAD^{tree}"], capture_output=True, text=True, timeout=5).stdout.strip()
+            common = subprocess.run(["git", "-C", path, "rev-parse", "--git-common-dir"], capture_output=True, text=True, timeout=5)
+            out["repo_common_dir"] = str((Path(path) / common.stdout.strip()).resolve()) if common.returncode == 0 else ""
+            remote = subprocess.run(["git", "-C", path, "remote", "get-url", "origin"], capture_output=True, text=True, timeout=5)
+            out["origin"] = remote.stdout.strip() if remote.returncode == 0 else ""
+            dirty_paths, dirty_fingerprint = _worktree_dirty_snapshot(path)
+            out["dirty_paths"] = dirty_paths
+            out["clean"] = not dirty_paths
+            out["dirty_fingerprint"] = dirty_fingerprint
+            head_after = subprocess.run(["git", "-C", path, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5)
+            tree_after = subprocess.run(["git", "-C", path, "rev-parse", "HEAD^{tree}"], capture_output=True, text=True, timeout=5)
+            branch_after = subprocess.run(["git", "-C", path, "branch", "--show-current"], capture_output=True, text=True, timeout=5)
+            origin_after = subprocess.run(["git", "-C", path, "remote", "get-url", "origin"], capture_output=True, text=True, timeout=5)
+            common_after = subprocess.run(["git", "-C", path, "rev-parse", "--git-common-dir"], capture_output=True, text=True, timeout=5)
+            dirty_paths_after, fingerprint_after = _worktree_dirty_snapshot(path)
+            out["snapshot_stable"] = (head_after.returncode == 0 and head_after.stdout.strip() == out["head"]
+                                      and tree_after.returncode == 0 and tree_after.stdout.strip() == out["tree"]
+                                      and branch_after.returncode == 0 and (branch_after.stdout.strip() or "(detached)") == out["branch"]
+                                      and origin_after.returncode == 0 and origin_after.stdout.strip() == out["origin"]
+                                      and common_after.returncode == 0
+                                      and str((Path(path) / common_after.stdout.strip()).resolve()) == out["repo_common_dir"]
+                                      and dirty_paths_after == dirty_paths and fingerprint_after == dirty_fingerprint)
     except Exception as e:
         out["error"] = str(e)
     out["node_modules"] = (p / "node_modules").exists()
     out["frontend_node_modules"] = (p / "frontend" / "node_modules").exists()
     out["env"] = (p / ".env").exists()
     return out
+
+
+def _origin_repo_identity(origin):
+    value = str(origin or '').strip().lower()
+    value = re.sub(r'^git@github\.com:', '', value)
+    value = re.sub(r'^https?://github\.com/', '', value)
+    value = value.removesuffix('.git').strip('/')
+    return value
+
+
+def _git_common_dir(path):
+    try:
+        root = subprocess.run(['git', '-C', str(path), 'rev-parse', '--show-toplevel'],
+                              capture_output=True, text=True, timeout=5)
+        common = subprocess.run(['git', '-C', str(path), 'rev-parse', '--git-common-dir'],
+                                capture_output=True, text=True, timeout=5)
+        if root.returncode or common.returncode:
+            return ''
+        return str((Path(root.stdout.strip()) / common.stdout.strip()).resolve())
+    except (OSError, subprocess.TimeoutExpired):
+        return ''
 
 
 def _iso_now_dt():
@@ -4039,8 +4301,16 @@ class H(BaseHTTPRequestHandler):
 
 
 def main():
-    # Bind before waking workers: a second launch on the same port cannot execute actions.
-    srv = ThreadingHTTPServer((HOST, PORT), H)
+    # Lock the state directory before any startup migration can reclassify another
+    # process's running journal row. Binding also happens before any worker starts.
+    global STATE_LOCK_FD
+    STATE_LOCK_FD = acquire_state_dir_lock()
+    try:
+        srv = ThreadingHTTPServer((HOST, PORT), H)
+    except Exception:
+        release_state_dir_lock(STATE_LOCK_FD)
+        STATE_LOCK_FD = None
+        raise
     init_db()
     sweep_preflight_recoveries()
     sweep_invocation_recoveries()
@@ -4074,6 +4344,8 @@ def main():
         kill_agent("dev")
         kill_agent("pm")
         srv.server_close()
+        release_state_dir_lock(STATE_LOCK_FD)
+        STATE_LOCK_FD = None
 
 
 if __name__ == "__main__":
