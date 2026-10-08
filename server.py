@@ -257,10 +257,19 @@ def init_db():
         _add_column(c, "work_items", "lease_generation TEXT NOT NULL DEFAULT ''")
         _add_column(c, "work_items", "assignment_generation TEXT NOT NULL DEFAULT ''")
         _add_column(c, "work_items", "owned_paths TEXT NOT NULL DEFAULT '[]'")
+        # C11/R06: persist bootstrap as its own phase. Only a later exact queued
+        # checkout readback may move required -> verified.
+        for definition in ("bootstrap_state TEXT NOT NULL DEFAULT 'not_required'",
+                           "bootstrap_verified_at TEXT", "bootstrap_verified_head TEXT NOT NULL DEFAULT ''",
+                           "bootstrap_verified_tree TEXT NOT NULL DEFAULT ''"):
+            _add_column(c, "work_items", definition)
         # deadlock.5: typed system deliveries and a durable "recovery owed" flag so a
         # crash between failure and recovery enqueue cannot lose the PM recovery.
         _add_column(c, "queue", "kind TEXT NOT NULL DEFAULT ''")
         _add_column(c, "queue", "preflight_recovery_due INTEGER NOT NULL DEFAULT 0")
+        c.execute("UPDATE work_items SET bootstrap_state='required' WHERE bootstrap_state='not_required' AND "
+                  "EXISTS(SELECT 1 FROM queue WHERE queue.kind='preflight_recovery' "
+                  "AND queue.work_item_key=work_items.item_key)")
         for definition in ("kind TEXT NOT NULL DEFAULT ''", "action_json TEXT NOT NULL DEFAULT ''",
                            "phase TEXT NOT NULL DEFAULT ''", "review_state TEXT NOT NULL DEFAULT ''",
                            "pr_number INTEGER", "head TEXT NOT NULL DEFAULT ''", "updated_at TEXT",
@@ -826,6 +835,9 @@ def update_work_item(item_key, **fields):
         if any(k in clean and str(old[k] or '') != str(clean[k] or '') for k in identity_fields):
             if merged.get('owner') in DEV_OWNERS and merged.get('state') in WRITE_STATES:
                 clean['lease_generation'] = uuid.uuid4().hex
+            if old['bootstrap_state'] == 'verified':
+                clean.update(bootstrap_state='required', bootstrap_verified_at=None,
+                             bootstrap_verified_head='', bootstrap_verified_tree='')
         if any(k in clean and str(old[k] or '') != str(clean[k] or '')
                for k in ('owner', 'branch', 'worktree', 'owned_paths')):
             clean['assignment_generation'] = uuid.uuid4().hex
@@ -884,6 +896,9 @@ def apply_board_updates(updates):
                     resulting_state = clean.get('state', old['state'])
                     if resulting_owner in DEV_OWNERS and resulting_state in WRITE_STATES:
                         clean['lease_generation'] = uuid.uuid4().hex
+                    if old['bootstrap_state'] == 'verified':
+                        clean.update(bootstrap_state='required', bootstrap_verified_at=None,
+                                     bootstrap_verified_head='', bootstrap_verified_tree='')
                 if any(k in clean and str(old[k] or '') != str(clean[k] or '')
                        for k in ('owner', 'branch', 'worktree', 'owned_paths')):
                     clean['assignment_generation'] = uuid.uuid4().hex
@@ -1045,6 +1060,15 @@ def resolve_dev_target(q):
             return {'ok': False, 'error': 'Task-owned checkout edits changed after enqueue; issue a fresh authorized handoff'}
     if q.get('target_head') and v.get('head') != q['target_head']:
         return {'ok': False, 'error': 'Worktree head changed after dispatch; explicit new handoff required'}
+    # Bootstrap completion is a durable phase transition, not an inference from a PM
+    # message or a worker receipt. It requires the newly queued immutable tuple to pass
+    # the full repository, lease, head/tree and dirty-path checks above.
+    if item.get('bootstrap_state') == 'required' and q.get('id') is not None:
+        with DB_LOCK, con() as c:
+            c.execute("UPDATE work_items SET bootstrap_state='verified',bootstrap_verified_at=?,"
+                      "bootstrap_verified_head=?,bootstrap_verified_tree=? "
+                      "WHERE item_key=? AND bootstrap_state='required'",
+                      (now(), v.get('head') or '', v.get('tree') or '', item['item_key']))
     return {'ok': True, 'path': path, 'item_key': item['item_key'], 'validation': v}
 
 
@@ -4937,13 +4961,16 @@ def queue_preflight_recovery(parent_id, key, branch, worktree, error, *, invoked
             blocker = (f"Repeated pre-invocation block on unchanged tuple {branch or '?'} @ {worktree or '?'} "
                        f"(first recovery #{repeat['rid']} for delivery #{repeat['pid']}); PM must rebind a verified tuple")
             c.execute("UPDATE queue SET preflight_recovery_due=0 WHERE id=?", (parent_id,))
-            c.execute("UPDATE work_items SET blocker=?, blocker_since=COALESCE(blocker_since,?), updated_at=updated_at WHERE item_key=?",
+            c.execute("UPDATE work_items SET blocker=?, blocker_since=COALESCE(blocker_since,?), bootstrap_state='required', "
+                      "bootstrap_verified_at=NULL,bootstrap_verified_head='',bootstrap_verified_tree='' WHERE item_key=?",
                       (blocker, now(), key))
             c.execute("UPDATE player_status SET status='blocked', blocker=?, source='preflight', updated_at=? WHERE player_id='cli_dev'",
                       (blocker, now()))
             c.execute("INSERT INTO activity(actor,message,route,status,created_at,trigger_queue_id) VALUES(?,?,?,?,?,?)",
                       ('SYSTEM', 'BOARD BLOCKER: ' + blocker, 'none', 'error', now(), parent_id))
             return None
+        c.execute("UPDATE work_items SET bootstrap_state='required',bootstrap_verified_at=NULL,"
+                  "bootstrap_verified_head='',bootstrap_verified_tree='' WHERE item_key=?", (key,))
         content = _preflight_recovery_content(parent_id, key, branch, worktree, error, invoked_route=invoked_route)
         aid = c.execute("INSERT INTO activity(actor,message,route,status,created_at,trigger_queue_id) VALUES(?,?,?,?,?,?)",
                         ('SYSTEM', content, 'pm', 'error', now(), parent_id)).lastrowid

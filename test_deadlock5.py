@@ -360,6 +360,51 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertEqual(len(self.recoveries()), 1)
         self.assertEqual(self.recoveries()[0]['parent_queue_id'], q['id'])
 
+    def test_bootstrap_is_a_persisted_phase_until_exact_new_checkout_is_verified(self):
+        self.assign()
+        self.dev_row(status='failed', error='Assigned task worktree is missing',
+                     preflight_recovery_due=1)
+        self.assertIsNotNone(server.sweep_preflight_recoveries()[0])
+        self.assertEqual(self.item(KEY)['bootstrap_state'], 'required')
+
+        # Startup must preserve the outstanding bootstrap phase; a PM text receipt alone
+        # cannot complete it.
+        self.recover_after_restart()
+        self.assertEqual(self.item(KEY)['bootstrap_state'], 'required')
+        self.assertIsNone(self.item(KEY)['bootstrap_verified_at'])
+
+        snapshot = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+                    'tree': 'd' * 40, 'repo_common_dir': server._git_common_dir(server.BASE_REPO),
+                    'origin': 'https://github.com/relativityE/speaksharp.git', 'dirty_paths': [],
+                    'dirty_fingerprint': hashlib.sha256(b'').hexdigest(), 'snapshot_stable': True}
+        with patch.object(server, 'validate_worktree', return_value=snapshot):
+            self.assertTrue(server.apply_board_updates({'work_items': [{'item_key': KEY, 'worktree': '/boot/verified'}]}))
+            q = self.dev_row()
+            result = server.resolve_dev_target(q)
+        self.assertTrue(result['ok'])
+        item = self.item(KEY)
+        self.assertEqual(item['bootstrap_state'], 'verified')
+        self.assertEqual((item['bootstrap_verified_head'], item['bootstrap_verified_tree']), ('c' * 40, 'd' * 40))
+        self.assertTrue(item['bootstrap_verified_at'])
+
+        # A later lease/worktree change invalidates the earlier bootstrap receipt.
+        changed = dict(snapshot, head='e' * 40, tree='f' * 40)
+        with patch.object(server, 'validate_worktree', return_value=changed):
+            self.assertTrue(server.apply_board_updates({'work_items': [{'item_key': KEY, 'worktree': '/boot/other'}]}))
+        item = self.item(KEY)
+        self.assertEqual(item['bootstrap_state'], 'required')
+        self.assertIsNone(item['bootstrap_verified_at'])
+
+    def test_migration_recovers_bootstrap_phase_from_legacy_preflight_recovery(self):
+        self.assign()
+        self.dev_row(status='failed', error='worktree missing', preflight_recovery_due=1)
+        server.sweep_preflight_recoveries()
+        # Model a pre-C11 database that has the recovery row but no persisted phase.
+        with server.con() as c:
+            c.execute("UPDATE work_items SET bootstrap_state='not_required' WHERE item_key=?", (KEY,))
+        server.init_db()
+        self.assertEqual(self.item(KEY)['bootstrap_state'], 'required')
+
     def test_historical_failures_are_not_swept_into_new_recoveries(self):
         self.assign()
         self.dev_row(status='failed', error='Assigned worktree does not match task branch')  # deadlock.4 #34/#36 shape
