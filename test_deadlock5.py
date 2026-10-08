@@ -23,6 +23,8 @@ HEAD = 'a' * 40
 BASE = 'b' * 40
 KEY = 'PR-1570-P1'
 BRANCH = 'fix/1258-readback-boot-control'
+CODEX_TEST_SESSION = '11111111-1111-4111-8111-111111111111'
+OTHER_TEST_SESSION = '22222222-2222-4222-8222-222222222222'
 
 
 def board(work_item_key='PR-1559'):
@@ -119,7 +121,7 @@ class Deadlock5Tests(unittest.TestCase):
     def recoveries(self):
         return [r for r in server.list_queue(500) if r.get('kind') == 'preflight_recovery']
 
-    def enqueue_codex_readonly_task(self, session='a076ba87-4ad9-48fa-bff9-4e71a1535b5b'):
+    def enqueue_codex_readonly_task(self, session=CODEX_TEST_SESSION):
         route_json = json.dumps({'version': 1, 'routes': {'cli_dev': {
             'provider': 'codex_app_server', 'session_id': session}}})
         snapshot = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
@@ -142,7 +144,7 @@ class Deadlock5Tests(unittest.TestCase):
     def test_existing_session_delivery_waits_for_actor_bound_receipt_and_result(self):
         q, snapshot = self.enqueue_codex_readonly_task()
         self.assertEqual((q['target_actor_id'], q['target_transport'], q['target_session_id']),
-                         ('cli_dev', 'codex_app_server', 'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'))
+                         ('cli_dev', 'codex_app_server', CODEX_TEST_SESSION))
         with patch.object(server, 'resolve_dev_target', return_value={'ok': True, 'path': '/wt/ok', 'item_key': KEY,
                            'validation': snapshot}), \
              patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'queued'}) as queue:
@@ -222,7 +224,7 @@ class Deadlock5Tests(unittest.TestCase):
             identity = {'action_id': action_id, 'actor_id': 'app_dev',
                         'session_id': 'b076ba87-4ad9-48fa-bff9-4e71a1535b5b'}
             self.assertEqual(server.record_agent_task_callback({**identity, 'stage': 'result', 'evidence': 'early'}, token)[0], 409)
-            wrong = dict(identity, session_id='a076ba87-4ad9-48fa-bff9-4e71a1535b5b')
+            wrong = dict(identity, session_id=OTHER_TEST_SESSION)
             self.assertEqual(server.record_agent_task_callback({**wrong, 'stage': 'receipt', 'evidence': 'wrong session'}, token)[0], 403)
             receipt = {**identity, 'stage': 'receipt', 'evidence': 'exact review received'}
             self.assertEqual(server.record_agent_task_callback(receipt, token)[0], 200)
@@ -1336,7 +1338,7 @@ class Deadlock5Tests(unittest.TestCase):
                                        'owner': 'cli_dev', 'dependency': None, 'review_handoff_index': 0}]}
         server.PM_MODE = 'codex'
         route_json = json.dumps({'version': 1, 'routes': {'cli_dev': {
-            'provider': 'codex_app_server', 'session_id': 'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'}}})
+            'provider': 'codex_app_server', 'session_id': CODEX_TEST_SESSION}}})
         with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': route_json}), \
              patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'queued'}), \
              patch.object(server, '_run_pm_codex', return_value=(route, 'thread')), \
@@ -1351,9 +1353,9 @@ class Deadlock5Tests(unittest.TestCase):
             server.run_dev(dev)
         self.assertEqual(server.list_review_handoffs()[0]['state'], 'delivered')
         token = server._task_callback_token(dev['id'], dev['task_action_id'], 'cli_dev',
-                                           'a076ba87-4ad9-48fa-bff9-4e71a1535b5b')
+                                           CODEX_TEST_SESSION)
         callback = {'action_id': dev['task_action_id'], 'actor_id': 'cli_dev',
-                    'session_id': 'a076ba87-4ad9-48fa-bff9-4e71a1535b5b', 'stage': 'receipt',
+                    'session_id': CODEX_TEST_SESSION, 'stage': 'receipt',
                     'evidence': f"RECEIPT {h['token']} — started the binding fix"}
         self.assertEqual(server.record_agent_task_callback(callback, token)[0], 200)
         self.assertEqual(server.list_review_handoffs()[0]['state'], 'acknowledged')

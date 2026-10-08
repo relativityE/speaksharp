@@ -13,6 +13,11 @@ item. The phase survives process restart and is reconstructed from an existing
 head/tree, and owned-dirty-path checks. Changing the verified worktree or lease invalidates
 the prior verification. PM prose and a task receipt alone cannot close the phase.
 
+Codex transport tests now use synthetic session UUIDs instead of the live auxiliary Claude
+session UUID that had been copied into fixtures. This prevents fixture data from implying
+that the current host route is correct; the actual configured route still needs CLI PM's
+host correction and live receipt/action proof.
+
 Source: `server.py`; regression: `Deadlock5Tests.test_bootstrap_is_a_persisted_phase_until_exact_new_checkout_is_verified`.
 
 ## Verification

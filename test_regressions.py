@@ -14,6 +14,8 @@ from http.server import ThreadingHTTPServer
 import server
 from migrate_state import migrate_state
 
+CODEX_TEST_SESSION = '11111111-1111-4111-8111-111111111111'
+
 
 class RegressionTests(unittest.TestCase):
     def setUp(self):
@@ -325,7 +327,7 @@ class RegressionTests(unittest.TestCase):
                 return e.code,json.load(e)
         try:
             routes = json.dumps({'version': 1, 'routes': {'cli_dev': {
-                'provider': 'codex_app_server', 'session_id': 'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'}}})
+                'provider': 'codex_app_server', 'session_id': CODEX_TEST_SESSION}}})
             with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': routes}), \
                  patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'queued'}), \
                  patch.object(server,'pr_snapshot',return_value={'current':None,'active':[],'error':None}), \
@@ -371,7 +373,7 @@ class RegressionTests(unittest.TestCase):
         qid=server.enqueue(aid,'pm','Please run bounded check')
         q=next(x for x in server.list_queue() if x['id']==qid)
         server.PM_MODE='command'
-        route_json=json.dumps({'version':1,'routes':{'cli_dev':{'provider':'codex_app_server','session_id':'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'}}})
+        route_json=json.dumps({'version':1,'routes':{'cli_dev':{'provider':'codex_app_server','session_id':CODEX_TEST_SESSION}}})
         with patch.dict(os.environ,{'RWT_AGENT_ROUTES_JSON':route_json}), \
              patch.object(server,'PM_COMMAND',f'python3 {pm}'), \
              patch.object(server,'BASE_REPO',str(wt)), \
@@ -381,8 +383,8 @@ class RegressionTests(unittest.TestCase):
             devq=server.next_queue('dev')
             self.assertEqual(devq['target_branch'],'fix/navigation')
             server.run_dev(devq)
-            token=server._task_callback_token(devq['id'],devq['task_action_id'],'cli_dev','a076ba87-4ad9-48fa-bff9-4e71a1535b5b')
-            identity={'action_id':devq['task_action_id'],'actor_id':'cli_dev','session_id':'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'}
+            token=server._task_callback_token(devq['id'],devq['task_action_id'],'cli_dev',CODEX_TEST_SESSION)
+            identity={'action_id':devq['task_action_id'],'actor_id':'cli_dev','session_id':CODEX_TEST_SESSION}
             self.assertEqual(server.record_agent_task_callback({**identity,'stage':'receipt','evidence':'received'},token)[0],200)
             self.assertEqual(server.record_agent_task_callback({**identity,'stage':'result','evidence':'DONE bounded check'},token)[0],200)
             pmq=server.next_queue('pm')

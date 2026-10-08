@@ -6,7 +6,7 @@ from unittest.mock import patch, Mock
 import agent_transport as transport
 
 
-SESSION = 'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'
+SESSION = '11111111-1111-4111-8111-111111111111'  # synthetic test identity; never a live agent session
 
 
 class CodexQueueTransportTests(unittest.TestCase):
@@ -21,7 +21,7 @@ class CodexQueueTransportTests(unittest.TestCase):
         self.assertEqual((route.actor_id, route.session_id, route.remote_url), ('cli_dev', SESSION, ''))
         with self.assertRaisesRegex(transport.RouteError, 'full Codex session UUID'):
             transport.configured_route('cli_dev', self.route_env({
-                'provider': 'codex_app_server', 'session_id': '01a0f83f'}))
+                'provider': 'codex_app_server', 'session_id': 'not-a-full-session-id'}))
 
     def test_remote_route_requires_wss_and_an_auth_token_name_and_value(self):
         entry = {'provider': 'codex_app_server', 'session_id': SESSION,
