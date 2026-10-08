@@ -44,6 +44,29 @@ class PollBudgetTests(unittest.TestCase):
         self.assertIsNone(cursor2)
         self.assertEqual(server.get_setting(cursor[0]), old)
 
+    def test_recent_edit_to_old_comment_survives_bounded_id_cache(self):
+        old = '2026-10-07T10:00:00Z'
+        comments = [{'id': i, 'body': f'comment {i}', 'created_at': old, 'updated_at': old}
+                    for i in range(1, 201)]
+        server.set_setting('github_comments:repo:1258', json.dumps({'since': old, 'comments': comments}))
+        edited = {'id': 1, 'body': 'updated authorization', 'created_at': old,
+                  'updated_at': '2026-10-08T10:00:00Z'}
+        with patch.object(server, 'gh_json', side_effect=[([edited], None), ([], None)]):
+            rows, error, cursor = server.fetch_watch_comments('repo', 1258)
+        self.assertIsNone(error)
+        self.assertEqual(next(r['body'] for r in rows if r['id'] == 1), 'updated authorization')
+        self.assertIn(1, {r['id'] for r in cursor[1]['comments']})
+
+    def test_edit_to_existing_control_comment_generates_new_wake(self):
+        prev = {'pr': 1570, 'latest_control_comment_id': 42,
+                'control_updates': [{'id': 42, 'body': 'old instructions', 'updated_at': '2026-10-07T10:00:00Z'}]}
+        cur = {'pr': 1570, 'latest_control_comment_id': 42,
+               'control_updates': [{'id': 42, 'body': 'corrected instructions', 'updated_at': '2026-10-08T10:00:00Z'}]}
+        events = server.github_watch_events(prev, cur, {'pm_github_control': True})
+        self.assertEqual(len(events), 1)
+        self.assertIn('comment 42', events[0])
+        self.assertIn('corrected instructions', events[0])
+
     def test_automatic_pm_posts_from_old_instances_do_not_wake_pm(self):
         rows = [{'id': 5, 'body': '<!-- rwt-board-pm:old-instance:8 --> status'},
                 {'id': 6, 'body': 'App Dev: complete packet'}]

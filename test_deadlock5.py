@@ -950,20 +950,33 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertIsNotNone(followup)
         server.init_db()  # simulated board restart after CI completed but before PM consumed its wake
         self.assertEqual(server.queue_ci_review_followup(snapshot), followup)  # restart replay is idempotent
-        queued = server.next_queue('pm')  # the normal local PM worker claims the durable watcher wake
-        self.assertIsNotNone(queued)
-        self.assertEqual(queued['id'], followup)
-        self.assertEqual(queued['status'], 'claimed')
-        self.assertEqual((queued['recipient'], queued['kind']), ('pm', 'ci_review_followup'))
-        self.assertIn(f'head {HEAD} on base {BASE}', queued['content'])
         gh = FakeGitHub()
         route = {'message': 'Authorized exact-head refresh started and returned Ready.', 'next': 'none',
                  'pm_actions': [refresh_action()], 'board_updates': board()}
         server.PM_MODE = 'codex'
-        with patch.object(server, '_run_pm_codex', return_value=(route, 'local-pm-session')), \
+        worker_stop = threading.Event()
+        claimed = []
+        claim_next = server.next_queue
+        run_one = server.run_pm
+        def capture_claim(recipient=None):
+            row = claim_next(recipient)
+            if row:
+                claimed.append(row)
+            return row
+        def finish_worker_turn(row):
+            run_one(row)
+            worker_stop.set()
+        with patch.object(server, 'STOP', worker_stop), \
+             patch.object(server, 'next_queue', side_effect=capture_claim), \
+             patch.object(server, 'run_pm', side_effect=finish_worker_turn), \
+             patch.object(server, '_run_pm_codex', return_value=(route, 'local-pm-session')), \
              patch.object(server, '_pm_request', side_effect=gh.request), \
              patch.object(server, 'compact_pr_context', return_value=f'#{1570} {HEAD} {BASE}'):
-            server.run_pm(queued)
+            server.worker('pm')  # actual local worker loop claims and starts the authorized task
+        self.assertEqual(len(claimed), 1)
+        self.assertEqual((claimed[0]['id'], claimed[0]['status'], claimed[0]['kind']),
+                         (followup, 'claimed', 'ci_review_followup'))
+        self.assertIn(f'head {HEAD} on base {BASE}', claimed[0]['content'])
         self.assertEqual(gh.writes, ['draft', 'ready'])
         self.assertEqual(server.queue_ci_review_followup(snapshot), None)  # journal prevents a second cycle
         gh.reviews = [{'id': 42, 'commit_id': HEAD, 'state': 'COMMENTED',

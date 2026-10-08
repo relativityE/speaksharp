@@ -1501,7 +1501,11 @@ def fetch_watch_comments(repo, issue):
             since = max(since or '', candidate)
         except ValueError:
             pass  # Unknown timestamp: retain the old cursor, never skip unread rows.
-    return rows, None, (key, {'since': since, 'comments': rows[-200:]})
+    # An old comment edited today may have a low ID. Retain by most recently
+    # updated time so the bounded cache does not discard that fresh event just
+    # because 200 newer IDs already exist.
+    retained = sorted(rows, key=lambda x: (x.get('updated_at') or x.get('created_at') or '', int(x['id'])))[-200:]
+    return rows, None, (key, {'since': since, 'comments': retained})
 
 
 def commit_watch_comment_cursors(snapshot):
@@ -1676,7 +1680,9 @@ def github_watch_snapshot():
         'latest_review_id': 0, 'latest_review_comment_id': 0,
         'latest_control_comment_id': max([int(r.get('id') or 0) for r in incoming_comments] or [0]),
         'latest_control_comment': next(({'id':int(r.get('id') or 0),'body':str(r.get('body') or '')[:12000],'url':r.get('html_url')} for r in reversed(incoming_comments) if r.get('id')), None),
-        'control_updates': [{'id':int(r['id']), 'body':str(r.get('body') or '')[:12000], 'url':r.get('html_url'), 'at':r.get('created_at')} for r in incoming_comments if r.get('id')],
+        'control_updates': [{'id':int(r['id']), 'body':str(r.get('body') or '')[:12000], 'url':r.get('html_url'),
+                             'at':r.get('updated_at') or r.get('created_at'), 'updated_at':r.get('updated_at')}
+                            for r in incoming_comments if r.get('id')],
         'runs': {}, 'deploy': [],
         '_pending_comment_cursors': pending_cursors,
     }
@@ -1750,12 +1756,26 @@ def github_watch_events(prev, cur, cfg):
             events.append('A new inline review finding/comment appeared')
         if prev.get('reviewDecision') != cur.get('reviewDecision'):
             events.append(f"Review decision changed: {prev.get('reviewDecision')} → {cur.get('reviewDecision')}")
-    if cfg.get('pm_github_control', True) and cur.get('latest_control_comment_id',0) > prev.get('latest_control_comment_id',0):
-        updates = [c for c in cur.get('control_updates', []) if c['id'] > prev.get('latest_control_comment_id', 0)]
-        if not updates:
+    if cfg.get('pm_github_control', True):
+        old_updates = {int(c.get('id') or 0): c for c in (prev.get('control_updates') or []) if c.get('id')}
+        old_max = int(prev.get('latest_control_comment_id') or 0)
+        updates = []
+        for comment in cur.get('control_updates') or []:
+            try:
+                comment_id = int(comment.get('id') or 0)
+            except (TypeError, ValueError):
+                continue
+            prior = old_updates.get(comment_id)
+            changed = (comment_id > old_max or
+                       (prior is not None and (str(comment.get('body') or '') != str(prior.get('body') or '')
+                        or str(comment.get('updated_at') or comment.get('at') or '')
+                        != str(prior.get('updated_at') or prior.get('at') or ''))))
+            if changed:
+                updates.append(comment)
+        if not updates and cur.get('latest_control_comment_id', 0) > old_max:
             updates = [cur.get('latest_control_comment') or {}]
         for cc in updates:
-            events.append(f"RWT control issue #{CONTROL_ISSUE} comment {cc.get('id')}: {cc.get('url') or ''}\n{cc.get('body') or 'new comment'}")
+            events.append(f"RWT control issue #{CONTROL_ISSUE} comment {cc.get('id')}: {cc.get('url') or ''}\n{cc.get('body') or 'new or edited comment'}")
     if cfg.get('pm_github_ci'):
         old=prev.get('runs') or {}; new=cur.get('runs') or {}
         for name,r in new.items():
