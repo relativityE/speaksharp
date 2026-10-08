@@ -555,6 +555,30 @@ print(json.dumps({'type':'turn.completed'}))
         self.assertEqual(set(d['players']), {'po','cli_pm','cli_dev','app_dev','browser_pm'})
         self.assertEqual(d['current']['number'], 1549)
 
+    def test_idle_cli_process_does_not_hide_persisted_task_blocker(self):
+        updates={'work_items':[{'item_key':'R2-CAUSAL-FIX','state':'active','owner':'cli_dev',
+                                'branch':'fix/causal','blocker':'Lease transfer awaits a verified checkout'}],
+                 'players':[{'player_id':'cli_dev','status':'blocked','work_item_key':'R2-CAUSAL-FIX',
+                             'blocker':'Lease transfer awaits a verified checkout','source':'preflight'}]}
+        self.assertTrue(server.apply_board_updates(updates))
+        server.set_agent('dev',status='idle')
+        fake_pr={'repo':'relativityE/speaksharp','error':None,'active':[],'recent_completed':[],
+                 'current':{'number':1549,'title':'diag','url':'https://example/1549','headRefOid':'a'*40,
+                            'baseRefOid':'b'*40,'isDraft':False,'state':'OPEN','createdAt':'2026-10-01T16:00:00Z',
+                            'statusCheckRollup':[],'reviewDecision':None}}
+        with patch.object(server,'display_pr_snapshot',return_value=fake_pr):
+            blocked=server.dashboard_snapshot()['players']['cli_dev']
+        self.assertEqual(blocked['status'],'blocked')
+        self.assertIn('verified checkout',blocked['blocker'])
+
+        self.assertTrue(server.apply_board_updates({'players':[{'player_id':'cli_dev','status':'available',
+                                                                 'work_item_key':'R2-CAUSAL-FIX','blocker':'',
+                                                                 'source':'board'}]}))
+        with patch.object(server,'display_pr_snapshot',return_value=fake_pr):
+            released=server.dashboard_snapshot()['players']['cli_dev']
+        self.assertEqual(released['status'],'available')
+        self.assertEqual(released['blocker'],'')
+
     def test_pm_route_schema_is_strict_structured_output_valid(self):
         schema = json.loads((Path(__file__).with_name('pm-route.schema.json')).read_text())
         def check(node, path='root'):

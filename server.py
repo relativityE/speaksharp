@@ -5246,7 +5246,20 @@ def dashboard_snapshot():
         base = players.setdefault(pid, {"player_id":pid})
         a = agents.get(aid) or {}
         ast = str(a.get("status") or "idle")
-        base["status"] = "active" if ast == "running" else ("blocked" if ast in ("auth_required","error") else "available")
+        board_status = str(base.get('status') or 'unknown')
+        if ast == 'running':
+            base['status'] = 'active'
+        elif ast in ('auth_required', 'error'):
+            base['status'] = 'blocked'
+        elif board_status in ('blocked', 'action-needed', 'unknown') and str(base.get('blocker') or '').strip():
+            # An idle process is not proof that its assigned work is unblocked.
+            # Keep the persisted task blocker visible until a later board update
+            # explicitly clears it or changes the actor's state.
+            base['status'] = board_status
+        elif board_status == 'unknown':
+            base['status'] = 'unknown'
+        else:
+            base['status'] = 'available'
         base["agent_status"] = ast
         base["updated_at"] = a.get("updated_at") or base.get("updated_at")
         base["age_seconds"] = age_seconds(base.get("updated_at"))
