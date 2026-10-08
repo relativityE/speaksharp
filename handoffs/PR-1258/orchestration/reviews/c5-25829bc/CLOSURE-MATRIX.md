@@ -1,6 +1,6 @@
 # C4 closure matrix — C5 source candidate `a2101ee`
 
-**Scope:** source/test audit against C4 `REVIEW.md`, candidate source commit `a2101ee310468c071459f99cfe82c8e94e791d69`, tree `59e91edd6981ef0a2aa5f5cc33e7026580ccc9b7`. This is CLI Dev's implementation accounting, not PM acceptance. Tests are offline fixtures unless explicitly stated. `OPEN` means a finding is not resolved; `HOLD` means required live/host evidence is unavailable or not authorized. The immutable source packet is `deadlock5-20261008-c5-p3-p4-a2101ee`.
+**Scope:** source/test audit against C4 `REVIEW.md`, candidate source commit `25829bcccc9322f51334ce05cb2372a8045a1df2`, tree `5b354292d96f9a1816221382ca4080740b1bd7be`. This is CLI Dev's implementation accounting, not PM acceptance. Tests are offline fixtures unless explicitly stated. `OPEN` means a finding is not resolved; `HOLD` means required live/host evidence is unavailable or not authorized. The latest immutable source packet is `deadlock5-20261008-c5-p3-p4-p5-25829bc`.
 
 ## Expected capabilities R01–R42
 
@@ -39,7 +39,7 @@
 | R31 | PRESENT | immutable local packet creation, hashes and safe archive extraction; `test_original_names_and_checksum_manifest_in_separate_immutable_packets`, ZIP safety tests in `test_handoffs.py` | None identified in this source audit; remote publication remains R32. |
 | R32 | PARTIAL | `handoff_location`, UI and packet manifest identify per-PR location; `test_per_pr_share_location_is_visible_to_agents_and_manifests` | Automatic durable publication request and external-agent readability/receipt remain unproven. |
 | R33 | PRESENT in source | `verify_remote_packet`; exact-commit/hash and limits regressions in `test_deadlock5.py` | Live GitHub readback was not run in this candidate. |
-| R34 | OPEN | `verify_remote_packet` returns categorized bounded errors | Durable PM review request/fallback reviewer routing and task-specific receipt are not implemented as a complete lifecycle. |
+| R34 | PARTIAL | `packet_verifications`, `recover_pending_packet_verifications`, dashboard/PM context; transient retry and terminal deduplicated CLI PM task tests in `test_deadlock5.py` | No separately authorized fallback reviewer outside local CLI PM; real read/receipt remains F05/F13 evidence. |
 | R35 | OPEN (F13) | `transport_status` truthfully says no supported external wake adapter; no claim from GitHub post | Approved transport configuration and real Browser PM/App Dev delivery + action proof. |
 | R36 | PARTIAL | `dashboard_snapshot` exposes blockers, ask states, affected reviews and qualification; UI smoke passed | External receipt/action evidence and installed freshness/status remain HOLD. |
 | R37 | PARTIAL | guarded API, stop markers, uncertain state and route gates; `test_required_action_hold_blocks_review_and_next_dev_routes`, control API tests in `test_package2a.py` | Installed pause/stop/restart race and all-route behavior remain HOLD. |
@@ -57,7 +57,7 @@
 | F02 one route arbiter and prerequisite gate | IMPLEMENTED IN SOURCE | `run_pm`, `apply_pm_turn_plan`, persisted `dispatch_hold`; tests `test_required_action_hold_blocks_review_and_next_dev_routes`, `test_review_handoff_and_next_dev_share_one_delivery`, `test_independent_dev_work_proceeds_despite_blocked_action` | Installed anti-idle concurrency proof. |
 | F03 durable request ledger/dependency lifecycle | IMPLEMENTED IN SOURCE; live release-event HOLD | `parse_asks`, `ingest_control_asks`, `apply_ask_dispositions`, held ask fields; multi-ask/noisy-event/typed HOLD tests in `test_deadlock5.py` | Live release-event reactivation plus PM review of ambiguous prose intake. |
 | F04 receipt versus action/closure | PARTIAL | token-bound `record_handoff_receipts`; early, wrong actor, quoted and negated token tests in `test_deadlock5.py` | GitHub identity alone cannot prove actor identity/action; requires supported transport and real actor evidence. |
-| F05 packet read/recovery | PARTIAL | `verify_remote_packet`, `_gh_raw`; exact commit/hash, size/time/error tests in `test_deadlock5.py` | Durable PM task/fallback routing, reviewer receipt, and live packet-read recovery lifecycle. |
+| F05 packet read/recovery | PARTIAL | `verify_remote_packet`, `_gh_raw`, `packet_verifications`, `recover_pending_packet_verifications`; exact commit/hash, retry/backoff, deduplicated PM task, size/time/error tests in `test_deadlock5.py` | No separately authorized fallback reviewer outside local CLI PM; live packet-read recovery and recipient receipt remain unproved. |
 | F06 review/qualification coverage | PARTIAL | `affected_review_snapshot`, `poll_refreshed_reviews`; non-selected PR and stale-head tests; Security/PM states separate | Real Security and PM acceptance records plus live complete affected-task review coverage. |
 | F07 authority/operation lease/singleton | IMPLEMENTED IN SOURCE; installed HOLD | `guarded_pm.py`, `execute_pm_actions`, state/repository locks; affirmative auth, cross-action lease and dual-board lock tests | Same-host installed two-instance race and independent PM review. |
 | F08 verified checkout/bootstrap | IMPLEMENTED IN SOURCE; live HOLD | frozen checkout tuple and dispatch revalidation; head drift, dirty ownership, foreign repo, bootstrap tests in `test_deadlock5.py` | Actual bootstrap on task worktree and worker start receipt. |
@@ -72,6 +72,6 @@
 
 ## Verification and acceptance limits
 
-The packet test run passed 271 Python tests. Five loopback/host tests were excluded pending the candidate-bound shared host lease and any required bind permission. Node dashboard smoke, shell syntax, schema JSON parsing, and whitespace checks passed. No live GitHub mutation, external-agent notification, installed-board run, migration, restart, PR lifecycle action, merge, deployment, or Production operation was performed.
+The packet test run passed 273 Python tests. Five loopback/host tests were excluded pending the candidate-bound shared host lease and any required bind permission. Node dashboard smoke, shell syntax, schema JSON parsing, and whitespace checks passed. No live GitHub mutation, external-agent notification, installed-board run, migration, restart, PR lifecycle action, merge, deployment, or Production operation was performed.
 
-This matrix identifies source-level closure and remaining evidence; it is not itself proof that every finding is fixed. In particular F04/F13, F05/F06/F11, R34/R35, the five held tests, and R40/R42 are not accepted as closed. PM should correct any source/test mapping that does not match the C4 expectations before candidate acceptance.
+This matrix identifies source-level closure and remaining evidence; it is not itself proof that every finding is fixed. In particular F04/F13, F05 fallback routing, F06/F11 remaining review/budget coverage, R34/R35, the five held tests, and R40/R42 are not accepted as closed. PM should correct any source/test mapping that does not match the C4 expectations before candidate acceptance.
