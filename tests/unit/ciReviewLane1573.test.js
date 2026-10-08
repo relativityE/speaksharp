@@ -53,6 +53,13 @@ describe('review lane (review-qualification.yml): cheap, isolated, read-only', (
         expect(Object.values(wf.jobs).map((j) => j.name)).not.toContain('report');
         expect(Object.values(wf.jobs).some((j) => j.strategy?.matrix)).toBe(false);
     });
+    it('CASUALTY (Codex P1 4224002123): runs TRUSTED default-branch scripts, never the candidate\'s, and keeps no credentials', () => {
+        // Review events check out the PR merge ref by default, so a fork/untrusted PR could rewrite the qualification scripts
+        // to fabricate a receipt. The live PR head is still read through the API; only the code that judges it is trusted.
+        const checkout = steps.find((s) => String(s.uses ?? '').startsWith('actions/checkout@'));
+        expect(checkout?.with?.ref).toBe('${{ github.event.repository.default_branch }}');
+        expect(checkout?.with?.['persist-credentials']).toBe(false);
+    });
     it('has only read permissions', () => {
         expect(Object.values(wf.permissions)).toEqual(expect.arrayContaining(['read']));
         expect(Object.values(wf.permissions)).not.toContain('write');
