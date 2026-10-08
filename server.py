@@ -2148,6 +2148,7 @@ def github_watcher():
                 # c5 (F01): finish owed PM-turn effects (after marker recovery above confirmed any uncertain post).
                 resume_owed_pm_turns()
                 pending_pin_watchdog()
+                recover_packet_verification_notices()
                 recover_pending_packet_verifications()
                 if time.time() >= github_backoff_until():
                     poll_refreshed_reviews()
@@ -2312,6 +2313,31 @@ def _packet_verification_notice(request_key, status, pr_or_task, packet_path, re
     aid = add_activity('SYSTEM', message, 'pm', 'blocker' if status == 'blocked' else 'responded')
     return enqueue(aid, 'pm', message, source_actor='SYSTEM', auto_handoff=True,
                    kind='packet_read', delivery_key=delivery_key)
+
+
+def recover_packet_verification_notices(limit=50):
+    """Close the crash gap between recording a terminal packet result and queueing its PM notice."""
+    with DB_LOCK, con() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM packet_verifications WHERE status IN ('verified','blocked') ORDER BY updated_at LIMIT ?",
+            (max(1, min(int(limit), 100)),)).fetchall()]
+    queued = 0
+    for row in rows:
+        delivery_key = f"packet-read:{row['request_key']}:{row['status']}"
+        with DB_LOCK, con() as c:
+            exists = c.execute('SELECT 1 FROM queue WHERE delivery_key=?', (delivery_key,)).fetchone()
+        if exists:
+            continue
+        try:
+            result = json.loads(row.get('result_json') or '{}')
+        except (ValueError, TypeError):
+            result = {}
+        detail = row.get('last_error') or ('All manifest hashes verified.' if result.get('ok')
+                                           else 'Terminal packet verification result needs PM review.')
+        if _packet_verification_notice(row['request_key'], row['status'], row['pr_or_task'],
+                                       row['packet_path'], row['ref'], detail):
+            queued += 1
+    return queued
 
 
 def _record_packet_verification(pr_or_task, packet_path, ref, result=None, error=None):

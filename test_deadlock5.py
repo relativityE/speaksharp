@@ -1022,6 +1022,13 @@ class Deadlock5Tests(unittest.TestCase):
         notices = [q for q in server.list_queue(500) if q.get('kind') == 'packet_read']
         self.assertEqual(len(notices), 1)
         self.assertIn('bad-packet', notices[0]['content'])
+        with server.con() as c:
+            c.execute('DELETE FROM queue WHERE delivery_key=?',
+                      (f"packet-read:{row['request_key']}:blocked",))  # simulated crash before durable enqueue
+        self.assertEqual(server.recover_packet_verification_notices(), 1)
+        self.assertEqual(server.recover_packet_verification_notices(), 0)
+        notices = [q for q in server.list_queue(500) if q.get('kind') == 'packet_read']
+        self.assertEqual(len(notices), 1)
 
     def test_remote_packet_rejects_oversized_manifest_inventory(self):
         base = 'handoffs/PR-1258/orchestration/deadlock5/pkt'
