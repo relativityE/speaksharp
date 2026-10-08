@@ -40,6 +40,31 @@ class RouteContractTests(unittest.TestCase):
     setUp = reg.RegressionTests.setUp
     tearDown = reg.RegressionTests.tearDown
 
+    def test_default_codex_schema_omits_unsupported_unique_items_and_host_normalizes_paths(self):
+        schema_text = server.PM_ROUTE_SCHEMA.read_text()
+        self.assertNotIn('"uniqueItems"', schema_text)
+        self.assertEqual(json.loads(server._owned_paths_json(['src/owned.md', 'src/owned.md'])),
+                         ['src/owned.md'])
+        with self.assertRaises(ValueError):
+            server._owned_paths_json(['../outside.md'])
+
+    def test_default_schema_accepts_typed_read_only_task_delivery(self):
+        delivery = {
+            'action_id': 'schema-probe:checkpoint',
+            'task_id': 'ORCH-C12-STAGE-PROBE',
+            'recipient': 'cli_dev',
+            'action': 'checkpoint',
+            'target_head': HEAD,
+            'target_tree': '1' * 40,
+            'instruction': 'Report the assigned checkout tuple without changing state.',
+        }
+        parsed = server.parse_pm_route(json.dumps(route(next='dev', publish=False,
+                                                         task_deliveries=[delivery],
+                                                         dev_action_id='schema-probe:checkpoint')))
+        self.assertIsNone(parsed['parse_error'])
+        self.assertEqual(parsed['task_deliveries'], [delivery])
+        self.assertEqual(parsed['next'], 'dev')
+
     def command_route(self, obj):
         process = Mock()
         process.communicate.return_value = (json.dumps(obj), '')
