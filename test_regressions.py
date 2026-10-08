@@ -145,11 +145,14 @@ class RegressionTests(unittest.TestCase):
 
     def test_existing_wrong_worktree_cannot_launch_dev(self):
         self.assign(worktree='/wrong')
+        aid=server.add_activity('PM','work','dev')
+        qid=server.enqueue(aid,'dev','work',work_item_key='NAV')
+        q=server.next_queue('dev')
         with patch.object(server,'validate_worktree',return_value={'exists':True,'is_git':True,'branch':'app-dev-branch','head':'x'}), \
-             patch.object(server,'_run_claude_once') as cli:
+             patch.object(server.agent_transport,'queue_message') as queue:
             with self.assertRaisesRegex(RuntimeError,'branch mismatch'):
-                server.run_dev({'id':1,'work_item_key':'NAV','content':'work'})
-            cli.assert_not_called()
+                server.run_dev(q)
+            queue.assert_not_called()
 
     def test_delivery_freezes_task_branch(self):
         self.assign()
@@ -321,18 +324,23 @@ class RegressionTests(unittest.TestCase):
             except urllib.error.HTTPError as e:
                 return e.code,json.load(e)
         try:
-            with patch.object(server,'pr_snapshot',return_value={'current':None,'active':[],'error':None}), \
+            routes = json.dumps({'version': 1, 'routes': {'cli_dev': {
+                'provider': 'codex_app_server', 'session_id': 'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'}}})
+            with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': routes}), \
+                 patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'queued'}), \
+                 patch.object(server,'pr_snapshot',return_value={'current':None,'active':[],'error':None}), \
                  patch.object(server,'transport_status',return_value={'pm_configured':True,'dev_configured':True}):
                 with urllib.request.urlopen(origin+'/',timeout=3) as r:
-                    self.assertIn('Board v4.6.16',r.read().decode())
+                    self.assertIn('Board v4.6.17',r.read().decode())
                 code,_=post('/api/work-item',{'item_key':'NAV','state':'active','owner':'cli_dev',
                                              'branch':'fix/navigation','worktree':'/nav'})
                 self.assertEqual(code,200)
+                server.set_setting('dev_assignment_reconciled','1')
                 code,_=post('/api/player-status',{'player_id':'app_dev','work_item_key':'NAV','status':'active'})
                 self.assertEqual(code,409)
                 with patch.object(server,'validate_worktree',return_value={'exists':True,'is_git':True,'branch':'fix/navigation','head':'x'}):
                     code,result=post('/api/send',{'actor':'PO','route':'dev','message':'check','files':[]})
-                self.assertEqual(code,202)
+                self.assertEqual(code,202,result)
                 q=next(x for x in server.list_queue() if x['id']==result['delivery_ids'][0])
                 self.assertEqual(q['work_item_key'],'NAV')
                 self.assertEqual(q['target_worktree'],'/nav')
@@ -349,8 +357,8 @@ class RegressionTests(unittest.TestCase):
             routed,_=server._run_pm_command('input',None)
         self.assertEqual(routed['board_updates']['work_items'][0]['notes'],'adapter receipt')
 
-    def test_pm_dev_pm_roundtrip_through_real_adapter_subprocesses(self):
-        # Real local subprocess pipes, JSON and DB handoffs; no installed account or API is used.
+    def test_pm_dev_pm_roundtrip_through_codex_session_and_task_receipts(self):
+        # The app-server queue is mocked; the board state and task callbacks are real.
         root=Path(self.tmp.name)
         wt=root/'worktree';wt.mkdir()
         subprocess.run(['git','init','-q','-b','fix/navigation',str(wt)],check=True)
@@ -359,20 +367,24 @@ class RegressionTests(unittest.TestCase):
         self.assign(worktree=str(wt))
         pm=root/'fake_pm.py'
         pm.write_text("import json,sys\np=json.load(sys.stdin)\nprint(json.dumps({'message':'Run bounded navigation check','next':'none' if 'DONE' in p['content'] else 'dev','session_id':'pm-session','board_updates':{'work_items':[{'item_key':'NAV','state':'done' if 'DONE' in p['content'] else 'active','notes':'adapter checkpoint'}],'players':[{'player_id':'cli_dev','work_item_key':'NAV','status':'done' if 'DONE' in p['content'] else 'active'}]}}))\n")
-        dev=root/'fake_claude'
-        dev.write_text("#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps({'result':'DONE bounded check','session_id':'dev-session'}))\n")
-        dev.chmod(0o755)
         aid=server.add_activity('PO','Please run bounded check','pm')
         qid=server.enqueue(aid,'pm','Please run bounded check')
         q=next(x for x in server.list_queue() if x['id']==qid)
         server.PM_MODE='command'
-        with patch.object(server,'PM_COMMAND',f'python3 {pm}'),patch.object(server,'CLAUDE_BIN',str(dev)), \
+        route_json=json.dumps({'version':1,'routes':{'cli_dev':{'provider':'codex_app_server','session_id':'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'}}})
+        with patch.dict(os.environ,{'RWT_AGENT_ROUTES_JSON':route_json}), \
+             patch.object(server,'PM_COMMAND',f'python3 {pm}'), \
              patch.object(server,'BASE_REPO',str(wt)), \
-             patch.object(server,'compact_pr_context',return_value='Current release: #1555; independent task NAV'):
+             patch.object(server,'compact_pr_context',return_value='Current release: #1555; independent task NAV'), \
+             patch.object(server.agent_transport,'queue_message',return_value={'detail':'queued'}):
             server.run_pm(q)
             devq=server.next_queue('dev')
             self.assertEqual(devq['target_branch'],'fix/navigation')
             server.run_dev(devq)
+            token=server._task_callback_token(devq['id'],devq['task_action_id'],'cli_dev','a076ba87-4ad9-48fa-bff9-4e71a1535b5b')
+            identity={'action_id':devq['task_action_id'],'actor_id':'cli_dev','session_id':'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'}
+            self.assertEqual(server.record_agent_task_callback({**identity,'stage':'receipt','evidence':'received'},token)[0],200)
+            self.assertEqual(server.record_agent_task_callback({**identity,'stage':'result','evidence':'DONE bounded check'},token)[0],200)
             pmq=server.next_queue('pm')
             self.assertIn('DONE',pmq['content'])
             server.run_pm(pmq)

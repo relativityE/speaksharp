@@ -91,8 +91,9 @@ class EventDeliveryTests(CommsTests):
 
         server.update_queue(q['id'],status='responded',finished_at=server.now())
         returned=next(row for row in server.list_queue() if row['id']==q['id'])
-        self.assertIn('DEV REPLY RETURNED',returned['delivery_stage'])
-        self.assertIn('PM review pending',returned['delivery_stage'])
+        self.assertIn('TASK RECEIPT MISSING',returned['delivery_stage'])
+        self.assertIn('TASK RESULT MISSING',returned['delivery_stage'])
+        self.assertIn('actor/session verified',returned['delivery_stage'])
 
     def test_preflight_failure_reports_expected_tuple_and_queues_one_pm_recovery(self):
         q=self.assign_dev_task()

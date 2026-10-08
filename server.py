@@ -25,6 +25,7 @@ from datetime import datetime, timezone, timedelta
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, quote
+import agent_transport
 
 APP = Path(__file__).resolve().parent
 DB = APP / ".agent-work" / "state.db"
@@ -33,6 +34,9 @@ HANDOFFS = APP / "handoffs"
 STATIC = APP / "static"
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("RWT_PORT", "4317"))
+AGENT_CALLBACK_URL = os.environ.get("RWT_AGENT_CALLBACK_URL", "").strip()
+AGENT_TRANSPORT_TIMEOUT = max(2, int(os.environ.get("RWT_AGENT_TRANSPORT_TIMEOUT_SECONDS", "15")))
+AGENT_RECEIPT_TIMEOUT = max(10, int(os.environ.get("RWT_AGENT_RECEIPT_TIMEOUT_SECONDS", "120")))
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "/opt/homebrew/bin/claude")
 BASE_REPO = os.environ.get("SPEAKSHARP_REPO", str(Path.home() / "SW_Dev" / "Antigravity_Dev" / "speaksharp"))
 DEFAULT_CWD = ""
@@ -215,11 +219,20 @@ def init_db():
           player_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'available',
           task TEXT NOT NULL DEFAULT '', work_item_key TEXT NOT NULL DEFAULT '',
           blocker TEXT NOT NULL DEFAULT '', holding INTEGER NOT NULL DEFAULT 0,
-          source TEXT NOT NULL DEFAULT 'board', updated_at TEXT NOT NULL
+          source TEXT NOT NULL DEFAULT 'board', updated_at TEXT NOT NULL, checkpoint_at TEXT NOT NULL DEFAULT ''
         );
         """)
         c.executescript('''CREATE TABLE IF NOT EXISTS pm_outbox(queue_id INTEGER PRIMARY KEY,status TEXT NOT NULL,comment_id INTEGER,body TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS pm_action_journal(action_key TEXT PRIMARY KEY,status TEXT NOT NULL,result TEXT NOT NULL);''')
+        c.execute("""CREATE TABLE IF NOT EXISTS agent_notifications(
+          notification_key TEXT PRIMARY KEY, handoff_id INTEGER NOT NULL, actor_id TEXT NOT NULL,
+          task_id TEXT NOT NULL, action_id TEXT NOT NULL UNIQUE, target_transport TEXT NOT NULL,
+          target_session_id TEXT NOT NULL, target_remote_url TEXT NOT NULL DEFAULT '', head TEXT NOT NULL,
+          instruction TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+          accepted_at TEXT, transport_reference TEXT NOT NULL DEFAULT '', receipt_at TEXT,
+          receipt_digest TEXT NOT NULL DEFAULT '', result_at TEXT, result_digest TEXT NOT NULL DEFAULT '',
+          recovery_count INTEGER NOT NULL DEFAULT 0, recovery_at TEXT, error TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('board_instance_id',?)", (uuid.uuid4().hex,))
         # v4.5.x delivery metadata. ALTER keeps v4.4.x state readable.
         _add_column(c, "queue", "source_actor TEXT NOT NULL DEFAULT 'PO'")
@@ -303,10 +316,20 @@ def init_db():
                            "task_receipt_ref TEXT NOT NULL DEFAULT ''", "task_result_at TEXT",
                            "task_result_ref TEXT NOT NULL DEFAULT ''"):
             _add_column(c, "queue", definition)
+        _add_column(c, "player_status", "checkpoint_at TEXT NOT NULL DEFAULT ''")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS queue_task_action_id ON queue(task_action_id) WHERE task_action_id<>''")
         # c5 (F12): invocation stages are separate facts, not one 'delivering' status.
         for definition in ("launch_attempted_at TEXT", "process_started_at TEXT", "process_pid INTEGER",
                            "invocation_recovery_due INTEGER NOT NULL DEFAULT 0"):
+            _add_column(c, "queue", definition)
+        # Existing-session agent delivery is distinct from spawning a local worker process.
+        for definition in (
+            "target_actor_id TEXT NOT NULL DEFAULT ''", "target_transport TEXT NOT NULL DEFAULT ''",
+            "target_session_id TEXT NOT NULL DEFAULT ''", "target_remote_url TEXT NOT NULL DEFAULT ''",
+            "transport_accepted_at TEXT", "transport_reference TEXT NOT NULL DEFAULT ''",
+            "transport_recovery_count INTEGER NOT NULL DEFAULT 0", "transport_recovery_at TEXT",
+            "transport_escalated_at TEXT", "task_result_digest TEXT NOT NULL DEFAULT ''",
+        ):
             _add_column(c, "queue", definition)
         # c5 (F02): a persisted prerequisite gate on the task, honored by every dispatch route.
         for definition in ("dispatch_hold TEXT NOT NULL DEFAULT ''", "dispatch_hold_since TEXT",
@@ -324,6 +347,7 @@ def init_db():
             _add_column(c, "review_handoffs", definition)
         # Only asks posted after the ledger exists are tracked; history is not replayed as new work.
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('asks_ingest_since',?)", (now(),))
+        c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('agent_delivery_hmac_secret',?)", (secrets.token_urlsafe(48),))
         for row in c.execute("SELECT item_key FROM work_items WHERE assignment_generation='' ").fetchall():
             c.execute("UPDATE work_items SET assignment_generation=? WHERE item_key=?", (uuid.uuid4().hex, row['item_key']))
 
@@ -567,6 +591,19 @@ def enqueue(aid, recipient, content, *, source_actor="PO", parent_queue_id=None,
         if target:
             c.execute("UPDATE queue SET work_item_key=?,target_branch=?,target_worktree=? WHERE id=?",
                       (target['item_key'], target['branch'], frozen_path, qid))
+            if recipient == 'dev' and work_item_key:
+                actor_id = str(target.get('owner') or '')
+                try:
+                    route = agent_transport.configured_route(actor_id)
+                    transport, session_id, remote_url = 'codex_app_server', route.session_id, route.remote_url
+                except agent_transport.RouteError:
+                    # Keep the task durable; dispatch will expose the exact missing route.
+                    transport, session_id, remote_url = 'codex_app_server', '', ''
+                c.execute("UPDATE queue SET target_actor_id=?,target_transport=?,target_session_id=?,target_remote_url=? WHERE id=?",
+                          (actor_id, transport, session_id, remote_url, qid))
+                if not task_action_id:
+                    stable_action = str(delivery_key or f'queue:{qid}')
+                    c.execute("UPDATE queue SET task_action_id=? WHERE id=?", (stable_action, qid))
         return qid
 
 
@@ -603,6 +640,16 @@ def list_queue(limit=100):
         if row.get('recipient') == 'dev' and row.get('work_item_key'):
             if row['status'] == 'queued':
                 row['delivery_stage'] = 'ASSIGNED → QUEUED · Dev not invoked'
+            elif row['status'] == 'awaiting_receipt':
+                row['delivery_stage'] = (f"TASK QUEUED TO {row.get('target_actor_id') or 'configured actor'} "
+                                         f"SESSION {str(row.get('target_session_id') or '')[:12]} · recipient receipt pending")
+                row['delivery_label'] = 'TRANSPORT ACCEPTED — recipient pickup/action unverified'
+            elif row['status'] == 'received':
+                row['delivery_stage'] = f"TASK RECEIPT FROM {row.get('target_actor_id')} SESSION {str(row.get('target_session_id') or '')[:12]} · result pending"
+                row['delivery_label'] = 'RECIPIENT RECEIVED — result pending'
+            elif row['status'] == 'transport_uncertain':
+                row['delivery_stage'] = 'TRANSPORT OUTCOME UNCERTAIN · no automatic retry'
+                row['delivery_label'] = 'DELIVERY UNCERTAIN — reconcile the exact session before any new action'
             elif row['status'] == 'claimed':
                 row['delivery_stage'] = 'ASSIGNED → QUEUED → CLAIMED · actor not invoked'
             elif row['status'] == 'delivering' and row.get('process_started_at'):
@@ -610,10 +657,10 @@ def list_queue(limit=100):
             elif row['status'] == 'delivering':
                 row['delivery_stage'] = 'ASSIGNED → QUEUED → LAUNCH ATTEMPTED · process not yet confirmed'
             elif row['status'] == 'responded':
-                if row.get('kind') in READ_ONLY_DELIVERY_KINDS:
+                if row.get('task_action_id'):
                     receipt = 'TASK RECEIPT REPORTED' if row.get('task_receipt_at') else 'TASK RECEIPT MISSING'
                     result = 'TASK RESULT REPORTED' if row.get('task_result_at') else 'TASK RESULT MISSING'
-                    row['delivery_stage'] = f"READ-ONLY · {receipt} → process start {'recorded' if row.get('process_started_at') else 'unconfirmed'} → {result}"
+                    row['delivery_stage'] = f"TASK-AWARE · {receipt} → {result} · actor/session verified"
                 else:
                     row['delivery_stage'] = 'DEV REPLY RETURNED · receipt/result recorded per handoff; PM review pending'
             elif row['status'].startswith('failed') and not row.get('started_at') and not int(row.get('attempts') or 0):
@@ -667,18 +714,24 @@ class UnsupportedRecipientTransport(RuntimeError):
 
 def block_delivery_for_transport(q, detail):
     """Keep an undelivered request durable without waking the wrong worker or retrying it."""
-    if not q or q.get('kind') not in READ_ONLY_DELIVERY_KINDS:
+    if not q or q.get('recipient') != 'dev' or not q.get('task_action_id') or not q.get('target_actor_id'):
         return False
     message = str(detail or 'No supported transport to the assigned actor')[:1000]
     with DB_LOCK, con() as c:
         row = c.execute("SELECT status,process_started_at,task_receipt_at FROM queue WHERE id=?", (q['id'],)).fetchone()
-        if not row or row['status'] not in ('claimed', 'queued') or row['process_started_at'] or row['task_receipt_at']:
+        if not row or row['status'] not in ('claimed', 'queued', 'delivering') or row['process_started_at'] or row['task_receipt_at']:
             return False
         c.execute("UPDATE queue SET status='blocked_transport',error=?,finished_at=?,claim_token='',claimed_at=NULL WHERE id=?",
                   (message, now(), q['id']))
         c.execute("UPDATE agents SET status='idle',updated_at=? WHERE agent_id='dev' AND status IN ('claimed','idle')", (now(),))
-    add_activity('SYSTEM', f"Read-only task delivery #{q['id']} remains open: {message}", 'none', 'blocker',
+    add_activity('SYSTEM', f"Task delivery #{q['id']} remains open: {message}", 'none', 'blocker',
                  trigger_queue_id=q['id'])
+    aid = add_activity('SYSTEM', f"Task delivery {q.get('task_action_id')} to {q.get('target_actor_id')} is blocked before actor invocation: {message}",
+                       'pm', 'blocker', trigger_queue_id=q['id'])
+    enqueue(aid, 'pm', f"Task delivery {q.get('task_action_id')} is blocked before invocation. Exact actor/session: "
+            f"{q.get('target_actor_id')}/{q.get('target_session_id') or 'unconfigured'}. Blocker: {message}. "
+            "Recover routing only; do not create a second actor task.", source_actor='SYSTEM',
+            parent_queue_id=q['id'], auto_handoff=True, delivery_key=f"agent-route-recovery:{q['id']}")
     return True
 
 def _dev_lease_conflict(c, item_key, owner, branch, state):
@@ -850,7 +903,8 @@ def apply_board_updates(updates):
                 pid = player['player_id']
                 clean = {k:v for k,v in player.items() if k in {'status','task','work_item_key','blocker','holding','source'} and v is not None}
                 old = c.execute('SELECT * FROM player_status WHERE player_id=?', (pid,)).fetchone()
-                merged = dict(old or {})
+                previous = dict(old or {})
+                merged = dict(previous)
                 merged.update(clean)
                 key = merged.get('work_item_key')
                 if key:
@@ -862,7 +916,18 @@ def apply_board_updates(updates):
                     dt = datetime.fromisoformat(str(stamp).replace('Z', '+00:00'))
                     if dt.tzinfo is None or dt.timestamp() > time.time() + 60:
                         raise ValueError('checkpoint timestamp must be timezone-aware and not in the future')
-                    clean['updated_at'] = dt.astimezone(timezone.utc).isoformat()
+                    checkpoint_at = dt.astimezone(timezone.utc).isoformat()
+                    prior_at = str(previous.get('checkpoint_at') or '')
+                    if prior_at and checkpoint_at < prior_at:
+                        raise ValueError(f'{pid}: stale checkpoint {checkpoint_at} is older than accepted attribution {prior_at}')
+                    if prior_at and checkpoint_at == prior_at:
+                        prior_values = {k: previous.get(k) for k in clean if k != 'updated_at'}
+                        incoming_values = {k: v for k, v in clean.items() if k != 'updated_at'}
+                        if prior_values != incoming_values:
+                            raise ValueError(f'{pid}: conflicting checkpoint reuses accepted timestamp {checkpoint_at}')
+                        continue  # exact duplicate receipt: preserve attribution and its original source
+                    clean['checkpoint_at'] = checkpoint_at
+                    clean['updated_at'] = checkpoint_at
                 else:
                     clean['updated_at'] = now()
                 c.execute('UPDATE player_status SET ' + ','.join(f'{k}=?' for k in clean) + ' WHERE player_id=?', list(clean.values()) + [pid])
@@ -1615,7 +1680,7 @@ def github_watch_snapshot():
     base['affected_reviews'] = affected_review_snapshot(repo, current)
     if not current:
         return base, control_err
-    pr, err = gh_json(['pr','view',current,'--repo',repo,'--json','number,title,headRefName,headRefOid,isDraft,state,reviewDecision,updatedAt,url,statusCheckRollup'])
+    pr, err = gh_json(['pr','view',current,'--repo',repo,'--json','number,title,headRefName,headRefOid,baseRefOid,baseRefName,isDraft,state,reviewDecision,updatedAt,url,statusCheckRollup'])
     if pr is None:
         # Do not lose #1258 monitoring merely because the selected PR is stale/closed/unreadable.
         return base, err or control_err or 'PR lookup failed'
@@ -1644,6 +1709,8 @@ def github_watch_snapshot():
             deploy.append({'name':name,'status':x.get('status') or x.get('state'),'conclusion':x.get('conclusion')})
     base.update({
         'pr':pr.get('number'),'title':pr.get('title'),'head':pr.get('headRefOid'),'draft':pr.get('isDraft'),
+        'state':pr.get('state'),
+        'base':pr.get('baseRefOid'),
         'reviewDecision':pr.get('reviewDecision'),
         'latest_review_id':max([int(r.get('id') or 0) for r in reviews] or [0]),
         'latest_review_comment_id':max([int(r.get('id') or 0) for r in comments] or [0]),
@@ -2131,10 +2198,61 @@ def pending_ask_watchdog():
     return qid
 
 
+def queue_ci_review_followup(snapshot):
+    """Durably wake local PM once after the exact Ready candidate's required CI is green.
+
+    The PM worker must still find source-authored refresh_reviews authorization; CI status itself
+    cannot grant lifecycle authority. The unique candidate key and refresh journal make restart and
+    repeated watcher polls idempotent.
+    """
+    if not isinstance(snapshot, dict):
+        return None
+    try:
+        pr_number = int(snapshot.get('pr') or 0)
+    except (TypeError, ValueError):
+        return None
+    head, base = str(snapshot.get('head') or ''), str(snapshot.get('base') or '')
+    if (pr_number < 1 or not re.fullmatch(r'[0-9a-f]{40}', head)
+            or not re.fullmatch(r'[0-9a-f]{40}', base)
+            or str(snapshot.get('state') or '').lower() != 'open' or snapshot.get('draft') is not False):
+        return None
+    runs = [r for r in (snapshot.get('runs') or {}).values()
+            if str(r.get('name') or '').strip().lower() == 'ci - test audit']
+    if not runs or any(str(r.get('status') or '').lower() != 'completed'
+                       or str(r.get('conclusion') or '').lower() != 'success' for r in runs):
+        return None
+    with DB_LOCK, con() as c:
+        journal = c.execute("SELECT status,review_state,head,action_json FROM pm_action_journal "
+                            "WHERE kind='refresh_reviews' AND pr_number=? AND head=? ORDER BY updated_at DESC LIMIT 1",
+                            (pr_number, head)).fetchone()
+        if journal:
+            try:
+                action = json.loads(journal['action_json'] or '{}')
+            except (ValueError, TypeError):
+                action = {}
+            if str(action.get('base') or '') == base:
+                return None
+        delivery_key = f'ci-review-followup:{pr_number}:{head}:{base}'
+        prior = c.execute('SELECT id FROM queue WHERE delivery_key=?', (delivery_key,)).fetchone()
+        if prior:
+            return int(prior['id'])
+    run_ids = ', '.join(str(r.get('id') or '?') for r in runs)
+    message = (f"CI REVIEW FOLLOW-UP: #{pr_number} is Ready at exact head {head} on base {base}; "
+               f"all observed CI - Test Audit runs are complete and successful (run(s) {run_ids}). "
+               "The local PM worker must read live PR/base/check state and find the source-authorized "
+               "refresh_reviews action for this exact candidate. Execute it once through the guarded "
+               "journal if authorized; otherwise persist the precise HOLD and route it to the responsible PM. "
+               "Do not ask PO to relay or infer lifecycle authorization from CI success.")
+    aid = add_activity('SYSTEM', message, 'pm', 'posted')
+    return enqueue(aid, 'pm', message, source_actor='SYSTEM', auto_handoff=True,
+                    delivery_key=delivery_key, kind='ci_review_followup')
+
+
 REVIEW_DISPOSITIONS = ('fix_now', 'defer', 'not_valid', 'accepted', 'hold')
 RECEIPT = re.compile(r'RECEIPT\s+(RH-\d+-[0-9a-f]{8})', re.I)
 RESULT = re.compile(r'RESULT\s+(RH-\d+-[0-9a-f]{8})', re.I)
 OWNER_ROLE = {'cli_dev': 'cli dev', 'app_dev': 'app dev'}
+HANDOFF_OWNERS = {'cli_dev', 'app_dev', 'browser_pm', 'cli_pm'}
 HANDOFF_ACTION_SECONDS = int(os.environ.get("RWT_HANDOFF_ACTION_SECONDS", "3600"))
 
 
@@ -2168,8 +2286,8 @@ def record_review_handoffs(q, handoffs):
         why = None
         if not re.fullmatch(r'[0-9a-f]{40}', head):
             why = 'exact 40-hex reviewed head required'
-        elif owner not in DEV_OWNERS:
-            why = 'owner must be cli_dev or app_dev'
+        elif owner not in HANDOFF_OWNERS:
+            why = 'owner must be a configured agent id'
         elif disposition not in REVIEW_DISPOSITIONS:
             why = f'disposition must be one of {REVIEW_DISPOSITIONS}'
         elif not ref or not instruction:
@@ -2189,7 +2307,7 @@ def record_review_handoffs(q, handoffs):
         if not row:
             continue
         index_map[index] = row['id']
-        if row['state'] not in ('recorded', 'held'):
+        if row['state'] not in ('recorded', 'held', 'blocked'):
             continue  # already delivered once: a duplicate event/restart never delivers it again
         text = _handoff_text(row)
         if owner == 'cli_dev':
@@ -2205,6 +2323,103 @@ def _mark_handoff(hid, **fields):
     ks = list(fields)
     with DB_LOCK, con() as c:
         c.execute("UPDATE review_handoffs SET " + ",".join(f"{k}=?" for k in ks) + " WHERE id=?", [fields[k] for k in ks] + [hid])
+
+
+def _dispatch_review_handoff_notification(hid, comment_id=None):
+    """Send one exact handoff to its configured actor session; GitHub comment is only audit evidence."""
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT * FROM review_handoffs WHERE id=?", (hid,)).fetchone()
+        old_notice = c.execute("SELECT * FROM agent_notifications WHERE handoff_id=?", (hid,)).fetchone()
+    if not row:
+        return {'status': 'missing_handoff', 'handoff_id': hid}
+    handoff = dict(row)
+    actor_id = handoff['owner']
+    action_id = 'review-handoff:' + str(handoff['token'])
+    task_id = handoff.get('work_item_key') or f"PR-{handoff['pr_number']}"
+    try:
+        route = agent_transport.configured_route(actor_id)
+        callback_url = _task_callback_url(route.remote_url)
+        route_error = ''
+    except agent_transport.RouteError as exc:
+        route = None
+        callback_url = ''
+        route_error = str(exc)
+    if old_notice:
+        notice = dict(old_notice)
+        if notice['status'] in ('awaiting_receipt', 'received', 'responded', 'transport_uncertain', 'transport_stalled'):
+            return {'status': notice['status'], 'handoff_id': hid}
+        if int(notice['attempts'] or 0) > 0:
+            return {'status': notice['status'], 'handoff_id': hid, 'error': notice['error']}
+        if route is None:
+            _mark_handoff(hid, state='blocked', hold_reason=route_error, delivery_comment_id=comment_id)
+            with DB_LOCK, con() as c:
+                c.execute("UPDATE agent_notifications SET status='blocked_transport',error=?,updated_at=? WHERE handoff_id=? AND attempts=0",
+                          (route_error, now(), hid))
+            return {'status': 'blocked_transport', 'handoff_id': hid, 'error': route_error}
+        if notice['target_session_id'] and (notice['target_session_id'] != route.session_id
+                or notice['target_remote_url'] != route.remote_url):
+            detail = 'configured recipient session changed after handoff snapshot; issue a new source-authorized handoff'
+            _mark_handoff(hid, state='blocked', hold_reason=detail)
+            return {'status': 'blocked_transport', 'handoff_id': hid, 'error': detail}
+        with DB_LOCK, con() as c:
+            c.execute("UPDATE agent_notifications SET target_session_id=?,target_remote_url=?,status='prepared',error='',updated_at=? WHERE handoff_id=? AND attempts=0",
+                      (route.session_id, route.remote_url, now(), hid))
+    else:
+        status = 'blocked_transport' if route is None else 'prepared'
+        with DB_LOCK, con() as c:
+            c.execute("INSERT OR IGNORE INTO agent_notifications(notification_key,handoff_id,actor_id,task_id,action_id,target_transport,target_session_id,target_remote_url,head,instruction,status,error,created_at,updated_at) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (f'handoff:{hid}', hid, actor_id, task_id, action_id, 'codex_app_server',
+                       route.session_id if route else '', route.remote_url if route else '', handoff['head'],
+                       _handoff_text(handoff), status, route_error, now(), now()))
+        if route is None:
+            _mark_handoff(hid, state='blocked', hold_reason=route_error, delivery_comment_id=comment_id)
+            return {'status': 'blocked_transport', 'handoff_id': hid, 'error': route_error}
+    try:
+        callback_url = _task_callback_url(route.remote_url)
+    except agent_transport.RouteError as exc:
+        detail = str(exc)
+        with DB_LOCK, con() as c:
+            c.execute("UPDATE agent_notifications SET status='blocked_transport',error=?,updated_at=? WHERE handoff_id=? AND attempts=0",
+                      (detail, now(), hid))
+        _mark_handoff(hid, state='blocked', hold_reason=detail, delivery_comment_id=comment_id)
+        return {'status': 'blocked_transport', 'handoff_id': hid, 'error': detail}
+    token = _notification_callback_token(action_id, actor_id, route.session_id)
+    message = agent_transport.task_message(action_id=action_id, actor_id=actor_id, task_id=task_id,
+        instruction=_handoff_text(handoff), target_head=handoff['head'], target_tree='',
+        callback_url=callback_url, callback_token=token)
+    with DB_LOCK, con() as c:
+        changed = c.execute("UPDATE agent_notifications SET status='dispatching',attempts=1,updated_at=? WHERE handoff_id=? AND status='prepared' AND attempts=0",
+                            (now(), hid)).rowcount
+    if not changed:
+        return {'status': 'not_claimed', 'handoff_id': hid}
+    try:
+        result = agent_transport.queue_message(CODEX_BIN, route, message, timeout=AGENT_TRANSPORT_TIMEOUT)
+    except agent_transport.QueueUncertain as exc:
+        with DB_LOCK, con() as c:
+            c.execute("UPDATE agent_notifications SET status='transport_uncertain',error=?,updated_at=? WHERE handoff_id=? AND status='dispatching'",
+                      (str(exc), now(), hid))
+        _mark_handoff(hid, state='blocked', hold_reason='Transport outcome uncertain; no retry issued')
+        return {'status': 'transport_uncertain', 'handoff_id': hid, 'error': str(exc)}
+    except agent_transport.QueueRejected as exc:
+        with DB_LOCK, con() as c:
+            c.execute("UPDATE agent_notifications SET status='blocked_transport',error=?,updated_at=? WHERE handoff_id=? AND status='dispatching'",
+                      (str(exc), now(), hid))
+        _mark_handoff(hid, state='blocked', hold_reason=str(exc))
+        return {'status': 'blocked_transport', 'handoff_id': hid, 'error': str(exc)}
+    stamp = now()
+    with DB_LOCK, con() as c:
+        c.execute("UPDATE agent_notifications SET status='awaiting_receipt',accepted_at=?,transport_reference=?,updated_at=? WHERE handoff_id=? AND status='dispatching'",
+                  (stamp, str(result.get('detail') or '')[:1000], stamp, hid))
+        c.execute("UPDATE review_handoffs SET state='delivered',delivered_at=?,delivery_comment_id=?,delivery_queue_id=NULL,hold_reason='' WHERE id=? AND state IN ('recorded','held','blocked')",
+                  (stamp, comment_id, hid))
+    add_activity('SYSTEM', f"Review handoff {handoff['token']} queued to {actor_id} session {route.session_id}; awaiting actor receipt.",
+                 'none', 'delivered', trigger_queue_id=handoff.get('source_queue_id'))
+    return {'status': 'awaiting_receipt', 'handoff_id': hid, 'session_id': route.session_id}
+
+
+def dispatch_review_handoff_notifications(handoff_ids, comment_id=None):
+    return [_dispatch_review_handoff_notification(int(hid), comment_id) for hid in handoff_ids]
 
 
 def _owner_tokens(body, pattern):
@@ -2227,49 +2442,14 @@ def _after_delivery(row, cm):
 
 
 def record_handoff_receipts(comments=None, dev_result=None, queue_id=None):
-    """Record owner RECEIPT (started) and RESULT (returned) for delivered handoffs (c5 F04).
+    """Legacy comment/process evidence is not an authenticated task receipt.
 
-    Accounts are shared, so a login proves nothing: a receipt must come through the owner's channel —
-    CLI Dev only from the delivery that carried its token; App Dev only from a post whose own header is
-    'App Dev →', posted after the delivery. Quoted text, negated mentions, another actor's quotation and
-    any handoff not yet delivered are ignored. Neither stage closes the ask: PM reviews the RESULT and
-    closes it with a typed 'completed' disposition.
+    Actor/session-bound callbacks are the only path that may move a handoff to acknowledged or
+    result_returned. Keep this adapter as a no-op for old callers so a GitHub post or subprocess
+    transcript cannot impersonate an independently routed actor.
     """
-    sources = []
-    if dev_result is not None:
-        sources.append(('dev', str(queue_id), dev_result, None))
-    for cm in comments or []:
-        body = str(cm.get('body') or '')
-        if 'rwt-board-pm:' not in body:
-            sources.append(('github', str(cm.get('url') or cm.get('id')), body, cm))
-    acked = []
-    with DB_LOCK, con() as c:
-        for origin, ref, body, cm in sources:
-            for stage, pattern in (('acknowledged', RECEIPT), ('result_returned', RESULT)):
-                for token in _owner_tokens(body, pattern):
-                    row = c.execute("SELECT * FROM review_handoffs WHERE lower(token)=lower(?)", (token,)).fetchone()
-                    if not row:
-                        continue
-                    allowed_from = ('delivered', 'received') if stage == 'acknowledged' else ('acknowledged',)
-                    if row['state'] not in allowed_from:
-                        continue
-                    if row['owner'] == 'cli_dev' and (origin != 'dev' or str(row['delivery_queue_id']) != ref):
-                        continue
-                    if row['owner'] == 'app_dev' and (origin != 'github' or _header_actor(body).lower() != OWNER_ROLE['app_dev']
-                                                      or not _after_delivery(row, cm)):
-                        continue
-                    if stage == 'acknowledged':
-                        c.execute("UPDATE review_handoffs SET state='acknowledged',ack_ref=?,acknowledged_at=? WHERE id=?",
-                                  (f"{origin}:{ref}", now(), row['id']))
-                        c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · receipt ' || ? WHERE handoff_id=? AND state='dispatched'",
-                                  (f"{origin}:{ref}", row['id']))
-                        acked.append(row['id'])
-                    else:
-                        c.execute("UPDATE review_handoffs SET state='result_returned',result_ref=?,result_at=? WHERE id=?",
-                                  (f"{origin}:{ref}", now(), row['id']))
-                        c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · result ' || ? WHERE handoff_id=? AND state='dispatched'",
-                                  (f"{origin}:{ref}", row['id']))
-    return acked
+    del comments, dev_result, queue_id
+    return []
 
 
 def list_review_handoffs():
@@ -2433,6 +2613,7 @@ def github_watcher():
                     if events:
                         emit_github_event(events,snap,cfg)
                     # Commit cursor only after durable enqueue succeeds.
+                queue_ci_review_followup(snap)
                 # Commit cursors and snapshot together only after enqueue above succeeds.
                 with DB_LOCK, con() as c:
                     for key, state in snap.get('_pending_comment_cursors', []):
@@ -3053,6 +3234,217 @@ def record_readonly_task_stages(queue_id, result):
                       (stamp, f'worker-output:{queue_id}:{row["task_action_id"]}', queue_id))
     return bool(receipt and outcome and receipt.start() < outcome.start())
 
+
+def _task_callback_token(queue_id, action_id, actor_id, session_id):
+    secret = get_setting('agent_delivery_hmac_secret', '')
+    if len(secret) < 32:
+        raise RuntimeError('durable task callback secret is unavailable')
+    identity = '\0'.join((str(queue_id), str(action_id), str(actor_id), str(session_id)))
+    return hmac.new(secret.encode(), identity.encode(), hashlib.sha256).hexdigest()
+
+
+def _notification_callback_token(action_id, actor_id, session_id):
+    secret = get_setting('agent_delivery_hmac_secret', '')
+    if len(secret) < 32:
+        raise RuntimeError('durable task callback secret is unavailable')
+    identity = '\0'.join(('notification', str(action_id), str(actor_id), str(session_id)))
+    return hmac.new(secret.encode(), identity.encode(), hashlib.sha256).hexdigest()
+
+
+def _task_callback_url(remote_url=''):
+    configured = os.environ.get('RWT_AGENT_CALLBACK_URL', AGENT_CALLBACK_URL).strip()
+    if remote_url:
+        if not configured or urlparse(configured).scheme != 'https':
+            raise agent_transport.RouteError('remote Codex routes require RWT_AGENT_CALLBACK_URL on HTTPS')
+        return configured.rstrip('/') + '/api/agent-task'
+    if configured:
+        parsed = urlparse(configured)
+        if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+            raise agent_transport.RouteError('RWT_AGENT_CALLBACK_URL must be an absolute HTTP(S) URL')
+        return configured.rstrip('/') + '/api/agent-task'
+    return f'http://127.0.0.1:{PORT}/api/agent-task'
+
+
+def _deliver_existing_codex_task(q, target):
+    """Queue to the exact configured Codex session; keep receipt/action pending after acceptance."""
+    item = _delivery_assignment(q.get('work_item_key') or '', q.get('kind') or '')
+    actor_id = str(target.get('owner') or (item or {}).get('owner') or '')
+    try:
+        route = agent_transport.configured_route(actor_id)
+        callback_url = _task_callback_url(route.remote_url)
+    except agent_transport.RouteError as exc:
+        raise UnsupportedRecipientTransport(str(exc)) from exc
+    if (q.get('target_actor_id') != actor_id or q.get('target_transport') != 'codex_app_server'
+            or q.get('target_session_id') != route.session_id or q.get('target_remote_url') != route.remote_url):
+        raise UnsupportedRecipientTransport(
+            'configured actor/session route differs from the immutable task delivery target; issue a new authorized task action')
+    action_id = str(q.get('task_action_id') or '')
+    if not action_id or not q.get('target_head') or not q.get('target_tree'):
+        raise UnsupportedRecipientTransport('task action or frozen candidate identity is missing')
+    token = _task_callback_token(q['id'], action_id, actor_id, route.session_id)
+    message = agent_transport.task_message(
+        action_id=action_id, actor_id=actor_id, task_id=q['work_item_key'],
+        instruction=q['content'], target_head=q['target_head'],
+        target_tree=q['target_tree'], callback_url=callback_url, callback_token=token)
+    update_queue(q['id'], status='delivering', started_at=now(), launch_attempted_at=now(),
+                 attempts=(q.get('attempts') or 0) + 1)
+    try:
+        result = agent_transport.queue_message(CODEX_BIN, route, message, timeout=AGENT_TRANSPORT_TIMEOUT)
+    except agent_transport.QueueUncertain as exc:
+        update_queue(q['id'], status='transport_uncertain', error=str(exc), finished_at=now())
+        add_activity('SYSTEM', f"Task {action_id} transport outcome is uncertain; no retry was issued.", 'none', 'blocker', trigger_queue_id=q['id'])
+        return
+    except agent_transport.QueueRejected as exc:
+        raise UnsupportedRecipientTransport(str(exc)) from exc
+    update_queue(q['id'], status='awaiting_receipt', transport_accepted_at=now(),
+                 transport_reference=result.get('detail', '')[:1000], error='')
+    add_activity('SYSTEM', f"Task {action_id} queued to {actor_id} session {route.session_id}; awaiting task-specific receipt.",
+                 'none', 'delivered', trigger_queue_id=q['id'])
+
+
+def record_agent_task_callback(payload, token):
+    """Accept actor receipt/result only for the frozen task, action and configured session."""
+    if not isinstance(payload, dict):
+        return 400, {'error': 'JSON object required'}
+    action_id = str(payload.get('action_id') or '')
+    actor_id = str(payload.get('actor_id') or '')
+    session_id = str(payload.get('session_id') or '')
+    stage = str(payload.get('stage') or '')
+    evidence = str(payload.get('evidence') or '').strip()
+    if stage not in ('receipt', 'result') or not evidence or len(evidence) > 4000:
+        return 400, {'error': 'stage must be receipt/result and evidence must be 1..4000 characters'}
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT * FROM queue WHERE task_action_id=?", (action_id,)).fetchone()
+        if not row:
+            notice = c.execute("SELECT * FROM agent_notifications WHERE action_id=?", (action_id,)).fetchone()
+            if not notice:
+                return 404, {'error': 'unknown task action'}
+            n = dict(notice)
+            if n['actor_id'] != actor_id or n['target_session_id'] != session_id or n['target_transport'] != 'codex_app_server':
+                return 403, {'error': 'actor/session does not match the immutable notification route'}
+            expected = _notification_callback_token(action_id, actor_id, session_id)
+            if not hmac.compare_digest(token, expected):
+                return 403, {'error': 'invalid task callback token'}
+            digest = hashlib.sha256(evidence.encode()).hexdigest()
+            if stage == 'receipt':
+                if n['status'] in ('received', 'responded'):
+                    return (200, {'ok': True, 'duplicate': True}) if n['receipt_digest'] == digest else (409, {'error': 'conflicting receipt already recorded'})
+                if n['status'] != 'awaiting_receipt':
+                    return 409, {'error': 'notification is not awaiting recipient receipt'}
+                c.execute("UPDATE agent_notifications SET status='received',receipt_at=?,receipt_digest=?,updated_at=? WHERE action_id=? AND status='awaiting_receipt'",
+                          (now(), digest, now(), action_id))
+                c.execute("UPDATE review_handoffs SET state='acknowledged',ack_ref=?,acknowledged_at=? WHERE id=? AND state='delivered'",
+                          (f'callback:{actor_id}:{session_id}:{digest}', now(), n['handoff_id']))
+                c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · receipt notification:' || ? WHERE handoff_id=? AND state='dispatched'",
+                          (action_id, n['handoff_id']))
+            else:
+                if n['status'] == 'responded' and n['result_digest'] == digest:
+                    return 200, {'ok': True, 'duplicate': True}
+                if n['status'] != 'received' or not n['receipt_at']:
+                    return 409, {'error': 'task receipt must be recorded before result'}
+                c.execute("UPDATE agent_notifications SET status='responded',result_at=?,result_digest=?,updated_at=? WHERE action_id=? AND status='received'",
+                          (now(), digest, now(), action_id))
+                c.execute("UPDATE review_handoffs SET state='result_returned',result_ref=?,result_at=? WHERE id=? AND state='acknowledged'",
+                          (f'callback:{actor_id}:{session_id}:{digest}', now(), n['handoff_id']))
+                c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · result notification:' || ? WHERE handoff_id=? AND state='dispatched'",
+                          (action_id, n['handoff_id']))
+                notification_handoff = n['handoff_id']
+            notification = dict(n)
+            if stage == 'receipt':
+                c.execute("UPDATE agent_notifications SET receipt_digest=? WHERE action_id=?", (digest, action_id))
+        else:
+            notification = None
+        if not row and notification:
+            pass
+        else:
+            q = dict(row)
+            if (q['target_actor_id'] != actor_id or q['target_session_id'] != session_id
+                    or q['target_transport'] != 'codex_app_server'):
+                return 403, {'error': 'actor/session does not match the immutable recipient route'}
+            expected = _task_callback_token(q['id'], action_id, actor_id, session_id)
+            if not hmac.compare_digest(token, expected):
+                return 403, {'error': 'invalid task callback token'}
+            digest = hashlib.sha256(evidence.encode()).hexdigest()
+            if stage == 'receipt':
+                if q['status'] in ('received', 'responded'):
+                    return (200, {'ok': True, 'duplicate': True}) if q['task_receipt_ref'].endswith(digest) else (409, {'error': 'conflicting receipt already recorded'})
+                if q['status'] != 'awaiting_receipt':
+                    return 409, {'error': 'task is not awaiting recipient receipt'}
+                c.execute("UPDATE queue SET status='received',task_receipt_at=?,task_receipt_ref=? WHERE id=? AND status='awaiting_receipt'",
+                          (now(), f'callback:{actor_id}:{session_id}:{digest}', q['id']))
+                if q.get('kind') == 'review_handoff':
+                    c.execute("UPDATE review_handoffs SET state='acknowledged',ack_ref=?,acknowledged_at=? WHERE delivery_queue_id=? AND state IN ('delivered','received')",
+                              (f'callback:{actor_id}:{session_id}:{digest}', now(), q['id']))
+                    c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · receipt dev:' || ? WHERE handoff_id IN (SELECT id FROM review_handoffs WHERE delivery_queue_id=?) AND state='dispatched'",
+                              (q['id'], q['id']))
+            else:
+                if q['status'] == 'responded' and q['task_result_digest'] == digest:
+                    return 200, {'ok': True, 'duplicate': True}
+                if q['status'] != 'received' or not q['task_receipt_at']:
+                    return 409, {'error': 'task receipt must be recorded before result'}
+                c.execute("UPDATE queue SET status='responded',task_result_at=?,task_result_ref=?,task_result_digest=?,finished_at=? WHERE id=? AND status='received'",
+                          (now(), f'callback:{actor_id}:{session_id}:{digest}', digest, now(), q['id']))
+                if q.get('kind') == 'review_handoff':
+                    c.execute("UPDATE review_handoffs SET state='result_returned',result_ref=?,result_at=? WHERE delivery_queue_id=? AND state='acknowledged'",
+                              (f'callback:{actor_id}:{session_id}:{digest}', now(), q['id']))
+                    c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · result dev:' || ? WHERE handoff_id IN (SELECT id FROM review_handoffs WHERE delivery_queue_id=?) AND state='dispatched'",
+                              (q['id'], q['id']))
+    if stage == 'result':
+        trigger_id = q['id'] if row else None
+        aid = add_activity(f"AGENT:{actor_id}", f"TASK-RESULT {action_id}: {evidence}", 'pm', 'responded', trigger_queue_id=trigger_id)
+        if bool_setting('auto_pm_github_control', True):
+            enqueue(aid, 'pm', f"Actor {actor_id} returned task result {action_id}: {evidence}",
+                    source_actor='SYSTEM', auto_handoff=True, delivery_key=f'task-result:{action_id}')
+    else:
+        trigger_id = q['id'] if row else None
+        add_activity(f"AGENT:{actor_id}", f"TASK-RECEIPT {action_id}: {evidence}", 'none', 'received', trigger_queue_id=trigger_id)
+    return 200, {'ok': True, 'action_id': action_id, 'stage': stage}
+
+
+def sweep_agent_delivery_stalls(at=None):
+    """One PM recovery for a missed recipient receipt, then an explicit terminal blocker."""
+    at = time.time() if at is None else float(at)
+    with DB_LOCK, con() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM queue WHERE status='awaiting_receipt' ORDER BY id").fetchall()]
+    actions = []
+    with DB_LOCK, con() as c:
+        notices = [dict(r) for r in c.execute(
+            "SELECT handoff_id,status,attempts,updated_at FROM agent_notifications "
+            "WHERE status IN ('prepared','blocked_transport','dispatching') ORDER BY handoff_id").fetchall()]
+    for notice in notices:
+        if notice['status'] == 'dispatching' and (age_seconds(notice['updated_at']) or 0) >= AGENT_TRANSPORT_TIMEOUT + 5:
+            with DB_LOCK, con() as c:
+                c.execute("UPDATE agent_notifications SET status='transport_uncertain',error=?,updated_at=? WHERE handoff_id=? AND status='dispatching'",
+                          ('Board restarted or queue call did not settle; no automatic replay', now(), notice['handoff_id']))
+                c.execute("UPDATE review_handoffs SET state='blocked',hold_reason=? WHERE id=? AND state NOT IN ('acknowledged','result_returned')",
+                          ('Transport outcome uncertain; reconcile exact session before any new action', notice['handoff_id']))
+            actions.append({'handoff_id': notice['handoff_id'], 'status': 'transport_uncertain'})
+        elif notice['status'] in ('prepared','blocked_transport') and int(notice['attempts'] or 0) == 0:
+            actions.extend(dispatch_review_handoff_notifications([notice['handoff_id']]))
+    for row in rows:
+        anchor = row.get('transport_recovery_at') or row.get('transport_accepted_at')
+        age = age_seconds(anchor) or 0
+        if age < AGENT_RECEIPT_TIMEOUT:
+            continue
+        if int(row.get('transport_recovery_count') or 0) == 0:
+            msg = (f"Task delivery {row['task_action_id']} was accepted by the app-server but no matching "
+                   f"receipt arrived within {AGENT_RECEIPT_TIMEOUT}s. Recipient={row['target_actor_id']} "
+                   f"session={row['target_session_id']}. Reconcile this exact session; do not enqueue a duplicate.")
+            aid = add_activity('SYSTEM', msg, 'pm', 'blocker', trigger_queue_id=row['id'])
+            recovery_id = enqueue(aid, 'pm', msg, source_actor='SYSTEM', parent_queue_id=row['id'],
+                                 auto_handoff=True, delivery_key=f"agent-receipt-recovery:{row['id']}")
+            with DB_LOCK, con() as c:
+                c.execute("UPDATE queue SET transport_recovery_count=1,transport_recovery_at=? WHERE id=? AND transport_recovery_count=0",
+                          (now(), row['id']))
+            actions.append({'queue_id': row['id'], 'recovery_queue_id': recovery_id})
+        elif age_seconds(row.get('transport_recovery_at')) >= AGENT_RECEIPT_TIMEOUT:
+            with DB_LOCK, con() as c:
+                c.execute("UPDATE queue SET status='transport_stalled',transport_escalated_at=?,error=? WHERE id=? AND status='awaiting_receipt' AND transport_recovery_count=1",
+                          (now(), 'No actor-bound task receipt after one PM recovery; no retry issued', row['id']))
+            actions.append({'queue_id': row['id'], 'status': 'transport_stalled'})
+    return actions
+
 def _is_stale_model_error(message):
     low = (message or "").lower()
     return "404" in low and ("model:" in low or "model " in low) and ("not_found_error" in low or "not found" in low)
@@ -3375,90 +3767,19 @@ def _run_pm_command(content, session_id):
 
 
 def run_dev(q):
-    global ACTIVE_DEV_QUEUE_ID, DEV_STOP_REQUESTED
     if not q.get('work_item_key'):
         raise RuntimeError('Unbound historical delivery: request a new task handoff')
-    a = get_agent("dev")
-    readonly = q.get('kind') in READ_ONLY_DELIVERY_KINDS
-    if readonly:
-        # The bundled Dev adapter is Claude Code. A typed checkpoint addressed to
-        # the active Codex writer cannot be delivered by starting a fresh Claude
-        # session; preserve it as an explicit transport blocker instead.
-        raise UnsupportedRecipientTransport(
-            'No supported transport to the existing Codex writer session; '
-            'starting a fresh Claude session would notify the wrong recipient. '
-            'The task request remains open and requires a task-bound Codex inbox/notification adapter.'
-        )
+    with DB_LOCK, con() as c:
+        current = c.execute("SELECT status FROM queue WHERE id=?", (q['id'],)).fetchone()
+    if not current or current['status'] not in ('queued', 'claimed'):
+        raise RuntimeError(f"Delivery {q['id']} is not dispatchable from status {current['status'] if current else 'missing'}")
     target = resolve_dev_target(q)
     if not target.get('ok'):
         raise RuntimeError(target['error'])
-    cwd = target['path']
-    if not resolved_bin(CLAUDE_BIN):
-        raise RuntimeError(f"Claude CLI not found: {CLAUDE_BIN}")
-    if cwd != a.get('cwd') and not readonly:
-        set_agent('dev', cwd=cwd, session_id=None, status='idle')
-        a = get_agent('dev')
-    update_queue(q['id'], work_item_key=target['item_key'], target_branch=target['validation']['branch'],
-                 target_worktree=cwd)
-
-    preserved_session = a.get("session_id")
-    existing = None if readonly else preserved_session
-    sid = str(uuid.uuid4()) if readonly else (existing or str(uuid.uuid4()))
-    # c5 (F12): 'launch attempted' is recorded before the process exists; 'process started' only once it does.
-    update_queue(q["id"], status="delivering", started_at=now(), launch_attempted_at=now(), session_id=sid,
-                 attempts=(q.get("attempts") or 0) + 1)
-    set_agent("dev", status="running", session_id=sid)
-    with DB_LOCK, con() as c:
-        c.execute("UPDATE review_handoffs SET state='received',received_at=? WHERE delivery_queue_id=? AND state='delivered'", (now(), q["id"]))
-
-    dev_content = compose_for_dev(q)
-    ACTIVE_DEV_QUEUE_ID = q['id']
-    try:
-        try:
-            rc, result, sid, parse_err, stderr = _run_claude_once(dev_content, cwd, sid, bool(existing))
-        except Exception as e:  # the process could not be launched; nothing ran
-            rc, result, parse_err, stderr = None, '', f'Dev launch failed before a process started: {type(e).__name__}: {e}', ''
-        # Claude Code may emit non-fatal warnings to stderr (for example MCP OAuth
-        # migration warnings) while still exiting 0 and returning a valid JSON
-        # response on stdout. stderr is diagnostic output, not an exit status.
-        error = claude_transport_error(rc, parse_err, stderr) if rc is not None or parse_err else ''
-
-        if error and existing and _is_stale_model_error(error):
-            add_activity("SYSTEM", f"Stale Claude session; retrying once with {CLAUDE_MODEL or 'the Claude CLI default model'}.", "none", "system")
-            set_agent("dev", session_id=None, status="running")
-            sid = str(uuid.uuid4())
-            update_queue(q["id"], session_id=sid)
-            rc, result, sid, parse_err, stderr = _run_claude_once(dev_content, cwd, sid, False)
-            error = claude_transport_error(rc, parse_err, stderr)
-    finally:
-        ACTIVE_DEV_QUEUE_ID = None
-
-    if error:
-        stopped = DEV_STOP_REQUESTED == q['id']
-        if stopped:
-            DEV_STOP_REQUESTED = None
-            error = f'Dev process stopped by operator (termination requested); {error}'
-        with DB_LOCK, con() as c:
-            started = c.execute("SELECT process_started_at FROM queue WHERE id=?", (q['id'],)).fetchone()['process_started_at']
-        # A process that ran may have written: its outcome is uncertain, never retried as-is.
-        update_queue(q["id"], status=("failed_uncertain" if started else "failed"), error=error, finished_at=now(),
-                     session_id=sid, invocation_recovery_due=1)
-        if _is_auth_error(error):
-            set_agent("dev", status="auth_required", session_id=preserved_session if readonly else None)
-            add_activity("Dev", 'Authentication expired — re-authenticate Claude CLI, then use New Dev session and retry.', "none", "error")
-        else:
-            set_agent("dev", status="error", session_id=preserved_session if readonly else sid)
-            add_activity("Dev", f"Transport error: {error}", "none", "error")
-        recover_dev_invocation(q['id'])
-        return
-
-    update_queue(q["id"], status="responded", finished_at=now(), session_id=sid)
-    set_agent("dev", status="idle", session_id=preserved_session if readonly else sid)
-    record_readonly_task_stages(q['id'], result)
-    record_handoff_receipts(dev_result=result, queue_id=q["id"])
-    aid = add_activity("Dev", result, "pm" if q.get("auto_handoff") else "none", "responded", trigger_queue_id=q["id"])
-    if bool_setting("auto_dev_to_pm", True):
-        maybe_handoff(aid, "Dev", "pm", result, q)
+    # Assigned CLI Dev work belongs to its existing Codex session. Never substitute
+    # the bundled Claude subprocess, which could become a second writer.
+    _deliver_existing_codex_task(q, target)
+    return
 
 
 def recover_dev_invocation(queue_id):
@@ -3585,6 +3906,7 @@ def anti_idle_reconciler():
         try:
             sweep_preflight_recoveries()
             sweep_invocation_recoveries()
+            sweep_agent_delivery_stalls()
             players = list_player_status()
             p = players.get('cli_dev') or {}
             key = str(p.get('work_item_key') or '')
@@ -4195,9 +4517,6 @@ def _apply_turn_effects(q, plan):
     # Asks close and App Dev handoffs count as delivered only after the reply actually published.
     apply_ask_dispositions(q, plan['dispositions'], published_ref, {int(k): v for k, v in (plan.get('handoff_index') or {}).items()})
     with DB_LOCK, con() as c:
-        for hid in plan.get('handoff_blocks') or []:
-            c.execute("UPDATE review_handoffs SET state='delivered',delivered_at=?,delivery_comment_id=? WHERE id=? AND state='recorded'",
-                      (now(), out['comment_id'] if out else None, hid))
         if not plan.get('activity_id'):
             status = "needs_po" if plan['next'] == "po" else "responded"
             plan['activity_id'] = c.execute(
@@ -4209,6 +4528,9 @@ def _apply_turn_effects(q, plan):
                           ('SYSTEM', f"PM routing JSON was invalid; failed safe to PO: {plan['parse_error']}", 'none', 'error', now()))
     arbitrate_dev_dispatch(q, plan)
     dispatch_readonly_task_deliveries(q, plan)
+    plan['agent_handoff_results'] = dispatch_review_handoff_notifications(
+        plan.get('handoff_blocks') or [], out['comment_id'] if out else None)
+    _save_turn_plan(qid, plan, 'published')
 
 
 def _set_dispatch_hold(key, reason, release, source_qid):
@@ -4906,6 +5228,16 @@ def transport_status():
         pm_label = "PM command adapter"
     else:
         pm_label = "not configured"
+    actors = {}
+    for actor_id in ('cli_dev', 'app_dev', 'browser_pm', 'cli_pm'):
+        try:
+            route = agent_transport.configured_route(actor_id)
+            actors[actor_id] = {'configured': True, 'transport': 'codex_app_server',
+                                'session_id': route.session_id, 'remote': bool(route.remote_url),
+                                'live_delivery_proven': False}
+        except agent_transport.RouteError as exc:
+            actors[actor_id] = {'configured': False, 'blocker': str(exc), 'live_delivery_proven': False}
+    external_ready = all(actors[x]['configured'] for x in ('app_dev', 'browser_pm'))
     return {
         "pm_mode": mode,
         "pm_configured": configured,
@@ -4924,11 +5256,14 @@ def transport_status():
         "pm_auth_ok": CODEX_AUTH_OK if mode == "codex" else None,
         "pm_auth_detail": CODEX_AUTH_DETAIL if mode == "codex" else None,
         "claude_model": CLAUDE_MODEL or "CLI default",
-        "dev_configured": bool(resolved_bin(CLAUDE_BIN)),
+        "dev_configured": actors['cli_dev']['configured'],
+        "claude_worker_configured": bool(resolved_bin(CLAUDE_BIN)),
         "claude_subscription_mode": True,
         "claude_permission_mode": PERMISSION_MODE,
-        "external_notification_configured": False,
-        "external_notification_status": "BLOCKED: no supported App Dev/Browser PM wake adapter is configured; GitHub publication is availability, not delivery",
+        "agent_routes": actors,
+        "external_notification_configured": external_ready,
+        "external_notification_status": ("Configured Codex app-server routes; live actor receipt/action still unproven"
+                                         if external_ready else "BLOCKED: configure per-actor Codex session UUIDs and remote WSS/token where sessions are on another host; GitHub publication is not delivery"),
         "max_handoff_depth": MAX_HANDOFF_DEPTH,
     }
 
@@ -5049,6 +5384,21 @@ class H(BaseHTTPRequestHandler):
         return self.sendj(404, {"error": "not found"})
 
     def do_POST(self):
+        if urlparse(self.path).path == '/api/agent-task':
+            if str(self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
+                return self.sendj(415, {'error': 'task callbacks require application/json'})
+            try:
+                size = int(self.headers.get('Content-Length', '0'))
+                if size < 1 or size > 8192:
+                    return self.sendj(413, {'error': 'task callback body must be 1..8192 bytes'})
+                payload = json.loads(self.rfile.read(size))
+            except Exception:
+                return self.sendj(400, {'error': 'invalid task callback JSON'})
+            auth = str(self.headers.get('Authorization') or '')
+            if not auth.startswith('Bearer '):
+                return self.sendj(403, {'error': 'task callback bearer token required'})
+            code, response = record_agent_task_callback(payload, auth[7:])
+            return self.sendj(code, response)
         refused = self.control_refusal(mutating=True)
         if refused:
             return self.sendj(refused[0], {"error": refused[1]})
@@ -5089,13 +5439,17 @@ class H(BaseHTTPRequestHandler):
                 add_activity("SYSTEM", f"Posted PO message to RWT control issue #{CONTROL_ISSUE}", "none", "responded")
 
             recipients = []
+            dev_task_key = ''
             if route in ("pm", "both"):
                 recipients.append("pm")
             if route in ("dev", "both"):
-                wt = resolve_dev_target({})
+                active_dev_task = dev_assignment()
+                wt = resolve_dev_target({'work_item_key': active_dev_task['item_key']}) if active_dev_task else {
+                    'ok': False, 'error': 'No single active CLI Dev WRITE task is bound; PM must assign and reconcile a task first'}
                 if not wt.get('ok'):
                     add_activity('SYSTEM', f"Dev dispatch blocked: {wt['error']}", 'none', 'error')
                     return self.sendj(409, {'error': wt['error'], 'worktree': wt})
+                dev_task_key = active_dev_task['item_key']
                 recipients.append('dev')
             ts = transport_status()
             if 'pm' in recipients and not ts['pm_configured']:
@@ -5110,6 +5464,7 @@ class H(BaseHTTPRequestHandler):
                 delivery_ids.append(enqueue(
                     aid, recipient, content, source_actor=actor, handoff_depth=0,
                     auto_handoff=True, fanout_group=fanout,
+                    work_item_key=dev_task_key if recipient == 'dev' else '',
                 ))
             return self.sendj(202, {"activity_id": aid, "delivery_ids": delivery_ids,
                                     "handoff_manifest": str(files[-1][1]) if files else None})
@@ -5235,6 +5590,7 @@ def main():
     recover_interrupted_state_after_lock()
     sweep_preflight_recoveries()
     sweep_invocation_recoveries()
+    sweep_agent_delivery_stalls()
     reset_ephemeral_control_state_on_start()
     force_github_reconcile_on_start()
     mode = pm_transport_mode()

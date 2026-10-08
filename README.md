@@ -1,10 +1,12 @@
 ## deadlock.5 — visible task delivery and preflight recovery
 
-### v4.6.17 — unaccepted source repair candidate (local working tree)
+### v4.6.17 — unaccepted successor source (local working tree)
 
-The frozen packet on the documentation branch is an earlier, incomplete snapshot. The current local working tree adds source-linked ask reopening, an atomic SQLite request budget shared by board readers using the same state database, fair cached review refreshes, restart-safe uninvoked claims, and fail-closed handling for typed checkpoints when the only bundled Dev worker is Claude but the assigned writer is the active Codex session. In that case the request remains durable as `blocked_transport`; the app does not start a second Claude session or record a receipt.
+The current candidate adds exact Codex-session delivery routes, authenticated task receipt/result callbacks, durable CI-completion follow-up into the guarded review-refresh journal, and restart-safe review result routing. CI success does not grant lifecycle authority: the local PM worker must still find source authorization for the exact PR/head/base. The candidate also includes the earlier C5 recovery, request-budget, review fairness, typed-approval, checkout-ownership, and migration repairs.
 
-The current local candidate passes 294 selected offline Python tests. Five loopback/HTTP tests remain on HOLD because this environment cannot bind the required host ports. These tests do not prove delivery to a live actor. See `TEST_RECEIPT.md` for the exact working state and limits. The external notification adapter, real recipient receipts/actions, complete R01–R42/F01–F16 closure, independent review, and installed acceptance remain open. This is not an accepted release and is not authorized for installation.
+Verification: all **314 discovered Python tests pass**, including five loopback/HTTP tests and the regression for CI completion → one authorized review refresh → review result → qualification advancement without a PO relay. The test adapters are fixtures; they do not prove that the installed board has registered real actor sessions or that App Dev/Browser PM received and acted on a live task. The source supports local or authenticated remote Codex app-server routes, but per-agent session IDs, any remote endpoints/tokens, reachable callback URL, actual receipts/actions, independent review, and installed restart acceptance remain open. See `TEST_RECEIPT.md` and `C4_CLOSURE_MATRIX.md` for exact limits.
+
+The replacement install is authorized only after complete finding-by-finding closure and independent qualification. This candidate has not met those conditions. Do not install it yet; no PR, merge, deployment, or Production action is part of this source repair.
 
 ### C5 Packages 3 + 4 — local working checkpoint (2026-10-08)
 
@@ -226,6 +228,18 @@ bash -n start-rwt-handoff.sh
 See TEST_RECEIPT.md for actual results and limits. Local adapter round trips use deterministic subprocess fixtures. They prove pipes, JSON parsing, queue updates and task targeting; they do not prove your Mac's signed-in Codex/Claude sessions or external-agent receipt. The first-use steps above complete that check on your machine.
 
 ## Automatic communications and bounded PM execution
+
+### Task delivery to named agent sessions
+
+The board can queue a bounded task to an existing Codex app-server session with `codex queue`; it never guesses a recipient from the local CLI worker. Set `RWT_AGENT_ROUTES_JSON` in the board process environment to a version 1 JSON object that maps each participating actor (`cli_dev`, `app_dev`, `browser_pm`, `cli_pm`) to its exact Codex session UUID. The route format is validated by [agent-routes.schema.json](agent-routes.schema.json). A local route uses only `provider` and `session_id`:
+
+```json
+{"version":1,"routes":{"cli_dev":{"provider":"codex_app_server","session_id":"00000000-0000-4000-8000-000000000000"}}}
+```
+
+For a session on another host, include its authenticated `wss://` app-server URL and the *name* of an environment variable that contains its token. Do not put token values in the route JSON. Set `RWT_AGENT_CALLBACK_URL` to the board’s HTTPS URL reachable from that agent. The callback path is `/api/agent-task`. Remote task prompts include a one-task bearer token; only a matching actor/session/action can submit `receipt` and then `result`. A GitHub comment or successful `codex queue` call is not a receipt. Keep missing actor routes visible as `blocked_transport`; do not fill them with another agent’s session.
+
+The route file does not establish delivery by itself. Confirm the live delivery row reached `received` and `responded` with the expected actor and task. If the board process restarts after dispatch but before receipt, the uncertain delivery is reconciled and never blindly resent.
 
 The GitHub watcher was not removed. It polls #1258 and relevant PR/CI state, wakes the local CLI PM worker, and coalesces repeated queued notifications. In this release control comments wake PM independently of the review toggle. PM receives full bounded recent source packets and current board state.
 

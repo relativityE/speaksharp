@@ -1,5 +1,6 @@
 """Stage and verify prior board state plus packet artifacts before importing it."""
 from pathlib import Path
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -43,6 +44,34 @@ def _rewrite_artifact_paths(db, old_root, new_root):
             if value == old_root or value.startswith(old_root + os.sep):
                 rebased = new_root + value[len(old_root):]
                 connection.execute('UPDATE attachments SET path=? WHERE id=?', (rebased, attachment_id))
+
+
+def _prepare_database_for_promotion(db):
+    """Checkpoint and close the staged SQLite DB before moving its main file.
+
+    SQLite sidecars are not promoted with the database path. A source in WAL mode can otherwise
+    leave recent pages in `-wal` while the migration atomically moves only `state.db`.
+    """
+    connection = sqlite3.connect(db, timeout=30)
+    try:
+        check = connection.execute('PRAGMA integrity_check').fetchone()
+        if not check or check[0] != 'ok':
+            raise RuntimeError(f'Staged state database failed integrity check before promotion: {check}')
+        checkpoint = connection.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()
+        if checkpoint and int(checkpoint[0]) != 0:
+            raise RuntimeError(f'Staged state database WAL checkpoint remained busy before promotion: {checkpoint}')
+        mode = connection.execute('PRAGMA journal_mode=DELETE').fetchone()
+        if not mode or str(mode[0]).lower() != 'delete':
+            raise RuntimeError(f'Staged state database could not leave WAL mode before promotion: {mode}')
+        connection.commit()
+    finally:
+        connection.close()
+    for suffix in ('-wal', '-shm'):
+        sidecar = Path(str(db) + suffix)
+        if sidecar.exists():
+            if sidecar.is_symlink():
+                raise RuntimeError(f'Staged SQLite sidecar is unexpectedly a symlink: {sidecar}')
+            sidecar.unlink()
 
 
 def _select_source(app, candidates, source):
@@ -111,12 +140,14 @@ def migrate_state(app, source=None):
         stage.mkdir(parents=True)
         stage_db.parent.mkdir(parents=True)
         try:
-            with sqlite3.connect(f'{chosen.resolve().as_uri()}?mode=ro', uri=True) as src:
-                with sqlite3.connect(stage_db) as dst:
+            with closing(sqlite3.connect(f'{chosen.resolve().as_uri()}?mode=ro', uri=True)) as src:
+                with closing(sqlite3.connect(stage_db)) as dst:
                     src.backup(dst)
                     check = dst.execute('PRAGMA integrity_check').fetchone()
                     if not check or check[0] != 'ok':
                         raise RuntimeError(f'Staged state database failed integrity check: {check}')
+                    dst.commit()
+            _prepare_database_for_promotion(stage_db)
             sources = {'uploads': source_app / 'uploads', 'handoffs': source_app / 'handoffs'}
             for name, old_path in sources.items():
                 if old_path.exists():

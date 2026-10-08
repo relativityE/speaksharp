@@ -45,6 +45,27 @@ class ReconciliationTests(unittest.TestCase):
             d=server.dashboard_snapshot()
         self.assertEqual(d['players']['app_dev']['status'],'unknown')
 
+    def test_out_of_order_checkpoint_cannot_revert_actor_attribution(self):
+        newer = {'player_id':'app_dev','status':'reported','task':'current candidate receipt',
+                 'source':'https://github.com/relativityE/speaksharp/issues/1258#issuecomment-6062000001',
+                 'checkpoint_at':'2026-10-08T15:30:00Z'}
+        older = {'player_id':'app_dev','status':'blocked','task':'stale prior task',
+                 'source':'https://github.com/relativityE/speaksharp/issues/1258#issuecomment-6061999999',
+                 'checkpoint_at':'2026-10-08T15:29:00Z'}
+        self.assertTrue(server.apply_board_updates({'players':[newer]}))
+        self.assertFalse(server.apply_board_updates({'players':[older]}))
+        row = server.list_player_status()['app_dev']
+        self.assertEqual((row['status'],row['task'],row['source']),('reported','current candidate receipt',newer['source']))
+
+    def test_conflicting_checkpoint_cannot_reuse_accepted_attribution_timestamp(self):
+        first = {'player_id':'app_dev','status':'reported','task':'packet A',
+                 'source':'https://github.com/comment/1','checkpoint_at':'2026-10-08T15:30:00Z'}
+        correction = dict(first, task='packet B', source='https://github.com/comment/2')
+        self.assertTrue(server.apply_board_updates({'players':[first]}))
+        self.assertFalse(server.apply_board_updates({'players':[correction]}))
+        row = server.list_player_status()['app_dev']
+        self.assertEqual((row['task'],row['source']),('packet A',first['source']))
+
     def test_future_timestamp_rejects_entire_patch(self):
         self.assertFalse(server.apply_board_updates({'work_items':[{'item_key':'PR-1554','owner':'app_dev'}], 'players':[{'player_id':'app_dev','checkpoint_at':'2099-01-01T00:00:00Z'}]}))
         self.assertEqual(self.item('PR-1554')['owner'],'unassigned')

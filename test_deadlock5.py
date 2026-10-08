@@ -5,6 +5,7 @@ adapter. No live board, GitHub write, PR lifecycle change or installed-app state
 """
 import json
 import hashlib
+import os
 import threading
 import urllib.error
 import urllib.request
@@ -117,6 +118,152 @@ class Deadlock5Tests(unittest.TestCase):
 
     def recoveries(self):
         return [r for r in server.list_queue(500) if r.get('kind') == 'preflight_recovery']
+
+    def enqueue_codex_readonly_task(self, session='a076ba87-4ad9-48fa-bff9-4e71a1535b5b'):
+        route_json = json.dumps({'version': 1, 'routes': {'cli_dev': {
+            'provider': 'codex_app_server', 'session_id': session}}})
+        snapshot = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
+                    'tree': 'd' * 40, 'repo_common_dir': '/repo/.git',
+                    'origin': 'https://github.com/relativityE/speaksharp.git', 'snapshot_stable': True,
+                    'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
+        env_patch = patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': route_json}, clear=False)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        self.assign(worktree='/wt/ok')
+        server.update_work_item(KEY, state='waiting')
+        with patch.object(server, 'validate_worktree', return_value=snapshot), \
+             patch.object(server, '_git_common_dir', return_value='/repo/.git'):
+            aid = server.add_activity('PM', 'read checkpoint', 'dev')
+            qid = server.enqueue(aid, 'dev', 'READ-ONLY CHECKPOINT source-41:checkpoint\nInstruction: read and report',
+                                 source_actor='PM', work_item_key=KEY, kind='readonly_checkpoint',
+                                 task_action_id='source-41:checkpoint', delivery_key='task-action:test-transport')
+        return next(r for r in server.list_queue(500) if r['id'] == qid), snapshot
+
+    def test_existing_session_delivery_waits_for_actor_bound_receipt_and_result(self):
+        q, snapshot = self.enqueue_codex_readonly_task()
+        self.assertEqual((q['target_actor_id'], q['target_transport'], q['target_session_id']),
+                         ('cli_dev', 'codex_app_server', 'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'))
+        with patch.object(server, 'resolve_dev_target', return_value={'ok': True, 'path': '/wt/ok', 'item_key': KEY,
+                           'validation': snapshot}), \
+             patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'queued'}) as queue:
+            server.run_dev(q)
+        row = next(r for r in server.list_queue(500) if r['id'] == q['id'])
+        queue.assert_called_once()
+        self.assertEqual(row['status'], 'awaiting_receipt')
+        self.assertIsNone(row['process_started_at'])
+        self.assertIsNone(row['task_receipt_at'])
+        token = server._task_callback_token(q['id'], q['task_action_id'], q['target_actor_id'], q['target_session_id'])
+        base = {'action_id': q['task_action_id'], 'actor_id': 'cli_dev',
+                'session_id': q['target_session_id'], 'evidence': 'I read this exact task'}
+        code, _ = server.record_agent_task_callback({**base, 'stage': 'result'}, token)
+        self.assertEqual(code, 409)  # out-of-order result cannot settle a request
+        code, _ = server.record_agent_task_callback({**base, 'actor_id': 'app_dev', 'stage': 'receipt'}, token)
+        self.assertEqual(code, 403)  # token/session identity is task-bound
+        code, _ = server.record_agent_task_callback({**base, 'stage': 'receipt'}, token)
+        self.assertEqual(code, 200)
+        self.assertEqual(server.record_agent_task_callback({**base, 'stage': 'receipt'}, token)[0], 200)
+        result = {**base, 'stage': 'result', 'evidence': 'Read exact target; no edits made'}
+        self.assertEqual(server.record_agent_task_callback(result, token)[0], 200)
+        self.assertEqual(server.record_agent_task_callback(result, token)[0], 200)
+        conflict = {**result, 'evidence': 'different result'}
+        self.assertEqual(server.record_agent_task_callback(conflict, token)[0], 409)
+        row = next(r for r in server.list_queue(500) if r['id'] == q['id'])
+        self.assertEqual(row['status'], 'responded')
+        self.assertTrue(row['task_receipt_at'] and row['task_result_at'])
+
+    def test_app_server_queue_timeout_becomes_uncertain_and_is_never_replayed(self):
+        q, snapshot = self.enqueue_codex_readonly_task()
+        with patch.object(server, 'resolve_dev_target', return_value={'ok': True, 'path': '/wt/ok', 'item_key': KEY,
+                           'validation': snapshot}), \
+             patch.object(server.agent_transport, 'queue_message', side_effect=server.agent_transport.QueueUncertain('uncertain')) as queue:
+            server.run_dev(q)
+            with self.assertRaisesRegex(RuntimeError, 'not dispatchable'):
+                server.run_dev(next(r for r in server.list_queue(500) if r['id'] == q['id']))
+        self.assertEqual(queue.call_count, 1)
+        row = next(r for r in server.list_queue(500) if r['id'] == q['id'])
+        self.assertEqual(row['status'], 'transport_uncertain')
+
+    def test_waiting_for_actor_receipt_gets_one_recovery_then_a_blocker(self):
+        q, snapshot = self.enqueue_codex_readonly_task()
+        with patch.object(server, 'resolve_dev_target', return_value={'ok': True, 'path': '/wt/ok', 'item_key': KEY,
+                           'validation': snapshot}), \
+             patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'queued'}):
+            server.run_dev(q)
+        with patch.object(server, 'age_seconds', return_value=server.AGENT_RECEIPT_TIMEOUT + 1):
+            first = server.sweep_agent_delivery_stalls()
+            second = server.sweep_agent_delivery_stalls()
+        self.assertEqual(first[0]['queue_id'], second[0]['queue_id'])
+        row = next(r for r in server.list_queue(500) if r['id'] == q['id'])
+        self.assertEqual((row['status'], row['transport_recovery_count']), ('transport_stalled', 1))
+        recoveries = [r for r in server.list_queue(500) if r['delivery_key'] == f"agent-receipt-recovery:{q['id']}"]
+        self.assertEqual(len(recoveries), 1)
+
+    def test_app_dev_handoff_requires_configured_session_receipt_and_result(self):
+        route_json = json.dumps({'version': 1, 'routes': {'app_dev': {
+            'provider': 'codex_app_server', 'session_id': 'b076ba87-4ad9-48fa-bff9-4e71a1535b5b',
+            'remote_url': 'wss://app-dev.example/ws', 'auth_token_env': 'RWT_APP_DEV_TOKEN'}}})
+        route = {'message': 'App Dev owns this exact review', 'next': 'none', 'pm_actions': [],
+                 'board_updates': board(), 'review_handoffs': [{'pr_number': 1570, 'head': HEAD,
+                     'reviewed_ref': 'review 7', 'disposition': 'fix_now', 'owner': 'app_dev',
+                     'instruction': 'Confirm the exact-head review and return a result.'}]}
+        with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': route_json, 'RWT_APP_DEV_TOKEN': 'remote-secret',
+                                     'RWT_AGENT_CALLBACK_URL': 'https://board.example'}), \
+             patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'accepted'}) as send:
+            self.run_pm_with(route)
+            handoff = server.list_review_handoffs()[0]
+            self.assertEqual(handoff['state'], 'delivered')
+            self.assertEqual(send.call_count, 1)
+            self.assertEqual(send.call_args.args[1].remote_url, 'wss://app-dev.example/ws')
+            with server.con() as c:
+                notification = c.execute('SELECT * FROM agent_notifications').fetchone()
+            self.assertIsNotNone(notification)
+            action_id = notification['action_id']
+            token = server._notification_callback_token(action_id, 'app_dev', 'b076ba87-4ad9-48fa-bff9-4e71a1535b5b')
+            identity = {'action_id': action_id, 'actor_id': 'app_dev',
+                        'session_id': 'b076ba87-4ad9-48fa-bff9-4e71a1535b5b'}
+            self.assertEqual(server.record_agent_task_callback({**identity, 'stage': 'result', 'evidence': 'early'}, token)[0], 409)
+            wrong = dict(identity, session_id='a076ba87-4ad9-48fa-bff9-4e71a1535b5b')
+            self.assertEqual(server.record_agent_task_callback({**wrong, 'stage': 'receipt', 'evidence': 'wrong session'}, token)[0], 403)
+            receipt = {**identity, 'stage': 'receipt', 'evidence': 'exact review received'}
+            self.assertEqual(server.record_agent_task_callback(receipt, token)[0], 200)
+            self.assertEqual(server.record_agent_task_callback(receipt, token)[1].get('duplicate'), True)
+            self.assertEqual(server.record_agent_task_callback({**receipt, 'evidence': 'conflicting receipt'}, token)[0], 409)
+            self.assertEqual(server.list_review_handoffs()[0]['state'], 'acknowledged')
+            busy_activity = server.add_activity('SYSTEM', 'PM is already busy', 'pm')
+            server.enqueue(busy_activity, 'pm', 'Existing PM task', delivery_key='existing-pm-task')
+            result = {**identity, 'stage': 'result', 'evidence': 'exact-head result complete'}
+            self.assertEqual(server.record_agent_task_callback(result, token)[0], 200)
+            self.assertEqual(server.record_agent_task_callback(result, token)[1].get('duplicate'), True)
+            result_deliveries = [q for q in server.list_queue(500) if q.get('delivery_key') == f'task-result:{action_id}']
+            self.assertEqual(len(result_deliveries), 1)
+            self.assertIn('exact-head result complete', result_deliveries[0]['content'])
+            self.assertEqual(server.list_review_handoffs()[0]['state'], 'result_returned')
+            server.dispatch_review_handoff_notifications([handoff['id']])
+            self.assertEqual(send.call_count, 1)
+
+    def test_github_post_without_actor_route_stays_transport_blocked(self):
+        route = {'message': 'App Dev owns this exact review', 'next': 'none', 'pm_actions': [],
+                 'board_updates': board(), 'review_handoffs': [{'pr_number': 1570, 'head': HEAD,
+                     'reviewed_ref': 'review 8', 'disposition': 'fix_now', 'owner': 'app_dev',
+                     'instruction': 'Confirm the exact-head review and return a result.'}]}
+        with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': ''}), \
+             patch.object(server.agent_transport, 'queue_message') as send:
+            self.run_pm_with(route)
+        handoff = server.list_review_handoffs()[0]
+        self.assertEqual(handoff['state'], 'blocked')
+        self.assertIn('RWT_AGENT_ROUTES_JSON is not configured', handoff['hold_reason'])
+        send.assert_not_called()
+
+    def test_missing_or_changed_codex_route_fails_closed_without_claude_fallback(self):
+        q, snapshot = self.enqueue_codex_readonly_task()
+        changed = json.dumps({'version': 1, 'routes': {'cli_dev': {
+            'provider': 'codex_app_server', 'session_id': 'a076ba87-4ad9-48fa-bff9-4e71a1535b5c'}}})
+        with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': changed}), \
+             patch.object(server, 'resolve_dev_target', return_value={'ok': True, 'path': '/wt/ok', 'item_key': KEY,
+                           'validation': snapshot}), patch.object(server, '_run_claude_once') as claude:
+            with self.assertRaises(server.UnsupportedRecipientTransport):
+                server.run_dev(q)
+        claude.assert_not_called()
 
     def test_state_directory_has_one_process_owner(self):
         path = Path(self.tmp.name) / 'state-owner'
@@ -450,14 +597,18 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertIn('RECEIPT ' + h[0]['token'], dev[0]['content'])
         self.assertEqual(server.record_handoff_receipts(dev_result='ACK, starting now', queue_id=dev[0]['id']), [])
         self.assertEqual(server.record_handoff_receipts(dev_result='RECEIPT ' + h[0]['token'], queue_id=999), [])  # wrong delivery
-        self.assertEqual(server.record_handoff_receipts(dev_result='RECEIPT ' + h[0]['token'] + ' started', queue_id=dev[0]['id']), [h[0]['id']])
-        self.assertEqual(server.list_review_handoffs()[0]['state'], 'acknowledged')
+        self.assertEqual(server.record_handoff_receipts(dev_result='RECEIPT ' + h[0]['token'] + ' started', queue_id=dev[0]['id']), [])
+        self.assertEqual(server.list_review_handoffs()[0]['state'], 'delivered')
 
     def test_app_dev_handoff_is_published_and_acked_only_by_token_comment(self):
         route = {'message': 'Review dispositioned', 'next': 'none', 'pm_actions': [], 'board_updates': board(),
                  'review_handoffs': [{'pr_number': 1570, 'head': HEAD, 'reviewed_ref': 'review 4212726964', 'disposition': 'fix_now',
                                       'owner': 'app_dev', 'work_item_key': None, 'instruction': 'Fix the P1 binding'}]}
-        with patch.object(server, 'publish_pm_reply', return_value=True) as publish:
+        route_json = json.dumps({'version': 1, 'routes': {'app_dev': {
+            'provider': 'codex_app_server', 'session_id': 'b076ba87-4ad9-48fa-bff9-4e71a1535b5b'}}})
+        with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': route_json}), \
+             patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'accepted'}), \
+             patch.object(server, 'publish_pm_reply', return_value=True) as publish:
             self.run_pm_with(route)
         token = server.list_review_handoffs()[0]['token']
         self.assertIn('RECEIPT ' + token, publish.call_args[0][1])
@@ -465,6 +616,13 @@ class Deadlock5Tests(unittest.TestCase):
         server.record_handoff_receipts([self.comment(300, 'App Dev → CLI PM — ACK, on it')])
         self.assertEqual(server.list_review_handoffs()[0]['state'], 'delivered')
         server.record_handoff_receipts([self.comment(301, f'App Dev → CLI PM — RECEIPT {token} — started fix')])
+        self.assertEqual(server.list_review_handoffs()[0]['state'], 'delivered')
+        with server.con() as c:
+            notice = dict(c.execute('SELECT * FROM agent_notifications').fetchone())
+        identity = {'action_id': notice['action_id'], 'actor_id': 'app_dev',
+                    'session_id': 'b076ba87-4ad9-48fa-bff9-4e71a1535b5b'}
+        callback_token = server._notification_callback_token(identity['action_id'], identity['actor_id'], identity['session_id'])
+        self.assertEqual(server.record_agent_task_callback({**identity, 'stage': 'receipt', 'evidence': 'started fix'}, callback_token)[0], 200)
         self.assertEqual(server.list_review_handoffs()[0]['state'], 'acknowledged')
 
     def test_receipt_cannot_be_closed_by_quoted_or_negated_token(self):
@@ -472,7 +630,11 @@ class Deadlock5Tests(unittest.TestCase):
                  'review_handoffs': [{'pr_number': 1570, 'head': HEAD, 'reviewed_ref': 'review 4212726964',
                                       'disposition': 'fix_now', 'owner': 'app_dev',
                                       'instruction': 'Fix the P1 binding'}]}
-        with patch.object(server, 'publish_pm_reply', return_value=True):
+        route_json = json.dumps({'version': 1, 'routes': {'app_dev': {
+            'provider': 'codex_app_server', 'session_id': 'b076ba87-4ad9-48fa-bff9-4e71a1535b5b'}}})
+        with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': route_json}), \
+             patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'accepted'}), \
+             patch.object(server, 'publish_pm_reply', return_value=True):
             self.run_pm_with(route)
         token = server.list_review_handoffs()[0]['token']
         server.record_handoff_receipts([self.comment(301, f'App Dev: NOT DONE; quoting RECEIPT {token} from the request')])
@@ -758,6 +920,48 @@ class Deadlock5Tests(unittest.TestCase):
         self.assertIn('NOT inferred', wake['content'])
         self.assertEqual(self.journal()[0]['review_state'], 'code_review_observed')
 
+    def test_ci_completion_starts_one_authorized_review_and_routes_result_without_po_relay(self):
+        snapshot = {'pr': 1570, 'state': 'OPEN', 'draft': False, 'head': HEAD, 'base': BASE,
+                    'runs': {'321': {'id': 321, 'name': 'CI - Test Audit', 'status': 'completed',
+                                     'conclusion': 'success'}}}
+        pending = json.loads(json.dumps(snapshot))
+        pending['runs']['321']['status'] = 'in_progress'
+        self.assertIsNone(server.queue_ci_review_followup(pending))
+        failed = json.loads(json.dumps(snapshot))
+        failed['runs']['321']['conclusion'] = 'failure'
+        self.assertIsNone(server.queue_ci_review_followup(failed))
+        followup = server.queue_ci_review_followup(snapshot)
+        self.assertIsNotNone(followup)
+        server.init_db()  # simulated board restart after CI completed but before PM consumed its wake
+        self.assertEqual(server.queue_ci_review_followup(snapshot), followup)  # restart replay is idempotent
+        queued = next(q for q in server.list_queue(500) if q['id'] == followup)
+        self.assertEqual((queued['recipient'], queued['kind']), ('pm', 'ci_review_followup'))
+        self.assertIn(f'head {HEAD} on base {BASE}', queued['content'])
+        gh = FakeGitHub()
+        route = {'message': 'Authorized exact-head refresh started and returned Ready.', 'next': 'none',
+                 'pm_actions': [refresh_action()], 'board_updates': board()}
+        server.PM_MODE = 'codex'
+        with patch.object(server, '_run_pm_codex', return_value=(route, 'local-pm-session')), \
+             patch.object(server, '_pm_request', side_effect=gh.request), \
+             patch.object(server, 'compact_pr_context', return_value=f'#{1570} {HEAD} {BASE}'):
+            server.run_pm(queued)
+        self.assertEqual(gh.writes, ['draft', 'ready'])
+        self.assertEqual(server.queue_ci_review_followup(snapshot), None)  # journal prevents a second cycle
+        gh.reviews = [{'id': 42, 'commit_id': HEAD, 'state': 'COMMENTED',
+                       'body': 'Review finding: preserve the retry receipt.',
+                       'user': {'login': 'chatgpt-codex-connector[bot]'}}]
+        with patch.object(server, '_pm_request', side_effect=gh.request):
+            result_wakes = server.poll_refreshed_reviews()
+            self.assertEqual(server.poll_refreshed_reviews(), [])
+        self.assertEqual(len(result_wakes), 1)
+        result = next(q for q in server.list_queue(500) if q['id'] == result_wakes[0])
+        self.assertEqual((result['recipient'], result['kind']), ('pm', 'review_completed'))
+        self.assertIn('at exact head ' + HEAD, result['content'])
+        qualification = server.list_review_qualifications()[0]
+        self.assertEqual((qualification['code_state'], qualification['security_state']),
+                         ('code_review_observed', 'pending'))
+        self.assertFalse([q for q in server.list_queue(500) if q['recipient'] == 'po'])
+
     def test_review_poll_marks_changed_candidate_stale_before_attributing_review(self):
         gh = FakeGitHub()
         with patch.object(server, '_pm_request', side_effect=gh.request):
@@ -773,7 +977,11 @@ class Deadlock5Tests(unittest.TestCase):
 
     def test_unsupported_action_is_named_recoverable_blocker(self):
         route = {'message': 'merge it', 'next': 'dev', 'pm_actions': [dict(refresh_action(), kind='merge_pr')], 'board_updates': board()}
-        self.run_pm_with(route)
+        route_json = json.dumps({'version': 1, 'routes': {'app_dev': {
+            'provider': 'codex_app_server', 'session_id': 'b076ba87-4ad9-48fa-bff9-4e71a1535b5b'}}})
+        with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': route_json}), \
+             patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'accepted'}):
+            self.run_pm_with(route)
         blockers = json.loads(server.get_setting('pm_action_blockers'))
         self.assertIn("kind='merge_pr'", blockers[0]['detail'])
         self.assertIn('Recoverable', blockers[0]['detail'])
@@ -970,20 +1178,27 @@ class Deadlock5Tests(unittest.TestCase):
                  'ask_dispositions': [{'ask_id': ask, 'disposition': 'dispatched', 'evidence': 'review 4212726964 → CLI Dev',
                                        'owner': 'cli_dev', 'dependency': None, 'review_handoff_index': 0}]}
         server.PM_MODE = 'codex'
-        with patch.object(server, '_run_pm_codex', return_value=(route, 'thread')), \
+        route_json = json.dumps({'version': 1, 'routes': {'cli_dev': {
+            'provider': 'codex_app_server', 'session_id': 'a076ba87-4ad9-48fa-bff9-4e71a1535b5b'}}})
+        with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': route_json}), \
+             patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'queued'}), \
+             patch.object(server, '_run_pm_codex', return_value=(route, 'thread')), \
              patch.object(server, 'compact_pr_context', return_value='Current #1570'):
             server.run_pm(wake_row)  # the board's own wake, not a PO message
         self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask)['state'], 'dispatched')
         h = server.list_review_handoffs()[0]
         dev = next(r for r in self.dev_rows() if r['kind'] == 'review_handoff')
-        seen = {}
-
-        def fake_claude(content, cwd, sid, existing):
-            seen['state'] = server.list_review_handoffs()[0]['state']  # Dev invoked = received
-            return 0, f"RECEIPT {h['token']} — started the binding fix", sid, None, ''
-        with patch.object(server, 'resolved_bin', return_value='/bin/true'), patch.object(server, '_run_claude_once', side_effect=fake_claude):
+        self.assertEqual(server.list_review_handoffs()[0]['state'], 'delivered')
+        with patch.dict(os.environ, {'RWT_AGENT_ROUTES_JSON': route_json}), \
+             patch.object(server.agent_transport, 'queue_message', return_value={'detail': 'queued'}):
             server.run_dev(dev)
-        self.assertEqual(seen['state'], 'received')
+        self.assertEqual(server.list_review_handoffs()[0]['state'], 'delivered')
+        token = server._task_callback_token(dev['id'], dev['task_action_id'], 'cli_dev',
+                                           'a076ba87-4ad9-48fa-bff9-4e71a1535b5b')
+        callback = {'action_id': dev['task_action_id'], 'actor_id': 'cli_dev',
+                    'session_id': 'a076ba87-4ad9-48fa-bff9-4e71a1535b5b', 'stage': 'receipt',
+                    'evidence': f"RECEIPT {h['token']} — started the binding fix"}
+        self.assertEqual(server.record_agent_task_callback(callback, token)[0], 200)
         self.assertEqual(server.list_review_handoffs()[0]['state'], 'acknowledged')
         # A receipt is a stage, not completion: the ask stays open and PM cannot close it yet.
         self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask)['state'], 'dispatched')
@@ -992,7 +1207,8 @@ class Deadlock5Tests(unittest.TestCase):
         applied, rejected = server.apply_ask_dispositions({'id': 900}, done, 'https://example.test/c/1')
         self.assertEqual(applied, [])
         self.assertIn('a receipt is not completion', rejected[0])
-        server.record_handoff_receipts(dev_result=f"RESULT {h['token']} — binding fixed at {'d' * 40}", queue_id=dev['id'])
+        result_callback = dict(callback, stage='result', evidence=f"RESULT {h['token']} — binding fixed at {'d' * 40}")
+        self.assertEqual(server.record_agent_task_callback(result_callback, token)[0], 200)
         self.assertEqual(server.list_review_handoffs()[0]['state'], 'result_returned')
         self.assertEqual(next(a for a in server.list_asks() if a['id'] == ask)['state'], 'dispatched')
         applied, rejected = server.apply_ask_dispositions({'id': 901}, done, 'https://example.test/c/2')
@@ -1273,7 +1489,7 @@ class Deadlock5Tests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertTrue(rows[0]['delivery_key'].startswith('task-action:'))
 
-    def test_readonly_checkpoint_does_not_wake_wrong_claude_recipient(self):
+    def test_readonly_checkpoint_does_not_fallback_to_wrong_claude_recipient(self):
         ok = {'exists': True, 'is_git': True, 'branch': BRANCH, 'head': 'c' * 40,
               'tree': 'd' * 40, 'repo_common_dir': '/repo/.git', 'origin': 'https://github.com/relativityE/speaksharp.git',
               'snapshot_stable': True, 'dirty_paths': [], 'dirty_fingerprint': 'e' * 64, 'clean': True}
@@ -1294,7 +1510,7 @@ class Deadlock5Tests(unittest.TestCase):
                 with self.assertRaises(server.UnsupportedRecipientTransport):
                     server.run_dev(claimed)
                 self.assertTrue(server.block_delivery_for_transport(
-                    claimed, 'No supported transport to the existing Codex writer session'))
+                    claimed, 'RWT_AGENT_ROUTES_JSON is not configured for the existing Codex writer session'))
             invoke.assert_not_called()
             blocked = next(r for r in server.list_queue(500) if r['id'] == q['id'])
             self.assertEqual(blocked['status'], 'blocked_transport')

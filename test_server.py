@@ -226,16 +226,17 @@ print("[mcp-sdk] SEP-2352: stored OAuth credential has no 'issuer' stamp", file=
         ok = {'exists': True, 'is_git': True, 'branch': 'fix/task-route', 'head': 'c' * 40}
         with patch.object(server, 'validate_worktree', return_value=ok):
             self.assertTrue(server.apply_board_updates({'work_items': [{
-                'item_key': 'TASK-ROUTE', 'pr_number': 1570, 'title': '#1570 route', 'state': 'active', 'owner': 'cli_dev',
+                'item_key': 'TASK-ROUTE', 'title': 'synthetic route fixture', 'state': 'active', 'owner': 'cli_dev',
                 'branch': 'fix/task-route', 'worktree': '/wt/task-route', 'next_action': 'push'}],
                 'players': [{'player_id': 'cli_dev', 'status': 'assigned', 'work_item_key': 'TASK-ROUTE', 'task': '#1570 route'}]}))
+            self.assertEqual((server.dev_assignment() or {}).get('item_key'), 'TASK-ROUTE', server.list_work_items())
             aid = server.add_activity('Dev', 'candidate ready', 'pm')
             qid = server.enqueue(aid, 'pm', 'candidate ready', source_actor='DEV', handoff_depth=1)
             with patch.object(server, '_run_pm_codex', return_value=(route, 'thread_test')):
                 server.run_pm(next(r for r in server.list_queue() if r['id'] == qid))
         rows = server.list_queue()
         routed = [r for r in rows if r['recipient']=='dev']
-        self.assertEqual(len(routed), 1)
+        self.assertEqual(len(routed), 1, json.dumps(server.list_activity(), indent=2))
         self.assertEqual(routed[0]['work_item_key'], 'TASK-ROUTE')
         self.assertEqual(routed[0]['content'], 'Push the exact candidate.')
         self.assertEqual(routed[0]['source_actor'], 'PM')

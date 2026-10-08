@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://relativitye.github.io/speaksharp/rwt-agent-routes.schema.json",
+  "title": "RWT Board actor delivery routes",
+  "type": "object",
+  "required": ["version", "routes"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {"const": 1},
+    "routes": {
+      "type": "object",
+      "propertyNames": {"enum": ["cli_dev", "app_dev", "browser_pm", "cli_pm"]},
+      "additionalProperties": {
+        "type": "object",
+        "required": ["provider", "session_id"],
+        "additionalProperties": false,
+        "properties": {
+          "provider": {"const": "codex_app_server"},
+          "session_id": {"type": "string", "format": "uuid"},
+          "remote_url": {"type": "string", "pattern": "^(wss://[^\\s]+|unix://[^\\s]+)$"},
+          "auth_token_env": {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]{0,63}$"}
+        },
+        "allOf": [
+          {"if": {"properties": {"remote_url": {"pattern": "^wss://"}}, "required": ["remote_url"]}, "then": {"required": ["auth_token_env"]}},
+          {"if": {"properties": {"remote_url": {"pattern": "^unix://"}}, "required": ["remote_url"]}, "then": {"not": {"required": ["auth_token_env"]}}},
+          {"if": {"required": ["auth_token_env"]}, "then": {"required": ["remote_url"]}}
+        ]
+      }
+    }
+  }
+}
