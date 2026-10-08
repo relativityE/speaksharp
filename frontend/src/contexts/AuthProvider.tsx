@@ -381,6 +381,10 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     // Set BEFORE anything is cleared: every render in the sign-out window must already know where a
     // protected route should send the now-anonymous user.
     setSignedOutByUser(true);
+    // #1573 Codex P1 4223862191: sign-out INTENT ends the bound identity now — the auth epoch advances synchronously, so
+    // in-flight bound work (a session PDF) is discarded even if `supabase.auth.signOut()` is slow, fails or never emits
+    // SIGNED_OUT. Nothing below restores it.
+    setCurrentLogin(null, null);
     try {
       queryClient.clear();
       logger.info('[AuthProvider] QueryClient cache cleared');
