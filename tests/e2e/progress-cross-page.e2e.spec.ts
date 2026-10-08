@@ -174,7 +174,9 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await navigateToRoute(page, '/analytics');
     await waitForFeature(page, 'analytics');
     const history = page.getByTestId(`session-history-item-${SESSION_ID}`);
-    await expect(history).toContainText('U3 Cross-page Session');
+    // #1258 D9 (Rev 2 §5.9): the row is titled by its date and time, never `session.title`.
+    await expect(page.getByTestId(`session-detail-link-${SESSION_ID}`)).toHaveText(/^17 Jan 2025, \d{1,2}:\d{2}/);
+    await expect(history).not.toContainText('U3 Cross-page Session');
     await screenshotMatrix(page, 'history');
 
     await navigateToRoute(page, `/analytics/${SESSION_ID}`);
