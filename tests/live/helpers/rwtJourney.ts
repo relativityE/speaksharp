@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
 import {
     AUDIO_ARGS,
@@ -282,8 +282,11 @@ export async function markRunOwnedAccountCanary(
 export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claimed: boolean, qualifies = true): { canaryJourneys: string[]; userJourneys: string[] } {
     const canaryJourneys = tap.journeyIds('canary');
     const userJourneys = tap.journeyIds('user');
-    receipt.row('telemetry decodable', tap.undecodable === 0 && tap.events.length > 0 ? 'PASS' : 'FAIL', 'every analytics body decoded',
-        { events: tap.events.length, undecodable: tap.undecodable });
+    // Codex r4199883459: the claim is limited to bodies the browser EXPOSES; Blob beacons are counted, never claimed decoded.
+    receipt.row('telemetry decodable', tap.undecodable === 0 && tap.events.length > 0 ? 'PASS' : 'FAIL',
+        tap.blindBeacons === 0 ? 'every analytics body decoded'
+            : `every exposed analytics body decoded; ${tap.blindBeacons} beacon body(ies) not exposed by the browser (not claimed — the received readback decides)`,
+        { events: tap.events.length, undecodable: tap.undecodable, blindBeacons: tap.blindBeacons });
     receipt.row('signup-stage telemetry (user class)', userJourneys.length > 0 ? 'PASS' : 'HOLD',
         'pre-claim signup events were sent as ordinary user traffic (sent, not yet received)',
         { userEvents: tap.events.filter((e) => e.trafficType === 'user').length, userJourneys: userJourneys.length });
@@ -445,6 +448,9 @@ export interface SentEvent {
     /** Closed enums / opaque ids only — never content. */
     reason?: string;
     stage?: string;
+    /** Closed route-transition fields retained only to bind a later action before its own event is sent. */
+    journeyStep?: string;
+    toRoute?: string;
     /** `private_model_acquisition_success` timing only (integers and closed enums; v12 download-vs-setup row). */
     acquisition?: AcquisitionTiming;
     /** #1258: closed enum / integer fields of the outcome events (OUTCOME_FIELDS only) — never content. */
@@ -470,17 +476,88 @@ function outcomeFields(event: string, props: Record<string, unknown>): SentEvent
     return kept;
 }
 
+/**
+ * #1258 (RWT run 37514078995, F2): a "sent" row may FAIL only when the tap could read every PostHog body that could carry
+ * the event. posthog-js flushes its queue on page-hide with `navigator.sendBeacon(url, new Blob([body]))`, and Chromium
+ * exposes no body for a Blob beacon — neither `postDataBuffer()` nor CDP `Network.getRequestPostData` (verified locally).
+ * Those events DID leave the page (PostHog received `feedback_submit` and `session_pdf_downloaded` that the tap reported as
+ * unsent), so an event missing while a beacon that could carry it was blind is missing EVIDENCE — HOLD, decided by the
+ * received readback — never FAIL.
+ * Codex r4199883470: only a blind beacon sent AT OR AFTER the step that emits the event can carry it, so `sinceMs` scopes
+ * the uncertainty: an earlier reload's blind beacon never turns a later genuine absence into HOLD.
+ */
+type BlindTimes = Pick<AnalyticsTap, 'blindAt'>;
+const blindSince = (tap: BlindTimes, sinceMs: number): number => tap.blindAt.filter((t) => t >= sinceMs).length;
+export function sentVerdict(allSeen: boolean, tap: BlindTimes, sinceMs: number): 'PASS' | 'FAIL' | 'HOLD' {
+    if (allSeen) return 'PASS';
+    return blindSince(tap, sinceMs) > 0 ? 'HOLD' : 'FAIL';
+}
+/**
+ * #1258 (#1570, Codex r4201644107; CLI PM option 1a, 6029321428) — a blind HOLD is settled only by RECEIVED evidence the
+ * finalizer can actually read: `receivedBy` names the qualification stages whose readback requires these events
+ * (`QUALIFICATION_STAGES` in completenessGate.ts). Rows whose events no stage receives say so and stay HOLD.
+ */
+export function sentDetail(detail: string, allSeen: boolean, tap: BlindTimes, sinceMs: number, receivedBy: readonly string[] = []): string {
+    const blind = blindSince(tap, sinceMs);
+    if (allSeen || blind === 0) return detail;
+    const unseen = `${detail} — not seen, but ${blind} PostHog beacon(s) sent after this step carried a body the browser does not expose`;
+    return receivedBy.length > 0
+        ? `${unseen}; settled at finalization only if every bound journey declaring ${receivedBy.join(', ')} qualifies in the PostHog readback`
+        : `${unseen}; no readback stage receives these events, so this row stays HOLD`;
+}
+
+/** Flat evidence that lets `finalizeReceipt --readback` settle this row's blind HOLD from the named received stages. */
+export function readbackSettlement(receivedBy: readonly string[], tap: BlindTimes, sinceMs: number): { receivedByStages: string; blindSinceStep: number } {
+    return { receivedByStages: receivedBy.join(','), blindSinceStep: blindSince(tap, sinceMs) };
+}
+
+/**
+ * #1258 (#1570, Codex r4200925124) — an EXACT-count "sent" claim (e.g. "the Analytics revisit generated no second review")
+ * is proven only when no beacon that could carry an extra event was blind. Counted between `fromMs` (the step that starts
+ * the window, e.g. Stop) and `toMs` (when the count was snapshotted): an observed EXTRA is definitive (FAIL); the expected
+ * count — or fewer — with an in-window blind beacon is unproven (HOLD); the expected count with every body exposed PASSes.
+ */
+export function exactCountVerdict(count: number, expected: number, tap: BlindTimes, fromMs: number, toMs: number): 'PASS' | 'FAIL' | 'HOLD' {
+    if (count > expected) return 'FAIL';
+    const blind = tap.blindAt.filter((t) => t >= fromMs && t <= toMs).length;
+    if (blind > 0) return 'HOLD';
+    return count === expected ? 'PASS' : 'FAIL';
+}
+
+/** An Analytics page path (`/analytics`, `/analytics/<id>`, or the app's normalized `/analytics/id`); anything else is not. */
+export function analyticsRoute(path: string | null | undefined): boolean {
+    return typeof path === 'string' && /^\/analytics(\/[^/]+)?\/?$/.test(path);
+}
+
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
 export class AnalyticsTap {
     readonly events: SentEvent[] = [];
+    readonly actionBindings: ReadbackActionBinding[] = [];
     undecodable = 0;
+    /** PostHog POSTs whose body the browser does not expose (a Blob `sendBeacon` on page-hide). See `sentVerdict`. */
+    blindBeacons = 0;
+    /** When each blind request was sent (ms), so uncertainty is scoped to the step that could have produced it. */
+    readonly blindAt: number[] = [];
+    /** The latest main-frame document load (ms) and its path: every boot after it is the page the person is on now. */
+    documentAt = 0;
+    documentPath: string | null = null;
+
+    noteDocument(url: string, at = Date.now()): void {
+        this.documentAt = at;
+        try { this.documentPath = new URL(url).pathname; } catch { this.documentPath = null; }
+    }
 
     attach(page: Page): void {
         page.on('request', (request) => {
+            let mainDocument = false;
+            try { mainDocument = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { mainDocument = false; }
+            if (mainDocument) { this.noteDocument(request.url()); return; }
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
-            for (const entry of this.decode(request.postDataBuffer())) {
+            const body = request.postDataBuffer();
+            if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; this.blindAt.push(Date.now()); return; }
+            for (const entry of this.decode(body)) {
                 const record = entry as { event?: unknown; properties?: Record<string, unknown> };
                 if (typeof record?.event !== 'string') continue;
                 const props = record.properties ?? {};
@@ -495,6 +572,8 @@ export class AnalyticsTap {
                     trafficType: text('traffic_type'),
                     reason: text('reason'),
                     stage: text('stage'),
+                    journeyStep: text('step'),
+                    toRoute: text('to_route'),
                     ...(OUTCOME_FIELDS[record.event] ? { fields: outcomeFields(record.event, props) } : {}),
                     ...(record.event === 'private_model_acquisition_success' ? { acquisition: {
                         cacheResult: text('cache_result'), completeness: text('measurement_completeness'),
@@ -534,6 +613,44 @@ export class AnalyticsTap {
     }
 
     sent(event: string): SentEvent[] { return this.events.filter((e) => e.event === event); }
+
+    /**
+     * Snapshot the current Analytics journey immediately BEFORE the feedback/PDF event is serialized.
+     * The identity must already be visible on decoded events of the CURRENT boot; the action anchor is deliberately not
+     * consulted, so a blind Blob beacon cannot erase the readback target or supply its own identity.
+     * #1570 Codex P1 r4212726964: the current boot is the one whose positive control was sent after the latest document
+     * load. A hard reload emits no `route_change` on its first render, so a boot without one is bound to the journey its
+     * own positive control carries (entered directly on Analytics) — never to the pre-reload boot's route.
+     */
+    captureActionBinding(stage: ReadbackActionStage, releaseSha: string, runId: string, runAttempt: string, pageUrl: string): ReadbackActionBinding | null {
+        if (!/^[a-f0-9]{40}$/.test(releaseSha) || !/^\d{1,20}$/.test(runId) || !/^\d{1,4}$/.test(runAttempt)) return null;
+        let pagePath: string | null = null;
+        try { pagePath = new URL(pageUrl).pathname; } catch { pagePath = null; }
+        if (!analyticsRoute(pagePath)) return null;
+        const control = [...this.events].reverse().find((e) => e.event === 'telemetry_positive_control'
+            && e.at >= this.documentAt && e.trafficType === 'canary' && e.releaseSha === releaseSha);
+        if (!control?.bootId || !control.journeyId) return null;
+        const route = [...this.events].reverse().find((e) => e.event === 'journey_step' && e.journeyStep === 'route_change'
+            && e.bootId === control.bootId);
+        let journeyId: string | undefined;
+        let entry: ReadbackActionBinding['entry'];
+        if (route) {
+            if (!analyticsRoute(route.toRoute) || route.releaseSha !== releaseSha || route.trafficType !== 'canary') return null;
+            journeyId = route.journeyId;
+            entry = 'route_change';
+        } else {
+            if (!analyticsRoute(this.documentPath)) return null;
+            journeyId = control.journeyId;
+            entry = 'boot_load';
+        }
+        if (!journeyId) return null;
+        const binding: ReadbackActionBinding = {
+            stage, journeyId, bootId: control.bootId, releaseSha,
+            trafficType: 'canary', runId, runAttempt, entry, capturedAt: Date.now(),
+        };
+        this.actionBindings.push(binding);
+        return binding;
+    }
     /** Journeys to read back. With a class, only journeys whose events carried it (the pre-claim signup is `user`). */
     journeyIds(trafficType?: string): string[] {
         return [...new Set(this.events
@@ -1185,12 +1302,14 @@ export async function shareFeedbackRows(
     receipt: RwtReceipt,
     admin: { from: (t: string) => { select: (c: string) => { eq: (c: string, v: string) => { gte: (c: string, v: string) => Promise<{ data: Array<{ id: unknown }> | null; error: { code?: string } | null }> } } } },
     uid: string,
+    tap?: AnalyticsTap,
 ): Promise<string | null> {
     const since = new Date(Date.now() - 1_000).toISOString();
     await page.getByTestId('nav-report-issue-button').first().click();
     await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('feedback-type-praise').click();
     await page.getByTestId('issue-report-description').fill('RWT automated journey check from a disposable account. Please ignore.');
+    tap?.captureActionBinding('share_feedback', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '', page.url());
     await page.getByTestId('issue-report-submit').click();
     const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
         .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);

@@ -13,6 +13,26 @@
 /** `attemptIds`: the recording attempts this binding must show exactly one start and one save for (judged per attempt). */
 export interface ReadbackBinding { journeyId: string; stages: string[]; firstDownload?: boolean; attemptIds?: string[] }
 
+/** In-memory action-time identity captured before feedback/PDF event serialization; never written into the receipt. */
+export type ReadbackActionStage = 'share_feedback' | 'session_pdf_export';
+export interface ReadbackActionBinding {
+    stage: ReadbackActionStage;
+    journeyId: string;
+    bootId: string;
+    releaseSha: string;
+    trafficType: string;
+    runId: string;
+    runAttempt: string;
+    /**
+     * How the journey was observed (#1570 Codex P1 r4212726964, hard reload): `route_change` — the boot's latest decoded route
+     * transition into Analytics; `boot_load` — the boot loaded directly onto Analytics (a reload emits no route_change), so
+     * its journey is the one its own positive control carries.
+     */
+    entry: 'route_change' | 'boot_load';
+    /** Node-side capture time, so the oracle re-checks "latest boot / latest route" as of the action, not as of readback. */
+    capturedAt: number;
+}
+
 /** Every canary journey the run observed — bound (qualified) or reported only. Worksheet and finalizer bind to this set. */
 export function runJourneyIds(plan: { journeys: readonly ReadbackBinding[]; reportedJourneyIds: readonly string[] }): string[] {
     return [...new Set([...plan.journeys.map((j) => j.journeyId), ...plan.reportedJourneyIds])];
@@ -266,6 +286,38 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
 }
 
 /**
+ * #1258 (#1570, Codex P1 r4214120116) — THE CLOSED ROW-TO-STAGE MAP for blind-HOLD settlement. The finalizer, not the
+ * untrusted receipt, decides which readback stages may settle which sent row: a row is settled only from the stages
+ * listed here for its suite and step. A receipt row that carries `receivedByStages` / `blindSinceStep` but is not listed,
+ * or names stages other than exactly these, is a binding error — so a modified receipt cannot turn, say, `feedback
+ * retention` into PASS from the `session_after_open_mic` readback. Each entry mirrors the live spec's `*ReceivedBy`
+ * constant (source contract: tests/unit/rwtBlindHoldSettlement1258.test.ts).
+ */
+// Codex P1 4219466523: the two required CORRELATION rows settle from the stage that runs the SAME correlation rule on
+// what PostHog received (`practice_again` → press_reached_its_intended_route, `share_feedback` →
+// submit_resolves_to_its_received_outcome). The partial Focus run shares no feedback, so it maps only the Practice row.
+const PRACTICE_SETTLEMENT = { 'Practice again press → arrival (sent)': ['practice_again'] } as const;
+const FEEDBACK_SETTLEMENT = { 'feedback outcome (sent)': ['share_feedback'] } as const;
+const FOCUS_SETTLEMENT: Readonly<Record<string, readonly string[]>> = {
+    'coverage_evaluation sent': ['session_after_focus_points'],
+    'inventory events sent': ['analytics_inventory'],
+    ...PRACTICE_SETTLEMENT,
+};
+export const BLIND_HOLD_SETTLEMENT: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+    'open-mic-first-session': {
+        'telemetry sent': ['session_after_open_mic', 'share_feedback'],
+        'inventory events sent': ['analytics_inventory', 'session_pdf_export'],
+        ...PRACTICE_SETTLEMENT,
+        ...FEEDBACK_SETTLEMENT,
+    },
+    'focus-points-session': { ...FOCUS_SETTLEMENT, ...FEEDBACK_SETTLEMENT },
+    'focus-points-partial': FOCUS_SETTLEMENT,
+};
+const settlementStagesFor = (suite: string, step: string): readonly string[] | undefined =>
+    Object.prototype.hasOwnProperty.call(BLIND_HOLD_SETTLEMENT, suite) && Object.prototype.hasOwnProperty.call(BLIND_HOLD_SETTLEMENT[suite], step)
+        ? BLIND_HOLD_SETTLEMENT[suite][step] : undefined;
+
+/**
  * PM RETURN 2026-09-26 — the receipt is untrusted input. Validate its structure, every row's verdict, the run identity
  * and the suite's required human observations BEFORE anything is applied; any error means no final PASS.
  */
@@ -320,6 +372,17 @@ export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization
     for (const step of automated.absent) {
         if (countOf(step) > 0) errors.push(`receipt carries "${step}", which the ${receipt.suite} suite never writes`);
     }
+    // Codex P1 r4214120116: settlement claims must match the finalizer's closed map exactly, or nothing is finalized.
+    for (const row of receipt.rows) {
+        if (isHumanObservation(row)) continue;
+        const ev = row.evidence ?? {};
+        if (ev.receivedByStages === undefined && ev.blindSinceStep === undefined) continue;
+        const allowed = settlementStagesFor(receipt.suite, row.step);
+        if (!allowed) { errors.push(`row "${row.step}" claims readback settlement, which the ${receipt.suite} suite never maps`); continue; }
+        if (ev.receivedByStages !== allowed.join(',') || typeof ev.blindSinceStep !== 'number' || !Number.isInteger(ev.blindSinceStep) || ev.blindSinceStep < 0) {
+            errors.push(`row "${row.step}" names settlement stages other than the mapped ${allowed.join(', ')}`);
+        }
+    }
     // The suite writes `journey telemetry received` only as HOLD; the readback merge is the ONLY path to PASS/FAIL. A
     // receipt that arrives with it already settled would finalize PASS with no readback at all.
     const received = receipt.rows.find((row) => row.step === 'journey telemetry received' && !isHumanObservation(row));
@@ -362,6 +425,36 @@ export interface ReadbackVerdicts {
 }
 const RECEIVED_ROW = 'journey telemetry received';
 
+/**
+ * #1258 (#1570, Codex r4201644107; CLI PM option 1a, 6029321428) — RECEIVED EVIDENCE SETTLES A BLIND "SENT" HOLD.
+ *
+ * A sent row HOLDs when its event may have left inside a Blob beacon the browser does not expose. It becomes PASS only
+ * when `BLIND_HOLD_SETTLEMENT` maps the row's suite and step to the qualification stages that receive its events (the
+ * receipt's `receivedByStages` must equal that entry; it never chooses the stages) and, for EVERY mapped stage,
+ * at least one bound journey declares it and every journey declaring it QUALIFIED: received implies sent. Anything less —
+ * an unnamed stage, a stage no journey declared, a journey that HOLD or FAILed — leaves the row exactly as written. Rows
+ * whose events no stage receives (coaching outcomes, the exact generation count) carry no stages and so stay HOLD. Only
+ * a HOLD caused by a blind beacon (`blindSinceStep > 0`) is eligible; a FAIL or PASS is never rewritten.
+ */
+function settleBlindHold(suite: string, row: ReceiptRow, journeys: readonly { stages: readonly string[]; verdict: string }[]): ReceiptRow {
+    const blind = row.evidence?.blindSinceStep;
+    if (row.verdict !== 'HOLD' || isHumanObservation(row) || typeof blind !== 'number' || blind <= 0) return row;
+    // The stages come from the closed map, never from the receipt (validateReceipt already rejected any disagreement).
+    const stages = settlementStagesFor(suite, row.step);
+    if (!stages || row.evidence?.receivedByStages !== stages.join(',')) return row;
+    const settled = stages.every((stage) => {
+        const declaring = journeys.filter((j) => j.stages.includes(stage));
+        return declaring.length > 0 && declaring.every((j) => j.verdict === 'QUALIFIED');
+    });
+    if (!settled) return row;
+    return {
+        ...row,
+        verdict: 'PASS',
+        detail: `received: every bound journey declaring ${stages.join(', ')} qualified in the PostHog readback, so the events the browser could not show did arrive (settled at finalization)`,
+        evidence: { ...row.evidence, settledByReadback: true },
+    };
+}
+
 function applyReadback(receipt: ReceiptForFinalization, readback: unknown, errors: string[]): ReceiptRow[] {
     const rb = readback as Partial<ReadbackVerdicts> | null;
     const bad = (why: string) => { errors.push(`readback verdicts ${why}`); return receipt.rows; };
@@ -381,7 +474,7 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD' && j.verdict !== 'FAIL')) return bad('carry an unknown journey verdict');
     const failed = journeys.filter((j) => j.verdict === 'FAIL').length;
     const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');
-    return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? r : {
+    return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? settleBlindHold(receipt.suite, r, journeys) : {
         ...r,
         verdict: failed > 0 ? 'FAIL' : qualified ? 'PASS' : 'HOLD',
         detail: failed > 0 ? 'the PostHog readback RECEIVED an observed failure for a bound journey (merged at finalization)'

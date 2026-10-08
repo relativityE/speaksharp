@@ -86,6 +86,10 @@ import {
     entitlementRow,
     runOwnedIdentityFailures,
     type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
+    sentVerdict,
+    sentDetail,
+    readbackSettlement,
+    exactCountVerdict,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 
@@ -224,11 +228,15 @@ test.describe('RWT — Open Mic first session @live', () => {
         let persistedId: string | null = null;
         // The take's own generation count, snapshotted before the Practice-again pass records more takes.
         let generationsForTake: number | null = null;
+        // Codex r4200925124: when the generation count was snapshotted — the end of its blind-beacon window.
+        let generationsAt = 0;
         // #1532 Codex P1 r4124290575: sent-stream windows around each take's Start, so the takes are identified by the Start the
         // page sent (takeStartedAfter), independently of whether their saves arrive.
         let firstTakeFrom = 0;
         let repeatWindow: [number, number] | null = null;
         let stoppedAt = 0;
+        // Codex r4199883470: where the inventory step starts — blind beacons before it cannot carry its events.
+        let inventoryFrom = 0;
         let transcriptDigest = ''; // compared in Node only; never written to the receipt
         let transcriptCanonical = ''; // in memory only, for the PDF match; never written anywhere
         let claimed = false;
@@ -531,6 +539,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
 
             await test.step('Products menu opened on the session page (inventory, recording journey)', async () => {
+                inventoryFrom = Date.now();
                 // #1532 Codex P1 r4121232419: emitted inside the recording journey (a product route; nothing navigates), where the
                 // analytics_inventory stage proves it was received.
                 const opened = await openProductsMenuInPlace(page);
@@ -557,6 +566,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                     const button = page.getByTestId(`download-pdf-btn-${persistedId}`).or(page.getByTestId(`download-pdf-btn-mobile-${persistedId}`)).first();
                     const offered = await button.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
                     if (!offered) { receipt.row('session PDF', 'FAIL', 'no PDF download offered for this session'); return; }
+                    tap.captureActionBinding('session_pdf_export', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '', page.url());
                     // Outside every uploaded path (#1532 Codex P1 r4126003354): a killed run skips `finally`.
                     const transient = transientPrivateDir('pdf');
                     const file = transient.file('rwt-session.pdf');
@@ -589,7 +599,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             // minted a new journey, so feedback is bound and qualified there for its own stages (share_feedback); the recording
             // journey keeps the take, the Products menu and the first saved-review revisit; the PDF binds where it lands. ───────────────────────────
             await test.step('row 7 — share feedback', async () => {
-                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid);
+                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid, tap);
             });
 
             // ── The next Start is not held behind the Progress evaluation (#1471) ───────────────────────
@@ -622,6 +632,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Practice again through the rendered controls: Analytics → take → the review's own repeat (#1533) ───
             await test.step('Practice again — Analytics action, then the completed review\'s repeat action', async () => {
                 generationsForTake = tap.sent('practice_loop_review_requested').length;
+                generationsAt = Date.now();
                 if (!persistedId) {
                     practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null });
                     await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', []);
@@ -648,16 +659,24 @@ test.describe('RWT — Open Mic first session @live', () => {
             Object.assign(receipt.meta, diag.snapshot());
             // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
             const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
-            receipt.row('telemetry sent', tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0 ? 'PASS' : 'FAIL',
-                'session_saved and feedback_submit left the page (sent, not yet received)',
-                { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length });
+            const telemetrySeen = tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0;
+            const telemetryReceivedBy = ['session_after_open_mic', 'share_feedback'] as const;
+            receipt.row('telemetry sent', sentVerdict(telemetrySeen, tap, stoppedAt),
+                sentDetail('session_saved and feedback_submit left the page (sent, not yet received)', telemetrySeen, tap, stoppedAt, telemetryReceivedBy),
+                { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length, ...readbackSettlement(telemetryReceivedBy, tap, stoppedAt) });
             // #1258 (#1563 closure): the outcome telemetry must CORRELATE, not merely be sent — each Practice-again press
             // reached its intended route (same action_seq), and each Share Feedback attempt resolved (same submit_seq).
             // Sent here; received is the deployed PostHog readback. Closed enums and integers only.
+            // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
+            // correlation on RECEIVED events then settles the row at finalization.
             const practiceArrival = practiceArrivalVerdict(tap.events);
-            receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail, practiceArrival.evidence);
+            const practiceArrivalReceivedBy = ['practice_again'] as const;
+            receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
+                { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, stoppedAt) });
             const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
-            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail, feedbackOutcome.evidence);
+            const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
+            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
+                { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, stoppedAt) });
             // Coaching telemetry the page SENT. RECEIVED is proven by the PostHog readback of the declared
             // session_after_open_mic stage: its post-Stop chain requires a received stage_latency "review_rendered", which
             // the app emits only once a validated two-phrase review is on screen.
@@ -671,9 +690,9 @@ test.describe('RWT — Open Mic first session @live', () => {
                 reviewRenderedStage: reviewRendered,
             };
             const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
-            receipt.row('coaching telemetry sent', coachingSent ? 'PASS' : 'FAIL',
+            receipt.row('coaching telemetry sent', sentVerdict(coachingSent, tap, stoppedAt),
                 coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
-                    : 'a coaching outcome event did not leave the page', coachingEvents);
+                    : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt), { ...coachingEvents, blindBeacons: tap.blindBeacons });
             // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
             // RECEIVED is the deployed PostHog readback for this journey.
             const inventory = {
@@ -682,13 +701,18 @@ test.describe('RWT — Open Mic first session @live', () => {
                 savedReviewRevisited: tap.sent('saved_review_revisited').length,
                 reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
             };
-            receipt.row('inventory events sent', inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
-                'products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventory);
+            const inventorySeen = inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0;
+            const inventoryReceivedBy = ['analytics_inventory', 'session_pdf_export'] as const;
+            receipt.row('inventory events sent', sentVerdict(inventorySeen, tap, inventoryFrom),
+                sentDetail('products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventorySeen, tap, inventoryFrom, inventoryReceivedBy),
+                { ...inventory, blindBeacons: tap.blindBeacons, ...readbackSettlement(inventoryReceivedBy, tap, inventoryFrom) });
             // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
             const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
-            receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : 'FAIL',
-                generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none'
-                    : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake });
+            const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
+            receipt.row('revisit is not a generation', generationVerdict,
+                generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none'
+                    : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD'
+                        : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
             // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
             // "analytics detail shows both AI suggestions").
             const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
@@ -705,6 +729,9 @@ test.describe('RWT — Open Mic first session @live', () => {
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
                 },
                 feedback: true, pdfExport: true, practiceAgain: true,
+                actionBindings: tap.actionBindings,
+                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
+                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
             }),
                 tap.trafficTypes(), userJourneys);
         }
