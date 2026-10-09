@@ -39,9 +39,14 @@ interface SavedPracticeLoopReviewProps {
      * its latest review this way: no loading line, no "No coaching was saved…", and never an older session instead.
      */
     onlyWhenSaved?: boolean;
+    /**
+     * #1258 (Rev 2 §4.2): rendered INSTEAD of the band when this session has no saved coaching (`none`). The reopened
+     * session passes its explicit Try again here; every other caller keeps the "No coaching was saved…" copy.
+     */
+    noneFallback?: React.ReactNode;
 }
 
-export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = ({ sessionId, sessionLabel, eyebrow = 'Practice Loop review', footerLink, onlyWhenSaved = false }) => {
+export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = ({ sessionId, sessionLabel, eyebrow = 'Practice Loop review', footerLink, onlyWhenSaved = false, noneFallback }) => {
     const navigate = useNavigate();
     const [saved, setSaved] = useState<{ sessionId: string; value: SavedSessionReview } | null>(null);
     const [readAttempt, setReadAttempt] = useState(0);
@@ -218,6 +223,7 @@ export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = (
     };
 
     if (onlyWhenSaved && coaching?.kind !== 'review') return null;
+    if (noneFallback !== undefined && coaching?.kind === 'none') return <>{noneFallback}</>;
 
     return (
         <section

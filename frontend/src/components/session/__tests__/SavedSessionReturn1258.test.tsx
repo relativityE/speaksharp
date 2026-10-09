@@ -6,9 +6,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { PracticeSession } from '@/types/session';
 
+// The stub stands for a session with NO saved coaching: it renders the caller's `noneFallback`, as the real band does.
 vi.mock('@/components/analytics/SavedPracticeLoopReview', () => ({
-    SavedPracticeLoopReview: ({ sessionId }: { sessionId: string }) => <section data-testid="saved-review" data-session={sessionId} />,
+    SavedPracticeLoopReview: ({ sessionId, noneFallback }: { sessionId: string; noneFallback?: React.ReactNode }) =>
+        <section data-testid="saved-review" data-session={sessionId}>{noneFallback}</section>,
 }));
+vi.mock('../AISuggestions', () => ({ default: () => <div data-testid="ai-suggestions-stub" /> }));
 vi.mock('@/components/analytics/SavedFocusPointsCoverage', () => ({
     SavedFocusPointsCoverage: ({ sessionId }: { sessionId: string }) => <div data-testid="saved-fp" data-session={sessionId} />,
 }));
@@ -42,6 +45,18 @@ describe('SavedSessionReturn', () => {
         render(<SavedSessionReturn session={row({ transcript_state: state, transcript: 'stale words' })} onSeeAllSessions={() => {}} />);
         expect(screen.getByTestId(`saved-session-return-transcript-${state}`)).toHaveTextContent(copy);
         expect(screen.queryByText('stale words')).toBeNull();
+    });
+
+    // PO 2026-10-09: no saved coaching → Try again only while the row still keeps its transcript; otherwise terminal.
+    it.each([
+        ['available', true],
+        ['expired', false],
+        ['not_captured', false],
+    ] as const)('no saved coaching, transcript %s → Try again offered: %s', (state, offered) => {
+        render(<SavedSessionReturn session={row({ transcript_state: state })} onSeeAllSessions={() => {}} />);
+        expect(screen.getByTestId('restored-review-retry')).toHaveAttribute('data-retry', offered ? 'available' : 'unavailable');
+        expect(screen.queryAllByTestId('restored-review-retry-button')).toHaveLength(offered ? 1 : 0);
+        expect(screen.queryAllByTestId('restored-review-not-available')).toHaveLength(offered ? 0 : 1);
     });
 
     it('unmeasured fillers are omitted, never a fabricated zero (ThisRunCard\'s existing rule)', () => {

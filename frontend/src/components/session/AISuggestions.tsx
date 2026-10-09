@@ -15,6 +15,7 @@ import {
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
+import { FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -196,18 +197,6 @@ export const FOCUS_RESULTS_PENDING_WAITS = 3;
 
 /** #1473 — the bounded backoff before the single automatic retry of a recoverable failure. */
 export const AI_REVIEW_AUTO_RETRY_BACKOFF_MS = 2500;
-
-/**
- * #1538 (PO-approved wording, Codex P1 r4117696897) — the disclosure names everything `get-ai-suggestions` sends.
- * A Focus Points take's prompt also carries its saved topic and point labels, so its line says so; Open Mic sends the
- * transcript only and keeps the transcript-only line. Exact PO wording: do not edit without PO approval.
- */
-const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.";
-const FOCUS_POINTS_DISCLOSURE =
-  "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
-
-// #1258 punch list D3 (Rev 2 §2.1).
-const UNAVAILABLE_MESSAGE = "The review didn't load. Your session is saved.";
 
 const getSafeAiSuggestionError = (
   err: unknown,
