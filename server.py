@@ -5,6 +5,7 @@ import zipfile
 import json
 import re
 import hashlib
+import math
 import hmac
 import secrets
 from guarded_pm import Executor, Hold, KINDS as PM_ACTION_KINDS, canonical_key
@@ -1339,41 +1340,59 @@ def github_backoff_until():
 
 
 def github_request_budget_state():
-    """Return the SQLite-shared request window used by watcher, PM, packet and UI readers."""
+    """Return the SQLite-shared rolling request window used by all GitHub readers."""
     now_epoch = time.time()
-    window = int(now_epoch // GH_REQUEST_WINDOW_SECONDS)
     try:
         raw = json.loads(get_setting('github_request_budget', '{}') or '{}')
     except (ValueError, TypeError):
         raw = {'corrupt': True}
-    used = _request_budget_used(raw, window)
-    reset_epoch = (window + 1) * GH_REQUEST_WINDOW_SECONDS
-    return {'window': window, 'used': used, 'limit': GH_REQUEST_BUDGET_PER_WINDOW,
+    timestamps = _request_budget_timestamps(raw, now_epoch)
+    used = len(timestamps)
+    reset_epoch = (timestamps[0] if timestamps else now_epoch) + GH_REQUEST_WINDOW_SECONDS
+    return {'window': int(now_epoch // GH_REQUEST_WINDOW_SECONDS),
+            'used': used, 'limit': GH_REQUEST_BUDGET_PER_WINDOW,
             'reset_at': datetime.fromtimestamp(reset_epoch, timezone.utc).isoformat(),
             'remaining': max(0, GH_REQUEST_BUDGET_PER_WINDOW - used)}
 
 
-def _request_budget_used(raw, window):
+def _request_budget_timestamps(raw, now_epoch):
+    """Read the rolling log; conservatively migrate one adjacent legacy fixed bucket."""
     if raw is None or raw == {}:
-        return 0
+        return []
     if not isinstance(raw, dict):
-        return GH_REQUEST_BUDGET_PER_WINDOW
+        return [now_epoch] * GH_REQUEST_BUDGET_PER_WINDOW
+    if raw.get('version') == 2:
+        values = raw.get('timestamps')
+        if not isinstance(values, list) or len(values) > GH_REQUEST_BUDGET_PER_WINDOW:
+            return [now_epoch] * GH_REQUEST_BUDGET_PER_WINDOW
+        try:
+            timestamps = [float(value) for value in values]
+        except (TypeError, ValueError, OverflowError):
+            return [now_epoch] * GH_REQUEST_BUDGET_PER_WINDOW
+        if any(not math.isfinite(value) for value in timestamps):
+            return [now_epoch] * GH_REQUEST_BUDGET_PER_WINDOW
+        # Keep future entries too: a clock rollback must fail closed, not erase usage.
+        return sorted(value for value in timestamps if now_epoch - value < GH_REQUEST_WINDOW_SECONDS)
     try:
         saved_window = int(raw['window'])
         used = int(raw['used'])
     except (KeyError, ValueError, TypeError):
-        return GH_REQUEST_BUDGET_PER_WINDOW
+        return [now_epoch] * GH_REQUEST_BUDGET_PER_WINDOW
+    current_window = int(now_epoch // GH_REQUEST_WINDOW_SECONDS)
     if used < 0:
-        return GH_REQUEST_BUDGET_PER_WINDOW
-    return min(used, GH_REQUEST_BUDGET_PER_WINDOW) if saved_window == window else 0
+        return [now_epoch] * GH_REQUEST_BUDGET_PER_WINDOW
+    if saved_window < current_window - 1 or saved_window > current_window:
+        return []
+    # Legacy state has no request times. Treat usage in this or the prior minute as now;
+    # this avoids creating a rollover burst during upgrade.
+    return [now_epoch] * min(used, GH_REQUEST_BUDGET_PER_WINDOW)
 
 
 def reserve_github_request_budget(cost=1):
-    """Atomically reserve from one cross-thread/cross-process SQLite request window."""
+    """Atomically reserve from one cross-thread/cross-process rolling request window."""
     cost = max(1, int(cost))
     now_epoch = time.time()
     window = int(now_epoch // GH_REQUEST_WINDOW_SECONDS)
-    reset_epoch = (window + 1) * GH_REQUEST_WINDOW_SECONDS
     with DB_LOCK, con() as c:
         c.execute('BEGIN IMMEDIATE')
         row = c.execute("SELECT value FROM settings WHERE key='github_request_budget'").fetchone()
@@ -1381,18 +1400,24 @@ def reserve_github_request_budget(cost=1):
             previous = json.loads(row['value']) if row else {}
         except (ValueError, TypeError):
             previous = {'corrupt': True}
-        used = _request_budget_used(previous, window)
+        timestamps = _request_budget_timestamps(previous, now_epoch)
+        used = len(timestamps)
+        reset_epoch = (timestamps[0] if timestamps else now_epoch) + GH_REQUEST_WINDOW_SECONDS
         if used + cost > GH_REQUEST_BUDGET_PER_WINDOW:
             state = {'window': window, 'used': used, 'limit': GH_REQUEST_BUDGET_PER_WINDOW,
                      'reset_at': datetime.fromtimestamp(reset_epoch, timezone.utc).isoformat(),
                      'remaining': max(0, GH_REQUEST_BUDGET_PER_WINDOW - used)}
+            state.update(version=2, timestamps=timestamps)
             c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_request_budget',?)",
                       (json.dumps(state, sort_keys=True),))
             return False, state
-        used += cost
+        timestamps.extend([now_epoch] * cost)
+        used = len(timestamps)
+        reset_epoch = timestamps[0] + GH_REQUEST_WINDOW_SECONDS
         state = {'window': window, 'used': used, 'limit': GH_REQUEST_BUDGET_PER_WINDOW,
                  'reset_at': datetime.fromtimestamp(reset_epoch, timezone.utc).isoformat(),
                  'remaining': max(0, GH_REQUEST_BUDGET_PER_WINDOW - used)}
+        state.update(version=2, timestamps=timestamps)
         c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_request_budget',?)",
                   (json.dumps(state, sort_keys=True),))
         return True, state

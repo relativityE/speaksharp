@@ -133,6 +133,33 @@ class PollBudgetTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertEqual((blocked['used'], blocked['limit']), (4, 4))
 
+    def test_request_budget_does_not_double_at_adjacent_minute_boundary(self):
+        # A fixed minute bucket let callers spend the full cap immediately before and
+        # after a wall-clock boundary. The rolling log must reject the second burst.
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 2), \
+             patch.object(server.time, 'time', side_effect=[59.8, 59.9, 60.1, 119.81]):
+            first = server.reserve_github_request_budget()
+            second = server.reserve_github_request_budget()
+            blocked = server.reserve_github_request_budget()
+            self.assertTrue(first[0])
+            self.assertTrue(second[0])
+            self.assertFalse(blocked[0])
+            self.assertEqual((blocked[1]['used'], blocked[1]['limit']), (2, 2))
+            # The first request has aged out; exactly one slot is available.
+            resumed = server.reserve_github_request_budget()
+            self.assertTrue(resumed[0])
+            self.assertEqual(resumed[1]['used'], 2)
+
+    def test_legacy_fixed_bucket_migrates_conservatively_across_boundary(self):
+        server.set_setting('github_request_budget', json.dumps({'window': 0, 'used': 2, 'limit': 2}))
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 2), \
+             patch.object(server.time, 'time', side_effect=[60.1, 120.2]):
+            blocked = server.reserve_github_request_budget()
+            self.assertFalse(blocked[0])
+            self.assertEqual(blocked[1]['used'], 2)
+            resumed = server.reserve_github_request_budget()
+            self.assertTrue(resumed[0])
+
     def test_separate_processes_share_the_persisted_request_budget(self):
         script = ("import json,sys; from pathlib import Path; import server; "
                   "server.DB=Path(sys.argv[1]); print(json.dumps(server.reserve_github_request_budget()))")
