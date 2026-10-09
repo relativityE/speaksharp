@@ -598,9 +598,14 @@ describe('Q-08 automated review qualification', () => {
     // state with the same collector and reuses this workflow's exact-head engineering evidence.
     expect(workflow).not.toMatch(/^\s*pull_request_review(_comment)?:/m);
     expect(workflow).not.toContain("github.event_name == 'pull_request_review'");
+    // #1573 Codex P1 4233038867: review events start only the permissionless "Review Event" marker (their workflow file
+    // comes from the PR merge commit); the lane itself runs on its `workflow_run`, defined on the default branch.
+    const reviewEvent = readFileSync('.github/workflows/review-event.yml', 'utf8');
+    expect(reviewEvent).toMatch(/pull_request_review:[\s\S]{0,120}types:\s*\[submitted, edited, dismissed\]/);
+    expect(reviewEvent).toMatch(/pull_request_review_comment:[\s\S]{0,120}types:\s*\[created, edited, deleted\]/);
     const reviewLane = readFileSync('.github/workflows/review-qualification.yml', 'utf8');
-    expect(reviewLane).toMatch(/pull_request_review:[\s\S]{0,120}types:\s*\[submitted, edited, dismissed\]/);
-    expect(reviewLane).toMatch(/pull_request_review_comment:[\s\S]{0,120}types:\s*\[created, edited, deleted\]/);
+    expect(reviewLane).toContain('workflows: ["CI - Test Audit", "Review Event"]');
+    expect(reviewLane).not.toMatch(/^\s*pull_request_review(_comment)?:/m);
     expect(reviewLane).toContain('node scripts/collect-review-qualification.mjs');
     expect(reviewLane).toContain('node scripts/ci-engineering-evidence.mjs');
     expect(workflow).toContain('postMergePush ? formatPostMergeVerification(decision) : formatQualification(decision)');

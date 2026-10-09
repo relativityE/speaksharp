@@ -35,14 +35,39 @@ describe('engineering lane (ci.yml): review activity cannot start, force or canc
     });
 });
 
+describe('review trigger (review-event.yml): marks review activity and can be trusted with nothing', () => {
+    const ev = load('review-event.yml');
+    const steps = Object.values(ev.jobs).flatMap((j) => j.steps ?? []);
+    it('is the "Review Event" workflow the review lane listens to, on review and inline-comment activity', () => {
+        expect(ev.name).toBe('Review Event');
+        expect(Object.keys(ev.on).sort()).toEqual([...REVIEW_EVENTS].sort());
+    });
+    it('has no permissions, no checkout, no action and no secret — only a no-op step', () => {
+        expect(ev.permissions).toEqual({});
+        expect(steps.some((s) => s.uses)).toBe(false);
+        expect(steps.map((s) => s.run)).toEqual(['echo "review activity recorded"']);
+        expect(JSON.stringify(ev)).not.toMatch(/secrets\.|github\.token|GITHUB_TOKEN/);
+    });
+});
+
 describe('review lane (review-qualification.yml): cheap, isolated, read-only', () => {
     const wf = load('review-qualification.yml');
     const steps = Object.values(wf.jobs).flatMap((j) => j.steps ?? []);
     const runText = steps.map((s) => String(s.run ?? '')).join('\n');
-    it('runs on review activity and on engineering completion', () => {
-        for (const e of REVIEW_EVENTS) expect(Object.keys(wf.on)).toContain(e);
-        expect(wf.on.workflow_run.workflows).toEqual(['CI - Test Audit']);
+    it('runs on engineering completion and on review activity — both through `workflow_run` only', () => {
+        expect(Object.keys(wf.on)).toEqual(['workflow_run']);
+        expect(wf.on.workflow_run.workflows).toEqual(['CI - Test Audit', 'Review Event']);
         expect(wf.on.workflow_run.types).toEqual(['completed']);
+    });
+    // Codex P1 4233038867: review events run the workflow FILE from the PR merge commit, so a candidate could rewrite a
+    // review-triggered qualification and fabricate its result. `workflow_run` definitions always come from the default branch.
+    it('CASUALTY (Codex P1 4233038867): never subscribes to a PR-controlled event; the PR and head come from the workflow_run', () => {
+        const prControlled = ['pull_request', 'pull_request_target', ...REVIEW_EVENTS, 'issue_comment'];
+        expect(Object.keys(wf.on).filter((e) => prControlled.includes(e))).toEqual([]);
+        const env = Object.values(wf.jobs)[0].env;
+        expect(env.PR_NUMBER).toBe('${{ github.event.workflow_run.pull_requests[0].number }}');
+        expect(env.EXPECTED_HEAD_SHA).toBe('${{ github.event.workflow_run.head_sha }}');
+        expect(JSON.stringify(wf)).not.toMatch(/github\.event\.pull_request\./);
     });
     it('uses a concurrency group that can never cancel the engineering lane', () => {
         expect(wf.concurrency.group).toMatch(/^review-qual-/);
