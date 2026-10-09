@@ -10,7 +10,7 @@ import {
 
 const OLD_TOPIC = 'Sales or product pitch';
 const OLD_POINTS = ['Name the price', 'State the guarantee', 'Explain the timeline'] as const;
-const EDITED_POINT = 'State the updated guarantee';
+const EDITED_POINT = 'Describe the return policy';
 const NEW_TOPIC = 'Conference talk / keynote';
 const NEW_POINT = 'Close with the main takeaway';
 const OPEN_MIC_MARKER = 'open mic take before switching products';
@@ -59,6 +59,16 @@ test.describe('#1258 Focus Points controls and product-switch isolation', () => 
     await expect(page.getByTestId('focus-points-topic')).toHaveText(OLD_TOPIC);
     await expect(page.getByTestId('focus-point-1')).toContainText(EDITED_POINT);
     await expect(page.getByTestId('focus-point-1')).not.toContainText(OLD_POINTS[1]);
+
+    // The edited brief must govern the next saved take, not only the before-state card.
+    const editedBriefTake = 'I will describe the return policy clearly.';
+    await recordAndSave(page, editedBriefTake);
+    await expect(page.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
+    await expect(page.getByTestId('focus-point-1')).toContainText(EDITED_POINT);
+    await expect(page.getByTestId('focus-point-1')).not.toContainText(OLD_POINTS[1]);
+    await expect(page.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'missing');
+    await expect(page.getByTestId('focus-point-2')).toHaveAttribute('data-status', 'missing');
+    await expect(page.getByTestId('review-transcript')).toContainText(editedBriefTake);
   });
 
   test('Start a new set opens blank after review, clears the prior take, and can record the new set', async ({ page }) => {
