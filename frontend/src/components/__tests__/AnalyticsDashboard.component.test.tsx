@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '../../../tests/support/test-utils';
+import { fireEvent, render, screen, within } from '../../../tests/support/test-utils';
+import { setCurrentLogin } from '@/services/loginSessionLog';
 import { AnalyticsDashboard } from '../AnalyticsDashboard';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import type { UserProfile } from '@/types/user';
 import { TEST_IDS } from '@/constants/testIds';
@@ -14,9 +15,7 @@ vi.mock('../../lib/pdfGenerator', () => ({
 // #1306: the STTAccuracyVsBenchmark / by-engine comparison component is REMOVED — no mock, no surface.
 vi.mock('../analytics/WeeklyActivityChart', () => ({ WeeklyActivityChart: () => <div data-testid="weekly-activity-chart" /> }));
 vi.mock('../analytics/GoalsSection', () => ({ GoalsSection: () => <div data-testid="goals-section" /> }));
-vi.mock('../analytics/TopFillerWords', () => ({ TopFillerWords: () => <div data-testid="top-filler-words" /> }));
-vi.mock('../analytics/FillerWordTable', () => ({ FillerWordTable: () => <div data-testid="filler-word-table" /> }));
-vi.mock('../analytics/TrendChart', () => ({ TrendChart: () => <div data-testid="trend-chart" /> }));
+vi.mock('../analytics/TrendChart', () => ({ TrendChart: ({ metric }: { metric: string }) => <div data-testid="trend-chart" data-metric={metric} /> }));
 const pdfDownloaded = vi.fn();
 // #1258 (RWT run 36955422629): a list PDF reads THIS session's detail row first. Default: no detail row (null).
 const sessionDetailRead = vi.fn((_id: string): Promise<unknown> => Promise.resolve(null));
@@ -88,7 +87,6 @@ describe('AnalyticsDashboard', () => {
         profile: mockProfile,
         sessionHistory: [],
         overallStats: mockStats,
-        fillerWordTrends: {},
         loading: false,
         error: null,
         onUpgrade: vi.fn(),
@@ -109,29 +107,55 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('analytics-dashboard-skeleton')).toBeInTheDocument();
     });
 
-    it('saved-session (PDF report) row uses current vocabulary labels, not the old WPM/Fillers/Clarity card labels', () => {
-        renderComponent({ sessionHistory: mockSessionHistory });
-        // New product vocabulary on the saved-session row (matches the stat cards + PDF generator;
-        // getAllByText because the same vocabulary intentionally appears on the stat cards too).
-        expect(screen.getAllByText('Speaking Pace').length).toBeGreaterThan(0);
-        // #894: the filler metric label is now "Detected filler words" (transcript-derived, honest lower bound).
-        expect(screen.getAllByText('Detected filler words').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Clear Delivery').length).toBeGreaterThan(0);
-        // The stale bare card labels are gone. "WPM" survives ONLY as the unit beside the value,
-        // never as a standalone label element.
-        expect(screen.queryByText('Fillers')).not.toBeInTheDocument();
-        expect(screen.queryByText('Clarity')).not.toBeInTheDocument();
+    it('#1258 D9: a Recent sessions row — date/time title, product tag, units in labels, ink Open, yellow PDF', () => {
+        const [base] = mockSessionHistory;
+        renderComponent({ sessionHistory: [{ ...base, product: 'focus_points' }, { ...base, id: 'legacy-1', product: null }] });
+        const row = screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-session-1`);
+        const text = row.textContent ?? '';
+        // Units live in the labels; the values are bare and uncoloured.
+        for (const label of ['Pace (wpm)', 'Fillers', 'Clear delivery (%)']) expect(text).toContain(label);
+        expect(row.querySelectorAll('.text-success, .text-signature-text')).toHaveLength(0);
+        // Removed: the WPM unit, the old labels, the clock/duration line, the timestamp title and the bullet.
+        expect(text).not.toMatch(/WPM|Detected filler words|Speaking Pace|duration|•|Practice Session/);
+        expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+        expect(screen.getByTestId('session-detail-link-session-1').textContent).toMatch(/^\d{1,2} [A-Z][a-z]{2,3}( \d{4})?, \d{1,2}:\d{2}/);
+        expect(text).toMatch(/10:00/); // mm:ss duration (600 s)
+        // The product comes from the persisted field only; a legacy row with no product shows no tag.
+        expect(within(row).getByTestId('session-product-tag')).toHaveTextContent('Focus Points');
+        expect(within(screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-legacy-1`)).queryByTestId('session-product-tag')).toBeNull();
+        expect(screen.getByTestId('open-session-detail-session-1')).toHaveClass('bg-ink');
+        expect(screen.getByTestId('download-pdf-btn-session-1')).toHaveClass('bg-signature');
+        expect(within(row).getByRole('checkbox', { name: /^Compare Focus Points, / })).toBeInTheDocument();
+        // One responsive row: the separate mobile block is gone.
+        expect(screen.queryByTestId('download-pdf-btn-mobile-session-1')).toBeNull();
     });
 
-    it('stacks every analysis tool instead of hiding them behind a carousel (#G4 §3)', () => {
+    it('#1258 D7: Trends lists every selected tool as a collapsed row; a chart mounts only when its row opens', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
-        // The carousel is retired: no swipe arrows, no indicator dots.
+        // The carousel stays retired: no swipe arrows, no indicator dots.
         expect(screen.queryByRole('button', { name: 'Previous slide' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Next slide' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Go to slide/i })).not.toBeInTheDocument();
-        // The default focus renders three trend charts (pace, pause, clarity). All are in the DOM at
-        // once now — under the old carousel only the active slide mounted, so exactly one would appear.
-        expect(screen.getAllByTestId('trend-chart').length).toBeGreaterThan(1);
+        expect(screen.getByRole('heading', { name: 'Trends' })).toBeInTheDocument();
+        expect(screen.queryByText(/Sound Confident Tools|Each chart answers part of the same coaching question/)).toBeNull();
+        // Default focus (Sound Confident): pace, pause, fillers, clarity — all collapsed, no chart mounted.
+        for (const id of ['pace_trend', 'pause_trend', 'filler_words', 'clarity_trend']) {
+            expect(screen.getByTestId(`trend-row-${id}`)).toHaveAttribute('aria-expanded', 'false');
+        }
+        expect(screen.queryAllByTestId('trend-chart')).toHaveLength(0);
+        fireEvent.click(screen.getByTestId('trend-row-clarity_trend'));
+        expect(screen.getByTestId('trend-chart')).toHaveAttribute('data-metric', 'clarity');
+    });
+
+    it('#1258 D8 CASUALTY (flat 0/min pause line): sessions without pause evidence are left out, never averaged as 0', () => {
+        const at = (n: number, pause_metrics?: Record<string, number>) => ({
+            ...mockSessionHistory[0], id: `p${n}`, created_at: `2026-10-0${n}T10:00:00Z`, wpm: 120, pause_metrics,
+        });
+        const valid = { silencePercentage: 10, transitionPauses: 3, extendedPauses: 0, longestPause: 1.1 };
+        // Newest first: three sessions with no pause evidence, one with it.
+        renderComponent({ sessionHistory: [at(4), at(3), at(2, {}), at(1, valid)] });
+        expect(screen.getByTestId('trend-row-pause_trend').textContent).toContain('After 2 more sessions');
+        expect(screen.getByTestId('trend-row-pause_trend').textContent).not.toMatch(/Avg 0\.0/);
+        expect(screen.getByTestId('trend-row-pace_trend').textContent).toContain('Avg 120 wpm');
     });
 
     it('should render error display when error occurs', () => {
@@ -160,15 +184,19 @@ describe('AnalyticsDashboard', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
 
         expect(screen.getByTestId('analytics-dashboard')).toBeInTheDocument();
-        expect(screen.getByText('Working on')).toBeInTheDocument();
-        expect(screen.getByText('Sound Confident')).toBeInTheDocument();
+        // #1258 D5: the ink header leads — "Your progress" owns the h1 and names the focus in its latest line.
+        expect(screen.getByTestId('progress-header')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1, name: 'Your progress' })).toHaveAttribute('data-testid', 'dashboard-heading');
+        expect(screen.getByTestId('progress-header-latest')).toHaveTextContent('Working on Sound Confident');
+        // The white WORKING ON card and the "What that's based on / Across your last 6 sessions" heading are retired.
+        expect(screen.queryByText('Working on', { exact: true })).not.toBeInTheDocument();
         expect(screen.queryByText(/SpeakSharp Score/i)).not.toBeInTheDocument();
         // #G4: the explanation boxes + "selected together" subtitle are gone; the section leads with a
         // position-based heading instead of a sentence.
         expect(screen.queryByText('Why these tools are here')).not.toBeInTheDocument();
         expect(screen.queryByText(/These cards are selected together/i)).not.toBeInTheDocument();
-        expect(screen.getByText(/that.s based on/i)).toBeInTheDocument();
-        expect(screen.getAllByText(/Across your last 6 sessions/i).length).toBeGreaterThan(0);
+        expect(screen.queryByText(/that.s based on/i)).not.toBeInTheDocument();
+        expect(screen.queryByText('Across your last 6 sessions')).not.toBeInTheDocument(); // the heading (exact text)
         expect(screen.getByTestId('stat-card-clarity_score')).toBeInTheDocument();
         expect(screen.queryByText('Delivery Control')).not.toBeInTheDocument();
         expect(screen.queryByText('Message Clarity')).not.toBeInTheDocument();
@@ -207,9 +235,8 @@ describe('AnalyticsDashboard', () => {
 
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        expect(screen.getByRole('heading', { name: label })).toBeInTheDocument();
-        // #G4: focus explanation boxes deleted; signals section leads with a position-based heading.
-        expect(screen.getByText(/that.s based on/i)).toBeInTheDocument();
+        // #1258 D5: the focus is named on the ink header's latest line.
+        expect(screen.getByTestId('progress-header-latest')).toHaveTextContent(`Working on ${label}`);
         for (const testId of statCards) {
             expect(screen.getByTestId(testId)).toBeInTheDocument();
         }
@@ -217,24 +244,123 @@ describe('AnalyticsDashboard', () => {
         expect(screen.queryByTestId('accuracy-comparison')).not.toBeInTheDocument();
     });
 
-    it('decodes Sound Confident tools into plain labels and shows one Try this next action', () => {
-        // mockStats: averageWPM 120 → Slow (off); avgPausesPerMin 8 → Smooth; avgClarity 85 → Strong.
-        localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
-        renderComponent({ sessionHistory: mockSessionHistory });
+    describe('#1258 D5 rule card and stat cards (Rev 2 §5.5–5.6; PO 2026-10-07: newest 4 sessions)', () => {
+        const PAUSES = { silencePercentage: 12, transitionPauses: 6, extendedPauses: 2, longestPause: 1.4 };
+        const row = (n: number, wpm: number, filler_counts: unknown, duration = 600) => ({
+            id: `w${n}`, user_id: 'test-user', created_at: `2026-10-0${n}T10:00:00Z`, duration, total_words: wpm * duration / 60,
+            wpm, clarity_score: 95, pause_metrics: PAUSES, filler_counts, status: 'completed', product: 'open_mic',
+            next_action_signal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+        });
+        // Newest first. The OLDEST session (outside the window) is fast with many fillers: averaged over all five the
+        // pace would read "over", so "under" proves the card reads only the newest four.
+        const history = [row(5, 100, { um: 2 }), row(4, 100, { um: 1 }), row(3, 100, {}), row(2, 100, null), row(1, 900, { um: 50 })];
 
-        // #G4 §2: cards lead with the NUMBER; the coaching label + guidance sit in the one sentence below.
-        expect(screen.getByTestId('stat-card-speaking_pace-detail')).toHaveTextContent('Slow');
-        expect(screen.getByTestId('stat-card-pause_rhythm-detail')).toHaveTextContent('Smooth');
-        expect(screen.getByTestId('stat-card-clarity_score-detail')).toHaveTextContent('Strong');
-        // The status chip carries the one scale (fix / on track / need more).
-        expect(screen.getByTestId('stat-card-speaking_pace-chip')).toHaveTextContent('FIX THIS');
-        expect(screen.getByTestId('stat-card-pause_rhythm-chip')).toHaveTextContent('ON TRACK');
+        it('CASUALTY (window): the rule card states the newest-4 pace with its real count and one Practise action', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            renderComponent({ sessionHistory: history });
+            const card = screen.getByTestId('try-this-next');
+            expect(within(card).getByTestId('rule-card-window')).toHaveTextContent('From your last 4 sessions');
+            expect(screen.getByTestId('try-this-next-action')).toHaveTextContent('Your pace averaged 100 words a minute, under the 130–150 target.');
+            expect(within(card).getByTestId('rule-card-chip')).toHaveTextContent('Focus: pace');
+            expect(within(card).getByRole('link', { name: 'Practise pace' })).toHaveAttribute('href', '/session');
+            expect(within(card).getByText('How we worked this out')).toBeInTheDocument();
+            // Retired: the ◎ "Do this next" eyebrow, the imperative headline, the WHAT TO TRY list and the yellow button.
+            expect(card.textContent).not.toMatch(/Do this next|What to try|Practise this now|Pick up the pace on familiar points/i);
+            expect(card.querySelector('.bg-signature')).toBeNull();
+        });
 
-        // #G4 §1 hero: the imperative action leads; the evidence paragraph carries the connecting "why".
-        expect(screen.getByTestId('try-this-next-action'))
-            .toHaveTextContent('Pick up the pace on familiar points.');
-        expect(screen.getByTestId('try-this-next-why'))
-            .toHaveTextContent('Your pause rhythm and clear delivery are steady; pace is the main adjustment.');
+        it('stat cards: no chips, uncoloured numbers, a metric dot, pace target in the sentence, filler count per session', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            renderComponent({ sessionHistory: history });
+            for (const id of ['speaking_pace', 'pause_rhythm', 'filler_words_per_min', 'clarity_score']) {
+                expect(screen.queryByTestId(`stat-card-${id}-chip`)).toBeNull();
+                expect(screen.getByTestId(`stat-card-${id}-interpretation`)).toHaveClass('text-neutral-heading');
+                expect(screen.getByTestId(`stat-card-${id}-dot`)).toBeInTheDocument();
+            }
+            expect(screen.queryByText(/FIX THIS|ON TRACK|NEED 2 MORE|leave this alone/)).toBeNull();
+            // mockStats (all sessions): 120 wpm → Slow.
+            expect(screen.getByTestId('stat-card-speaking_pace-detail')).toHaveTextContent('Slow · target 130–150');
+            // Filler card: newest 4 only, measured zeroes in, the unmeasured (null) session out → (2 + 1 + 0) / 3.
+            const filler = screen.getByTestId('stat-card-filler_words_per_min');
+            expect(filler).toHaveTextContent('Average fillers per session · last 4 sessions');
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^1\.0$/);
+            expect(screen.getByTestId('stat-card-clarity_score')).toHaveTextContent('Clear delivery');
+        });
+
+        // #1573 Codex P1 4230859591: the card shows the TRUE-filler count per session, so its judgment and the rule card's
+        // driver must come from the same true-filler basis and window — never the legacy all-keys per-minute rate, which
+        // still counts default-excluded discourse markers such as "so" and "like".
+        it('CASUALTY: discourse markers only → "0.0 fillers per session" is judged Low and is never the rule card\'s focus', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            const markersOnly = [5, 4, 3, 2].map((n) => row(n, 140, { so: 40, like: 40 }));   // legacy rate 8/min → "High"
+            renderComponent({ sessionHistory: markersOnly });
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^0\.0$/);
+            const detail = screen.getByTestId('stat-card-filler_words_per_min-detail').textContent ?? '';
+            expect(detail).toMatch(/Low/);
+            expect(detail).not.toMatch(/High|Noticeable/);
+            const card = screen.queryByTestId('try-this-next');
+            const chip = card ? (within(card).queryByTestId('rule-card-chip')?.textContent ?? '') : '';
+            expect(chip).not.toMatch(/filler/i);
+        });
+
+        it('CONTROL: real true fillers still read High and can drive the rule card', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            const fillerHeavy = [5, 4, 3, 2].map((n) => row(n, 140, { um: 40, uh: 40 }));     // 80 per 10 min = 8/min
+            renderComponent({ sessionHistory: fillerHeavy });
+            expect(screen.getByTestId('stat-card-filler_words_per_min-detail')).toHaveTextContent(/High/);
+            expect(within(screen.getByTestId('try-this-next')).getByTestId('rule-card-chip')).toHaveTextContent(/filler/i);
+        });
+
+        // #1573 Codex P1 4232318053 + PO 2026-10-09: the headline is the per-session count; the grade states the per-minute
+        // rate it judges, so short and long takes are graded fairly and the grade never judges a number the user can't see.
+        it('CASUALTY: short takes — "7.0" per session is graded on its rate: "High · about 7 a minute, target under 3"', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            const shortTakes = [5, 4, 3, 2].map((n) => row(n, 140, { um: 7 }, 60));      // 7 fillers in 1 minute each
+            renderComponent({ sessionHistory: shortTakes });
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^7\.0$/);
+            expect(screen.getByTestId('stat-card-filler_words_per_min-detail')).toHaveTextContent(/^High · about 7 a minute, target under 3$/);
+            expect(within(screen.getByTestId('try-this-next')).getByTestId('try-this-next-action'))
+                .toHaveTextContent(/^You averaged 7\.0 filler words per session, about 7 a minute\.$/);
+        });
+
+        it('CONTROL: long takes — a higher count at a low rate reads "Low · under 1 a minute" and is never the focus', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            const longTakes = [5, 4, 3, 2].map((n) => row(n, 140, { um: 5 }, 600));     // 5 fillers in 10 minutes each
+            renderComponent({ sessionHistory: longTakes });
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^5\.0$/);
+            expect(screen.getByTestId('stat-card-filler_words_per_min-detail')).toHaveTextContent(/^Low · under 1 a minute, target under 3$/);
+            const card = screen.queryByTestId('try-this-next');
+            const chip = card ? (within(card).queryByTestId('rule-card-chip')?.textContent ?? '') : '';
+            expect(chip).not.toMatch(/filler/i);
+        });
+
+        it('fewer than two sessions: no rule card', () => {
+            renderComponent({ sessionHistory: [history[0]] });
+            expect(screen.queryByTestId('try-this-next')).toBeNull();
+        });
+
+        it('CASUALTY (CLI PM 6048239789): newest sessions with no measurable signal show no rule card, never "all on target"', () => {
+            const unmeasured = [5, 4, 3].map((n) => ({
+                id: `u${n}`, user_id: 'test-user', created_at: `2026-10-0${n}T10:00:00Z`, duration: 600,
+                filler_counts: null, status: 'completed', product: 'open_mic',
+                next_action_signal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+            }));
+            renderComponent({ sessionHistory: unmeasured });
+            expect(screen.queryByTestId('try-this-next')).toBeNull();
+            expect(screen.queryByText('Pace, fillers and clarity are all on target.')).toBeNull();
+        });
+
+        it('every signal on target: the on-target sentence, no chip and no Practise button', () => {
+            // 80 meaningful pauses in 10 minutes = 8 a minute (Smooth); 140 wpm; no fillers; clarity 95.
+            const smooth = { silencePercentage: 12, transitionPauses: 60, extendedPauses: 20, longestPause: 1.4 };
+            const steady = [row(5, 140, {}), row(4, 140, {}), row(3, 140, {})].map((r) => ({ ...r, pause_metrics: smooth }));
+            renderComponent({ sessionHistory: steady });
+            const card = screen.getByTestId('try-this-next');
+            expect(within(card).getByTestId('rule-card-window')).toHaveTextContent('From your last 3 sessions');
+            expect(screen.getByTestId('try-this-next-action')).toHaveTextContent('Pace, fillers and clarity are all on target.');
+            expect(within(card).queryByTestId('rule-card-chip')).toBeNull();
+            expect(within(card).queryByRole('link', { name: /Practise/ })).toBeNull();
+        });
     });
 
     it.each([
@@ -249,7 +375,7 @@ describe('AnalyticsDashboard', () => {
 
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        expect(screen.getByRole('heading', { name: expectedLabel })).toBeInTheDocument();
+        expect(screen.getByTestId('progress-header-latest')).toHaveTextContent(`Working on ${expectedLabel}`);
         expect(screen.queryByRole('heading', { name: 'Delivery Control' })).not.toBeInTheDocument();
         expect(screen.queryByRole('heading', { name: 'Message Clarity' })).not.toBeInTheDocument();
         expect(screen.queryByRole('heading', { name: 'Habit Progress' })).not.toBeInTheDocument();
@@ -264,8 +390,7 @@ describe('AnalyticsDashboard', () => {
 
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        expect(screen.getByRole('heading', { name: 'Custom' })).toBeInTheDocument();
-        expect(screen.getByText(/specific metrics/i)).toBeInTheDocument();
+        expect(screen.getByTestId('progress-header-latest')).toHaveTextContent('Working on Custom');
         // #G4: the focus explanation boxes + "interpreted independently" subtitle are deleted.
         expect(screen.getByRole('button', { name: /choose stat cards/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /choose analysis tools/i })).toBeInTheDocument();
@@ -582,7 +707,8 @@ describe('AnalyticsDashboard', () => {
     it('shows an explicit open-session link on each history item so testers can verify saved sessions', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        const openLink = screen.getAllByRole('link', { name: /open saved session details/i })[0];
+        const openLink = screen.getByTestId('open-session-detail-session-1');
+        expect(openLink).toHaveTextContent('Open');
 
         expect(openLink).toHaveAttribute('href', '/analytics/session-1');
     });
@@ -590,6 +716,10 @@ describe('AnalyticsDashboard', () => {
     // #1306 metrics-only: there is NO transcript pane and NO transcript_state to honor. The session detail
     // renders persisted measurements and exactly one durable next action; nothing recomputes from text.
     describe('#1306 session-detail is metrics-only (no transcript surface)', () => {
+        // #1573: a PDF is bound to the signed-in owner (AuthProvider applies it before any authenticated surface renders).
+        beforeEach(() => setCurrentLogin('test-user', 1_790_000_000_000));
+        afterEach(() => setCurrentLogin(null, null));
+
         const completedSignal = { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' };
         const detailSession = (over: Record<string, unknown>) => ([{
             id: 'sx', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
@@ -610,10 +740,10 @@ describe('AnalyticsDashboard', () => {
         // actually handed to the browser (the generator resolves true) — never before generation, never on a failed
         // generation (resolves false; the toast already tells the person) and never on a rejection. Exactly one event,
         // carrying only its closed-enum surface.
-        type Surface = 'history_list' | 'history_list_mobile' | 'session_detail';
+        // #1258 D9: one responsive row replaced the separate mobile block, so the list has ONE surface (`history_list`).
+        type Surface = 'history_list' | 'session_detail';
         const press: Record<Surface, () => void> = {
             history_list: () => fireEvent.click(screen.getByTestId('download-pdf-btn-sx')),
-            history_list_mobile: () => fireEvent.click(screen.getByTestId('download-pdf-btn-mobile-sx')),
             session_detail: () => fireEvent.click(screen.getByRole('button', { name: /Export PDF/i })),
         };
         const renderFor = (surface: Surface) => surface === 'session_detail'
@@ -625,7 +755,7 @@ describe('AnalyticsDashboard', () => {
             ['rejected', () => Promise.reject(new Error('boom')), 0],
         ] as const;
 
-        for (const surface of ['history_list', 'history_list_mobile', 'session_detail'] as const) {
+        for (const surface of ['history_list', 'session_detail'] as const) {
             for (const [label, result, events] of outcomes) {
                 it(`#1258: PDF from ${surface}, ${label} → ${events} session_pdf_downloaded`, async () => {
                     const { generateSessionPdf } = await import('../../lib/pdfGenerator');
@@ -650,7 +780,7 @@ describe('AnalyticsDashboard', () => {
         // #1258 (RWT run 36955422629): the list row is the metrics-only LIST select and never carries `transcript`, so a
         // PDF downloaded from the list had no transcript page. A list download builds the PDF from THIS session's detail
         // row; a failed detail read still produces the metrics PDF from the list row; the detail surface reads nothing.
-        for (const surface of ['history_list', 'history_list_mobile'] as const) {
+        for (const surface of ['history_list'] as const) {
             it(`#1258: a PDF from ${surface} is built from this session's detail row, which carries the transcript`, async () => {
                 const { generateSessionPdf } = await import('../../lib/pdfGenerator');
                 vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
@@ -675,6 +805,104 @@ describe('AnalyticsDashboard', () => {
                 expect(built).not.toHaveProperty('transcript');
             });
         }
+
+        // #1573 Codex P1 (review 5460913397): a list PDF is bound to the login that started it. Its detail read can finish
+        // after a sign-out or account switch; then nothing is generated (no old-account transcript or metrics PDF) and
+        // nothing is reported — whether the read resolved or failed into the list-row fallback.
+        describe('#1573: a list PDF never completes for a login other than the one that started it', () => {
+            afterEach(() => setCurrentLogin(null, null));
+            const startDeferred = async (outcome: 'resolve' | 'reject', after: () => void) => {
+                const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                pdfDownloaded.mockReset();
+                const row = detailSession({})[0];
+                // The starting login owns the row, exactly as in the app (the list is RLS-scoped to the signed-in user).
+                setCurrentLogin(String(row.user_id ?? 'owner-a'), 1_790_000_000_000);
+                let settle!: () => void;
+                const detail = { ...row, transcript_state: 'available', transcript: 'account A words' };
+                sessionDetailRead.mockReset().mockReturnValue(new Promise((resolve, reject) => {
+                    settle = () => (outcome === 'resolve' ? resolve(detail) : reject(new Error('read failed')));
+                }));
+                renderFor('history_list');
+                press.history_list();
+                await vi.waitFor(() => expect(sessionDetailRead).toHaveBeenCalledTimes(1));
+                after();     // the identity changes while the read is in flight
+                settle();
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                return generateSessionPdf;
+            };
+            for (const outcome of ['resolve', 'reject'] as const) {
+                it(`CASUALTY: an account switch during the detail read (${outcome}) generates and reports nothing`, async () => {
+                    const generate = await startDeferred(outcome, () => setCurrentLogin('owner-b', 1_790_000_000_500));
+                    expect(generate).not.toHaveBeenCalled();
+                    expect(pdfDownloaded).not.toHaveBeenCalled();
+                });
+                it(`CASUALTY: a sign-out during the detail read (${outcome}) generates and reports nothing`, async () => {
+                    const generate = await startDeferred(outcome, () => setCurrentLogin(null, null));
+                    expect(generate).not.toHaveBeenCalled();
+                    expect(pdfDownloaded).not.toHaveBeenCalled();
+                });
+            }
+            // Codex P1 4223017340 (Browser PM 6067207123): an owner whose session has no valid `last_sign_in_at` still binds
+            // — a sign-out OR an account switch during the deferred detail read (resolved or rejected) yields no PDF, no event.
+            for (const outcome of ['resolve', 'reject'] as const) {
+                for (const [change, apply] of [
+                    ['sign-out', () => setCurrentLogin(null, null)],
+                    ['account switch', () => setCurrentLogin('other-user', null)],
+                ] as const) {
+                    it(`CASUALTY: no sign-in time, ${change} during the detail read (${outcome}) → no PDF, no event`, async () => {
+                        const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                        vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                        pdfDownloaded.mockReset();
+                        const row = detailSession({})[0];
+                        setCurrentLogin(String(row.user_id), null);          // last_sign_in_at absent: owner known, no LoginIdentity
+                        let settle!: () => void;
+                        sessionDetailRead.mockReset().mockReturnValue(new Promise((resolve, reject) => {
+                            settle = () => (outcome === 'resolve' ? resolve({ ...row, transcript: 'account A words' }) : reject(new Error('read failed')));
+                        }));
+                        renderFor('history_list');
+                        press.history_list();
+                        await vi.waitFor(() => expect(sessionDetailRead).toHaveBeenCalledTimes(1));
+                        apply();
+                        settle();
+                        await new Promise((resolve) => setTimeout(resolve, 0));
+                        await new Promise((resolve) => setTimeout(resolve, 0));
+                        expect(generateSessionPdf).not.toHaveBeenCalled();
+                        expect(pdfDownloaded).not.toHaveBeenCalled();
+                    });
+                }
+            }
+            it('CONTROL: an owner without a sign-in time and no identity change still downloads', async () => {
+                const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                const row = detailSession({})[0];
+                setCurrentLogin(String(row.user_id), null);
+                sessionDetailRead.mockReset().mockResolvedValue({ ...row, transcript: 'the saved words' });
+                renderFor('history_list');
+                press.history_list();
+                await vi.waitFor(() => expect(generateSessionPdf).toHaveBeenCalledTimes(1));
+            });
+            it('CASUALTY: with no signed-in owner at the start, nothing is read or generated (fail closed)', async () => {
+                const { generateSessionPdf } = await import('../../lib/pdfGenerator');
+                vi.mocked(generateSessionPdf).mockReset().mockResolvedValue(true);
+                sessionDetailRead.mockReset().mockResolvedValue(null);
+                renderFor('history_list');
+                setCurrentLogin(null, null);
+                press.history_list();
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                expect(sessionDetailRead).not.toHaveBeenCalled();
+                expect(generateSessionPdf).not.toHaveBeenCalled();
+            });
+            it('CONTROL: the same login still downloads, with a guard bound to that login', async () => {
+                const generate = await startDeferred('resolve', () => undefined);
+                expect(generate).toHaveBeenCalledTimes(1);
+                const guard = vi.mocked(generate).mock.calls[0][4] as (() => boolean) | undefined;
+                expect(guard?.()).toBe(true);
+                setCurrentLogin('owner-b', 1_790_000_000_500);
+                expect(guard?.()).toBe(false);
+            });
+        });
 
         it('#1258: a PDF from the session detail uses the detail row it already holds — no second read', async () => {
             const { generateSessionPdf } = await import('../../lib/pdfGenerator');
@@ -726,7 +954,7 @@ describe('AnalyticsDashboard', () => {
         });
     });
 
-    it('#1306 a history item with unmeasured pace (NULL total_words) shows N/A, never a sentinel zero', () => {
+    it('#1306 a history item with unmeasured pace (NULL total_words) shows a dash, never a sentinel zero', () => {
         renderComponent({
             sessionHistory: [{
                 id: 'nc-1', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
@@ -734,8 +962,9 @@ describe('AnalyticsDashboard', () => {
             }],
         });
         const row = screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-nc-1`);
-        expect(row.textContent).toContain('N/A');
-        expect(row.textContent).not.toMatch(/\b0\s*WPM\b/);
+        // #1258 D9: unmeasured reads "—" beside its label; a measured zero would read "0".
+        expect(row.textContent).toContain('Pace (wpm)—');
+        expect(row.textContent).not.toMatch(/Pace \(wpm\)0|\b0\s*WPM\b/);
     });
 
     // ---------------------------------------------------------------------------------------------

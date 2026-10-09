@@ -69,6 +69,13 @@ export const decodeFillers = (fillersPerMin: string | number | null | undefined)
     return { label: 'Low', tone: 'good' };
 };
 
+/**
+ * #1573 (Codex P1 4232318053, PO 2026-10-09): the per-minute filler rate a grade judges, in plain words — "about" and a
+ * whole number reads as speech, not a statistic; below 1 it is "under 1 a minute".
+ */
+export const fillerRatePhrase = (fillersPerMin: number): string =>
+    fillersPerMin < 1 ? 'under 1 a minute' : `about ${Math.round(fillersPerMin)} a minute`;
+
 /** Clear Delivery: Strong / Developing / Needs focus. */
 export const decodeClarity = (clarityPct: string | number | null | undefined): CoachingMetric => {
     if (!isValidMetric(clarityPct)) return NO_EVIDENCE;

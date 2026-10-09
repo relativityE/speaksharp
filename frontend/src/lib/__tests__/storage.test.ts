@@ -570,6 +570,20 @@ describe('storage.ts', () => {
             expect(fields).toContain('filler_counts');
         });
 
+        // #1573 Codex P2 4221754843: the Recent sessions pills, the Progress header's latest product, the trend tooltip and the
+        // session-detail title are product-aware. The durable marker (`sessions.product`, migration 20260926190000, applied in
+        // Production by run 36341372384) must be READ, or every row's product is silently undefined outside enriched fixtures.
+        it('CASUALTY: history LIST and single-session DETAIL both request the durable product marker, and it reaches the row', async () => {
+            const listSelect = captureSelect({ data: [{ id: 's1', product: 'focus_points' }], error: null });
+            const rows = await getSessionHistory('user1');
+            expect(String(listSelect.mock.calls[0][0]).split(',').map(f => f.trim())).toContain('product');
+            expect(rows[0]).toMatchObject({ product: 'focus_points' });
+            const detailSelect = captureSelect({ data: { id: 's1', product: 'open_mic' }, error: null });
+            const row = await getSessionById('s1');
+            expect(String(detailSelect.mock.calls[0][0]).split(',').map(f => f.trim())).toContain('product');
+            expect(row).toMatchObject({ product: 'open_mic' });
+        });
+
         it('single-session DETAIL requests transcript AND its state together', async () => {
             const select = captureSelect({ data: { id: 's1' }, error: null });
             await getSessionById('s1');

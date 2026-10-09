@@ -7,7 +7,12 @@ import { useAuthProvider } from "../contexts/AuthProvider";
  * @param {string} sessionId - The ID of the session.
  * @returns {object} The query result.
  */
-export const useSession = (sessionId?: string) => {
+/**
+ * `revalidateOnMount` (#1573 Codex P1 4222489737): a caller that DISPLAYS retained content from a re-entered URL must not
+ * trust a cached row — newest-one retention can expire its transcript on the server within the staleTime. Such a caller
+ * always refetches on mount and renders only `isFetchedAfterMount` data. Other callers keep the 5-minute cache.
+ */
+export const useSession = (sessionId?: string, options: { revalidateOnMount?: boolean } = {}) => {
     const { user } = useAuthProvider();
 
     /**
@@ -29,6 +34,7 @@ export const useSession = (sessionId?: string) => {
         queryKey: ["session", sessionId],
         queryFn: () => getSessionById(sessionId!),
         enabled: !!user && !!sessionId,
-        staleTime: 5 * 60 * 1000,
+        staleTime: options.revalidateOnMount ? 0 : 5 * 60 * 1000,
+        ...(options.revalidateOnMount ? { refetchOnMount: 'always' as const } : {}),
     });
 };

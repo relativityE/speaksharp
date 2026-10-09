@@ -593,10 +593,21 @@ describe('Q-08 automated review qualification', () => {
     expect(workflow).toContain('needs: [scope, full-evidence]');
     expect(workflow).toContain('full-evidence, review-qualification]');
     expect(workflow).toContain('[...REQUIRED_JOBS, "review-qualification"]');
-    expect(workflow).toMatch(/pull_request_review:[\s\S]{0,120}types:\s*\[submitted, edited, dismissed\]/);
-    expect(workflow).toMatch(/pull_request_review_comment:[\s\S]{0,120}types:\s*\[created, edited, deleted\]/);
-    expect(workflow).toContain("github.event_name == 'pull_request_review'");
-    expect(workflow).toContain("github.event_name == 'pull_request_review_comment'");
+    // #1573 (Browser PM 6067238534): review transitions re-qualify in the REVIEW LANE, not by re-running this workflow
+    // (which forced the full lane and cancelled code runs). They are moved, not dropped: the lane re-reads live review
+    // state with the same collector and reuses this workflow's exact-head engineering evidence.
+    expect(workflow).not.toMatch(/^\s*pull_request_review(_comment)?:/m);
+    expect(workflow).not.toContain("github.event_name == 'pull_request_review'");
+    // #1573 Codex P1 4233038867: review events start only the permissionless "Review Event" marker (their workflow file
+    // comes from the PR merge commit); the lane itself runs on its `workflow_run`, defined on the default branch.
+    const reviewEvent = readFileSync('.github/workflows/review-event.yml', 'utf8');
+    expect(reviewEvent).toMatch(/pull_request_review:[\s\S]{0,120}types:\s*\[submitted, edited, dismissed\]/);
+    expect(reviewEvent).toMatch(/pull_request_review_comment:[\s\S]{0,120}types:\s*\[created, edited, deleted\]/);
+    const reviewLane = readFileSync('.github/workflows/review-qualification.yml', 'utf8');
+    expect(reviewLane).toContain('workflows: ["CI - Test Audit", "Review Event"]');
+    expect(reviewLane).not.toMatch(/^\s*pull_request_review(_comment)?:/m);
+    expect(reviewLane).toContain('node scripts/collect-review-qualification.mjs');
+    expect(reviewLane).toContain('node scripts/ci-engineering-evidence.mjs');
     expect(workflow).toContain('postMergePush ? formatPostMergeVerification(decision) : formatQualification(decision)');
     const collector = readFileSync('scripts/collect-review-qualification.mjs', 'utf8');
     expect(collector).toContain('/rules/branches/${encodedBranch}?per_page=100');

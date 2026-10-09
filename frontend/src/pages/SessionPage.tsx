@@ -12,18 +12,27 @@ import { StatusNotificationBar } from '@/components/session/StatusNotificationBa
 import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
+import { SavedSessionReturn } from '@/components/session/SavedSessionReturn';
+import { restorableSession, restoreRefused } from '@/components/session/restorableSession';
 import { ObjectiveSetupDialog } from '@/components/practice/ObjectiveSetupDialog';
 import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import AISuggestions from '@/components/session/AISuggestions';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { useSession } from '@/hooks/useSession';
 import { useQueryClient } from '@tanstack/react-query';
 import { resolveTranscriptView } from '@/lib/storage';
+
+/**
+ * #1258 PR 4: a `?review=` value is read only when it has a session id's shape (a UUID in production; the E2E double
+ * mints `session-…` ids). Anything else is dropped at once; a well-shaped id that is not this user's row reads as no
+ * row (RLS) or a failed read, and is dropped the same way.
+ */
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
  * ARCHITECTURE:
@@ -382,6 +391,58 @@ export const SessionPage: React.FC = () => {
         }
     }, [reviewStillSettling, reviewTranscript.kind, settleReviewLatency, showAnalyticsPrompt]);
 
+    // ── #1258 PR 4 (Rev 2 §4, D1): Back to the completed session ─────────────────────────────────────────────────────
+    // The after-state flag (`showAnalyticsPrompt`) is lifecycle state, so a remount — browser Back from Progress, a
+    // reload — reset the page to `before` while the saved session still existed (Production run 37706942773). The
+    // confirmed save therefore names the session in the URL, and a page that re-enters on that URL restores it
+    // read-only from its saved row. It never starts a recording and never requests coaching.
+    // Same idle condition as `beforeState` below, computed here because hooks must run before the skeleton return.
+    const idleState = !isListening && !showAnalyticsPrompt && !isTranscriptFinalizing;
+    const [searchParams, setSearchParams] = useSearchParams();
+    const reviewParam = searchParams.get('review');
+    const setReviewParam = React.useCallback((id: string | null) => {
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            if (id) next.set('review', id); else next.delete('review');
+            return next;
+        }, { replace: true }); // the save must not add a history entry (§4.1)
+    }, [setSearchParams]);
+    // §4.1: the confirmed save puts the saved session's id in the URL.
+    useEffect(() => {
+        if (showAnalyticsPrompt && completedSessionId && reviewParam !== completedSessionId) setReviewParam(completedSessionId);
+    }, [showAnalyticsPrompt, completedSessionId, reviewParam, setReviewParam]);
+    // The in-memory after state wins: only a page that never showed it (Back, reload) restores from the URL. Leaving the
+    // live after state in place ("Practice again?", a new set) is a fresh take, so it drops the parameter.
+    const sawAfterStateRef = useRef(false);
+    const wasAfterStateRef = useRef(false);
+    if (showAnalyticsPrompt) sawAfterStateRef.current = true;
+    useEffect(() => {
+        if (wasAfterStateRef.current && !showAnalyticsPrompt && reviewParam !== null) setReviewParam(null);
+        wasAfterStateRef.current = showAnalyticsPrompt;
+    }, [showAnalyticsPrompt, reviewParam, setReviewParam]);
+    // A new take clears the parameter before it records (§4.2).
+    useEffect(() => {
+        if (isListening && reviewParam !== null) setReviewParam(null);
+    }, [isListening, reviewParam, setReviewParam]);
+    const restoreId = !sawAfterStateRef.current && idleState && reviewParam !== null && SESSION_ID_RE.test(reviewParam) ? reviewParam : null;
+    const restored = useSession(restoreId ?? undefined, { revalidateOnMount: true });
+    // #1573 Codex P1 4222489737: only a read made for THIS visit counts. A cached row may still hold transcript text the
+    // server has since expired (newest-one retention), so it is never rendered, owner-checked or refused on.
+    // #1573 Codex P1 4223029898 / P2 4223017352: a FAILED refetch also sets isFetchedAfterMount while React Query keeps
+    // the cached data, so a row is supplied only from a SUCCESSFUL fresh read; a failed one is refused (falls back).
+    const restoredFresh = restored.isFetchedAfterMount;
+    const restoredFreshSuccess = restoredFresh && restored.isSuccess && !restored.isError;
+    // Not a session id, not found, not this user's (RLS on a fresh read; the owner check on a cached one) or a failed read:
+    // plain `/session`, no error UI. Nothing from a row is shown unless its owner is the signed-in user.
+    useEffect(() => {
+        if (reviewParam === null || sawAfterStateRef.current || !idleState) return;
+        const invalid = !SESSION_ID_RE.test(reviewParam);
+        const refused = restoreId !== null && restoredFresh
+            && (restored.isError || (restored.isSuccess && restoreRefused(restored.data, restoreId, authUserId)));
+        if (invalid || refused) setReviewParam(null);
+    }, [reviewParam, idleState, restoreId, restoredFresh, restored.isError, restored.isSuccess, restored.data, authUserId, setReviewParam]);
+    const restoredSession = restorableSession(restoredFreshSuccess ? restored.data : undefined, restoreId, authUserId);
+
     if (!metrics) return <SessionPageSkeleton />;
 
     // Dual-State Status Derivation (FSM + Service State)
@@ -537,7 +598,7 @@ export const SessionPage: React.FC = () => {
                 the left, the "How Rough Drafts works" help entry aligned top-right. The subtitle is derived
                 from real history (session number + baseline date), so the page states its progress up front.
                 During/after this block is gone and the live workflow owns the frame. */}
-            {beforeState && (
+            {beforeState && !restoreId && (
                 <div className="px-6 pt-4 max-w-7xl mx-auto">
                     <div className="mb-[34px] flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4" data-testid="session-title-block">
                         <div>
@@ -637,6 +698,11 @@ export const SessionPage: React.FC = () => {
                 {/* #1222: the session page is the fixed 4-slot overhaul shell driven by the live runtime
                     (before/during/after). The surrounding chrome — header, status bar, recovery banner,
                     access modals, mobile action bar — wraps it. This is the only session page. */}
+                {restoreId ? (
+                    restoredSession
+                        ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/analytics')} />
+                        : <div className="h-40 animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" data-testid="saved-session-return-loading" />
+                ) : (
                 <SessionOverhaulView
                     authUserId={authUserId}
                     isListening={isListening}
@@ -761,6 +827,7 @@ export const SessionPage: React.FC = () => {
                     onEditPoints={() => openSetup('edit')}
                     onNewSet={() => openSetup('new')}
                 />
+                )}
                 <ObjectiveSetupDialog
                     open={pointsSetupMode !== null}
                     // Cancel/Escape closes without touching the bound brief, so the existing points survive.
@@ -810,8 +877,8 @@ export const SessionPage: React.FC = () => {
                 />
             </div>
 
-            {/* Mobile Sticky Action Bar */}
-            <MobileActionBar
+            {/* Mobile Sticky Action Bar — not on the restored read-only session (#1258 PR 4): it has no Start. */}
+            {!restoreId && <MobileActionBar
                 isListening={isListening}
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={visibleModelLoadingProgress}
@@ -820,7 +887,7 @@ export const SessionPage: React.FC = () => {
                 privateModelStatus={privateModelStatus}
                 onDownloadModel={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private')); }}
                 blockedReason={mobileStartBlockedReason}
-            />
+            />}
 
         </main>
     );

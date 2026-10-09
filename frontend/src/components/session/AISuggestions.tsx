@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { OnDeviceCountsContext } from './onDeviceCounts';
 import { Sparkles } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../../lib/logger';
@@ -15,6 +14,7 @@ import {
 } from '@/services/practiceLoopTelemetry';
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
+import { deriveReviewState } from './reviewState';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -39,9 +39,8 @@ interface AISuggestionsProps {
   /** #1473 — delay before the single automatic retry of a recoverable failure. Product uses the default. */
   retryBackoffMs?: number;
   /**
-   * S-14 — the counts computed ON DEVICE from the transcript. They never depended on the network, which is
-   * the whole point: while the review is still coming, they fill the space the verdict will occupy, so the
-   * slot is never empty. Omit a value that is not measured; a count is never stubbed, zeroed or em-dashed.
+   * S-14 on-device counts. #1258 punch list D3: no longer rendered in the review band (THIS RUN shows them);
+   * still accepted so existing callers compile until they stop passing it.
    */
   onDeviceCounts?: { fillers: number | null; wordsPerMinute: number | null };
   /** S-12 — `Session 6 · Open Mic`, shown opposite the eyebrow when the review is not still coming. */
@@ -172,6 +171,16 @@ const readClosedCode = async (err: unknown): Promise<typeof SERVICE_CONFIGURATIO
  * exact review, so a malformed 200 is a contract violation, not a provider or network blip. Another attempt re-reads
  * the same stored value.
  */
+/**
+ * #1258 punch list D3 — the MANUAL Try again policy (PM disposition 6045315752). Separate from TERMINAL_REASONS, which
+ * governs only the automatic retry. A press cannot change these answers, so no futile button is offered: service setup,
+ * the request rate limit, an account without access, a saved session that was not found (404), and a session without an
+ * available transcript (409). `unavailable`, `invalid_response` and `network` keep an explicit Try again.
+ */
+const NO_MANUAL_RETRY_REASONS: ReadonlySet<PracticeLoopReviewFailureReason> = new Set<PracticeLoopReviewFailureReason>([
+  'service_configuration', 'rate_limited', 'access_denied', 'not_found', 'transcript_unavailable',
+]);
+
 const TERMINAL_REASONS: ReadonlySet<PracticeLoopReviewFailureReason> = new Set<PracticeLoopReviewFailureReason>([
   'service_configuration', 'access_denied', 'rate_limited', 'not_found', 'transcript_unavailable', 'invalid_response',
   'unavailable',
@@ -197,7 +206,8 @@ const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to
 const FOCUS_POINTS_DISCLOSURE =
   "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
 
-const UNAVAILABLE_MESSAGE = 'The review is unavailable right now. Your session is saved, and you can try again.';
+// #1258 punch list D3 (Rev 2 §2.1).
+const UNAVAILABLE_MESSAGE = "The review didn't load. Your session is saved.";
 
 const getSafeAiSuggestionError = (
   err: unknown,
@@ -211,7 +221,7 @@ const getSafeAiSuggestionError = (
   if (closedCode === SERVICE_CONFIGURATION_CODE && errorStatus(err) === 503) {
     return {
       reason: 'service_configuration',
-      message: 'The review is unavailable because of a service setup problem on our side. Your session is saved, and you can check again later.',
+      message: "Review isn't available for this session. Your session is saved.",
     };
   }
 
@@ -239,7 +249,7 @@ const getSafeAiSuggestionError = (
 
 const AISuggestions: React.FC<AISuggestionsProps> = ({
   transcript = '', canReview, sessionId, initialSuggestions, retryBackoffMs = AI_REVIEW_AUTO_RETRY_BACKOFF_MS,
-  onDeviceCounts, sessionLabel, product, blockedReason,
+  sessionLabel, product, blockedReason,
 }) => {
   const activeSessionRef = useRef(sessionId);
   const requestGenerationRef = useRef(0);
@@ -255,6 +265,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     /** #1473 — a recoverable failure is showing and ONE automatic retry is scheduled; no attempt is in flight. */
     retrying: false,
   }));
+  /** #1258 D3: the closed reason behind the failure on screen, so a terminal reason renders without Try again. */
+  const [failureReasonFor, setFailureReasonFor] = useState<{ sessionId: string; reason: PracticeLoopReviewFailureReason } | null>(null);
 
   // A route change can reuse this component instance. Render the new session's persisted value
   // immediately and invalidate every request captured for the previous session.
@@ -463,6 +475,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     let pendingWaits = 0;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null, retrying: false });
+      setFailureReasonFor(null);
       let failure: SafeSuggestionError;
       try {
         const supabase = getSupabaseClient();
@@ -531,6 +544,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
       trackPracticeLoopReviewFailed(failure.reason);
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: false });
+      setFailureReasonFor({ sessionId: requestSessionId, reason: failure.reason });
       return;
     }
   }, [reviewReady, sessionId, retryBackoffMs, product]);
@@ -548,14 +562,20 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   /**
    * #1422 — ONE SETTLED/UNSETTLED SIGNAL, published where the journey can read it.
    *
-   * `loading` is the only state that is still in motion. Everything else is an answer the user can act
+   * `loading` and `pending` are still in motion. `ready`, `error` and `blocked` are answers the user can act
    * on, including `error`: a malformed review response is a real outcome, and the card says so rather
    * than spinning. The E2E lane needs this because "the review settled honestly" and "the review is
    * still loading" are otherwise indistinguishable from outside, and the previous test worked around
    * that by asserting fabricated verdict prose that was always present.
    */
   // #1473 — a scheduled automatic retry is still in motion, so it reads as `loading` to the journey lane.
-  const reviewState = (isLoading || retrying) ? 'loading' : (error ? 'error' : (suggestions ? 'ready' : 'empty'));
+  // #1258 (RWT run 37514078995, F4) — "no review yet" is NOT a settled answer. The card used to publish `empty` while the
+  // session was still saving (`!reviewReady`) and in the instant between review eligibility and the automatic request,
+  // and the journey read that as terminal: it recorded "coaching did not render" ~20 ms before the request started and
+  // navigated away, superseding a request that had in fact been made. Every settled lifecycle outcome ends in
+  // `ready` or `error`, so anything else is `pending` (still coming) — or `blocked` when a stated reason means no review
+  // can be requested for this take. `empty` is no longer published: no settled eligible outcome leaves the card empty.
+  const reviewState = deriveReviewState({ isLoading, retrying, error: Boolean(error), hasSuggestions: Boolean(suggestions), reviewReady, blocked: Boolean(blockedReason) });
 
   /**
    * S-12 / S-14 — slot B's content, on the ink ground the shell owns. It carries no card chrome of its
@@ -575,10 +595,10 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    *
    * **There is no dead end and no spinner where the verdict goes (S-14).** The old card showed
    * `Review unavailable` over an empty box with a Retry button, which made a recoverable network blip
-   * look like a lost session. The review is a network call; the counts are not — they are computed on
-   * device from the transcript — so while the review is still coming, the counts fill the space and the
-   * chip is the only progress indicator. `Practice this again` lives directly beneath this card and stays
-   * primary and enabled throughout: the loop runs without the review.
+   * look like a lost session. #1258 punch list D3: the on-device counts now live only in the THIS RUN card, so
+   * this band states the review's own status in one line, with the chip as the only progress indicator.
+   * `Practice again?` lives directly beneath this card and stays primary and enabled throughout: the loop runs
+   * without the review.
    */
   /**
    * TWO failure shapes, because only one of them is still coming (#1422 / #1473).
@@ -589,16 +609,14 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    * `terminal` — the lifecycle has ENDED (service configuration, access, quota, not found, no transcript,
    * an invalid response, or exhaustion). Another attempt cannot change it, so claiming coaching is on its
    * way would be a false promise, and a RETRYING chip would be a lie. The server-classified copy carries
-   * what actually happened, in product language — the raw provider prose never reaches the user — and the
-   * on-device counts still fill the space, so this is not the dead end S-14 deletes either.
+   * what actually happened, in product language — the raw provider prose never reaches the user — and a
+   * manual Try again is offered only where a press could change the answer (NO_MANUAL_RETRY_REASONS).
    */
   const inFlight = isLoading || retrying;
   const terminal = Boolean(error) && !retrying && !isLoading;
   const stillComing = inFlight || terminal;
-  const publishedCounts = React.useContext(OnDeviceCountsContext);
-  const counts = onDeviceCounts ?? publishedCounts;
-  const hasCounts = counts != null
-    && (typeof counts.fillers === 'number' || typeof counts.wordsPerMinute === 'number');
+  const failureReason = failureReasonFor && failureReasonFor.sessionId === sessionId ? failureReasonFor.reason : null;
+  const manualRetryOffered = terminal && reviewReady && failureReason !== null && !NO_MANUAL_RETRY_REASONS.has(failureReason);
 
   return (
     <div
@@ -644,54 +662,53 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
       {/* ── verdict slot (S-12, awaiting the contract that carries a verdict + quote offsets) ── */}
 
-      {stillComing && (
+      {/* #1258 punch list D3 (PM disposition 6045315752): the in-flight band uses existing approved copy and no counts
+          panel — the THIS RUN card already shows them. "Session saved." is stated only once the saved session is
+          reviewable; nothing here promises that a result will necessarily arrive. */}
+      {stillComing && inFlight && (
         <div data-testid="ai-suggestions-still-coming">
-          <h4
-            className="max-w-[560px] text-[24px] font-extrabold leading-[1.3] tracking-[-0.03em] text-ink-text"
-            data-testid="ai-suggestions-headline"
-          >
-            {inFlight
-              ? 'Coaching is still coming. Here\u2019s what we counted on your device in the meantime.'
-              : error}
-          </h4>
-          <p className="mt-2 max-w-[520px] text-[14px] font-semibold leading-relaxed text-ink-muted">
-            {inFlight
-              ? 'Nothing is lost \u2014 your session is saved and the review will appear here when it lands.'
-              : 'Your session is saved, and these counts came from your device \u2014 they never needed the review.'}
+          <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text" data-testid="ai-suggestions-headline">
+            Your review is on its way.
           </p>
-          {/* Two counts, and only counts that exist. A third appears here ONLY when a third metric is
-              genuinely measured on device — never stubbed, zeroed or em-dashed. */}
-          {hasCounts && (
-            <div className="mt-5 flex flex-wrap gap-6 rounded-xl bg-ink-raised px-5 py-[18px]" data-testid="on-device-counts">
-              {typeof counts!.fillers === 'number' && (
-                <div>
-                  <p className="text-[30px] font-extrabold leading-none tracking-[-0.03em] text-signature [font-variant-numeric:tabular-nums]" data-testid="on-device-fillers">
-                    {counts!.fillers}
-                  </p>
-                  <p className="mt-[5px] text-[13px] font-bold text-ink-muted">fillers</p>
-                </div>
-              )}
-              {typeof counts!.wordsPerMinute === 'number' && (
-                <div>
-                  <p className="text-[30px] font-extrabold leading-none tracking-[-0.03em] text-ink-text [font-variant-numeric:tabular-nums]" data-testid="on-device-pace">
-                    {Math.round(counts!.wordsPerMinute)}
-                  </p>
-                  <p className="mt-[5px] text-[13px] font-bold text-ink-muted">words / min</p>
-                </div>
-              )}
-            </div>
+          {reviewReady && (
+            <p className="mt-2 text-[14px] font-semibold text-ink-muted" data-testid="ai-suggestions-saved-assurance">
+              Session saved.
+            </p>
           )}
-          {(error || retrying) && (
+          {retrying && (
+            <button
+              type="button"
+              disabled
+              className="mt-3.5 inline-flex h-10 items-center rounded-lg border border-ink-muted px-4 text-[14px] font-extrabold text-ink-text disabled:opacity-60"
+              data-testid="ai-suggestions-retry"
+            >
+              {'Trying again\u2026'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* #1258 punch list D3 (Rev 2 §2.2): one message, a real Try again, the disclosure directly under it, and no
+          counts panel (the THIS RUN card already shows them). A terminal reason gets the message alone. */}
+      {stillComing && !inFlight && (
+        <div data-testid="ai-suggestions-still-coming">
+          <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text" data-testid="ai-suggestions-headline">
+            {error}
+          </p>
+          {manualRetryOffered && (
             <button
               type="button"
               onClick={() => { void fetchSuggestions(); }}
               disabled={isLoading || retrying || !reviewReady}
-              className="mt-4 text-[14px] font-bold text-ink-muted underline-offset-2 hover:underline disabled:no-underline disabled:opacity-60"
+              className="mt-3.5 inline-flex h-10 items-center rounded-lg border border-ink-muted px-4 text-[14px] font-extrabold text-ink-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
               data-testid="ai-suggestions-retry"
             >
-              Retry review now
+              Try again
             </button>
           )}
+          <p className="mt-2 text-[12px] font-semibold text-ink-muted" data-testid="ai-suggestions-disclosure">
+            {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+          </p>
         </div>
       )}
 
@@ -727,9 +744,11 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         transcript went to Google from text attached to a button they never touched, so it sits in the card
         body, in the same region as the review and its progress state. It is a statement, not a gate.
       */}
-      <p className="mt-4 text-[12px] font-medium text-ink-muted" data-testid="ai-suggestions-disclosure">
-        {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
-      </p>
+      {!(stillComing && !inFlight) && (
+        <p className="mt-4 text-[12px] font-medium text-ink-muted" data-testid="ai-suggestions-disclosure">
+          {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+        </p>
+      )}
     </div>
   );
 };

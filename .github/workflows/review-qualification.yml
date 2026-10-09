@@ -1,0 +1,93 @@
+name: "Review Qualification"
+
+# #1573 (Browser PM 6067238534, user priority) — THE REVIEW LANE.
+#
+# Review activity used to trigger `ci.yml` itself: it forced the full lane and shared `ci-<PR>` with
+# `cancel-in-progress: true`, so every finding cancelled and rebuilt the same candidate. Review activity now re-qualifies
+# HERE instead (via review-event.yml → workflow_run): no build, unit or E2E, its own concurrency group, read-only token.
+# It re-qualifies the exact head
+# from (1) the newest completed engineering run of `ci.yml` for that head and live base
+# (scripts/ci-engineering-evidence.mjs) and (2) the LIVE review/thread state, Code and Security kept separate by the
+# existing collector (scripts/collect-review-qualification.mjs). Either holding fails this job.
+#
+# It does NOT report the required `report` context, and it does not replace the merge boundary: merges still go
+# through scripts/pre-merge-gate.mjs, which re-reads live threads and the receipt's age at the moment of merge.
+#
+# TRUST BOUNDARY (Codex P1 4233038867): review events run workflow files from the PR merge commit, so this workflow never
+# subscribes to them. It runs only on `workflow_run`, whose definition GitHub always takes from the default branch:
+# - "CI - Test Audit" completed → engineering finished after (or before) the reviews;
+# - "Review Event" completed → review activity happened (review-event.yml: no permissions, nothing trusted).
+# Takes effect once this file is on `main`; until then the merge boundary (scripts/pre-merge-gate.mjs from main) applies.
+# A fork PR's workflow_run carries no pull_requests entry, so the job is skipped (nothing qualifies).
+# - `issue_comment` (Codex P1 4233588262): a CLEAN Codex result is a top-level PR comment, not a review, so it never starts
+#   "Review Event". GitHub also runs `issue_comment` workflows from the default branch; only the Codex bot's comments on a PR
+#   start the job, and the live head is resolved through the API (never taken from the comment).
+
+on:
+  workflow_run:
+    workflows: ["CI - Test Audit", "Review Event"]
+    types: [completed]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: review-qual-${{ github.event.workflow_run.pull_requests[0].number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  review-lane-qualification:
+    name: review-lane-qualification
+    # A `workflow_run` without an associated PR (a push to main, a fork PR) has nothing to qualify here; an issue comment
+    # counts only when it is the Codex bot's, on a pull request.
+    if: >-
+      ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number)
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request
+          && github.event.comment.user.login == 'chatgpt-codex-connector[bot]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || github.event.issue.number }}
+      EXPECTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      # Codex P1 4224002123: run the TRUSTED default-branch scripts, never a candidate's; the live PR head and engineering
+      # runs are read through the API. (`workflow_run` already checks out the default branch; the ref is pinned anyway.)
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      # An issue comment names no commit: qualify the PR's LIVE head, read through the API (the scripts re-read it too).
+      - name: Resolve the live head for a Codex result comment
+        if: ${{ github.event_name == 'issue_comment' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "EXPECTED_HEAD_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .head.sha)" >> "$GITHUB_ENV"
+
+      - name: Engineering evidence for the exact live head (no tests re-run)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ENGINEERING_EVIDENCE_FILE: ${{ runner.temp }}/engineering-evidence.json
+        run: node scripts/ci-engineering-evidence.mjs
+
+      - name: Live review and thread state for the exact head
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          REVIEW_QUALIFICATION_FILE: ${{ runner.temp }}/review-qualification.json
+        run: node scripts/collect-review-qualification.mjs
+
+      - name: Upload qualified exact-head receipts
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-lane-qualification-${{ env.EXPECTED_HEAD_SHA }}
+          path: |
+            ${{ runner.temp }}/engineering-evidence.json
+            ${{ runner.temp }}/review-qualification.json
+          retention-days: 14
+          if-no-files-found: error

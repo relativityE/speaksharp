@@ -415,6 +415,56 @@ describe('AuthProvider', () => {
         expect(analyticsMock.resetIdentity).not.toHaveBeenCalled();
     });
 
+    describe('#1258 PR 4 (Browser PM 6050746477): the single-session cache never crosses accounts', () => {
+        const seed = (client: QueryClient) => client.setQueryData(['session', 's-a1'], { id: 's-a1', user_id: 'user-a', transcript: 'A words' });
+
+        it('CASUALTY: an identity change through an AUTH EVENT removes the previous account\'s session rows', async () => {
+            const client = new QueryClient();
+            mockSupabase.auth.getSession.mockResolvedValue({ data: { session: { user: { id: 'user-a' } } }, error: null });
+            let emit!: (event: string, session: unknown) => void;
+            mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
+                emit = callback;
+                return { data: { subscription: { unsubscribe: vi.fn() } } };
+            });
+            render(<QueryClientProvider client={client}><AuthProvider><TestConsumer /></AuthProvider></QueryClientProvider>);
+            act(() => { emit('SIGNED_IN', { user: { id: 'user-a' } }); });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-a'));
+            seed(client);
+            act(() => { emit('SIGNED_IN', { user: { id: 'user-b' } }); });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-b'));
+            expect(client.getQueryData(['session', 's-a1'])).toBeUndefined();
+        });
+
+        it('a token refresh for the SAME account keeps them (not an identity change)', async () => {
+            const client = new QueryClient();
+            mockSupabase.auth.getSession.mockResolvedValue({ data: { session: { user: { id: 'user-a' } } }, error: null });
+            let emit!: (event: string, session: unknown) => void;
+            mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
+                emit = callback;
+                return { data: { subscription: { unsubscribe: vi.fn() } } };
+            });
+            render(<QueryClientProvider client={client}><AuthProvider><TestConsumer /></AuthProvider></QueryClientProvider>);
+            act(() => { emit('SIGNED_IN', { user: { id: 'user-a' } }); });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-a'));
+            seed(client);
+            act(() => { emit('TOKEN_REFRESHED', { user: { id: 'user-a' } }); });
+            expect(client.getQueryData(['session', 's-a1'])).toEqual({ id: 's-a1', user_id: 'user-a', transcript: 'A words' });
+        });
+
+        it('setSession to a different account removes them too', async () => {
+            const client = new QueryClient();
+            mockSupabase.auth.getSession.mockResolvedValue({ data: { session: { user: { id: 'user-a' } } }, error: null });
+            let setSession!: (s: unknown) => void;
+            const Grab = () => { const ctx = useContext(AuthContext); setSession = ctx!.setSession as (s: unknown) => void; return null; };
+            render(<QueryClientProvider client={client}><AuthProvider><TestConsumer /><Grab /></AuthProvider></QueryClientProvider>);
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-a'));
+            seed(client);
+            act(() => { setSession({ user: { id: 'user-b' } }); });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-b'));
+            expect(client.getQueryData(['session', 's-a1'])).toBeUndefined();
+        });
+    });
+
     it('#1259 a claim CHANGE on the same account is applied on token refresh', async () => {
         // The operations contract says a claim takes effect on the next token refresh. The effect already
         // reran (the claims are dependencies) but the same-user early return exited before either setter,

@@ -703,6 +703,12 @@ export class SpeechRuntimeController {
      * generation must not be allowed to fail the replacement lifecycle.
      */
     private serviceGeneration = 0;
+    /**
+     * #1258 — services that have been admitted to a take. A service runs ONE take: the next Start never
+     * reuses one, whatever path left it attached (see `startRecording`). Weak, so a retired service is not
+     * kept alive by being remembered.
+     */
+    private readonly servicesThatRecorded = new WeakSet<TranscriptionService>();
     private policy: TranscriptionPolicy | null = null;
     private userWords: string[] = [];
 
@@ -862,6 +868,52 @@ export class SpeechRuntimeController {
             this.acceptedAttempt = null;
         }
         return current;
+    }
+
+    /**
+     * #1258 — retire a service that already ran a take, on behalf of a Start that is about to need one.
+     * Detaches it (killing every binding it holds), then AWAITS its destruction, because the factory keeps
+     * handing it back until it is TERMINATED. Returns whether that Start may continue.
+     *
+     * The await is a suspension. A hard reset may cut the lifecycle meanwhile, or the user may press Start
+     * again — a newer intent, a newer recording id. Either way this Start no longer owns anything: it stands
+     * down without touching the service or the newer owner's lock, and the newer owner retires the service
+     * for itself (destruction is idempotent, so it joins the same termination).
+     */
+    private async retireSpentServiceForStart(
+        spentService: TranscriptionService,
+        intentToken: string,
+        recordingId: string,
+        token: LifecycleToken,
+    ): Promise<boolean> {
+        const spent = this.detachService(spentService);
+        pushNativeRuntimeTrace('controller_start_retire_spent_service');
+        try {
+            await spent?.destroy();
+        } catch (destroyError: unknown) {
+            logger.warn({ code: destroyError instanceof Error ? destroyError.name : 'unknown' },
+                '[controller] destroying the previous take\'s service failed');
+        }
+        if (token.cancelled || token.version !== this.lifecycleVersion
+            || this.currentRecordingId !== recordingId || !isCurrentIntent(intentToken)) {
+            pushNativeRuntimeTrace('controller_start_superseded_while_retiring');
+            retireRecordingIntent('superseded', intentToken);
+            this.releaseRefusedStartLock();
+            return false;
+        }
+        if (spent && !spent.isServiceDestroyed()) {
+            this.refuseStartOnSpentService(intentToken);
+            return false;
+        }
+        return true;
+    }
+
+    /** #1258 — a previous take's service would not terminate: refuse rather than run this take on it. */
+    private refuseStartOnSpentService(intentToken: string): void {
+        pushNativeRuntimeTrace('controller_start_spent_service_not_retired');
+        retireRecordingIntent('acquisition_failed', intentToken, new Error('PREVIOUS_TAKE_SERVICE_NOT_RETIRED'));
+        // Aborting before INITIATING — release the Start-intent lock, as the other pre-INITIATING exits do.
+        this.releaseRefusedStartLock();
     }
 
     /**
@@ -4052,12 +4104,52 @@ export class SpeechRuntimeController {
                 this.detachService(this.service);
             }
 
+            /**
+             * #1258 — A SERVICE THAT RAN A TAKE IS NEVER THE NEXT TAKE'S SERVICE.
+             *
+             * Only the normal stop terminal detaches and destroys the service. A Stop whose engine stopped but
+             * whose save failed ends in FAILED with the take's service still attached — undestroyed, strategy
+             * kept, FSM back in READY — and nothing between there and here retires it. Reusing it skipped the
+             * new callback binding, so the service generation never moved and the previous take's callbacks
+             * were indistinguishable from this take's: its engine's emissions landed in this transcript.
+             *
+             * Detaching moves the generation synchronously, so the old binding is dead from this point on.
+             * That is not enough by itself: the service factory hands back its cached service until that
+             * service is TERMINATED, rebinding the new take's callbacks onto the old engine. Destruction is
+             * therefore AWAITED, and a service that is still not terminal afterwards refuses this Start rather
+             * than letting the new take run on it. The engine is already stopped — the page proves the prior
+             * engine off before Start — so destruction only releases what the old service still holds.
+             */
+            if (this.service && this.servicesThatRecorded.has(this.service)) {
+                if (!await this.retireSpentServiceForStart(this.service, intent.token, recordingId, _token)) return;
+            }
+
             if (!this.service) {
                 pushNativeRuntimeTrace('controller_start_create_service');
                 this.service = getTranscriptionService(
                     this.callbacksForNewService(this.subscriberCallbacks),
                     this.lock
                 );
+                /**
+                 * #1258 — THE FACTORY CAN STILL HAND BACK A SPENT SERVICE.
+                 *
+                 * A hard reset detaches the service without waiting for it, and it resets the command queue, so a
+                 * Start can reach this line while the previous take's service is still terminating. Until it is
+                 * TERMINATED the factory returns it — with this take's callbacks just rebound onto it. Retire it
+                 * exactly as above (detaching kills that binding), then ask for a service once more.
+                 */
+                if (this.servicesThatRecorded.has(this.service)) {
+                    if (!await this.retireSpentServiceForStart(this.service, intent.token, recordingId, _token)) return;
+                    this.service = getTranscriptionService(
+                        this.callbacksForNewService(this.subscriberCallbacks),
+                        this.lock
+                    );
+                    if (this.servicesThatRecorded.has(this.service)) {
+                        this.detachService(this.service);
+                        this.refuseStartOnSpentService(intent.token);
+                        return;
+                    }
+                }
             }
 
             pushE2EEvent('SR_START_ENTER');
@@ -4306,6 +4398,7 @@ export class SpeechRuntimeController {
                     serviceGeneration: this.serviceGeneration,
                     service,
                 };
+                this.servicesThatRecorded.add(service);
 
                 // NOW the invariant may run: the service has confirmed RECORDING, so publishing the state
                 // is a report of something that happened rather than a prediction. See the note above the

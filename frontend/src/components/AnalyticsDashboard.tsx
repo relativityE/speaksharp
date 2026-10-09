@@ -3,8 +3,7 @@ import { getSessionById, resolveTranscriptView } from '@/lib/storage';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
 import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 import { NavLink } from 'react-router-dom';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Eye, ChevronDown, AudioLines } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, ChevronDown, AudioLines } from 'lucide-react';
 import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,32 +13,36 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
-import { formatDate, formatDateTime } from '../lib/dateUtils';
-import { FillerWordTable } from './analytics/FillerWordTable';
-import { TopFillerWords } from './analytics/TopFillerWords';
-import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
+import { authEpoch, currentOwnerId } from '@/services/loginSessionLog';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
-import { TrendChart } from './analytics/TrendChart';
+import { TrendsCard } from './analytics/TrendsCard';
+import type { TrendDataPoint } from './analytics/trendMetrics';
 import { SavedFocusPointsCoverage } from './analytics/SavedFocusPointsCoverage';
 import { SavedPracticeLoopReview } from './analytics/SavedPracticeLoopReview';
+import { ProgressHeader } from './analytics/ProgressHeader';
+import { RuleCard } from './analytics/RuleCard';
+import { metricConfig, type TrendMetric } from './analytics/trendMetrics';
 import { trackSessionPdfDownloaded, type PdfSurface } from '@/services/reviewSurfaceTelemetry';
-import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
-import { getSessionPauseCount } from '@/lib/analyticsUtils';
+import { getSessionAnalysisMetrics, calculateRatePerMinute, ANALYTICS_THRESHOLDS } from '@/utils/sessionAnalysis';
+import { calculateOverallStats, getSessionPauseCount } from '@/lib/analyticsUtils';
+import { hasValidPauseEvidence } from '@/utils/metricValidity';
+import { PRODUCT_LABEL, mmss, plural, shortDate, shortTime } from '@/lib/displayFormat';
 import {
     decodePace,
     decodePauseRhythm,
     decodeFillers,
     decodeClarity,
+    fillerRatePhrase,
+    FILLER_NOTICEABLE_PER_MIN,
     getNarrativeSummary,
     type CoachingMetric,
 } from '@/utils/coachingNarrative';
 
-import type { PracticeSession } from '@/types/session';
+import type { PracticeSession, SessionProduct } from '@/types/session';
 import type { UserProfile } from '@/types/user';
-import type { FillerWordTrends, OverallStats } from '@/types/analytics';
+import type { OverallStats } from '@/types/analytics';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TEST_IDS } from '@/constants/testIds';
 import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
@@ -68,12 +71,25 @@ import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
  * detail read fails, the PDF is built from the list row as before (metrics, no transcript page). The detail surface
  * already holds the detail row.
  */
-const downloadSessionPdf = (surface: PdfSurface, ...args: Parameters<typeof generateSessionPdf>): void => {
-    const [session, ...rest] = args;
+const downloadSessionPdf = (
+    surface: PdfSurface, session: PracticeSession, username: string, isPro: boolean, sessionsForDay: PracticeSession[],
+): void => {
+    // #1573 Codex P1 (review 5460913397; 4223017340): bound to the signed-in owner AND the auth epoch that started it. A
+    // sign-out or account switch while the detail/progress reads are in flight moves the epoch and discards the work — no
+    // previous-account PDF (transcript or metrics fallback), no success event — even when the sign-in time is unknown.
+    // No owner at the start fails closed. Nothing is aborted at the wire (#1422); the late answer is simply not used.
+    const startedOwner = currentOwnerId();
+    const startedEpoch = authEpoch();
+    const stillCurrent = () => startedOwner !== null && authEpoch() === startedEpoch && currentOwnerId() === startedOwner;
+    if (!stillCurrent()) return;
     const source = surface === 'session_detail'
         ? Promise.resolve(session)
         : getSessionById(session.id).then((detail) => detail ?? session, () => session);
-    void source.then((pdfSession) => generateSessionPdf(pdfSession, ...rest)).then(
+    void source.then((pdfSession) => {
+        const foreignRow = typeof pdfSession.user_id === 'string' && pdfSession.user_id !== startedOwner;
+        if (!stillCurrent() || foreignRow) return false;
+        return generateSessionPdf(pdfSession, username, isPro, sessionsForDay, stillCurrent);
+    }).then(
         (saved) => { if (saved) trackSessionPdfDownloaded(surface); },
         () => undefined,
     );
@@ -84,7 +100,8 @@ interface AnalyticsDashboardProps {
     isProUser?: boolean;
     sessionHistory: PracticeSession[];
     overallStats: OverallStats;
-    fillerWordTrends: FillerWordTrends;
+    /** #1258 D5: the oldest counted session's `created_at` (null while unknown) — the header's "since {date}". */
+    firstSessionAt?: string | null;
     loading: boolean;
     error: Error | null;
     onUpgrade: () => void;
@@ -97,25 +114,15 @@ interface StatCardProps {
     value: string | number | null;
     unit?: string;
     description?: string;
-    microcopy?: string;
     interpretation?: CoachingMetric;
+    /** Overrides the card's one sentence (see StatCardConfig.getDetail). */
+    detail?: string | null;
+    /** #1258 D5 (Rev 2 §5.6): the metric's colour dot (from TrendChart's palette) and, for pace, the target. */
+    metric?: TrendMetric;
     className?: string;
     testId?: string;
 }
 
-// #G4 §2: one chip scale + number color for the four signal cards. `nodata` = no evidence yet (NEED 2 MORE),
-// `ontrack` = on target (good), `fix` = needs attention (watch/off). Colors from the four-role palette.
-type G4Status = 'fix' | 'ontrack' | 'nodata';
-const G4_CHIP: Record<G4Status, { text: string; cls: string }> = {
-    fix: { text: 'FIX THIS', cls: 'bg-signature-ground text-signature-text' },
-    ontrack: { text: 'ON TRACK', cls: 'bg-state-success-ground text-status' },
-    nodata: { text: 'NEED 2 MORE', cls: 'bg-neutral-band text-neutral-secondary' },
-};
-const G4_NUM_COLOR: Record<G4Status, string> = {
-    fix: 'text-regression',
-    ontrack: 'text-status',
-    nodata: 'text-neutral-muted',
-};
 
 interface SessionHistoryItemProps {
     session: PracticeSession;
@@ -126,47 +133,38 @@ interface SessionHistoryItemProps {
     profileName: string;
 }
 
-interface FillerWordsTrendChartProps {
-    data: OverallStats['chartData'];
-}
-
-const FillerWordsTrendChart: React.FC<FillerWordsTrendChartProps> = ({ data }) => {
-    const chartContainer = useChartContainerReady();
-
-    return (
-        <div ref={chartContainer.ref} className="h-[210px] w-full">
-            {chartContainer.isReady ? (
-                <LineChart width={chartContainer.size.width} height={chartContainer.size.height} data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                        <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                        <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                        <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                        <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                </LineChart>
-            ) : (
-                <div className="h-full w-full rounded-xl bg-muted/60" aria-hidden="true" />
-            )}
-        </div>
-    );
-};
-
 // --- Stat Card Configuration ---
 // Exhaustive list of all available stat cards for user customization
 // Add new stat cards here for future analytics features
 
 
+/**
+ * #1258 D5 (PO 2026-10-07): the newest-sessions window some cards read — the newest 4 sessions, valid measurements
+ * only. `stats` is that window's `calculateOverallStats`, `fillersPerSession` the mean measured filler count in it.
+ */
+type RecentWindow = { sessions: number; stats: OverallStats | null; fillersPerSession: number | null; fillersPerMin: number | null };
+const RECENT_WINDOW_SESSIONS = 4;
+/** OverallStats averages are `string | number | null` (rates arrive via `toFixed`); a non-finite or absent value is null. */
+const numberOrNull = (v: unknown): number | null => {
+    const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : null;
+};
+
 type StatCardConfig = {
     id: string;
+    /** The name in the Custom picker; the card shows `getLabel` when present. */
     label: string;
+    getLabel?: (recent: RecentWindow) => string;
     icon: React.ReactNode;
-    getValue: (stats: OverallStats) => string | number | null;
+    getValue: (stats: OverallStats, recent: RecentWindow) => string | number | null;
     unit?: string;
     description?: string;
-    // Short supporting microcopy shown under the (now secondary) number on a decoded card.
-    microcopy?: string;
-    // Narrative-first: decode the raw value into a plain label (Fast / Choppy / Strong …) so the card
-    // leads with the coaching read and keeps the number as secondary detail.
-    getInterpretation?: (stats: OverallStats) => CoachingMetric;
+    /** #1258 D5: the metric's colour dot on the card (TrendChart's palette). */
+    metric?: TrendMetric;
+    // Narrative-first: decode the raw value into a plain label (Fast / Choppy / Strong …).
+    getInterpretation?: (stats: OverallStats, recent: RecentWindow) => CoachingMetric;
+    /** The card's one sentence when the grade must name the value it judged (fillers: the per-minute rate). */
+    getDetail?: (stats: OverallStats, recent: RecentWindow) => string | null;
 };
 
 const STAT_CARD_OPTIONS: StatCardConfig[] = [
@@ -184,18 +182,26 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.averageWPM,
         unit: 'WPM',
         description: 'Average words per minute',
-        microcopy: 'Target 130–150',
+        metric: 'wpm',
         getInterpretation: (stats) => decodePace(stats.averageWPM),
     },
     {
         id: 'filler_words_per_min',
-        label: 'Avg. Filler Words / Min',
+        // #1258 D5 (PO 2026-10-07): a COUNT per session over the newest 4 sessions (measured zeroes in, missing out),
+        // replacing the all-session per-minute rate. Decimals are fine for an average.
+        label: 'Average fillers per session',
+        getLabel: (recent) => `Average fillers per session · last ${plural(recent.sessions, 'session', 'sessions')}`,
         icon: <TrendingUp size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.avgFillerWordsPerMin,
-        unit: '/min',
-        description: 'Filler word frequency per minute',
-        microcopy: 'Swap a filler for a brief pause',
-        getInterpretation: (stats) => decodeFillers(stats.avgFillerWordsPerMin),
+        getValue: (_stats, recent) => recent.fillersPerSession === null ? null : recent.fillersPerSession.toFixed(1),
+        description: 'Filler words counted per session, averaged over your newest sessions',
+        metric: 'fillers',
+        // #1573 Codex P1 4230859591: judged on the SAME true-filler basis and window as the count shown, never the legacy
+        // all-keys rate (which still counts default-excluded discourse markers such as "so" and "like").
+        getInterpretation: (_stats, recent) => decodeFillers(recent.fillersPerMin),
+        // #1573 Codex P1 4232318053 + PO 2026-10-09: the count stays the headline; the grade states the rate it judges, so a
+        // short and a long take are graded fairly and the grade never judges a number the user can't see.
+        getDetail: (_stats, recent) => recent.fillersPerMin === null ? null
+            : `${decodeFillers(recent.fillersPerMin).label} · ${fillerRatePhrase(recent.fillersPerMin)}, target under ${FILLER_NOTICEABLE_PER_MIN}`,
     },
     {
         id: 'total_practice_time',
@@ -207,12 +213,12 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     },
     {
         id: 'clarity_score',
-        label: 'Clear Delivery',
+        label: 'Clear delivery',
         icon: <Target size={24} className="text-foreground/70" />,
+        metric: 'clarity',
         getValue: (stats) => stats.avgClarity,
         unit: '%',
         description: 'Based on pace, fillers, and structure — not transcription accuracy.',
-        microcopy: 'Pace + fillers + structure',
         getInterpretation: (stats) => decodeClarity(stats.avgClarity),
     },
     {
@@ -222,7 +228,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.avgPausesPerMin,
         unit: '/min',
         description: 'Pauses per minute. Healthy pauses make key ideas easier to follow.',
-        microcopy: 'Steady spacing helps ideas land',
+        metric: 'pauses',
         getInterpretation: (stats) => decodePauseRhythm(stats.avgPausesPerMin),
     },
     // Future stat cards can be added here
@@ -364,7 +370,7 @@ const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
 
 // --- Sub-components ---
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, microcopy, interpretation, className = '', testId }) => {
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, interpretation, detail, metric, className = '', testId }) => {
     const resolvedTestId = testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
     // #1045: a card may only show a number, a unit, or a judgment when the evidence supports it.
@@ -381,21 +387,22 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
     if (interpretation) {
         // #G4 §2: every signal card is the SAME four parts in the same order — name, status chip, coloured
         // number+unit, one sentence. `nodata` states its unlock path instead of a dead "Not enough data".
-        const status: G4Status = evidenceMissing ? 'nodata' : (interpretation.tone === 'good' ? 'ontrack' : 'fix');
-        const chip = G4_CHIP[status];
+        // #1258 D5 (Rev 2 §5.6): no status chip and no coloured number — the value is plain, the one sentence names the
+        // read ("Slow · target 130–150" for pace, the label alone otherwise), and a dot carries the metric's colour.
         const unitText = displayUnit ? (displayUnit === 'WPM' ? ' wpm' : displayUnit) : '';
         const sentence = evidenceMissing
             ? 'A couple more sessions and we can read this.'
-            : status === 'ontrack'
-                ? `${interpretation.label} — leave this alone.`
-                : `${interpretation.label}${microcopy ? ` — ${microcopy}` : ''}`;
+            : detail
+                ?? (metric === 'wpm'
+                    ? `${interpretation.label} · target ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}–${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX}`
+                    : interpretation.label);
         return (
-            <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
-                <div className="flex items-start justify-between gap-2">
+            <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId} data-status={evidenceMissing ? 'nodata' : interpretation.tone}>
+                <div className="flex items-start gap-2">
+                    {metric && <span aria-hidden className="mt-[3px] h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: metricConfig[metric].color }} data-testid={`${resolvedTestId}-dot`} />}
                     <p className="text-[12px] font-extrabold uppercase tracking-wide text-neutral-secondary">{label}</p>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${chip.cls}`} data-testid={`${resolvedTestId}-chip`}>{chip.text}</span>
                 </div>
-                <p className={`mt-3 text-[34px] font-extrabold leading-none ${G4_NUM_COLOR[status]}`} data-testid={`${resolvedTestId}-interpretation`}>
+                <p className="mt-3 text-[34px] font-extrabold leading-none text-neutral-heading" data-testid={`${resolvedTestId}-interpretation`}>
                     {evidenceMissing ? '—' : <>{displayValue}<span className="ml-1 text-[14px] font-bold text-neutral-secondary">{unitText}</span></>}
                 </p>
                 <p className="mt-2 text-[13px] leading-snug text-neutral-secondary" data-testid={`${resolvedTestId}-detail`}>{sentence}</p>
@@ -434,82 +441,61 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
     );
 };
 
+/** #1258 D9 (Rev 2 §5.9): the product pill on a Recent sessions row. Only the persisted product is shown — never inferred. */
+const ProductTag: React.FC<{ product: SessionProduct }> = ({ product }) => (
+    <span
+        className={`rounded-full border px-[9px] py-[3px] text-[11px] font-extrabold uppercase tracking-[0.06em] ${product === 'focus_points'
+            ? 'border-focus-points-border bg-focus-points-ground text-focus-points'
+            : 'border-signature-border bg-signature-ground text-ink'}`}
+        data-testid="session-product-tag"
+    >
+        {PRODUCT_LABEL[product]}
+    </span>
+);
+
+/** Label left, value right in one fixed column so the same metric lines up row to row (Rev 2 §0.2b/§0.2c). */
+const RowMetric: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => (
+    <span className="flex justify-between gap-2.5 whitespace-nowrap">
+        <span>{k}</span>
+        <strong className="text-right font-extrabold text-neutral-heading">{v}</strong>
+    </span>
+);
+
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessionHistory, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
     const metrics = getSessionAnalysisMetrics(session);
-    const durationMins = Math.floor(session.duration / 60);
-    const durationSecs = session.duration % 60;
-    const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
-
     // #1306 metrics-only: a metric shows iff its value is persisted (metric-presence provenance).
-    const wpm = typeof session.wpm === 'number' ? metrics.wpm : 'N/A';
-    const clarity = typeof session.clarity_score === 'number' ? metrics.clarityScore : 'N/A';
-    const totalFillers = metrics.fillerCount === null ? 'N/A' : metrics.fillerCount;
+    const wpm = typeof session.wpm === 'number' ? metrics.wpm : null;
+    const clarity = typeof session.clarity_score === 'number' ? metrics.clarityScore : null;
+    const product = session.product ?? null;
+    const when = `${shortDate(session.created_at)}, ${shortTime(session.created_at)}`;
 
     return (
-        <div
-            className="group mb-3 flex flex-col items-stretch justify-between rounded-xl border border-[hsl(var(--border))] bg-muted p-4 transition-colors last:mb-0 hover:border-[hsl(var(--border-strong))] hover:bg-white surface-shadow md:flex-row md:items-center"
-            data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
-        >
-            <div className="mb-4 flex min-w-0 w-full items-center gap-4 md:mb-0 md:w-auto">
-                <div className="flex items-center h-full">
-                    <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => onToggleSelect(session.id)}
-                        className="mr-4"
-                        aria-label={`Select session for comparison`}
-                    />
-                </div>
+        <div className="flex flex-col gap-1.5 px-5 py-4 hover:bg-neutral-band" data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}>
+            <div className="flex flex-wrap items-center gap-3">
+                {product && <ProductTag product={product} />}
                 <NavLink
                     to={`/analytics/${session.id}`}
                     data-testid={`session-detail-link-${session.id}`}
-                    className="flex min-w-0 flex-1 items-center gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="rounded-sm text-[15px] font-extrabold text-neutral-heading underline decoration-neutral-border-strong underline-offset-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                    <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
-                        <Mic className="w-6 h-6 text-secondary" />
-                    </div>
-                    <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            {/* #G4 chunk 3: per-row engine/PRIVATE badge removed — the section footer already
-                                makes the privacy promise ("Private to you…"), so the per-row pill was
-                                redundant clutter. Recording mode remains available on the session detail view. */}
-                            <p className="max-w-full truncate text-base font-semibold text-foreground md:max-w-[200px]">{session.title || 'Practice Session'}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground/70">
-                            <Clock className="w-3 h-3" />
-                            <span>{durationStr} duration</span>
-                            <span className="text-foreground/50">•</span>
-                            <span>{formatDateTime(session.created_at)}</span>
-                        </div>
-                    </div>
+                    {when}
                 </NavLink>
-            </div>
-
-            <div className="grid w-full grid-cols-3 items-start gap-2 px-0 sm:px-4 md:flex md:w-auto md:items-center md:justify-end md:gap-8 md:px-0">
-                <div className="min-w-0 text-center">
-                    <p className="font-bold text-foreground text-lg">{wpm}{typeof wpm === 'number' && <span className="ml-0.5 text-xs font-normal text-neutral-secondary">WPM</span>}</p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Speaking Pace</p>
-                </div>
-                <div className="min-w-0 text-center">
-                    <p className={`font-bold text-lg ${typeof totalFillers === 'number' && totalFillers <= 3 ? "text-success" : "text-signature-text"}`}>
-                        {totalFillers}
-                    </p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Detected filler words</p>
-                </div>
-                <div className="min-w-0 text-center">
-                    <p className="font-bold text-signature-text text-lg">{typeof clarity === 'number' ? `${clarity.toFixed(0)}%` : clarity}</p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clear Delivery</p>
-                </div>
-
-                {/* #G4 chunk 3: Open (outlined) + PDF (teal-filled) button pair — the PDF is the emphasised
-                    action while it's still downloadable within the 2-session retention window. */}
-                <div className="hidden items-center gap-2 border-l border-border pl-4 md:flex" data-testid={`download-pdf-container-${session.id}`}>
+                <span className="ml-auto text-[14px] font-bold tabular-nums text-neutral-secondary">{mmss(session.duration)}</span>
+                <label className="inline-flex min-h-11 items-center gap-2 text-[13px] font-bold text-neutral-secondary">
+                    Compare
+                    <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => onToggleSelect(session.id)}
+                        aria-label={`Compare ${product ? PRODUCT_LABEL[product] : 'session'}, ${when}`}
+                    />
+                </label>
+                <div className="flex items-center gap-3" data-testid={`download-pdf-container-${session.id}`}>
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-signature-border bg-white px-[14px] py-[9px] text-[13px] font-bold text-signature-text transition-colors hover:bg-signature-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        aria-label="Open saved session details"
                         data-testid={`open-session-detail-${session.id}`}
+                        aria-label={`Open ${product ? PRODUCT_LABEL[product] : 'session'}, ${when}`}
+                        className="inline-flex h-9 items-center rounded-lg bg-ink px-4 text-[14px] font-extrabold text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2"
                     >
-                        <Eye className="h-4 w-4" aria-hidden="true" />
                         Open
                     </NavLink>
                     <button
@@ -521,37 +507,16 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                         }}
                         title="Download Session PDF"
                         data-testid={`download-pdf-btn-${session.id}`}
-                        className="inline-flex items-center justify-center gap-2 rounded-[9px] bg-signature px-[14px] py-[9px] text-[13px] font-bold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-signature px-3.5 text-[14px] font-extrabold text-ink hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
-                        <Download className="h-4 w-4" aria-hidden="true" />
-                        PDF
+                        <Download className="h-4 w-4" aria-hidden="true" />PDF
                     </button>
                 </div>
             </div>
-            <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4" data-testid={`download-pdf-container-mobile-${session.id}`}>
-                <div className="flex w-full flex-col gap-2">
-                    <NavLink
-                        to={`/analytics/${session.id}`}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] border border-signature-border bg-white px-[14px] py-[9px] text-[13px] font-bold text-signature-text transition-colors hover:bg-signature-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        aria-label="Open saved session details"
-                        data-testid={`open-session-detail-mobile-${session.id}`}
-                    >
-                        <Eye className="h-4 w-4" aria-hidden="true" />
-                        Open Saved Session
-                    </NavLink>
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            downloadSessionPdf('history_list_mobile', session, profileName, _isPro, sessionHistory);
-                        }}
-                        data-testid={`download-pdf-btn-mobile-${session.id}`}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] bg-signature px-[14px] py-[9px] text-[13px] font-bold text-ink transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                        <Download className="h-4 w-4" aria-hidden="true" /> Download Session PDF
-                    </button>
-                </div>
+            <div className="grid grid-cols-1 gap-x-7 text-[14px] font-semibold tabular-nums text-neutral-secondary min-[480px]:grid-cols-[repeat(3,minmax(0,190px))]">
+                <RowMetric k="Pace (wpm)" v={wpm ?? '—'} />
+                <RowMetric k="Fillers" v={metrics.fillerCount ?? '—'} />
+                <RowMetric k="Clear delivery (%)" v={clarity === null ? '—' : clarity.toFixed(0)} />
             </div>
         </div>
     );
@@ -579,7 +544,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     isProUser: effectiveIsProUser,
     sessionHistory,
     overallStats,
-    fillerWordTrends,
+    firstSessionAt = null,
     loading,
     error,
     onUpgrade,
@@ -669,9 +634,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     }, [customAnalysisSlides, isCustomFocus, selectedToolGroup]);
 
     const focusLabel = isCustomFocus ? 'Custom' : selectedToolGroup.label;
-    const focusPurpose = isCustomFocus
-        ? 'Inspect specific metrics when you already know the signal you want to measure.'
-        : selectedToolGroup.purpose;
 
     const toggleCustomStatCard = (cardId: string) => {
         setCustomStatCards(prev => {
@@ -726,26 +688,65 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         }) as [{ id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }, { id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }];
     }, [selectedSessions, sessionHistory]);
 
-    const trendData = useMemo(() => {
-        if (!sessionHistory || sessionHistory.length < 2) return [];
-        return sessionHistory.slice(0, 10).reverse().map(s => {
+    const trendData = useMemo((): TrendDataPoint[] => {
+        if (!sessionHistory || sessionHistory.length === 0) return [];
+        let previousDay = '';
+        return sessionHistory.slice(0, 10).reverse().map((s, i) => {
             const metrics = getSessionAnalysisMetrics(s);
             // #1047: gate EVERY transcript-derived trend point on transcript-state provenance, not numeric
             // presence — a not_captured/expired session's sentinel 0/{} must never chart as a real point.
-            // null = omitted point (Recharts renders a gap). Pauses are timing-derived (not transcript) and
-            // are charted as before.
+            // null = omitted point (Recharts renders a gap).
             const wpmShowable = typeof s.wpm === 'number';
             const fillerShowable = metrics.fillerCount !== null;
             const clarityShowable = metrics.isClarityScorable && typeof s.clarity_score === 'number';
+            // #1258 D8: one date label per calendar day (the first session of that day).
+            const day = shortDate(s.created_at);
+            const dayLabel = day !== previousDay ? day : '';
+            previousDay = day;
             return {
-                date: formatDate(s.created_at),
+                i,
+                dayLabel,
+                createdAt: s.created_at,
+                product: s.product ?? null,
                 wpm: wpmShowable ? metrics.wpm : null,
                 clarity: clarityShowable ? metrics.clarityScore : null,
                 fillers: fillerShowable ? metrics.fillerCount : null,
-                pauses: Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1)),
+                // #1258 D8: a session without valid pause evidence is LEFT OUT (null), never plotted as 0 — the
+                // cause of the flat 0/min line. Same validator the Pause rhythm aggregate uses.
+                pauses: hasValidPauseEvidence(s.pause_metrics)
+                    ? Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1))
+                    : null,
             };
         });
     }, [sessionHistory]);
+
+    // #1258 D5 (PO 2026-10-07): the rule card and the filler card read the NEWEST 4 sessions, equally weighted.
+    // `calculateOverallStats` already counts each metric only over sessions that measured it (a measured zero counts,
+    // missing data doesn't); the filler average is the mean of the window's measured filler counts.
+    const recent = useMemo((): RecentWindow => {
+        const windowed = (sessionHistory ?? []).slice(0, RECENT_WINDOW_SESSIONS);
+        if (windowed.length === 0) return { sessions: 0, stats: null, fillersPerSession: null, fillersPerMin: null };
+        const measured = windowed
+            .map((s) => ({ count: getSessionAnalysisMetrics(s).fillerCount, seconds: s.duration ?? 0 }))
+            .filter((m): m is { count: number; seconds: number } => m.count !== null);
+        const counts = measured.map((m) => m.count);
+        // #1573 Codex P1 4230859591: the per-minute rate behind the filler judgment and the rule-card driver is pooled over
+        // the same measured true-filler counts the card averages (same rate basis as calculateOverallStats).
+        const fillerSeconds = measured.reduce((a, m) => a + (m.seconds > 0 ? m.seconds : 0), 0);
+        const fillerTotal = measured.reduce((a, m) => a + (m.seconds > 0 ? m.count : 0), 0);
+        return {
+            sessions: windowed.length,
+            stats: calculateOverallStats(windowed) as OverallStats,
+            fillersPerSession: counts.length > 0 ? counts.reduce((a, b) => a + b, 0) / counts.length : null,
+            fillersPerMin: fillerSeconds > 0 ? Number(calculateRatePerMinute(fillerTotal, fillerSeconds, 1)) : null,
+        };
+    }, [sessionHistory]);
+    const recentSummary = useMemo(() => recent.stats ? getNarrativeSummary({
+        avgWpm: recent.stats.averageWPM,
+        avgPausesPerMin: recent.stats.avgPausesPerMin,
+        avgFillerWordsPerMin: recent.fillersPerMin,
+        avgClarity: recent.stats.avgClarity,
+    }) : null, [recent]);
 
     logger.debug({ loading, error, sessions: sessionHistory?.length }, '[AnalyticsDashboard] Rendering');
 
@@ -775,8 +776,59 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         return Number.isNaN(created.getTime()) ? null : created.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     }, [targetSession]);
 
+    // #1258 D5 (Rev 2 §5.2): the existing focus menu, unchanged inside, restyled as an outline control on the ink header.
+    const focusControl = (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    className="inline-flex h-10 items-center gap-2 self-start rounded-lg border border-ink-muted px-3.5 text-[14px] font-bold text-white hover:bg-ink-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature"
+                    data-testid={TEST_IDS.ANALYTICS_FOCUS_TRIGGER}
+                >
+                    Choose focus
+                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuLabel>Choose what you want to improve</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup
+                    value={selectedFocusId}
+                    onValueChange={(value) => setSelectedFocusId(value as AnalyticsFocusId)}
+                >
+                    {ANALYTICS_TOOL_GROUPS.map(group => (
+                        <DropdownMenuRadioItem key={group.id} value={group.id} className="items-start">
+                            <span className="flex flex-col gap-0.5">
+                                <span className="font-semibold">{group.label}</span>
+                                <span className="text-xs leading-snug text-muted-foreground">{group.outcome}</span>
+                            </span>
+                        </DropdownMenuRadioItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuRadioItem value="custom" className="items-start">
+                        <span className="flex flex-col gap-0.5">
+                            <span className="font-semibold">Custom</span>
+                            <span className="text-xs leading-snug text-muted-foreground">Advanced: choose specific metrics when you already know what to inspect.</span>
+                        </span>
+                    </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+    const newestSession = !sessionId && sessionHistory && sessionHistory.length > 0 ? sessionHistory[0] : null;
+
     return (
         <div className="space-y-6" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
+            {/* #1258 D5: on the overview the ink header leads every state and owns the page h1. */}
+            {!sessionId && (
+                <ProgressHeader
+                    sessionCount={Number(overallStats.totalSessions) || 0}
+                    firstSessionAt={firstSessionAt}
+                    latest={newestSession ? { product: newestSession.product ?? null, createdAt: newestSession.created_at } : null}
+                    focusLabel={focusLabel}
+                    focusControl={newestSession ? focusControl : null}
+                />
+            )}
             {loading ? (
                 <AnalyticsDashboardSkeleton />
             ) : error ? (
@@ -942,65 +994,20 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             ) : (
                 <>
 
-                    <Card className="rounded-xl border border-border bg-card surface-shadow">
-                        <CardHeader className="space-y-4">
-                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                <div className="space-y-1">
-                                    <p className="text-xs font-bold uppercase tracking-wider text-signature-text">Working on</p>
-                                    <CardTitle className="text-2xl font-extrabold text-foreground">{focusLabel}</CardTitle>
-                                    <p className="max-w-3xl text-sm font-semibold leading-snug text-foreground/75">
-                                        {focusPurpose}
-                                    </p>
-                                </div>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="gap-2 self-start border-[hsl(var(--border-strong))] font-semibold text-foreground hover:border-primary hover:bg-primary/10 hover:text-signature-text"
-                                            data-testid={TEST_IDS.ANALYTICS_FOCUS_TRIGGER}
-                                        >
-                                            Choose focus
-                                            <ChevronDown className="h-4 w-4" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-72">
-                                        <DropdownMenuLabel>Choose what you want to improve</DropdownMenuLabel>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuRadioGroup
-                                            value={selectedFocusId}
-                                            onValueChange={(value) => setSelectedFocusId(value as AnalyticsFocusId)}
-                                        >
-                                            {ANALYTICS_TOOL_GROUPS.map(group => (
-                                                <DropdownMenuRadioItem key={group.id} value={group.id} className="items-start">
-                                                    <span className="flex flex-col gap-0.5">
-                                                        <span className="font-semibold">{group.label}</span>
-                                                        <span className="text-xs leading-snug text-muted-foreground">{group.outcome}</span>
-                                                    </span>
-                                                </DropdownMenuRadioItem>
-                                            ))}
-                                            <DropdownMenuSeparator />
-                                            <DropdownMenuRadioItem value="custom" className="items-start">
-                                                <span className="flex flex-col gap-0.5">
-                                                    <span className="font-semibold">Custom</span>
-                                                    <span className="text-xs leading-snug text-muted-foreground">Advanced: choose specific metrics when you already know what to inspect.</span>
-                                                </span>
-                                            </DropdownMenuRadioItem>
-                                        </DropdownMenuRadioGroup>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </div>
-                        </CardHeader>
-                    </Card>
 
-                    {/* #G4 §2: the four cards explain their relationship by POSITION, not a sentence. Heading left,
-                        the evidence window right. The prior "selected together…" subtitle + focus explanation
-                        boxes are deleted (explanation lives behind the focus control / a ? , not as prose). */}
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div className="space-y-1">
-                            <h2 className="text-lg font-semibold text-foreground">{"What that’s based on"}</h2>
-                            <p className="text-sm font-medium text-muted-foreground">Across your last 6 sessions</p>
-                        </div>
+                    {/* #1258 D5: Your latest review — the newest session's SAVED pair, read-only; nothing when none was saved. */}
+                    {newestSession && (
+                        <SavedPracticeLoopReview
+                            sessionId={newestSession.id}
+                            sessionLabel={`${shortDate(newestSession.created_at)}, ${shortTime(newestSession.created_at)}`}
+                            eyebrow="Your latest review"
+                            footerLink={{ to: `/analytics/${newestSession.id}`, label: 'Open this session' }}
+                            onlyWhenSaved
+                        />
+                    )}
+
+                    {/* The Custom focus keeps its stat-card picker (the "What that's based on" heading is retired). */}
+                    <div className="flex justify-end empty:hidden">
                         {isCustomFocus && (
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -1033,71 +1040,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         )}
                     </div>
 
-                    {/* #G4 §1 HERO — "Do this next". The single instruction leads (imperative sentence), the
-                        quantified evidence sits directly beneath it (numbers bold, inline), and three concrete
-                        "what to try" steps sit in the purple insight column. Quantitative drives qualitative. */}
-                    {Number(overallStats.totalSessions) > 0 && (() => {
-                        const summary = getNarrativeSummary({
-                            avgWpm: overallStats.averageWPM,
-                            avgPausesPerMin: overallStats.avgPausesPerMin,
-                            avgFillerWordsPerMin: overallStats.avgFillerWordsPerMin,
-                            avgClarity: overallStats.avgClarity,
-                        });
-                        const wpm = Math.round(Number(overallStats.averageWPM) || 0);
-                        const fillers = Math.round((Number(overallStats.avgFillerWordsPerMin) || 0) * 10) / 10;
-                        const clarity = Math.round(Number(overallStats.avgClarity) || 0);
-                        const pauses = Math.round((Number(overallStats.avgPausesPerMin) || 0) * 10) / 10;
-                        // Per-driver evidence (numbers bold inline) + three physical steps. Falls back to a
-                        // maintenance instruction when every signal is on target (summary.driver === null).
-                        const detail: { evidence: React.ReactNode; steps: string[] } = (() => {
-                            switch (summary.driver) {
-                                case 'pace':
-                                    return { evidence: <>You&rsquo;re averaging <strong>{wpm} wpm</strong> against your <strong>130&ndash;150</strong> target. {summary.why}</>,
-                                        steps: ['Read your opening 20% faster than feels right.', 'Slow down only for the one line you most want remembered.', 'Stop at 60 seconds and check the pace band.'] };
-                                case 'filler words':
-                                    return { evidence: <>You&rsquo;re at <strong>{fillers}/min</strong> filler words. {summary.why}</>,
-                                        steps: ['Swap one filler for a half-second silent pause.', 'Slow the sentence you rush most — fillers cluster there.', 'Re-record the same 30 seconds and count them out loud.'] };
-                                case 'pause rhythm':
-                                    return { evidence: <>Your pauses run <strong>{pauses}/min</strong>. {summary.why}</>,
-                                        steps: ['Finish the whole phrase before you pause.', 'Take one deliberate breath before the key point.', 'Cut mid-word restarts — pause, then continue.'] };
-                                case 'clear delivery':
-                                    return { evidence: <>Your clarity is <strong>{clarity}%</strong>. {summary.why}</>,
-                                        steps: ['Say the main point first, the context second.', 'One idea per sentence — split the long ones.', 'End each thought on a falling tone, not a trailing one.'] };
-                                default:
-                                    return { evidence: <>{summary.why}</>,
-                                        steps: ['Keep the pace steady.', 'Land the takeaway cleanly.', 'Record another take to hold the trend.'] };
-                            }
-                        })();
-                        return (
-                            <div className="rounded-xl border border-neutral-border border-t-[3px] border-t-signature bg-white p-6 shadow-sm" data-testid="try-this-next">
-                                <div className="grid gap-6 md:grid-cols-[1fr_300px] md:items-start">
-                                    <div>
-                                        <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-signature-text">◎ Do this next</p>
-                                        <p className="mt-2 text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] text-neutral-body" data-testid="try-this-next-action">{summary.action}</p>
-                                        <p className="mt-3 text-[16px] leading-relaxed text-neutral-body" data-testid="try-this-next-why">{detail.evidence}</p>
-                                        <div className="mt-5 flex items-center gap-4">
-                                            <a href="/session" className="inline-flex items-center rounded-[10px] bg-signature px-4 py-2.5 text-[15px] font-bold text-ink hover:brightness-95" data-testid="hero-practise-now">Practise this now</a>
-                                            <details className="text-[13px] font-bold text-signature-text">
-                                                <summary className="cursor-pointer list-none hover:underline" data-testid="hero-method">How we worked this out</summary>
-                                                <p className="mt-2 max-w-md text-[13px] font-normal leading-snug text-neutral-secondary">We compare each delivery signal (pace, fillers, clarity, pause rhythm) against its target across your last 6 sessions and surface the one with the largest, most persistent gap — never more than one at a time.</p>
-                                            </details>
-                                        </div>
-                                    </div>
-                                    <div className="rounded-lg bg-neutral-band p-4" data-testid="hero-what-to-try">
-                                        <p className="text-[11px] font-extrabold uppercase tracking-wide text-neutral-secondary">What to try</p>
-                                        <ol className="mt-3 space-y-3">
-                                            {detail.steps.map((step, i) => (
-                                                <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-neutral-body">
-                                                    <span className="font-extrabold text-signature-text">{i + 1}</span>
-                                                    <span>{step}</span>
-                                                </li>
-                                            ))}
-                                        </ol>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })()}
+                    {/* #1258 D5 (Rev 2 §5.5): the rule card — one data statement from the newest 4 sessions (PO 2026-10-07)
+                        and one practice action; it replaces the "Do this next" hero. Not rendered below 2 sessions. */}
+                    <RuleCard
+                        sessionsUsed={recent.sessions}
+                        driver={recentSummary?.driver ?? null}
+                        wpm={numberOrNull(recent.stats?.averageWPM)}
+                        fillersPerSession={recent.fillersPerSession}
+                        fillersPerMin={recent.fillersPerMin}
+                        clarity={numberOrNull(recent.stats?.avgClarity)}
+                        pausesPerMin={numberOrNull(recent.stats?.avgPausesPerMin)}
+                    />
 
                     {/* Dynamic Stat Cards */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1105,149 +1058,94 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             <StatCard
                                 key={option.id}
                                 icon={option.icon}
-                                label={option.label}
-                                value={option.getValue(overallStats)}
+                                label={option.getLabel?.(recent) ?? option.label}
+                                value={option.getValue(overallStats, recent)}
                                 unit={option.unit}
-                                microcopy={option.microcopy}
-                                interpretation={option.getInterpretation?.(overallStats)}
+                                interpretation={option.getInterpretation?.(overallStats, recent)}
+                                detail={option.getDetail?.(overallStats, recent)}
+                                metric={option.metric}
                                 testId={`stat-card-${option.id}`}
                             />
                         ))}
                     </div>
 
-                    <GoalsSection />
-
-                    {/* Analysis Section Header */}
-                    <div className="flex items-center justify-between pt-2">
-                        <div className="space-y-1">
-                            <h2 className="text-xl font-semibold text-foreground">{focusLabel} Tools</h2>
-                            <p className="text-sm font-medium text-muted-foreground">
-                                {isCustomFocus ? 'Each selected chart keeps its own standalone interpretation.' : 'Each chart answers part of the same coaching question.'}
-                            </p>
-                        </div>
-                        {isCustomFocus && (
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-signature-text">
-                                        <Settings className="h-4 w-4" />
-                                        Choose Analysis Tools
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-64">
-                                    <DropdownMenuLabel>Display Analysis ({customAnalysisSlides.length}/4)</DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    {ANALYSIS_SLIDE_OPTIONS.map(option => {
-                                        const checked = customAnalysisSlides.includes(option.id);
-                                        return (
-                                            <DropdownMenuCheckboxItem
-                                                key={option.id}
-                                                checked={checked}
-                                                onCheckedChange={() => toggleCustomAnalysisSlide(option.id)}
-                                                disabled={
-                                                    (!checked && customAnalysisSlides.length >= 4) ||
-                                                    (checked && customAnalysisSlides.length <= 1)
-                                                }
-                                            >
-                                                {option.label}
-                                            </DropdownMenuCheckboxItem>
-                                        );
-                                    })}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        )}
-                    </div>
-
-                    {/* #G4 §3: Analysis tools — stacked (carousel retired). Every selected tool renders in full,
-                        in order, so nothing hides behind a swipe and each chart is scannable at once. */}
+                    {/* #1258 D7: Trends — one card, every row collapsed on mount; the selected focus picks the rows. The custom
+                        focus keeps its analysis-tool picker beside the heading. */}
                     <div className="space-y-6">
-                        {displayedAnalysisSlides.map((option) => (
-                            <div key={option.id}>
-                                {option.id === 'pace_trend' && (
-                                    <TrendChart
-                                        title="Speaking Pace Trend"
-                                        description="Track your words per minute over time"
-                                        data={trendData}
-                                        metric="wpm"
-                                    />
-                                )}
-                                {option.id === 'clarity_trend' && (
-                                    <TrendChart
-                                        title="Clarity Trend"
-                                        description="Monitor your speech clarity percentage"
-                                        data={trendData}
-                                        metric="clarity"
-                                    />
-                                )}
-                                {option.id === 'pause_trend' && (
-                                    <TrendChart
-                                        title="Pause Rhythm Trend"
-                                        description="Pauses per minute across your sessions"
-                                        data={trendData}
-                                        metric="pauses"
-                                    />
-                                )}
-                                {option.id === 'weekly_activity' && (
-                                    <WeeklyActivityChart />
-                                )}
-                                {option.id === 'filler_words' && (
-                                    <Card>
-                                        <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
-                                        <CardContent className="space-y-6">
-                                            {overallStats.chartData.length > 1 ? (
-                                                <FillerWordsTrendChart data={overallStats.chartData} />
-                                            ) : (
-                                                <div className="flex h-[150px] items-center justify-center rounded-lg border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-sm font-semibold text-foreground/75"><p>Complete at least two sessions to see your filler word trend.</p></div>
-                                            )}
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                <TopFillerWords />
-                                                <FillerWordTable trendData={fillerWordTrends} />
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                )}
-                            </div>
-                        ))}
+                        <TrendsCard
+                            slideIds={displayedAnalysisSlides.map(option => option.id)}
+                            trendData={trendData}
+                            sessions={sessionHistory ?? []}
+                            headerAction={isCustomFocus ? (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-signature-text">
+                                            <Settings className="h-4 w-4" />
+                                            Choose Analysis Tools
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-64">
+                                        <DropdownMenuLabel>Display Analysis ({customAnalysisSlides.length}/4)</DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        {ANALYSIS_SLIDE_OPTIONS.map(option => {
+                                            const checked = customAnalysisSlides.includes(option.id);
+                                            return (
+                                                <DropdownMenuCheckboxItem
+                                                    key={option.id}
+                                                    checked={checked}
+                                                    onCheckedChange={() => toggleCustomAnalysisSlide(option.id)}
+                                                    disabled={
+                                                        (!checked && customAnalysisSlides.length >= 4) ||
+                                                        (checked && customAnalysisSlides.length <= 1)
+                                                    }
+                                                >
+                                                    {option.label}
+                                                </DropdownMenuCheckboxItem>
+                                            );
+                                        })}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            ) : undefined}
+                        />
 
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
-                            <Card className="rounded-xl p-5">
-                                {/* #G4 §5: "Recent sessions" — exactly the 2 most recent (the retention window, not a
-                                    truncation). Transcripts + audio purge beyond 2 (R1/R2 live in prod), metrics rows
-                                    persist permanently — so the "we keep only 2" promise is now honest. */}
-                                <div className="mb-4 flex items-start justify-between gap-3">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-foreground">Recent sessions</h2>
+                            {/* #G4 §5: "Recent sessions" — exactly the 2 most recent (the retention window, not a
+                                truncation). #1258 D9: one white card, rows divided by a hairline. */}
+                            <div className="mb-3 flex items-start justify-between gap-3">
+                                <h2 className="text-[20px] font-extrabold text-neutral-heading">Recent sessions</h2>
+                                {selectedSessions.length === 2 && (
+                                    <Button
+                                        onClick={() => setShowComparison(true)}
+                                        className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
+                                    >
+                                        Compare Selected (2)
+                                    </Button>
+                                )}
+                            </div>
+                            <div className="divide-y divide-neutral-border-soft overflow-hidden rounded-[14px] border border-neutral-border-strong bg-white" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
+                                {sessionHistory && sessionHistory.length > 0 ? (
+                                    sessionHistory.slice(0, 2).map((session) => (
+                                        <SessionHistoryItem
+                                            key={session.id}
+                                            session={session}
+                                            sessionHistory={sessionHistory}
+                                            isPro={isProUser}
+                                            isSelected={selectedSessionIds.has(session.id)}
+                                            onToggleSelect={toggleSessionSelection}
+                                            profileName={profile?.email || 'User'}
+                                        />
+                                    ))
+                                ) : (
+                                    <div className="py-12 text-center font-semibold text-neutral-secondary">
+                                        <p>No sessions recorded yet.</p>
                                     </div>
-                                    {selectedSessions.length === 2 && (
-                                        <Button
-                                            onClick={() => setShowComparison(true)}
-                                            className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
-                                        >
-                                            Compare Selected (2)
-                                        </Button>
-                                    )}
-                                </div>
-                                <div className="space-y-3" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
-                                    {sessionHistory && sessionHistory.length > 0 ? (
-                                        sessionHistory.slice(0, 2).map((session) => (
-                                            <SessionHistoryItem
-                                                key={session.id}
-                                                session={session}
-                                                sessionHistory={sessionHistory}
-                                                isPro={isProUser}
-                                                isSelected={selectedSessionIds.has(session.id)}
-                                                onToggleSelect={toggleSessionSelection}
-                                                profileName={profile?.email || 'User'}
-                                            />
-                                        ))
-                                    ) : (
-                                        <div className="rounded-xl border border-dashed border-[hsl(var(--border-strong))] bg-muted py-12 text-center font-semibold text-foreground/75">
-                                            <p>No sessions recorded yet.</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </Card>
+                                )}
+                            </div>
                         </div>
+
+                        {/* #1258 D5 (Rev 2 §5.3): goals follow Recent sessions, unchanged. */}
+                        <GoalsSection />
                     </div>
 
                     {

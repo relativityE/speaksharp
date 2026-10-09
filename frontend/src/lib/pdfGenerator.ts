@@ -133,7 +133,9 @@ export const generateSessionPdf = async (
   session: Session,
   username: string = 'User',
   _isPro: boolean = false,
-  sessionsForDay: Session[] = []
+  sessionsForDay: Session[] = [],
+  /** #1573: checked after every async read, immediately before the file is handed to the browser. False → nothing saved. */
+  stillCurrent?: () => boolean,
 ): Promise<boolean> => {
   try {
     toast.info("Generating PDF...", { id: 'pdf-gen' });
@@ -303,6 +305,15 @@ export const generateSessionPdf = async (
       
       // Reset color for other potential elements
       doc.setTextColor(0, 0, 0);
+    }
+
+    // #1573 Codex P1 (review 5460913397; 4223029906): the login that asked for this PDF must still be the current one —
+    // checked after every async read and BEFORE any filename-bearing UI (the filename names the previous account). After
+    // a sign-out or account switch nothing is shown or saved, and the caller reports nothing.
+    if (stillCurrent && !stillCurrent()) {
+      toast.dismiss?.('pdf-gen');
+      toast.dismiss?.('pdf-gen-name');
+      return false;
     }
 
     const filename = getSessionPdfFilename(session, username, sessionsForDay);

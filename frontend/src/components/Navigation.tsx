@@ -4,7 +4,7 @@ import { ChevronDown, LogOut, Mic, Target, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
 import { trackProductsMenuOpened } from '@/services/reviewSurfaceTelemetry';
-import { NAV_SECTIONS, navItemClassName, normalizeNavPath, resolveNavSectionId } from "@/config/navSections";
+import { NAV_SECTIONS, navItemClassName, normalizeNavPath, resolveNavSectionId, type NavSectionId } from "@/config/navSections";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
@@ -100,6 +100,52 @@ const Navigation = () => {
   // (/session and /session/abc are Session; /session-other is not).
   const activeSectionId = resolveNavSectionId(location.pathname);
 
+  // D2 (#1258): Home · Products · Progress. Each link is the same <Link> the section map used to render, so test ids,
+  // aria-current and geometry are unchanged; only the order around the Products menu moves.
+  const renderDesktopNavLink = (id: NavSectionId) => {
+    const item = NAV_SECTIONS.find((section) => section.id === id);
+    if (!item) return null;
+    const isActive = activeSectionId === item.id && !isFocusPointsActive;
+    return (
+      <Link
+        key={item.id}
+        to={item.path}
+        data-testid={item.testId}
+        // Colour alone is not an accessible indicator; aria-current is the
+        // programmatic signal for the current page.
+        aria-current={isActive ? "page" : undefined}
+        // Active adds ONE extra class that changes only background + text colour.
+        // Geometry lives in .nav-item, so the bar cannot reflow on navigation.
+        className={navItemClassName(isActive)}
+      >
+        <item.icon className="h-4 w-4" aria-hidden="true" />
+        <span>{item.label}</span>
+      </Link>
+    );
+  };
+
+  // D2 (#1258): the mobile bar reads Home · Open Mic · Focus Points · Progress.
+  const renderMobileNavLink = (id: NavSectionId) => {
+    const item = NAV_SECTIONS.find((section) => section.id === id);
+    if (!item) return null;
+    const isActive = activeSectionId === item.id && !isFocusPointsActive;
+    return (
+      <Button
+        key={item.id}
+        variant={isActive ? "secondary" : "ghost"}
+        size="sm"
+        asChild
+        className="flex flex-col h-16"
+      >
+        {/* Colour alone is not an accessible current-page indicator on mobile either. */}
+        <Link to={item.path} aria-current={isActive ? "page" : undefined}>
+          <item.icon className="h-5 w-5 mb-1" aria-hidden="true" />
+          <span className="text-xs">{item.label}</span>
+        </Link>
+      </Button>
+    );
+  };
+
   // Each bar is its own navigation landmark and each owns its own aria-current. Only one of
   // the two is ever displayed (the desktop bar is `hidden lg:flex`, i.e. display:none below
   // lg, which removes it from the accessibility tree entirely), so a screen reader never sees
@@ -110,24 +156,7 @@ const Navigation = () => {
       className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 p-2 backdrop-blur-xl surface-shadow lg:hidden"
     >
       <div className="flex justify-around items-center">
-        {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
-          const isActive = activeSectionId === item.id && !isFocusPointsActive;
-          return (
-            <Button
-              key={item.id}
-              variant={isActive ? "secondary" : "ghost"}
-              size="sm"
-              asChild
-              className="flex flex-col h-16"
-            >
-              {/* Colour alone is not an accessible current-page indicator on mobile either. */}
-              <Link to={item.path} aria-current={isActive ? "page" : undefined}>
-                <item.icon className="h-5 w-5 mb-1" aria-hidden="true" />
-                <span className="text-xs">{item.label}</span>
-              </Link>
-            </Button>
-          );
-        })}
+        {renderMobileNavLink('home')}
         <Button variant="ghost" size="sm" asChild className="flex h-16 flex-col">
           <Link to="/session" data-testid="nav-mobile-open-mic-link" onClick={selectOpenMic} aria-current={isOpenMicActive ? 'page' : undefined}>
             <Mic className="mb-1 h-5 w-5" aria-hidden="true" />
@@ -140,6 +169,7 @@ const Navigation = () => {
             <span className="text-xs">Focus Points</span>
           </Link>
         </Button>
+        {renderMobileNavLink('analytics')}
       </div>
     </nav>
   );
@@ -242,25 +272,7 @@ const Navigation = () => {
             {/* Navigation Items */}
             {session && (
               <nav aria-label="Primary" className="hidden items-center space-x-1 lg:flex">
-                {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
-                  const isActive = activeSectionId === item.id && !isFocusPointsActive;
-                  return (
-                    <Link
-                      key={item.id}
-                      to={item.path}
-                      data-testid={item.testId}
-                      // Colour alone is not an accessible indicator; aria-current is the
-                      // programmatic signal for the current page.
-                      aria-current={isActive ? "page" : undefined}
-                      // Active adds ONE extra class that changes only background + text colour.
-                      // Geometry lives in .nav-item, so the bar cannot reflow on navigation.
-                      className={navItemClassName(isActive)}
-                    >
-                      <item.icon className="h-4 w-4" aria-hidden="true" />
-                      <span>{item.label}</span>
-                    </Link>
-                  );
-                })}
+                {renderDesktopNavLink('home')}
                 <DropdownMenu onOpenChange={(open) => { if (open) trackProductsMenuOpened('desktop'); }}>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -290,6 +302,7 @@ const Navigation = () => {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {renderDesktopNavLink('analytics')}
               </nav>
             )}
 

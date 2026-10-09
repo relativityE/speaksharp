@@ -8,7 +8,6 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { usePromptOfferDismissed } from '@/hooks/usePromptOfferDismissed';
 import { useHeldTip } from '@/hooks/useHeldTip';
-import { FillerBreakdown } from './FillerBreakdown';
 import { ThisRunRail } from './ThisRunRail';
 import { OnDeviceCountsContext } from './onDeviceCounts';
 import { ThisRunCard } from './ThisRunCard';
@@ -28,6 +27,9 @@ import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptToke
 import { liveTipFromMetrics, type TwoTakeaways } from '@/utils/liveCoaching';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { selectReviewFillerSnapshot } from '@/utils/sessionAnalysis';
+import { FillerBreakdown } from './FillerBreakdown';
+import { isCountedFillerText } from '@/utils/fillerTiers';
+import { plural } from '@/lib/displayFormat';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
 import { emitJourneyStep } from '@/services/telemetry/journeyStep';
@@ -604,10 +606,13 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // stretched out as fake silence.
     const takeAmplitudes = amplitudes.slice(0, recordedCount);
 
-    const tokens = tokensFromTranscript(transcriptSource);
+    // #1258 D4 (PO: true fillers only): a token is highlighted — and marked on the timeline — exactly when the counting
+    // tier counts it, so highlights, marks and the THIS RUN count can never disagree.
+    const tokens = tokensFromTranscript(transcriptSource)
+        .map((t) => (t.filler && !isCountedFillerText(t.text) ? { ...t, filler: false } : t));
     // during: append the live-updating tail as muted "interim" tokens so re-writes read as intentional.
     const duringTokens = interimTranscript && interimTranscript.trim()
-        ? [...tokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
+        ? [...tokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, filler: t.filler && isCountedFillerText(t.text), interim: true }))]
         : tokens;
     // Filler positions as indices into the take's envelope, placed by where they fall in the transcript.
     const fillerBars = tokens
@@ -1030,7 +1035,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         ? (coverage && coverage.coveredQuotes.length > 0
                             ? [wordsPart, 'highlights mark where each point landed'].filter(Boolean).join(' · ')
                             : (wordsPart ?? ''))
-                        : (wordsPart ?? ''),
+                        : (shownReviewWords === null ? '' : plural(shownReviewWords, 'word', 'words')),
                     stats: fillerStatsLine,
                     coverageMode: isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
                 }}

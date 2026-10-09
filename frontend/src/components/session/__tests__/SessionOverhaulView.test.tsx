@@ -706,7 +706,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('run-shape-duration')).toHaveTextContent('02:00');
         // 240 words over two minutes: a stated rate, not an omitted row.
         expect(screen.getByTestId('this-run-card-pace')).toHaveTextContent('120');
-        expect(screen.getByTestId('this-run-card-fillers')).toHaveTextContent('6 · 3.0/min');
+        // #1258 R2-2: the value is the bare count; the per-minute rate is no longer printed beside it.
+        expect(screen.getByTestId('this-run-card-fillers').textContent).toBe('6');
     });
 
     it('CASUALTY: during finalizing (no snapshot, no retained transcript) words and pace are withheld, never "0"', () => {

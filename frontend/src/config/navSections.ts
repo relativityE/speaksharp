@@ -35,9 +35,6 @@ export interface NavSection {
  * The nav renders ONLY for an authenticated session, so "Home" is the authenticated
  * home (/practice). `/` is included as an alias because AuthAwareRoot renders the same
  * practice surface there for a signed-in user.
- *
- * Labels are intentionally unchanged in this PR: renaming "Analytics" waits until the
- * Progress page is coherent, so the nav never disagrees with the page title.
  */
 export const NAV_SECTIONS: readonly NavSection[] = [
     {
@@ -58,7 +55,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     },
     {
         id: 'analytics',
-        label: 'Analytics',
+        label: 'Progress',
         path: '/analytics',
         matchPaths: ['/analytics'],
         icon: BarChart3,

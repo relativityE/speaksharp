@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { usePracticeHistory } from './usePracticeHistory';
 import { useSession } from './useSession';
-import { getAnalyticsSummary, getSessionCount } from '../lib/storage';
+import { getAnalyticsSummary, getFirstSessionCreatedAt, getSessionCount } from '../lib/storage';
 import {
     calculateOverallStats,
     calculateFillerWordTrends,
@@ -108,6 +108,13 @@ export const useAnalytics = () => {
     const { data: totalSessionsCount = 0 } = useQuery({
         queryKey: ["sessionCount", user?.id],
         queryFn: () => getSessionCount(user!.id),
+        enabled: !!user && !sessionId,
+    });
+    // #1258 D5: the oldest counted session's date for the Progress header ("since {date}"). History is paged, so the
+    // oldest row is read directly rather than taken from a page.
+    const { data: firstSessionAt = null } = useQuery({
+        queryKey: ["firstSessionAt", user?.id],
+        queryFn: () => getFirstSessionCreatedAt(user!.id),
         enabled: !!user && !sessionId,
     });
 
@@ -253,6 +260,7 @@ export const useAnalytics = () => {
     return {
         sessionHistory,
         ...analyticsData,
+        firstSessionAt,
         loading: (isLoading && !error) || (effectiveSessionLoading && !error) || (shouldUseRPC && isSummaryLoading),
         error
     };

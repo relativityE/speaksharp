@@ -50,6 +50,9 @@ const SESSION_ANALYSIS_COLUMNS = [
   'status',
   'attribution_status',
   'transcript_state',
+  // #1573 Codex P2 4221754843: the durable product marker (migration 20260926190000, applied in Production) drives the
+  // Recent sessions pills, the Progress header, the trend tooltip and the detail title. NULL = legacy row, never guessed.
+  'product',
 ];
 const SESSION_ANALYSIS_SELECT = SESSION_ANALYSIS_COLUMNS.join(', ');
 
@@ -667,6 +670,33 @@ export const setUserTimezone = async (timezone: string): Promise<string | null> 
  * @param {string} userId - The ID of the user.
  * @returns {Promise<number>}
  */
+/**
+ * #1258 D5 — the oldest COUNTED session's `created_at` (same filter as `getSessionCount`), for the Progress header's
+ * "since {date}". One row, own sessions under RLS; null when there is none or the read fails (the line is then withheld).
+ */
+export const getFirstSessionCreatedAt = async (userId: string): Promise<string | null> => {
+  const supabase = getSupabaseClient();
+  if (!userId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('created_at')
+      .eq('user_id', userId)
+      .or('status.is.null,status.eq.completed')
+      .order('created_at', { ascending: true })
+      .limit(1);
+    if (error) {
+      logger.error({ error }, '[getFirstSessionCreatedAt] Failed');
+      return null;
+    }
+    const first = (data as Array<{ created_at?: unknown }> | null)?.[0]?.created_at;
+    return typeof first === 'string' ? first : null;
+  } catch (err) {
+    logger.error({ err }, '[getFirstSessionCreatedAt] Failed');
+    return null;
+  }
+};
+
 export const getSessionCount = async (userId: string): Promise<number> => {
   const supabase = getSupabaseClient();
   if (!userId) return 0;

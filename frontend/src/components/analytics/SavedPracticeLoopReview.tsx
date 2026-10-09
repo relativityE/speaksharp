@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview, type SavedSessionReview } from '@/services/review/savedSessionReview';
@@ -11,7 +11,7 @@ import {
     type PracticeActionTaken, type PracticeBlockedReason, type PracticeIntendedRoute, type PracticeProgressStatus, type PracticeReviewState,
 } from '@/services/reviewSurfaceTelemetry';
 
-const PRACTICE_AGAIN = 'Practice this again';
+const PRACTICE_AGAIN = 'Practice again?';
 /** A MARKED Focus Points take whose saved results couldn't be read; its practice action retries the read. */
 const FOCUS_RESULTS_READ_FAILED = 'This take’s Focus Points couldn’t be loaded, so practice wasn’t started. Try again.';
 
@@ -27,7 +27,21 @@ const FOCUS_RESULTS_READ_FAILED = 'This take’s Focus Points couldn’t be load
  * With no saved review (A3) it says so, with no stand-in lesson and no generate button. (A completed session missing
  * its next-action signal keeps its data-integrity error on the detail page — PM 2026-09-25.)
  */
-export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel?: string | null }> = ({ sessionId, sessionLabel }) => {
+interface SavedPracticeLoopReviewProps {
+    sessionId: string;
+    sessionLabel?: string | null;
+    /** #1258 D5 (Rev 2 §5.4): the band's eyebrow; defaults to "Practice Loop review". */
+    eyebrow?: string;
+    /** #1258 D5: a link rendered inside the band, below the pair (the overview's "Open this session"). */
+    footerLink?: { to: string; label: string };
+    /**
+     * #1258 D5: render — and report a revisit — ONLY when this session has a saved review. The Progress overview shows
+     * its latest review this way: no loading line, no "No coaching was saved…", and never an older session instead.
+     */
+    onlyWhenSaved?: boolean;
+}
+
+export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = ({ sessionId, sessionLabel, eyebrow = 'Practice Loop review', footerLink, onlyWhenSaved = false }) => {
     const navigate = useNavigate();
     const [saved, setSaved] = useState<{ sessionId: string; value: SavedSessionReview } | null>(null);
     const [readAttempt, setReadAttempt] = useState(0);
@@ -46,11 +60,13 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
     const revisitSentFor = useRef<string | null>(null);
     useEffect(() => {
         if (!review || revisitSentFor.current === sessionId) return;
+        // A hidden band is not an impression: with `onlyWhenSaved` nothing renders unless the saved pair is shown.
+        if (onlyWhenSaved && review.coaching.kind !== 'review') return;
         revisitSentFor.current = sessionId;
         // #1538: an unverified (generic v1) Focus pair is not shown, so it is never a qualifying review impression — it is
         // reported as `none` (the closed `review_state` enum is unchanged).
         trackSavedReviewRevisited(review.product, review.coaching.kind === 'unverified' ? 'none' : review.coaching.kind, review.coaching.kind === 'review' && review.evidence.length > 0);
-    }, [review, sessionId]);
+    }, [review, sessionId, onlyWhenSaved]);
     const productName = review?.product === 'focus_points' ? PRODUCT_NAMES.objective
         : review?.product === 'open_mic' ? PRODUCT_NAMES.freeform : null;
     const label = [sessionLabel, productName].filter(Boolean).join(' · ');
@@ -201,18 +217,20 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
         error: 'This session’s coaching couldn’t be loaded. Reload to try again.',
     };
 
+    if (onlyWhenSaved && coaching?.kind !== 'review') return null;
+
     return (
         <section
             className="rounded-2xl bg-ink p-6"
             data-testid="saved-review"
             data-review-state={coaching?.kind ?? 'loading'}
             data-product={review?.product ?? 'loading'}
-            aria-label="Practice Loop review"
+            aria-label={eyebrow}
         >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3.5 gap-y-1">
                 <h2 className="inline-flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-[0.09em] text-signature">
                     <Sparkles className="h-[15px] w-[15px]" aria-hidden="true" />
-                    Practice Loop review
+                    {eyebrow}
                 </h2>
                 {label && <span className="min-w-0 text-[12px] font-bold text-ink-muted" data-testid="saved-review-label">{label}</span>}
             </div>
@@ -238,6 +256,11 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
                 </div>
             )}
 
+            {footerLink && (
+                <Link to={footerLink.to} className="mt-3.5 inline-block text-[14px] font-bold text-white underline underline-offset-[3px]" data-testid="saved-review-footer-link">
+                    {footerLink.label}
+                </Link>
+            )}
         </section>
     );
 };

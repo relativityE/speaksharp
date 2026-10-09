@@ -3,6 +3,7 @@ import { render, screen, cleanup, waitFor } from '../../../../tests/support/test
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import AISuggestions from '@/components/session/AISuggestions';
+import { deriveReviewState } from '@/components/session/reviewState';
 import { OnDeviceCountsContext } from '@/components/session/onDeviceCounts';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 
@@ -58,7 +59,7 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByRole('heading', { level: 3, name: /practice loop review/i })).toBeInTheDocument();
         });
 
-        it('renders the published fillers and pace while the review is pending', () => {
+        it('#1258 D3: published on-device counts are never repeated in the review band, in any state (THIS RUN shows them)', () => {
             mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* in flight */ }));
             render(
                 <OnDeviceCountsContext.Provider value={{ fillers: 6, wordsPerMinute: 122.4 }}>
@@ -66,20 +67,8 @@ describe('AISuggestions Integration', () => {
                 </OnDeviceCountsContext.Provider>,
             );
             expect(card()).toHaveAttribute('data-lifecycle', 'pending');
-            expect(screen.getByTestId('on-device-fillers')).toHaveTextContent('6');
-            expect(screen.getByTestId('on-device-pace')).toHaveTextContent('122');
-        });
-
-        it('CASUALTY: an unmeasured count is omitted — never a zero, never a dash', () => {
-            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* in flight */ }));
-            render(
-                <OnDeviceCountsContext.Provider value={{ fillers: null, wordsPerMinute: 110 }}>
-                    <AISuggestions transcript="Hello world" canReview sessionId="s-partial" />
-                </OnDeviceCountsContext.Provider>,
-            );
-            expect(screen.queryByTestId('on-device-fillers')).toBeNull();
-            expect(screen.getByTestId('on-device-pace')).toHaveTextContent('110');
-            expect(screen.getByTestId('on-device-counts').textContent ?? '').not.toMatch(/—|\b0 fillers/);
+            expect(screen.queryByTestId('on-device-counts')).toBeNull();
+            expect(card().textContent ?? '').not.toMatch(/\bfillers\b|words ?\/ ?min/i);
         });
 
         it('no counts at all ⇒ no strip, rather than an empty box', () => {
@@ -103,7 +92,8 @@ describe('AISuggestions Integration', () => {
             // where the verdict goes).
             expect(card()).toHaveAttribute('data-lifecycle', 'pending');
             expect(screen.getByTestId('ai-suggestions-retrying')).toBeInTheDocument();
-            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(/coaching is still coming/i);
+            // #1258 D3 (PM 6045315752): existing approved copy, and no promise that a result will arrive.
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent('Your review is on its way.');
         });
 
         it('an unreviewable session neither fires nor offers the control', () => {
@@ -112,7 +102,7 @@ describe('AISuggestions Integration', () => {
             expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
             // Nothing is in flight and nothing failed, so no retry affordance is offered — and the card
             // says why instead of showing a dead control.
-            expect(screen.queryByRole('button', { name: /retry review/i })).toBeNull();
+            expect(screen.queryByRole('button', { name: /^(try again|trying again…)$/i })).toBeNull();
             expect(screen.getByTestId('practice-loop-review-not-ready')).toBeInTheDocument();
             expect(card()).toHaveAttribute('data-lifecycle', 'idle');
         });
@@ -149,7 +139,7 @@ describe('AISuggestions Integration', () => {
         it('#1258: the pending wait is BOUNDED — after it, the ordinary terminal "unavailable" with a manual retry', async () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue(httpError(425));
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-pending-forever" product="focus_points" retryBackoffMs={10} />);
-            expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+            expect(await screen.findByText(/the review didn't load/i)).toBeInTheDocument();
             // 3 waited-out 425s + the attempt that ends the lifecycle; never an unbounded loop.
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(4);
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
@@ -162,11 +152,11 @@ describe('AISuggestions Integration', () => {
             [429, /temporarily limited/i],
             [409, /does not have a transcript available/i],
             // #1538: a product refusal (422) is "unavailable" — never the transcript-missing claim.
-            [422, /unavailable right now/i],
+            [422, /the review didn't load/i],
             [404, /could not be found/i],
-            [500, /unavailable right now/i],
-            [502, /unavailable right now/i],
-            [400, /unavailable right now/i],
+            [500, /the review didn't load/i],
+            [502, /the review didn't load/i],
+            [400, /the review didn't load/i],
         ])('status %i produces the matching copy', async (status, expected) => {
             mockSupabaseClient.functions.invoke.mockResolvedValue(httpError(status as number));
             render(<AISuggestions transcript="Hello world" canReview sessionId={`s-${status}`} />);
@@ -200,7 +190,7 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: err });
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-503" />);
 
-            expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+            expect(await screen.findByText(/the review didn't load/i)).toBeInTheDocument();
             expect(screen.queryByText(/cannot request a new review/i)).toBeNull();
         });
 
@@ -211,7 +201,7 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: err });
             const { container } = render(<AISuggestions transcript="Hello world" canReview sessionId="s-prose" />);
 
-            expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+            expect(await screen.findByText(/the review didn't load/i)).toBeInTheDocument();
             expect(container.textContent).not.toContain('PGRST116');
             expect(container.textContent).not.toContain('relation');
         });
@@ -250,7 +240,7 @@ describe('AISuggestions Integration', () => {
             );
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-config" retryBackoffMs={10} />);
 
-            await waitFor(() => expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(/service setup problem on our side/i));
+            await waitFor(() => expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(/isn't available for this session/i));
             await sleep(60);
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
             // A TERMINAL failure schedules nothing, so the RETRYING chip must not appear: claiming coaching
@@ -277,7 +267,7 @@ describe('AISuggestions Integration', () => {
             await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
             await sleep(60);
             expect(mockSupabaseClient.functions.invoke, 'one charged request, not two').toHaveBeenCalledTimes(1);
-            expect(screen.queryByText(/service setup problem/i)).toBeNull();
+            expect(screen.queryByText(/isn't available for this session/i)).toBeNull();
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable');
         });
@@ -361,7 +351,7 @@ describe('AISuggestions Integration', () => {
             expect(trackPracticeLoopReviewFailed, 'reported as the outage it was').toHaveBeenCalledWith('unavailable');
             expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalledWith('rate_limited');
             expect(screen.queryByText(/temporarily limited/i), 'never a limit the user did not reach').toBeNull();
-            expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+            expect(await screen.findByText(/the review didn't load/i)).toBeInTheDocument();
         });
 
         /**
@@ -415,18 +405,18 @@ describe('AISuggestions Integration', () => {
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-manual" retryBackoffMs={40} />);
 
             await waitFor(() => expect(card()).toHaveAttribute('data-retry-scheduled', 'true'));
-            // The manual action is a text link now; one press must still start exactly ONE new lifecycle,
+            // The manual action is a real Try again button (#1258 D3); one press must still start exactly ONE new lifecycle,
             // so it stays unavailable while the automatic retry is already scheduled.
-            expect(screen.getByRole('button', { name: /retry review now/i }), 'no manual press while a retry is scheduled').toBeDisabled();
+            expect(screen.getByRole('button', { name: /trying again…/i }), 'no manual press while a retry is scheduled').toBeDisabled();
 
             await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2);
-            const button = screen.getByRole('button', { name: /retry review/i });
-            await userEvent.click(button);
-            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
+            // #1258 D3 (Rev 2 §2.2): the daily limit is terminal, so the band offers no Try again at all (mapping in
+            // #1258 comment 6045241720). Nothing re-enters the function after the 429.
+            expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
             await sleep(80);
-            expect(mockSupabaseClient.functions.invoke, 'one press, one request: a terminal 429 is not retried').toHaveBeenCalledTimes(3);
-            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(2);
+            expect(mockSupabaseClient.functions.invoke, 'a terminal 429 is not retried').toHaveBeenCalledTimes(2);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -467,6 +457,58 @@ describe('AISuggestions Integration', () => {
 
             rerender(<AISuggestions transcript="Hello world" canReview sessionId="s-later" />);
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+        });
+
+        // #1258 (RWT run 37514078995, F4): the journey read `empty` ~20 ms before the automatic request started, recorded
+        // "coaching did not render" and navigated away. Every state the card publishes is recorded here, so a transient
+        // `empty` during save or request start fails the test, not only a wrong final state.
+        const recordStates = () => {
+            const seen: string[] = [];
+            const push = () => {
+                const v = screen.queryByTestId('ai-suggestions-card')?.getAttribute('data-review-state') ?? null;
+                if (v && seen[seen.length - 1] !== v) seen.push(v);
+            };
+            push();
+            const observer = new MutationObserver(push);
+            observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-review-state'], childList: true });
+            return { seen, stop: () => { push(); observer.disconnect(); } };
+        };
+
+        it('CASUALTY F4: while the session is still saving (not reviewable) the card is `pending`, never `empty`', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            render(<AISuggestions transcript="Hello world" canReview={false} sessionId="s-saving" />);
+            await new Promise((r) => setTimeout(r, 30));
+            expect(card()).toHaveAttribute('data-review-state', 'pending');
+        });
+
+        it('a stated reason that no review can be requested is `blocked` (settled), not `pending`', () => {
+            render(<AISuggestions transcript="Hello world" canReview={false} sessionId="s-block" blockedReason="We could not check them." />);
+            expect(card()).toHaveAttribute('data-review-state', 'blocked');
+        });
+
+        it('CASUALTY F4: a DELAYED save goes pending → loading → ready and never publishes `empty` on the way', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            const states = recordStates();
+            const { rerender } = render(<AISuggestions transcript="Hello world" canReview={false} sessionId="s-delayed" />);
+            await new Promise((r) => setTimeout(r, 30));
+            rerender(<AISuggestions transcript="Hello world" canReview sessionId="s-delayed" />);
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'ready'));
+            states.stop();
+            expect(states.seen).not.toContain('empty');
+            expect(states.seen[0]).toBe('pending');
+            expect(states.seen[states.seen.length - 1]).toBe('ready');
+        });
+
+        it('CASUALTY F4: reviewable at mount — request start never exposes a settled-looking state before the answer', async () => {
+            let answer: (v: unknown) => void = () => undefined;
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise((r) => { answer = r; }));
+            const states = recordStates();
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-start" />);
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'loading'));
+            answer(ok);
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'ready'));
+            states.stop();
+            expect(states.seen.filter((s) => !['pending', 'loading', 'ready'].includes(s))).toEqual([]);
         });
 
         it('does not fire twice while the first request is still in flight', async () => {
@@ -663,7 +705,7 @@ describe('AISuggestions Integration', () => {
             await waitFor(() => expect(card()).toHaveAttribute('data-lifecycle', 'terminal'));
             expect(screen.getByTestId('ai-suggestions-headline').textContent ?? '').not.toMatch(/review unavailable/i);
             expect(screen.queryByText('A strength.')).not.toBeInTheDocument();
-            expect(screen.getByRole('button', { name: /retry review now/i })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /^try again$/i })).toBeInTheDocument();
         });
     });
 
@@ -706,7 +748,7 @@ describe('AISuggestions Integration', () => {
                 // can trust. This used to read "temporarily limited" purely because the prose contained
                 // "Rate limit" — the substring guess this PR removes. Unknown means "not now", which makes
                 // no claim about the account or the saved data.
-                expect(screen.getByText(/unavailable right now/i)).toBeInTheDocument();
+                expect(screen.getByText(/the review didn't load/i)).toBeInTheDocument();
                 // The part that always mattered and still holds: the raw server prose never reaches them.
                 expect(screen.queryByText(/rate limit exceeded/i)).not.toBeInTheDocument();
             });
@@ -719,7 +761,7 @@ describe('AISuggestions Integration', () => {
 
 
             await waitFor(() => {
-                expect(screen.getByText(/review is unavailable right now/i)).toBeInTheDocument();
+                expect(screen.getByText(/the review didn't load/i)).toBeInTheDocument();
                 expect(screen.queryByText(/supabase client not available/i)).not.toBeInTheDocument();
             });
         });
@@ -916,7 +958,7 @@ describe('AISuggestions Integration', () => {
             // No click: a reviewable session requests on its own (#1416 P2-4), so the lifecycle is already
             // pending and no manual affordance is offered to press.
             expect(card()).toHaveAttribute('data-lifecycle', 'pending');
-            expect(screen.queryByRole('button', { name: /retry review now/i })).toBeNull();
+            expect(screen.queryByRole('button', { name: /^try again$/i })).toBeNull();
         });
 
         it('CASUALTY: once a review is on screen, NO control is offered to refresh it', async () => {
@@ -947,7 +989,7 @@ describe('AISuggestions Integration', () => {
             // No refresh, and no retry either — there is nothing here left to retry.
             expect({
                 refresh: screen.queryByRole('button', { name: /refresh/i }),
-                retry: screen.queryByRole('button', { name: /retry review/i }),
+                retry: screen.queryByRole('button', { name: /^(try again|trying again…)$/i }),
             }).toEqual({ refresh: null, retry: null });
 
             // The review itself is untouched: this removes an ACTION, not the coaching.
@@ -973,7 +1015,7 @@ describe('AISuggestions Integration', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-retry" retryBackoffMs={10} />);
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
-            const retry = await screen.findByRole('button', { name: /retry review/i });
+            const retry = await screen.findByRole('button', { name: /^(try again|trying again…)$/i });
             await waitFor(() => expect(retry).toBeEnabled());
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
@@ -1187,7 +1229,7 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
     ] as const)('#1538 CASUALTY: a %s take given a %s pair shows the unavailable state and emits NO qualifying receipt', async (product, version) => {
         mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: { ...VALID, version } }, error: null });
         render(<AISuggestions transcript="hello" sessionId={`session-mismatch-${product}`} product={product} retryBackoffMs={1} />);
-        expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+        expect(await screen.findByText(/the review didn't load/i)).toBeInTheDocument();
         expect(screen.queryByText('Clear opening.')).not.toBeInTheDocument();
         expect(receipts().filter((r) => r?.review_surface === 'coaching_verdict' && r?.phase === 'rendered')).toEqual([]);
     });
@@ -1220,7 +1262,7 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: err });
 
         render(<AISuggestions transcript="hello" sessionId="session-failed" />);
-        await screen.findByText(/unavailable right now/i);
+        await screen.findByText(/the review didn't load/i);
 
         expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
     });
@@ -1304,5 +1346,115 @@ describe('#1422 P1 — the Open Mic review receipt belongs to the rendered revie
         await waitFor(() => expect(vi.mocked(trackPracticeLoopReviewFailed).mock.calls.length).toBe(1));
 
         expect({ count: receipts().length, ...stages() }).toEqual({ count: 0, ready: false, rendered: false });
+    });
+});
+
+describe('#1258 punch list D3 — manual Try again policy by failure reason (PM disposition 6045315752)', () => {
+    const httpErrorStatus = (status: number, body: unknown = {}) => {
+        const err = new Error('Edge Function returned a non-2xx status code') as Error & { name: string; context: unknown };
+        err.name = 'FunctionsHttpError';
+        err.context = { status, clone: () => ({ json: async () => body }) };
+        return { data: null, error: err };
+    };
+    beforeEach(() => {
+        mockSupabaseClient.functions.invoke.mockReset();
+        vi.mocked(getSupabaseClient).mockReturnValue(mockSupabaseClient as unknown as ReturnType<typeof getSupabaseClient>);
+    });
+    afterEach(() => cleanup());
+
+    it.each([
+        ['service_configuration', httpErrorStatus(503, { code: 'service_configuration' })],
+        ['rate_limited', httpErrorStatus(429)],
+        ['access_denied', httpErrorStatus(403)],
+        ['not_found', httpErrorStatus(404)],
+        ['transcript_unavailable', httpErrorStatus(409)],
+    ])('%s: no Try again; the disclosure stays', async (_reason, answer) => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue(answer);
+        render(<AISuggestions transcript="Hello world" canReview sessionId={`s-no-${_reason}`} product="open_mic" />);
+        await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'terminal'));
+        expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/Google Gemini/);
+    });
+
+    it.each([
+        ['unavailable', httpErrorStatus(502, { reason: 'provider_http_5xx' })],
+        ['invalid_response', { data: { suggestions: { what_worked: 'only one half' } }, error: null }],
+    ])('%s: an explicit Try again is offered', async (_reason, answer) => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue(answer);
+        render(<AISuggestions transcript="Hello world" canReview sessionId={`s-yes-${_reason}`} />);
+        expect(await screen.findByRole('button', { name: /^try again$/i })).toBeEnabled();
+    });
+
+    it('Focus Points keeps its own disclosure in a terminal failure', async () => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue(httpErrorStatus(503, { code: 'service_configuration' }));
+        render(<AISuggestions transcript="Hello world" canReview sessionId="s-fp" product="focus_points" />);
+        await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'terminal'));
+        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/Focus Points topic and points/);
+    });
+
+    it("a session change never shows the previous session's failure", async () => {
+        mockSupabaseClient.functions.invoke.mockResolvedValueOnce(httpErrorStatus(502, { reason: 'provider_http_5xx' }))
+            .mockImplementation(() => new Promise(() => { /* the new session's request stays in flight */ }));
+        const { rerender } = render(<AISuggestions transcript="Hello world" canReview sessionId="s-a" />);
+        expect(await screen.findByRole('button', { name: /^try again$/i })).toBeInTheDocument();
+        rerender(<AISuggestions transcript="Hello world" canReview sessionId="s-b" />);
+        await waitFor(() => expect(screen.queryByText("The review didn't load. Your session is saved.")).toBeNull());
+        expect(screen.queryByRole('button', { name: /^try again$/i })).toBeNull();
+    });
+});
+
+describe('#1258 punch list D3 (Rev 2 §2) — the failed review band', () => {
+    const httpError = (status: number, body: unknown) => {
+        const err = new Error('Edge Function returned a non-2xx status code') as Error & { name: string; context: unknown };
+        err.name = 'FunctionsHttpError';
+        err.context = { status, clone: () => ({ json: async () => body }) };
+        return { data: null, error: err };
+    };
+    beforeEach(() => {
+        mockSupabaseClient.functions.invoke.mockReset();
+        vi.mocked(getSupabaseClient).mockReturnValue(mockSupabaseClient as unknown as ReturnType<typeof getSupabaseClient>);
+    });
+    afterEach(() => cleanup());
+
+    it('a retryable failure shows one message, a real Try again button, the disclosure under it, and no counts panel', async () => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue(httpError(502, { reason: 'provider_http_5xx' }));
+        render(<AISuggestions transcript="Hello world" canReview sessionId="s-d3" onDeviceCounts={{ fillers: 0, wordsPerMinute: 95 }} />);
+        expect(await screen.findByText("The review didn't load. Your session is saved.")).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^try again$/i })).toBeEnabled();
+        const band = screen.getByTestId('ai-suggestions-still-coming');
+        expect(band.textContent ?? '').not.toMatch(/\bfillers\b|words ?\/ ?min/i);
+        expect(screen.queryByTestId('on-device-counts')).toBeNull();
+        expect(band).toContainElement(screen.getByTestId('ai-suggestions-disclosure'));
+        expect(screen.getAllByTestId('ai-suggestions-disclosure')).toHaveLength(1);
+        expect(screen.queryByText(/these counts came from your device/i)).toBeNull();
+    });
+
+    it('a terminal service-setup failure shows its message and no Try again', async () => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue(httpError(503, { code: 'service_configuration' }));
+        render(<AISuggestions transcript="Hello world" canReview sessionId="s-d3-terminal" />);
+        expect(await screen.findByText("Review isn't available for this session. Your session is saved.")).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+    });
+});
+
+/**
+ * #1258 (F4; Consultant review): every combination of the inputs that decide the published review state. Only a returned
+ * request (`ready` / `error`) or a stated block settles the card; no combination may publish `empty`.
+ */
+describe('deriveReviewState — exhaustive', () => {
+    const bools = [false, true];
+    const combos = bools.flatMap((isLoading) => bools.flatMap((retrying) => bools.flatMap((error) => bools.flatMap((hasSuggestions) =>
+        bools.flatMap((reviewReady) => bools.map((blocked) => ({ isLoading, retrying, error, hasSuggestions, reviewReady, blocked })))))));
+    const expected = (c: (typeof combos)[number]) => (c.isLoading || c.retrying ? 'loading' : c.error ? 'error' : c.hasSuggestions ? 'ready'
+        : !c.reviewReady && c.blocked ? 'blocked' : 'pending');
+    it.each(combos)('%o', (c) => {
+        expect(deriveReviewState(c)).toBe(expected(c));
+    });
+    it('covers all 64 combinations and never publishes a settled-looking `empty`', () => {
+        expect(combos).toHaveLength(64);
+        expect(new Set(combos.map((c) => deriveReviewState(c)))).toEqual(new Set(['loading', 'error', 'ready', 'blocked', 'pending']));
+    });
+    it('CASUALTY F4 (Consultant counterexample): eligible, request not yet issued, nothing loading, no suggestions → pending', () => {
+        expect(deriveReviewState({ isLoading: false, retrying: false, error: false, hasSuggestions: false, reviewReady: true, blocked: false })).toBe('pending');
     });
 });
