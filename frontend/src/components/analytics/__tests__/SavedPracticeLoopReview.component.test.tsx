@@ -128,6 +128,15 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         expect(screen.getAllByRole('button')).toHaveLength(1);
     });
 
+    // #1258 (PO 2026-10-09): the reopened session passes its Try again as `noneFallback` — it replaces ONLY the `none` band.
+    it.each(['none', 'expired', 'error', 'review'] as const)('noneFallback renders only for a %s state of none', async (kind) => {
+        load.mockResolvedValue({ ...base, coaching: kind === 'review' ? PAIR : { kind } });
+        render(<SavedPracticeLoopReview sessionId="s1" noneFallback={<p data-testid="none-fallback">retry</p>} />);
+        const settled = { none: 'none-fallback', review: 'review-try-next', expired: 'saved-review-expired', error: 'saved-review-error' }[kind];
+        await waitFor(() => expect(screen.getByTestId(settled)).toBeInTheDocument());
+        expect(screen.queryAllByTestId('none-fallback')).toHaveLength(kind === 'none' ? 1 : 0);
+    });
+
     // #1258 (PM 2026-09-25): a saved review shown on Analytics is a REVISIT — once per session per view, never a generation.
     it('sends ONE content-free revisit per session view, and the practice action names its linked-repeat path', async () => {
         load.mockResolvedValue({ ...base, product: 'focus_points', evidence: ['Detected: point 1 at 0:21.'], focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'] });

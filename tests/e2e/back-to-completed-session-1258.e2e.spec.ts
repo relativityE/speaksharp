@@ -53,7 +53,9 @@ test.describe('#1258 PR 4 — Back returns to the completed session', () => {
         await expect(restored).toBeVisible({ timeout: 15_000 });
         await expect(restored).toHaveAttribute('data-session-id', savedId);
         await expect(page.getByTestId('this-run-card')).toBeVisible();
-        await expect(page.getByTestId('saved-review')).toBeVisible();
+        // No coaching was saved for this take (the E2E double serves none), so the restore offers Try again — it never
+        // requests by itself.
+        await expect(page.getByTestId('restored-review-retry')).toBeVisible();
         await expect(page.getByTestId('mic-start')).toHaveCount(0);
         await expect(page.getByText(/^0 words$/)).toHaveCount(0);
 
@@ -89,6 +91,41 @@ test.describe('#1258 PR 4 — Back returns to the completed session', () => {
 
         await expect(page.getByTestId('this-run-card')).toBeVisible({ timeout: 15_000 });
         await expect(page.getByTestId('mic-start')).toHaveCount(0);
+    });
+
+    // PO 2026-10-09: a reopened session with no saved coaching offers Try again. Re-entry requests nothing; only the press
+    // asks for coaching, once, for THAT saved session (it still keeps its transcript, so the retry is real).
+    test('Try again on a reopened session requests coaching once, only on the press, for that session', async ({ page }) => {
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+        await navigateToRoute(page, '/session');
+        await startRecording(page);
+        await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
+        await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toBeVisible({ timeout: 15_000 });
+        await page.waitForTimeout(5_200);
+        await stopRecording(page);
+        await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
+        const savedId = (await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'))) ?? '';
+        expect(savedId).toMatch(SESSION_ID);
+
+        // Reopen it from scratch (a reload of its URL), then serve the coaching contract and start counting requests.
+        await page.reload();
+        const retry = page.getByTestId('restored-review-retry');
+        await expect(retry).toBeVisible({ timeout: 20_000 });
+        await expect(retry).toHaveAttribute('data-retry', 'available');
+        await page.evaluate(() => {
+            const w = window as unknown as { __E2E_COACHING_1258__?: unknown; __E2E_COACHING_REQUESTS_1258__?: unknown[] };
+            w.__E2E_COACHING_1258__ = { pending: 0, suggestions: { version: 'gemini_coaching_v1', what_worked: 'You opened with the point.', what_to_try_next: 'Pause before the takeaway.' } };
+            w.__E2E_COACHING_REQUESTS_1258__ = [];
+        });
+        type Sent = { body: { sessionId?: string | null } | null };
+        const sent = (): Promise<Sent[]> => page.evaluate(() => ((window as unknown as { __E2E_COACHING_REQUESTS_1258__?: Sent[] }).__E2E_COACHING_REQUESTS_1258__ ?? []));
+        await page.waitForTimeout(1_500);
+        expect(await sent(), 'nothing is requested on re-entry').toEqual([]);
+
+        await page.getByTestId('restored-review-retry-button').click();
+        await expect(page.getByTestId('ai-suggestions-pair')).toBeVisible({ timeout: 15_000 });
+        const requests = await sent();
+        expect(requests.map((r) => r.body?.sessionId ?? null)).toEqual([savedId]);
     });
 
     test('an unknown session id falls back to the plain session page with no error', async ({ page }) => {
