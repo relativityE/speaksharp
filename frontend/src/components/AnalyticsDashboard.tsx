@@ -138,7 +138,7 @@ interface SessionHistoryItemProps {
  * #1258 D5 (PO 2026-10-07): the newest-sessions window some cards read — the newest 4 sessions, valid measurements
  * only. `stats` is that window's `calculateOverallStats`, `fillersPerSession` the mean measured filler count in it.
  */
-type RecentWindow = { sessions: number; stats: OverallStats | null; fillersPerSession: number | null };
+type RecentWindow = { sessions: number; stats: OverallStats | null; fillersPerSession: number | null; fillersPerMin: number | null };
 const RECENT_WINDOW_SESSIONS = 4;
 /** OverallStats averages are `string | number | null` (rates arrive via `toFixed`); a non-finite or absent value is null. */
 const numberOrNull = (v: unknown): number | null => {
@@ -189,7 +189,9 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (_stats, recent) => recent.fillersPerSession === null ? null : recent.fillersPerSession.toFixed(1),
         description: 'Filler words counted per session, averaged over your newest sessions',
         metric: 'fillers',
-        getInterpretation: (_stats, recent) => decodeFillers(recent.stats?.avgFillerWordsPerMin ?? null),
+        // #1573 Codex P1 4230859591: judged on the SAME true-filler basis and window as the count shown, never the legacy
+        // all-keys rate (which still counts default-excluded discourse markers such as "so" and "like").
+        getInterpretation: (_stats, recent) => decodeFillers(recent.fillersPerMin),
     },
     {
         id: 'total_practice_time',
@@ -712,18 +714,26 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     // missing data doesn't); the filler average is the mean of the window's measured filler counts.
     const recent = useMemo((): RecentWindow => {
         const windowed = (sessionHistory ?? []).slice(0, RECENT_WINDOW_SESSIONS);
-        if (windowed.length === 0) return { sessions: 0, stats: null, fillersPerSession: null };
-        const counts = windowed.map((s) => getSessionAnalysisMetrics(s).fillerCount).filter((n): n is number => n !== null);
+        if (windowed.length === 0) return { sessions: 0, stats: null, fillersPerSession: null, fillersPerMin: null };
+        const measured = windowed
+            .map((s) => ({ count: getSessionAnalysisMetrics(s).fillerCount, seconds: s.duration ?? 0 }))
+            .filter((m): m is { count: number; seconds: number } => m.count !== null);
+        const counts = measured.map((m) => m.count);
+        // #1573 Codex P1 4230859591: the per-minute rate behind the filler judgment and the rule-card driver is pooled over
+        // the same measured true-filler counts the card averages (same rate basis as calculateOverallStats).
+        const fillerSeconds = measured.reduce((a, m) => a + (m.seconds > 0 ? m.seconds : 0), 0);
+        const fillerTotal = measured.reduce((a, m) => a + (m.seconds > 0 ? m.count : 0), 0);
         return {
             sessions: windowed.length,
             stats: calculateOverallStats(windowed) as OverallStats,
             fillersPerSession: counts.length > 0 ? counts.reduce((a, b) => a + b, 0) / counts.length : null,
+            fillersPerMin: fillerSeconds > 0 ? Number(calculateRatePerMinute(fillerTotal, fillerSeconds, 1)) : null,
         };
     }, [sessionHistory]);
     const recentSummary = useMemo(() => recent.stats ? getNarrativeSummary({
         avgWpm: recent.stats.averageWPM,
         avgPausesPerMin: recent.stats.avgPausesPerMin,
-        avgFillerWordsPerMin: recent.stats.avgFillerWordsPerMin,
+        avgFillerWordsPerMin: recent.fillersPerMin,
         avgClarity: recent.stats.avgClarity,
     }) : null, [recent]);
 

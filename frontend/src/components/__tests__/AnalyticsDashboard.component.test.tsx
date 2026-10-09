@@ -287,6 +287,30 @@ describe('AnalyticsDashboard', () => {
             expect(screen.getByTestId('stat-card-clarity_score')).toHaveTextContent('Clear delivery');
         });
 
+        // #1573 Codex P1 4230859591: the card shows the TRUE-filler count per session, so its judgment and the rule card's
+        // driver must come from the same true-filler basis and window — never the legacy all-keys per-minute rate, which
+        // still counts default-excluded discourse markers such as "so" and "like".
+        it('CASUALTY: discourse markers only → "0.0 fillers per session" is judged Low and is never the rule card\'s focus', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            const markersOnly = [5, 4, 3, 2].map((n) => row(n, 140, { so: 40, like: 40 }));   // legacy rate 8/min → "High"
+            renderComponent({ sessionHistory: markersOnly });
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^0\.0$/);
+            const detail = screen.getByTestId('stat-card-filler_words_per_min-detail').textContent ?? '';
+            expect(detail).toMatch(/Low/);
+            expect(detail).not.toMatch(/High|Noticeable/);
+            const card = screen.queryByTestId('try-this-next');
+            const chip = card ? (within(card).queryByTestId('rule-card-chip')?.textContent ?? '') : '';
+            expect(chip).not.toMatch(/filler/i);
+        });
+
+        it('CONTROL: real true fillers still read High and can drive the rule card', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            const fillerHeavy = [5, 4, 3, 2].map((n) => row(n, 140, { um: 40, uh: 40 }));     // 80 per 10 min = 8/min
+            renderComponent({ sessionHistory: fillerHeavy });
+            expect(screen.getByTestId('stat-card-filler_words_per_min-detail')).toHaveTextContent(/High/);
+            expect(within(screen.getByTestId('try-this-next')).getByTestId('rule-card-chip')).toHaveTextContent(/filler/i);
+        });
+
         it('fewer than two sessions: no rule card', () => {
             renderComponent({ sessionHistory: [history[0]] });
             expect(screen.queryByTestId('try-this-next')).toBeNull();
