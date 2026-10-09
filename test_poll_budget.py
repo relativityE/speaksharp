@@ -163,6 +163,16 @@ class PollBudgetTests(unittest.TestCase):
             self.assertIn('Shared GitHub request budget exhausted', detail)
             self.assertEqual(run.call_count, 1)
 
+    def test_unbounded_gh_fanout_commands_fail_closed_before_budget_or_subprocess(self):
+        with patch.object(server, 'subprocess') as process:
+            _, paginated = server.gh_json(['api', '--paginate', 'repos/example/issues'])
+            _, actions = server.gh_json(['run', 'list', '--limit', '30'])
+            _, oversized = server.gh_json(['pr', 'list', '--limit', '101'])
+        for detail in (paginated, actions, oversized):
+            self.assertIn('not covered by a single-request budget adapter', detail)
+        process.run.assert_not_called()
+        self.assertEqual(server.github_request_budget_state()['used'], 0)
+
     def test_corrupt_persisted_budget_fails_closed(self):
         server.set_setting('github_request_budget', 'not-json')
         with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 2), patch.object(server.subprocess, 'run') as run:
@@ -205,6 +215,153 @@ class PollBudgetTests(unittest.TestCase):
             with self.assertRaisesRegex(server.Hold, 'qualifier did not pass'):
                 server._pm_qualify(1570, 'a' * 40)
         record.assert_called_once_with()
+
+    def test_exact_head_qualifier_installs_per_request_shared_budget_adapter(self):
+        responses = [subprocess.CompletedProcess(['gh'], 0, stdout='credential', stderr=''),
+                     subprocess.CompletedProcess(['node'], 0, stdout='REVIEW-QUALIFIED: true', stderr='')]
+        with patch.object(server, 'github_backoff_until', return_value=0), \
+             patch.object(server.subprocess, 'run', side_effect=responses) as run, \
+             patch.object(server, 'reserve_github_request_budget') as reserve:
+            server._pm_qualify(1570, 'a' * 40)
+        reserve.assert_not_called()  # No up-front estimate; fetch reserves each actual API request.
+        child_env = run.call_args_list[1].kwargs['env']
+        self.assertEqual(child_env['RWT_GH_BUDGET_DB'], str(server.DB))
+        self.assertEqual(child_env['RWT_GH_BUDGET_APP'], str(server.APP))
+        self.assertEqual(child_env['RWT_GH_BUDGET_PYTHON'], sys.executable)
+        self.assertEqual(child_env['NODE_OPTIONS'], f'--require={server.APP / "github_budget_preload.cjs"}')
+        self.assertEqual(child_env['GITHUB_TOKEN'], 'credential')
+
+    def _run_budgeted_node_fetches(self, request_paths, budget):
+        preload = Path(__file__).parent / 'github_budget_preload.cjs'
+        script = (
+            "const {makeBudgetedFetch}=require(process.argv[1]);"
+            "let sent=0;const f=makeBudgetedFetch(async()=>{sent++;return {ok:true};});"
+            "(async()=>{let denied=null;for(const p of JSON.parse(process.argv[2])){"
+            "try{await f('https://api.github.com'+p)}catch(e){denied=e.message;break}}"
+            "process.stdout.write(JSON.stringify({sent,denied}));})().catch(e=>{"
+            "process.stderr.write(String(e));process.exit(2)});"
+        )
+        env = os.environ.copy()
+        env.update(
+            RWT_GH_BUDGET_APP=str(Path(__file__).parent),
+            RWT_GH_BUDGET_DB=str(server.DB),
+            RWT_GH_BUDGET_PYTHON=sys.executable,
+            RWT_GH_REQUEST_BUDGET_PER_MINUTE=str(budget),
+        )
+        result = subprocess.run(
+            ['node', '-e', script, str(preload), json.dumps(request_paths)],
+            cwd=Path(__file__).parent, env=env, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_qualifier_pages_history_and_rules_each_reserve_before_http(self):
+        paths = [f'/graphql?page={page}' for page in range(1, 12)] + [
+            '/repos/owner/repo/activity?ref=main',
+            '/repos/owner/repo/branches/main/protection',
+            '/repos/owner/repo/rules/branches/main',
+            '/repos/owner/repo/rulesets/17?includes_parents=true',
+        ]
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 12):
+            outcome = self._run_budgeted_node_fetches(paths, 12)
+        self.assertEqual(outcome['sent'], 12)
+        self.assertEqual(outcome['denied'], 'github_request_budget_exhausted')
+        self.assertEqual(server.github_request_budget_state()['used'], 12)
+
+    def test_qualifier_and_watcher_share_one_atomic_window_while_overlapping(self):
+        # Keep the race inside one fixed 60-second accounting window.
+        phase = time.time() % server.GH_REQUEST_WINDOW_SECONDS
+        if phase > server.GH_REQUEST_WINDOW_SECONDS - 3:
+            time.sleep(server.GH_REQUEST_WINDOW_SECONDS - phase + 0.2)
+        preload = Path(__file__).parent / 'github_budget_preload.cjs'
+        script = (
+            "const {makeBudgetedFetch}=require(process.argv[1]);"
+            "let sent=0;const f=makeBudgetedFetch(async()=>{sent++;return {ok:true};});"
+            "f('https://api.github.com/graphql').catch(()=>{}).finally(()=>"
+            "process.stdout.write(JSON.stringify({sent})));"
+        )
+        env = os.environ.copy()
+        env.update(
+            RWT_GH_BUDGET_APP=str(Path(__file__).parent),
+            RWT_GH_BUDGET_DB=str(server.DB),
+            RWT_GH_BUDGET_PYTHON=sys.executable,
+            RWT_GH_REQUEST_BUDGET_PER_MINUTE='1',
+        )
+        barrier = threading.Barrier(2)
+        outcome = {}
+
+        def qualifier():
+            barrier.wait()
+            result = subprocess.run(['node', '-e', script, str(preload)], cwd=Path(__file__).parent,
+                                    env=env, capture_output=True, text=True, timeout=30)
+            outcome['process'] = (result.returncode, result.stdout, result.stderr)
+
+        def watcher():
+            barrier.wait()
+            outcome['watcher'] = server.reserve_github_request_budget()
+
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 1):
+            threads = [threading.Thread(target=qualifier), threading.Thread(target=watcher)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=35)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            returncode, stdout, stderr = outcome['process']
+            self.assertEqual(returncode, 0, stderr)
+            sent = json.loads(stdout)['sent']
+            watcher_ok = outcome['watcher'][0]
+            self.assertEqual(int(sent) + int(watcher_ok), 1)
+            self.assertEqual(server.github_request_budget_state()['used'], 1)
+
+    def test_actions_run_list_uses_one_explicit_capped_api_request(self):
+        payload = {'workflow_runs': [{
+            'id': 81, 'workflow_id': 7, 'name': 'CI - Test Audit', 'run_attempt': 2,
+            'status': 'completed', 'conclusion': 'success', 'head_sha': 'a' * 40,
+            'created_at': '2026-10-09T10:00:00Z', 'updated_at': '2026-10-09T10:05:00Z',
+            'event': 'pull_request',
+        }]}
+        with patch.object(server, 'gh_json', return_value=(payload, None)) as gh:
+            rows, error = server.github_action_runs('owner/repo', 'feature/budget fix')
+        self.assertIsNone(error)
+        self.assertEqual(rows[0]['workflowName'], 'CI - Test Audit')
+        self.assertEqual(rows[0]['headSha'], 'a' * 40)
+        gh.assert_called_once_with(['api', 'repos/owner/repo/actions/runs?per_page=30&branch=feature%2Fbudget%20fix'])
+
+    def test_actions_run_detail_budgets_each_bounded_job_page(self):
+        run = {'id': 81, 'run_attempt': 2, 'status': 'completed', 'conclusion': 'success',
+               'head_sha': 'a' * 40}
+        full_page = {'jobs': [{'id': n, 'name': f'job-{n}'} for n in range(100)]}
+        with patch.object(server, 'gh_json', return_value=(run, None)) as detail, \
+             patch.object(server, '_pm_request', side_effect=[full_page, {'jobs': []}]) as jobs:
+            value, error = server.github_action_run_detail('owner/repo', 81, 2)
+        self.assertIsNone(error)
+        self.assertEqual(value['databaseId'], 81)
+        self.assertEqual(len(value['jobs']), 100)
+        detail.assert_called_once_with(['api', 'repos/owner/repo/actions/runs/81/attempts/2'])
+        self.assertEqual(jobs.call_args_list[0].args[0],
+                         ['api', 'repos/owner/repo/actions/runs/81/attempts/2/jobs?per_page=100&page=1'])
+        self.assertEqual(jobs.call_args_list[1].args[0],
+                         ['api', 'repos/owner/repo/actions/runs/81/attempts/2/jobs?per_page=100&page=2'])
+
+    def test_actions_job_pagination_holds_at_explicit_page_bound(self):
+        full_page = {'jobs': [{'id': n} for n in range(100)]}
+        with patch.object(server, 'gh_json', return_value=({'id': 81}, None)), \
+             patch.object(server, 'MAX_REVIEW_PAGES', 2), \
+             patch.object(server, '_pm_request', return_value=full_page) as jobs:
+            value, error = server.github_action_run_detail('owner/repo', 81, 2)
+        self.assertIsNone(value)
+        self.assertIn('bounded 2-page read', error)
+        self.assertEqual(jobs.call_count, 2)
+
+    def test_actions_job_budget_failure_is_reported_without_crashing_watcher(self):
+        run = {'id': 81, 'run_attempt': 2, 'status': 'completed', 'conclusion': 'success',
+               'head_sha': 'a' * 40}
+        with patch.object(server, 'gh_json', return_value=(run, None)), \
+             patch.object(server, '_pm_request', side_effect=server.GithubReadError('budget_exhausted', 'shared cap')):
+            value, error = server.github_action_run_detail('owner/repo', 81, 2)
+        self.assertIsNone(value)
+        self.assertIn('shared cap', error)
 
     def test_affected_review_registry_observes_nonselected_pr_and_keeps_security_separate(self):
         server.apply_board_updates({'work_items': [{'item_key': 'PR-1600', 'pr_number': 1600, 'state': 'active',

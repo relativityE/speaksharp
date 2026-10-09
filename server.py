@@ -13,6 +13,7 @@ import shlex
 import shutil
 import sqlite3
 import subprocess
+import sys
 import pty
 import fcntl
 import threading
@@ -1188,8 +1189,40 @@ def update_queue(qid, **fields):
         c.execute("UPDATE queue SET " + ",".join(f"{k}=?" for k in ks) + " WHERE id=?", vals)
 
 
+def gh_cli_call_has_one_known_request(args):
+    """Reject gh modes that can paginate or fan out behind one reservation."""
+    if not isinstance(args, (list, tuple)) or not args:
+        return False
+    args = list(args)
+    if args[0] == 'api':
+        return not any(str(arg) == '--paginate' or str(arg).startswith('--paginate=') for arg in args[1:])
+    if len(args) >= 2 and args[0:2] == ['pr', 'view']:
+        return True  # gh pr view is one GraphQL read; no list/pagination path.
+    if len(args) >= 2 and args[0:2] == ['pr', 'list']:
+        if any(str(arg) in ('--search', '-S') for arg in args[2:]):
+            return False  # Search mode has a separate multi-request implementation.
+        limit = 30
+        for index, arg in enumerate(args[2:], start=2):
+            arg = str(arg)
+            if arg.startswith('--limit='):
+                try:
+                    limit = int(arg.split('=', 1)[1])
+                except ValueError:
+                    return False
+            elif arg in ('--limit', '-L'):
+                try:
+                    limit = int(args[index + 1])
+                except (IndexError, TypeError, ValueError):
+                    return False
+        # One GraphQL page can contain at most 100; larger caps require explicit page reads.
+        return 1 <= limit <= 100
+    return False
+
+
 def gh_json(args):
     global GH_BACKOFF_UNTIL
+    if not gh_cli_call_has_one_known_request(args):
+        return None, 'GitHub CLI operation is not covered by a single-request budget adapter'
     backoff_until = github_backoff_until()
     if time.time() < backoff_until:
         return None, 'GitHub rate-limit backoff until ' + datetime.fromtimestamp(backoff_until, timezone.utc).isoformat()
@@ -1224,6 +1257,76 @@ def bounded_github_list(request, path, max_pages=MAX_REVIEW_PAGES):
         if len(obj) < 100:
             return rows, None
     return None, f'GitHub list exceeded the bounded {max_pages}-page read; completeness not established'
+
+
+def bounded_github_object_list(request, path, field, max_pages=MAX_REVIEW_PAGES):
+    """Read a bounded paginated array nested in a REST response object."""
+    rows = []
+    for page_no in range(1, max_pages + 1):
+        separator = '&' if '?' in path else '?'
+        obj = request(['api', f'{path}{separator}per_page=100&page={page_no}'])
+        if not isinstance(obj, dict) or not isinstance(obj.get(field), list):
+            return None, f'GitHub object list returned an invalid {field} page'
+        page = obj[field]
+        rows.extend(x for x in page if isinstance(x, dict))
+        if len(page) < 100:
+            return rows, None
+    return None, f'GitHub object list exceeded the bounded {max_pages}-page read; completeness not established'
+
+
+def github_action_runs(repo, branch):
+    """Read one explicit, capped Actions page without gh's hidden workflow-name lookups."""
+    query = 'per_page=30'
+    if branch:
+        query += '&branch=' + quote(str(branch), safe='')
+    obj, error = gh_json(['api', f'repos/{repo}/actions/runs?{query}'])
+    if error:
+        return None, error
+    if not isinstance(obj, dict) or not isinstance(obj.get('workflow_runs'), list):
+        return None, 'GitHub Actions run list returned an invalid response'
+    runs = []
+    for run in obj['workflow_runs']:
+        if not isinstance(run, dict):
+            continue
+        runs.append({
+            'databaseId': run.get('id'),
+            'workflowDatabaseId': run.get('workflow_id'),
+            'workflowName': run.get('name') or '',
+            'attempt': run.get('run_attempt'),
+            'status': run.get('status'),
+            'conclusion': run.get('conclusion'),
+            'headSha': run.get('head_sha'),
+            'createdAt': run.get('created_at'),
+            'updatedAt': run.get('updated_at'),
+            'event': run.get('event'),
+        })
+    # `per_page=30` is a hard first-page cap; never follow an unmetered Link header.
+    return runs, None
+
+
+def github_action_run_detail(repo, run_id, attempt):
+    """Read one run attempt and a bounded, individually-budgeted set of job pages."""
+    attempt_path = f'repos/{repo}/actions/runs/{int(run_id)}/attempts/{int(attempt)}'
+    run, error = gh_json(['api', attempt_path])
+    if error:
+        return None, error
+    if not isinstance(run, dict):
+        return None, 'GitHub Actions run detail returned an invalid response'
+    try:
+        jobs, jobs_error = bounded_github_object_list(
+            _pm_request, f'{attempt_path}/jobs', 'jobs', max_pages=MAX_REVIEW_PAGES)
+    except Exception as exc:
+        return None, str(exc)[:400]
+    if jobs_error:
+        return None, jobs_error
+    return {
+        'databaseId': run.get('id'),
+        'attempt': run.get('run_attempt'),
+        'status': run.get('status'),
+        'conclusion': run.get('conclusion'),
+        'headSha': run.get('head_sha'),
+        'jobs': jobs,
+    }, None
 
 
 def github_backoff_until():
@@ -1801,7 +1904,9 @@ def github_watch_snapshot():
         detail = f'PR #{current} review monitor incomplete: {reviews_err or comments_err}'
         base['review_monitor_error'] = detail
         return base, detail
-    runs, _ = gh_json(['run','list','--repo',repo,'--branch',pr.get('headRefName',''),'--limit','30','--json','databaseId,workflowDatabaseId,workflowName,attempt,status,conclusion,headSha,createdAt,updatedAt,event'])
+    runs, runs_error = github_action_runs(repo, pr.get('headRefName', ''))
+    if runs_error:
+        base['workflow_runs_error'] = str(runs_error)[:400]
     reviews = reviews if isinstance(reviews,list) else []
     comments = comments if isinstance(comments,list) else []
     runs = [r for r in (runs if isinstance(runs,list) else []) if r.get('headSha') == pr.get('headRefOid')]
@@ -1841,8 +1946,7 @@ def github_watch_snapshot():
             if run_id < 1 or attempt < 1:
                 run['jobs_error'] = 'CI summary omitted a numeric run ID or attempt'
                 continue
-            detail, detail_error = gh_json(['run','view',str(run_id),'--repo',repo,'--attempt',str(attempt),
-                                            '--json','databaseId,attempt,status,conclusion,headSha,jobs'])
+            detail, detail_error = github_action_run_detail(repo, run_id, attempt)
             if detail_error:
                 run['jobs_error'] = str(detail_error)
             elif not isinstance(detail, dict):
@@ -4171,9 +4275,19 @@ def _pm_qualify(pr_number, head):
     env.update(GITHUB_TOKEN=p.stdout.strip(), GITHUB_REPOSITORY='relativityE/speaksharp',
                PR_NUMBER=str(pr_number), EXPECTED_HEAD_SHA=head, GITHUB_EVENT_NAME='workflow_dispatch')
     env.pop('REVIEW_QUALIFICATION_FILE', None)
-    budget_ok, budget_state = reserve_github_request_budget(cost=10)
-    if not budget_ok:
+    budget_state = github_request_budget_state()
+    if budget_state['remaining'] < 1:
         raise Hold(f"Exact-head qualifier held by shared GitHub request budget ({budget_state['used']}/{budget_state['limit']}); resumes at {budget_state['reset_at']}")
+    # Do not estimate the script's cost here. Its Node fetch adapter reserves one unit from
+    # this same SQLite window immediately before every api.github.com request, including
+    # pagination and optional protection/ruleset reads.
+    env.update(
+        RWT_GH_BUDGET_APP=str(APP),
+        RWT_GH_BUDGET_DB=str(DB),
+        RWT_GH_BUDGET_PYTHON=sys.executable,
+        RWT_GH_REQUEST_BUDGET_PER_MINUTE=str(GH_REQUEST_BUDGET_PER_WINDOW),
+        NODE_OPTIONS=f'--require={APP / "github_budget_preload.cjs"}',
+    )
     check = subprocess.run(['node', 'scripts/collect-review-qualification.mjs'], cwd=BASE_REPO,
                            env=env, capture_output=True, text=True, timeout=90)
     if check.returncode or 'REVIEW-QUALIFIED:' not in check.stdout:

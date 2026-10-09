@@ -198,8 +198,9 @@ class RegressionTests(unittest.TestCase):
     def test_watcher_keeps_overlapping_runs_visible(self):
         server.set_setting('current_pr','1555')
         pr={'number':1555,'headRefOid':'sha','headRefName':'branch'}
-        runs=[{'databaseId':1,'workflowName':'CI - Test Audit','headSha':'sha','status':'in_progress'},
-              {'databaseId':2,'workflowName':'CI - Test Audit','headSha':'sha','status':'completed','conclusion':'cancelled'}]
+        runs={'workflow_runs':[
+            {'id':1,'name':'CI - Test Audit','head_sha':'sha','status':'in_progress','run_attempt':1},
+            {'id':2,'name':'CI - Test Audit','head_sha':'sha','status':'completed','conclusion':'cancelled','run_attempt':1}]}
         with patch.object(server,'gh_json',side_effect=[([],None),([],None),([],None),(pr,None),([],None),([],None),(runs,None)]):
             snap,_=server.github_watch_snapshot()
         self.assertEqual(len(snap['runs']),2)

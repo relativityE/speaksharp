@@ -1163,19 +1163,27 @@ class Deadlock5Tests(unittest.TestCase):
             calls.append(args)
             if args[0] == 'pr':
                 return pr, None
-            if args[:2] == ['run', 'list']:
-                return [summary], None
-            if args[:2] == ['run', 'view']:
-                return detail, None
+            if args[0] == 'api' and '/actions/runs?' in args[1]:
+                return {'workflow_runs': [{
+                    'id': summary['databaseId'], 'workflow_id': summary['workflowDatabaseId'],
+                    'name': summary['workflowName'], 'run_attempt': summary['attempt'],
+                    'status': summary['status'], 'conclusion': summary['conclusion'],
+                    'head_sha': summary['headSha'], 'created_at': summary['createdAt'],
+                    'updated_at': summary['updatedAt'], 'event': 'pull_request',
+                }]}, None
+            if args[0] == 'api' and '/actions/runs/322/attempts/1' in args[1]:
+                return {'id': detail['databaseId'], 'run_attempt': detail['attempt'],
+                        'status': detail['status'], 'conclusion': detail['conclusion'],
+                        'head_sha': detail['headSha']}, None
             raise AssertionError(args)
         with patch.object(server, 'fetch_watch_comments', return_value=([], None, None)), \
              patch.object(server, 'gh_json', side_effect=gh), \
+             patch.object(server, '_pm_request', return_value={'jobs': detail['jobs']}), \
              patch.object(server, 'bounded_github_list', return_value=([], None)), \
              patch.object(server, 'affected_review_snapshot', return_value={}):
             snapshot, error = server.github_watch_snapshot()
         self.assertIsNone(error)
-        self.assertIn('--attempt', calls[-1])
-        self.assertEqual(calls[-1][calls[-1].index('--attempt') + 1], '1')
+        self.assertEqual(calls[-1], ['api', 'repos/relativityE/speaksharp/actions/runs/322/attempts/1'])
         run = snapshot['runs']['322']
         self.assertEqual((run['jobs_attempt'], run['jobs_head_sha']), (1, HEAD))
         self.assertIsNotNone(server.queue_ci_review_followup(snapshot))
