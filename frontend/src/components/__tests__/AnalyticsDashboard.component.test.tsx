@@ -246,8 +246,8 @@ describe('AnalyticsDashboard', () => {
 
     describe('#1258 D5 rule card and stat cards (Rev 2 §5.5–5.6; PO 2026-10-07: newest 4 sessions)', () => {
         const PAUSES = { silencePercentage: 12, transitionPauses: 6, extendedPauses: 2, longestPause: 1.4 };
-        const row = (n: number, wpm: number, filler_counts: unknown) => ({
-            id: `w${n}`, user_id: 'test-user', created_at: `2026-10-0${n}T10:00:00Z`, duration: 600, total_words: wpm * 10,
+        const row = (n: number, wpm: number, filler_counts: unknown, duration = 600) => ({
+            id: `w${n}`, user_id: 'test-user', created_at: `2026-10-0${n}T10:00:00Z`, duration, total_words: wpm * duration / 60,
             wpm, clarity_score: 95, pause_metrics: PAUSES, filler_counts, status: 'completed', product: 'open_mic',
             next_action_signal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
         });
@@ -309,6 +309,29 @@ describe('AnalyticsDashboard', () => {
             renderComponent({ sessionHistory: fillerHeavy });
             expect(screen.getByTestId('stat-card-filler_words_per_min-detail')).toHaveTextContent(/High/);
             expect(within(screen.getByTestId('try-this-next')).getByTestId('rule-card-chip')).toHaveTextContent(/filler/i);
+        });
+
+        // #1573 Codex P1 4232318053 + PO 2026-10-09: the headline is the per-session count; the grade states the per-minute
+        // rate it judges, so short and long takes are graded fairly and the grade never judges a number the user can't see.
+        it('CASUALTY: short takes — "7.0" per session is graded on its rate: "High · about 7 a minute, target under 3"', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            const shortTakes = [5, 4, 3, 2].map((n) => row(n, 140, { um: 7 }, 60));      // 7 fillers in 1 minute each
+            renderComponent({ sessionHistory: shortTakes });
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^7\.0$/);
+            expect(screen.getByTestId('stat-card-filler_words_per_min-detail')).toHaveTextContent(/^High · about 7 a minute, target under 3$/);
+            expect(within(screen.getByTestId('try-this-next')).getByTestId('try-this-next-action'))
+                .toHaveTextContent(/^You averaged 7\.0 filler words per session, about 7 a minute\.$/);
+        });
+
+        it('CONTROL: long takes — a higher count at a low rate reads "Low · under 1 a minute" and is never the focus', () => {
+            localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+            const longTakes = [5, 4, 3, 2].map((n) => row(n, 140, { um: 5 }, 600));     // 5 fillers in 10 minutes each
+            renderComponent({ sessionHistory: longTakes });
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^5\.0$/);
+            expect(screen.getByTestId('stat-card-filler_words_per_min-detail')).toHaveTextContent(/^Low · under 1 a minute, target under 3$/);
+            const card = screen.queryByTestId('try-this-next');
+            const chip = card ? (within(card).queryByTestId('rule-card-chip')?.textContent ?? '') : '';
+            expect(chip).not.toMatch(/filler/i);
         });
 
         it('fewer than two sessions: no rule card', () => {

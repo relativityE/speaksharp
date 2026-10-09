@@ -1,11 +1,14 @@
 /** #1258 D5 (Rev 2 §5.5 + C9) — the rule card's one data statement, per driver. The pause count is every meaningful pause (transition + extended), never "long" (C9). */
 import { ANALYTICS_THRESHOLDS } from '@/utils/sessionAnalysis';
+import { fillerRatePhrase } from '@/utils/coachingNarrative';
 
 export interface RuleSignals {
     /** `getNarrativeSummary(...).driver` for the window; null = every signal on target. */
     driver: string | null;
     wpm: number | null;
     fillersPerSession: number | null;
+    /** The window's pooled true-filler rate — the value the filler driver was chosen on. */
+    fillersPerMin: number | null;
     clarity: number | null;
     pausesPerMin: number | null;
 }
@@ -14,7 +17,7 @@ const MIN = ANALYTICS_THRESHOLDS.TARGET_WPM_MIN;
 const MAX = ANALYTICS_THRESHOLDS.TARGET_WPM_MAX;
 
 /** The sentence and chip for a driver, or null when the window can't support a true statement. */
-export function ruleStatement({ driver, wpm, fillersPerSession, clarity, pausesPerMin }: RuleSignals):
+export function ruleStatement({ driver, wpm, fillersPerSession, fillersPerMin, clarity, pausesPerMin }: RuleSignals):
     { sentence: string; metric: string | null } | null {
     switch (driver) {
         case null:
@@ -31,8 +34,9 @@ export function ruleStatement({ driver, wpm, fillersPerSession, clarity, pausesP
             return null;
         }
         case 'filler words':
-            return fillersPerSession === null ? null
-                : { sentence: `You averaged ${fillersPerSession.toFixed(1)} filler words per session.`, metric: 'fillers' };
+            // PO 2026-10-09: the count the user relates to, then the per-minute rate the focus was chosen on.
+            return fillersPerSession === null || fillersPerMin === null ? null
+                : { sentence: `You averaged ${fillersPerSession.toFixed(1)} filler words per session, ${fillerRatePhrase(fillersPerMin)}.`, metric: 'fillers' };
         case 'clear delivery':
             return clarity === null ? null : { sentence: `Your clear delivery averaged ${Math.round(clarity)}%.`, metric: 'clear delivery' };
         case 'pause rhythm':

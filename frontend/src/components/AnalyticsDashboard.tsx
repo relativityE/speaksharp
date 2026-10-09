@@ -34,6 +34,8 @@ import {
     decodePauseRhythm,
     decodeFillers,
     decodeClarity,
+    fillerRatePhrase,
+    FILLER_NOTICEABLE_PER_MIN,
     getNarrativeSummary,
     type CoachingMetric,
 } from '@/utils/coachingNarrative';
@@ -113,6 +115,8 @@ interface StatCardProps {
     unit?: string;
     description?: string;
     interpretation?: CoachingMetric;
+    /** Overrides the card's one sentence (see StatCardConfig.getDetail). */
+    detail?: string | null;
     /** #1258 D5 (Rev 2 §5.6): the metric's colour dot (from TrendChart's palette) and, for pace, the target. */
     metric?: TrendMetric;
     className?: string;
@@ -159,6 +163,8 @@ type StatCardConfig = {
     metric?: TrendMetric;
     // Narrative-first: decode the raw value into a plain label (Fast / Choppy / Strong …).
     getInterpretation?: (stats: OverallStats, recent: RecentWindow) => CoachingMetric;
+    /** The card's one sentence when the grade must name the value it judged (fillers: the per-minute rate). */
+    getDetail?: (stats: OverallStats, recent: RecentWindow) => string | null;
 };
 
 const STAT_CARD_OPTIONS: StatCardConfig[] = [
@@ -192,6 +198,10 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         // #1573 Codex P1 4230859591: judged on the SAME true-filler basis and window as the count shown, never the legacy
         // all-keys rate (which still counts default-excluded discourse markers such as "so" and "like").
         getInterpretation: (_stats, recent) => decodeFillers(recent.fillersPerMin),
+        // #1573 Codex P1 4232318053 + PO 2026-10-09: the count stays the headline; the grade states the rate it judges, so a
+        // short and a long take are graded fairly and the grade never judges a number the user can't see.
+        getDetail: (_stats, recent) => recent.fillersPerMin === null ? null
+            : `${decodeFillers(recent.fillersPerMin).label} · ${fillerRatePhrase(recent.fillersPerMin)}, target under ${FILLER_NOTICEABLE_PER_MIN}`,
     },
     {
         id: 'total_practice_time',
@@ -360,7 +370,7 @@ const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
 
 // --- Sub-components ---
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, interpretation, metric, className = '', testId }) => {
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, interpretation, detail, metric, className = '', testId }) => {
     const resolvedTestId = testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
     // #1045: a card may only show a number, a unit, or a judgment when the evidence supports it.
@@ -382,9 +392,10 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
         const unitText = displayUnit ? (displayUnit === 'WPM' ? ' wpm' : displayUnit) : '';
         const sentence = evidenceMissing
             ? 'A couple more sessions and we can read this.'
-            : metric === 'wpm'
-                ? `${interpretation.label} · target ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}–${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX}`
-                : interpretation.label;
+            : detail
+                ?? (metric === 'wpm'
+                    ? `${interpretation.label} · target ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}–${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX}`
+                    : interpretation.label);
         return (
             <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId} data-status={evidenceMissing ? 'nodata' : interpretation.tone}>
                 <div className="flex items-start gap-2">
@@ -1036,6 +1047,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         driver={recentSummary?.driver ?? null}
                         wpm={numberOrNull(recent.stats?.averageWPM)}
                         fillersPerSession={recent.fillersPerSession}
+                        fillersPerMin={recent.fillersPerMin}
                         clarity={numberOrNull(recent.stats?.avgClarity)}
                         pausesPerMin={numberOrNull(recent.stats?.avgPausesPerMin)}
                     />
@@ -1050,6 +1062,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 value={option.getValue(overallStats, recent)}
                                 unit={option.unit}
                                 interpretation={option.getInterpretation?.(overallStats, recent)}
+                                detail={option.getDetail?.(overallStats, recent)}
                                 metric={option.metric}
                                 testId={`stat-card-${option.id}`}
                             />
