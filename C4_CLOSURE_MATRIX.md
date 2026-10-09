@@ -46,7 +46,7 @@ This is the source-status map for the candidate identified by the accompanying p
 | R38 | Source repaired for startup claims: history remains; restart recovery occurs only under singleton locks. | `recover_interrupted_state_after_lock`; lock, running-action and queue recovery tests. | Browser PM: installed restart acceptance. |
 | R39 | Partial: staged migration preserves DB/WAL/uploads and rebases known paths; all handoff/artifact migration cases need proof. | `migrate_state.py`; migration tests. | CLI PM: artifact-continuity matrix. |
 | R40 | Conditional authorization exists for replacement installation only after complete closure and independent qualification; this candidate has not met that condition and was not installed. | `README.md`, `TEST_RECEIPT.md`; no installation/restart performed. | Finish matrix, independent qualification, and preserved-state/rollback packet before using the existing authorization. |
-| R41 | Source and host tests pass: same-origin/token/Host boundary and five loopback/HTTP cases passed in the current 328-test suite. | `H.do_POST`, `CONTROL_TOKEN_HEADER`; `test_package2a`, `test_handoffs`, `test_regressions`, `test_deadlock5`. | Installed app acceptance remains separate. |
+| R41 | Source guards are implemented. The five named loopback/HTTP tests pass individually on candidate `e07e766` in a development run; the prior 328-test receipt reports aggregate host-suite success but does not retain per-test host output. | `H.do_POST`, `CONTROL_TOKEN_HEADER`; `test_package2a`, `test_handoffs`, `test_regressions`, `test_deadlock5`; see `CLOSURE_STATUS_2026-10-09.md`. | Candidate-bound shared-host execution and installed app acceptance remain open. |
 | R42 | Out of app-source closure: product journeys and human-visible results are not established by board tests. | Explicitly no journey claim in this packet. | App Dev + PO: deployed coaching, Open Mic, Focus and returning-user evidence. |
 
 ## F01–F16 finding disposition
@@ -67,7 +67,7 @@ This is the source-status map for the candidate identified by the accompanying p
 | F12 | Invocation, task receipt, and result stages are distinct; uninvoked claims return safely and uncertain queue outcomes are not replayed. | Actual PM receipt/action and live timeout recovery remain open. |
 | F13 | Supported Codex local/remote app-server source transport is implemented with exact actor/session routing and authenticated callbacks. | Runtime endpoint/session configuration, real recipient receipt/action, restart and missed-wake proof remain open. |
 | F14 | Explicit PR selection is preserved and UI exposes several local blockers/stages. | Build identity, resolved blocker and installed freshness audit. |
-| F15 | Source enforces control token, origin/content/host checks; all five host-bound tests passed in the current 328-test suite. | Installed acceptance remains open. |
+| F15 | Source enforces control token, origin/content/host checks; all five named tests pass individually on `e07e766` in development. The older receipt's aggregate host pass is not individually attributable. | Candidate-bound shared-host execution and installed acceptance remain open. |
 | F16 | Staged migration and source-preserving path handling exist. | Complete artifact/handoff matrix and actual rollback/build digest review. |
 
 ## Later coordination findings
