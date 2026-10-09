@@ -76,6 +76,11 @@ GH_REQUEST_BUDGET_PER_WINDOW = max(1, int(os.environ.get("RWT_GH_REQUEST_BUDGET_
 COMMENT_BOOTSTRAP_LOOKBACK_DAYS = 30
 MAX_HANDOFF_DEPTH = int(os.environ.get("MAX_HANDOFF_DEPTH", "12"))
 GITHUB_WATCH_INTERVAL = max(5, int(os.environ.get("GITHUB_WATCH_INTERVAL_SECONDS", "20")))
+GITHUB_RECONCILIATION_INTERVAL_SECONDS = max(60, int(os.environ.get("RWT_GITHUB_RECONCILIATION_INTERVAL_SECONDS", "900")))
+GITHUB_WEBHOOK_SECRET = os.environ.get("RWT_GITHUB_WEBHOOK_SECRET", "").strip()
+GITHUB_WEBHOOK_MAX_BYTES = 1024 * 1024
+GITHUB_WEBHOOK_EVENTS = frozenset({"issues", "issue_comment", "pull_request", "pull_request_review",
+                                  "pull_request_review_comment", "workflow_run", "check_run", "check_suite", "push"})
 CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1258"))
 WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
 BOARD_VERSION = "4.6.17"
@@ -105,6 +110,7 @@ PM_CANCEL_GENERATION = 0
 CODEX_AUTH_OK = None
 CODEX_AUTH_DETAIL = "not checked"
 STOP = threading.Event()
+GITHUB_WATCH_WAKE = threading.Event()
 STATE_LOCK_FD = None
 REPOSITORY_LOCK_FD = None
 
@@ -222,6 +228,10 @@ def init_db():
           task TEXT NOT NULL DEFAULT '', work_item_key TEXT NOT NULL DEFAULT '',
           blocker TEXT NOT NULL DEFAULT '', holding INTEGER NOT NULL DEFAULT 0,
           source TEXT NOT NULL DEFAULT 'board', updated_at TEXT NOT NULL, checkpoint_at TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS github_webhook_inbox(
+          delivery_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, payload_sha256 TEXT NOT NULL,
+          received_at TEXT NOT NULL, processed_at TEXT NOT NULL DEFAULT ''
         );
         """)
         c.executescript('''CREATE TABLE IF NOT EXISTS pm_outbox(queue_id INTEGER PRIMARY KEY,status TEXT NOT NULL,comment_id INTEGER,body TEXT NOT NULL);
@@ -477,6 +487,8 @@ def automation_settings():
         'dev_to_pm': bool_setting('auto_dev_to_pm', True),
         'pm_to_dev': bool_setting('auto_pm_to_dev', True),
         'watch_interval_seconds': max(5, int(get_setting('github_watch_interval', str(GITHUB_WATCH_INTERVAL)) or GITHUB_WATCH_INTERVAL)),
+        'github_webhook_configured': bool(GITHUB_WEBHOOK_SECRET),
+        'github_reconciliation_interval_seconds': GITHUB_RECONCILIATION_INTERVAL_SECONDS,
     }
 
 def set_automation_settings(values):
@@ -2111,6 +2123,75 @@ def emit_github_event(events, snap, cfg):
         qids.append(_coalesced_github_enqueue(aid,'dev',msg))
     return qids
 
+
+def record_github_webhook_delivery(delivery_id, event_type, signature, body, secret=None):
+    """Durably dedupe an authenticated webhook, then wake the shared watcher."""
+    secret = GITHUB_WEBHOOK_SECRET if secret is None else str(secret)
+    delivery_id = str(delivery_id or '').strip()
+    event_type = str(event_type or '').strip()
+    raw = bytes(body or b'')
+    if not secret:
+        return 503, {'error': 'GitHub webhook transport is not configured'}
+    if not delivery_id or len(delivery_id) > 200 or event_type not in GITHUB_WEBHOOK_EVENTS:
+        return 400, {'error': 'GitHub delivery ID or event type is invalid'}
+    if not raw or len(raw) > GITHUB_WEBHOOK_MAX_BYTES:
+        return 413, {'error': 'GitHub webhook body must be 1..1048576 bytes'}
+    supplied = str(signature or '')
+    expected = 'sha256=' + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(supplied, expected):
+        return 403, {'error': 'GitHub webhook signature is invalid'}
+    try:
+        decoded = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return 400, {'error': 'GitHub webhook body is not valid JSON'}
+    if not isinstance(decoded, dict):
+        return 400, {'error': 'GitHub webhook body must be a JSON object'}
+    payload_hash = hashlib.sha256(raw).hexdigest()
+    with DB_LOCK, con() as c:
+        cur = c.execute("INSERT OR IGNORE INTO github_webhook_inbox(delivery_id,event_type,payload_sha256,received_at) VALUES(?,?,?,?)",
+                        (delivery_id, event_type, payload_hash, now()))
+        inserted = cur.rowcount == 1
+        row = c.execute("SELECT event_type,payload_sha256 FROM github_webhook_inbox WHERE delivery_id=?",
+                        (delivery_id,)).fetchone()
+    if not row or row['event_type'] != event_type or row['payload_sha256'] != payload_hash:
+        return 409, {'error': 'GitHub delivery ID was already used for different content'}
+    if inserted:
+        GITHUB_WATCH_WAKE.set()
+    return 202, {'accepted': True, 'duplicate': not inserted, 'delivery_id': delivery_id,
+                 'state': 'pending' if not inbox_delivery_processed(delivery_id) else 'processed'}
+
+
+def inbox_delivery_processed(delivery_id):
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT processed_at FROM github_webhook_inbox WHERE delivery_id=?", (delivery_id,)).fetchone()
+    return bool(row and row['processed_at'])
+
+
+def pending_github_webhook_count():
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT COUNT(*) AS n FROM github_webhook_inbox WHERE processed_at='' ").fetchone()
+    return int(row['n'] if row else 0)
+
+
+def github_webhook_inbox_highwater():
+    """Freeze the inbox boundary before a remote read; later deliveries need another pass."""
+    with DB_LOCK, con() as c:
+        row = c.execute("SELECT COALESCE(MAX(rowid),0) AS highwater FROM github_webhook_inbox").fetchone()
+    return int(row['highwater'] if row else 0)
+
+
+def github_watcher_wait_seconds(last_sweep_epoch, current_epoch=None, retry=False):
+    """Use one worker: webhook wakeups plus a bounded 15-minute reconciliation sweep."""
+    if not GITHUB_WEBHOOK_SECRET:
+        return automation_settings().get('watch_interval_seconds', GITHUB_WATCH_INTERVAL)
+    current_epoch = time.time() if current_epoch is None else float(current_epoch)
+    if retry:
+        return min(30.0, float(GITHUB_RECONCILIATION_INTERVAL_SECONDS))
+    if last_sweep_epoch is None:
+        return 0.0
+    return max(0.0, min(float(GITHUB_RECONCILIATION_INTERVAL_SECONDS),
+                        float(last_sweep_epoch) + GITHUB_RECONCILIATION_INTERVAL_SECONDS - current_epoch))
+
 def _parse_ts(value):
     try:
         dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
@@ -2913,12 +2994,15 @@ def pending_pin_watchdog():
 def github_watcher():
     resumed = False
     while not STOP.is_set():
+        retry = False
+        cfg = automation_settings()
         try:
             if not resumed and time.time() >= github_backoff_until():
                 resume_interrupted_actions()
                 resumed = True
-            cfg=automation_settings()
+            webhook_highwater = github_webhook_inbox_highwater() if GITHUB_WEBHOOK_SECRET else 0
             snap, err=github_watch_snapshot()
+            retry = bool(err)
             set_setting('github_watch_last_poll', now())
             set_setting('github_watch_last_error', str(err or ''))
             if snap is not None:
@@ -2952,6 +3036,12 @@ def github_watcher():
                         c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (key, json.dumps(state, ensure_ascii=False)))
                     saved_snapshot = {k: v for k, v in snap.items() if k != '_pending_comment_cursors'}
                     c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_watch_snapshot',?)", (json.dumps(saved_snapshot, sort_keys=True),))
+                    if not err:
+                        sweep_epoch = time.time()
+                        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_watch_last_sweep_epoch',?)", (str(sweep_epoch),))
+                        if webhook_highwater:
+                            c.execute("UPDATE github_webhook_inbox SET processed_at=? WHERE processed_at='' AND rowid<=?",
+                                      (now(), webhook_highwater))
             if not err:
                 # c5 (F01): finish owed PM-turn effects (after marker recovery above confirmed any uncertain post).
                 resume_owed_pm_turns()
@@ -2962,10 +3052,19 @@ def github_watcher():
                     poll_refreshed_reviews()
                 pending_ask_watchdog()
                 pending_handoff_watchdog()
-            STOP.wait(cfg.get('watch_interval_seconds',GITHUB_WATCH_INTERVAL))
         except Exception as e:
+            retry = True
             add_activity('SYSTEM', f'GitHub watcher error: {type(e).__name__}: {e}', 'none', 'error')
-            STOP.wait(GITHUB_WATCH_INTERVAL)
+        if GITHUB_WEBHOOK_SECRET:
+            try:
+                last_sweep = float(get_setting('github_watch_last_sweep_epoch', '') or '')
+            except (TypeError, ValueError):
+                last_sweep = None
+            timeout = github_watcher_wait_seconds(last_sweep, retry=retry)
+            GITHUB_WATCH_WAKE.wait(timeout)
+            GITHUB_WATCH_WAKE.clear()
+        else:
+            STOP.wait(cfg.get('watch_interval_seconds',GITHUB_WATCH_INTERVAL))
 
 def handoff_location(pr_or_task=None):
     """Where agents share files for one PR/task: the local packet root plus its connector-readable remote.
@@ -5767,6 +5866,20 @@ class H(BaseHTTPRequestHandler):
         return self.sendj(404, {"error": "not found"})
 
     def do_POST(self):
+        if urlparse(self.path).path == '/api/github-webhook':
+            if str(self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
+                return self.sendj(415, {'error': 'GitHub webhook requires application/json'})
+            try:
+                size = int(self.headers.get('Content-Length', '0'))
+                if size < 1 or size > GITHUB_WEBHOOK_MAX_BYTES:
+                    return self.sendj(413, {'error': 'GitHub webhook body must be 1..1048576 bytes'})
+                raw = self.rfile.read(size)
+            except Exception:
+                return self.sendj(400, {'error': 'invalid GitHub webhook request'})
+            code, response = record_github_webhook_delivery(
+                self.headers.get('X-GitHub-Delivery'), self.headers.get('X-GitHub-Event'),
+                self.headers.get('X-Hub-Signature-256'), raw)
+            return self.sendj(code, response)
         if urlparse(self.path).path == '/api/agent-task':
             if str(self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
                 return self.sendj(415, {'error': 'task callbacks require application/json'})
@@ -6001,6 +6114,7 @@ def main():
         pass
     finally:
         STOP.set()
+        GITHUB_WATCH_WAKE.set()
         kill_agent("dev")
         kill_agent("pm")
         srv.server_close()

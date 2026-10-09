@@ -200,6 +200,59 @@ class PollBudgetTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(state['used'], 1)
 
+    def test_github_webhook_authenticates_deduplicates_and_wakes_shared_watcher(self):
+        body = b'{"action":"opened"}'
+        signature = 'sha256=' + server.hmac.new(b'secret', body, server.hashlib.sha256).hexdigest()
+        with patch.object(server, 'GITHUB_WEBHOOK_SECRET', 'secret'):
+            status, first = server.record_github_webhook_delivery('delivery-1', 'issue_comment', signature, body)
+            self.assertEqual(status, 202)
+            self.assertFalse(first['duplicate'])
+            self.assertEqual(server.pending_github_webhook_count(), 1)
+            self.assertTrue(server.GITHUB_WATCH_WAKE.is_set())
+            server.force_github_reconcile_on_start()
+            self.assertEqual(server.pending_github_webhook_count(), 1)
+            server.GITHUB_WATCH_WAKE.clear()
+            status, duplicate = server.record_github_webhook_delivery('delivery-1', 'issue_comment', signature, body)
+            self.assertEqual(status, 202)
+            self.assertTrue(duplicate['duplicate'])
+            self.assertFalse(server.GITHUB_WATCH_WAKE.is_set())
+            changed = b'{"action":"closed"}'
+            changed_signature = 'sha256=' + server.hmac.new(b'secret', changed, server.hashlib.sha256).hexdigest()
+            status, _ = server.record_github_webhook_delivery('delivery-1', 'issue_comment', changed_signature, changed)
+            self.assertEqual(status, 409)
+
+    def test_github_webhook_rejects_missing_secret_bad_signature_and_unknown_event(self):
+        body = b'{"action":"opened"}'
+        with patch.object(server, 'GITHUB_WEBHOOK_SECRET', ''):
+            self.assertEqual(server.record_github_webhook_delivery('x', 'issues', 'sha256=bad', body)[0], 503)
+        with patch.object(server, 'GITHUB_WEBHOOK_SECRET', 'secret'):
+            self.assertEqual(server.record_github_webhook_delivery('x', 'issues', 'sha256=bad', body)[0], 403)
+            sig = 'sha256=' + server.hmac.new(b'secret', body, server.hashlib.sha256).hexdigest()
+            self.assertEqual(server.record_github_webhook_delivery('x', 'member', sig, body)[0], 400)
+
+    def test_webhook_arriving_during_snapshot_stays_pending_for_next_pass(self):
+        body = b'{"action":"opened"}'
+        sig = 'sha256=' + server.hmac.new(b'secret', body, server.hashlib.sha256).hexdigest()
+        with patch.object(server, 'GITHUB_WEBHOOK_SECRET', 'secret'):
+            self.assertEqual(server.record_github_webhook_delivery('before-read', 'issues', sig, body)[0], 202)
+            highwater = server.github_webhook_inbox_highwater()
+            self.assertEqual(server.record_github_webhook_delivery('during-read', 'issues', sig, body)[0], 202)
+            with server.con() as c:
+                c.execute("UPDATE github_webhook_inbox SET processed_at=? WHERE processed_at='' AND rowid<=?",
+                          (server.now(), highwater))
+            self.assertEqual(server.pending_github_webhook_count(), 1)
+
+    def test_event_mode_uses_webhook_wake_and_bounded_15_minute_sweep(self):
+        with patch.object(server, 'GITHUB_WEBHOOK_SECRET', 'secret'), \
+             patch.object(server, 'GITHUB_RECONCILIATION_INTERVAL_SECONDS', 900):
+            self.assertEqual(server.github_watcher_wait_seconds(None, current_epoch=1000), 0)
+            self.assertEqual(server.github_watcher_wait_seconds(100, current_epoch=200), 800)
+            self.assertEqual(server.github_watcher_wait_seconds(100, current_epoch=1000), 0)
+            self.assertEqual(server.github_watcher_wait_seconds(100, current_epoch=200, retry=True), 30)
+        with patch.object(server, 'GITHUB_WEBHOOK_SECRET', ''), \
+             patch.object(server, 'automation_settings', return_value={'watch_interval_seconds': 20}):
+            self.assertEqual(server.github_watcher_wait_seconds(100, current_epoch=200), 20)
+
     def test_separate_processes_share_the_persisted_request_budget(self):
         script = ("import json,sys; from pathlib import Path; import server; "
                   "server.DB=Path(sys.argv[1]); print(json.dumps(server.reserve_github_request_budget()))")
