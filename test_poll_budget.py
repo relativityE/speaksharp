@@ -160,6 +160,46 @@ class PollBudgetTests(unittest.TestCase):
             resumed = server.reserve_github_request_budget()
             self.assertTrue(resumed[0])
 
+    def test_legacy_future_window_fails_closed_after_clock_rollback(self):
+        # Legacy state stores only a wall-clock minute index. If the clock moves
+        # backwards, future-window usage must not be discarded and re-spent.
+        server.set_setting('github_request_budget', json.dumps({'window': 2, 'used': 2, 'limit': 2}))
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 2), \
+             patch.object(server.time, 'time', return_value=60.1):
+            ok, state = server.reserve_github_request_budget()
+        self.assertFalse(ok)
+        self.assertEqual((state['used'], state['limit']), (2, 2))
+
+    def test_legacy_window_expires_after_normal_forward_progress(self):
+        # Legacy buckets lack per-request times; a bucket older than the prior
+        # minute is safely expired under monotonic wall-clock progression.
+        server.set_setting('github_request_budget', json.dumps({'window': 0, 'used': 2, 'limit': 2}))
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 2), \
+             patch.object(server.time, 'time', return_value=180.1):
+            ok, state = server.reserve_github_request_budget()
+        self.assertTrue(ok)
+        self.assertEqual(state['used'], 1)
+
+    def test_v2_future_timestamps_survive_clock_rollback(self):
+        # Unlike legacy state, v2 retains exact timestamps and must keep future
+        # entries until the clock catches up (or fail closed).
+        server.set_setting('github_request_budget', json.dumps(
+            {'version': 2, 'timestamps': [120.0, 120.0], 'window': 2, 'used': 2, 'limit': 2}))
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 2), \
+             patch.object(server.time, 'time', return_value=60.1):
+            ok, state = server.reserve_github_request_budget()
+        self.assertFalse(ok)
+        self.assertEqual((state['used'], state['limit']), (2, 2))
+
+    def test_v2_timestamps_expire_after_the_rolling_window(self):
+        server.set_setting('github_request_budget', json.dumps(
+            {'version': 2, 'timestamps': [1.0, 1.0], 'window': 0, 'used': 2, 'limit': 2}))
+        with patch.object(server, 'GH_REQUEST_BUDGET_PER_WINDOW', 2), \
+             patch.object(server.time, 'time', return_value=61.1):
+            ok, state = server.reserve_github_request_budget()
+        self.assertTrue(ok)
+        self.assertEqual(state['used'], 1)
+
     def test_separate_processes_share_the_persisted_request_budget(self):
         script = ("import json,sys; from pathlib import Path; import server; "
                   "server.DB=Path(sys.argv[1]); print(json.dumps(server.reserve_github_request_budget()))")

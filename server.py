@@ -1381,7 +1381,12 @@ def _request_budget_timestamps(raw, now_epoch):
     current_window = int(now_epoch // GH_REQUEST_WINDOW_SECONDS)
     if used < 0:
         return [now_epoch] * GH_REQUEST_BUDGET_PER_WINDOW
-    if saved_window < current_window - 1 or saved_window > current_window:
+    if saved_window > current_window:
+        # The legacy format has no request timestamps. A future saved bucket
+        # means the wall clock moved backwards; preserve usage conservatively
+        # instead of turning the rollback into a fresh budget window.
+        return [now_epoch] * GH_REQUEST_BUDGET_PER_WINDOW
+    if saved_window < current_window - 1:
         return []
     # Legacy state has no request times. Treat usage in this or the prior minute as now;
     # this avoids creating a rollover burst during upgrade.
