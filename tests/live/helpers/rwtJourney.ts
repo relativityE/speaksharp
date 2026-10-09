@@ -1209,7 +1209,8 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
         actionClicked: false, listed: false, detailOpened: false, detailMatches: false, reloadMatches: false,
         coachingBefore: null as CoachingShown | null, coachingAfter: null as CoachingShown | null,
     };
-    const action = page.getByTestId('post-save-review-session-link');
+    // The live after state's review link, or — after Back restored the session (#1258 D1) — its "See all sessions".
+    const action = page.getByTestId('post-save-review-session-link').or(page.getByTestId('saved-session-return-see-all')).first();
     if (!(await action.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false))) return result;
     await action.click();
     result.actionClicked = await page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }).then(() => true).catch(() => false);
@@ -1228,6 +1229,57 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     if (savedCoaching) result.coachingAfter = await coachingShownOnPage(page, savedCoaching, evidencePattern);
     if (afterReload) await afterReload();
     return result;
+}
+
+/**
+ * #1258 D1 (PO 2026-10-09) — the person's own repro, on the deployed real engine: after a saved take, open Progress from the
+ * header, stay until it has rendered, press the browser's Back. The page must restore THAT saved session read-only (never
+ * the idle recorder) and its review must be the saved coaching, or — when none was saved and the transcript is still kept
+ * — an explicit Try again. Nothing is pressed here, so no coaching is requested. Only booleans leave.
+ */
+export async function backFromProgressRestoresSession(page: Page, sessionId: string, savedCoaching?: SavedCoaching): Promise<{
+    left: boolean; restored: boolean; idleShown: boolean; review: 'saved' | 'try_again' | 'not_available' | 'missing';
+}> {
+    const result = { left: false, restored: false, idleShown: false, review: 'missing' as 'saved' | 'try_again' | 'not_available' | 'missing' };
+    const progress = page.getByTestId('nav-analytics-link').first();
+    if (!(await progress.click({ timeout: 20_000 }).then(() => true).catch(() => false))) return result;
+    result.left = await page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }).then(() => true).catch(() => false);
+    if (!result.left) return result;
+    await page.getByTestId('dashboard-heading').waitFor({ state: 'visible', timeout: 45_000 }).catch(() => undefined);
+    await page.waitForTimeout(2_000); // past the session page's exit transition, as the person stayed on Progress
+    await page.goBack();
+    const restored = page.getByTestId('saved-session-return');
+    result.restored = await restored.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)
+        && (await restored.getAttribute('data-session-id').catch(() => null)) === sessionId;
+    result.idleShown = (await page.getByTestId('mic-start').count()) > 0;
+    if (!result.restored) return result;
+    const retry = page.getByTestId('restored-review-retry');
+    const settled = page.getByTestId('review-try-next').or(retry).first();
+    await settled.waitFor({ state: 'visible', timeout: 45_000 }).catch(() => undefined);
+    if (await retry.isVisible().catch(() => false)) {
+        result.review = (await retry.getAttribute('data-retry').catch(() => null)) === 'available' ? 'try_again' : 'not_available';
+    } else if (savedCoaching) {
+        const shown = await coachingShownOnPage(page, savedCoaching);
+        result.review = shown.well && shown.next ? 'saved' : 'missing';
+    }
+    return result;
+}
+
+export function backFromProgressRows(receipt: RwtReceipt, b: Awaited<ReturnType<typeof backFromProgressRestoresSession>>,
+    coachingSaved: boolean, requestsBefore: number, requestsAfter: number): void {
+    receipt.row('Back from Progress restores the session', b.left && b.restored && !b.idleShown ? 'PASS' : 'FAIL',
+        !b.left ? 'the header Progress link did not open Progress'
+            : !b.restored ? 'browser Back did not restore this saved session'
+                : b.idleShown ? 'browser Back showed the idle recorder' : 'browser Back from Progress restored this saved session read-only');
+    // A saved pair must come back word for word; with none saved, the newest session keeps its transcript, so Try again.
+    const reviewOk = coachingSaved ? b.review === 'saved' : b.review === 'try_again';
+    receipt.row('restored review', !b.restored ? 'HOLD' : reviewOk ? 'PASS' : 'FAIL',
+        !b.restored ? 'no restored session to read'
+            : coachingSaved ? (reviewOk ? 'the restored session shows its saved coaching' : `the saved coaching did not come back (${b.review})`)
+                : (reviewOk ? 'no coaching was saved; the restored session offers Try again' : `no Try again offered (${b.review})`));
+    receipt.row('Back requests no coaching', requestsAfter === requestsBefore ? 'PASS' : 'FAIL',
+        requestsAfter === requestsBefore ? 'Progress and Back requested no review' : 'Back or Progress requested coaching',
+        { coachingRequestsBefore: requestsBefore, coachingRequestsAfter: requestsAfter });
 }
 
 /**

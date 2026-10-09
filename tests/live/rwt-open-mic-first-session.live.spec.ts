@@ -90,6 +90,8 @@ import {
     sentDetail,
     readbackSettlement,
     exactCountVerdict,
+    backFromProgressRestoresSession,
+    backFromProgressRows,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 
@@ -545,6 +547,15 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const opened = await openProductsMenuInPlace(page);
                 receipt.row('Products menu opened in the session', opened ? 'PASS' : 'FAIL',
                     opened ? 'the header Products menu opened and closed on the session page' : 'the header Products menu could not be opened on the session page');
+            });
+
+            // ── #1258 D1 (PO 2026-10-09) — Progress → browser Back restores THIS saved session, with its review ─────────────
+            await test.step('Back from Progress restores the saved session', async () => {
+                if (!persistedId) { receipt.row('Back from Progress restores the session', 'HOLD', 'no saved session'); return; }
+                const savedCoaching = savedWell !== '' && savedNext !== '' ? { well: savedWell, next: savedNext } : undefined;
+                const before = coaching.requests;
+                const back = await backFromProgressRestoresSession(page, persistedId, savedCoaching);
+                backFromProgressRows(receipt, back, savedCoaching !== undefined, before, coaching.requests);
             });
 
             // ── Row 6 — Analytics through the on-screen action; a PDF that carries the saved transcript ─

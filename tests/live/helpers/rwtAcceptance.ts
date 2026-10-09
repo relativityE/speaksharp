@@ -240,6 +240,7 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
+    'Back from Progress restores the session', 'restored review', 'Back requests no coaching',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
     'saved review is the first block', '"From this session" evidence', 'one practice action', 'session PDF',
     'Analytics generates no coaching', 'feedback', 'Progress evaluation', 'Progress debt',
