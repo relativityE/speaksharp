@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import {
@@ -562,10 +562,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
             // ── #1258 (Browser PM 6089889070) — Open Mic → Focus Points: the take right after the switch hears only itself ──
             await test.step('Open Mic take, then a Focus take right after the product switch', async () => {
-                const sessionRow = async (id: string): Promise<{ product: string | null; digest: string | null }> => {
+                // The transcript stays in Node (marker support only); the receipt gets the product, a digest and booleans.
+                const sessionRow = async (id: string): Promise<{ product: string | null; digest: string | null; transcript: string }> => {
                     const { data, error } = await admin!.from('sessions').select('product,transcript').eq('id', id).eq('user_id', owner.uid).maybeSingle();
                     if (error) throw new Error(`session read failed (fail closed): ${error.code ?? 'unknown'}`);
-                    return { product: (data?.product as string | null) ?? null, digest: data ? sha256Hex(data.transcript) : null };
+                    return { product: (data?.product as string | null) ?? null, digest: data ? sha256Hex(data.transcript) : null, transcript: typeof data?.transcript === 'string' ? data.transcript : '' };
                 };
                 const lastSaved = () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
                 const openProduct = async (item: 'open-mic' | 'focus-points') => {
@@ -588,7 +589,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-openmic`, 180_000);
                 await expect.poll(lastSaved, { timeout: 120_000 }).not.toBe(before).catch(() => undefined);
                 const openMicId = await lastSaved();
-                const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : { product: null, digest: null };
+                const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : { product: null, digest: null, transcript: '' };
+                // A point is a carry-over marker only if the Open Mic take actually recognised it (6090552875).
+                const markerSupport = points.slice(1).map((label) => labelHeardIn(label, openMicBefore.transcript));
 
                 // 2. Products → Focus Points, the fixture's four points, then a short take that hears only point 1.
                 await openProduct('focus-points');
@@ -603,13 +606,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await page.waitForURL(/\/session/, { timeout: 45_000 }).catch(() => undefined);
                 await expect(page.getByTestId('focus-points-rail')).toBeVisible({ timeout: 45_000 }).catch(() => undefined);
                 const railPendingBefore = (await readRail(page, points.length)).statuses.every((s) => s === 'pending');
+                // Pre-Start boundary: no Focus review can exist yet, so any coaching pair here is the Open Mic take's.
+                const staleCoachingBeforeStart = (await page.getByTestId('ai-suggestions-pair').count()) > 0;
                 const windows = fixture.entry.pointAudioWindows ?? [];
                 // Past point 1's window, short of point 2's start (focus_points_tts: [2.91,6.21] then [11.98,…]).
                 const shortTakeSeconds = windows[1] ? Math.max(8, Math.min(9, windows[1][0] - 2)) : 9;
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
                 await page.waitForTimeout(shortTakeSeconds * 1000);
                 await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
-                const staleCoachingShown = (await page.getByTestId('ai-suggestions-pair').count()) > 0;
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
                 await expect.poll(lastSaved, { timeout: 120_000 }).not.toBe(openMicId).catch(() => undefined);
                 const focusId = await lastSaved();
@@ -617,13 +621,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     .toBe(true).catch(() => undefined);
                 const finalStatuses = (await readRail(page, points.length)).statuses;
                 const savedProduct = focusId && focusId !== openMicId ? (await sessionRow(focusId)).product : null;
-                const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : { product: null, digest: null };
+                const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : { product: null, digest: null, transcript: '' };
                 const iso = switchIsolationVerdict({
                     railPendingBefore, openMicId: openMicId !== before ? openMicId : null, focusId: focusId !== openMicId ? focusId : null,
-                    savedProduct, finalStatuses, staleCoachingShown, openMicBefore, openMicAfter,
+                    savedProduct, finalStatuses, staleCoachingBeforeStart, markerSupport,
+                    openMicBefore: { product: openMicBefore.product, digest: openMicBefore.digest },
+                    openMicAfter: { product: openMicAfter.product, digest: openMicAfter.digest },
                 });
                 receipt.row('take after switching products is clean', iso.verdict, iso.detail, {
-                    railPendingBefore, shortTakeSeconds, final: finalStatuses.join(','), staleCoachingShown,
+                    railPendingBefore, shortTakeSeconds, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                 });
             });

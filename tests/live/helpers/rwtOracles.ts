@@ -404,11 +404,22 @@ export function setupIsBlank(o: { goal: string; topic: string | null; pointValue
         && o.pointValues.every((v) => v.trim() === '') && !carriesOld;
 }
 
+/** Every content word of a point label appears in the transcript (case and punctuation ignored). Compared in Node only. */
+export function labelHeardIn(label: string, transcript: string): boolean {
+    const STOP = new Set(['the', 'and', 'for', 'you', 'your', 'our', 'with', 'that', 'this', 'are', 'will']);
+    const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s']/g, ' ').split(/\s+/).filter(Boolean);
+    const heard = new Set(words(transcript));
+    const content = words(label).filter((w) => w.length >= 3 && !STOP.has(w));
+    return content.length > 0 && content.every((w) => heard.has(w));
+}
+
 /**
- * #1258 (Browser PM 6089889070) — a Focus take recorded right after an Open Mic take is clean. The fake microphone replays the
- * Focus fixture from the start at each acquisition (the existing marker-timing row relies on this), so a short take hears only
- * point 1. Points 2–4 were spoken only in the earlier Open Mic take: any of them detected (or partial) is old-take carry-over,
- * partial or whole. Point 1 must be detected, so empty or missing recognition can never pass as "clean".
+ * #1258 (Browser PM 6089889070, 6090552875) — a Focus take recorded right after an Open Mic take is clean. The fake microphone
+ * replays the Focus fixture from the start at each acquisition (the existing marker-timing row relies on this), so a short
+ * take hears only point 1. Points 2–4 are markers only when the earlier Open Mic take actually RECOGNISED them
+ * (`markerSupport`); then any of them detected (or partial) in the new take is carry-over, partial or whole. The proof needs
+ * exactly four readable statuses and a real `open_mic` source row; a marker the source never heard makes the row HOLD.
+ * Stale coaching is observed at the Focus pre-Start boundary, where no current Focus review can exist yet.
  */
 export interface SwitchIsolationObservation {
     railPendingBefore: boolean;
@@ -416,21 +427,28 @@ export interface SwitchIsolationObservation {
     focusId: string | null;
     savedProduct: string | null;
     finalStatuses: readonly (string | null)[];
-    staleCoachingShown: boolean;
+    staleCoachingBeforeStart: boolean;
+    /** Points 2–4: did the earlier Open Mic take's saved transcript contain each label? */
+    markerSupport: readonly boolean[];
     openMicBefore: { product: string | null; digest: string | null };
     openMicAfter: { product: string | null; digest: string | null };
 }
 
-export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict: 'PASS' | 'FAIL'; detail: string } {
+export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string } {
     const fail = (detail: string) => ({ verdict: 'FAIL' as const, detail });
     if (!o.railPendingBefore) return fail('the Focus rail was not all-pending before the take (state carried over from Open Mic)');
+    if (!o.openMicId || o.openMicBefore.product !== 'open_mic' || !o.openMicBefore.digest) return fail('no saved Open Mic source take to switch from');
+    if (o.staleCoachingBeforeStart) return fail('the Open Mic take\'s coaching was shown on Focus Points before the new take started');
     if (!o.focusId || o.focusId === o.openMicId) return fail('the take after the switch did not save as its own session');
     if (o.savedProduct !== 'focus_points') return fail('the take after the switch was not saved as Focus Points');
-    if (o.finalStatuses.length < 2 || o.finalStatuses[0] !== 'covered') return fail('no current-take recognition: point 1, the only point this take heard, was not detected');
+    if (o.finalStatuses.length !== 4 || o.finalStatuses.some((s) => s === null)) return fail('incomplete marker observation: the rail did not show exactly four readable point verdicts');
+    if (o.finalStatuses[0] !== 'covered') return fail('no current-take recognition: point 1, the only point this take heard, was not detected');
     if (o.finalStatuses.slice(1).some((s) => s !== 'missing')) return fail('old-take carry-over: a point spoken only in the earlier Open Mic take was detected in the new take');
-    if (o.staleCoachingShown) return fail('the Open Mic take\'s coaching was shown on the Focus take');
-    if (!o.openMicBefore.digest || o.openMicBefore.product !== o.openMicAfter.product || o.openMicBefore.digest !== o.openMicAfter.digest) {
+    if (o.openMicBefore.product !== o.openMicAfter.product || o.openMicBefore.digest !== o.openMicAfter.digest) {
         return fail('the earlier Open Mic session changed (product or transcript)');
     }
-    return { verdict: 'PASS', detail: 'the Focus take after Open Mic heard only its own audio (point 1 detected, the Open Mic-only points absent), saved as Focus Points, and left the Open Mic take unchanged' };
+    if (o.markerSupport.length !== 3 || o.markerSupport.some((heard) => !heard)) {
+        return { verdict: 'HOLD', detail: 'the earlier Open Mic take did not recognise every marker point, so their absence cannot prove isolation' };
+    }
+    return { verdict: 'PASS', detail: 'the Focus take after Open Mic heard only its own audio (point 1 detected; the three points the Open Mic take recognised were absent), saved as Focus Points, and left the Open Mic take unchanged' };
 }
