@@ -54,19 +54,33 @@ describe('review lane (review-qualification.yml): cheap, isolated, read-only', (
     const wf = load('review-qualification.yml');
     const steps = Object.values(wf.jobs).flatMap((j) => j.steps ?? []);
     const runText = steps.map((s) => String(s.run ?? '')).join('\n');
-    it('runs on engineering completion and on review activity — both through `workflow_run` only', () => {
-        expect(Object.keys(wf.on)).toEqual(['workflow_run']);
+    it('runs on engineering completion and review activity (`workflow_run`) and on Codex result comments (`issue_comment`)', () => {
+        expect(Object.keys(wf.on)).toEqual(['workflow_run', 'issue_comment']);
+        expect(wf.on.issue_comment.types).toEqual(['created', 'edited']);
         expect(wf.on.workflow_run.workflows).toEqual(['CI - Test Audit', 'Review Event']);
         expect(wf.on.workflow_run.types).toEqual(['completed']);
     });
     // Codex P1 4233038867: review events run the workflow FILE from the PR merge commit, so a candidate could rewrite a
     // review-triggered qualification and fabricate its result. `workflow_run` definitions always come from the default branch.
     it('CASUALTY (Codex P1 4233038867): never subscribes to a PR-controlled event; the PR and head come from the workflow_run', () => {
-        const prControlled = ['pull_request', 'pull_request_target', ...REVIEW_EVENTS, 'issue_comment'];
+        // `issue_comment`, like `workflow_run`, always runs the default-branch definition, so it is not PR-controlled.
+        const prControlled = ['pull_request', 'pull_request_target', ...REVIEW_EVENTS];
         expect(Object.keys(wf.on).filter((e) => prControlled.includes(e))).toEqual([]);
         const env = Object.values(wf.jobs)[0].env;
-        expect(env.PR_NUMBER).toBe('${{ github.event.workflow_run.pull_requests[0].number }}');
+        expect(env.PR_NUMBER).toBe('${{ github.event.workflow_run.pull_requests[0].number || github.event.issue.number }}');
         expect(env.EXPECTED_HEAD_SHA).toBe('${{ github.event.workflow_run.head_sha }}');
+    });
+    // Codex P1 4233588262: a clean Codex result is a top-level PR comment; only the bot's comments on a PR start the job, and
+    // the head it qualifies is the PR's LIVE head from the API, never a value carried by the comment.
+    it('CASUALTY (Codex P1 4233588262): a Codex result comment re-qualifies the live head; other comments start nothing', () => {
+        const job = Object.values(wf.jobs)[0];
+        expect(job.if).toMatch(/github\.event\.issue\.pull_request/);
+        expect(job.if).toMatch(/github\.event\.comment\.user\.login == 'chatgpt-codex-connector\[bot\]'/);
+        expect(job.env.PR_NUMBER).toContain('github.event.issue.number');
+        const resolve = job.steps.find((s) => s.name === 'Resolve the live head for a Codex result comment');
+        expect(resolve?.if).toBe("${{ github.event_name == 'issue_comment' }}");
+        expect(resolve?.run).toMatch(/gh api "repos\/\$\{GITHUB_REPOSITORY\}\/pulls\/\$\{PR_NUMBER\}" --jq \.head\.sha/);
+        expect(JSON.stringify(job.steps)).not.toMatch(/github\.event\.comment\.body/);
         expect(JSON.stringify(wf)).not.toMatch(/github\.event\.pull_request\./);
     });
     it('uses a concurrency group that can never cancel the engineering lane', () => {
@@ -104,9 +118,15 @@ describe('ci-engineering-evidence: only exact-head, complete, successful enginee
     });
     const jobs = (over = {}) => ({ scope: 'success', 'full-evidence': 'success', report: 'success', ...over });
     const evaluate = (runs, jobsByRun, extra = {}) => evaluateEngineeringEvidence({
-        pr: 1573, liveHeadSha: HEAD, liveBaseSha: BASE, expectedHeadSha: HEAD, runs, jobsByRun, headContainsBase: true, ...extra,
+        pr: 1573, liveHeadSha: HEAD, liveBaseSha: BASE, expectedHeadSha: HEAD, runs, jobsByRun, headContainsBase: true, workflowUnchanged: true, ...extra,
     });
 
+    // Codex Security P2 4233624706: a PR runs its own ci.yml, so same-named no-op jobs would pass a name-only check.
+    it('CASUALTY (Codex P2 4233624706): a head whose ci.yml differs from the base holds, however green its jobs', () => {
+        expect([evaluate([run()], { 100: jobs() }, { workflowUnchanged: false }).reasons,
+            evaluate([run()], { 100: jobs() }, { workflowUnchanged: undefined }).reasons])
+            .toEqual([[ENGINEERING_HOLD.WORKFLOW_MODIFIED], [ENGINEERING_HOLD.WORKFLOW_MODIFIED]]);
+    });
     it('passing exact-head engineering qualifies (no further test run needed)', () => {
         expect(evaluate([run()], { 100: jobs() })).toMatchObject({ qualified: true, runId: 100, reasons: [] });
     });

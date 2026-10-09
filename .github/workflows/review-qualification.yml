@@ -19,11 +19,16 @@ name: "Review Qualification"
 # - "Review Event" completed → review activity happened (review-event.yml: no permissions, nothing trusted).
 # Takes effect once this file is on `main`; until then the merge boundary (scripts/pre-merge-gate.mjs from main) applies.
 # A fork PR's workflow_run carries no pull_requests entry, so the job is skipped (nothing qualifies).
+# - `issue_comment` (Codex P1 4233588262): a CLEAN Codex result is a top-level PR comment, not a review, so it never starts
+#   "Review Event". GitHub also runs `issue_comment` workflows from the default branch; only the Codex bot's comments on a PR
+#   start the job, and the live head is resolved through the API (never taken from the comment).
 
 on:
   workflow_run:
     workflows: ["CI - Test Audit", "Review Event"]
     types: [completed]
+  issue_comment:
+    types: [created, edited]
 
 permissions:
   contents: read
@@ -31,18 +36,22 @@ permissions:
   actions: read
 
 concurrency:
-  group: review-qual-${{ github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  group: review-qual-${{ github.event.workflow_run.pull_requests[0].number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   review-lane-qualification:
     name: review-lane-qualification
-    # A `workflow_run` without an associated PR (a push to main, a fork PR) has nothing to qualify here.
-    if: ${{ github.event.workflow_run.pull_requests[0].number }}
+    # A `workflow_run` without an associated PR (a push to main, a fork PR) has nothing to qualify here; an issue comment
+    # counts only when it is the Codex bot's, on a pull request.
+    if: >-
+      ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number)
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request
+          && github.event.comment.user.login == 'chatgpt-codex-connector[bot]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || github.event.issue.number }}
       EXPECTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       # Codex P1 4224002123: run the TRUSTED default-branch scripts, never a candidate's; the live PR head and engineering
@@ -51,6 +60,13 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+
+      # An issue comment names no commit: qualify the PR's LIVE head, read through the API (the scripts re-read it too).
+      - name: Resolve the live head for a Codex result comment
+        if: ${{ github.event_name == 'issue_comment' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "EXPECTED_HEAD_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .head.sha)" >> "$GITHUB_ENV"
 
       - name: Engineering evidence for the exact live head (no tests re-run)
         env:

@@ -22,6 +22,7 @@ export const ENGINEERING_HOLD = Object.freeze({
     RUN_NOT_SUCCESSFUL: 'engineering_run_not_successful',
     JOB_NOT_SUCCESSFUL: 'engineering_required_job_not_successful',
     BASE_MISMATCH: 'engineering_base_mismatch',
+    WORKFLOW_MODIFIED: 'engineering_workflow_modified',
 });
 
 /**
@@ -38,12 +39,16 @@ export const REQUIRED_ENGINEERING_JOBS = Object.freeze(['scope', 'full-evidence'
 const newestFirst = (a, b) => (Date.parse(b.created_at) - Date.parse(a.created_at)) || (b.id - a.id);
 
 /**
+ * `workflowUnchanged` (Codex Security P2 4233624706): a PR runs ITS OWN `ci.yml`, so a candidate that edits it could replace
+ * the jobs with no-ops carrying the same names. Job names only prove anything when the head's `ci.yml` is the live base's.
+ *
  * @param {{ pr: number, liveHeadSha: string, liveBaseSha: string, expectedHeadSha?: string, runs: object[],
- *           jobsByRun: Record<string, Record<string, string>>, headContainsBase: boolean }} input
+ *           jobsByRun: Record<string, Record<string, string>>, headContainsBase: boolean, workflowUnchanged: boolean }} input
  */
-export function evaluateEngineeringEvidence({ pr, liveHeadSha, liveBaseSha, expectedHeadSha, runs, jobsByRun, headContainsBase }) {
+export function evaluateEngineeringEvidence({ pr, liveHeadSha, liveBaseSha, expectedHeadSha, runs, jobsByRun, headContainsBase, workflowUnchanged }) {
     const hold = (reason, runId = null) => ({ qualified: false, runId, reasons: [reason] });
     if (expectedHeadSha && expectedHeadSha !== liveHeadSha) return hold(ENGINEERING_HOLD.HEAD_MOVED);
+    if (workflowUnchanged !== true) return hold(ENGINEERING_HOLD.WORKFLOW_MODIFIED);
     const candidates = (runs ?? [])
         .filter((r) => r && r.head_sha === liveHeadSha && ENGINEERING_EVENTS.includes(r.event))
         .sort(newestFirst);
@@ -92,7 +97,10 @@ async function main() {
     }
     const compare = await gh(`/repos/${repository}/compare/${liveBaseSha}...${liveHeadSha}`, token);
     const headContainsBase = compare.status === 'ahead' || compare.status === 'identical';
-    const decision = evaluateEngineeringEvidence({ pr, liveHeadSha, liveBaseSha, expectedHeadSha, runs, jobsByRun, headContainsBase });
+    // The engineering workflow file at the head must be byte-identical (same blob) to the live base's.
+    const ciBlob = async (ref) => (await gh(`/repos/${repository}/contents/.github/workflows/ci.yml?ref=${ref}`, token)).sha;
+    const workflowUnchanged = (await ciBlob(liveHeadSha)) === (await ciBlob(liveBaseSha));
+    const decision = evaluateEngineeringEvidence({ pr, liveHeadSha, liveBaseSha, expectedHeadSha, runs, jobsByRun, headContainsBase, workflowUnchanged });
     const record = { pr, liveHeadSha, liveBaseSha, ...decision };
     console.log(JSON.stringify(record));
     if (process.env.ENGINEERING_EVIDENCE_FILE) writeFileSync(process.env.ENGINEERING_EVIDENCE_FILE, `${JSON.stringify(record, null, 2)}\n`);
