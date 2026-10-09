@@ -42,8 +42,10 @@ interface SavedPracticeLoopReviewProps {
     /**
      * #1258 (Rev 2 §4.2): rendered INSTEAD of the band when this session has no saved coaching (`none`). The reopened
      * session passes its explicit Try again here; every other caller keeps the "No coaching was saved…" copy.
+     * #1577 Codex P2 4235188535 / 4235188543: it receives this review's own practice action (so the reopened session keeps
+     * its "Practice again?" path) and the RESOLVED product (a legacy row with no marker can be Focus Points by its rows).
      */
-    noneFallback?: React.ReactNode;
+    noneFallback?: (ctx: { action: React.ReactNode; product: 'open_mic' | 'focus_points' | null }) => React.ReactNode;
 }
 
 export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = ({ sessionId, sessionLabel, eyebrow = 'Practice Loop review', footerLink, onlyWhenSaved = false, noneFallback }) => {
@@ -223,7 +225,12 @@ export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = (
     };
 
     if (onlyWhenSaved && coaching?.kind !== 'review') return null;
-    if (noneFallback !== undefined && coaching?.kind === 'none') return <>{noneFallback}</>;
+    if (noneFallback && coaching?.kind === 'none') {
+        return <>{noneFallback({
+            action: <div className="mt-4 [&_button]:bg-signature [&_button]:text-ink">{action}</div>,
+            product: review?.product === 'open_mic' || review?.product === 'focus_points' ? review.product : null,
+        })}</>;
+    }
 
     return (
         <section

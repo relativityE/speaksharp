@@ -6,10 +6,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { PracticeSession } from '@/types/session';
 
-// The stub stands for a session with NO saved coaching: it renders the caller's `noneFallback`, as the real band does.
+// The stub stands for a session with NO saved coaching whose review resolved the product to `resolvedProduct`.
+let resolvedProduct: 'open_mic' | 'focus_points' | null = 'open_mic';
+type Fallback = (ctx: { action: React.ReactNode; product: 'open_mic' | 'focus_points' | null }) => React.ReactNode;
 vi.mock('@/components/analytics/SavedPracticeLoopReview', () => ({
-    SavedPracticeLoopReview: ({ sessionId, noneFallback }: { sessionId: string; noneFallback?: React.ReactNode }) =>
-        <section data-testid="saved-review" data-session={sessionId}>{noneFallback}</section>,
+    SavedPracticeLoopReview: ({ sessionId, noneFallback }: { sessionId: string; noneFallback?: Fallback }) =>
+        <section data-testid="saved-review" data-session={sessionId}>
+            {noneFallback?.({ action: <button data-testid="saved-review-practice">Practice again?</button>, product: resolvedProduct })}
+        </section>,
 }));
 vi.mock('../AISuggestions', () => ({ default: () => <div data-testid="ai-suggestions-stub" /> }));
 vi.mock('@/components/analytics/SavedFocusPointsCoverage', () => ({
@@ -57,6 +61,14 @@ describe('SavedSessionReturn', () => {
         expect(screen.getByTestId('restored-review-retry')).toHaveAttribute('data-retry', offered ? 'available' : 'unavailable');
         expect(screen.queryAllByTestId('restored-review-retry-button')).toHaveLength(offered ? 1 : 0);
         expect(screen.queryAllByTestId('restored-review-not-available')).toHaveLength(offered ? 0 : 1);
+    });
+
+    it('CASUALTY (Codex 4235188543): a legacy row with no product marker but resolved Focus Points gets the Focus disclosure', () => {
+        resolvedProduct = 'focus_points';
+        render(<SavedSessionReturn session={row({ product: null as unknown as PracticeSession['product'] })} onSeeAllSessions={() => {}} />);
+        expect(screen.getByTestId('restored-review-retry')).toHaveTextContent('your Focus Points topic and points');
+        expect(screen.getByTestId('saved-review-practice')).toBeInTheDocument();
+        resolvedProduct = 'open_mic';
     });
 
     it('unmeasured fillers are omitted, never a fabricated zero (ThisRunCard\'s existing rule)', () => {

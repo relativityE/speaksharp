@@ -29,6 +29,13 @@ describe('RestoredReviewRetry', () => {
         expect(screen.queryByTestId('restored-review-retry-button')).toBeNull();
     });
 
+    it('CASUALTY (Codex 4235188535): the practice action stays before AND after Try again', () => {
+        render(<RestoredReviewRetry sessionId="s-9" product="open_mic" transcriptAvailable action={<button data-testid="practice-again">Practice again?</button>} />);
+        expect(screen.getByTestId('practice-again')).toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('restored-review-retry-button'));
+        expect([screen.queryByTestId('ai-suggestions-stub') !== null, screen.queryByTestId('practice-again') !== null]).toEqual([true, true]);
+    });
+
     it('Focus Points: the disclosure names the topic and points it sends', () => {
         render(<RestoredReviewRetry sessionId="s-9" product="focus_points" transcriptAvailable />);
         expect(screen.getByTestId('restored-review-retry')).toHaveTextContent('your Focus Points topic and points');

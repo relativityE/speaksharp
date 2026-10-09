@@ -21,12 +21,19 @@ interface RestoredReviewRetryProps {
     sessionLabel?: string | null;
     /** The saved row says its transcript is still kept (`resolveTranscriptView(...).kind === 'available'`). */
     transcriptAvailable: boolean;
+    /** The saved review's own "Practice again?" action, kept before and after Try again (#1577 Codex P2 4235188535). */
+    action?: React.ReactNode;
 }
 
-export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessionId, product, sessionLabel, transcriptAvailable }) => {
+export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessionId, product, sessionLabel, transcriptAvailable, action }) => {
     const [requested, setRequested] = useState(false);
     if (requested) {
-        return <AISuggestions canReview sessionId={sessionId} product={product ?? undefined} sessionLabel={sessionLabel ?? null} />;
+        return (
+            <div data-testid="restored-review-requested">
+                <AISuggestions canReview sessionId={sessionId} product={product ?? undefined} sessionLabel={sessionLabel ?? null} />
+                {action}
+            </div>
+        );
     }
     return (
         <section className="rounded-2xl bg-ink p-6" data-testid="restored-review-retry" data-retry={transcriptAvailable ? 'available' : 'unavailable'} aria-label="Practice Loop review">
@@ -54,6 +61,7 @@ export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessio
                     {NOT_AVAILABLE_FOR_SESSION_MESSAGE}
                 </p>
             )}
+            {action}
         </section>
     );
 };

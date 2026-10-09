@@ -131,10 +131,21 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
     // #1258 (PO 2026-10-09): the reopened session passes its Try again as `noneFallback` — it replaces ONLY the `none` band.
     it.each(['none', 'expired', 'error', 'review'] as const)('noneFallback renders only for a %s state of none', async (kind) => {
         load.mockResolvedValue({ ...base, coaching: kind === 'review' ? PAIR : { kind } });
-        render(<SavedPracticeLoopReview sessionId="s1" noneFallback={<p data-testid="none-fallback">retry</p>} />);
+        render(<SavedPracticeLoopReview sessionId="s1" noneFallback={() => <p data-testid="none-fallback">retry</p>} />);
         const settled = { none: 'none-fallback', review: 'review-try-next', expired: 'saved-review-expired', error: 'saved-review-error' }[kind];
         await waitFor(() => expect(screen.getByTestId(settled)).toBeInTheDocument());
         expect(screen.queryAllByTestId('none-fallback')).toHaveLength(kind === 'none' ? 1 : 0);
+    });
+
+    // #1577 Codex P2 4235188535 / 4235188543: the fallback keeps the review's own practice action and gets the RESOLVED
+    // product (a legacy row with no product marker can still be Focus Points by its durable Focus rows).
+    it('CASUALTY (Codex 4235188535 / 4235188543): the none fallback receives the practice action and the resolved product', async () => {
+        load.mockResolvedValue({ ...base, product: 'focus_points', coaching: { kind: 'none' }, focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'] });
+        const seen: Array<string | null> = [];
+        render(<SavedPracticeLoopReview sessionId="s1" noneFallback={({ action, product }) => { seen.push(product); return <div data-testid="none-fallback">{action}</div>; }} />);
+        await waitFor(() => expect(screen.getByTestId('none-fallback')).toBeInTheDocument());
+        expect(screen.getByTestId('none-fallback')).toContainElement(screen.getByTestId('saved-review-practice'));
+        expect(seen[seen.length - 1]).toBe('focus_points');
     });
 
     // #1258 (PM 2026-09-25): a saved review shown on Analytics is a REVISIT — once per session per view, never a generation.
