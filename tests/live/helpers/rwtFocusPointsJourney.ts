@@ -107,6 +107,8 @@ const parseClock = (text: string): number | null => {
 };
 
 /** Does the final rail state satisfy the fixture's expectation for this point? Exact (#1532 Codex P1 r4105978619). */
+/** A setup field that cannot be read is never blank: this non-empty sentinel makes `setupIsBlank` false. */
+const SETUP_FIELD_READ_FAILED = '(setup field read failed)';
 const meetsExpectation = (expected: string, got: RailStatus | null): boolean => focusPointMeetsExpectation(expected, got);
 
 export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }) {
@@ -499,8 +501,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     const opened = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
                     const topicInput = page.getByTestId('objective-goal-input');
                     newSetBlank = opened && setupIsBlank({
-                        goal: await page.getByTestId('objective-goal-select').inputValue().catch(() => 'unreadable'),
-                        topic: (await topicInput.count()) > 0 ? await topicInput.inputValue().catch(() => 'unreadable') : null,
+                        goal: await page.getByTestId('objective-goal-select').inputValue().catch(() => SETUP_FIELD_READ_FAILED),
+                        topic: (await topicInput.count()) > 0 ? await topicInput.inputValue().catch(() => SETUP_FIELD_READ_FAILED) : null,
                         pointValues: await page.locator('[data-testid^="objective-point-label-"]').evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value)),
                         staleLabels: [topic, ...points],
                     });
