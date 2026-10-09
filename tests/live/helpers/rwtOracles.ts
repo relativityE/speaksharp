@@ -391,3 +391,15 @@ export function newSetEditVerdicts(o: NewSetEditObservation): { newSet: RowVerdi
                 : 'the next take was not scored and saved 3/3 on the edited set' };
     return { newSet, edit };
 }
+
+/**
+ * #1258 (Browser PM 6089313104) — "Start a new set" opened BLANK: the goal is unchosen, the topic (rendered only for a custom
+ * goal; null when absent) is empty, at least one point input is rendered and EVERY rendered point input is empty, and no
+ * value carries an old-set label. Point 0 alone is not enough: a stale goal, topic or second point must never pass.
+ */
+export function setupIsBlank(o: { goal: string; topic: string | null; pointValues: readonly string[]; staleLabels: readonly string[] }): boolean {
+    const values = [o.goal, o.topic ?? '', ...o.pointValues].map((v) => v.trim());
+    const carriesOld = values.some((v) => v !== '' && o.staleLabels.some((label) => label.trim() !== '' && v.includes(label.trim())));
+    return o.goal.trim() === '' && (o.topic ?? '').trim() === '' && o.pointValues.length > 0
+        && o.pointValues.every((v) => v.trim() === '') && !carriesOld;
+}

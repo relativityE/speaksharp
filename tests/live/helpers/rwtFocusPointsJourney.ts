@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import {
@@ -469,13 +469,17 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     receipt.row('Focus Edit', 'HOLD', why);
                     return;
                 }
+                // Browser PM 6089313104: an infrastructure read failure is never turned into a product verdict.
                 const savedFocus = async (sessionId: string): Promise<{ verdicts: string[]; brief: string | null }> => {
-                    const { data: os } = await admin!.from('objective_session').select('id').eq('source_session_id', sessionId).eq('user_id', owner.uid).maybeSingle();
+                    const { data: os, error: osErr } = await admin!.from('objective_session').select('id').eq('source_session_id', sessionId).eq('user_id', owner.uid).maybeSingle();
+                    if (osErr) throw new Error(`objective_session read failed (fail closed): ${osErr.code ?? 'unknown'}`);
                     if (!os) return { verdicts: [], brief: null };
-                    const { data: ev } = await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid);
+                    const { data: ev, error: evErr } = await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid);
+                    if (evErr) throw new Error(`objective_evidence read failed (fail closed): ${evErr.code ?? 'unknown'}`);
                     const ids = (ev ?? []).map((r) => r.brief_point_id as string);
-                    const { data: bp } = ids.length === 0 ? { data: [] as Array<{ brief_id: string }> }
+                    const { data: bp, error: bpErr } = ids.length === 0 ? { data: [] as Array<{ brief_id: string }>, error: null }
                         : await admin!.from('objective_brief_point').select('brief_id').in('id', ids).eq('user_id', owner.uid);
+                    if (bpErr) throw new Error(`objective_brief_point read failed (fail closed): ${bpErr.code ?? 'unknown'}`);
                     const briefs = [...new Set((bp ?? []).map((r) => r.brief_id as string))];
                     return { verdicts: (ev ?? []).map((r) => `${r.brief_point_id}:${r.verdict}`).sort(), brief: briefs.length === 1 ? briefs[0] : null };
                 };
@@ -491,8 +495,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 let newSetBlank = false;
                 if (offered) {
                     await newSetButton.click();
-                    newSetBlank = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false)
-                        && (await page.getByTestId('objective-point-label-0').inputValue().catch(() => 'x')) === '';
+                    // Blank = goal unchosen, topic empty, EVERY rendered point empty, no old-set label (6089313104).
+                    const opened = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+                    const topicInput = page.getByTestId('objective-goal-input');
+                    newSetBlank = opened && setupIsBlank({
+                        goal: await page.getByTestId('objective-goal-select').inputValue().catch(() => 'unreadable'),
+                        topic: (await topicInput.count()) > 0 ? await topicInput.inputValue().catch(() => 'unreadable') : null,
+                        pointValues: await page.locator('[data-testid^="objective-point-label-"]').evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value)),
+                        staleLabels: [topic, ...points],
+                    });
                 }
                 let editSeeded = false;
                 let railLabelsMatchEdit = false;

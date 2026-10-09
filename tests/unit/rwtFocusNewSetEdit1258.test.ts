@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { newSetEditVerdicts, newSetSourcePoints, type NewSetEditObservation } from '../live/helpers/rwtOracles';
+import { newSetEditVerdicts, newSetSourcePoints, setupIsBlank, type NewSetEditObservation } from '../live/helpers/rwtOracles';
 import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
 
 const ok: NewSetEditObservation = {
@@ -40,6 +40,26 @@ describe('Focus New Set / Edit oracle', () => {
     });
     it('CASUALTY: Edit not seeded, or the rail kept the replaced point, fails Edit', () => {
         expect([verdicts({ editSeeded: false })[1], verdicts({ railLabelsMatchEdit: false })[1]]).toEqual(['FAIL', 'FAIL']);
+    });
+    // Browser PM 6089313104: "opened blank" proved only point 0 was empty, so a stale goal, topic or second point passed.
+    it('CASUALTY (6089313104): blank means goal, topic and EVERY rendered point empty, with no old label anywhere', () => {
+        const blank = { goal: '', topic: '', pointValues: ['', '', ''], staleLabels: ['Name the price', 'Pricing pitch'] };
+        expect([
+            setupIsBlank(blank),
+            setupIsBlank({ ...blank, goal: 'other' }),
+            setupIsBlank({ ...blank, topic: 'Pricing pitch' }),
+            setupIsBlank({ ...blank, pointValues: ['', 'Name the price', ''] }),
+            setupIsBlank({ ...blank, pointValues: [] }),
+            setupIsBlank({ ...blank, topic: null }),
+        ]).toEqual([true, false, false, false, false, true]);
+    });
+    it('the helper reads every rendered setup field and fails closed on each saved-Focus read', () => {
+        const helper = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
+        expect(helper).toMatch(/setupIsBlank\(\{/);
+        expect(helper).toMatch(/\[data-testid\^="objective-point-label-"\]/);
+        expect(helper).not.toMatch(/objective-point-label-0'\)\.inputValue\(\)\.catch\(\(\) => 'x'\)\) === ''/);
+        const savedFocus = helper.slice(helper.indexOf('const savedFocus'), helper.indexOf('const takeA = await savedFocus'));
+        expect(savedFocus.match(/fail closed/g)?.length).toBe(3);
     });
     it('the full Focus suite requires both rows and runs the step', () => {
         expect(requiredAutomatedRows('focus-points-session')?.product).toEqual(expect.arrayContaining(['Focus New Set', 'Focus Edit']));
