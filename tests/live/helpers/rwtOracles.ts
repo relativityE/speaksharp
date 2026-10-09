@@ -343,3 +343,51 @@ export function feedbackOutcomeVerdict(events: readonly OutcomeEvent[]): { verdi
         ? { verdict: 'PASS', detail: 'every Share Feedback attempt resolved to storage_ok with the same boot and submit_seq', evidence }
         : { verdict: 'HOLD', detail: 'a Share Feedback attempt has no observed outcome (missing evidence, not an observed failure)', evidence };
 }
+
+/**
+ * #1258 (Browser PM 6087216991, option B) — Focus "Start a new set" and "Edit" on the deployed engine. The new set keeps two
+ * points the fixture SPEAKS and starts with one it never says; Edit replaces that one with a third spoken point. Scored on the
+ * edited set every point is detected (3/3); on the unedited new set the unspoken point would be missed, and on the old set the
+ * total would differ. Returns the three fixture indices, or null when the fixture expects fewer than three covered points.
+ */
+export function newSetSourcePoints(expectedFinal: readonly string[]): [number, number, number] | null {
+    const covered = expectedFinal.flatMap((e, i) => (e === 'covered' ? [i] : []));
+    return covered.length >= 3 ? [covered[0], covered[1], covered[2]] : null;
+}
+
+export interface NewSetEditObservation {
+    newSetBlank: boolean;
+    editSeeded: boolean;
+    railLabelsMatchEdit: boolean;
+    takeAId: string | null;
+    takeBId: string | null;
+    briefA: string | null;
+    briefB: string | null;
+    /** Take A's saved verdicts before New Set and after take B (sorted). */
+    takeAVerdictsBefore: readonly string[];
+    takeAVerdictsAfter: readonly string[];
+    finalStatuses: readonly (string | null)[];
+    takeBVerdicts: readonly string[];
+}
+
+type RowVerdict = { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string };
+
+export function newSetEditVerdicts(o: NewSetEditObservation): { newSet: RowVerdict; edit: RowVerdict } {
+    const sameA = o.takeAVerdictsBefore.length > 0 && o.takeAVerdictsBefore.join(',') === o.takeAVerdictsAfter.join(',');
+    const newSetOk = o.newSetBlank && o.takeBId !== null && o.takeBId !== o.takeAId && o.briefB !== null && o.briefB !== o.briefA && sameA;
+    const newSet: RowVerdict = newSetOk
+        ? { verdict: 'PASS', detail: 'Start a new set opened blank; the next take saved under a new set, and the earlier take kept its saved verdicts' }
+        : { verdict: 'FAIL', detail: !o.newSetBlank ? 'Start a new set did not open a blank setup'
+            : o.takeBId === null || o.takeBId === o.takeAId ? 'the take after the new set did not save as its own session'
+                : o.briefB === null || o.briefB === o.briefA ? 'the take after the new set was not saved under a new set'
+                    : 'the earlier take\'s saved verdicts changed' };
+    const scored = o.finalStatuses.length === 3 && o.finalStatuses.every((s) => s === 'covered')
+        && o.takeBVerdicts.length === 3 && o.takeBVerdicts.every((v) => v === 'detected');
+    const editOk = o.editSeeded && o.railLabelsMatchEdit && scored;
+    const edit: RowVerdict = editOk
+        ? { verdict: 'PASS', detail: 'Edit opened seeded with the set; the edited point replaced the unspoken one and the next take was scored 3/3 on the edited set' }
+        : { verdict: 'FAIL', detail: !o.editSeeded ? 'Edit did not open seeded with the current set'
+            : !o.railLabelsMatchEdit ? 'the rail does not show the edited set'
+                : 'the next take was not scored and saved 3/3 on the edited set' };
+    return { newSet, edit };
+}

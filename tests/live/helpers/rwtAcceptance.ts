@@ -264,7 +264,7 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'coverage_evaluation sent', 'Focus coaching telemetry sent', 'revisit is not a generation', 'inventory events sent',
     'model download vs setup timing', 'Practice again press → arrival (sent)',
 ]);
-const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)']);
+const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit']);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',

@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import {
@@ -458,6 +458,95 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const next = await nextStartEvidence(page, `${suite}-next`);
             nextStartRows(receipt, next);
         });
+
+        // ── #1258 (Browser PM 6087216991, option B) — Start a new set, Edit it, and the next take is scored on the edit ──
+        if (fixtureKey === 'focus_points_tts') {
+            await test.step('Focus: Start a new set, Edit it, and the next take is scored on the edited set', async () => {
+                const source = newSetSourcePoints(expectedFinal);
+                if (!persistedId || !source) {
+                    const why = !persistedId ? 'no saved first take' : 'the fixture expects fewer than three covered points';
+                    receipt.row('Focus New Set', 'HOLD', why);
+                    receipt.row('Focus Edit', 'HOLD', why);
+                    return;
+                }
+                const savedFocus = async (sessionId: string): Promise<{ verdicts: string[]; brief: string | null }> => {
+                    const { data: os } = await admin!.from('objective_session').select('id').eq('source_session_id', sessionId).eq('user_id', owner.uid).maybeSingle();
+                    if (!os) return { verdicts: [], brief: null };
+                    const { data: ev } = await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid);
+                    const ids = (ev ?? []).map((r) => r.brief_point_id as string);
+                    const { data: bp } = ids.length === 0 ? { data: [] as Array<{ brief_id: string }> }
+                        : await admin!.from('objective_brief_point').select('brief_id').in('id', ids).eq('user_id', owner.uid);
+                    const briefs = [...new Set((bp ?? []).map((r) => r.brief_id as string))];
+                    return { verdicts: (ev ?? []).map((r) => `${r.brief_point_id}:${r.verdict}`).sort(), brief: briefs.length === 1 ? briefs[0] : null };
+                };
+                const takeA = await savedFocus(persistedId);
+                const unspoken = 'A closing promise we never make';
+                const newPoints = [points[source[0]], points[source[1]], unspoken];
+                const edited = [points[source[0]], points[source[1]], points[source[2]]];
+
+                // Start a new set — from the completed review the next Start just left on this page (a fresh /session would
+                // show the idle recorder, not the completed review) — opens the setup blank.
+                const newSetButton = page.getByTestId('focus-points-new-set');
+                const offered = await newSetButton.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false);
+                let newSetBlank = false;
+                if (offered) {
+                    await newSetButton.click();
+                    newSetBlank = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false)
+                        && (await page.getByTestId('objective-point-label-0').inputValue().catch(() => 'x')) === '';
+                }
+                let editSeeded = false;
+                let railLabelsMatchEdit = false;
+                let takeBId: string | null = null;
+                let finalStatuses: (RailStatus | null)[] = [];
+                if (newSetBlank) {
+                    await page.getByTestId('objective-goal-select').selectOption('other');
+                    await page.getByTestId('objective-goal-input').fill(topic);
+                    for (let i = 0; i < newPoints.length; i += 1) {
+                        if ((await page.getByTestId(`objective-point-label-${i}`).count()) === 0) await page.getByTestId('objective-add-point').click();
+                        await page.getByTestId(`objective-point-label-${i}`).fill(newPoints[i]);
+                    }
+                    await page.getByTestId('objective-setup-submit').click();
+                    await page.getByTestId('objective-setup-dialog').waitFor({ state: 'hidden', timeout: 30_000 }).catch(() => undefined);
+
+                    // Edit before the take opens the setup seeded with the new set; replace the unspoken point.
+                    const edit = page.getByTestId('focus-points-edit');
+                    if (await edit.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)) {
+                        await edit.click();
+                        await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => undefined);
+                        editSeeded = (await page.getByTestId('objective-point-label-2').inputValue().catch(() => '')) === unspoken;
+                        await page.getByTestId('objective-point-label-2').fill(edited[2]);
+                        await page.getByTestId('objective-setup-submit').click();
+                        await page.getByTestId('objective-setup-dialog').waitFor({ state: 'hidden', timeout: 30_000 }).catch(() => undefined);
+                        const labels = await Promise.all(edited.map((_, i) => page.getByTestId(`focus-point-${i}`).innerText().catch(() => '')));
+                        railLabelsMatchEdit = labels.every((text, i) => text.includes(edited[i])) && !(await page.getByTestId('focus-points-rail').innerText()).includes(unspoken);
+                    }
+
+                    // The next take, on the deployed engine with the same spoken fixture, is scored on the EDITED set.
+                    if (railLabelsMatchEdit) {
+                        await startBenchmarkRecording(page, `${suite}-edited`);
+                        await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 10) * 1000));
+                        await stopBenchmarkRecording(page, `${suite}-edited`, 180_000);
+                        await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
+                        await expect.poll(async () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id')), { timeout: 120_000 })
+                            .not.toBe(persistedId).catch(() => undefined);
+                        takeBId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+                        await expect.poll(async () => (await readRail(page, edited.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
+                            .toBe(true).catch(() => undefined);
+                        finalStatuses = (await readRail(page, edited.length)).statuses;
+                    }
+                }
+                const takeB = takeBId && takeBId !== persistedId ? await savedFocus(takeBId) : { verdicts: [], brief: null };
+                const takeAAfter = await savedFocus(persistedId);
+                const v = newSetEditVerdicts({
+                    newSetBlank, editSeeded, railLabelsMatchEdit, takeAId: persistedId, takeBId, briefA: takeA.brief, briefB: takeB.brief,
+                    takeAVerdictsBefore: takeA.verdicts, takeAVerdictsAfter: takeAAfter.verdicts, finalStatuses,
+                    takeBVerdicts: takeB.verdicts.map((s) => s.split(':')[1]),
+                });
+                const evidence = { offered, newSetBlank, editSeeded, railLabelsMatchEdit, takeBSaved: takeBId !== null && takeBId !== persistedId, final: finalStatuses.join(',') };
+                receipt.row('Focus New Set', v.newSet.verdict, v.newSet.detail, evidence);
+                receipt.row('Focus Edit', v.edit.verdict, v.edit.detail, evidence);
+            });
+        }
     } finally {
         const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
         const coverageSeen = tap.sent('coverage_evaluation').length > 0;
