@@ -3025,8 +3025,8 @@ def github_watcher():
                 sweep_due = ((last_sweep is None and retry_at <= 0)
                              or (last_sweep is not None and current >= last_sweep + GITHUB_RECONCILIATION_INTERVAL_SECONDS))
                 remote_gate = max(retry_at, github_backoff_until())
-                remote_requested = event_wake or inbox_pending or sweep_due
-                remote_due = (remote_requested and current >= remote_gate) or (remote_gate > 0 and current >= remote_gate)
+                remote_requested = event_wake or inbox_pending or sweep_due or retry_at > 0
+                remote_due = remote_requested and current >= remote_gate
             else:
                 last_sweep = None
                 remote_due = True
@@ -3102,11 +3102,16 @@ def github_watcher():
             deadlines = [last_local_recovery + GITHUB_LOCAL_RECOVERY_INTERVAL_SECONDS]
             remote_gate = max(retry_at, github_backoff_until())
             if last_sweep is None:
-                deadlines.append(remote_gate if remote_gate > current else current)
+                next_remote = current
             else:
-                deadlines.append(last_sweep + GITHUB_RECONCILIATION_INTERVAL_SECONDS)
-            if remote_gate > 0:
-                deadlines.append(remote_gate)
+                next_remote = last_sweep + GITHUB_RECONCILIATION_INTERVAL_SECONDS
+            if retry_at > 0:
+                next_remote = min(next_remote, retry_at)
+            if GITHUB_WATCH_WAKE.is_set() or pending_github_webhook_count() > 0:
+                next_remote = current
+            # An overdue sweep/retry must sleep until the active throttle expires.
+            # Expired persisted throttle values alone never constitute work.
+            deadlines.append(max(next_remote, github_backoff_until(), retry_at))
             timeout = max(0.0, min(deadlines) - current)
             GITHUB_WATCH_WAKE.wait(timeout)
         else:

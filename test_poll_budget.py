@@ -6,7 +6,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import server
 import test_regressions as reg
 
@@ -252,6 +252,107 @@ class PollBudgetTests(unittest.TestCase):
         with patch.object(server, 'GITHUB_WEBHOOK_SECRET', ''), \
              patch.object(server, 'automation_settings', return_value={'watch_interval_seconds': 20}):
             self.assertEqual(server.github_watcher_wait_seconds(100, current_epoch=200), 20)
+
+    def _run_idle_webhook_watcher(self, last_sweep, backoff_until):
+        server.set_setting('github_watch_last_sweep_epoch', str(last_sweep))
+        server.set_setting('github_backoff_until', str(backoff_until))
+        stop = threading.Event()
+        waits = []
+
+        class StopAfterTwoWaits:
+            def clear(self):
+                pass
+
+            def is_set(self):
+                return False
+
+            def wait(self, timeout=None):
+                waits.append(timeout)
+                if len(waits) == 2:
+                    stop.set()
+                return False
+
+        remote_read = Mock()
+        with patch.object(server, 'STOP', stop), \
+             patch.object(server, 'GITHUB_WATCH_WAKE', StopAfterTwoWaits()), \
+             patch.object(server, 'GITHUB_WEBHOOK_SECRET', 'secret'), \
+             patch.object(server, 'GITHUB_LOCAL_RECOVERY_INTERVAL_SECONDS', 5), \
+             patch.object(server, 'GITHUB_RECONCILIATION_INTERVAL_SECONDS', 900), \
+             patch.object(server, 'GH_BACKOFF_UNTIL', 0), \
+             patch.object(server.time, 'time', return_value=1000), \
+             patch.object(server, 'automation_settings', return_value={}), \
+             patch.object(server, 'resume_interrupted_actions'), \
+             patch.object(server, 'github_watch_snapshot', remote_read), \
+             patch.object(server, 'pending_ask_watchdog'), \
+             patch.object(server, 'pending_handoff_watchdog'):
+            server.github_watcher()
+        return remote_read, waits
+
+    def test_expired_persisted_backoff_does_not_trigger_repeated_remote_reads(self):
+        # t=1000, prior successful sweep at 990, persisted throttle expired at 999.
+        # The stale throttle is not itself a work request or a due sweep.
+        remote_read, waits = self._run_idle_webhook_watcher(last_sweep=990, backoff_until=999)
+        remote_read.assert_not_called()
+        self.assertEqual(waits, [5.0, 5.0])
+
+    def test_overdue_sweep_during_active_backoff_uses_bounded_local_waits(self):
+        # The remote sweep is overdue, but active backoff at 2000 gates it.
+        # The local worker keeps its five-second recovery cadence without spinning.
+        remote_read, waits = self._run_idle_webhook_watcher(last_sweep=0, backoff_until=2000)
+        remote_read.assert_not_called()
+        self.assertEqual(waits, [5.0, 5.0])
+
+    def test_successful_event_read_is_not_repeated_after_expired_backoff(self):
+        stop = threading.Event()
+        wake = threading.Event()
+        waits = []
+
+        class StopAfterTwoWaits:
+            def clear(self):
+                wake.clear()
+
+            def is_set(self):
+                return wake.is_set()
+
+            def set(self):
+                wake.set()
+
+            def wait(self, timeout=None):
+                waits.append(timeout)
+                if len(waits) == 2:
+                    stop.set()
+                return False
+
+        body = b'{"action":"created"}'
+        signature = 'sha256=' + server.hmac.new(b'secret', body, server.hashlib.sha256).hexdigest()
+        snapshot = {'pr': None, 'control_updates': [], '_pending_comment_cursors': []}
+        remote_read = Mock(return_value=(snapshot, None))
+        with patch.object(server, 'STOP', stop), \
+             patch.object(server, 'GITHUB_WATCH_WAKE', StopAfterTwoWaits()), \
+             patch.object(server, 'GITHUB_WEBHOOK_SECRET', 'secret'), \
+             patch.object(server, 'GITHUB_LOCAL_RECOVERY_INTERVAL_SECONDS', 5), \
+             patch.object(server, 'GITHUB_RECONCILIATION_INTERVAL_SECONDS', 900), \
+             patch.object(server, 'GH_BACKOFF_UNTIL', 0), \
+             patch.object(server.time, 'time', return_value=1000), \
+             patch.object(server, 'automation_settings', return_value={}), \
+             patch.object(server, 'resume_interrupted_actions'), \
+             patch.object(server, 'github_watch_snapshot', remote_read), \
+             patch.object(server, 'pending_ask_watchdog'), \
+             patch.object(server, 'pending_handoff_watchdog'), \
+             patch.object(server, 'resume_owed_pm_turns'), \
+             patch.object(server, 'pending_pin_watchdog'), \
+             patch.object(server, 'recover_packet_verification_notices'), \
+             patch.object(server, 'recover_pending_packet_verifications'), \
+             patch.object(server, 'poll_refreshed_reviews'):
+            server.set_setting('github_watch_last_sweep_epoch', '990')
+            server.set_setting('github_backoff_until', '999')
+            status, _ = server.record_github_webhook_delivery('event-for-success', 'issue_comment', signature, body)
+            self.assertEqual(status, 202)
+            server.github_watcher()
+
+        remote_read.assert_called_once()
+        self.assertEqual(waits, [5.0, 5.0])
+        self.assertEqual(server.pending_github_webhook_count(), 0)
 
     def test_local_ask_recovery_runs_during_remote_failure_without_an_extra_sweep(self):
         server.ingest_control_asks([{'id': 101,
