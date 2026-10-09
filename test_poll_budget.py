@@ -253,6 +253,123 @@ class PollBudgetTests(unittest.TestCase):
              patch.object(server, 'automation_settings', return_value={'watch_interval_seconds': 20}):
             self.assertEqual(server.github_watcher_wait_seconds(100, current_epoch=200), 20)
 
+    def test_local_ask_recovery_runs_during_remote_failure_without_an_extra_sweep(self):
+        server.ingest_control_asks([{'id': 101,
+                                     'body': 'App Dev → CLI PM — #1258 — REQUEST: verify delivery',
+                                     'url': 'https://github.com/c/101', 'at': server.now()}])
+        with server.con() as c:
+            c.execute("UPDATE asks SET source_at=?", (server.now(),))
+        server.set_setting('github_watch_last_sweep_epoch', str(time.time() - 900))
+        stop = threading.Event()
+        wake = threading.Event()
+        body = b'{"action":"created"}'
+        signature = 'sha256=' + server.hmac.new(b'secret', body, server.hashlib.sha256).hexdigest()
+
+        class WakeAndAgeAsk:
+            def is_set(self):
+                return wake.is_set()
+
+            def clear(self):
+                wake.clear()
+
+            def set(self):
+                wake.set()
+
+            def wait(self, _timeout=None):
+                # The local journal deadline passes while the failed remote read
+                # is backed off; the new durable event remains pending.
+                with server.con() as c:
+                    c.execute("UPDATE asks SET source_at='2000-01-01T00:00:00+00:00'")
+                return False
+
+        original_watchdog = server.pending_ask_watchdog
+        recovered = []
+
+        def record_recovery():
+            qid = original_watchdog()
+            if qid is not None:
+                recovered.append(qid)
+                stop.set()
+            return qid
+
+        def failed_read_with_new_event():
+            status, _ = server.record_github_webhook_delivery(
+                'arrived-during-failed-read', 'issue_comment', signature, body)
+            self.assertEqual(status, 202)
+            return None, 'network unavailable'
+
+        with patch.object(server, 'STOP', stop), \
+             patch.object(server, 'GITHUB_WATCH_WAKE', WakeAndAgeAsk()), \
+             patch.object(server, 'GITHUB_WEBHOOK_SECRET', 'secret'), \
+             patch.object(server, 'GITHUB_LOCAL_RECOVERY_INTERVAL_SECONDS', 0), \
+             patch.object(server, 'GITHUB_RECONCILIATION_INTERVAL_SECONDS', 900), \
+             patch.object(server, 'automation_settings', return_value={}), \
+             patch.object(server, 'resume_interrupted_actions'), \
+             patch.object(server, 'github_watch_snapshot', side_effect=failed_read_with_new_event) as remote_read, \
+             patch.object(server, 'pending_ask_watchdog', side_effect=record_recovery), \
+             patch.object(server, 'pending_handoff_watchdog'):
+            server.github_watcher()
+
+        self.assertEqual(remote_read.call_count, 1)
+        self.assertEqual(server.pending_github_webhook_count(), 1)
+        self.assertEqual(len(recovered), 1)
+        wake_row = next(row for row in server.list_queue() if row['id'] == recovered[0])
+        self.assertEqual(wake_row['kind'], 'ask_recovery')
+
+    def test_webhook_arriving_during_read_drives_a_second_worker_pass(self):
+        stop = threading.Event()
+        wake = threading.Event()
+        reads = []
+        body = b'{"action":"created"}'
+        signature = 'sha256=' + server.hmac.new(b'secret', body, server.hashlib.sha256).hexdigest()
+
+        class WakeThenStop:
+            def is_set(self):
+                return wake.is_set()
+
+            def clear(self):
+                wake.clear()
+
+            def set(self):
+                wake.set()
+
+            def wait(self, _timeout=None):
+                if not wake.is_set():
+                    stop.set()
+                return False
+
+        snapshot = {'pr': None, 'control_updates': [], '_pending_comment_cursors': []}
+
+        def snapshot_read():
+            reads.append(True)
+            if len(reads) == 1:
+                status, _ = server.record_github_webhook_delivery(
+                    'arrived-during-read', 'issue_comment', signature, body)
+                self.assertEqual(status, 202)
+            else:
+                stop.set()
+            return snapshot, None
+
+        with patch.object(server, 'STOP', stop), \
+             patch.object(server, 'GITHUB_WATCH_WAKE', WakeThenStop()), \
+             patch.object(server, 'GITHUB_WEBHOOK_SECRET', 'secret'), \
+             patch.object(server, 'GITHUB_LOCAL_RECOVERY_INTERVAL_SECONDS', 999), \
+             patch.object(server, 'GITHUB_RECONCILIATION_INTERVAL_SECONDS', 900), \
+             patch.object(server, 'automation_settings', return_value={}), \
+             patch.object(server, 'resume_interrupted_actions'), \
+             patch.object(server, 'github_watch_snapshot', side_effect=snapshot_read), \
+             patch.object(server, 'pending_ask_watchdog'), \
+             patch.object(server, 'pending_handoff_watchdog'), \
+             patch.object(server, 'resume_owed_pm_turns'), \
+             patch.object(server, 'pending_pin_watchdog'), \
+             patch.object(server, 'recover_packet_verification_notices'), \
+             patch.object(server, 'recover_pending_packet_verifications'), \
+             patch.object(server, 'poll_refreshed_reviews'):
+            server.github_watcher()
+
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(server.pending_github_webhook_count(), 0)
+
     def test_separate_processes_share_the_persisted_request_budget(self):
         script = ("import json,sys; from pathlib import Path; import server; "
                   "server.DB=Path(sys.argv[1]); print(json.dumps(server.reserve_github_request_budget()))")

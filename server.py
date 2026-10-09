@@ -77,6 +77,7 @@ COMMENT_BOOTSTRAP_LOOKBACK_DAYS = 30
 MAX_HANDOFF_DEPTH = int(os.environ.get("MAX_HANDOFF_DEPTH", "12"))
 GITHUB_WATCH_INTERVAL = max(5, int(os.environ.get("GITHUB_WATCH_INTERVAL_SECONDS", "20")))
 GITHUB_RECONCILIATION_INTERVAL_SECONDS = max(60, int(os.environ.get("RWT_GITHUB_RECONCILIATION_INTERVAL_SECONDS", "900")))
+GITHUB_LOCAL_RECOVERY_INTERVAL_SECONDS = 5
 GITHUB_WEBHOOK_SECRET = os.environ.get("RWT_GITHUB_WEBHOOK_SECRET", "").strip()
 GITHUB_WEBHOOK_MAX_BYTES = 1024 * 1024
 GITHUB_WEBHOOK_EVENTS = frozenset({"issues", "issue_comment", "pull_request", "pull_request_review",
@@ -2993,76 +2994,121 @@ def pending_pin_watchdog():
 
 def github_watcher():
     resumed = False
+    last_local_recovery = 0.0
+    retry_at = 0.0
     while not STOP.is_set():
-        retry = False
         cfg = automation_settings()
         try:
-            if not resumed and time.time() >= github_backoff_until():
+            current = time.time()
+            if not resumed and current >= github_backoff_until():
                 resume_interrupted_actions()
                 resumed = True
-            webhook_highwater = github_webhook_inbox_highwater() if GITHUB_WEBHOOK_SECRET else 0
-            snap, err=github_watch_snapshot()
-            retry = bool(err)
-            set_setting('github_watch_last_poll', now())
-            set_setting('github_watch_last_error', str(err or ''))
-            if snap is not None:
-                current_pr=str(snap.get('pr') or '')
-                prior_pr=get_setting('github_watch_pr','')
-                raw=get_setting('github_watch_snapshot','')
-                prev=None
-                try: prev=json.loads(raw) if raw else None
-                except Exception: prev=None
-                # Durable ask/receipt ledger first: newer coalesced events cannot erase older asks.
-                ingest_control_asks(snap.get('control_updates') or [])
-                record_handoff_receipts(snap.get('control_updates') or [])
-                if prior_pr != current_pr or prev is None:
-                    set_setting('github_watch_pr',current_pr)
-                    # Anti-idle startup/reselection behavior: the first observed state may already
-                    # contain actionable review/CI/head information. Wake PM once to reconcile it
-                    # instead of requiring the PO to send a manual sync message.
-                    if any(cfg.get(k) for k in ('pm_github_control','pm_github_review','pm_github_ci','pm_github_head','pm_github_deploy')):
-                        emit_github_event([
-                            'Watcher initialized/reselected this PR; reconcile the current exact-head review/CI state now'
-                        ], snap, cfg)
-                else:
-                    events=github_watch_events(prev,snap,cfg)
-                    if events:
-                        emit_github_event(events,snap,cfg)
-                    # Commit cursor only after durable enqueue succeeds.
-                queue_ci_review_followup(snap)
-                # Commit cursors and snapshot together only after enqueue above succeeds.
-                with DB_LOCK, con() as c:
-                    for key, state in snap.get('_pending_comment_cursors', []):
-                        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (key, json.dumps(state, ensure_ascii=False)))
-                    saved_snapshot = {k: v for k, v in snap.items() if k != '_pending_comment_cursors'}
-                    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_watch_snapshot',?)", (json.dumps(saved_snapshot, sort_keys=True),))
-                    if not err:
-                        sweep_epoch = time.time()
-                        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_watch_last_sweep_epoch',?)", (str(sweep_epoch),))
-                        if webhook_highwater:
-                            c.execute("UPDATE github_webhook_inbox SET processed_at=? WHERE processed_at='' AND rowid<=?",
-                                      (now(), webhook_highwater))
-            if not err:
-                # c5 (F01): finish owed PM-turn effects (after marker recovery above confirmed any uncertain post).
-                resume_owed_pm_turns()
-                pending_pin_watchdog()
-                recover_packet_verification_notices()
-                recover_pending_packet_verifications()
-                if time.time() >= github_backoff_until():
-                    poll_refreshed_reviews()
+            # Local deadline recovery is independent of GitHub availability and the
+            # remote reconciliation cadence. These watchdogs only inspect/update the
+            # local journal; they do not spend GitHub API requests.
+            if current - last_local_recovery >= GITHUB_LOCAL_RECOVERY_INTERVAL_SECONDS:
                 pending_ask_watchdog()
                 pending_handoff_watchdog()
+                last_local_recovery = current
+
+            if GITHUB_WEBHOOK_SECRET:
+                try:
+                    last_sweep = float(get_setting('github_watch_last_sweep_epoch', '') or '')
+                except (TypeError, ValueError):
+                    last_sweep = None
+                # Consume the in-memory signal before checking its durable source.
+                # A delivery before this clear is found in the inbox; a delivery
+                # after it leaves the event set for the next pass.
+                GITHUB_WATCH_WAKE.clear()
+                event_wake = GITHUB_WATCH_WAKE.is_set()
+                inbox_pending = pending_github_webhook_count() > 0
+                sweep_due = ((last_sweep is None and retry_at <= 0)
+                             or (last_sweep is not None and current >= last_sweep + GITHUB_RECONCILIATION_INTERVAL_SECONDS))
+                remote_gate = max(retry_at, github_backoff_until())
+                remote_requested = event_wake or inbox_pending or sweep_due
+                remote_due = (remote_requested and current >= remote_gate) or (remote_gate > 0 and current >= remote_gate)
+            else:
+                last_sweep = None
+                remote_due = True
+
+            if remote_due:
+                # A webhook that arrives during the read leaves the event set for
+                # the next pass; the durable inbox also recovers it after restart.
+                webhook_highwater = github_webhook_inbox_highwater() if GITHUB_WEBHOOK_SECRET else 0
+                snap, err = github_watch_snapshot()
+                set_setting('github_watch_last_poll', now())
+                set_setting('github_watch_last_error', str(err or ''))
+                if err:
+                    retry_at = max(time.time() + 30.0, github_backoff_until())
+                elif snap is None:
+                    retry_at = time.time() + 30.0
+                    set_setting('github_watch_last_error', 'GitHub watcher returned no snapshot')
+                else:
+                    retry_at = 0.0
+                if snap is not None:
+                    current_pr=str(snap.get('pr') or '')
+                    prior_pr=get_setting('github_watch_pr','')
+                    raw=get_setting('github_watch_snapshot','')
+                    prev=None
+                    try: prev=json.loads(raw) if raw else None
+                    except Exception: prev=None
+                    # Durable ask/receipt ledger first: newer coalesced events cannot erase older asks.
+                    ingest_control_asks(snap.get('control_updates') or [])
+                    record_handoff_receipts(snap.get('control_updates') or [])
+                    if prior_pr != current_pr or prev is None:
+                        set_setting('github_watch_pr',current_pr)
+                        # Anti-idle startup/reselection behavior: the first observed state may already
+                        # contain actionable review/CI/head information. Wake PM once to reconcile it
+                        # instead of requiring the PO to send a manual sync message.
+                        if any(cfg.get(k) for k in ('pm_github_control','pm_github_review','pm_github_ci','pm_github_head','pm_github_deploy')):
+                            emit_github_event([
+                                'Watcher initialized/reselected this PR; reconcile the current exact-head review/CI state now'
+                            ], snap, cfg)
+                    else:
+                        events=github_watch_events(prev,snap,cfg)
+                        if events:
+                            emit_github_event(events,snap,cfg)
+                        # Commit cursor only after durable enqueue succeeds.
+                    queue_ci_review_followup(snap)
+                    # Commit cursors and snapshot together only after enqueue above succeeds.
+                    with DB_LOCK, con() as c:
+                        for key, state in snap.get('_pending_comment_cursors', []):
+                            c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (key, json.dumps(state, ensure_ascii=False)))
+                        saved_snapshot = {k: v for k, v in snap.items() if k != '_pending_comment_cursors'}
+                        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_watch_snapshot',?)", (json.dumps(saved_snapshot, sort_keys=True),))
+                        if not err:
+                            sweep_epoch = time.time()
+                            c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('github_watch_last_sweep_epoch',?)", (str(sweep_epoch),))
+                            if webhook_highwater:
+                                c.execute("UPDATE github_webhook_inbox SET processed_at=? WHERE processed_at='' AND rowid<=?",
+                                          (now(), webhook_highwater))
+                if not err and snap is not None:
+                    # c5 (F01): finish owed PM-turn effects (after marker recovery above confirmed any uncertain post).
+                    resume_owed_pm_turns()
+                    pending_pin_watchdog()
+                    recover_packet_verification_notices()
+                    recover_pending_packet_verifications()
+                    if time.time() >= github_backoff_until():
+                        poll_refreshed_reviews()
         except Exception as e:
-            retry = True
+            retry_at = max(time.time() + 30.0, github_backoff_until())
             add_activity('SYSTEM', f'GitHub watcher error: {type(e).__name__}: {e}', 'none', 'error')
         if GITHUB_WEBHOOK_SECRET:
             try:
                 last_sweep = float(get_setting('github_watch_last_sweep_epoch', '') or '')
             except (TypeError, ValueError):
                 last_sweep = None
-            timeout = github_watcher_wait_seconds(last_sweep, retry=retry)
+            current = time.time()
+            deadlines = [last_local_recovery + GITHUB_LOCAL_RECOVERY_INTERVAL_SECONDS]
+            remote_gate = max(retry_at, github_backoff_until())
+            if last_sweep is None:
+                deadlines.append(remote_gate if remote_gate > current else current)
+            else:
+                deadlines.append(last_sweep + GITHUB_RECONCILIATION_INTERVAL_SECONDS)
+            if remote_gate > 0:
+                deadlines.append(remote_gate)
+            timeout = max(0.0, min(deadlines) - current)
             GITHUB_WATCH_WAKE.wait(timeout)
-            GITHUB_WATCH_WAKE.clear()
         else:
             STOP.wait(cfg.get('watch_interval_seconds',GITHUB_WATCH_INTERVAL))
 
