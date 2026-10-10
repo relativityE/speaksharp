@@ -48,7 +48,7 @@ on:
           - 'v4:distil:q4/open_mic'
           - 'v4:distil:q4/focus_points'
       rwt_writes_ack:
-        description: "RWT ONLY (tests/live/rwt-*.live.spec.ts) — the exact acknowledgement RWT-DISPOSABLE-ACCOUNT-WRITES. The first-visit suites create, use and delete one disposable Production account per test; the full journeys file one marked feedback report that product policy RETAINS after account deletion. Empty = the suites HOLD before any write."
+        description: "RWT ONLY (tests/live/rwt-*.live.spec.ts) — the exact acknowledgement RWT-DISPOSABLE-ACCOUNT-WRITES. The first-visit suites create, use and delete one disposable Production account per test; the full journeys file one marked feedback report that product policy RETAINS after account deletion. Empty = the suites HOLD before any write. The SAME input also carries the distinct value RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<the exact 40-hex commit this run executes>, accepted ONLY by tests/live/interrupted-run-recovery.live.spec.ts dispatched from the protected default branch (main): a SEPARATE Production-delete authorization that deletes run-owned accounts older than the gate-3 timeout + margin through the fail-closed cleanup (residue 0); a recovery value bound to any other commit fails before credentials; any other value = detect and HOLD only. The journeys refuse that value, so one dispatch never authorizes both."
         required: false
         default: ''
       rwt_canary_claim_ack:
@@ -266,6 +266,34 @@ jobs:
             echo "::error::HOLD: comparison_release_sha is not the exact commit this run executes"; exit 1
           fi
           node scripts/human-test/mint-model-comparison-authorization.mjs
+      # #1580 P1 4237980480 — interrupted-run recovery may run ONLY from protected default-branch bytes. This step holds no
+      # credential and runs before the credential-bearing step below: a feature-ref dispatch, a checkout that is not the
+      # dispatched commit, or a recovery delete acknowledgement bound to any other commit fails HERE, before listing or cleanup.
+      - name: Interrupted-run recovery authority (default branch, exact SHA; credential-free)
+        if: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/interrupted-run-recovery.live.spec.ts' }}
+        env:
+          RECOVERY_ACK: ${{ github.event.inputs.rwt_writes_ack }}
+        run: |
+          set -euo pipefail
+          # #1580 Code P1 4238920090: a re-run reuses this run's SHA and ref, so a SHA-bound acknowledgement would replay.
+          # Only the first attempt may run recovery; every re-run needs a fresh dispatch and fresh PO authority.
+          if [ "${GITHUB_RUN_ATTEMPT:-}" != "1" ]; then
+            echo "::error::HOLD: interrupted-run recovery refuses workflow re-runs (attempt ${GITHUB_RUN_ATTEMPT:-unset}); dispatch a fresh run"; exit 1
+          fi
+          # The protected default branch is named, not looked up (#1432 keeps branch/ancestry lookups out of this workflow).
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::HOLD: interrupted-run recovery runs only from the protected default branch (main)"; exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::error::HOLD: checkout HEAD is not the dispatched commit"; exit 1
+          fi
+          case "$RECOVERY_ACK" in
+            RWT-INTERRUPTED-RUN-RECOVERY-DELETE*)
+              if [ "$RECOVERY_ACK" != "RWT-INTERRUPTED-RUN-RECOVERY-DELETE@$GITHUB_SHA" ]; then
+                echo "::error::HOLD: the recovery delete acknowledgement is not bound to this exact commit"; exit 1
+              fi ;;
+          esac
+          echo "interrupted-run recovery authority: default branch, HEAD = dispatched commit"
       - name: Run DAST Live Gate (DIAGNOSTIC single spec — NOT a Gate 3 pass)
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
