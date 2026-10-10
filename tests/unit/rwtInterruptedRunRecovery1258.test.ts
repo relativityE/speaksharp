@@ -135,11 +135,20 @@ describe('ownership (#1580 P1 4237980478): the full synthetic identity at the ex
 });
 
 describe('authority (#1580 P1 4237980480): default branch, HEAD = dispatch SHA, ack bound to that SHA', () => {
-    const base = { ref: 'refs/heads/main', sha: SHA, head: SHA, defaultBranch: 'main', ack: '' };
+    const base = { ref: 'refs/heads/main', sha: SHA, head: SHA, defaultBranch: 'main', ack: '', attempt: '1' };
     it('default branch with no ack = detect only; with the SHA-bound ack = delete authorized', () => {
         expect(recoveryAuthority(base)).toEqual({ ok: true, deleteAuthorized: false });
         expect(recoveryAuthority({ ...base, ack: 'RWT-DISPOSABLE-ACCOUNT-WRITES' })).toEqual({ ok: true, deleteAuthorized: false });
         expect(recoveryAuthority({ ...base, ack: ACK })).toEqual({ ok: true, deleteAuthorized: true });
+    });
+    it('CASUALTY (Code P1 4238920090): a workflow re-run (or a missing / malformed attempt) is refused even with the exact SHA ack', () => {
+        for (const attempt of ['2', '3', '', '0', '01', ' 1', '1 ', 'one']) {
+            expect({ attempt, r: recoveryAuthority({ ...base, ack: ACK, attempt }) }).toEqual({ attempt, r: { ok: false, reason: 'workflow_rerun_attempt_refused' } });
+            expect({ attempt, r: recoveryAuthority({ ...base, attempt }) }).toEqual({ attempt, r: { ok: false, reason: 'workflow_rerun_attempt_refused' } });
+        }
+        // Attempt 1 stays valid: detect-only without the ack, delete-authorized with it.
+        expect(recoveryAuthority({ ...base, attempt: '1' })).toEqual({ ok: true, deleteAuthorized: false });
+        expect(recoveryAuthority({ ...base, attempt: '1', ack: ACK })).toEqual({ ok: true, deleteAuthorized: true });
     });
     it('CASUALTY: a feature-ref dispatch, an unknown default branch, a bad SHA or a HEAD mismatch is refused', () => {
         expect(recoveryAuthority({ ...base, ref: 'refs/heads/fix/1258-rwt-interrupted-run-recovery', ack: ACK })).toEqual({ ok: false, reason: 'not_default_branch' });
@@ -166,6 +175,10 @@ describe('authority (#1580 P1 4237980480): default branch, HEAD = dispatch SHA, 
         expect(check).toBeGreaterThan(-1);
         expect(check).toBeLessThan(spec.indexOf('createClient(SUPABASE_URL, SERVICE_ROLE'));
         expect(spec.indexOf("if (!authority.ok) throw new Error(")).toBeLessThan(spec.indexOf('createClient(SUPABASE_URL, SERVICE_ROLE'));
+        // The rerun refusal is part of that pre-credential check (Code P1 4238920090).
+        const attemptAt = spec.indexOf("attempt: process.env.GITHUB_RUN_ATTEMPT ?? '',");
+        expect(attemptAt).toBeGreaterThan(check);
+        expect(attemptAt).toBeLessThan(spec.indexOf("if (!authority.ok) throw new Error("));
         expect(spec).toContain("ack: authority.deleteAuthorized ? ACK : ''");
         expect(spec).toContain("execFileSync('git', ['rev-parse', 'HEAD']");
         const wf = readFileSync(resolve(__dirname, '../../.github/workflows/rc-gates.yml'), 'utf8');
@@ -177,6 +190,10 @@ describe('authority (#1580 P1 4237980480): default branch, HEAD = dispatch SHA, 
         expect(guard).toContain("if: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/interrupted-run-recovery.live.spec.ts' }}");
         expect(guard).not.toMatch(/secrets\.|SERVICE_ROLE|SUPABASE_URL/);
         expect(guard).toContain('[ "$GITHUB_REF" != "refs/heads/main" ]');
+        // Code P1 4238920090: the guard refuses any re-run first, before the ref / HEAD / ack checks.
+        const attemptCheck = guard.indexOf('if [ "${GITHUB_RUN_ATTEMPT:-}" != "1" ]; then');
+        expect(attemptCheck).toBeGreaterThan(-1);
+        expect(attemptCheck).toBeLessThan(guard.indexOf('[ "$GITHUB_REF" != "refs/heads/main" ]'));
         expect(PROTECTED_DEFAULT_BRANCH).toBe('main');
         expect(spec).toContain('defaultBranch: PROTECTED_DEFAULT_BRANCH');
         expect(guard).toContain('[ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]');

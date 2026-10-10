@@ -116,9 +116,14 @@ export function selectInterruptedRunAccounts(users: readonly AuthUserLike[], now
  * #1580 P1 4237980480 — pure authority check, run BEFORE any credential is used. Recovery runs only from the repository's
  * default branch, with checkout HEAD equal to the dispatched commit. A delete acknowledgement must name that exact commit;
  * a recovery acknowledgement bound to anything else (or to nothing) is refused rather than downgraded.
+ *
+ * #1580 Code P1 4238920090: a workflow RE-RUN reuses the original GITHUB_SHA / GITHUB_REF (for up to 30 days), so a
+ * SHA-bound acknowledgement would replay. Only the first attempt (`GITHUB_RUN_ATTEMPT` exactly "1") is ever accepted;
+ * any rerun, a missing or a malformed attempt is refused, so each recovery needs a fresh dispatch and fresh PO authority.
  */
-export function recoveryAuthority(p: { ref: string; sha: string; head: string; defaultBranch: string; ack: string }):
+export function recoveryAuthority(p: { ref: string; sha: string; head: string; defaultBranch: string; ack: string; attempt: string }):
     { ok: true; deleteAuthorized: boolean } | { ok: false; reason: string } {
+    if (p.attempt !== '1') return { ok: false, reason: 'workflow_rerun_attempt_refused' };
     if (!p.defaultBranch) return { ok: false, reason: 'default_branch_unknown' };
     if (p.ref !== `refs/heads/${p.defaultBranch}`) return { ok: false, reason: 'not_default_branch' };
     if (!SHA_RE.test(p.sha)) return { ok: false, reason: 'dispatch_sha_invalid' };

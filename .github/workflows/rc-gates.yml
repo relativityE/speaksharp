@@ -275,6 +275,11 @@ jobs:
           RECOVERY_ACK: ${{ github.event.inputs.rwt_writes_ack }}
         run: |
           set -euo pipefail
+          # #1580 Code P1 4238920090: a re-run reuses this run's SHA and ref, so a SHA-bound acknowledgement would replay.
+          # Only the first attempt may run recovery; every re-run needs a fresh dispatch and fresh PO authority.
+          if [ "${GITHUB_RUN_ATTEMPT:-}" != "1" ]; then
+            echo "::error::HOLD: interrupted-run recovery refuses workflow re-runs (attempt ${GITHUB_RUN_ATTEMPT:-unset}); dispatch a fresh run"; exit 1
+          fi
           # The protected default branch is named, not looked up (#1432 keeps branch/ancestry lookups out of this workflow).
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
             echo "::error::HOLD: interrupted-run recovery runs only from the protected default branch (main)"; exit 1

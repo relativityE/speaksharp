@@ -32,9 +32,11 @@ test.describe('RWT interrupted-run recovery (governed)', () => {
     test('detect run-owned accounts left by interrupted runs; recover only with the SHA-bound ack', async () => {
         test.setTimeout(900_000);
         const sha = process.env.GITHUB_SHA ?? '';
-        // Before any credential is touched: default branch, HEAD = dispatch SHA, and any delete ack bound to that SHA.
+        // Before any credential is touched: first workflow attempt only, default branch, HEAD = dispatch SHA, and any delete
+        // ack bound to that SHA.
         const authority = recoveryAuthority({
             ref: process.env.GITHUB_REF ?? '', sha, head: checkoutHead(), defaultBranch: PROTECTED_DEFAULT_BRANCH, ack: ACK,
+            attempt: process.env.GITHUB_RUN_ATTEMPT ?? '',
         });
         if (!authority.ok) throw new Error(`HOLD: interrupted-run recovery authority refused (${authority.reason}); no credential was used`);
         test.skip(!SUPABASE_URL || !SERVICE_ROLE, 'HOLD: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not configured for this run');
