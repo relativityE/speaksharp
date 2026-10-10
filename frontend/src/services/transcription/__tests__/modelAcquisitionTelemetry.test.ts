@@ -110,6 +110,15 @@ describe('#1259s download duration is separated from initialisation', () => {
 });
 
 describe('#1259s identity must settle before an event is classified (#1401)', () => {
+    it('records the configured default as expected when no runtime switch is active', () => {
+        markIdentitySettled();
+        recordAcquisitionStart(SUBJECT, 'miss');
+        const event = pushed.find((p) => p.name === 'private_model_acquisition_start')!;
+        expect(event.props.expected_candidate_id).toBe('v2:base.en');
+        expect(event.props.acquired_candidate_id).toBe(SUBJECT.candidateId);
+        expect(event.props.expected_candidate_id).not.toBe(event.props.acquired_candidate_id);
+    });
+
     it('CASUALTY: events emitted before identity settles are HELD, not sent anonymously', () => {
         // Model setup begins during page initialisation, before auth resolves. Sending then attributes
         // a returning user's cold load to anonymous traffic, and their warm load to themselves — so the

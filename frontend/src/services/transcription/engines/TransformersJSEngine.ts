@@ -26,7 +26,7 @@ import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '.
 import { resolvePrivateModel, publishPrivateModelTelemetry } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
-import { acquisitionScopeFor } from '../candidateAssetRequests';
+import { acquisitionComponentGroupsFor, acquisitionScopeFor } from '../candidateAssetRequests';
 import { effectiveCandidate } from '../candidateSelection';
 import {
     mintAcquisitionAttempt, receiptMatches,
@@ -42,6 +42,11 @@ type WorkerRequest =
         type: 'init'; isE2E: boolean;
         model?: { key: string; localId: string; remoteId: string };
         assetPrefixes?: string[];
+        expectedComponentGroups?: Array<{
+            prefixes: string[];
+            minimumUniqueCount: number;
+            expectedResourceUrls?: string[];
+        }>;
         attempt?: AcquisitionAttempt;
       }
     | { type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions; captureEvidence?: boolean }
@@ -733,6 +738,7 @@ export class TransformersJSEngine extends STTEngine {
                 // the main window's Resource Timing cannot see a worker's requests. It needs to know
                 // which requests are the model's.
                 assetPrefixes: acquisitionScopeFor(candidateForAttempt),
+                expectedComponentGroups: acquisitionComponentGroupsFor(candidateForAttempt),
                 attempt,
             });
         } finally {

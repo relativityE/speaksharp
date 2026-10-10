@@ -220,6 +220,7 @@ export const EVENT_SCHEMAS = Object.freeze({
         measurement_reason_code: enumOf([
             'timing_unavailable', 'no_scope_declared', 'no_entries_recorded',
             'scope_matched_nothing', 'sizes_opaque', 'requests_outside_scope',
+            'requests_redirected', 'component_shortfall', 'coverage_unprovable',
         ]),
         out_of_scope_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
         asset_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,

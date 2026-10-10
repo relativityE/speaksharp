@@ -16,6 +16,13 @@ type WorkerRequest =
         /** #1259: URL prefixes identifying this candidate's assets, so the receipt below counts model
          *  fetches and not whatever else the worker might request. */
         assetPrefixes?: string[];
+        expectedComponentGroups?: Array<{
+            prefixes: string[];
+            minimumUniqueCount: number;
+            expectedResourceUrls?: string[];
+        }>;
+        /** Test-build-only input used to identify the pinned runtime subset without exposing names. */
+        diagnosticAssetUrls?: string[];
         /** #1259: the attempt this load belongs to. Echoed back so a superseded receipt is detectable. */
         attempt?: { token: string; candidateId: string };
       }
@@ -47,6 +54,8 @@ type WorkerResponse =
          * no path. A pinned asset URL can identify a build, so none crosses this boundary.
          */
         acquisition: AcquisitionReceipt | null;
+        /** Presence bitmask only, gated to test builds; never contains resource names or URLs. */
+        diagnosticAssetMask?: boolean[];
       }
     | {
         id: number;
@@ -98,6 +107,12 @@ async function init(
     // #1259: supplied by the main thread, which knows the selected candidate. Empty means the receipt
     // reports itself unobservable rather than counting whatever happened to be fetched.
     assetPrefixes: string[] = [],
+    expectedComponentGroups: Array<{
+        prefixes: string[];
+        minimumUniqueCount: number;
+        expectedResourceUrls?: string[];
+    }> = [],
+    diagnosticAssetUrls: string[] = [],
     attempt?: { token: string; candidateId: string },
 ): Promise<void> {
     if (transcriber) {
@@ -195,7 +210,18 @@ async function init(
     // response BODY completes, not when its headers arrive, so a reading taken mid-load would find
     // fewer entries than were actually fetched and under-report the transfer.
     let acquisition: AcquisitionReceipt | null = null;
+    let diagnosticAssetMask: boolean[] | undefined;
     try {
+        if (import.meta.env.MODE === 'test' && diagnosticAssetUrls.length > 0) {
+            const entries = self.performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+            const normalize = (value: string) => {
+                try { const url = new URL(value); return `${url.origin}${url.pathname}`; }
+                catch { return value.split(/[?#]/, 1)[0]; }
+            };
+            const observed = new Set(entries.filter((entry) => entry.startTime >= loadStart)
+                .map((entry) => normalize(entry.name)));
+            diagnosticAssetMask = diagnosticAssetUrls.map((url) => observed.has(normalize(url)));
+        }
         // NO RECEIPT WITHOUT AN IDENTITY. An observation that cannot say which attempt it describes is
         // indistinguishable from a stale one, and the consumer would have to guess.
         acquisition = composeAcquisitionReceipt(
@@ -204,7 +230,7 @@ async function init(
                 // records this worker's own fetches and nothing else, so an unmatched entry
                 // really is an unexplained request inside the download — which is what makes
                 // the out-of-scope count evidence here and not on the main window.
-                { timeline: 'exclusive', expectedComponents: null }),
+                { timeline: 'exclusive', expectedComponents: null, expectedComponentGroups }),
             attempt,
         );
     } catch {
@@ -217,6 +243,7 @@ async function init(
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
         acquisition,
+        ...(diagnosticAssetMask ? { diagnosticAssetMask } : {}),
         model: loadedModelKey,
         device: configuredThreads == null
             ? 'wasm-default-unverified'
@@ -278,7 +305,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         try {
             switch (request.type) {
                 case 'init':
-                    await init(request.id, request.isE2E, request.model, request.assetPrefixes ?? [], request.attempt);
+                    await init(request.id, request.isE2E, request.model, request.assetPrefixes ?? [],
+                        request.expectedComponentGroups ?? [], request.diagnosticAssetUrls ?? [], request.attempt);
                     break;
                 case 'transcribe':
                     await transcribe(request.id, request.audio, request.decodeOptions, request.captureEvidence);
