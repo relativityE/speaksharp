@@ -10,9 +10,8 @@ import { TEST_IDS } from '../constants';
  *  - /practice renders as the authenticated default landing (two-product chooser);
  *  - #1042 PR3: the Freeform ("Open Mic") card CTA ("Start your session") navigates DIRECTLY to the unchanged
  *    /session (no intermediate overview) and never auto-starts recording;
- *  - Focus Points → exactly one CONTEXTUAL notice "Product not available at this time" anchored to the
- *    Objective card (not a global toast); then the Objective card alone becomes disabled; no preview/correction loop;
- *  - Report Issue is globally available and surface-aware on the landing, the Objective-unavailable selection,
+ *  - Focus Points → the real goal-and-points setup dialog, with no retired unavailable notice;
+ *  - Report Issue is globally available and surface-aware on the landing, the Focus Points setup selection,
  *    and /session (the removed `freeform_practice_overview` surface no longer exists).
  *
  * CDP: asserts zero console/page errors and no third-party tracking requests. Screenshots → test-results/
@@ -119,8 +118,8 @@ async function assertDraftContract(page: Page) {
   await page.getByRole('button', { name: 'Cancel' }).click();
 }
 
-test.describe('Practice landing — default entry, Objective unavailable, surface-aware Report Issue', () => {
-  test('Freeform card → direct /session (no auto-record); Objective → contextual notice + disabled; Report Issue per surface', async ({ page }) => {
+test.describe('Practice landing — default entry, Focus Points setup, surface-aware Report Issue', () => {
+  test('Open Mic card → direct /session (no auto-record); Focus Points → setup dialog; Report Issue per surface', async ({ page }) => {
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
     const trackingRequests: string[] = [];
@@ -142,7 +141,7 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     await enterPractice(page);
     await shot(page, `${DIR}/01-chooser-desktop.png`);
     expect(await page.getByRole('main').count()).toBe(1); // App owns the sole landmark
-    // Both products render; Objective is clearly marked unavailable (text, not color alone).
+    // Both products render; Focus Points is available through its real setup dialog.
     await expect(page.getByRole('heading', { name: /^Open Mic$/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^Focus Points$/i })).toBeVisible();
     // #1042 PR3: Freeform ("Open Mic") CTA is "Start your session"; the legacy overview CTAs are gone.
