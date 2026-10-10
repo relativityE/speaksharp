@@ -21,6 +21,7 @@ import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
 import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
+import { fillerCountClaimable, fillerEvidenceKind, type FillerEvidenceKind } from '@/contracts/fillerEvidence';
 import { applyFinalizedCoverageAuthority, deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusCoverageRow } from '@/utils/focusCoverage';
 import type { PracticeFocus } from '@/constants/practiceFocus';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
@@ -503,10 +504,19 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const shownReviewWords = reviewWordsKnown ? reviewWordCount : null;
     // #1314 C3: ONE validated snapshot feeds every filler element. The displayed total is derived from the
     // SAME chip map the breakdown renders, so the sentence total and the chips can never disagree. An
-    // unavailable snapshot (SQL NULL) makes no numeric claim; `{}` is a measured zero (0, no chips).
+    // unavailable snapshot (SQL NULL) makes no numeric claim; `{}` is a zero count whose claim #1472 decides below.
     const reviewFillerSnapshot = selectReviewFillerSnapshot({ inAfter, finalizedFillerData, liveFillerData: fillerData });
     const reviewFillerData = reviewFillerSnapshot.counts;
-    const reviewFillerCount = reviewFillerSnapshot.available ? reviewFillerSnapshot.total : null;
+    // #1472 (Browser PM 6101465442 / 6102096434) — the completed take's filler claim comes from THE rule every persisted
+    // surface uses (`fillerEvidenceKind`, contracts/fillerEvidence): a positive count is observed; otherwise the retained
+    // word count decides — no words → no_speech, words with zero fillers → unobservable (never "no fillers" / "clean
+    // delivery"), an unknown word count or an unavailable snapshot → withheld, never a zero claim. Before/during keep
+    // the live count, a running tally rather than a verdict.
+    const reviewFillerEvidence: FillerEvidenceKind = inAfter
+        ? fillerEvidenceKind({ available: reviewFillerSnapshot.available, total: reviewFillerSnapshot.total, words: shownReviewWords })
+        : (reviewFillerSnapshot.available ? 'observed' : 'unavailable');
+    const reviewFillerCountClaimable = fillerCountClaimable(reviewFillerEvidence) || (!inAfter && reviewFillerSnapshot.available);
+    const reviewFillerCount = reviewFillerSnapshot.available && reviewFillerCountClaimable ? reviewFillerSnapshot.total : null;
     // Every word-count surface reads the withheld value: an unknown count is omitted, never printed as 0.
     const wordsPart = shownReviewWords === null ? null : `${shownReviewWords} words`;
     const fillerStatsLine = [reviewFillerCount === null ? null : `${reviewFillerCount} fillers`, wordsPart]
@@ -1052,7 +1062,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     ? (coverage && coverage.coveredQuotes.length > 0
                         ? <span data-testid="coverage-footer">Highlights show where each point landed.</span>
                         : null)
-                    : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
+                    : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} evidence={reviewFillerEvidence} />}
             />
             {/*
                 The delivery strip is gated on `coverage` (from #1423): with no retained authority there is
@@ -1063,6 +1073,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 <FocusDeliveryStrip
                     fillerCount={reviewFillerCount ?? 0}
                     fillerData={reviewFillerData}
+                    evidence={reviewFillerEvidence}
                     hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
                 />
             )}

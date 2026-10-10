@@ -280,24 +280,26 @@ describe('AnalyticsDashboard', () => {
             expect(screen.queryByText(/FIX THIS|ON TRACK|NEED 2 MORE|leave this alone/)).toBeNull();
             // mockStats (all sessions): 120 wpm → Slow.
             expect(screen.getByTestId('stat-card-speaking_pace-detail')).toHaveTextContent('Slow · target 130–150');
-            // Filler card: newest 4 only, measured zeroes in, the unmeasured (null) session out → (2 + 1 + 0) / 3.
+            // Filler card: newest 4 only; observed counts in, the unobservable `{}` (#1472) and the unmeasured (null)
+            // session out → (2 + 1) / 2.
             const filler = screen.getByTestId('stat-card-filler_words_per_min');
             expect(filler).toHaveTextContent('Average fillers per session · last 4 sessions');
-            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^1\.0$/);
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^1\.5$/);
             expect(screen.getByTestId('stat-card-clarity_score')).toHaveTextContent('Clear delivery');
         });
 
         // #1573 Codex P1 4230859591: the card shows the TRUE-filler count per session, so its judgment and the rule card's
         // driver must come from the same true-filler basis and window — never the legacy all-keys per-minute rate, which
         // still counts default-excluded discourse markers such as "so" and "like".
-        it('CASUALTY: discourse markers only → "0.0 fillers per session" is judged Low and is never the rule card\'s focus', () => {
+        // #1472 (Browser PM 6102458581): discourse markers the true-filler tier excludes are not a true-filler zero either —
+        // the card withholds the number and the grade (no "0.0", no "Low"), as the session review withholds that zero.
+        it('CASUALTY: discourse markers only → no true-filler number or grade (never High, never a clean "0.0 … Low"), never the rule card\'s focus', () => {
             localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
             const markersOnly = [5, 4, 3, 2].map((n) => row(n, 140, { so: 40, like: 40 }));   // legacy rate 8/min → "High"
             renderComponent({ sessionHistory: markersOnly });
-            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^0\.0$/);
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^—$/);
             const detail = screen.getByTestId('stat-card-filler_words_per_min-detail').textContent ?? '';
-            expect(detail).toMatch(/Low/);
-            expect(detail).not.toMatch(/High|Noticeable/);
+            expect(detail).not.toMatch(/High|Noticeable|Low|\d/);
             const card = screen.queryByTestId('try-this-next');
             const chip = card ? (within(card).queryByTestId('rule-card-chip')?.textContent ?? '') : '';
             expect(chip).not.toMatch(/filler/i);
@@ -350,10 +352,17 @@ describe('AnalyticsDashboard', () => {
             expect(screen.queryByText('Pace, fillers and clarity are all on target.')).toBeNull();
         });
 
-        it('every signal on target: the on-target sentence, no chip and no Practise button', () => {
-            // 80 meaningful pauses in 10 minutes = 8 a minute (Smooth); 140 wpm; no fillers; clarity 95.
+        it('CASUALTY #1472: empty filler maps never yield "Pace, fillers and clarity are all on target"', () => {
             const smooth = { silencePercentage: 12, transitionPauses: 60, extendedPauses: 20, longestPause: 1.4 };
-            const steady = [row(5, 140, {}), row(4, 140, {}), row(3, 140, {})].map((r) => ({ ...r, pause_metrics: smooth }));
+            const unverified = [row(5, 140, {}), row(4, 140, {}), row(3, 140, {})].map((r) => ({ ...r, pause_metrics: smooth }));
+            renderComponent({ sessionHistory: unverified });
+            expect(screen.queryByText('Pace, fillers and clarity are all on target.')).toBeNull();
+        });
+
+        it('every signal on target: the on-target sentence, no chip and no Practise button', () => {
+            // 80 meaningful pauses in 10 minutes = 8 a minute (Smooth); 140 wpm; few OBSERVED fillers (#1472); clarity 95.
+            const smooth = { silencePercentage: 12, transitionPauses: 60, extendedPauses: 20, longestPause: 1.4 };
+            const steady = [row(5, 140, { um: 1 }), row(4, 140, { um: 1 }), row(3, 140, { um: 1 })].map((r) => ({ ...r, pause_metrics: smooth }));
             renderComponent({ sessionHistory: steady });
             const card = screen.getByTestId('try-this-next');
             expect(within(card).getByTestId('rule-card-window')).toHaveTextContent('From your last 3 sessions');
