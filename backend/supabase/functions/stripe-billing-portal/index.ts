@@ -29,23 +29,26 @@ type HandlerDeps = {
   stripeClient?: StripeLike | null;
 };
 
-const fetchStripeCustomerId = async (
+const fetchStripeBillingIds = async (
   supabase: ReturnType<typeof createClient>,
   userId: string
-): Promise<string | null> => {
+): Promise<{ customerId: string | null; subscriptionId: string | null }> => {
   const { data, error } = await supabase
     .from("user_profiles")
-    .select("stripe_customer_id")
+    .select("stripe_customer_id,stripe_subscription_id")
     .eq("id", userId)
     .maybeSingle();
 
   if (error) throw error;
 
-  const profile = data as { stripe_customer_id?: unknown } | null;
+  const profile = data as { stripe_customer_id?: unknown; stripe_subscription_id?: unknown } | null;
   const customerId = typeof profile?.stripe_customer_id === "string"
     ? profile.stripe_customer_id.trim()
     : "";
-  return customerId || null;
+  const subscriptionId = typeof profile?.stripe_subscription_id === "string"
+    ? profile.stripe_subscription_id.trim()
+    : "";
+  return { customerId: customerId || null, subscriptionId: subscriptionId || null };
 };
 
 export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Response> {
@@ -101,6 +104,22 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     );
   }
 
+  let flow: "manage" | "cancel" = "manage";
+  try {
+    const body = await req.text();
+    if (body) {
+      const parsed: unknown = JSON.parse(body);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+        Object.keys(parsed).some((key) => key !== "flow") ||
+        !(["manage", "cancel"] as unknown[]).includes((parsed as { flow?: unknown }).flow)) {
+        throw new Error("Invalid billing flow");
+      }
+      flow = (parsed as { flow: "manage" | "cancel" }).flow;
+    }
+  } catch {
+    return createErrorResponse(ErrorCodes.VALIDATION_INVALID_FORMAT, "Invalid billing flow", responseHeaders);
+  }
+
   try {
     const supabase = createSupabaseClient(authHeader);
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -120,8 +139,8 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       );
     }
 
-    const stripeCustomerId = await fetchStripeCustomerId(supabase, user.id);
-    if (!stripeCustomerId) {
+    const { customerId, subscriptionId } = await fetchStripeBillingIds(supabase, user.id);
+    if (!customerId) {
       return createErrorResponse(
         ErrorCodes.VALIDATION_MISSING_FIELD,
         "Billing management is not ready for this account yet. Please contact support.",
@@ -130,10 +149,24 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       );
     }
 
+    if (flow === "cancel" && !subscriptionId) {
+      return createErrorResponse(ErrorCodes.VALIDATION_MISSING_FIELD,
+        "Cancellation is not ready for this account yet. Please contact support.", responseHeaders,
+        { missing: "stripe_subscription_id" });
+    }
+
     const siteUrl = getEnv("SITE_URL")!;
+    const returnUrl = `${siteUrl}/account?billing=returned`;
     const session = await stripeClient.billingPortal.sessions.create({
-      customer: stripeCustomerId,
-      return_url: `${siteUrl}/pricing?billing=returned`,
+      customer: customerId,
+      return_url: returnUrl,
+      ...(flow === "cancel" ? {
+        flow_data: {
+          type: "subscription_cancel",
+          subscription_cancel: { subscription: subscriptionId },
+          after_completion: { type: "redirect", redirect: { return_url: returnUrl } },
+        },
+      } : {}),
     });
 
     if (!session.url) {

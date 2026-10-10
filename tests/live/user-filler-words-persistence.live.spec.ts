@@ -25,7 +25,7 @@ test.describe('Live user filler words persistence', () => {
         await page.getByTestId(TEST_IDS.PASSWORD_INPUT).fill(password);
         await page.getByTestId(TEST_IDS.SIGN_IN_SUBMIT).click();
         await page.waitForURL(ROUTES.SESSION, { timeout: 30000 });
-        await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 15000 });
+        await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 15000 });
     }
 
     async function openCustomWords(page: Page) {
@@ -55,6 +55,7 @@ test.describe('Live user filler words persistence', () => {
         await expect(page.getByTestId('filler-word-badge').filter({ hasText: word })).toBeVisible({ timeout: 10000 });
 
         await page.keyboard.press('Escape');
+        await page.getByTestId('nav-account-avatar').click();
         await page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON).click();
 
         await signIn(page);

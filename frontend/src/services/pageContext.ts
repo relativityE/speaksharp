@@ -23,6 +23,7 @@ export type PageKey =
   | 'analytics_session'
   | 'auth'
   | 'pricing'
+  | 'account'
   | 'other';
 
 /**
@@ -86,6 +87,7 @@ const ROUTE_REGISTRY: Record<string, PageContext> = {
   '/analytics': { pageKey: 'analytics', pageLabel: 'Past Progress', productMode: 'progress', journeyStep: 'progress_list', canonicalRoute: '/analytics' },
   '/analytics/:id': { pageKey: 'analytics_session', pageLabel: 'Session Analytics', productMode: 'progress', journeyStep: 'session_detail', canonicalRoute: '/analytics/:sessionId' },
   '/pricing': { pageKey: 'pricing', pageLabel: 'Pricing', productMode: 'marketing', journeyStep: 'pricing', canonicalRoute: '/pricing' },
+  '/account': { pageKey: 'account', pageLabel: 'Account · Membership', productMode: 'account', journeyStep: 'membership', canonicalRoute: '/account' },
   '/auth/signin': { pageKey: 'auth', pageLabel: 'Account / sign-in', productMode: 'account', journeyStep: 'auth', canonicalRoute: '/auth/signin' },
   '/auth/signup': { pageKey: 'auth', pageLabel: 'Account / sign-up', productMode: 'account', journeyStep: 'auth', canonicalRoute: '/auth/signup' },
   '/auth/reset': { pageKey: 'auth', pageLabel: 'Account / reset', productMode: 'account', journeyStep: 'auth', canonicalRoute: '/auth/reset' },
@@ -155,6 +157,11 @@ const AREAS: Record<PageKey, IssueAreaOption[]> = {
   ],
   pricing: [
     { value: 'pricing', label: 'Pricing' },
+    { value: 'navigation', label: 'Navigation' },
+    { value: 'other', label: 'Other' },
+  ],
+  account: [
+    { value: 'membership', label: 'Membership or billing' },
     { value: 'navigation', label: 'Navigation' },
     { value: 'other', label: 'Other' },
   ],

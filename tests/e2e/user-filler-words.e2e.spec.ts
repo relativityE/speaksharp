@@ -18,7 +18,7 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         // Ensure app settlement and bridge readiness
         await userPage.waitForFunction(() => window.__e2eProfileLoaded__ === true, null, { timeout: 30000 });
         await userPage.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
-        await userPage.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 5000 });
+        await userPage.waitForSelector('[data-testid="nav-account-avatar"]', { timeout: 5000 });
 
         // 2. #1231 (PO 2026-08-09): custom filler words are declared BEFORE recording — the manager lives in
         //    the before-state MicCard (`add-custom-word-button`). No recording is needed to add words.

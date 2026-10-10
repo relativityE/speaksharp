@@ -17,7 +17,7 @@ test.describe('Error State Handling', () => {
             await navigateToRoute(userPage, '/session');
 
             // App should load with session UI elements
-            await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
+            await expect(userPage.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 15000 });
 
             // Start button should be present
             const startButton = userPage.getByTestId('mic-start');
@@ -29,7 +29,7 @@ test.describe('Error State Handling', () => {
         test('should remain functional after clicking start in mock mode', async ({ userPage }) => {
             await navigateToRoute(userPage, '/session');
 
-            await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
+            await expect(userPage.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 15000 });
 
             // Try to start session (using mock session mode)
             const startButton = userPage.getByTestId('mic-start');
@@ -42,7 +42,7 @@ test.describe('Error State Handling', () => {
                 await expect(userPage.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 10000 });
 
                 // App should remain functional
-                await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible();
+                await expect(userPage.getByTestId('nav-account-avatar')).toBeVisible();
             }
 
             debugLog('[TEST] ✅ Session interaction handled gracefully');

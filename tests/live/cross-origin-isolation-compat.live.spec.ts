@@ -244,7 +244,7 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const lane = await laneContext(page, navHeaders);
 
     await page.reload({ waitUntil: 'load' });
-    await expect(page.getByTestId('nav-sign-out-button'), 'FREE session survives reload').toBeVisible({ timeout: 45_000 });
+    await expect(page.getByTestId('nav-account-avatar'), 'FREE session survives reload').toBeVisible({ timeout: 45_000 });
 
     // Beta-50 CONTRACT: payments are intentionally disabled (arePaymentsEnabled() === false), so the Pro
     // card renders the non-clickable beta-unavailable panel INSTEAD of a Checkout CTA. We prove that the
@@ -294,8 +294,9 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     // assertion would let a blocked authenticated dependency green-light the universal production headers.
     expect(coepBlocked, `product resources blocked by COEP/CORP: ${JSON.stringify(coepBlocked)}`).toEqual([]);
 
+    await page.getByTestId('nav-account-avatar').click();
     await page.getByTestId('nav-sign-out-button').click();
-    await expect(page.getByTestId('nav-sign-out-button'), 'FREE signed out').toBeHidden({ timeout: 45_000 });
+    await expect(page.getByTestId('nav-account-avatar'), 'FREE signed out').toBeHidden({ timeout: 45_000 });
   });
 
   test('PRO account under the Beta-50 billing freeze: login, reload, closed Portal state, logout', async ({ page }, testInfo) => {
@@ -324,7 +325,7 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const lane = await laneContext(page, navHeaders);
 
     await page.reload({ waitUntil: 'load' });
-    await expect(page.getByTestId('nav-sign-out-button'), 'PRO session survives reload').toBeVisible({ timeout: 45_000 });
+    await expect(page.getByTestId('nav-account-avatar'), 'PRO session survives reload').toBeVisible({ timeout: 45_000 });
 
     // Beta-50 CONTRACT: canOpenPortal = arePaymentsEnabled() && isPaidPro. With payments disabled the
     // Billing Portal CTA is intentionally absent and the explanatory state renders instead.
@@ -373,7 +374,8 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     // assertion would let a blocked authenticated dependency green-light the universal production headers.
     expect(coepBlocked, `product resources blocked by COEP/CORP: ${JSON.stringify(coepBlocked)}`).toEqual([]);
 
+    await page.getByTestId('nav-account-avatar').click();
     await page.getByTestId('nav-sign-out-button').click();
-    await expect(page.getByTestId('nav-sign-out-button'), 'PRO signed out').toBeHidden({ timeout: 45_000 });
+    await expect(page.getByTestId('nav-account-avatar'), 'PRO signed out').toBeHidden({ timeout: 45_000 });
   });
 });
