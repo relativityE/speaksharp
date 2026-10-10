@@ -1,4 +1,4 @@
-import { activeCandidate } from '../candidateSelection';
+import { activeCandidate, effectiveCandidate, v4VariantFor } from '../candidateSelection';
 /**
  * ============================================================================
  * TRANSFORMERS.JS V4 ENGINE
@@ -24,7 +24,6 @@ import v4WorkerUrl from './transformers-js-v4.worker.ts?worker&url';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
 import { acquisitionScopeFor } from '../candidateAssetRequests';
-import { effectiveCandidate } from '../candidateSelection';
 import {
     mintAcquisitionAttempt, receiptMatches,
     type AcquisitionAttempt, type AcquisitionReceipt,
@@ -175,7 +174,22 @@ export class TransformersJSV4Engine extends STTEngine {
         }
 
         try {
-            if (this.shouldUseWorker()) {
+            const useWorker = this.shouldUseWorker();
+            const evaluatorCandidateId = (this.options as { evaluatorCandidateId?: string })?.evaluatorCandidateId;
+            if (evaluatorCandidateId) {
+                const selected = effectiveCandidate({
+                    candidate: evaluatorCandidateId,
+                    acknowledgeNotProductionReady: true,
+                }).candidate;
+                if (selected.id !== evaluatorCandidateId || selected.model.id !== v4Model.MODEL_ID ||
+                    v4VariantFor(selected) !== variant) {
+                    throw new Error('evaluator candidate, loaded v4 variant, or safety selection differs');
+                }
+                // The evaluator's acquisition and resolved-backend evidence comes from the worker.
+                // Refuse the main-thread fallback instead of loading an unverified arm.
+                if (!useWorker) throw new Error('evaluator v4 candidate requires the worker path');
+            }
+            if (useWorker) {
                 await this.initWorker(isMock, v4Model);
                 options.onModelLoadProgress?.(100);
                 this.updateHeartbeat();
@@ -493,7 +507,17 @@ export class TransformersJSV4Engine extends STTEngine {
         };
 
         // MINTED BEFORE ANYTHING IS FETCHED, from the candidate frozen at this instant.
-        const candidateForAttempt = effectiveCandidate().candidate;
+        // The internal evaluator names an explicit candidate without changing the product config.
+        // effectiveCandidate still enforces the internal-build acknowledgement and safety kill.
+        const evaluatorCandidateId = (this.options as { evaluatorCandidateId?: string })?.evaluatorCandidateId;
+        const candidateForAttempt = evaluatorCandidateId
+            ? effectiveCandidate({ candidate: evaluatorCandidateId, acknowledgeNotProductionReady: true }).candidate
+            : effectiveCandidate().candidate;
+        if (evaluatorCandidateId && (candidateForAttempt.id !== evaluatorCandidateId ||
+            candidateForAttempt.model.id !== v4Model.MODEL_ID ||
+            v4VariantFor(candidateForAttempt) !== (this.options as { v4Variant?: string })?.v4Variant)) {
+            throw new Error('evaluator candidate, loaded v4 variant, or safety selection differs');
+        }
         const attempt = mintAcquisitionAttempt(candidateForAttempt.id);
         this.activeAttempt = attempt;
         this.settledAttempt = attempt;

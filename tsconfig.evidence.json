@@ -31,6 +31,8 @@
   },
   "include": [
     "tests/evidence/**/*.ts",
+    "scripts/model-evaluator/**/*.ts",
+    "scripts/model-evaluator/**/*.mts",
     "scripts/private-v2-worker-evidence.mts"
   ]
 }
