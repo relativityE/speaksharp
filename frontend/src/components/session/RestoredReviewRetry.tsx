@@ -27,21 +27,26 @@ interface RestoredReviewRetryProps {
 
 export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessionId, product, sessionLabel, transcriptAvailable, action }) => {
     const [requested, setRequested] = useState(false);
+    // #1577 Codex P2 4235535994: with no resolved product the coaching function answers product_unknown, so a retry could
+    // never generate coaching. Terminal: no button, no claimed send, no request.
+    const canRetry = transcriptAvailable && product !== null;
     if (requested) {
+        // #1577 Codex P2 4235535990: AISuggestions has no ground of its own; loading, failure and success all stay on the
+        // same ink review surface, with the practice action.
         return (
-            <div data-testid="restored-review-requested">
+            <section className="rounded-2xl bg-ink p-6" data-testid="restored-review-requested" aria-label="Practice Loop review">
                 <AISuggestions canReview sessionId={sessionId} product={product ?? undefined} sessionLabel={sessionLabel ?? null} />
                 {action}
-            </div>
+            </section>
         );
     }
     return (
-        <section className="rounded-2xl bg-ink p-6" data-testid="restored-review-retry" data-retry={transcriptAvailable ? 'available' : 'unavailable'} aria-label="Practice Loop review">
+        <section className="rounded-2xl bg-ink p-6" data-testid="restored-review-retry" data-retry={canRetry ? 'available' : 'unavailable'} aria-label="Practice Loop review">
             <h2 className="mb-4 inline-flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-[0.09em] text-signature">
                 <Sparkles className="h-[15px] w-[15px]" aria-hidden="true" />
                 Practice Loop review
             </h2>
-            {transcriptAvailable ? (
+            {canRetry ? (
                 <>
                     <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text">{UNAVAILABLE_MESSAGE}</p>
                     <button

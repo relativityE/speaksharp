@@ -71,6 +71,15 @@ describe('SavedSessionReturn', () => {
         resolvedProduct = 'open_mic';
     });
 
+    it('CASUALTY (Codex 4235535994): no resolved and no row product → terminal, no Try again, practice action kept', () => {
+        resolvedProduct = null;
+        render(<SavedSessionReturn session={row({ product: null as unknown as PracticeSession['product'] })} onSeeAllSessions={() => {}} />);
+        expect([screen.queryAllByTestId('restored-review-retry-button').length, screen.queryAllByTestId('restored-review-not-available').length])
+            .toEqual([0, 1]);
+        expect(screen.getByTestId('saved-review-practice')).toBeInTheDocument();
+        resolvedProduct = 'open_mic';
+    });
+
     it('unmeasured fillers are omitted, never a fabricated zero (ThisRunCard\'s existing rule)', () => {
         render(<SavedSessionReturn session={row({ filler_counts: null as unknown as PracticeSession['filler_counts'] })} onSeeAllSessions={() => {}} />);
         expect(screen.queryByTestId('this-run-card-fillers')).toBeNull();
