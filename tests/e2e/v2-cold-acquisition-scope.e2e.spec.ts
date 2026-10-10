@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect } from '@playwright/test';
+import { goToApp } from './helpers';
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
@@ -90,10 +91,9 @@ async function loadV2Worker(
 test('real v2 worker observation changes from one unmatched runtime request to complete setup transfer', async ({ page, baseURL }) => {
     test.setTimeout(240_000);
     test.skip(!baseURL, 'Playwright server must expose the test build');
-    // This isolated worker test has no programmatic login or route state to preserve; loading the
-    // local origin is required so the module worker and self-hosted model resolve same-origin.
-    // eslint-disable-next-line no-restricted-syntax
-    await page.goto('/');
+    // This isolated worker test has no programmatic login or route state to preserve; load the
+    // local origin through the canonical helper so the worker and model resolve same-origin.
+    await goToApp(page, '/');
     const origin = new URL(baseURL!).origin;
     const modelPrefix = `${origin}/models/whisper-base.en/`;
     const runtimeUrls = ORT_WASM_FILES.map((file) => `${origin}/assets/transformers-v2-ort/${file}`);
