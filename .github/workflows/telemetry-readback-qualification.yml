@@ -1,11 +1,9 @@
-# #1259 T4 / #1382 — RUN THE READBACK THAT ALREADY EXISTS.
+# #1259 T4 / #1382 — OPTIONAL OPERATOR READBACK FOR A CONTROLLED JOURNEY.
 #
-# `scripts/telemetry-readback-qualification.mts` and the governed envelope (#1374) have been on `main`
-# since T1/T2, and `tests/unit/controlledTrafficTypeGate.test.js` already compiles the script's
-# controlled-class claim. What was missing is the only thing that produces evidence: NOTHING INVOKED IT.
-# The script was reachable solely through `pnpm telemetry:readback-qualification` on someone's laptop, so
-# #1259's closure packet holds no receipt for any release — not because the telemetry is absent, but
-# because the readback never ran.
+# The canonical `rc-gates.yml` path already invokes telemetry readback. This manually dispatched,
+# read-only workflow is a supplementary spot check for an operator who needs to qualify one completed
+# controlled journey against an exact deployed release outside that canonical run. It does not replace
+# the canonical readback or indicate that the normal release path is missing an invocation.
 #
 # DISPATCH ONLY, AND DELIBERATELY NOT SCHEDULED. A recurring run would mint a HOLD every night for a
 # release nobody exercised, and a gate that always fails is as useless as one that always passes.
