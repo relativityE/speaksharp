@@ -124,6 +124,8 @@ test.describe('#1258 Focus Points controls and product-switch isolation', () => 
     await expect(page).toHaveURL(/\/session(?:\?|$)/);
 
     await recordAndSave(page, `Today ${OPEN_MIC_MARKER}.`);
+    const openMicSessionId = (await page.locator('html').getAttribute('data-session-persisted-id')) ?? '';
+    expect(openMicSessionId, 'Open Mic save must have a persisted session ID').not.toBe('');
     await expect(page.getByTestId('review-transcript')).toContainText(OPEN_MIC_MARKER);
 
     await page.getByTestId('nav-products-button').click();
@@ -150,7 +152,12 @@ test.describe('#1258 Focus Points controls and product-switch isolation', () => 
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
     await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
+    const focusSessionId = (await page.locator('html').getAttribute('data-session-persisted-id')) ?? '';
+    expect(focusSessionId, 'Focus save must have a persisted session ID').not.toBe('');
+    expect(focusSessionId, 'Focus must persist to a new session, not overwrite Open Mic').not.toBe(openMicSessionId);
     await expect(page.getByTestId('focus-points-topic')).toHaveText(NEW_TOPIC);
+    await expect(page.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+    await expect(page.getByTestId('focus-point-0')).not.toHaveAttribute('data-status', 'pending');
     await expect(page.getByTestId('review-transcript')).toContainText(new RegExp(FOCUS_MARKER, 'i'));
     await expect(page.getByTestId('review-transcript')).not.toContainText(new RegExp(OPEN_MIC_MARKER, 'i'));
   });
