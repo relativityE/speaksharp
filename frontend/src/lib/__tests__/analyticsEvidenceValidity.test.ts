@@ -71,12 +71,10 @@ describe('#1045 aggregate evidence validity', () => {
         expect(stats.avgFillerWordsPerMin).toBeNull();
     });
 
-    it('#1306: keeps a GENUINE MEASURED zero ({}) as a real 0.0/min — never excluded', () => {
-        // A measured `{}` (real speech, genuinely-counted zero fillers) is a true, valuable 0.0/min — included
-        // in the denominator as a genuine zero, not treated as "no evidence".
+    it('CASUALTY #1472: an empty map ({}) is NOT a genuine 0.0/min — it is excluded, never a clean rate', () => {
+        // #1472 (Browser PM 6102096434): an empty map alone never proves a clean zero; with saved words it is unobservable.
         const stats = calculateOverallStats([session({ filler_counts: {} })]);
-        expect(stats.avgFillerWordsPerMin).not.toBeNull();
-        expect(Number(stats.avgFillerWordsPerMin)).toBe(0);
+        expect(stats.avgFillerWordsPerMin).toBeNull();
     });
 
     it('#1306: a MALFORMED filler map is excluded (null), while a measured {} is a genuine 0.0/min', () => {

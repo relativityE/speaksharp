@@ -191,9 +191,9 @@ describe('SessionOverhaulView filler consistency (#1314 C3)', () => {
         expect(renderedTotal()).toBe(renderedChipSum());
     });
 
-    // #1472 (PM 5682359616 / 6101465442): an empty map alone never proves a clean zero. A zero over transcribed words
-    // is unverifiable, so it makes no numeric claim and says so. (A stated-complete zero needs the persisted
-    // completeness authority — the next increment — so the in-memory review never renders one.)
+    // #1472 (PM 5682359616 / 6101465442 / 6102096434): an empty map alone never proves a clean zero. A zero over
+    // transcribed words is unverifiable, so it makes no numeric claim and says so. No evidence source can prove a
+    // complete zero, so no surface — live or persisted — renders one.
     it('a zero snapshot over transcribed words makes no numeric claim and says the zero is unverified', () => {
         render(
             <SessionOverhaulView

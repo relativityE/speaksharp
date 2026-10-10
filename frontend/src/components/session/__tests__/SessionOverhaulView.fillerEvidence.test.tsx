@@ -109,6 +109,12 @@ describe('#1472 — unverifiable filler evidence is never shown as a clean resul
         expect(screen.queryByText(/\b0 fillers\b/)).toBeNull();
     });
 
+    it('CONTROL (inconsistent inputs, Browser PM 6102096434): a positive count with zero words stays OBSERVED, not no-speech', () => {
+        openMicAfter({ finalizedFillerData: { um: { count: 2 }, total: { count: 2 } } as unknown as FillerCounts, finalizedWordCount: 0, reviewTranscript: { kind: 'available', text: '' } });
+        expect(screen.queryByTestId('filler-breakdown-empty')).toBeNull();
+        expect(screen.getByTestId('filler-breakdown-count')).toHaveTextContent('×2');
+    });
+
     it('CONTROL (#1417 v4 shape): a filler observed live but absent from the final transcript keeps its truthful count', () => {
         openMicAfter({ finalizedFillerData: { um: { count: 1 }, total: { count: 1 } } as unknown as FillerCounts });
         const words = screen.getAllByTestId('filler-breakdown-word').map((w) => w.getAttribute('data-word'));

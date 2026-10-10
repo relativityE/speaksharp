@@ -21,8 +21,7 @@ import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
 import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
-import { evidenceKindFromSnapshot } from '@/contracts/fillerEvidence';
-import { resolveCompleteness } from '@/services/telemetry/fillerMeasurement';
+import { fillerEvidenceKind, type FillerEvidenceKind } from '@/contracts/fillerEvidence';
 import { applyFinalizedCoverageAuthority, deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusCoverageRow } from '@/utils/focusCoverage';
 import type { PracticeFocus } from '@/constants/practiceFocus';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
@@ -508,17 +507,13 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // unavailable snapshot (SQL NULL) makes no numeric claim; `{}` is a zero count whose claim #1472 decides below.
     const reviewFillerSnapshot = selectReviewFillerSnapshot({ inAfter, finalizedFillerData, liveFillerData: fillerData });
     const reviewFillerData = reviewFillerSnapshot.counts;
-    // #1472 (Browser PM 6101465442) — the completed take's filler claim comes from ONE rule shared with every persisted
-    // surface (`evidenceKindFromSnapshot`). Completeness is derived in memory from the retained word count and the
-    // validated total by the same `resolveCompleteness` telemetry uses: no words → no_speech; words but zero fillers →
-    // unobservable (an unverifiable zero, never "no fillers" / "clean delivery"). An unknown word count or an unavailable
-    // snapshot is withheld, never turned into a zero claim. Before/during keep the live count, a running tally rather
-    // than a verdict.
-    const reviewFillerCompleteness = inAfter && shownReviewWords !== null && reviewFillerSnapshot.available
-        ? resolveCompleteness(shownReviewWords, reviewFillerSnapshot.total)
-        : null;
-    const reviewFillerEvidence = inAfter
-        ? evidenceKindFromSnapshot(reviewFillerSnapshot, reviewFillerCompleteness)
+    // #1472 (Browser PM 6101465442 / 6102096434) — the completed take's filler claim comes from THE rule every persisted
+    // surface uses (`fillerEvidenceKind`, contracts/fillerEvidence): a positive count is observed; otherwise the retained
+    // word count decides — no words → no_speech, words with zero fillers → unobservable (never "no fillers" / "clean
+    // delivery"), an unknown word count or an unavailable snapshot → withheld, never a zero claim. Before/during keep
+    // the live count, a running tally rather than a verdict.
+    const reviewFillerEvidence: FillerEvidenceKind = inAfter
+        ? fillerEvidenceKind({ available: reviewFillerSnapshot.available, total: reviewFillerSnapshot.total, words: shownReviewWords })
         : (reviewFillerSnapshot.available ? 'observed' : 'unavailable');
     const reviewFillerCountClaimable = reviewFillerEvidence === 'observed' || reviewFillerEvidence === 'verified_zero'
         || (!inAfter && reviewFillerSnapshot.available);

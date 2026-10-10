@@ -59,8 +59,9 @@ describe('#1258 D6 Filler words: counts for the two newest measured sessions', (
         const newest = session(7, null);
         const invalid = session(6, { not_a_key: 3 });
         const measured = session(5, { um: 2 });
-        const older = session(3, {});
-        const model = fillerBreakdownModel([newest, invalid, measured, older]);
+        const emptyMap = session(3, {}); // #1472: an empty map alone is not a measured zero
+        const older = session(2, { uh: 1 });
+        const model = fillerBreakdownModel([newest, invalid, measured, emptyMap, older]);
         expect(model.latest?.id).toBe(measured.id);
         expect(model.previous?.id).toBe(older.id);
     });
@@ -90,8 +91,9 @@ describe('#1258 D6 Filler words: counts for the two newest measured sessions', (
         expect(document.body.textContent).not.toMatch(/_|per min(?!ute)|\d\.\d/);
     });
 
-    it('both measured sessions at zero: one line, no table', () => {
-        render(<FillerWordsBreakdown model={fillerBreakdownModel([session(7, {}), session(1, { so: 4 })])} />);
+    it('both measured sessions at a true-filler zero (observed discourse markers only): one line, no table', () => {
+        // #1472: the zero must be OBSERVED evidence (a counted discourse marker), never an empty map.
+        render(<FillerWordsBreakdown model={fillerBreakdownModel([session(7, { like: 2 }), session(1, { so: 4 })])} />);
         expect(screen.getByText('No filler words detected in your last two sessions.')).toBeInTheDocument();
         expect(screen.queryByRole('table')).toBeNull();
     });

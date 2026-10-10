@@ -1,25 +1,24 @@
-// #1472 — ONE filler-evidence truth for every surface (Session result, delivery strip, Analytics, PDF, Progress,
-// saved semantics, telemetry). PM decision 5682359616: an empty map alone never proves a clean zero.
+// #1472 — ONE filler-evidence truth for every surface: the live Session review, the saved/reloaded review, analysis
+// copy, PDF, Analytics and client Progress. An empty filler map alone never proves a clean zero (PM 5682359616).
 //
-// The persisted inputs are the strict flat `filler_counts` map (#1306) and the closed `filler_completeness` state
-// (`complete | unobservable | no_speech`, NULL for legacy rows and older clients). This module is the only place that
-// turns them into what a surface may say. It never recounts a transcript and never infers completeness.
+// The inputs are the two facts every completed session already carries: the validated filler counts and the word
+// count (`filler_counts`, `total_words` — persisted by `complete_session_v2`). No persisted completeness column exists
+// or is needed (Browser PM 6101983829 / 6102096434): telemetry's `resolveCompleteness` is `complete` only when at
+// least one filler was counted, so the same rule reconstructs it exactly from these two inputs. This module is the
+// only place that turns them into what a surface may say. It never recounts a transcript.
 import { readPersistedFillerCounts, type PersistedFillerCounts } from './fillerCounts';
-
-export const FILLER_COMPLETENESS_STATES = ['complete', 'unobservable', 'no_speech'] as const;
-export type FillerCompletenessState = (typeof FILLER_COMPLETENESS_STATES)[number];
 
 /**
  * What a surface may claim about fillers.
  *
- *   observed      — at least one filler was counted. The count is truthful even when the final transcript later
- *                   omitted the token (a live detector snapshot is observed evidence, not a guess).
- *   verified_zero — zero fillers AND the completeness authority says the measurement was complete. The ONLY state
- *                   that may render "no filler words" / "clean delivery" or count as a scorable zero.
- *   unobservable  — zero fillers without an affirmative complete state (including NULL/unknown completeness). The
- *                   zero cannot be told apart from a recognizer that dropped disfluencies.
+ *   observed      — at least one filler was counted. Truthful even when the word count says no speech (a live detector
+ *                   snapshot is observed evidence; inconsistent inputs never erase a positive count).
+ *   verified_zero — RESERVED. A zero proven complete by affirmative evidence. Nothing produces it today: no evidence
+ *                   source can tell a fluent speaker from a recognizer that dropped disfluencies. It is the only kind
+ *                   that may say "no filler words" / "clean delivery", so it stays in the type for that future design.
+ *   unobservable  — zero fillers over transcribed words. Unverifiable; never a clean result or a scorable zero.
  *   no_speech     — nothing was transcribed. Distinct from unobservable.
- *   unavailable   — no valid filler map at all (absent, or rejected by the strict reader).
+ *   unavailable   — no valid filler map, or (for a zero) no valid word count. Withheld; never a zero.
  */
 export type FillerEvidence =
     | { kind: 'observed'; total: number; counts: PersistedFillerCounts }
@@ -28,49 +27,36 @@ export type FillerEvidence =
     | { kind: 'no_speech' }
     | { kind: 'unavailable' };
 
-/** Closed-state reader: anything outside the three states (including null/undefined) is `null`. */
-export function readFillerCompleteness(input: unknown): FillerCompletenessState | null {
-    return typeof input === 'string' && (FILLER_COMPLETENESS_STATES as readonly string[]).includes(input)
-        ? (input as FillerCompletenessState)
-        : null;
-}
-
-export function resolveFillerEvidence(fillerCounts: unknown, completeness: unknown): FillerEvidence {
-    const state = readFillerCompleteness(completeness);
-    if (state === 'no_speech') return { kind: 'no_speech' };
-    const counts = readPersistedFillerCounts(fillerCounts);
-    if (counts === null) return { kind: 'unavailable' };
-    const total = Object.values(counts).reduce((sum, n) => sum + (typeof n === 'number' ? n : 0), 0);
-    if (total > 0) return { kind: 'observed', total, counts };
-    return state === 'complete' ? { kind: 'verified_zero', counts } : { kind: 'unobservable' };
-}
-
 export type FillerEvidenceKind = FillerEvidence['kind'];
 
+/** A word count is authority only as a finite, non-negative integer. */
+export function validWordCount(input: unknown): number | null {
+    return typeof input === 'number' && Number.isInteger(input) && input >= 0 ? input : null;
+}
+
 /**
- * The same rule for an IN-MEMORY review snapshot (the just-finished take), which has a validated total and an
- * availability flag rather than a persisted map. Kept here so the Session result and every persisted surface can
- * never diverge on what a zero means.
+ * THE RULE, shared by the in-memory review and every persisted surface (a test pins their parity).
+ * `available` = the filler map is valid; `total` = its validated sum; `words` = the word count, or null when unknown.
  */
-export function evidenceKindFromSnapshot(
-    snapshot: { available: boolean; total: number },
-    completeness: unknown,
-): FillerEvidenceKind {
-    const state = readFillerCompleteness(completeness);
-    if (state === 'no_speech') return 'no_speech';
-    if (!snapshot.available) return 'unavailable';
-    if (snapshot.total > 0) return 'observed';
-    return state === 'complete' ? 'verified_zero' : 'unobservable';
+export function fillerEvidenceKind(input: { available: boolean; total: number; words: number | null }): Exclude<FillerEvidenceKind, 'verified_zero'> {
+    if (!input.available) return 'unavailable';
+    if (input.total > 0) return 'observed';
+    const words = validWordCount(input.words);
+    if (words === null) return 'unavailable';
+    return words === 0 ? 'no_speech' : 'unobservable';
 }
 
-/** A persisted session's evidence. `filler_completeness` may be absent on rows read before the column existed. */
-export function sessionFillerEvidence(session: { filler_counts?: unknown; filler_completeness?: unknown }): FillerEvidence {
-    return resolveFillerEvidence(session.filler_counts, session.filler_completeness);
+/** A saved session's evidence from its persisted `filler_counts` and `total_words`. */
+export function persistedFillerEvidence(session: { filler_counts?: unknown; total_words?: unknown }): FillerEvidence {
+    const counts = readPersistedFillerCounts(session.filler_counts);
+    const total = counts === null ? 0 : Object.values(counts).reduce<number>((sum, n) => sum + (typeof n === 'number' ? n : 0), 0);
+    const kind = fillerEvidenceKind({ available: counts !== null, total, words: validWordCount(session.total_words) });
+    return kind === 'observed' ? { kind, total, counts: counts as PersistedFillerCounts } : { kind };
 }
 
 /**
- * The filler total a metric may use: a number ONLY for observed or verified-zero evidence. Unobservable, no-speech
- * and unavailable sessions contribute nothing — never a fabricated 0.
+ * The filler total a metric may use: a number ONLY for observed (or a future verified-zero) evidence. Unobservable,
+ * no-speech and unavailable sessions contribute nothing — never a fabricated, flattering 0.
  */
 export function measuredFillerTotal(evidence: FillerEvidence): number | null {
     if (evidence.kind === 'observed') return evidence.total;
