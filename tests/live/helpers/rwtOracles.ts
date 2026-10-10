@@ -366,8 +366,12 @@ export interface NewSetEditObservation {
     /** Take A's saved verdicts before New Set and after take B (sorted). */
     takeAVerdictsBefore: readonly string[];
     takeAVerdictsAfter: readonly string[];
-    finalStatuses: readonly (string | null)[];
-    takeBVerdicts: readonly string[];
+    /** The three labels the edited set was saved with, in order. */
+    editedLabels: readonly string[];
+    /** Take B's rail after Stop: label and status per point, in rail order. */
+    railOrdered: readonly { label: string; status: string | null }[];
+    /** Take B's SAVED verdicts bound to its brief: label and verdict per point, in saved sort order. */
+    takeBSavedOrdered: readonly { label: string; verdict: string }[];
 }
 
 type RowVerdict = { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string };
@@ -381,8 +385,11 @@ export function newSetEditVerdicts(o: NewSetEditObservation): { newSet: RowVerdi
             : o.takeBId === null || o.takeBId === o.takeAId ? 'the take after the new set did not save as its own session'
                 : o.briefB === null || o.briefB === o.briefA ? 'the take after the new set was not saved under a new set'
                     : 'the earlier take\'s saved verdicts changed' };
-    const scored = o.finalStatuses.length === 3 && o.finalStatuses.every((s) => s === 'covered')
-        && o.takeBVerdicts.length === 3 && o.takeBVerdicts.every((v) => v === 'detected');
+    // Browser PM 6093772463: bound per point — the edited label, its rail status and its saved verdict at the SAME position.
+    const n = o.editedLabels.length;
+    const scored = n === 3 && o.railOrdered.length === n && o.takeBSavedOrdered.length === n
+        && o.editedLabels.every((label, i) => o.railOrdered[i].label.includes(label) && o.railOrdered[i].status === 'covered'
+            && o.takeBSavedOrdered[i].label === label && o.takeBSavedOrdered[i].verdict === 'detected');
     const editOk = o.editSeeded && o.railLabelsMatchEdit && scored;
     const edit: RowVerdict = editOk
         ? { verdict: 'PASS', detail: 'Edit opened seeded with the set; the edited point replaced the unspoken one and the next take was scored 3/3 on the edited set' }

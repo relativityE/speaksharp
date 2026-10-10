@@ -455,10 +455,12 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 receipt.row('analytics point detail', 'HOLD',
                     'product gap: the saved-session Analytics view shows no Focus Points point-level coverage (smallest repair proposed to PM)');
             } else {
-                const { data: saved } = await admin!.from('objective_session').select('id').eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
-                const { data: ev } = saved
+                const { data: saved, error: savedErr } = await admin!.from('objective_session').select('id').eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
+                if (savedErr) throw new Error(`objective_session read failed (fail closed): ${savedErr.code ?? 'unknown'}`);
+                const { data: ev, error: evErr } = saved
                     ? await admin!.from('objective_evidence').select('verdict').eq('session_id', saved.id).eq('user_id', owner.uid)
-                    : { data: [] as Array<{ verdict: string }> };
+                    : { data: [] as Array<{ verdict: string }>, error: null };
+                if (evErr) throw new Error(`objective_evidence read failed (fail closed): ${evErr.code ?? 'unknown'}`);
                 const detected = (ev ?? []).filter((r) => r.verdict === 'detected').length;
                 receipt.row('analytics point detail', shownPoints === points.length && shownCovered === detected ? 'PASS' : 'FAIL',
                     'Analytics shows each point, and its covered points agree with the saved verdicts', { shownPoints, shownCovered, savedDetected: detected });
@@ -509,18 +511,26 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     return;
                 }
                 // Browser PM 6089313104: an infrastructure read failure is never turned into a product verdict.
-                const savedFocus = async (sessionId: string): Promise<{ verdicts: string[]; brief: string | null }> => {
-                    const { data: os, error: osErr } = await admin!.from('objective_session').select('id').eq('source_session_id', sessionId).eq('user_id', owner.uid).maybeSingle();
+                // Browser PM 6089313104 / 6093772463: every read fails closed, and the saved verdicts are bound to the brief's
+                // points (label + sort order), not a bare id list.
+                const savedFocus = async (sessionId: string): Promise<{ verdicts: string[]; brief: string | null; ordered: Array<{ label: string; verdict: string }> }> => {
+                    const { data: os, error: osErr } = await admin!.from('objective_session').select('id,brief_id').eq('source_session_id', sessionId).eq('user_id', owner.uid).maybeSingle();
                     if (osErr) throw new Error(`objective_session read failed (fail closed): ${osErr.code ?? 'unknown'}`);
-                    if (!os) return { verdicts: [], brief: null };
+                    if (!os) return { verdicts: [], brief: null, ordered: [] };
                     const { data: ev, error: evErr } = await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid);
                     if (evErr) throw new Error(`objective_evidence read failed (fail closed): ${evErr.code ?? 'unknown'}`);
-                    const ids = (ev ?? []).map((r) => r.brief_point_id as string);
-                    const { data: bp, error: bpErr } = ids.length === 0 ? { data: [] as Array<{ brief_id: string }>, error: null }
-                        : await admin!.from('objective_brief_point').select('brief_id').in('id', ids).eq('user_id', owner.uid);
+                    const { data: bp, error: bpErr } = await admin!.from('objective_brief_point').select('id,label,sort_order').eq('brief_id', os.brief_id).eq('user_id', owner.uid);
                     if (bpErr) throw new Error(`objective_brief_point read failed (fail closed): ${bpErr.code ?? 'unknown'}`);
-                    const briefs = [...new Set((bp ?? []).map((r) => r.brief_id as string))];
-                    return { verdicts: (ev ?? []).map((r) => `${r.brief_point_id}:${r.verdict}`).sort(), brief: briefs.length === 1 ? briefs[0] : null };
+                    const verdictOf = new Map((ev ?? []).map((r) => [r.brief_point_id as string, r.verdict as string]));
+                    const pointIds = new Set((bp ?? []).map((p) => p.id as string));
+                    const outOfBrief = (ev ?? []).some((r) => !pointIds.has(r.brief_point_id as string));
+                    const ordered = [...(bp ?? [])].sort((a, b) => (a.sort_order as number) - (b.sort_order as number))
+                        .map((p) => ({ label: p.label as string, verdict: verdictOf.get(p.id as string) ?? 'missing' }));
+                    return {
+                        verdicts: (ev ?? []).map((r) => `${r.brief_point_id}:${r.verdict}`).sort(),
+                        brief: outOfBrief ? null : (os.brief_id as string),
+                        ordered: outOfBrief ? [] : ordered,
+                    };
                 };
                 const takeA = await savedFocus(persistedId);
                 const unspoken = 'A closing promise we never make';
@@ -547,7 +557,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 let editSeeded = false;
                 let railLabelsMatchEdit = false;
                 let takeBId: string | null = null;
-                let finalStatuses: (RailStatus | null)[] = [];
+                let railOrdered: Array<{ label: string; status: RailStatus | null }> = [];
                 if (newSetBlank) {
                     await page.getByTestId('objective-goal-select').selectOption('other');
                     await page.getByTestId('objective-goal-input').fill(topic);
@@ -582,17 +592,20 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         takeBId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
                         await expect.poll(async () => (await readRail(page, edited.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                             .toBe(true).catch(() => undefined);
-                        finalStatuses = (await readRail(page, edited.length)).statuses;
+                        const statuses = (await readRail(page, edited.length)).statuses;
+                        railOrdered = await Promise.all(statuses.map(async (status, i) => ({
+                            label: await page.getByTestId(`focus-point-${i}`).innerText().catch(() => ''), status,
+                        })));
                     }
                 }
-                const takeB = takeBId && takeBId !== persistedId ? await savedFocus(takeBId) : { verdicts: [], brief: null };
+                const takeB = takeBId && takeBId !== persistedId ? await savedFocus(takeBId) : { verdicts: [], brief: null, ordered: [] };
                 const takeAAfter = await savedFocus(persistedId);
                 const v = newSetEditVerdicts({
                     newSetBlank, editSeeded, railLabelsMatchEdit, takeAId: persistedId, takeBId, briefA: takeA.brief, briefB: takeB.brief,
-                    takeAVerdictsBefore: takeA.verdicts, takeAVerdictsAfter: takeAAfter.verdicts, finalStatuses,
-                    takeBVerdicts: takeB.verdicts.map((s) => s.split(':')[1]),
+                    takeAVerdictsBefore: takeA.verdicts, takeAVerdictsAfter: takeAAfter.verdicts,
+                    editedLabels: edited, railOrdered, takeBSavedOrdered: takeB.ordered,
                 });
-                const evidence = { offered, newSetBlank, editSeeded, railLabelsMatchEdit, takeBSaved: takeBId !== null && takeBId !== persistedId, final: finalStatuses.join(',') };
+                const evidence = { offered, newSetBlank, editSeeded, railLabelsMatchEdit, takeBSaved: takeBId !== null && takeBId !== persistedId, final: railOrdered.map((r) => r.status).join(','), savedVerdicts: takeB.ordered.map((r) => r.verdict).join(',') };
                 receipt.row('Focus New Set', v.newSet.verdict, v.newSet.detail, evidence);
                 receipt.row('Focus Edit', v.edit.verdict, v.edit.detail, evidence);
             });

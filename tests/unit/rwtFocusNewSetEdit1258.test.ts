@@ -9,10 +9,13 @@ import { describe, expect, it } from 'vitest';
 import { newSetEditVerdicts, newSetSourcePoints, setupIsBlank, type NewSetEditObservation } from '../live/helpers/rwtOracles';
 import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
 
+const EDITED = ['Name the price', 'State the guarantee', 'Explain the timeline'];
 const ok: NewSetEditObservation = {
     newSetBlank: true, editSeeded: true, railLabelsMatchEdit: true, takeAId: 'a', takeBId: 'b', briefA: 'brief-a', briefB: 'brief-b',
     takeAVerdictsBefore: ['p1:detected', 'p2:not_detected'], takeAVerdictsAfter: ['p1:detected', 'p2:not_detected'],
-    finalStatuses: ['covered', 'covered', 'covered'], takeBVerdicts: ['detected', 'detected', 'detected'],
+    editedLabels: EDITED,
+    railOrdered: EDITED.map((label) => ({ label, status: 'covered' })),
+    takeBSavedOrdered: EDITED.map((label) => ({ label, verdict: 'detected' })),
 };
 const verdicts = (o: Partial<NewSetEditObservation>) => {
     const v = newSetEditVerdicts({ ...ok, ...o });
@@ -28,7 +31,10 @@ describe('Focus New Set / Edit oracle', () => {
         expect(verdicts({})).toEqual(['PASS', 'PASS']);
     });
     it('CASUALTY: scored on the unedited set (the unspoken point missed) fails Edit only', () => {
-        expect(verdicts({ finalStatuses: ['covered', 'covered', 'missing'], takeBVerdicts: ['detected', 'detected', 'not_detected'] })).toEqual(['PASS', 'FAIL']);
+        expect(verdicts({
+            railOrdered: [...ok.railOrdered.slice(0, 2), { label: EDITED[2], status: 'missing' }],
+            takeBSavedOrdered: [...ok.takeBSavedOrdered.slice(0, 2), { label: EDITED[2], verdict: 'not_detected' }],
+        })).toEqual(['PASS', 'FAIL']);
     });
     it('CASUALTY: the earlier take\'s verdicts changed, or the take reused the old set, fails New Set', () => {
         expect([
@@ -60,6 +66,27 @@ describe('Focus New Set / Edit oracle', () => {
         expect(helper).not.toMatch(/objective-point-label-0'\)\.inputValue\(\)\.catch\(\(\) => 'x'\)\) === ''/);
         const savedFocus = helper.slice(helper.indexOf('const savedFocus'), helper.indexOf('const takeA = await savedFocus'));
         expect(savedFocus.match(/fail closed/g)?.length).toBe(3);
+    });
+    // Browser PM 6093772463 item 2: take B is bound per point — edited label, rail status and saved verdict at the SAME
+    // ordered position — never by counts or a sorted id list.
+    it('CASUALTY (6093772463): swapped, mislabelled, reordered, truncated or extra take-B points FAIL Edit', () => {
+        const swappedSaved = [{ label: EDITED[1], verdict: 'detected' }, { label: EDITED[0], verdict: 'detected' }, { label: EDITED[2], verdict: 'detected' }];
+        expect([
+            verdicts({ takeBSavedOrdered: swappedSaved })[1],
+            verdicts({ railOrdered: [{ label: 'Something else', status: 'covered' }, ...ok.railOrdered.slice(1)] })[1],
+            verdicts({ takeBSavedOrdered: ok.takeBSavedOrdered.slice(0, 2) })[1],
+            verdicts({ railOrdered: [...ok.railOrdered, { label: 'Extra', status: 'covered' }] })[1],
+            verdicts({ takeBSavedOrdered: [...ok.takeBSavedOrdered.slice(0, 2), { label: EDITED[2], verdict: 'unavailable' }] })[1],
+        ]).toEqual(['FAIL', 'FAIL', 'FAIL', 'FAIL', 'FAIL']);
+    });
+    it('the saved-take reads are bound to brief order and labels, and every read fails closed', () => {
+        const helper = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
+        const savedFocus = helper.slice(helper.indexOf('const savedFocus'), helper.indexOf('const takeA = await savedFocus'));
+        expect(savedFocus).toMatch(/select\('id,label,sort_order'\)/);
+        const reads = savedFocus.match(/admin!\.from\(/g)?.length ?? 0;
+        expect([reads, savedFocus.match(/\(fail closed\)/g)?.length ?? 0]).toEqual([reads, reads]);
+        const detail = helper.slice(helper.indexOf("'analytics point detail'"), helper.indexOf("'analytics point detail'") + 1500);
+        expect(detail.match(/\(fail closed\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     });
     it('the full Focus suite requires both rows and runs the step', () => {
         expect(requiredAutomatedRows('focus-points-session')?.product).toEqual(expect.arrayContaining(['Focus New Set', 'Focus Edit']));
