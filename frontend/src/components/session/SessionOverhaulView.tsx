@@ -21,7 +21,7 @@ import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
 import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
-import { fillerEvidenceKind, type FillerEvidenceKind } from '@/contracts/fillerEvidence';
+import { fillerCountClaimable, fillerEvidenceKind, type FillerEvidenceKind } from '@/contracts/fillerEvidence';
 import { applyFinalizedCoverageAuthority, deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusCoverageRow } from '@/utils/focusCoverage';
 import type { PracticeFocus } from '@/constants/practiceFocus';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
@@ -515,8 +515,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const reviewFillerEvidence: FillerEvidenceKind = inAfter
         ? fillerEvidenceKind({ available: reviewFillerSnapshot.available, total: reviewFillerSnapshot.total, words: shownReviewWords })
         : (reviewFillerSnapshot.available ? 'observed' : 'unavailable');
-    const reviewFillerCountClaimable = reviewFillerEvidence === 'observed' || reviewFillerEvidence === 'verified_zero'
-        || (!inAfter && reviewFillerSnapshot.available);
+    const reviewFillerCountClaimable = fillerCountClaimable(reviewFillerEvidence) || (!inAfter && reviewFillerSnapshot.available);
     const reviewFillerCount = reviewFillerSnapshot.available && reviewFillerCountClaimable ? reviewFillerSnapshot.total : null;
     // Every word-count surface reads the withheld value: an unknown count is omitted, never printed as 0.
     const wordsPart = shownReviewWords === null ? null : `${shownReviewWords} words`;

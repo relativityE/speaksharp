@@ -64,6 +64,11 @@ export function persistedFillerEvidence(session: { filler_counts?: unknown; tota
     return kind === 'observed' ? { kind, total, counts: counts as PersistedFillerCounts } : { kind };
 }
 
+/** Whether a surface may show a filler COUNT for this evidence: observed, or a (future) verified zero. */
+export function fillerCountClaimable(kind: FillerEvidenceKind): boolean {
+    return kind === 'observed' || kind === 'verified_zero';
+}
+
 /**
  * The filler total a metric may use: a number ONLY for observed (or a future verified-zero) evidence. Unobservable,
  * no-speech and unavailable sessions contribute nothing — never a fabricated, flattering 0.
