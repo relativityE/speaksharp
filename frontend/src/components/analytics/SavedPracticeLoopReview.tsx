@@ -39,9 +39,16 @@ interface SavedPracticeLoopReviewProps {
      * its latest review this way: no loading line, no "No coaching was saved…", and never an older session instead.
      */
     onlyWhenSaved?: boolean;
+    /**
+     * #1258 (Rev 2 §4.2): rendered INSTEAD of the band when this session has no saved coaching (`none`). The reopened
+     * session passes its explicit Try again here; every other caller keeps the "No coaching was saved…" copy.
+     * #1577 Codex P2 4235188535 / 4235188543: it receives this review's own practice action (so the reopened session keeps
+     * its "Practice again?" path) and the RESOLVED product (a legacy row with no marker can be Focus Points by its rows).
+     */
+    noneFallback?: (ctx: { action: React.ReactNode; product: 'open_mic' | 'focus_points' | null; retryReady: boolean }) => React.ReactNode;
 }
 
-export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = ({ sessionId, sessionLabel, eyebrow = 'Practice Loop review', footerLink, onlyWhenSaved = false }) => {
+export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = ({ sessionId, sessionLabel, eyebrow = 'Practice Loop review', footerLink, onlyWhenSaved = false, noneFallback }) => {
     const navigate = useNavigate();
     const [saved, setSaved] = useState<{ sessionId: string; value: SavedSessionReview } | null>(null);
     const [readAttempt, setReadAttempt] = useState(0);
@@ -218,6 +225,17 @@ export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = (
     };
 
     if (onlyWhenSaved && coaching?.kind !== 'review') return null;
+    if (noneFallback && coaching?.kind === 'none') {
+        return <>{noneFallback({
+            action: <div className="mt-4 [&_button]:bg-signature [&_button]:text-ink">{action}</div>,
+            product: review?.product === 'open_mic' || review?.product === 'focus_points' ? review.product : null,
+            // #1577 Codex P2 4236200867 / 4236239714: the coaching function refuses a Focus take (425) until it has points AND
+            // at least one persisted evidence row, so only that VERIFIED readiness may offer a retry (Open Mic always may).
+            retryReady: review?.product === 'open_mic'
+                || (review?.product === 'focus_points' && review.focusPoints.length > 0 && review.focusEvidenceSaved === true
+                    && !review.focusReadFailed && !review.reviewReadFailed),
+        })}</>;
+    }
 
     return (
         <section

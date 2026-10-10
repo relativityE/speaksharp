@@ -33,6 +33,11 @@ export type SavedFocusPointsCoverage =
         kind: 'coverage'; points: SavedFocusPoint[]; detected: number; total: number; brief: SavedFocusBrief | null;
         /** #1535: the point set could not be READ (a failed request, not an absent brief) — retryable, never "no set". */
         briefReadFailed?: true;
+        /**
+         * #1577 Codex P2 4236239714: persisted `objective_evidence` rows for this take. Points with no row render as
+         * `unavailable`, but the coaching function treats ZERO rows as pending (425), so readiness needs this count.
+         */
+        evidenceRows?: number;
     }
     | { kind: 'error' };
 
@@ -90,6 +95,7 @@ export async function loadSavedFocusPointsCoverage(sourceSessionId: string): Pro
             kind: 'coverage', points: rows, detected: rows.filter((r) => r.status === 'detected').length, total: rows.length,
             brief: briefError ? null : savedBrief,
             ...(briefError ? { briefReadFailed: true as const } : {}),
+            evidenceRows: (evidence ?? []).length,
         };
     } catch (error) {
         logger.warn({ error }, '[savedFocusPointsCoverage] read threw');
