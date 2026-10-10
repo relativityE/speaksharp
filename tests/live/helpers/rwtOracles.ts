@@ -3,6 +3,7 @@
  * Codex P1s on b5071da25. Content-free: verdicts, fixed details and counts only.
  */
 import type { Verdict } from './rwtAcceptance';
+import type { FocusRailStatus as IdentityRailStatus, SavedFocusEvidenceRow, SavedFocusIdentityObservation, SavedFocusPointIdentity } from './rwtSavedFocusIdentity';
 
 /**
  * r4105978609 — the pre-credential surface is approved only when the app's centralized readiness authority
@@ -499,4 +500,23 @@ export function focusBackReloadVerdict(o: FocusBackReloadObservation): { verdict
     if (o.verdictsBefore.length === 0 || o.verdictsBefore.join(',') !== o.verdictsAfter.join(',')) return fail('the saved point verdicts were unreadable or changed');
     if (o.coachingRequestsAfter !== o.coachingRequestsBefore) return fail('Progress, Back or the reload requested coaching');
     return { verdict: 'PASS', detail: 'Progress → Back and a reload restored the same saved Focus session read-only, with its saved transcript, verdicts and review, and requested nothing' };
+}
+
+/**
+ * #1258 (Browser PM 6096833549) — the Analytics identity proof's inputs for ONE take: the brief its setup created (read before
+ * any take), the labels the person entered and the rail statuses captured at that take's Stop (never derived from the saved
+ * result under test), and that take's saved points, evidence rows and visible saved-review evidence. Kept in memory only.
+ */
+export function focusIdentityObservation(input: {
+    expectedBriefId: string | null; savedBriefId: string | null; labels: readonly string[]; railStatuses: readonly (IdentityRailStatus | null)[];
+    savedPoints: readonly SavedFocusPointIdentity[]; evidence: readonly SavedFocusEvidenceRow[]; visibleEvidence: readonly string[];
+}): SavedFocusIdentityObservation {
+    return {
+        expectedBriefId: input.expectedBriefId ?? '',
+        savedBriefId: input.savedBriefId ?? '',
+        expected: input.labels.map((label, i) => ({ label, railStatus: input.railStatuses[i] ?? null })),
+        savedPoints: input.savedPoints,
+        evidence: input.evidence,
+        visibleEvidence: input.visibleEvidence,
+    };
 }

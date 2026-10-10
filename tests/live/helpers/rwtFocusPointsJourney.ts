@@ -15,8 +15,9 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
+import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import {
     AnalyticsTap,
@@ -162,6 +163,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let savedCoaching: SavedCoaching | null = null;
 
     let persistedId: string | null = null;
+    /** #1258 (Browser PM 6093772463 item 3): the brief this journey set up, read right after Head to session, before any take. */
+    let expectedBriefId: string | null = null;
+    /** The first take's rail after Stop, in point order: the expected per-point verdicts for the saved-identity proof. */
+    let firstTakeRail: (RailStatus | null)[] = [];
     // The take's own generation count, snapshotted before the Practice-again pass records more takes.
     let generationsForTake: number | null = null;
     // #1532 Codex P1 r4124290575: sent-stream windows around each take's Start, so the takes are identified by the Start the
@@ -230,6 +235,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 arrived ? (mic === 0 ? 'the session opened with the microphone still off' : 'the microphone opened on Head to session') : 'the session did not open',
                 { acquisitions: mic });
             if (!arrived) throw new Error('row 9 FAIL: Head to session did not navigate');
+            // The brief this setup created (newest for this run-owned account), independent of what the take later saves.
+            const { data: brief, error: briefErr } = await admin!.from('objective_brief').select('id').eq('user_id', owner.uid)
+                .order('created_at', { ascending: false }).limit(1).maybeSingle();
+            if (briefErr) throw new Error(`objective_brief read failed (fail closed): ${briefErr.code ?? 'unknown'}`);
+            expectedBriefId = (brief?.id as string | undefined) ?? null;
         });
 
         await entitlementRow(receipt, entitlement, 120);
@@ -327,6 +337,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                 .toBe(true).catch(() => undefined);
             const final = (await readRail(page, points.length)).statuses;
+            firstTakeRail = final;
             const perPoint = final.map((s, i) => meetsExpectation(expectedFinal[i] ?? '', s));
             receipt.row('final point verdicts', perPoint.every(Boolean) ? 'PASS' : 'FAIL',
                 perPoint.every(Boolean) ? 'every point ended as the fixture expects' : 'a point ended differently from the fixture',
@@ -447,24 +458,35 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             receipt.row('Analytics generates no coaching', coaching.requests === requestsBefore ? 'PASS' : 'FAIL',
                 coaching.requests === requestsBefore ? 'opening and reloading Analytics requested no new review' : 'Analytics requested coaching again (regeneration / quota)',
                 { coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests });
-            // Point-level detail as the customer sees it on the reopened session. The current Analytics detail renders
-            // transcript availability only and reads no Focus Points data, so its absence is recorded as a named
-            // product gap (HOLD) — never a pass. If coverage does render, it must agree with the saved verdicts.
-            const shownPoints = await page.locator('[data-testid^="focus-point-"][data-status]').count();
-            const shownCovered = await page.locator('[data-testid^="focus-point-"][data-status="covered"]').count();
-            if (shownPoints === 0) {
-                receipt.row('analytics point detail', 'HOLD',
-                    'product gap: the saved-session Analytics view shows no Focus Points point-level coverage (smallest repair proposed to PM)');
+            // #1258 (Browser PM 6093772463 item 3): point-level proof from the CURRENT saved-review evidence the person sees on
+            // the Analytics detail ("Detected: point 1 at 0:21." …), bound to the saved point identity: the setup brief, each
+            // saved point's id / order / label, exactly one evidence verdict per point, and the first take's rail. Replaces the
+            // stale recording-rail / count-only check. Labels and ids stay local; the receipt gets ordinals and reasons only.
+            if (!savedCoaching) {
+                receipt.row('analytics point detail', 'HOLD', 'no saved coaching, so the saved review shows no point evidence to read');
             } else {
-                const { data: saved, error: savedErr } = await admin!.from('objective_session').select('id').eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
-                if (savedErr) throw new Error(`objective_session read failed (fail closed): ${savedErr.code ?? 'unknown'}`);
-                const { data: ev, error: evErr } = saved
-                    ? await admin!.from('objective_evidence').select('verdict').eq('session_id', saved.id).eq('user_id', owner.uid)
-                    : { data: [] as Array<{ verdict: string }>, error: null };
+                const visibleEvidence = (await page.getByTestId('review-evidence').first().innerText().catch(() => '')).split('\n');
+                const { data: os, error: osErr } = await admin!.from('objective_session').select('id,brief_id').eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
+                if (osErr) throw new Error(`objective_session read failed (fail closed): ${osErr.code ?? 'unknown'}`);
+                const { data: bp, error: bpErr } = os
+                    ? await admin!.from('objective_brief_point').select('id,brief_id,sort_order,label').eq('brief_id', os.brief_id).eq('user_id', owner.uid)
+                    : { data: [] as Array<{ id: string; brief_id: string; sort_order: number; label: string }>, error: null };
+                if (bpErr) throw new Error(`objective_brief_point read failed (fail closed): ${bpErr.code ?? 'unknown'}`);
+                const { data: ev, error: evErr } = os
+                    ? await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid)
+                    : { data: [] as Array<{ brief_point_id: string; verdict: string }>, error: null };
                 if (evErr) throw new Error(`objective_evidence read failed (fail closed): ${evErr.code ?? 'unknown'}`);
-                const detected = (ev ?? []).filter((r) => r.verdict === 'detected').length;
-                receipt.row('analytics point detail', shownPoints === points.length && shownCovered === detected ? 'PASS' : 'FAIL',
-                    'Analytics shows each point, and its covered points agree with the saved verdicts', { shownPoints, shownCovered, savedDetected: detected });
+                const identity = savedFocusIdentityVerdict(focusIdentityObservation({
+                    expectedBriefId, savedBriefId: (os?.brief_id as string | undefined) ?? null, labels: points, railStatuses: firstTakeRail,
+                    savedPoints: (bp ?? []).map((p) => ({ id: p.id as string, brief_id: p.brief_id as string, sort_order: p.sort_order as number, label: p.label as string })),
+                    evidence: (ev ?? []).map((r) => ({ brief_point_id: r.brief_point_id as string, verdict: r.verdict as string })),
+                    visibleEvidence,
+                }));
+                receipt.row('analytics point detail', identity.verdict,
+                    identity.verdict === 'PASS'
+                        ? 'the saved review shows each point\'s verdict, bound to the setup brief, the saved point order and labels, one saved verdict per point, and the take\'s rail'
+                        : 'the visible saved-review evidence, the saved points / verdicts and the take\'s rail do not agree',
+                    { mismatchedOrdinals: identity.mismatchedOrdinals.join(','), errors: identity.errors.join('; '), expectedBriefKnown: expectedBriefId !== null });
             }
         });
 
