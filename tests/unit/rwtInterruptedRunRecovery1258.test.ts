@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
-    MIN_AGE_MS, PROTECTED_DEFAULT_BRANCH, RECOVERY_DELETE_ACK_PREFIX, RWT_JOURNEY_LABELS, listAuthUsersBounded, ownedPrefixOf, recoverInterruptedRuns,
+    MIN_AGE_MS, PROTECTED_DEFAULT_BRANCH, RECOVERY_DELETE_ACK_PREFIX, RWT_JOURNEY_LABELS, deletionDomain, listAuthUsersBounded, ownedPrefixOf, recoverInterruptedRuns,
     recoveryAuthority, recoveryDeleteAck, recoveryReportLine, runOwnedDomain, selectInterruptedRunAccounts,
     type AdminLike, type AuthUserLike,
 } from '../live/helpers/rwtInterruptedRunRecovery';
@@ -106,6 +106,26 @@ describe('ownership (#1580 P1 4237980478): the full synthetic identity at the ex
         expect([r.status, listUsers.mock.calls.length, cleanup.mock.calls.length, r.eligible, r.legacyUnqualified, r.ownershipUnproven])
             .toEqual(['HOLD_NO_DOMAIN', 1, 0, 0, 2, 1]);
         expect(recoveryReportLine(r)).toMatch(/status=HOLD_NO_DOMAIN .*legacy_unqualified=2 /);
+    });
+    it('CASUALTY (Browser PM 6100809177): an EXPLICIT example.com (any case / whitespace) never authorizes deletion — env path and direct parameter', async () => {
+        for (const raw of ['example.com', 'EXAMPLE.com', '  Example.COM  ']) {
+            expect({ raw, env: runOwnedDomain({ LIVE_TEST_EMAIL_DOMAIN: raw }), direct: deletionDomain(raw) }).toEqual({ raw, env: null, direct: null });
+            const legacy = [user(1, journey(1, 'open-mic', 'example.com'), old), user(2, journey(2, 'focus-points', 'EXAMPLE.COM'), old)];
+            const { admin, cleanup } = fakeAdmin(legacy);
+            // The exact SHA-bound ack, the legacy domain passed DIRECTLY: still no deletion.
+            const r = await recover({ admin, cleanup, ack: ACK, domain: raw });
+            expect([r.status, r.eligible, r.legacyUnqualified, r.deleted, cleanup.mock.calls.length]).toEqual(['HOLD_NO_DOMAIN', 0, 2, 0, 0]);
+            // Selection called directly with the legacy domain classifies the rows as legacy, never eligible.
+            const s = selectInterruptedRunAccounts(legacy, NOW, raw);
+            expect([s.eligible.length, s.counts.legacyUnqualified, s.counts.runOwned]).toEqual([0, 2, 0]);
+        }
+    });
+    it('CASUALTY (Browser PM 6100809177): a mixed legacy + valid explicit-domain listing deletes only the valid account; legacy cleanup calls stay 0', async () => {
+        const rows = [user(1, journey(1, 'open-mic', 'example.com'), old), user(2, journey(2), old), user(3, proof('retention-proof-', 3).replace(`@${D}`, '@Example.com'), old)];
+        const { admin, cleanup } = fakeAdmin(rows);
+        const r = await recover({ admin, cleanup, ack: ACK });
+        expect([r.status, r.deleted, r.legacyUnqualified, cleanup.mock.calls.map(([p]) => p.capturedUid)]).toEqual(['RECOVERED', 1, 2, [uuid(2)]]);
+        expect(cleanup.mock.calls.some(([p]) => p.createdEmail.endsWith('@example.com'))).toBe(false);
     });
     it('CASUALTY: with an explicit domain, full-grammar example.com accounts stay unqualified legacy items and are never deleted', async () => {
         const { admin, cleanup } = fakeAdmin([user(1, journey(1), old), user(2, journey(2, 'focus-points', 'example.com'), old)]);

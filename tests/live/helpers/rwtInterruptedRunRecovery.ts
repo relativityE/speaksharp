@@ -40,17 +40,26 @@ const OWNED_LOCAL_PARTS: ReadonlyArray<readonly [string, RegExp]> = [
     ['retention-proof-', new RegExp(`^retention-proof-${MS}-${RUN}$`)],
 ];
 
+/** The generators' fallback domain: full-grammar accounts there are unqualified legacy items — reported, NEVER deleted. */
+export const LEGACY_FALLBACK_DOMAIN = 'example.com';
+
 /**
- * The run-owned domain for DELETION: only an explicit, nonempty, valid `LIVE_TEST_EMAIL_DOMAIN` (Browser PM 6100450864, option B).
- * The generators' `example.com` fallback is deliberately NOT imported: without an explicit domain, recovery detects and HOLDs.
+ * A domain that may authorize deletion: valid, and never the legacy fallback (Browser PM 6100809177). Normalized here, so
+ * BOTH the environment path and a direct `domain` parameter go through the same refusal.
  */
-export function runOwnedDomain(env: Record<string, string | undefined>): string | null {
-    const domain = (env.LIVE_TEST_EMAIL_DOMAIN ?? '').trim().toLowerCase();
-    return domain && DOMAIN_RE.test(domain) ? domain : null;
+export function deletionDomain(raw: string | null | undefined): string | null {
+    const domain = (raw ?? '').trim().toLowerCase();
+    return domain && DOMAIN_RE.test(domain) && domain !== LEGACY_FALLBACK_DOMAIN ? domain : null;
 }
 
-/** The generators' fallback domain: full-grammar accounts there are reported as unqualified legacy items, never deleted. */
-export const LEGACY_FALLBACK_DOMAIN = 'example.com';
+/**
+ * The run-owned domain for DELETION: only an explicit, nonempty, valid `LIVE_TEST_EMAIL_DOMAIN` that is not the legacy fallback
+ * (Browser PM 6100450864, option B; 6100809177). The generators' `example.com` fallback is deliberately NOT imported, and an
+ * explicit `example.com` is refused too: without a deletion domain, recovery detects and HOLDs.
+ */
+export function runOwnedDomain(env: Record<string, string | undefined>): string | null {
+    return deletionDomain(env.LIVE_TEST_EMAIL_DOMAIN);
+}
 
 /** The run-owned prefix of an address that is the FULL synthetic identity at exactly `domain`; null otherwise. */
 export function ownedPrefixOf(email: string, domain: string): string | null {
@@ -83,14 +92,13 @@ export function selectInterruptedRunAccounts(users: readonly AuthUserLike[], now
     for (const user of users) {
         const email = typeof user.email === 'string' ? user.email.toLowerCase() : '';
         if (!RUN_OWNED_PREFIX_RE.test(email)) { counts.nonOwned += 1; continue; }
-        // #1580 P1 4237980478: a run-owned PREFIX is not ownership. A prefix-only or wrong-domain address HOLDs (never deleted);
-        // a full-grammar address at the generators' fallback domain is an unqualified legacy item (reported, never deleted).
-        const prefix = domain ? ownedPrefixOf(email, domain) : null;
-        if (!prefix) {
-            if (ownedPrefixOf(email, LEGACY_FALLBACK_DOMAIN)) counts.legacyUnqualified += 1;
-            else counts.ownershipUnproven += 1;
-            continue;
-        }
+        // Browser PM 6100809177: legacy is classified FIRST, so no configured domain can make a full-grammar example.com
+        // address deletable. Then #1580 P1 4237980478: a run-owned PREFIX is not ownership — a prefix-only or wrong-domain
+        // address HOLDs (never deleted).
+        if (ownedPrefixOf(email, LEGACY_FALLBACK_DOMAIN)) { counts.legacyUnqualified += 1; continue; }
+        const deletable = deletionDomain(domain);
+        const prefix = deletable ? ownedPrefixOf(email, deletable) : null;
+        if (!prefix) { counts.ownershipUnproven += 1; continue; }
         counts.runOwned += 1;
         const id = typeof user.id === 'string' ? user.id : '';
         const created = typeof user.created_at === 'string' ? Date.parse(user.created_at) : Number.NaN;
@@ -160,7 +168,7 @@ export async function recoverInterruptedRuns(params: {
     const report = (status: RecoveryStatus, counts: SelectionCounts, deleted = 0): RecoveryReport =>
         ({ status, deleted, minAgeMinutes: Math.round(minAgeMs / 60_000), ...counts });
     // No explicit domain still DETECTS and reports (legacy items included); it can never delete.
-    const domain = params.domain && DOMAIN_RE.test(params.domain) ? params.domain : null;
+    const domain = deletionDomain(params.domain);
     const { users, complete } = await listAuthUsersBounded(params.admin, params.perPage, params.maxPages);
     const { eligible, counts } = selectInterruptedRunAccounts(users, params.nowMs, domain, minAgeMs);
     if (!complete) return report('HOLD_INCOMPLETE_LISTING', counts);
