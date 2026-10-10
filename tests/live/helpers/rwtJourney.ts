@@ -1265,6 +1265,25 @@ export async function backFromProgressRestoresSession(page: Page, sessionId: str
     return result;
 }
 
+/**
+ * #1258 (Browser PM 6093772463) — after Back restored a saved session, a reload must restore the SAME session read-only:
+ * its id, its saved transcript (digest compared in Node only), no idle recorder and no live microphone. Only booleans leave.
+ */
+export async function reloadRestoredSession(page: Page, sessionId: string, savedDigest: string): Promise<{
+    restored: boolean; sameSession: boolean; idleShown: boolean; liveTracks: number | null; transcriptMatches: boolean;
+}> {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const restored = page.getByTestId('saved-session-return');
+    const shown = await restored.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
+    const sameSession = shown && (await restored.getAttribute('data-session-id').catch(() => null)) === sessionId;
+    const idleShown = (await page.getByTestId('mic-start').count()) > 0;
+    const liveTracks = await liveMicTracks(page).catch(() => null);
+    const transcript = page.getByTestId('review-transcript');
+    const transcriptMatches = savedDigest !== '' && await transcript.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true).catch(() => false)
+        && sha256Hex(await transcript.innerText()) === savedDigest;
+    return { restored: shown, sameSession, idleShown, liveTracks, transcriptMatches };
+}
+
 export function backFromProgressRows(receipt: RwtReceipt, b: Awaited<ReturnType<typeof backFromProgressRestoresSession>>,
     coachingSaved: boolean, requestsBefore: number, requestsAfter: number): void {
     receipt.row('Back from Progress restores the session', b.left && b.restored && !b.idleShown ? 'PASS' : 'FAIL',

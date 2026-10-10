@@ -257,6 +257,7 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching length',
     'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching provenance',
     'Focus coaching visible = saved', 'Focus coaching server receipt', 'Products menu opened in the session',
+    'Focus Back from Progress and reload keep the saved session',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
     'saved review is the first block', '"From this session" evidence', 'one practice action', 'Analytics generates no coaching',
     'analytics point detail', 'Analytics Practice again opens the product', 'review Practice again starts, no hold',

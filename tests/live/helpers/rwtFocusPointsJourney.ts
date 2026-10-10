@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import {
@@ -44,6 +44,8 @@ import {
     RWT_ACCOUNT_PREFIX,
     analyticsRows,
     analyticsThroughActions,
+    backFromProgressRestoresSession,
+    reloadRestoredSession,
     performCandidateSwitch,
     readSttIdentity,
     readCpuRuntime,
@@ -394,6 +396,41 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const opened = await openProductsMenuInPlace(page);
             receipt.row('Products menu opened in the session', opened ? 'PASS' : 'FAIL',
                 opened ? 'the header Products menu opened and closed on the session page' : 'the header Products menu could not be opened on the session page');
+        });
+
+        // ── #1258 (Browser PM 6093772463) — Progress → browser Back → the SAME saved session → reload (existing take) ─────
+        await test.step('Focus Points: Progress, Back to the saved session, then reload', async () => {
+            if (!persistedId) { receipt.row('Focus Back from Progress and reload keep the saved session', 'HOLD', 'no saved session'); return; }
+            // Saved identity, read fail closed: transcript digest and the point verdicts (compared in Node; only booleans leave).
+            const savedIdentity = async (): Promise<{ digest: string; verdicts: string[] }> => {
+                const { data: s, error: sErr } = await admin!.from('sessions').select('transcript').eq('id', persistedId!).eq('user_id', owner.uid).single();
+                if (sErr) throw new Error(`session read failed (fail closed): ${sErr.code ?? 'unknown'}`);
+                const { data: os, error: osErr } = await admin!.from('objective_session').select('id').eq('source_session_id', persistedId!).eq('user_id', owner.uid).maybeSingle();
+                if (osErr) throw new Error(`objective_session read failed (fail closed): ${osErr.code ?? 'unknown'}`);
+                const { data: ev, error: evErr } = os
+                    ? await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid)
+                    : { data: [] as Array<{ brief_point_id: string; verdict: string }>, error: null };
+                if (evErr) throw new Error(`objective_evidence read failed (fail closed): ${evErr.code ?? 'unknown'}`);
+                return { digest: sha256Hex(s?.transcript), verdicts: (ev ?? []).map((r) => `${r.brief_point_id}:${r.verdict}`).sort() };
+            };
+            const before = await savedIdentity();
+            const requestsBefore = coaching.requests;
+            const back = await backFromProgressRestoresSession(page, persistedId, savedCoaching ?? undefined);
+            const reload = back.restored ? await reloadRestoredSession(page, persistedId, before.digest)
+                : { restored: false, sameSession: false, idleShown: back.idleShown, liveTracks: null, transcriptMatches: false };
+            const after = await savedIdentity();
+            const result = focusBackReloadVerdict({
+                leftForProgress: back.left, restoredAfterBack: back.restored, restoredAfterReload: reload.restored, sameSessionAfterReload: reload.sameSession,
+                idleRecorderShown: back.idleShown || reload.idleShown, liveMicTracks: reload.liveTracks, transcriptMatchesSaved: reload.transcriptMatches,
+                reviewShown: back.review, coachingSaved: Boolean(savedCoaching), verdictsBefore: before.verdicts, verdictsAfter: after.verdicts,
+                coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
+            });
+            receipt.row('Focus Back from Progress and reload keep the saved session', result.verdict, result.detail, {
+                left: back.left, restoredAfterBack: back.restored, restoredAfterReload: reload.restored, sameSession: reload.sameSession,
+                idleShown: back.idleShown || reload.idleShown, liveTracks: reload.liveTracks, transcriptMatches: reload.transcriptMatches,
+                review: back.review, verdictsUnchanged: before.verdicts.length > 0 && before.verdicts.join(',') === after.verdicts.join(','),
+                coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
+            });
         });
 
         await test.step('row 12 — the saved session in Analytics', async () => {

@@ -452,3 +452,40 @@ export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict
     }
     return { verdict: 'PASS', detail: 'the Focus take after Open Mic heard only its own audio (point 1 detected; the three points the Open Mic take recognised were absent), saved as Focus Points, and left the Open Mic take unchanged' };
 }
+
+/**
+ * #1258 (Browser PM 6093772463) — Focus Points: Progress → browser Back → the SAME saved session → reload, reusing the
+ * existing take. PASS only when both the Back and the reload restore that session read-only (no idle recorder, no live mic),
+ * its saved transcript and verdicts are unchanged, its review is shown (saved coaching, or Try again / not-available when
+ * none was saved), and nothing requested coaching. Verdicts that could not be read never PASS.
+ */
+export interface FocusBackReloadObservation {
+    leftForProgress: boolean;
+    restoredAfterBack: boolean;
+    restoredAfterReload: boolean;
+    sameSessionAfterReload: boolean;
+    idleRecorderShown: boolean;
+    liveMicTracks: number | null;
+    transcriptMatchesSaved: boolean;
+    reviewShown: 'saved' | 'try_again' | 'not_available' | 'missing';
+    coachingSaved: boolean;
+    verdictsBefore: readonly string[];
+    verdictsAfter: readonly string[];
+    coachingRequestsBefore: number;
+    coachingRequestsAfter: number;
+}
+
+export function focusBackReloadVerdict(o: FocusBackReloadObservation): { verdict: 'PASS' | 'FAIL'; detail: string } {
+    const fail = (detail: string) => ({ verdict: 'FAIL' as const, detail });
+    if (!o.leftForProgress) return fail('the header Progress link did not open Progress');
+    if (!o.restoredAfterBack) return fail('browser Back did not restore this saved session');
+    if (o.idleRecorderShown) return fail('the idle recorder was shown instead of the saved session');
+    if (!o.restoredAfterReload || !o.sameSessionAfterReload) return fail('a reload did not restore the same saved session');
+    if (o.liveMicTracks !== 0) return fail('a microphone was live on the restored session');
+    if (!o.transcriptMatchesSaved) return fail('the restored transcript is not the saved one');
+    const reviewOk = o.coachingSaved ? o.reviewShown === 'saved' : o.reviewShown === 'try_again' || o.reviewShown === 'not_available';
+    if (!reviewOk) return fail(`the restored review is not the saved one (${o.reviewShown})`);
+    if (o.verdictsBefore.length === 0 || o.verdictsBefore.join(',') !== o.verdictsAfter.join(',')) return fail('the saved point verdicts were unreadable or changed');
+    if (o.coachingRequestsAfter !== o.coachingRequestsBefore) return fail('Progress, Back or the reload requested coaching');
+    return { verdict: 'PASS', detail: 'Progress → Back and a reload restored the same saved Focus session read-only, with its saved transcript, verdicts and review, and requested nothing' };
+}
