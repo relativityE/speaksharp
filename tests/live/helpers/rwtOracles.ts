@@ -3,6 +3,7 @@
  * Codex P1s on b5071da25. Content-free: verdicts, fixed details and counts only.
  */
 import type { Verdict } from './rwtAcceptance';
+import type { FocusRailStatus as IdentityRailStatus, SavedFocusEvidenceRow, SavedFocusIdentityObservation, SavedFocusPointIdentity } from './rwtSavedFocusIdentity';
 
 /**
  * r4105978609 — the pre-credential surface is approved only when the app's centralized readiness authority
@@ -342,4 +343,191 @@ export function feedbackOutcomeVerdict(events: readonly OutcomeEvent[]): { verdi
     return c.stored === c.attempts
         ? { verdict: 'PASS', detail: 'every Share Feedback attempt resolved to storage_ok with the same boot and submit_seq', evidence }
         : { verdict: 'HOLD', detail: 'a Share Feedback attempt has no observed outcome (missing evidence, not an observed failure)', evidence };
+}
+
+/**
+ * #1258 (Browser PM 6087216991, option B) — Focus "Start a new set" and "Edit" on the deployed engine. The new set keeps two
+ * points the fixture SPEAKS and starts with one it never says; Edit replaces that one with a third spoken point. Scored on the
+ * edited set every point is detected (3/3); on the unedited new set the unspoken point would be missed, and on the old set the
+ * total would differ. Returns the three fixture indices, or null when the fixture expects fewer than three covered points.
+ */
+export function newSetSourcePoints(expectedFinal: readonly string[]): [number, number, number] | null {
+    const covered = expectedFinal.flatMap((e, i) => (e === 'covered' ? [i] : []));
+    return covered.length >= 3 ? [covered[0], covered[1], covered[2]] : null;
+}
+
+export interface NewSetEditObservation {
+    newSetBlank: boolean;
+    editSeeded: boolean;
+    railLabelsMatchEdit: boolean;
+    takeAId: string | null;
+    takeBId: string | null;
+    briefA: string | null;
+    briefB: string | null;
+    /** Take A's saved verdicts before New Set and after take B (sorted). */
+    takeAVerdictsBefore: readonly string[];
+    takeAVerdictsAfter: readonly string[];
+    /** The three labels the edited set was saved with, in order. */
+    editedLabels: readonly string[];
+    /** Take B's rail after Stop: label and status per point, in rail order. */
+    railOrdered: readonly { label: string; status: string | null }[];
+    /** Take B's SAVED verdicts bound to its brief: label and verdict per point, in saved sort order. */
+    takeBSavedOrdered: readonly { label: string; verdict: string }[];
+}
+
+type RowVerdict = { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string };
+
+export function newSetEditVerdicts(o: NewSetEditObservation): { newSet: RowVerdict; edit: RowVerdict } {
+    const sameA = o.takeAVerdictsBefore.length > 0 && o.takeAVerdictsBefore.join(',') === o.takeAVerdictsAfter.join(',');
+    const newSetOk = o.newSetBlank && o.takeBId !== null && o.takeBId !== o.takeAId && o.briefB !== null && o.briefB !== o.briefA && sameA;
+    const newSet: RowVerdict = newSetOk
+        ? { verdict: 'PASS', detail: 'Start a new set opened blank; the next take saved under a new set, and the earlier take kept its saved verdicts' }
+        : { verdict: 'FAIL', detail: !o.newSetBlank ? 'Start a new set did not open a blank setup'
+            : o.takeBId === null || o.takeBId === o.takeAId ? 'the take after the new set did not save as its own session'
+                : o.briefB === null || o.briefB === o.briefA ? 'the take after the new set was not saved under a new set'
+                    : 'the earlier take\'s saved verdicts changed' };
+    // Browser PM 6093772463: bound per point — the edited label, its rail status and its saved verdict at the SAME position.
+    const n = o.editedLabels.length;
+    const scored = n === 3 && o.railOrdered.length === n && o.takeBSavedOrdered.length === n
+        && o.editedLabels.every((label, i) => o.railOrdered[i].label.includes(label) && o.railOrdered[i].status === 'covered'
+            && o.takeBSavedOrdered[i].label === label && o.takeBSavedOrdered[i].verdict === 'detected');
+    const editOk = o.editSeeded && o.railLabelsMatchEdit && scored;
+    const edit: RowVerdict = editOk
+        ? { verdict: 'PASS', detail: 'Edit opened seeded with the set; the edited point replaced the unspoken one and the next take was scored 3/3 on the edited set' }
+        : { verdict: 'FAIL', detail: !o.editSeeded ? 'Edit did not open seeded with the current set'
+            : !o.railLabelsMatchEdit ? 'the rail does not show the edited set'
+                : 'the next take was not scored and saved 3/3 on the edited set' };
+    return { newSet, edit };
+}
+
+/**
+ * #1258 (Browser PM 6089313104) — "Start a new set" opened BLANK: the goal is unchosen, the topic (rendered only for a custom
+ * goal; null when absent) is empty, at least one point input is rendered and EVERY rendered point input is empty, and no
+ * value carries an old-set label. Point 0 alone is not enough: a stale goal, topic or second point must never pass.
+ */
+export function setupIsBlank(o: { goal: string; topic: string | null; pointValues: readonly string[]; staleLabels: readonly string[] }): boolean {
+    const values = [o.goal, o.topic ?? '', ...o.pointValues].map((v) => v.trim());
+    const carriesOld = values.some((v) => v !== '' && o.staleLabels.some((label) => label.trim() !== '' && v.includes(label.trim())));
+    return o.goal.trim() === '' && (o.topic ?? '').trim() === '' && o.pointValues.length > 0
+        && o.pointValues.every((v) => v.trim() === '') && !carriesOld;
+}
+
+/** Every content word of a point label appears in the transcript (case and punctuation ignored). Compared in Node only. */
+export function labelHeardIn(label: string, transcript: string): boolean {
+    const STOP = new Set(['the', 'and', 'for', 'you', 'your', 'our', 'with', 'that', 'this', 'are', 'will']);
+    const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s']/g, ' ').split(/\s+/).filter(Boolean);
+    const heard = new Set(words(transcript));
+    const content = words(label).filter((w) => w.length >= 3 && !STOP.has(w));
+    return content.length > 0 && content.every((w) => heard.has(w));
+}
+
+/**
+ * #1258 (Browser PM 6089889070, 6090552875) — a Focus take recorded right after an Open Mic take is clean. The fake microphone
+ * replays the Focus fixture from the start at each acquisition (the existing marker-timing row relies on this), so a short
+ * take hears only point 1. Points 2–4 are markers only when the earlier Open Mic take actually RECOGNISED them
+ * (`markerSupport`); then any of them detected (or partial) in the new take is carry-over, partial or whole. The proof needs
+ * exactly four readable statuses and a real `open_mic` source row; a marker the source never heard makes the row HOLD.
+ * Stale coaching is observed at the Focus pre-Start boundary, where no current Focus review can exist yet.
+ */
+export interface SwitchIsolationObservation {
+    railPendingBefore: boolean;
+    openMicId: string | null;
+    focusId: string | null;
+    savedProduct: string | null;
+    finalStatuses: readonly (string | null)[];
+    staleCoachingBeforeStart: boolean;
+    /** Points 2–4: did the earlier Open Mic take's saved transcript contain each label? */
+    markerSupport: readonly boolean[];
+    openMicBefore: { product: string | null; digest: string | null };
+    openMicAfter: { product: string | null; digest: string | null };
+}
+
+export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string } {
+    const fail = (detail: string) => ({ verdict: 'FAIL' as const, detail });
+    if (!o.railPendingBefore) return fail('the Focus rail was not all-pending before the take (state carried over from Open Mic)');
+    if (!o.openMicId || o.openMicBefore.product !== 'open_mic' || !o.openMicBefore.digest) return fail('no saved Open Mic source take to switch from');
+    if (o.staleCoachingBeforeStart) return fail('the Open Mic take\'s coaching was shown on Focus Points before the new take started');
+    if (!o.focusId || o.focusId === o.openMicId) return fail('the take after the switch did not save as its own session');
+    if (o.savedProduct !== 'focus_points') return fail('the take after the switch was not saved as Focus Points');
+    if (o.finalStatuses.length !== 4 || o.finalStatuses.some((s) => s === null)) return fail('incomplete marker observation: the rail did not show exactly four readable point verdicts');
+    if (o.finalStatuses[0] !== 'covered') return fail('no current-take recognition: point 1, the only point this take heard, was not detected');
+    if (o.finalStatuses.slice(1).some((s) => s !== 'missing')) return fail('old-take carry-over: a point spoken only in the earlier Open Mic take was detected in the new take');
+    if (o.openMicBefore.product !== o.openMicAfter.product || o.openMicBefore.digest !== o.openMicAfter.digest) {
+        return fail('the earlier Open Mic session changed (product or transcript)');
+    }
+    if (o.markerSupport.length !== 3 || o.markerSupport.some((heard) => !heard)) {
+        return { verdict: 'HOLD', detail: 'the earlier Open Mic take did not recognise every marker point, so their absence cannot prove isolation' };
+    }
+    return { verdict: 'PASS', detail: 'the Focus take after Open Mic heard only its own audio (point 1 detected; the three points the Open Mic take recognised were absent), saved as Focus Points, and left the Open Mic take unchanged' };
+}
+
+/**
+ * #1258 (Browser PM 6093772463) — Focus Points: Progress → browser Back → the SAME saved session → reload, reusing the
+ * existing take. PASS only when both the Back and the reload restore that session read-only (no idle recorder, no live mic),
+ * its saved transcript and verdicts are unchanged, its review is shown after Back AND after the reload (the saved coaching,
+ * or Try again when none was saved), and nothing requested coaching. Verdicts that could not be read never PASS.
+ */
+export interface FocusBackReloadObservation {
+    leftForProgress: boolean;
+    restoredAfterBack: boolean;
+    /** #1576 Codex P1 4237614260: live capture tracks read right after Back (null = unreadable). */
+    liveMicTracksAfterBack: number | null;
+    restoredAfterReload: boolean;
+    sameSessionAfterReload: boolean;
+    idleRecorderShown: boolean;
+    liveMicTracks: number | null;
+    transcriptMatchesSaved: boolean;
+    reviewAfterBack: 'saved' | 'try_again' | 'not_available' | 'missing';
+    reviewAfterReload: 'saved' | 'try_again' | 'not_available' | 'missing';
+    coachingSaved: boolean;
+    verdictsBefore: readonly string[];
+    verdictsAfter: readonly string[];
+    coachingRequestsBefore: number;
+    coachingRequestsAfter: number;
+}
+
+export function focusBackReloadVerdict(o: FocusBackReloadObservation): { verdict: 'PASS' | 'FAIL'; detail: string } {
+    const fail = (detail: string) => ({ verdict: 'FAIL' as const, detail });
+    if (!o.leftForProgress) return fail('the header Progress link did not open Progress');
+    if (!o.restoredAfterBack) return fail('browser Back did not restore this saved session');
+    if (o.idleRecorderShown) return fail('the idle recorder was shown instead of the saved session');
+    if (o.liveMicTracksAfterBack !== 0) return fail('a microphone was live (or unreadable) right after Back');
+    if (!o.restoredAfterReload || !o.sameSessionAfterReload) return fail('a reload did not restore the same saved session');
+    if (o.liveMicTracks !== 0) return fail('a microphone was live on the restored session');
+    if (!o.transcriptMatchesSaved) return fail('the restored transcript is not the saved one');
+    // Browser PM RETURN on c76283d12: the rehearsal take keeps its transcript and Focus results, so with no saved coaching the
+    // only correct view is Try again — after Back AND after the reload; `not_available` is never a waiver.
+    const expected = o.coachingSaved ? 'saved' : 'try_again';
+    if (o.reviewAfterBack !== expected) return fail(`after Back the review was ${o.reviewAfterBack}, expected ${expected}`);
+    if (o.reviewAfterReload !== expected) return fail(`after the reload the review was ${o.reviewAfterReload}, expected ${expected}`);
+    if (o.verdictsBefore.length === 0 || o.verdictsBefore.join(',') !== o.verdictsAfter.join(',')) return fail('the saved point verdicts were unreadable or changed');
+    if (o.coachingRequestsAfter !== o.coachingRequestsBefore) return fail('Progress, Back or the reload requested coaching');
+    return { verdict: 'PASS', detail: 'Progress → Back and a reload restored the same saved Focus session read-only, with its saved transcript, verdicts and review, and requested nothing' };
+}
+
+/**
+ * #1258 (Browser PM 6096833549) — the Analytics identity proof's inputs for ONE take: the brief its setup created (read before
+ * any take), the labels the person entered and the rail statuses captured at that take's Stop (never derived from the saved
+ * result under test), and that take's saved points, evidence rows and visible saved-review evidence. Kept in memory only.
+ */
+export function focusIdentityObservation(input: {
+    expectedBriefId: string | null; savedBriefId: string | null; labels: readonly string[]; railStatuses: readonly (IdentityRailStatus | null)[];
+    savedPoints: readonly SavedFocusPointIdentity[]; evidence: readonly SavedFocusEvidenceRow[]; visibleEvidence: readonly string[];
+}): SavedFocusIdentityObservation {
+    return {
+        expectedBriefId: input.expectedBriefId ?? '',
+        savedBriefId: input.savedBriefId ?? '',
+        expected: input.labels.map((label, i) => ({ label, railStatus: input.railStatuses[i] ?? null })),
+        savedPoints: input.savedPoints,
+        evidence: input.evidence,
+        visibleEvidence: input.visibleEvidence,
+    };
+}
+
+/**
+ * #1576 Codex P1 4237614257 — a NEW durable save: `data-session-persisted="true"` AND a non-null id different from the
+ * predecessor. Start clears the attribute, so a bare "not the previous id" check accepts null.
+ */
+export function isNewPersistedSession(state: { persisted: string | null; id: string | null }, previous: string | null): boolean {
+    return state.persisted === 'true' && typeof state.id === 'string' && state.id !== '' && state.id !== previous;
 }

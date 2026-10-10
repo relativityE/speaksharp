@@ -15,8 +15,9 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
+import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import {
     AnalyticsTap,
@@ -44,6 +45,9 @@ import {
     RWT_ACCOUNT_PREFIX,
     analyticsRows,
     analyticsThroughActions,
+    backFromProgressRestoresSession,
+    reloadRestoredSession,
+    waitForNewPersistedSession,
     performCandidateSwitch,
     readSttIdentity,
     readCpuRuntime,
@@ -107,6 +111,8 @@ const parseClock = (text: string): number | null => {
 };
 
 /** Does the final rail state satisfy the fixture's expectation for this point? Exact (#1532 Codex P1 r4105978619). */
+/** A setup field that cannot be read is never blank: this non-empty sentinel makes `setupIsBlank` false. */
+const SETUP_FIELD_READ_FAILED = '(setup field read failed)';
 const meetsExpectation = (expected: string, got: RailStatus | null): boolean => focusPointMeetsExpectation(expected, got);
 
 export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }) {
@@ -158,6 +164,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let savedCoaching: SavedCoaching | null = null;
 
     let persistedId: string | null = null;
+    /** #1258 (Browser PM 6093772463 item 3): the brief this journey set up, read right after Head to session, before any take. */
+    let expectedBriefId: string | null = null;
+    /** The first take's rail after Stop, in point order: the expected per-point verdicts for the saved-identity proof. */
+    let firstTakeRail: (RailStatus | null)[] = [];
     // The take's own generation count, snapshotted before the Practice-again pass records more takes.
     let generationsForTake: number | null = null;
     // #1532 Codex P1 r4124290575: sent-stream windows around each take's Start, so the takes are identified by the Start the
@@ -226,6 +236,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 arrived ? (mic === 0 ? 'the session opened with the microphone still off' : 'the microphone opened on Head to session') : 'the session did not open',
                 { acquisitions: mic });
             if (!arrived) throw new Error('row 9 FAIL: Head to session did not navigate');
+            // The brief this setup created (newest for this run-owned account), independent of what the take later saves.
+            const { data: brief, error: briefErr } = await admin!.from('objective_brief').select('id').eq('user_id', owner.uid)
+                .order('created_at', { ascending: false }).limit(1).maybeSingle();
+            if (briefErr) throw new Error(`objective_brief read failed (fail closed): ${briefErr.code ?? 'unknown'}`);
+            expectedBriefId = (brief?.id as string | undefined) ?? null;
         });
 
         await entitlementRow(receipt, entitlement, 120);
@@ -323,6 +338,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                 .toBe(true).catch(() => undefined);
             const final = (await readRail(page, points.length)).statuses;
+            firstTakeRail = final;
             const perPoint = final.map((s, i) => meetsExpectation(expectedFinal[i] ?? '', s));
             receipt.row('final point verdicts', perPoint.every(Boolean) ? 'PASS' : 'FAIL',
                 perPoint.every(Boolean) ? 'every point ended as the fixture expects' : 'a point ended differently from the fixture',
@@ -394,6 +410,43 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 opened ? 'the header Products menu opened and closed on the session page' : 'the header Products menu could not be opened on the session page');
         });
 
+        // ── #1258 (Browser PM 6093772463) — Progress → browser Back → the SAME saved session → reload (existing take) ─────
+        await test.step('Focus Points: Progress, Back to the saved session, then reload', async () => {
+            if (!persistedId) { receipt.row('Focus Back from Progress and reload keep the saved session', 'HOLD', 'no saved session'); return; }
+            // Saved identity, read fail closed: transcript digest and the point verdicts (compared in Node; only booleans leave).
+            const savedIdentity = async (): Promise<{ digest: string; verdicts: string[] }> => {
+                const { data: s, error: sErr } = await admin!.from('sessions').select('transcript').eq('id', persistedId!).eq('user_id', owner.uid).single();
+                if (sErr) throw new Error(`session read failed (fail closed): ${sErr.code ?? 'unknown'}`);
+                const { data: os, error: osErr } = await admin!.from('objective_session').select('id').eq('source_session_id', persistedId!).eq('user_id', owner.uid).maybeSingle();
+                if (osErr) throw new Error(`objective_session read failed (fail closed): ${osErr.code ?? 'unknown'}`);
+                const { data: ev, error: evErr } = os
+                    ? await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid)
+                    : { data: [] as Array<{ brief_point_id: string; verdict: string }>, error: null };
+                if (evErr) throw new Error(`objective_evidence read failed (fail closed): ${evErr.code ?? 'unknown'}`);
+                return { digest: sha256Hex(s?.transcript), verdicts: (ev ?? []).map((r) => `${r.brief_point_id}:${r.verdict}`).sort() };
+            };
+            const before = await savedIdentity();
+            const requestsBefore = coaching.requests;
+            const back = await backFromProgressRestoresSession(page, persistedId, savedCoaching ?? undefined);
+            const reload = back.restored ? await reloadRestoredSession(page, persistedId, before.digest, savedCoaching ?? undefined)
+                : { restored: false, sameSession: false, idleShown: back.idleShown, liveTracks: null, transcriptMatches: false, review: 'missing' as const };
+            const after = await savedIdentity();
+            const result = focusBackReloadVerdict({
+                leftForProgress: back.left, restoredAfterBack: back.restored, liveMicTracksAfterBack: back.liveTracks,
+                restoredAfterReload: reload.restored, sameSessionAfterReload: reload.sameSession,
+                idleRecorderShown: back.idleShown || reload.idleShown, liveMicTracks: reload.liveTracks, transcriptMatchesSaved: reload.transcriptMatches,
+                reviewAfterBack: back.review, reviewAfterReload: reload.review, coachingSaved: Boolean(savedCoaching),
+                verdictsBefore: before.verdicts, verdictsAfter: after.verdicts,
+                coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
+            });
+            receipt.row('Focus Back from Progress and reload keep the saved session', result.verdict, result.detail, {
+                left: back.left, restoredAfterBack: back.restored, liveTracksAfterBack: back.liveTracks, restoredAfterReload: reload.restored, sameSession: reload.sameSession,
+                idleShown: back.idleShown || reload.idleShown, liveTracks: reload.liveTracks, transcriptMatches: reload.transcriptMatches,
+                reviewAfterBack: back.review, reviewAfterReload: reload.review, verdictsUnchanged: before.verdicts.length > 0 && before.verdicts.join(',') === after.verdicts.join(','),
+                coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
+            });
+        });
+
         await test.step('row 12 — the saved session in Analytics', async () => {
             if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
             const { data: row, error } = await admin!.from('sessions').select('transcript').eq('id', persistedId).eq('user_id', owner.uid).single();
@@ -407,22 +460,35 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             receipt.row('Analytics generates no coaching', coaching.requests === requestsBefore ? 'PASS' : 'FAIL',
                 coaching.requests === requestsBefore ? 'opening and reloading Analytics requested no new review' : 'Analytics requested coaching again (regeneration / quota)',
                 { coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests });
-            // Point-level detail as the customer sees it on the reopened session. The current Analytics detail renders
-            // transcript availability only and reads no Focus Points data, so its absence is recorded as a named
-            // product gap (HOLD) — never a pass. If coverage does render, it must agree with the saved verdicts.
-            const shownPoints = await page.locator('[data-testid^="focus-point-"][data-status]').count();
-            const shownCovered = await page.locator('[data-testid^="focus-point-"][data-status="covered"]').count();
-            if (shownPoints === 0) {
-                receipt.row('analytics point detail', 'HOLD',
-                    'product gap: the saved-session Analytics view shows no Focus Points point-level coverage (smallest repair proposed to PM)');
+            // #1258 (Browser PM 6093772463 item 3): point-level proof from the CURRENT saved-review evidence the person sees on
+            // the Analytics detail ("Detected: point 1 at 0:21." …), bound to the saved point identity: the setup brief, each
+            // saved point's id / order / label, exactly one evidence verdict per point, and the first take's rail. Replaces the
+            // stale recording-rail / count-only check. Labels and ids stay local; the receipt gets ordinals and reasons only.
+            if (!savedCoaching) {
+                receipt.row('analytics point detail', 'HOLD', 'no saved coaching, so the saved review shows no point evidence to read');
             } else {
-                const { data: saved } = await admin!.from('objective_session').select('id').eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
-                const { data: ev } = saved
-                    ? await admin!.from('objective_evidence').select('verdict').eq('session_id', saved.id).eq('user_id', owner.uid)
-                    : { data: [] as Array<{ verdict: string }> };
-                const detected = (ev ?? []).filter((r) => r.verdict === 'detected').length;
-                receipt.row('analytics point detail', shownPoints === points.length && shownCovered === detected ? 'PASS' : 'FAIL',
-                    'Analytics shows each point, and its covered points agree with the saved verdicts', { shownPoints, shownCovered, savedDetected: detected });
+                const visibleEvidence = (await page.getByTestId('review-evidence').first().innerText().catch(() => '')).split('\n');
+                const { data: os, error: osErr } = await admin!.from('objective_session').select('id,brief_id').eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
+                if (osErr) throw new Error(`objective_session read failed (fail closed): ${osErr.code ?? 'unknown'}`);
+                const { data: bp, error: bpErr } = os
+                    ? await admin!.from('objective_brief_point').select('id,brief_id,sort_order,label').eq('brief_id', os.brief_id).eq('user_id', owner.uid)
+                    : { data: [] as Array<{ id: string; brief_id: string; sort_order: number; label: string }>, error: null };
+                if (bpErr) throw new Error(`objective_brief_point read failed (fail closed): ${bpErr.code ?? 'unknown'}`);
+                const { data: ev, error: evErr } = os
+                    ? await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid)
+                    : { data: [] as Array<{ brief_point_id: string; verdict: string }>, error: null };
+                if (evErr) throw new Error(`objective_evidence read failed (fail closed): ${evErr.code ?? 'unknown'}`);
+                const identity = savedFocusIdentityVerdict(focusIdentityObservation({
+                    expectedBriefId, savedBriefId: (os?.brief_id as string | undefined) ?? null, labels: points, railStatuses: firstTakeRail,
+                    savedPoints: (bp ?? []).map((p) => ({ id: p.id as string, brief_id: p.brief_id as string, sort_order: p.sort_order as number, label: p.label as string })),
+                    evidence: (ev ?? []).map((r) => ({ brief_point_id: r.brief_point_id as string, verdict: r.verdict as string })),
+                    visibleEvidence,
+                }));
+                receipt.row('analytics point detail', identity.verdict,
+                    identity.verdict === 'PASS'
+                        ? 'the saved review shows each point\'s verdict, bound to the setup brief, the saved point order and labels, one saved verdict per point, and the take\'s rail'
+                        : 'the visible saved-review evidence, the saved points / verdicts and the take\'s rail do not agree',
+                    { mismatchedOrdinals: identity.mismatchedOrdinals.join(','), errors: identity.errors.join('; '), expectedBriefKnown: expectedBriefId !== null });
             }
         });
 
@@ -458,6 +524,198 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const next = await nextStartEvidence(page, `${suite}-next`);
             nextStartRows(receipt, next);
         });
+
+        // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──
+        if (fixtureKey === 'focus_points_tts') {
+            // The switch step's saved Focus take is the completed review New Set / Edit starts from (Browser PM 6097978379).
+            let switchFocusId: string | null = null;
+            // ── #1258 (Browser PM 6089889070) — Open Mic → Focus Points: the take right after the switch hears only itself ──
+            await test.step('Open Mic take, then a Focus take right after the product switch', async () => {
+                // The transcript stays in Node (marker support only); the receipt gets the product, a digest and booleans.
+                const sessionRow = async (id: string): Promise<{ product: string | null; digest: string | null; transcript: string }> => {
+                    const { data, error } = await admin!.from('sessions').select('product,transcript').eq('id', id).eq('user_id', owner.uid).maybeSingle();
+                    if (error) throw new Error(`session read failed (fail closed): ${error.code ?? 'unknown'}`);
+                    return { product: (data?.product as string | null) ?? null, digest: data ? sha256Hex(data.transcript) : null, transcript: typeof data?.transcript === 'string' ? data.transcript : '' };
+                };
+                const lastSaved = () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+                const openProduct = async (item: 'open-mic' | 'focus-points') => {
+                    const desktop = page.getByTestId('nav-products-button');
+                    if (await desktop.isVisible().catch(() => false)) {
+                        await desktop.click();
+                        await page.getByTestId(`nav-products-${item}`).click();
+                    } else {
+                        await page.getByTestId('nav-mobile-products-button').click();
+                        await page.getByTestId(`nav-mobile-products-${item}`).click();
+                    }
+                };
+                // 1. A full Open Mic take: the replayed Focus fixture speaks all four points into it.
+                const before = await lastSaved();
+                await openProduct('open-mic');
+                await page.waitForURL(/\/session/, { timeout: 45_000 });
+                await startBenchmarkRecording(page, `${suite}-switch-openmic`);
+                await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
+                await stopBenchmarkRecording(page, `${suite}-switch-openmic`, 180_000);
+                await waitForBenchmarkSaveCandidate(page, `${suite}-switch-openmic`, 180_000);
+                const openMicId = await waitForNewPersistedSession(page, before);
+                const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : { product: null, digest: null, transcript: '' };
+                // A point is a carry-over marker only if the Open Mic take actually recognised it (6090552875).
+                const markerSupport = points.slice(1).map((label) => labelHeardIn(label, openMicBefore.transcript));
+
+                // 2. Products → Focus Points, the fixture's four points, then a short take that hears only point 1.
+                await openProduct('focus-points');
+                await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => undefined);
+                await page.getByTestId('objective-goal-select').selectOption('other');
+                await page.getByTestId('objective-goal-input').fill(topic);
+                for (let i = 0; i < points.length; i += 1) {
+                    if ((await page.getByTestId(`objective-point-label-${i}`).count()) === 0) await page.getByTestId('objective-add-point').click();
+                    await page.getByTestId(`objective-point-label-${i}`).fill(points[i]);
+                }
+                await page.getByTestId('objective-setup-submit').click();
+                await page.waitForURL(/\/session/, { timeout: 45_000 }).catch(() => undefined);
+                await expect(page.getByTestId('focus-points-rail')).toBeVisible({ timeout: 45_000 }).catch(() => undefined);
+                const railPendingBefore = (await readRail(page, points.length)).statuses.every((s) => s === 'pending');
+                // Pre-Start boundary: no Focus review can exist yet, so any coaching pair here is the Open Mic take's.
+                const staleCoachingBeforeStart = (await page.getByTestId('ai-suggestions-pair').count()) > 0;
+                const windows = fixture.entry.pointAudioWindows ?? [];
+                // Past point 1's window, short of point 2's start (focus_points_tts: [2.91,6.21] then [11.98,…]).
+                const shortTakeSeconds = windows[1] ? Math.max(8, Math.min(9, windows[1][0] - 2)) : 9;
+                await startBenchmarkRecording(page, `${suite}-switch-focus`);
+                await page.waitForTimeout(shortTakeSeconds * 1000);
+                await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
+                await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
+                const focusId = await waitForNewPersistedSession(page, openMicId);
+                switchFocusId = focusId && focusId !== openMicId ? focusId : null;
+                await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
+                    .toBe(true).catch(() => undefined);
+                const finalStatuses = (await readRail(page, points.length)).statuses;
+                const savedProduct = focusId && focusId !== openMicId ? (await sessionRow(focusId)).product : null;
+                const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : { product: null, digest: null, transcript: '' };
+                const iso = switchIsolationVerdict({
+                    railPendingBefore, openMicId: openMicId !== before ? openMicId : null, focusId: focusId !== openMicId ? focusId : null,
+                    savedProduct, finalStatuses, staleCoachingBeforeStart, markerSupport,
+                    openMicBefore: { product: openMicBefore.product, digest: openMicBefore.digest },
+                    openMicAfter: { product: openMicAfter.product, digest: openMicAfter.digest },
+                });
+                receipt.row('take after switching products is clean', iso.verdict, iso.detail, {
+                    railPendingBefore, shortTakeSeconds, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
+                    openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
+                });
+            });
+
+            // ── #1258 (Browser PM 6087216991, option B) — Start a new set, Edit it, and the next take is scored on the edit ──
+            await test.step('Focus: Start a new set, Edit it, and the next take is scored on the edited set', async () => {
+                const source = newSetSourcePoints(expectedFinal);
+                if (!persistedId || !source || !switchFocusId) {
+                    const why = !persistedId ? 'no saved first take' : !source ? 'the fixture expects fewer than three covered points'
+                        : 'no saved Focus take after the product switch, so no completed review offers Start a new set';
+                    receipt.row('Focus New Set', 'HOLD', why);
+                    receipt.row('Focus Edit', 'HOLD', why);
+                    return;
+                }
+                // Browser PM 6089313104: an infrastructure read failure is never turned into a product verdict.
+                // Browser PM 6089313104 / 6093772463: every read fails closed, and the saved verdicts are bound to the brief's
+                // points (label + sort order), not a bare id list.
+                const savedFocus = async (sessionId: string): Promise<{ verdicts: string[]; brief: string | null; ordered: Array<{ label: string; verdict: string }> }> => {
+                    const { data: os, error: osErr } = await admin!.from('objective_session').select('id,brief_id').eq('source_session_id', sessionId).eq('user_id', owner.uid).maybeSingle();
+                    if (osErr) throw new Error(`objective_session read failed (fail closed): ${osErr.code ?? 'unknown'}`);
+                    if (!os) return { verdicts: [], brief: null, ordered: [] };
+                    const { data: ev, error: evErr } = await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid);
+                    if (evErr) throw new Error(`objective_evidence read failed (fail closed): ${evErr.code ?? 'unknown'}`);
+                    const { data: bp, error: bpErr } = await admin!.from('objective_brief_point').select('id,label,sort_order').eq('brief_id', os.brief_id).eq('user_id', owner.uid);
+                    if (bpErr) throw new Error(`objective_brief_point read failed (fail closed): ${bpErr.code ?? 'unknown'}`);
+                    const verdictOf = new Map((ev ?? []).map((r) => [r.brief_point_id as string, r.verdict as string]));
+                    const pointIds = new Set((bp ?? []).map((p) => p.id as string));
+                    const outOfBrief = (ev ?? []).some((r) => !pointIds.has(r.brief_point_id as string));
+                    const ordered = [...(bp ?? [])].sort((a, b) => (a.sort_order as number) - (b.sort_order as number))
+                        .map((p) => ({ label: p.label as string, verdict: verdictOf.get(p.id as string) ?? 'missing' }));
+                    return {
+                        verdicts: (ev ?? []).map((r) => `${r.brief_point_id}:${r.verdict}`).sort(),
+                        brief: outOfBrief ? null : (os.brief_id as string),
+                        ordered: outOfBrief ? [] : ordered,
+                    };
+                };
+                const takeA = await savedFocus(persistedId);
+                const unspoken = 'A closing promise we never make';
+                const newPoints = [points[source[0]], points[source[1]], unspoken];
+                const edited = [points[source[0]], points[source[1]], points[source[2]]];
+
+                // #1576 Codex P1 4237701739 / Browser PM 6097978379: Start a new set renders only in the LIVE completed review
+                // (FocusPointsRail, sessionState 'after'); a reopened saved review (SavedSessionReturn) has no rail, and the
+                // Practice-again Retry and next-Start probes both stop below the 5 s persist guard. So this step runs right after
+                // the switch step's saved Focus take, from ITS completed review: no extra recording, no extra coaching request.
+                const predecessor = switchFocusId;
+                const onPredecessorReview = predecessor !== null
+                    && (await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'))) === predecessor;
+                const newSetButton = page.getByTestId('focus-points-new-set');
+                const offered = onPredecessorReview && await newSetButton.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false);
+                let newSetBlank = false;
+                if (offered) {
+                    await newSetButton.click();
+                    // Blank = goal unchosen, topic empty, EVERY rendered point empty, no old-set label (6089313104).
+                    const opened = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+                    const topicInput = page.getByTestId('objective-goal-input');
+                    newSetBlank = opened && setupIsBlank({
+                        goal: await page.getByTestId('objective-goal-select').inputValue().catch(() => SETUP_FIELD_READ_FAILED),
+                        topic: (await topicInput.count()) > 0 ? await topicInput.inputValue().catch(() => SETUP_FIELD_READ_FAILED) : null,
+                        pointValues: await page.locator('[data-testid^="objective-point-label-"]').evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value)),
+                        staleLabels: [topic, ...points],
+                    });
+                }
+                let editSeeded = false;
+                let railLabelsMatchEdit = false;
+                let takeBId: string | null = null;
+                let railOrdered: Array<{ label: string; status: RailStatus | null }> = [];
+                if (newSetBlank) {
+                    await page.getByTestId('objective-goal-select').selectOption('other');
+                    await page.getByTestId('objective-goal-input').fill(topic);
+                    for (let i = 0; i < newPoints.length; i += 1) {
+                        if ((await page.getByTestId(`objective-point-label-${i}`).count()) === 0) await page.getByTestId('objective-add-point').click();
+                        await page.getByTestId(`objective-point-label-${i}`).fill(newPoints[i]);
+                    }
+                    await page.getByTestId('objective-setup-submit').click();
+                    await page.getByTestId('objective-setup-dialog').waitFor({ state: 'hidden', timeout: 30_000 }).catch(() => undefined);
+
+                    // Edit before the take opens the setup seeded with the new set; replace the unspoken point.
+                    const edit = page.getByTestId('focus-points-edit');
+                    if (await edit.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)) {
+                        await edit.click();
+                        await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => undefined);
+                        editSeeded = (await page.getByTestId('objective-point-label-2').inputValue().catch(() => '')) === unspoken;
+                        await page.getByTestId('objective-point-label-2').fill(edited[2]);
+                        await page.getByTestId('objective-setup-submit').click();
+                        await page.getByTestId('objective-setup-dialog').waitFor({ state: 'hidden', timeout: 30_000 }).catch(() => undefined);
+                        const labels = await Promise.all(edited.map((_, i) => page.getByTestId(`focus-point-${i}`).innerText().catch(() => '')));
+                        railLabelsMatchEdit = labels.every((text, i) => text.includes(edited[i])) && !(await page.getByTestId('focus-points-rail').innerText()).includes(unspoken);
+                    }
+
+                    // The next take, on the deployed engine with the same spoken fixture, is scored on the EDITED set.
+                    if (railLabelsMatchEdit) {
+                        await startBenchmarkRecording(page, `${suite}-edited`);
+                        await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 10) * 1000));
+                        await stopBenchmarkRecording(page, `${suite}-edited`, 180_000);
+                        await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
+                        // Bound to its IMMEDIATE predecessor, the switch take whose review offered New Set.
+                        takeBId = await waitForNewPersistedSession(page, predecessor);
+                        await expect.poll(async () => (await readRail(page, edited.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
+                            .toBe(true).catch(() => undefined);
+                        const statuses = (await readRail(page, edited.length)).statuses;
+                        railOrdered = await Promise.all(statuses.map(async (status, i) => ({
+                            label: await page.getByTestId(`focus-point-${i}`).innerText().catch(() => ''), status,
+                        })));
+                    }
+                }
+                const takeB = takeBId && takeBId !== predecessor && takeBId !== persistedId ? await savedFocus(takeBId) : { verdicts: [], brief: null, ordered: [] };
+                const takeAAfter = await savedFocus(persistedId);
+                const v = newSetEditVerdicts({
+                    newSetBlank, editSeeded, railLabelsMatchEdit, takeAId: persistedId, takeBId, briefA: takeA.brief, briefB: takeB.brief,
+                    takeAVerdictsBefore: takeA.verdicts, takeAVerdictsAfter: takeAAfter.verdicts,
+                    editedLabels: edited, railOrdered, takeBSavedOrdered: takeB.ordered,
+                });
+                const evidence = { onPredecessorReview, offered, newSetBlank, editSeeded, railLabelsMatchEdit, takeBSaved: takeBId !== null && takeBId !== predecessor && takeBId !== persistedId, final: railOrdered.map((r) => r.status).join(','), savedVerdicts: takeB.ordered.map((r) => r.verdict).join(',') };
+                receipt.row('Focus New Set', v.newSet.verdict, v.newSet.detail, evidence);
+                receipt.row('Focus Edit', v.edit.verdict, v.edit.detail, evidence);
+            });
+        }
     } finally {
         const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
         const coverageSeen = tap.sent('coverage_evaluation').length > 0;

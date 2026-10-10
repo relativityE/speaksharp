@@ -240,6 +240,7 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
+    'Back from Progress restores the session', 'restored review', 'Back requests no coaching',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
     'saved review is the first block', '"From this session" evidence', 'one practice action', 'session PDF',
     'Analytics generates no coaching', 'feedback', 'Progress evaluation', 'Progress debt',
@@ -256,6 +257,7 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching length',
     'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching provenance',
     'Focus coaching visible = saved', 'Focus coaching server receipt', 'Products menu opened in the session',
+    'Focus Back from Progress and reload keep the saved session',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
     'saved review is the first block', '"From this session" evidence', 'one practice action', 'Analytics generates no coaching',
     'analytics point detail', 'Analytics Practice again opens the product', 'review Practice again starts, no hold',
@@ -263,7 +265,7 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'coverage_evaluation sent', 'Focus coaching telemetry sent', 'revisit is not a generation', 'inventory events sent',
     'model download vs setup timing', 'Practice again press → arrival (sent)',
 ]);
-const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)']);
+const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean']);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
